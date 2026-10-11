@@ -126,16 +126,6 @@ def log_config_matches(actual: object, desired: Mapping[str, object]) -> bool:
         for name, wanted in desired.items()
         if name != "enable"
     )
-    for name, wanted in desired.items():
-        observed = _provider_value(actual, name)
-        if name == "flow_sampling":
-            if not isinstance(observed, int | float) or not math.isclose(
-                float(observed), float(cast(float, wanted)), rel_tol=1e-6
-            ):
-                return False
-        elif name != "enable" and observed != wanted:
-            return False
-    return True
 
 
 def router_nat_resource(plan: RangeCellPlan) -> ComputeResource:
