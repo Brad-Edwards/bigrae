@@ -191,6 +191,9 @@ jobs:
               "identity_allowed_email_domain": os.environ["GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN"],
               "gke_master_authorized_cidrs": authorized_cidrs,
               "cloud_sql_deletion_protection": False,
+              # Empty and delete the versioned, populated assets/audit-logs
+              # buckets; without this, destroy fails on a non-empty bucket.
+              "gcs_force_destroy": True,
           }
           descriptor = os.open(
               os.environ["TF_VARS_FILE"],
