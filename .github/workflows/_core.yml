@@ -24,13 +24,7 @@ on:
         required: false
       TF_INFRA_STATE_BUCKET_DEV:
         required: false
-      TF_INFRA_STATE_BUCKET_PROOF:
-        required: false
-      AWS_ROLE_ARN_PROOF:
-        required: false
       TF_VARS_DEV_CORE:
-        required: false
-      TF_VARS_PROOF_CORE:
         required: false
       TF_VARS_PROD_CORE:
         required: false
@@ -63,12 +57,9 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           TF_INFRA_STATE_BUCKET: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_VARS_DEV_CORE: ${{ secrets.TF_VARS_DEV_CORE }}
-          TF_VARS_PROOF_CORE: ${{ secrets.TF_VARS_PROOF_CORE }}
           TF_VARS_PROD_CORE: ${{ secrets.TF_VARS_PROD_CORE }}
         run: uv run python -m preflight --cloud aws --env "$ENVIRONMENT" --component core --headless
       - name: Resolve AWS deploy role
@@ -76,7 +67,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
@@ -113,7 +103,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_VARS_DEV_CORE: ${{ secrets.TF_VARS_DEV_CORE }}
-          TF_VARS_PROOF_CORE: ${{ secrets.TF_VARS_PROOF_CORE }}
           TF_VARS_PROD_CORE: ${{ secrets.TF_VARS_PROD_CORE }}
         run: |
           case "$ENVIRONMENT" in
@@ -140,7 +129,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_INFRA_STATE_BUCKET_PROD: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           AWS_REGION: us-east-2
         run: |
@@ -212,7 +200,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
@@ -247,7 +234,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_VARS_DEV_CORE: ${{ secrets.TF_VARS_DEV_CORE }}
-          TF_VARS_PROOF_CORE: ${{ secrets.TF_VARS_PROOF_CORE }}
           TF_VARS_PROD_CORE: ${{ secrets.TF_VARS_PROD_CORE }}
         run: |
           case "$ENVIRONMENT" in
@@ -274,7 +260,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_INFRA_STATE_BUCKET_PROD: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           AWS_REGION: us-east-2
         run: |

@@ -20,16 +20,12 @@ on:
         required: true
       AWS_ROLE_ARN_DEV:
         required: true
-      AWS_ROLE_ARN_PROOF:
-        required: false
       # Whole-file local.auto.tfvars payload per environment. The committed
       # terraform.tfvars is an example baseline; real per-deployment range
       # values are rendered from these secrets before plan/apply. Declared
       # required: false because GitHub evaluates reusable-workflow secrets at
       # dispatch time; the render step fails loud for the active environment.
       TF_VARS_DEV_RANGE:
-        required: false
-      TF_VARS_PROOF_RANGE:
         required: false
       TF_VARS_PROD_RANGE:
         required: false
@@ -41,15 +37,11 @@ on:
       # the render step fails loud for the active environment.
       SHIFTER_CONFIG_DEV_RANGE:
         required: false
-      SHIFTER_CONFIG_PROOF_RANGE:
-        required: false
       SHIFTER_CONFIG_PROD_RANGE:
         required: false
       TF_INFRA_STATE_BUCKET:
         required: false
       TF_INFRA_STATE_BUCKET_DEV:
-        required: false
-      TF_INFRA_STATE_BUCKET_PROOF:
         required: false
 
 jobs:
@@ -78,15 +70,11 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           TF_INFRA_STATE_BUCKET: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_VARS_DEV_RANGE: ${{ secrets.TF_VARS_DEV_RANGE }}
-          TF_VARS_PROOF_RANGE: ${{ secrets.TF_VARS_PROOF_RANGE }}
           TF_VARS_PROD_RANGE: ${{ secrets.TF_VARS_PROD_RANGE }}
           SHIFTER_CONFIG_DEV_RANGE: ${{ secrets.SHIFTER_CONFIG_DEV_RANGE }}
-          SHIFTER_CONFIG_PROOF_RANGE: ${{ secrets.SHIFTER_CONFIG_PROOF_RANGE }}
           SHIFTER_CONFIG_PROD_RANGE: ${{ secrets.SHIFTER_CONFIG_PROD_RANGE }}
         run: uv run python -m preflight --cloud aws --env "$ENVIRONMENT" --component range --headless
       - name: Resolve AWS deploy role
@@ -94,7 +82,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
@@ -131,7 +118,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_VARS_DEV_RANGE: ${{ secrets.TF_VARS_DEV_RANGE }}
-          TF_VARS_PROOF_RANGE: ${{ secrets.TF_VARS_PROOF_RANGE }}
           TF_VARS_PROD_RANGE: ${{ secrets.TF_VARS_PROD_RANGE }}
         run: |
           # Select strictly on inputs.environment in shell. Do not use an
@@ -161,7 +147,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           SHIFTER_CONFIG_DEV_RANGE: ${{ secrets.SHIFTER_CONFIG_DEV_RANGE }}
-          SHIFTER_CONFIG_PROOF_RANGE: ${{ secrets.SHIFTER_CONFIG_PROOF_RANGE }}
           SHIFTER_CONFIG_PROD_RANGE: ${{ secrets.SHIFTER_CONFIG_PROD_RANGE }}
         run: |
           # Select strictly on inputs.environment in shell (same rule as the
@@ -201,7 +186,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_INFRA_STATE_BUCKET_PROD: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           AWS_REGION: us-east-2
         run: |
@@ -272,7 +256,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
@@ -307,7 +290,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_VARS_DEV_RANGE: ${{ secrets.TF_VARS_DEV_RANGE }}
-          TF_VARS_PROOF_RANGE: ${{ secrets.TF_VARS_PROOF_RANGE }}
           TF_VARS_PROD_RANGE: ${{ secrets.TF_VARS_PROD_RANGE }}
         run: |
           # Keep the apply job's rendering logic identical to plan so the
@@ -335,7 +317,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           SHIFTER_CONFIG_DEV_RANGE: ${{ secrets.SHIFTER_CONFIG_DEV_RANGE }}
-          SHIFTER_CONFIG_PROOF_RANGE: ${{ secrets.SHIFTER_CONFIG_PROOF_RANGE }}
           SHIFTER_CONFIG_PROD_RANGE: ${{ secrets.SHIFTER_CONFIG_PROD_RANGE }}
         run: |
           # Select strictly on inputs.environment in shell (same rule as the
@@ -375,7 +356,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_INFRA_STATE_BUCKET_PROD: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           AWS_REGION: us-east-2
         run: |
