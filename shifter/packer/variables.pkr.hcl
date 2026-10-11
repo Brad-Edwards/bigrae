@@ -53,3 +53,14 @@ variable "dc_dsrm_password" {
   EOT
   default     = ""
 }
+
+variable "dc_content_script" {
+  type        = string
+  description = <<-EOT
+    Optional path to an AD-content seed script staged into the image and run
+    post-promotion by finalize.ps1. It accepts a -DnsForwarder parameter. A
+    scenario supplies its own seed (for example from a profile var-file kept with
+    the scenario); core supplies none, and an empty value bakes a base DC.
+  EOT
+  default     = ""
+}

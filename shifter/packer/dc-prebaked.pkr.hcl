@@ -6,7 +6,9 @@
 //
 // This is the AWS counterpart to gcp/dc-prebaked.pkr.hcl. The domain and NetBIOS
 // name are variables so one template bakes any domain; dev bakes the standard
-// internal.shifter / INTSHIFTER DC that /shifter/ami/dc points at.
+// internal.shifter / INTSHIFTER DC that /shifter/ami/dc points at. A scenario
+// can bake its own directory content by passing its seed as dc_content_script
+// (with a profile var-file kept in the scenario); core carries no seed.
 //
 // Captured UN-SYSPREPPED on purpose: sysprep cannot generalize a promoted DC
 // (and the existing dc.pkr.hcl feature-only image is explicitly NOT a valid
@@ -87,6 +89,17 @@ build {
     script            = "scripts/windows/services.ps1"
   }
 
+  // Stage the optional AD content seed for finalize.ps1 to run post-promotion.
+  provisioner "powershell" {
+    except = var.dc_content_script == "" ? ["amazon-ebs.dc-prebaked"] : []
+    inline = ["New-Item -ItemType Directory -Force -Path C:\\shifter-build | Out-Null"]
+  }
+  provisioner "file" {
+    except      = var.dc_content_script == "" ? ["amazon-ebs.dc-prebaked"] : []
+    source      = var.dc_content_script
+    destination = "C:\\shifter-build\\content-seed.ps1"
+  }
+
   // Install AD DS/DNS, disable the firewall, and Install-ADDSForest for the
   // profile's domain with the reboot deferred to the windows-restart below.
   provisioner "powershell" {
@@ -114,7 +127,12 @@ build {
   provisioner "powershell" {
     elevated_user     = "Administrator"
     elevated_password = build.Password
-    script            = "scripts/dc-prebaked/finalize.ps1"
+    // A content seed may intentionally rotate the built-in Administrator
+    // password. The elevated scheduled task still runs finalize.ps1 through its
+    // fail-closed cleanup, but Windows reports 16001 when Packer queries the
+    // completed task with the superseded credential (as on GCE).
+    valid_exit_codes = [0, 16001]
+    script           = "scripts/dc-prebaked/finalize.ps1"
   }
 
   post-processor "manifest" {

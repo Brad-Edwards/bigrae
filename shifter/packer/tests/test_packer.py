@@ -173,6 +173,15 @@ class TestPackerTemplates:
         """Variables file should exist."""
         assert (PACKER_DIR / "variables.pkr.hcl").exists()
 
+    def test_dc_prebaked_stages_a_content_seed_only_when_supplied(self):
+        """A scenario seed is optional; core bakes a base DC without one."""
+        template = (PACKER_DIR / "dc-prebaked.pkr.hcl").read_text()
+        gate = r'except\s+= var\.dc_content_script == "" \? \["amazon-ebs\.dc-prebaked"\] : \[\]'
+        assert len(re.findall(gate, template)) == 2
+        assert 'destination = "C:\\\\shifter-build\\\\content-seed.ps1"' in template
+        variables = (PACKER_DIR / "variables.pkr.hcl").read_text()
+        assert 'default     = ""' in variables.split('variable "dc_content_script"')[1]
+
     @pytest.mark.skipif(
         shutil.which("packer") is None,
         reason="Packer not installed",
