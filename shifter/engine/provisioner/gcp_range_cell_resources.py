@@ -103,18 +103,29 @@ def _provider_value(value: object, name: str) -> object:
     return getattr(field_value, "name", field_value)
 
 
+def _setting_matches(name: str, observed: object, wanted: object) -> bool:
+    """Compare one log setting; the provider stores ``flow_sampling`` as a 32-bit float."""
+    if name == "flow_sampling":
+        return isinstance(observed, int | float) and math.isclose(
+            float(observed), float(cast(float, wanted)), rel_tol=1e-6
+        )
+    return observed == wanted
+
+
 def log_config_matches(actual: object, desired: Mapping[str, object]) -> bool:
     """Return whether a provider ``log_config`` carries every rendered setting.
 
     An absent config matches only a disabled control. A disabled control compares only
     ``enable``, because the provider may keep stale settings beside ``enable: False``.
     """
-    if actual is None:
-        return desired.get("enable") is False
-    if bool(_provider_value(actual, "enable")) != bool(desired.get("enable")):
-        return False
-    if not desired.get("enable"):
-        return True
+    enabled = bool(desired.get("enable"))
+    if actual is None or bool(_provider_value(actual, "enable")) != enabled:
+        return actual is None and not enabled
+    return not enabled or all(
+        _setting_matches(name, _provider_value(actual, name), wanted)
+        for name, wanted in desired.items()
+        if name != "enable"
+    )
     for name, wanted in desired.items():
         observed = _provider_value(actual, name)
         if name == "flow_sampling":
