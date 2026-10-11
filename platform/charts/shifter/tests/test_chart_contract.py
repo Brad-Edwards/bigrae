@@ -128,7 +128,7 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
         self.assertEqual(
             set(VALUES_FILES),
-            {"aws-dev", "aws-proof", "aws-prod", "gcp-dev", "gcp-prod"},
+            {"aws-dev", "aws-prod", "gcp-dev", "gcp-prod"},
         )
 
     def test_neutral_defaults_have_no_provider_specific_artifacts(self) -> None:
@@ -178,7 +178,7 @@ class BackendNeutralChartContractTests(unittest.TestCase):
             ("ValidatingAdmissionPolicy", "restrict-provisioner-jobs"),
             ("ValidatingAdmissionPolicyBinding", "restrict-provisioner-jobs"),
         }
-        for profile in ("aws-dev", "aws-proof", "aws-prod"):
+        for profile in ("aws-dev", "aws-prod"):
             with self.subTest(profile=profile):
                 rendered, documents = _render(VALUES_FILES[profile])
                 identities = {_identity(document) for document in documents}
@@ -540,7 +540,7 @@ class BackendNeutralChartContractTests(unittest.TestCase):
                     )
 
         # AWS/neutral profiles (gcpAccessNodePool false) never acquire the GCP label.
-        for profile in ("aws-dev", "aws-proof", "aws-prod"):
+        for profile in ("aws-dev", "aws-prod"):
             with self.subTest(profile=profile):
                 _, documents = _render(VALUES_FILES[profile])
                 for dialer in ("portal-web", "guacd"):

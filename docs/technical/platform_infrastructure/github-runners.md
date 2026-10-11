@@ -122,7 +122,7 @@ is itself a dev-tenant deploy mechanism).
 | **Network module** | `platform/terraform/gcp/modules/github-runner-network/` |
 | **Instance** | private-only Shielded VM (no external IP), OS Login, dedicated least-privilege service account |
 | **Network** | dedicated custom VPC, private subnet with flow logs, Cloud NAT egress, SSH ingress from Google's IAP range (`35.235.240.0/20`) only |
-| **Label** | Deployment name, such as `gcp-dev` or `nazgul` (registered with `--no-default-labels`, so it never matches bare `runs-on: self-hosted`) |
+| **Label** | Deployment name, such as `gcp-dev` or `orthanc` (registered with `--no-default-labels`, so it never matches bare `runs-on: self-hosted`) |
 
 ### Provisioning + registration
 

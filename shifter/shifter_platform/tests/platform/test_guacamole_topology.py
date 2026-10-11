@@ -27,7 +27,6 @@ CLIENT_DEPLOYMENT = CHART_DIR / "templates" / "guacamole-client-deployment.yaml"
 # affinity fix (#928) must hold identically everywhere.
 DEPLOYMENT_VALUES_FILES = (
     "values-aws-dev.yaml",
-    "values-aws-proof.yaml",
     "values-aws-prod.yaml",
     "values-gcp-dev.yaml",
     "values-gcp-prod.yaml",

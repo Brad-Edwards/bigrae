@@ -17,7 +17,7 @@ name: Packer GCE Image Validate
 # packer-gcp-promote.yml refuses to promote unless the label, protected run,
 # revision, immutable build evidence, and an externally collected guest-disk
 # SBOM all agree.
-# Runs in a tenant environment (gcp-dev/nazgul/orthanc/sauron/balrog), never prod.
+# Runs in a tenant environment (gcp-dev/orthanc/sauron/balrog), never prod.
 #
 # NOTE: the live behaviour (IAP tunnel to Linux management SSH, AD
 # LDAP probe) is exercised by an operator against real GCP; CI covers template /
@@ -41,7 +41,6 @@ on:
         type: choice
         options:
           - gcp-dev
-          - nazgul
           - orthanc
           - sauron
           - balrog
