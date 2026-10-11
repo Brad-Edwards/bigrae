@@ -112,6 +112,7 @@ module "platform_core" {
   cloud_sql_database_name            = var.cloud_sql_database_name
   cloud_sql_user_name                = var.cloud_sql_user_name
   cloud_sql_deletion_protection      = var.cloud_sql_deletion_protection
+  gcs_force_destroy                  = var.gcs_force_destroy
   redis_tier                         = var.redis_tier
   redis_memory_size_gb               = var.redis_memory_size_gb
   public_hostname                    = var.public_hostname

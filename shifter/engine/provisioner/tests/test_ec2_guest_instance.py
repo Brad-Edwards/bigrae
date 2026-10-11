@@ -1,13 +1,15 @@
 """Native guests have pinned identity, private transport, and no provider role."""
 
-from dataclasses import replace
+import hashlib
+import json
+from dataclasses import asdict, replace
 from unittest.mock import Mock
 from uuid import UUID
 
 import pytest
 
 from ec2_guest_instance import Ec2GuestError, Ec2GuestPlan, ensure_ec2_guest, guest_request, observe_ec2_guest
-from raes_ec2_image import VerifiedEc2Image
+from raes_ec2_image import Ec2HostContract, VerifiedEc2Image
 from utils.crypto import generate_ssh_host_keypair, generate_ssh_keypair
 
 
@@ -121,9 +123,7 @@ def test_reconciliation_rejects_drift_before_publishing_guest_access(patch):
     ec2.run_instances.assert_not_called()
 
 
-@pytest.mark.parametrize("initial_state", ["running", "pending"])
-def test_exact_existing_guest_is_reused_without_mutation(initial_state):
-    p = plan()
+def reuse_mocks(p, initial_state="running"):
     ec2 = Mock()
     row = observed(p)
     row["State"]["Name"] = initial_state
@@ -153,6 +153,13 @@ def test_exact_existing_guest_is_reused_without_mutation(initial_state):
     secrets = Mock()
     secrets.host_ssh.return_value = ("host-secret-ref", "ssh-rsa TEST")
     secrets.host_identity.return_value = ("private", "ssh-ed25519 TEST")
+    return ec2, secrets
+
+
+@pytest.mark.parametrize("initial_state", ["running", "pending"])
+def test_exact_existing_guest_is_reused_without_mutation(initial_state):
+    p = plan()
+    ec2, secrets = reuse_mocks(p, initial_state)
     result = ensure_ec2_guest(p, ec2, secrets)
     secrets.host_ssh.assert_called_once_with(p.range_id, p.instance_key, create=False)
     secrets.host_identity.assert_called_once_with(p.range_id, p.instance_key, create=False)
@@ -182,3 +189,34 @@ def test_guest_interface_readback_rejects_unadmitted_address_or_attachment(chang
     ec2.describe_instances.return_value = {"Reservations": [{"Instances": [row]}]}
     with pytest.raises(Ec2GuestError):
         observe_ec2_guest(p, ec2, row["InstanceId"])
+
+
+def test_standard_image_digest_is_unchanged_by_image_contracts():
+    """Guests created before image contracts existed keep resuming (#2527)."""
+    p = plan()
+    legacy = asdict(p.image)
+    legacy.pop("contract")
+    tag = next(tag["Value"] for tag in p.tags() if tag["Key"] == "shifter:image")
+    assert tag == hashlib.sha256(json.dumps(legacy, sort_keys=True).encode()).hexdigest()
+    contracted = replace(
+        p, image=replace(p.image, contract=Ec2HostContract("preconfigured-machine-host", "ws", "u", "c", "d"))
+    )
+    assert next(tag["Value"] for tag in contracted.tags() if tag["Key"] == "shifter:image") != tag
+
+
+def test_preconfigured_host_outputs_carry_the_neutral_readiness_contract():
+    """#2527: readiness and access consumers read provider-neutral contract keys."""
+    contract = Ec2HostContract(
+        "preconfigured-machine-host", "workstation", "participant", "participant-readiness/v1", "a" * 64
+    )
+    p = replace(plan(), image=replace(plan().image, management_ssh_username="hostadmin", contract=contract))
+    ec2, secrets = reuse_mocks(p)
+    result = ensure_ec2_guest(p, ec2, secrets)
+    assert result["host_ssh_username"] == "hostadmin"
+    assert result["bootstrap_capability"] == "preconfigured-machine-host"
+    assert result["participant_container_name"] == "workstation"
+    assert result["participant_username"] == "participant"
+    assert result["participant_readiness_manifest_sha256"] == "a" * 64
+    assert result["participant_sftp_enabled"] is False
+    standard = ensure_ec2_guest(plan(), *reuse_mocks(plan()))
+    assert "bootstrap_capability" not in standard

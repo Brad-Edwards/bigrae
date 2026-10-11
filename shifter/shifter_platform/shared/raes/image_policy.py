@@ -45,6 +45,8 @@ class ResolvedImage:
     participant_username: str = ""
     participant_readiness_contract: str = ""
     participant_readiness_manifest_sha256: str = ""
+    domain_dns_name: str = ""
+    domain_netbios_name: str = ""
 
 
 #: Authored version sentinels meaning "unpinned / any" (raes defaults an

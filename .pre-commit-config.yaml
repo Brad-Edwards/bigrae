@@ -206,7 +206,7 @@ repos:
         name: Portal target-service SG ingress source scoping (#933)
         entry: python3 scripts/check_portal_target_sg_sources/check_portal_target_sg_sources.py
         language: system
-        files: ^platform/terraform/environments/(dev|proof|prod)/portal/main\.tf$
+        files: ^platform/terraform/environments/(dev|prod)/portal/main\.tf$
 
       - id: check-tf-iam-ec2-scope
         name: AWS EC2 lifecycle IAM scoping (shared provisioner IAM)

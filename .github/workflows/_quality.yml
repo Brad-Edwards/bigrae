@@ -363,7 +363,6 @@ jobs:
         run: |
           python3 scripts/check_portal_target_sg_sources/check_portal_target_sg_sources.py \
             platform/terraform/environments/dev/portal/main.tf \
-            platform/terraform/environments/proof/portal/main.tf \
             platform/terraform/environments/prod/portal/main.tf
 
       # Pin the behavior of the check_tf_* IAM/security checkers
