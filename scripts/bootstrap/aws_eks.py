@@ -85,6 +85,7 @@ _IRSA_PROBE_IDENTITIES = {
 # Probed only when the environment defines the role (see _OPTIONAL_WORKLOAD_ROLE_KEYS).
 _OPTIONAL_IRSA_PROBE_IDENTITIES = {
     "artifactAcquirer": ("shifter-acquisition", "artifact-acquirer"),
+    "nodePoolLabeler": ("shifter-platform", "node-pool-labeler"),
 }
 _IRSA_PROBE_SCRIPT = """import json, os
 import boto3
@@ -120,8 +121,9 @@ print(f"IRSA_OK:{identity}")
 _WORKLOAD_ROLE_KEYS = frozenset({"portal", "workers", "ctfScheduler", "provisionerLauncher", "provisioner", "migrator"})
 # Workload roles an environment may define. Their presence enables the matching
 # capability: artifactAcquirer turns on isolated feature-artifact acquisition
-# Jobs (ADR-034-R12, #2463).
-_OPTIONAL_WORKLOAD_ROLE_KEYS = frozenset({"artifactAcquirer"})
+# Jobs (ADR-034-R12, #2463); nodePoolLabeler turns on the trusted runtime-plugin
+# node-pool labeler (#2526).
+_OPTIONAL_WORKLOAD_ROLE_KEYS = frozenset({"artifactAcquirer", "nodePoolLabeler"})
 # Single source of truth in the installation package (installation.runtime_inventory_aws),
 # so the renderer and the backend bundle's generated-output projection cannot drift.
 _RENDERER_OWNED_RUNTIME_ENV = AWS_RENDERER_OWNED_RUNTIME_ENV_KEYS
@@ -1007,6 +1009,25 @@ def _feature_artifact_job_image(roles: Mapping[str, str], validated_images: Mapp
     return validated_images["platform"]
 
 
+def _runtime_plugin_pool_values(roles: Mapping[str, str], terraform_outputs: Mapping[str, object]) -> dict[str, object]:
+    """The trusted runtime-plugin node-pool labeler (#2526), enabled with the plugin pool.
+
+    The labeler identity and the pool's Auto Scaling group come from the same
+    Terraform toggle, so exactly one of them present means a misconfigured
+    environment.
+    """
+    raw = terraform_outputs.get("runtime_plugin_node_group_asg")
+    node_group_asg = raw.get("value", "") if isinstance(raw, Mapping) else ""
+    if not isinstance(node_group_asg, str):
+        raise ValueError("runtime_plugin_node_group_asg must be a string")
+    labeler = "nodePoolLabeler" in roles
+    if labeler != bool(node_group_asg):
+        raise ValueError("the runtime-plugin pool and the nodePoolLabeler identity must be enabled together")
+    if node_group_asg and not re.fullmatch(r"[\w+=,.@/:-]{1,255}", node_group_asg):
+        raise ValueError("runtime_plugin_node_group_asg must be an Auto Scaling group name")
+    return {"labeler": {"enabled": labeler, "nodeGroupAsg": node_group_asg}}
+
+
 def _edge_values(config: RootConfig, terraform_outputs: Mapping[str, object]) -> dict[str, object]:
     """Public edge: ALB ingress with ACM TLS and WAF, restricted to the edge client CIDRs."""
     edge_client_cidrs = _cidr_output(terraform_outputs, "edge_client_cidrs")
@@ -1131,6 +1152,7 @@ def render_aws_values(
         "provisioner": {"taskRunner": "aws"},
         "edge": _edge_values(config, terraform_outputs),
         "featureArtifactAcquisition": _aws_feature_artifact_acquisition_values(terraform_outputs),
+        "runtimePluginPool": _runtime_plugin_pool_values(roles, terraform_outputs),
         "services": {
             service: {"annotations": {"alb.ingress.kubernetes.io/healthcheck-path": path}}
             for service, path in _ALB_HEALTH_CHECK_PATHS.items()

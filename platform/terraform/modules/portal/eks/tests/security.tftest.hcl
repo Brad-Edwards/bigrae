@@ -266,6 +266,11 @@ variables {
       service_account              = "artifact-acquirer"
       feature_artifact_store_write = true
     }
+    nodePoolLabeler = {
+      namespace         = "shifter-platform"
+      service_account   = "node-pool-labeler"
+      node_pool_labeler = true
+    }
     migrator = {
       namespace                   = "shifter-platform"
       service_account             = "migrator"
@@ -299,9 +304,8 @@ variables {
     "guacamole-db",
     "guacamole-json-auth",
   ]
-  # Validate the runtime-plugin sandbox pool contract even though it defaults off
-  # on EKS (see variables.tf: needs a trusted node-labeler for the restricted
-  # pool label before it can join).
+  # Validate the runtime-plugin sandbox pool contract; the trusted node-pool
+  # labeler applies its restricted pool label (#2526).
   enable_runtime_plugins = true
   tags = {
     Environment = "test"
@@ -315,12 +319,26 @@ run "security_contract" {
   assert {
     condition = (
       aws_eks_node_group.runtime_plugins[0].ami_type == "AL2023_x86_64_STANDARD" &&
-      aws_eks_node_group.runtime_plugins[0].labels["node-restriction.kubernetes.io/shifter-pool"] == "runtime-plugin" &&
+      length(coalesce(aws_eks_node_group.runtime_plugins[0].labels, {})) == 0 &&
+      aws_eks_node_group.runtime_plugins[0].node_role_arn == aws_iam_role.runtime_plugin_node[0].arn &&
+      aws_iam_role.runtime_plugin_node[0].arn != aws_iam_role.node.arn &&
       one(aws_eks_node_group.runtime_plugins[0].taint).key == "shifter.dev/runtime-plugin" &&
       one(aws_eks_node_group.runtime_plugins[0].taint).effect == "NO_SCHEDULE" &&
       aws_eks_node_group.runtime_plugins[0].scaling_config[0].min_size == 1
     )
-    error_message = "Tenant runtime plugins require a warm, exclusive AL2023 sandbox pool."
+    error_message = "Tenant runtime plugins require a warm, exclusive AL2023 sandbox pool with its own node role and no kubelet-set labels."
+  }
+
+  assert {
+    condition = (
+      keys(aws_iam_role_policy.workload_node_pool_labeler) == ["nodePoolLabeler"] &&
+      jsondecode(aws_iam_role_policy.workload_node_pool_labeler["nodePoolLabeler"].policy).Statement[0].Action == ["ec2:DescribeInstances"] &&
+      length(jsondecode(aws_iam_role_policy.workload_node_pool_labeler["nodePoolLabeler"].policy).Statement) == 1 &&
+      !contains(keys(aws_iam_role_policy.workload_platform_application), "nodePoolLabeler") &&
+      !contains(keys(aws_iam_role_policy.workload_rds_iam), "nodePoolLabeler") &&
+      output.runtime_plugin_node_group_asg == "eks-shifter-test-plugins-asg"
+    )
+    error_message = "The node-pool labeler may only read node instances."
   }
 
   assert {

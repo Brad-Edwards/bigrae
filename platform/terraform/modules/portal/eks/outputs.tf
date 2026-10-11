@@ -100,3 +100,8 @@ output "ingress_waf_acl_arn" {
   description = "Regional WAF ACL ARN for the ingress load balancer."
   value       = aws_wafv2_web_acl.ingress.arn
 }
+
+output "runtime_plugin_node_group_asg" {
+  description = "Auto Scaling group of the runtime-plugin pool; the trusted labeler labels only its nodes. Empty when the pool is disabled."
+  value       = var.enable_runtime_plugins ? aws_eks_node_group.runtime_plugins[0].resources[0].autoscaling_groups[0].name : ""
+}

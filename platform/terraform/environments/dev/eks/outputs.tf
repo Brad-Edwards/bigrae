@@ -90,3 +90,8 @@ output "model_broker" {
   description = "Applied private model broker configuration."
   value       = module.eks.model_broker
 }
+
+output "runtime_plugin_node_group_asg" {
+  description = "Auto Scaling group of the runtime-plugin pool, consumed by the trusted node-pool labeler (#2526)."
+  value       = module.eks.runtime_plugin_node_group_asg
+}

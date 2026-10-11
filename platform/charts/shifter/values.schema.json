@@ -226,6 +226,23 @@
         "egressExcept": { "$ref": "#/$defs/cidrList" }
       }
     },
+    "runtimePluginPool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["labeler"],
+      "properties": {
+        "labeler": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "nodeGroupAsg", "resources"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "nodeGroupAsg": { "type": "string", "pattern": "^[A-Za-z0-9_+=,.@/:-]{0,255}$" },
+            "resources": { "type": "object" }
+          }
+        }
+      }
+    },
     "serviceAccounts": {
       "type": "object",
       "additionalProperties": false,

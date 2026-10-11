@@ -50,6 +50,9 @@ module "eks" {
   oidc_thumbprints         = var.oidc_thumbprints
   secret_names             = local.secret_names
   storage_bucket_name      = var.runtime_env["STORAGE_BUCKET_NAME"]
+  # Exclusive gVisor pool for tenant runtime-plugin workers (#2526); the
+  # nodePoolLabeler identity below applies its trusted pool label.
+  enable_runtime_plugins = true
   workload_identities = {
     cni = {
       namespace       = "kube-system"
@@ -125,6 +128,15 @@ module "eks" {
       policy_arns                  = []
       secret_names                 = []
       feature_artifact_store_write = true
+    }
+    # Trusted runtime-plugin node-pool labeler (#2526): labels only nodes backed
+    # by the plugin pool's node role. No secrets, no database.
+    nodePoolLabeler = {
+      namespace         = "shifter-platform"
+      service_account   = "node-pool-labeler"
+      policy_arns       = []
+      secret_names      = []
+      node_pool_labeler = true
     }
     # One-shot schema-migration + content-bootstrap Job (AWS EKS parity with the GCP
     # platform-migrate Job, #1826). aws_eks.py runs it once before the chart install so
