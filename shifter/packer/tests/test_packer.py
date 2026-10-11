@@ -173,6 +173,24 @@ class TestPackerTemplates:
         """Variables file should exist."""
         assert (PACKER_DIR / "variables.pkr.hcl").exists()
 
+    @pytest.mark.parametrize("name", ["windows.pkr.hcl", "dc.pkr.hcl", "dc-prebaked.pkr.hcl"])
+    def test_windows_bakes_use_encrypted_winrm_from_the_builder_only(self, name):
+        """The Administrator password never crosses the network in clear or from anywhere."""
+        template = (PACKER_DIR / name).read_text()
+        assert re.search(r"winrm_use_ssl\s+= true", template)
+        assert re.search(r"temporary_security_group_source_public_ip\s+= true", template)
+        assert "-Transport HTTPS" in template and 'Transport="HTTP"}' in template
+        assert 'AllowUnencrypted="true"' not in template and "localport=5985" not in template
+
+    @pytest.mark.parametrize("name", ["windows.pkr.hcl", "dc.pkr.hcl", "dc-prebaked.pkr.hcl"])
+    def test_windows_bakes_never_fetch_the_generated_password(self, name):
+        """A per-build password replaces ec2:GetPasswordData, which security monitoring flags."""
+        template = (PACKER_DIR / name).read_text()
+        assert "build.Password" not in template
+        assert 'file("winrm_bootstrap_password is required for Windows builds")' in template
+        assert "Set-LocalUser -Name Administrator -Password" in template
+        assert "elevated_password = var.winrm_bootstrap_password" in template
+
     def test_dc_prebaked_stages_a_content_seed_only_when_supplied(self):
         """A scenario seed is optional; core bakes a base DC without one."""
         template = (PACKER_DIR / "dc-prebaked.pkr.hcl").read_text()
@@ -204,6 +222,8 @@ class TestPackerTemplates:
                 packer_path,
                 "validate",
                 "-var-file=dev.pkrvars.hcl",
+                # Windows sources require a per-build WinRM password.
+                "-var=winrm_bootstrap_password=validate-only-placeholder-0",
                 ".",
             ],
             capture_output=True,

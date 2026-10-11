@@ -157,6 +157,17 @@ jobs:
       - name: Initialize Packer
         run: packer init .
 
+      # Windows builders take a per-build Administrator password through user
+      # data, so Packer never calls ec2:GetPasswordData (which security
+      # monitoring flags). The templates fail validation without it.
+      - name: Generate WinRM bootstrap password (Windows/DC)
+        if: contains(fromJSON('["windows","dc","dc-prebaked"]'), inputs.ami_type)
+        run: |
+          set -euo pipefail
+          WINRM_PW="$(openssl rand -hex 24)Aa1!"
+          echo "::add-mask::$WINRM_PW"
+          echo "PKR_VAR_winrm_bootstrap_password=$WINRM_PW" >> "$GITHUB_ENV"
+
       - name: Validate template
         run: packer validate -var-file=${{ inputs.environment }}.pkrvars.hcl -only='*.${{ inputs.ami_type }}' .
 
