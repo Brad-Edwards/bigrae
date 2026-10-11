@@ -21,6 +21,12 @@ from shared.raes.image_policy import (
 )
 from shared.runtime_plugin_binding import RuntimeTargetImageProfile
 
+from config import (
+    BOOTSTRAP_PRECONFIGURED_MACHINE_HOST,
+    BOOTSTRAP_PREPROMOTED_DC,
+    BOOTSTRAP_STANDARD,
+    PARTICIPANT_READINESS_CONTRACT_V1,
+)
 from raes_plan import RaesPlanNode
 
 _AMI = re.compile(r"ami-(?:[0-9a-f]{8}|[0-9a-f]{17})")
@@ -29,6 +35,70 @@ _MACHINE = re.compile(r"[a-z][a-z0-9-]{1,30}\.[a-z0-9]{1,20}")
 
 class Ec2ImageError(ValueError):
     """An image or size cannot be realized without substituting authored intent."""
+
+
+@dataclass(frozen=True)
+class Ec2HostContract:
+    """What the image itself provides beyond a standard boot image.
+
+    ``preconfigured-machine-host`` images run a participant container that owns
+    the participant ports, with host management on its own port and a fixed
+    readiness canary. ``prepromoted-domain-controller`` images carry a baked
+    domain whose identity realization verifies instead of promoting.
+    """
+
+    bootstrap_capability: str = BOOTSTRAP_STANDARD
+    participant_container_name: str = ""
+    participant_username: str = ""
+    participant_readiness_contract: str = ""
+    participant_readiness_manifest_sha256: str = ""
+    domain_dns_name: str = ""
+    domain_netbios_name: str = ""
+
+
+def _host_contract(resolved: ResolvedImage) -> Ec2HostContract:
+    """Validate the selected capability and keep only the fields it defines."""
+    contract = Ec2HostContract(
+        resolved.bootstrap_capability or BOOTSTRAP_STANDARD,
+        resolved.participant_container_name,
+        resolved.participant_username,
+        resolved.participant_readiness_contract,
+        resolved.participant_readiness_manifest_sha256,
+        resolved.domain_dns_name,
+        resolved.domain_netbios_name,
+    )
+    participant = (
+        contract.participant_container_name,
+        contract.participant_username,
+        contract.participant_readiness_contract,
+        contract.participant_readiness_manifest_sha256,
+    )
+    domain = (contract.domain_dns_name, contract.domain_netbios_name)
+    if contract.bootstrap_capability == BOOTSTRAP_PRECONFIGURED_MACHINE_HOST:
+        _validate_preconfigured(contract, participant, domain, resolved.management_ssh_username)
+    elif contract.bootstrap_capability == BOOTSTRAP_PREPROMOTED_DC:
+        if any(participant) or not all(domain):
+            raise Ec2ImageError("EC2 prepromoted directory images require DNS and NetBIOS domain names")
+    elif contract.bootstrap_capability != BOOTSTRAP_STANDARD or any(participant) or any(domain):
+        raise Ec2ImageError("EC2 image bootstrap capability is unsupported")
+    return contract
+
+
+def _validate_preconfigured(
+    contract: Ec2HostContract,
+    participant: tuple[str, str, str, str],
+    domain: tuple[str, str],
+    management_username: str,
+) -> None:
+    """Require the complete participant readiness contract and a host login."""
+    if (
+        any(domain)
+        or not all(participant)
+        or contract.participant_readiness_contract != PARTICIPANT_READINESS_CONTRACT_V1
+        or not re.fullmatch(r"[0-9a-f]{64}", contract.participant_readiness_manifest_sha256)
+        or not management_username
+    ):
+        raise Ec2ImageError("EC2 preconfigured host images require the complete participant readiness contract")
 
 
 @dataclass(frozen=True)
@@ -41,6 +111,7 @@ class Ec2ImageProfile:
     disk_type: str = "gp3"
     management_ssh_port: int = 22
     management_ssh_username: str = ""
+    contract: Ec2HostContract = Ec2HostContract()
 
 
 @dataclass(frozen=True)
@@ -56,6 +127,7 @@ class VerifiedEc2Image:
     architecture: str
     management_ssh_port: int
     management_ssh_username: str = ""
+    contract: Ec2HostContract = Ec2HostContract()
 
 
 def resolve_ec2_image(
@@ -88,6 +160,7 @@ def resolve_ec2_image(
         disk_type,
         validate_management_ssh_port(resolved.management_ssh_port),
         validate_management_ssh_username(resolved.management_ssh_username),
+        _host_contract(resolved),
     )
 
 
@@ -119,6 +192,13 @@ def _resolve_source(
             runtime_profile.disk_type or None,
             runtime_profile.management_ssh_port,
             runtime_profile.management_ssh_username,
+            bootstrap_capability=runtime_profile.bootstrap_capability,
+            participant_container_name=runtime_profile.participant_container_name,
+            participant_username=runtime_profile.participant_username,
+            participant_readiness_contract=runtime_profile.participant_readiness_contract,
+            participant_readiness_manifest_sha256=runtime_profile.participant_readiness_manifest_sha256,
+            domain_dns_name=runtime_profile.domain_dns_name,
+            domain_netbios_name=runtime_profile.domain_netbios_name,
         )
     else:
         resolved = _registry_source(node, candidates)
@@ -167,7 +247,35 @@ def verify_ec2_image(node: RaesPlanNode, profile: Ec2ImageProfile, ec2: BaseClie
         architecture,
         profile.management_ssh_port,
         profile.management_ssh_username,
+        profile.contract,
     )
+
+
+def assert_image_contract_matches_node(node: RaesPlanNode, image: VerifiedEc2Image) -> None:
+    """Refuse, before any mutation, an image whose baked identity contradicts the node.
+
+    A prepromoted directory image must back a Windows node. When the node authors
+    a domain, it must be exactly the domain baked into the image (compared as GCE
+    does: case-insensitive, without a trailing dot); anything else would fail only
+    after cloud resources exist. A node that authors no domain leaves the
+    directory to the image and its adapter, as on GCE.
+    """
+    contract = image.contract
+    if contract.bootstrap_capability != BOOTSTRAP_PREPROMOTED_DC:
+        return
+    if node.os_family != "windows":
+        raise Ec2ImageError("EC2 prepromoted directory image requires a Windows node")
+    if not (node.domain_dns_name or node.domain_netbios_name):
+        return
+    authored = (_dns_name(node.domain_dns_name), (node.domain_netbios_name or "").strip().casefold())
+    baked = (_dns_name(contract.domain_dns_name), contract.domain_netbios_name.strip().casefold())
+    if not all(authored) or authored != baked:
+        raise Ec2ImageError("EC2 prepromoted directory image does not match the authored domain")
+
+
+def _dns_name(value: str | None) -> str:
+    """Comparison form of a DNS domain name."""
+    return (value or "").strip().rstrip(".").casefold()
 
 
 def _verify_instance_type(

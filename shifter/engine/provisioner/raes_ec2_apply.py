@@ -21,7 +21,12 @@ from raes_account_credentials import delete_instance_account_credentials, instal
 from raes_active_directory import delete_raes_directory_secrets, realize_raes_active_directory
 from raes_composition_verification import assert_composition_is_verifiable, verify_bootstrap_composition
 from raes_content_delivery import assert_content_delivery_bindings_complete, realize_raes_content_delivery
-from raes_ec2_image import Ec2ImageProfile, VerifiedEc2Image, verify_ec2_image
+from raes_ec2_image import (
+    Ec2ImageProfile,
+    VerifiedEc2Image,
+    assert_image_contract_matches_node,
+    verify_ec2_image,
+)
 from raes_gcp_composition import node_bootstrap_script
 from raes_guest_plan import (
     _access_by_node,
@@ -33,6 +38,7 @@ from raes_guest_plan import (
 from raes_operating_system import observe_operating_systems, validate_operating_systems
 from raes_participant_host_keys import observe_participant_host_keys
 from raes_plan import RaesPlan, RaesPlanNode
+from raes_preconfigured_host_readiness import verify_preconfigured_hosts
 from raes_snapshot import snapshot_resources
 
 
@@ -54,6 +60,7 @@ class RaesEc2ApplyOptions:
     operating_system_observer: Callable[..., list[dict[str, str]]] = observe_operating_systems
     runtime_plugin: Callable[..., None] | None = None
     model_enrollment: Callable[..., None] | None = None
+    host_readiness_verifier: Callable[..., None] = verify_preconfigured_hosts
 
 
 def _scope(request_id: str, range_id: int, options: RaesEc2ApplyOptions) -> Ec2CleanupScope:
@@ -188,6 +195,9 @@ def _verify(
         options.model_enrollment(plan, outputs)
     if options.runtime_plugin:
         options.runtime_plugin(plan, outputs)
+    # Preconfigured hosts become ready only once the runtime plugin has brought
+    # the participant container up; the canary then gates participant access.
+    options.host_readiness_verifier(outputs, execution_builder=options.execution_builder)
     observe_participant_host_keys(outputs, execution_builder=options.execution_builder)
     verified.update(options.composition_verifier(plan, outputs))
     operating_systems = options.operating_system_observer(plan, outputs)
@@ -230,6 +240,7 @@ def apply_raes_ec2_range(
     )
     images = {node.address: verify_ec2_image(node, resolve_image(node), options.ec2) for node in plan.nodes}
     for node in plan.nodes:
+        assert_image_contract_matches_node(node, images[node.address])
         username = images[node.address].management_ssh_username or (
             "Administrator" if node.os_family == "windows" else "raes"
         )

@@ -171,7 +171,10 @@ The profile is organization-owned runtime data stored with the pack assignment,
 then pinned with the adapter and pack digest for the range lifetime. GCP profiles
 accept exact image resources with either standard or prepromoted-directory
 bootstrap metadata, or the closed preconfigured-machine-host contract. AWS
-profiles accept exact AMI IDs. An authored portable artifact binding remains
+profiles accept exact AMI IDs with the same three bootstrap contracts (#2527,
+#2528): the native EC2 backend gates a preconfigured host on the same
+participant readiness canary, and refuses, before any mutation, a prepromoted
+image whose baked domain differs from the authored one. An authored portable artifact binding remains
 authoritative when present, and the adapter worker never receives cloud image
 selection authority.
 Runtime hooks receive bounded, operation-scoped input and authorized guest or

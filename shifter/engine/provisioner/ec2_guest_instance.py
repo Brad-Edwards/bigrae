@@ -15,9 +15,10 @@ from botocore.client import BaseClient
 from shared.model_access.network import RFC1918_IPV4_NETWORKS
 from shared.raes.image_policy import validate_management_ssh_username
 
+from config import BOOTSTRAP_PRECONFIGURED_MACHINE_HOST, BOOTSTRAP_PREPROMOTED_DC
 from ec2_guest_secrets import Ec2GuestSecrets
 from guest_host_keys import linux_host_key_script, windows_host_key_script
-from raes_ec2_image import VerifiedEc2Image
+from raes_ec2_image import Ec2HostContract, VerifiedEc2Image
 from raes_identity import RESERVED_MANAGEMENT_LOGIN
 
 
@@ -80,7 +81,7 @@ class Ec2GuestPlan:
 
     def tags(self) -> list[dict[str, str]]:
         """Opaque subject tags avoid copying authored/private identities into inventory."""
-        image_digest = hashlib.sha256(json.dumps(asdict(self.image), sort_keys=True).encode()).hexdigest()
+        image_digest = hashlib.sha256(json.dumps(_image_identity(self.image), sort_keys=True).encode()).hexdigest()
         values = {
             "ManagedBy": "shifter",
             "shifter:system": "shifter",
@@ -92,6 +93,41 @@ class Ec2GuestPlan:
             "shifter:image": image_digest,
         }
         return [{"Key": key, "Value": value} for key, value in values.items()]
+
+
+def _image_identity(image: VerifiedEc2Image) -> dict[str, Any]:
+    """The image facts a guest is bound to; a standard contract adds nothing.
+
+    Omitting the default contract keeps the digest of guests created before
+    image contracts existed, so they still resume.
+    """
+    identity = asdict(image)
+    if image.contract == Ec2HostContract():
+        identity.pop("contract")
+    return identity
+
+
+def _contract_output(image: VerifiedEc2Image) -> dict[str, Any]:
+    """Provider-neutral image-contract fields for readiness and access consumers."""
+    contract = image.contract
+    if contract.bootstrap_capability == BOOTSTRAP_PRECONFIGURED_MACHINE_HOST:
+        return {
+            "bootstrap_capability": contract.bootstrap_capability,
+            "participant_container_name": contract.participant_container_name,
+            "participant_username": contract.participant_username,
+            "participant_readiness_contract": contract.participant_readiness_contract,
+            "participant_readiness_manifest_sha256": contract.participant_readiness_manifest_sha256,
+            # The participant desktop lives in the container; the host's own
+            # management sshd must never be offered the participant password.
+            "participant_sftp_enabled": False,
+        }
+    if contract.bootstrap_capability == BOOTSTRAP_PREPROMOTED_DC:
+        return {
+            "bootstrap_capability": contract.bootstrap_capability,
+            "domain_dns_name": contract.domain_dns_name,
+            "domain_netbios_name": contract.domain_netbios_name,
+        }
+    return {}
 
 
 def _bootstrap(plan: Ec2GuestPlan, host_private_key: str, management_public_key: str) -> str:
@@ -327,4 +363,5 @@ def ensure_ec2_guest(plan: Ec2GuestPlan, ec2: BaseClient, secrets: Ec2GuestSecre
         "host_public_key": host_public,
         "participant_access_channels": [],
         "participant_access_usernames": {},
+        **_contract_output(plan.image),
     }

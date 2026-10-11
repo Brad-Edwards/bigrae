@@ -1,12 +1,13 @@
-"""Fixed participant-host readiness check for RAES GCE realization."""
+"""Fixed participant-host readiness check for RAES GCE and native EC2 realization."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
-from config import GCE_BOOTSTRAP_PRECONFIGURED_MACHINE_HOST
+from config import BOOTSTRAP_PRECONFIGURED_MACHINE_HOST
 from executors.factory import GuestExecutionContext, build_guest_execution_context
+from instance_contract import instance_field
 from orchestrators.setup_orchestrator import SetupError, SetupOrchestrator
 from plans.preconfigured_machine_host import PreconfiguredMachineHostPlan
 
@@ -19,7 +20,7 @@ def verify_preconfigured_hosts(
     """Gate readiness on the same bounded liveness and fixed participant canary."""
     plan = PreconfiguredMachineHostPlan()
     for instance in instances:
-        if instance.get("gcp_bootstrap_capability") != GCE_BOOTSTRAP_PRECONFIGURED_MACHINE_HOST:
+        if instance_field(instance, "bootstrap_capability") != BOOTSTRAP_PRECONFIGURED_MACHINE_HOST:
             continue
         execution = execution_builder(
             instance, os_type=instance.get("os", "kali"), role=instance.get("role", "attacker")
