@@ -1,0 +1,89 @@
+Polaris on AWS (aws-dev) - progress summary, 2026-10-07
+=========================================================
+
+Goal: get Polaris working properly on the aws-dev tenant. Shifter is the
+platform (no scenario code in Shifter); the AWS adapter, images and binding
+live in PaloAltoNetworks/shifter-scenarios. Then a full manual participant QA
+using the pack and CTF create flow.
+
+STATUS
+------
+- Shifter platform side: done and live on aws-dev.
+- Scenario side (adapter, AMIs, binding, pack): done and live on aws-dev.
+- A Polaris range launched from the pack reached READY on aws-dev with every
+  adapter verify step passing, including a real keyless Bedrock `claude -p`
+  call from a14-kali.
+- CTF QA: event "Polaris AWS QA" (f764bca2-8da6-40f1-8e83-a3cc05146f8b) created
+  on the pack, 39 challenges imported (0 errors), participant range-polarisqa
+  (eb878e19-6323-421e-96a1-8b786102ba04) registered, event active, participant
+  range provisioned and READY (range instance 53).
+- NEXT: the 38-flag participant walkthrough on range 53 (walkthrough docs in
+  polaris/docs/walkthroughs), negative gates, Claude Code check from the
+  participant shell, then teardown and cleanup.
+
+SHIFTER (Brad-Edwards/shifter) - branch aws-dev, all deployed
+-------------------------------------------------------------
+Open PRs to dev (all blocked only by the osv advisory that #2530 fixes):
+- #2530 security: bump @modelcontextprotocol/sdk (green; needs merge first)
+- #2531 feat(ec2): preconfigured-host and prepromoted-DC contracts (#2527/#2528)
+        includes the fix: accept a prepromoted DC whose node authors no domain
+        (GCE parity)
+- #2532 feat(eks): runtime-plugin sandbox pool on EKS (#2526); labeler uses the
+        AWS-owned ASG tag; proven by a real adapter install Job on the pool
+- #2533 security: AWS Windows bake credentials - encrypted WinRM from the
+        builder IP only, and no ec2:GetPasswordData (per-build Administrator
+        password via user data; fails closed if missing; packer.yml generates it)
+        Verified: a DC rebake made 0 GetPasswordData calls (CloudTrail).
+- #2534 feat(packer): optional AD content seed for the AWS dc-prebaked bake
+        (#2533 and #2534 will conflict on one line in dc-prebaked; resolve on merge)
+Still to PR (after #2531 merges, since it builds on it):
+- #2529 range-host Bedrock profile: eeaf9dd57, the TF/ec2_guest hunks of
+  b4b8f4e57, 0c3b08e05 (Bedrock endpoint SG lane), and the refactor commit.
+Other aws-dev changes: origin/dev merged in (brings #2523 CTF provisioning fix).
+
+Fixes found during live QA (all on aws-dev):
+- Range guests had no egress to the Bedrock endpoint; the range VPC endpoint now
+  has its own SG (published as model_endpoint_security_group_id) and guests with
+  the range-host profile get 443 to it by SG reference.
+- Sonar: parameter count / complexity in ec2_range_network.py.
+- EC2 prepromoted-DC domain check aligned with GCE.
+
+SHIFTER-SCENARIOS (PaloAltoNetworks) - worktree /tmp/scen-aws,
+branch feat/polaris-aws-adapter (local commits, NOT yet pushed / no PR)
+-------------------------------------------------------------------
+- Adapter 0.3.0: new plugin panw.polaris-direct-aws (keyless Bedrock via a
+  host-side scoped credential responder + credential_process; IMDS blocked for
+  the container; verify proves both). GCP plugin output unchanged.
+  Image: ghcr.io/paloaltonetworks/shifter-scenarios/runtime-adapter@sha256:
+  ba77a038791a6dadfc4d4f2eb60dc94b6c29fc48a7c622486516c3dffdabd80d
+  (also copied to aws-dev ECR shifter-scenarios/runtime-adapter, same digest).
+- AWS bakes: polaris/packer/aws (host AMI template + wrapper; DC profile +
+  wrapper using Shifter's generic dc-prebaked). Runbook:
+  polaris/docs/aws-polaris-image-bake.md.
+- Scenario DNS fix: amazonaws.com added to BIND validate-except (the VPC
+  resolver returns no DNSSEC records, so Bedrock resolution SERVFAILed).
+  Stack archive repacked d55a605e -> 46ce21af (no GCP effect).
+- Pack polaris-direct 0.4.0 (provider-neutral descriptions).
+- Binding: runtime-pack/BINDING.md + polaris-direct-aws.binding.json
+  host ami-08b7bb7619e7ac8c8 (shifter-polaris-vm-v20261007-2)
+  DC   ami-083dd0facf69525d9 (shifter-polaris-dc-prebaked-1791376523)
+
+AWS-DEV STATE / TEMPORARY RESOURCES
+-----------------------------------
+In use for QA (remove at teardown):
+- QA user polaris-qa@shifter.invalid (org 20d38d48-...), adapter install
+  edd6b1e5-..., pack pack-a51be430d5a25120878c46e911ae8204 + binding,
+  CTF event above, participant range 53.
+- Diag box i-00167c0eb660fe758 with role/profile shifter-eks-diag-tmp and its
+  EKS access entry (used to reach the private cluster via SSM).
+Already cleaned up: reproduction instance, its SG and key pair, superseded host
+and DC AMIs and snapshots, temporary S3 challenge file and IAM policies, local
+answer file.
+
+FOR THE USER
+------------
+- Merge #2530, then #2531/#2532/#2533/#2534 go green on rerun.
+- #2515 still to close; #2521 (Windows/DC image cleanup) deferred by you.
+- SOC note: the per-build Windows bootstrap password lives in builder user data
+  for the bake's lifetime (same as GCE); alternative is a short-lived SSM
+  parameter read by the builder.

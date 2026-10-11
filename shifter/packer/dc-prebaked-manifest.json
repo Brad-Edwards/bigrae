@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "name": "dc-prebaked",
+      "builder_type": "amazon-ebs",
+      "build_time": 1791378905,
+      "files": null,
+      "artifact_id": "us-east-2:ami-083dd0facf69525d9",
+      "packer_run_uuid": "d5130b7f-ab12-1a92-3570-a8e98f354727",
+      "custom_data": null
+    }
+  ],
+  "last_run_uuid": "d5130b7f-ab12-1a92-3570-a8e98f354727"
+}
