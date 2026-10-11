@@ -443,6 +443,40 @@ def test_render_env_rejects_present_but_blank_mission_control_lease(monkeypatch,
         module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
 
 
+def test_render_env_passes_through_range_telemetry_policy(monkeypatch):
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+    monkeypatch.setenv(
+        "GCP_RANGE_TELEMETRY_POLICY_JSON",
+        '{"vpc_flow_logs": {"enabled": true, "flow_sampling": 0.25}, "nat_logs": {"enabled": false}}',
+    )
+
+    rendered = module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
+
+    line = next(row for row in rendered.splitlines() if row.startswith("GCP_RANGE_TELEMETRY_POLICY_JSON="))
+    assert json.loads(line.split("=", 1)[1]) == {
+        "nat_logs": {"enabled": False},
+        "vpc_flow_logs": {"enabled": True, "flow_sampling": 0.25},
+    }
+
+
+def test_render_env_omits_range_telemetry_policy_when_unset():
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+
+    rendered = module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
+
+    # Absent -> omitted so the provisioner applies the default-on policy.
+    assert "GCP_RANGE_TELEMETRY_POLICY_JSON" not in rendered
+
+
+@pytest.mark.parametrize(("value", "message"), [("", "present but blank"), ("[]", "JSON object"), ("{x", "valid JSON")])
+def test_render_env_rejects_malformed_range_telemetry_policy(monkeypatch, value, message):
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+    monkeypatch.setenv("GCP_RANGE_TELEMETRY_POLICY_JSON", value)
+
+    with pytest.raises(ValueError, match=message):
+        module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
+
+
 def test_render_env_keys_match_runtime_inventory(monkeypatch):
     module = _load_module("render_runtime_env.py", "render_runtime_env")
 
@@ -456,6 +490,7 @@ def test_render_env_keys_match_runtime_inventory(monkeypatch):
         "MISSION_CONTROL_LEASE_POLICY_JSON",
         '{"initial_days":7,"extension_days":3,"maximum_days":90,"extensions_enabled":false}',
     )
+    monkeypatch.setenv("GCP_RANGE_TELEMETRY_POLICY_JSON", '{"nat_logs":{"enabled":true}}')
     _seed_gce_range_env(monkeypatch)
     outputs = _outputs(
         identity_allowed_emails=["alice@example.com", "bob@example.com"],

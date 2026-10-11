@@ -26,8 +26,14 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["installation", "installation.contract", "shared.model_access", "shared.mission_control_lease"]
-package-dir = {"installation" = ".", "shared.model_access" = "canonical_model_access", "shared.mission_control_lease" = "canonical_mission_control_lease"}
+packages = [
+    "installation",
+    "installation.contract",
+    "shared.model_access",
+    "shared.mission_control_lease",
+    "shared.gcp_range_telemetry",
+]
+package-dir = {"installation" = ".", "shared.model_access" = "canonical_model_access", "shared.mission_control_lease" = "canonical_mission_control_lease", "shared.gcp_range_telemetry" = "canonical_gcp_range_telemetry"}
 
 [tool.setuptools.package-data]
 installation = ["published_contract/*.json", "published_contract/*.md"]

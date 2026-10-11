@@ -38,10 +38,14 @@ resource "google_compute_subnetwork" "pool" {
   ip_cidr_range            = var.subnet_cidr
   private_ip_google_access = true
 
-  log_config {
-    aggregation_interval = "INTERVAL_5_SEC"
-    flow_sampling        = 0.5
-    metadata             = "INCLUDE_ALL_METADATA"
+  # #2535: the pool subnet sits in the range VPC and follows the range flow-log policy.
+  dynamic "log_config" {
+    for_each = var.vpc_flow_logs.enabled ? [var.vpc_flow_logs] : []
+    content {
+      aggregation_interval = log_config.value.aggregation_interval
+      flow_sampling        = log_config.value.flow_sampling
+      metadata             = log_config.value.metadata
+    }
   }
 }
 
@@ -72,6 +76,11 @@ resource "google_compute_router_nat" "pool" {
   subnetwork {
     name                    = google_compute_subnetwork.pool.id
     source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+  }
+
+  log_config {
+    enable = var.nat_logs.enabled
+    filter = var.nat_logs.filter
   }
 }
 

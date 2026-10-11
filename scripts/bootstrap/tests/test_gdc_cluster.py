@@ -744,11 +744,24 @@ class TestGdcControlPlaneRollout:
             "--timeout=5m",
         ]
 
-    def test_bootstrap_control_plane_creates_operator_before_helm_and_waits_for_dns_tls_after_release(self):
-        """Bootstrap must seed Identity Platform before Helm and only finish after DNS/TLS verification."""
-        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
+    def test_bootstrap_control_plane_creates_operator_before_helm_and_waits_for_dns_tls_after_release(self, tmp_path):
+        """Bootstrap must verify range telemetry after Terraform, seed Identity Platform before Helm,
+        and only finish after DNS/TLS verification."""
+        root_config = tmp_path / "shifter.yaml"
+        root_config.write_text("backend: gcp\n")
+        config = deploy.GDCBootstrapConfig(
+            project_id="example-gcp-project", cluster_id="cluster1", shifter_config_path=str(root_config)
+        )
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
+        outputs["range_network_name"] = {"value": "shifter-gcp-dev-range"}
+        outputs["range_telemetry_terraform_resources"] = {"value": {"subnetworks": [], "nat_routers": []}}
         calls: list[str] = []
+
+        def process_boundary(argv, *args, **kwargs):
+            # The telemetry readback is a child process; record where it runs in the order.
+            if any(str(part).endswith("verify_range_audit_telemetry.py") for part in argv):
+                calls.append("verify_telemetry")
+            return subprocess.CompletedProcess(argv, 0, stdout="sha256:" + ("1" * 64) + "\n", stderr="")
 
         def record(name: str):
             def _inner(*args, **kwargs):
@@ -765,15 +778,7 @@ class TestGdcControlPlaneRollout:
             patch("deploy.apply_gcp_control_plane_terraform", side_effect=record("apply")),
             patch("deploy.ensure_gcp_identity_platform_operator", side_effect=record("seed_operator")),
             patch("deploy.push_gcp_control_plane_images", side_effect=record("push_images")),
-            patch(
-                "subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    ["gcloud"],
-                    0,
-                    stdout="sha256:" + ("1" * 64) + "\n",
-                    stderr="",
-                ),
-            ),
+            patch("subprocess.run", side_effect=process_boundary),
             patch("deploy.stage_gcp_control_plane_values", side_effect=record("stage")),
             patch("deploy.deploy_gcp_control_plane_with_helm", side_effect=record("deploy")),
             patch("deploy.walkthrough_gcp_dns_setup_and_wait_for_tls", side_effect=record("dns_tls")),
@@ -782,7 +787,7 @@ class TestGdcControlPlaneRollout:
             result = deploy.bootstrap_gcp_control_plane(config)
 
         assert result == outputs
-        assert calls == ["apply", "seed_operator", "push_images", "stage", "deploy", "dns_tls"]
+        assert calls == ["apply", "verify_telemetry", "seed_operator", "push_images", "stage", "deploy", "dns_tls"]
 
 
 class TestGdcBootstrapPrerequisites:

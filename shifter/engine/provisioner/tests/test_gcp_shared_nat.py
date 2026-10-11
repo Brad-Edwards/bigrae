@@ -7,9 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
 
 import gcp_range_cell_shared_nat as shared_nat
 from gcp_range_cell_naming import shared_router_nat_plan
+from gcp_range_cell_plan import range_telemetry_plan
 from gcp_range_cell_shared_nat import (
     allocate_explicit_subnets,
     assert_shared_nat_capacity,
@@ -17,10 +19,15 @@ from gcp_range_cell_shared_nat import (
     remove_shared_nat,
 )
 
+NAT_LOG = {"enable": True, "filter": "ALL"}
+TELEMETRY = range_telemetry_plan(GcpRangeTelemetryPolicy())
+
 
 def test_shared_gateway_name_fits_provider_limit_for_long_network_name():
     nat = shared_router_nat_plan("a" * 63, ["projects/p/regions/r/subnetworks/range-1"])
-    gateway = allocate_explicit_subnets({}, nat["subnetwork_self_links"], nat_name=nat["nat_name"])[0]
+    gateway = allocate_explicit_subnets({}, nat["subnetwork_self_links"], nat_name=nat["nat_name"], log_config=NAT_LOG)[
+        0
+    ]
 
     assert len(gateway["name"]) <= 63
 
@@ -28,7 +35,7 @@ def test_shared_gateway_name_fits_provider_limit_for_long_network_name():
 def test_twenty_two_two_subnet_ranges_fit_one_gateway_without_global_nat():
     subnets = [f"projects/p/regions/r/subnetworks/range-{seat}-{side}" for seat in range(22) for side in range(2)]
 
-    gateways = allocate_explicit_subnets({}, subnets, nat_name="shifter-shared-nat")
+    gateways = allocate_explicit_subnets({}, subnets, nat_name="shifter-shared-nat", log_config=NAT_LOG)
 
     assert len(gateways) == 1
     assert gateways[0]["source_subnetwork_ip_ranges_to_nat"] == "LIST_OF_SUBNETWORKS"
@@ -38,7 +45,7 @@ def test_twenty_two_two_subnet_ranges_fit_one_gateway_without_global_nat():
 def test_gateway_sharding_stops_at_explicit_subnet_limit():
     subnets = [f"projects/p/regions/r/subnetworks/range-{index}" for index in range(51)]
 
-    gateways = allocate_explicit_subnets({}, subnets, nat_name="shifter-shared-nat")
+    gateways = allocate_explicit_subnets({}, subnets, nat_name="shifter-shared-nat", log_config=NAT_LOG)
 
     assert [len(gateway["subnetworks"]) for gateway in gateways] == [50, 1]
 
@@ -47,7 +54,7 @@ def test_capacity_exhaustion_refuses_before_any_widening():
     subnets = [f"projects/p/regions/r/subnetworks/range-{index}" for index in range(2501)]
 
     with pytest.raises(RuntimeError, match="shared-nat-capacity-exhausted"):
-        allocate_explicit_subnets({}, subnets, nat_name="shifter-shared-nat")
+        allocate_explicit_subnets({}, subnets, nat_name="shifter-shared-nat", log_config=NAT_LOG)
 
 
 def test_gateway_reuse_never_overwrites_an_occupied_sparse_slot():
@@ -57,7 +64,7 @@ def test_gateway_reuse_never_overwrites_an_occupied_sparse_slot():
     }
 
     gateways = allocate_explicit_subnets(
-        existing, ["projects/p/regions/r/subnetworks/new"], nat_name="shifter-shared-nat"
+        existing, ["projects/p/regions/r/subnetworks/new"], nat_name="shifter-shared-nat", log_config=NAT_LOG
     )
 
     assert {gateway["name"] for gateway in gateways} == set(existing) | {"shifter-shared-nat-0"}
@@ -68,7 +75,7 @@ def test_provider_full_self_link_replay_does_not_duplicate_relative_subnet():
     relative = "projects/p/regions/r/subnetworks/range-1"
     existing = {"shifter-shared-nat-0": [f"https://www.googleapis.com/compute/v1/{relative}"]}
 
-    gateways = allocate_explicit_subnets(existing, [relative], nat_name="shifter-shared-nat")
+    gateways = allocate_explicit_subnets(existing, [relative], nat_name="shifter-shared-nat", log_config=NAT_LOG)
 
     assert len(gateways[0]["subnetworks"]) == 1
 
@@ -81,6 +88,7 @@ def _plan_for_capacity(*, egress: bool = True) -> dict:
         "manage_network": False,
         "network": {"self_link": "projects/p/global/networks/shared"},
         "subnets": [{"self_link": "projects/p/regions/r/subnetworks/range-7"}],
+        "telemetry": TELEMETRY,
     }
     if egress:
         plan["shared_nat"] = {
@@ -235,6 +243,7 @@ def test_convergent_enrollment_and_removal_preserve_other_ranges(monkeypatch):
             "region": "r",
             "range_id": range_id,
             "network": {"self_link": "projects/p/global/networks/shared"},
+            "telemetry": TELEMETRY,
             "shared_nat": {
                 "router_name": "shifter-shared-nat-router",
                 "nat_name": "shifter-shared-nat",
@@ -253,10 +262,92 @@ def test_convergent_enrollment_and_removal_preserve_other_ranges(monkeypatch):
         "projects/p/regions/r/subnetworks/range-2",
     ]
 
+    assert routers["shifter-shared-nat-router"]["nats"][0]["log_config"] == NAT_LOG
+
     remove_shared_nat(plan(1), clients)
     assert "shifter-shared-nat-router" in routers
     assert [s["name"] for s in routers["shifter-shared-nat-router"]["nats"][0]["subnetworks"]] == [
         "projects/p/regions/r/subnetworks/range-2"
     ]
+    # Removal rebuilds the gateway list; logging must survive it (#2535).
+    assert routers["shifter-shared-nat-router"]["nats"][0]["log_config"] == NAT_LOG
     remove_shared_nat(plan(2), clients)
     assert not routers
+
+
+def test_gateways_carry_the_nat_log_config():
+    gateways = allocate_explicit_subnets(
+        {"shifter-shared-nat-0": ["projects/p/regions/r/subnetworks/a"]},
+        ["projects/p/regions/r/subnetworks/b"],
+        nat_name="shifter-shared-nat",
+        log_config={"enable": True, "filter": "ERRORS_ONLY"},
+    )
+
+    assert [gateway["log_config"] for gateway in gateways] == [{"enable": True, "filter": "ERRORS_ONLY"}]
+
+
+@pytest.mark.parametrize(
+    ("existing_log", "telemetry", "expect_patch"),
+    [
+        (None, TELEMETRY, True),
+        ({"enable": True, "filter": "ERRORS_ONLY"}, TELEMETRY, True),
+        (NAT_LOG, TELEMETRY, False),
+        (NAT_LOG, range_telemetry_plan(GcpRangeTelemetryPolicy.model_validate({"nat_logs": {"enabled": False}})), True),
+    ],
+)
+def test_replay_of_an_enrolled_range_converges_nat_logging(monkeypatch, existing_log, telemetry, expect_patch):
+    class NotFound(Exception):
+        pass
+
+    link = "projects/p/regions/r/subnetworks/range-1"
+    gateway = {
+        "name": "shifter-shared-nat-0",
+        "source_subnetwork_ip_ranges_to_nat": "LIST_OF_SUBNETWORKS",
+        "subnetworks": [{"name": link}],
+    }
+    if existing_log is not None:
+        gateway["log_config"] = existing_log
+    routers = {
+        "shifter-shared-nat-router": {
+            "name": "shifter-shared-nat-router",
+            "network": "projects/p/global/networks/shared",
+            "nats": [gateway],
+        }
+    }
+    service = MagicMock()
+
+    def get(**kwargs):
+        try:
+            return routers[kwargs["router"]]
+        except KeyError:
+            raise NotFound() from None
+
+    def patch(**kwargs):
+        routers[kwargs["router"]] = {**routers[kwargs["router"]], **kwargs["router_resource"]}
+
+    service.get.side_effect = get
+    service.list.side_effect = lambda **_kwargs: list(routers.values())
+    service.patch.side_effect = patch
+    clients = SimpleNamespace(routers=service, google_exceptions=SimpleNamespace(NotFound=NotFound))
+    monkeypatch.setattr(shared_nat, "_regional_nat_lock", lambda _plan: nullcontext())
+    monkeypatch.setattr(shared_nat, "_wait_for_operation", lambda *_args: None)
+    plan = {
+        "project_id": "p",
+        "region": "r",
+        "range_id": 1,
+        "network": {"self_link": "projects/p/global/networks/shared"},
+        "telemetry": telemetry,
+        "shared_nat": {
+            "router_name": "shifter-shared-nat-router",
+            "nat_name": "shifter-shared-nat",
+            "subnetwork_self_links": [link],
+        },
+    }
+
+    ensure_shared_nat(plan, clients)
+
+    assert service.patch.called is expect_patch
+    nat = routers["shifter-shared-nat-router"]["nats"][0]
+    assert [subnet["name"] for subnet in nat["subnetworks"]] == [link]
+    expected_log = {"enable": False} if not telemetry["nat_logs"]["enabled"] else NAT_LOG
+    assert nat["log_config"] == expected_log

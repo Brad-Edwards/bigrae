@@ -100,6 +100,17 @@ def _add_render_parsers(subcommands: argparse._SubParsersAction) -> None:
     )
     _add_config_path_argument(render_mission_control_lease)
     _add_output_argument(render_mission_control_lease, "env line")
+    render_range_telemetry = subcommands.add_parser(
+        "render-gcp-range-telemetry-env",
+        help="Render settings.range_telemetry into the GCP_RANGE_TELEMETRY_POLICY_JSON env line (#2535).",
+        description=(
+            "Render the validated GCP settings.range_telemetry policy from shifter.yaml into the "
+            "GCP_RANGE_TELEMETRY_POLICY_JSON runtime env line the deploy pipeline injects into the "
+            "platform-runtime ConfigMap, so range subnet and NAT logging match the Terraform bridge."
+        ),
+    )
+    _add_config_path_argument(render_range_telemetry)
+    _add_output_argument(render_range_telemetry, "env line")
     render_model_catalog = subcommands.add_parser(
         "render-model-access-catalog",
         help="Render settings.model_access.catalog as a dedicated mounted JSON artifact.",

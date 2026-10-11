@@ -3941,6 +3941,7 @@
     "evidence": [
       "https://github.com/Brad-Edwards/shifter/issues/2275",
       "docs/adr/064-default-range-model-access.md",
+      "docs/architecture/gcp-range-audit-telemetry-preflight-2535.md",
       "platform/terraform/gcp/modules/portal/iam/main.tf",
       "platform/terraform/gcp/modules/platform-core/main.tf",
       "shifter/engine/provisioner/raes_gcp_plan.py",

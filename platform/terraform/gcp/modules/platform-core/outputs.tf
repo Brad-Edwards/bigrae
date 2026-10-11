@@ -240,3 +240,11 @@ output "openvpn_pool" {
     region                = var.region
   } : null
 }
+
+output "range_telemetry_terraform_resources" {
+  description = "#2535: Terraform-owned subnets and NAT routers on the range VPC. The deploy telemetry readback fails on a logging mismatch here; provisioner-owned range resources report drift until reprovisioned."
+  value = {
+    subnetworks = [for pool in module.vpn_pool : pool.subnetwork_name]
+    nat_routers = concat(module.range_vpc.bridge_nat_router_names, [for pool in module.vpn_pool : pool.nat_router_name])
+  }
+}

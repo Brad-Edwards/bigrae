@@ -130,6 +130,32 @@ class RangeCellPlan(TypedDict):
     # path at all -- a firewall deny alone is not that guarantee.
     router_nat: NotRequired[RouterNatPlan]
     shared_nat: NotRequired[RouterNatPlan]
+    # Subnet flow-log and NAT logging policy (#2535). Logging never adds a NAT path:
+    # a `none` range still has no router_nat or shared_nat.
+    telemetry: RangeTelemetryPlan
+
+
+class FlowLogPlan(TypedDict):
+    """Subnetwork flow-log settings from the operator range telemetry policy (#2535)."""
+
+    enabled: bool
+    aggregation_interval: str
+    flow_sampling: float
+    metadata: str
+
+
+class NatLogPlan(TypedDict):
+    """Cloud NAT logging settings from the operator range telemetry policy (#2535)."""
+
+    enabled: bool
+    filter: str
+
+
+class RangeTelemetryPlan(TypedDict):
+    """Provider-generated network logging the range's subnets and NAT gateways carry."""
+
+    vpc_flow_logs: FlowLogPlan
+    nat_logs: NatLogPlan
 
 
 class RouterNatPlan(TypedDict):
@@ -145,9 +171,12 @@ __all__ = [
     "ComputeResource",
     "FirewallEntry",
     "FirewallPlan",
+    "FlowLogPlan",
     "InstancePlan",
+    "NatLogPlan",
     "NetworkPlan",
     "RangeCellPlan",
+    "RangeTelemetryPlan",
     "ResourceDict",
     "RouterNatPlan",
     "ScenarioInstance",

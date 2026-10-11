@@ -3765,6 +3765,21 @@
           "source": "rendered from validated Terraform outputs and the normalized root config"
         },
         {
+          "description": "Public GCP runtime configuration value (GCP_RANGE_TELEMETRY_POLICY_JSON) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
+          "destination": "runtime-env",
+          "kind": "runtime-env",
+          "name": "GCP_RANGE_TELEMETRY_POLICY_JSON",
+          "owner": "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)",
+          "process_roles": [
+            "portal",
+            "worker",
+            "provisioner",
+            "range-task"
+          ],
+          "sensitivity": "public",
+          "source": "rendered from validated Terraform outputs and the normalized root config"
+        },
+        {
           "description": "Public GCP runtime configuration value (GCP_RANGE_WINDOWS_DISK_SIZE_GB) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
           "destination": "runtime-env",
           "kind": "runtime-env",
@@ -4184,6 +4199,28 @@
       ],
       "settings_schema": {
         "$defs": {
+          "FlowLogAggregationInterval": {
+            "description": "Subnetwork flow-log aggregation intervals supported by Compute Engine.",
+            "enum": [
+              "INTERVAL_5_SEC",
+              "INTERVAL_30_SEC",
+              "INTERVAL_1_MIN",
+              "INTERVAL_5_MIN",
+              "INTERVAL_10_MIN",
+              "INTERVAL_15_MIN"
+            ],
+            "title": "FlowLogAggregationInterval",
+            "type": "string"
+          },
+          "FlowLogMetadata": {
+            "description": "Flow-log metadata modes. ``CUSTOM_METADATA`` is not offered (no field list).",
+            "enum": [
+              "INCLUDE_ALL_METADATA",
+              "EXCLUDE_ALL_METADATA"
+            ],
+            "title": "FlowLogMetadata",
+            "type": "string"
+          },
           "GcpModelBrokerSettings": {
             "additionalProperties": false,
             "description": "Closed transport configuration, provisioned only on explicit enablement.\n\nModel projects are pre-existing, deployment-owned choices and may include\nthe platform project. The map values are stable invocation GSA account IDs,\nnever credentials. This package creates identities and an endpoint, not\nactive participant grants.",
@@ -4251,6 +4288,23 @@
             "title": "GcpModelBrokerSettings",
             "type": "object"
           },
+          "GcpRangeTelemetryPolicy": {
+            "additionalProperties": false,
+            "description": "Operator range telemetry policy for a GCP deployment.",
+            "properties": {
+              "nat_logs": {
+                "$ref": "#/$defs/NatLogPolicy"
+              },
+              "vertex_data_access_logs": {
+                "$ref": "#/$defs/VertexDataAccessLogPolicy"
+              },
+              "vpc_flow_logs": {
+                "$ref": "#/$defs/VpcFlowLogPolicy"
+              }
+            },
+            "title": "GcpRangeTelemetryPolicy",
+            "type": "object"
+          },
           "ModelBrokerRuntimeSettings": {
             "additionalProperties": false,
             "description": "Mounted provider bindings and versioned Kubernetes Secret references only.",
@@ -4287,6 +4341,33 @@
               "fingerprint_key_version"
             ],
             "title": "ModelBrokerRuntimeSettings",
+            "type": "object"
+          },
+          "NatLogFilter": {
+            "description": "Cloud NAT log filters: both record categories, errors only, or translations only.",
+            "enum": [
+              "ALL",
+              "ERRORS_ONLY",
+              "TRANSLATIONS_ONLY"
+            ],
+            "title": "NatLogFilter",
+            "type": "string"
+          },
+          "NatLogPolicy": {
+            "additionalProperties": false,
+            "description": "Cloud NAT logging on every range egress gateway.",
+            "properties": {
+              "enabled": {
+                "default": true,
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              "filter": {
+                "$ref": "#/$defs/NatLogFilter",
+                "default": "ALL"
+              }
+            },
+            "title": "NatLogPolicy",
             "type": "object"
           },
           "ProviderInventory": {
@@ -4394,6 +4475,54 @@
             ],
             "title": "ProviderTarget",
             "type": "object"
+          },
+          "VertexDataAccessLogPolicy": {
+            "additionalProperties": false,
+            "description": "Vertex AI ``DATA_READ`` and ``DATA_WRITE`` audit logs, with no exempted callers.",
+            "properties": {
+              "enabled": {
+                "default": true,
+                "title": "Enabled",
+                "type": "boolean"
+              }
+            },
+            "title": "VertexDataAccessLogPolicy",
+            "type": "object"
+          },
+          "VpcFlowLogPolicy": {
+            "additionalProperties": false,
+            "description": "VPC Flow Logs on every range subnetwork.",
+            "properties": {
+              "aggregation_interval": {
+                "$ref": "#/$defs/FlowLogAggregationInterval",
+                "default": "INTERVAL_5_SEC"
+              },
+              "enabled": {
+                "default": true,
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              "flow_sampling": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "default": 0.5,
+                "gt": 0,
+                "le": 1,
+                "title": "Flow Sampling"
+              },
+              "metadata": {
+                "$ref": "#/$defs/FlowLogMetadata",
+                "default": "INCLUDE_ALL_METADATA"
+              }
+            },
+            "title": "VpcFlowLogPolicy",
+            "type": "object"
           }
         },
         "additionalProperties": false,
@@ -4446,6 +4575,10 @@
             },
             "title": "Provisioner Static Secret Refs",
             "type": "object"
+          },
+          "range_telemetry": {
+            "$ref": "#/$defs/GcpRangeTelemetryPolicy",
+            "description": "Range audit telemetry (#2535): VPC Flow Logs on range subnets, Cloud NAT logging on range egress, and Vertex AI Data Access audit logs. Every control is on by default; an explicit change reduces coverage and cost as documented in docs/dev/gcp-range-cell-deploy.md."
           },
           "region": {
             "description": "Lowercase GCP region/location token (letters, digits, and internal hyphens), e.g. 'us-central1'.",

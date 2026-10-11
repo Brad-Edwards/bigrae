@@ -28,6 +28,7 @@ from collections.abc import Mapping
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
 
 from .capacity_profiles_gcp import CapacityProfileId, resolve_capacity_profile
 from .gcp_model_broker import GcpModelBrokerSettings
@@ -118,6 +119,14 @@ class GcpBackendSettings(BaseModel):
         ),
     )
 
+    range_telemetry: GcpRangeTelemetryPolicy = Field(
+        default_factory=GcpRangeTelemetryPolicy,
+        description=(
+            "Range audit telemetry (#2535): VPC Flow Logs on range subnets, Cloud NAT logging on range "
+            "egress, and Vertex AI Data Access audit logs. Every control is on by default; an explicit "
+            "change reduces coverage and cost as documented in docs/dev/gcp-range-cell-deploy.md."
+        ),
+    )
     model_broker: GcpModelBrokerSettings = Field(default_factory=GcpModelBrokerSettings)
     model_broker_runtime: ModelBrokerRuntimeSettings | None = None
 

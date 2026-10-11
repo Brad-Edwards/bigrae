@@ -236,10 +236,10 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
-    "reason": "CKV_GCP_46 / CKV_GCP_49 on google_project_iam_member.default_compute_cloud_build in gcp/modules/platform-core/main.tf: the gen1 Identity Platform beforeCreate blocking function is built by Cloud Build, which runs as the GCP project default compute service account. New projects no longer auto-grant Editor to default SAs, so the build fails reading its gcf-sources bucket unless granted roles/cloudbuild.builds.builder explicitly. CKV_GCP_46 (default SA at project level) and CKV_GCP_49 (a role with actAs) are both intrinsic to giving Cloud Build the minimal build-worker role; the binding is gated on enable_identity_blocking_function (off where org policy forbids the allUsers invoker the function needs) and confers no SA management beyond the Cloud Build agent. Inline checkov:skip comments on the resource point back to this entry (#615).",
+    "reason": "CKV_GCP_46 / CKV_GCP_49 on google_project_iam_member.default_compute_cloud_build in gcp/modules/portal/identity-platform/main.tf: the gen1 Identity Platform beforeCreate blocking function is built by Cloud Build, which runs as the GCP project default compute service account. New projects no longer auto-grant Editor to default SAs, so the build fails reading its gcf-sources bucket unless granted roles/cloudbuild.builds.builder explicitly. CKV_GCP_46 (default SA at project level) and CKV_GCP_49 (a role with actAs) are both intrinsic to giving Cloud Build the minimal build-worker role; the binding is gated on enable_identity_blocking_function (off where org policy forbids the allUsers invoker the function needs) and confers no SA management beyond the Cloud Build agent. Inline checkov:skip comments on the resource point back to this entry (#615).",
     "expires_on": "2026-11-26",
     "paths": [
-      "platform/terraform/gcp/modules/platform-core/main.tf"
+      "platform/terraform/gcp/modules/portal/identity-platform/main.tf"
     ]
   },
   {

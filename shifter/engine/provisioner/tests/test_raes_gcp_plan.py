@@ -923,3 +923,37 @@ class TestRangeOwnedNat:
         assert "router_nat" not in plan
         assert plan["shared_nat"]["router_name"] == "shifter-ranges-nat-router"
         assert plan["shared_nat"]["subnetwork_self_links"] == [subnet["self_link"] for subnet in plan["subnets"]]
+
+
+class TestRangeAuditTelemetry:
+    """The RAES plan path carries the same subnet and NAT logging policy (#2535)."""
+
+    def test_plan_carries_the_operator_telemetry_policy(self):
+        import dataclasses
+
+        from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
+
+        config = dataclasses.replace(
+            _config(),
+            range_telemetry=GcpRangeTelemetryPolicy.model_validate({"nat_logs": {"enabled": False}}),
+        )
+
+        plan = build_raes_range_cell_plan("req-1", 7, _plan((_node(),), (_network(),)), _resolver(), config)
+
+        assert plan["telemetry"]["nat_logs"] == {"enabled": False, "filter": "ALL"}
+        assert plan["telemetry"]["vpc_flow_logs"]["enabled"] is True
+
+    def test_none_range_logs_flows_without_gaining_a_nat_path(self):
+        from gcp_range_cell_resources import subnetwork_resource
+
+        plan = build_raes_range_cell_plan(
+            "req-1",
+            7,
+            _plan((_node(),), (_network(),)),
+            _resolver(),
+            _config(),
+            egress_policy=GceEgressPolicy(mode="none"),
+        )
+
+        assert "router_nat" not in plan and "shared_nat" not in plan
+        assert subnetwork_resource(plan, plan["subnets"][0])["log_config"]["enable"] is True

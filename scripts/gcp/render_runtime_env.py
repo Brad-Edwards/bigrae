@@ -309,32 +309,47 @@ def _openvpn_runtime_values(outputs: dict[str, object]) -> dict[str, str]:
     return values
 
 
-def _mission_control_lease_runtime_values() -> dict[str, str]:
-    """Pass through the validated Mission Control lease policy JSON (issue #27).
+def _policy_json_runtime_values(key: str) -> dict[str, str]:
+    """Pass through one validated operator policy JSON value from the render environment.
 
-    The policy is validated and rendered from ``shifter.yaml`` by
-    ``installation.render.render_mission_control_lease_env`` and exported into this
-    render process's environment by the deploy pipeline (mirroring how the model-access
-    and warm-pool env lines are injected). This producer re-serializes it to canonical
-    compact JSON without rebuilding the policy parser (the shared validator already ran).
-    An absent value is omitted so the Django runtime applies the canonical 30/30/365
-    defaults; a malformed value fails closed rather than shipping an unvalidated policy.
+    The deploy pipeline validates the policy from ``shifter.yaml`` with its shared type
+    (``installation.render``) and exports it into this render process's environment
+    (mirroring how the model-access and warm-pool env lines are injected). This producer
+    re-serializes it to canonical compact JSON without rebuilding the policy parser. An
+    absent value is omitted so the runtime consumer applies its canonical defaults; a
+    present but blank or malformed value fails closed rather than shipping an
+    unvalidated policy.
     """
-    raw = os.environ.get("MISSION_CONTROL_LEASE_POLICY_JSON")
+    raw = os.environ.get(key)
     if raw is None:
-        # Truly unset -> omit so the Django runtime applies the canonical defaults.
         return {}
     stripped = raw.strip()
     if not stripped:
         # Present but blank is a broken deployment substitution, not an omission.
-        raise ValueError("MISSION_CONTROL_LEASE_POLICY_JSON is present but blank")
+        raise ValueError(f"{key} is present but blank")
     try:
         parsed = json.loads(stripped)
     except json.JSONDecodeError as exc:
-        raise ValueError("MISSION_CONTROL_LEASE_POLICY_JSON must be valid JSON") from exc
+        raise ValueError(f"{key} must be valid JSON") from exc
     if not isinstance(parsed, dict):
-        raise ValueError("MISSION_CONTROL_LEASE_POLICY_JSON must be a JSON object")
-    return {"MISSION_CONTROL_LEASE_POLICY_JSON": json.dumps(parsed, separators=(",", ":"), sort_keys=True)}
+        raise ValueError(f"{key} must be a JSON object")
+    return {key: json.dumps(parsed, separators=(",", ":"), sort_keys=True)}
+
+
+def _mission_control_lease_runtime_values() -> dict[str, str]:
+    """Pass through the validated Mission Control lease policy JSON (issue #27).
+
+    Absent -> the Django runtime applies the canonical 30/30/365 defaults.
+    """
+    return _policy_json_runtime_values("MISSION_CONTROL_LEASE_POLICY_JSON")
+
+
+def _range_telemetry_runtime_values() -> dict[str, str]:
+    """Pass through the validated GCP range telemetry policy JSON (issue #2535).
+
+    Absent -> the provisioner applies the default-on policy.
+    """
+    return _policy_json_runtime_values("GCP_RANGE_TELEMETRY_POLICY_JSON")
 
 
 def _validated_engine_digest(engine_image_digest: str) -> str:
@@ -590,6 +605,7 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
     values.update(_model_access_runtime_values())
     values.update(_openvpn_runtime_values(outputs))
     values.update(_mission_control_lease_runtime_values())
+    values.update(_range_telemetry_runtime_values())
     # These references originate in the same validated shifter.yaml map that
     # drives per-secret Terraform IAM. Apply them last so a process-local env
     # override cannot decouple runtime lookup from its exact IAM grant.

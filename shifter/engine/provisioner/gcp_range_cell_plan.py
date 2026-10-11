@@ -6,6 +6,7 @@ import ipaddress
 from dataclasses import replace
 from typing import cast
 
+from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
 from shared.range_cells import RangeCellContractError, validate_gcp_vm_range_cell_request
 
 from config import GCERangeCellConfig, load_gce_range_cell_config
@@ -30,6 +31,7 @@ from gcp_range_cell_types import (
     InstancePlan,
     NetworkPlan,
     RangeCellPlan,
+    RangeTelemetryPlan,
     ResourceDict,
     RouterNatPlan,
     ScenarioInstance,
@@ -48,8 +50,14 @@ __all__ = [
     "ResourceDict",
     "ScenarioInstance",
     "SubnetPlan",
+    "range_telemetry_plan",
     "render_range_cell_plan",
 ]
+
+
+def range_telemetry_plan(policy: GcpRangeTelemetryPolicy) -> RangeTelemetryPlan:
+    """Project the operator telemetry policy into the plan's subnet and NAT logging (#2535)."""
+    return cast(RangeTelemetryPlan, policy.model_dump(mode="json", include={"vpc_flow_logs", "nat_logs"}))
 
 
 def _resource_dicts(value: object) -> list[ResourceDict]:
@@ -225,6 +233,7 @@ def render_range_cell_plan(
             "name": network_name,
             "self_link": network_link,
         },
+        "telemetry": range_telemetry_plan(resolved_config.range_telemetry),
         "manage_network": manage_network,
         "subnets": subnet_plans,
         "instances": instance_plans,
