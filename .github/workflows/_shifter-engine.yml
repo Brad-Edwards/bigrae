@@ -37,8 +37,6 @@ on:
         required: true
       AWS_ROLE_ARN_DEV:
         required: true
-      AWS_ROLE_ARN_PROOF:
-        required: false
 
 env:
   AWS_REGION: us-east-2
@@ -115,17 +113,12 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
             dev)
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
-              ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
               ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
@@ -205,17 +198,12 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
             dev)
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
-              ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
               ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"

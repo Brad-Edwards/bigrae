@@ -3539,7 +3539,6 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             set(ADR_GUARD.HELM_VALUES_FILES),
             {
                 "platform/charts/shifter/values-aws-dev.yaml",
-                "platform/charts/shifter/values-aws-proof.yaml",
                 "platform/charts/shifter/values-aws-prod.yaml",
                 "platform/charts/shifter/values-gcp-dev.yaml",
                 "platform/charts/shifter/values-gcp-prod.yaml",

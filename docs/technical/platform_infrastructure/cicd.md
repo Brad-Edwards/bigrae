@@ -48,8 +48,7 @@ push and pull_request run validation only (#730).
 - Pull request → Quality only
 - Push to `dev` / `main` → Quality only; no deploy
 - Manual dispatch `environment=aws-dev` → AWS dev deploy
-- Manual dispatch `environment=aws-proof` → AWS proof deploy
-- Manual dispatch `environment=<gcp-dev|nazgul|orthanc|sauron|balrog>` → selected GCP deploy
+- Manual dispatch `environment=<gcp-dev|orthanc|sauron|balrog>` → selected GCP deploy
 
 Run a deploy with `gh workflow run deploy.yml --ref <branch> -f environment=<env>`.
 
@@ -73,7 +72,7 @@ AWS roles defined in `platform/terraform/global/iam/github-oidc.tf`. GCP WIF con
 ## GCP Current State
 
 GCP deploys through CI/CD via a manual `workflow_dispatch` with an allowlisted
-GCP environment (`gh workflow run deploy.yml --ref <branch> -f environment=<gcp-dev|nazgul|orthanc|sauron|balrog>`). Branch names
+GCP environment (`gh workflow run deploy.yml --ref <branch> -f environment=<gcp-dev|orthanc|sauron|balrog>`). Branch names
 no longer trigger deploys; `dev`/`main` are Quality-only integration branches (#730).
 The selected deployment Environment and the purpose-scoped
 `gcp-release-scan-<deployment suffix>` Environment provide their own exact WIF

@@ -226,6 +226,7 @@ module "portal_gcs" {
   common_labels                 = local.common_labels
   public_hostname               = local.normalized_public_hostname
   enable_gcs_usage_log_delivery = var.enable_gcs_usage_log_delivery
+  force_destroy                 = var.gcs_force_destroy
 
   depends_on = [module.project_services]
 }
