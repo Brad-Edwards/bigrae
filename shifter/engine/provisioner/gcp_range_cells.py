@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 
 from config import GCE_BOOTSTRAP_PRECONFIGURED_MACHINE_HOST, GCERangeCellConfig, load_gce_range_cell_config
 from gcp_range_cell_clients import GCEClients, _build_clients
@@ -120,8 +120,9 @@ def _converge_router_nat_log_config(plan: RangeCellPlan, clients: GCEClients, na
     """
     desired = nat_log_config(plan)
     nat_name = plan["router_nat"]["nat_name"]
-    gateways = provider_field(existing, "nats") or ()
-    gateway = next((item for item in gateways if provider_field(item, "name") == nat_name), None)
+    gateways = provider_field(existing, "nats")
+    items = gateways if isinstance(gateways, Iterable) and not isinstance(gateways, str | bytes | Mapping) else ()
+    gateway = next((item for item in items if provider_field(item, "name") == nat_name), None)
     if gateway is not None and log_config_matches(provider_field(gateway, "log_config"), desired):
         return
     logger.info("GCE range router/NAT logging drift; patching name_fp=%s", safe_log_fingerprint(name))
