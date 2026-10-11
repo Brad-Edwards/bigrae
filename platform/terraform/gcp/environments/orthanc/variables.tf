@@ -485,3 +485,9 @@ variable "vpn_pool_cpu_target_pct" {
   type        = number
   default     = 30
 }
+
+variable "gcs_force_destroy" {
+  description = "Allow terraform destroy to empty and delete the assets and audit-logs buckets. Default false; the GCP destroy workflow renders this true so teardown can remove the versioned, populated buckets. Must be declared here and wired to module.platform_core or the destroy override is an undeclared-variable no-op and teardown fails with 'Error trying to delete bucket ... without force_destroy set to true'."
+  type        = bool
+  default     = false
+}
