@@ -134,10 +134,6 @@ jobs:
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
               ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
-              ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
               ROLE_ARN="$AWS_ROLE_ARN_PROD"
@@ -285,10 +281,6 @@ jobs:
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
               ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
-              ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
               ROLE_ARN="$AWS_ROLE_ARN_PROD"
@@ -334,10 +326,6 @@ jobs:
               PORTAL_SECRET_NAME="TF_VARS_DEV_PORTAL"
               TF_VARS_PORTAL="${TF_VARS_DEV_PORTAL}"
               ;;
-            proof)
-              PORTAL_SECRET_NAME="TF_VARS_PROOF_PORTAL"
-              TF_VARS_PORTAL="${TF_VARS_PROOF_PORTAL}"
-              ;;
             prod)
               PORTAL_SECRET_NAME="TF_VARS_PROD_PORTAL"
               TF_VARS_PORTAL="${TF_VARS_PROD_PORTAL}"
@@ -366,10 +354,6 @@ jobs:
             dev)
               CONFIG_SECRET_NAME="SHIFTER_CONFIG_DEV_RANGE"
               ACTIVE_SHIFTER_CONFIG="${SHIFTER_CONFIG_DEV_RANGE}"
-              ;;
-            proof)
-              CONFIG_SECRET_NAME="SHIFTER_CONFIG_PROOF_RANGE"
-              ACTIVE_SHIFTER_CONFIG="${SHIFTER_CONFIG_PROOF_RANGE}"
               ;;
             prod)
               CONFIG_SECRET_NAME="SHIFTER_CONFIG_PROD_RANGE"
@@ -410,10 +394,6 @@ jobs:
             dev)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_DEV"
               STATE_BUCKET="${TF_INFRA_STATE_BUCKET_DEV}"
-              ;;
-            proof)
-              BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_PROOF"
-              STATE_BUCKET="${TF_INFRA_STATE_BUCKET_PROOF}"
               ;;
             prod)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET"
@@ -515,10 +495,6 @@ jobs:
             dev)
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
-              ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
               ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
@@ -649,7 +625,6 @@ jobs:
         run: |
           case "$ENVIRONMENT" in
             dev) ROLE_ARN="$AWS_ROLE_ARN_DEV" ;;
-            proof) ROLE_ARN="$AWS_ROLE_ARN_PROOF" ;;
             prod) ROLE_ARN="$AWS_ROLE_ARN_PROD" ;;
             *) echo "::error::Unsupported AWS environment: $ENVIRONMENT"; exit 1 ;;
           esac
@@ -680,10 +655,6 @@ jobs:
             dev)
               STATE_BUCKET="$TF_INFRA_STATE_BUCKET_DEV"
               EKS_INPUTS="$TF_VARS_DEV_EKS"
-              ;;
-            proof)
-              STATE_BUCKET="$TF_INFRA_STATE_BUCKET_PROOF"
-              EKS_INPUTS="$TF_VARS_PROOF_EKS"
               ;;
             prod)
               STATE_BUCKET="$TF_INFRA_STATE_BUCKET_PROD"
@@ -716,7 +687,6 @@ jobs:
           set -euo pipefail
           case "$ENVIRONMENT" in
             dev) ROOT_CONFIG="$SHIFTER_CONFIG_DEV" ;;
-            proof) ROOT_CONFIG="$SHIFTER_CONFIG_PROOF" ;;
             prod) ROOT_CONFIG="$SHIFTER_CONFIG_PROD" ;;
           esac
           if [ -z "$ROOT_CONFIG" ]; then

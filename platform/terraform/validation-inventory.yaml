@@ -69,33 +69,6 @@ roots:
     toolchain: aws-1.13.3
     providers:
       - registry.terraform.io/hashicorp/aws
-  - id: aws-proof-core
-    path: platform/terraform/environments/proof
-    owner: "@Brad-Edwards"
-    toolchain: aws-1.13.3
-    providers:
-      - registry.terraform.io/hashicorp/aws
-  - id: aws-proof-eks
-    path: platform/terraform/environments/proof/eks
-    owner: "@Brad-Edwards"
-    toolchain: aws-1.13.3
-    providers:
-      - registry.terraform.io/hashicorp/aws
-      - registry.terraform.io/hashicorp/random
-  - id: aws-proof-portal
-    path: platform/terraform/environments/proof/portal
-    owner: "@Brad-Edwards"
-    toolchain: aws-1.13.3
-    providers:
-      - registry.terraform.io/hashicorp/archive
-      - registry.terraform.io/hashicorp/aws
-      - registry.terraform.io/hashicorp/random
-  - id: aws-proof-range
-    path: platform/terraform/environments/proof/range
-    owner: "@Brad-Edwards"
-    toolchain: aws-1.13.3
-    providers:
-      - registry.terraform.io/hashicorp/aws
   - id: aws-prod-core
     path: platform/terraform/environments/prod
     owner: "@Brad-Edwards"
@@ -125,15 +98,6 @@ roots:
       - registry.terraform.io/hashicorp/aws
   - id: gcp-dev
     path: platform/terraform/gcp/environments/gcp-dev
-    owner: "@Brad-Edwards"
-    toolchain: gcp-1.16.1
-    providers:
-      - registry.terraform.io/hashicorp/archive
-      - registry.terraform.io/hashicorp/google
-      - registry.terraform.io/hashicorp/google-beta
-      - registry.terraform.io/hashicorp/random
-  - id: nazgul
-    path: platform/terraform/gcp/environments/nazgul
     owner: "@Brad-Edwards"
     toolchain: gcp-1.16.1
     providers:

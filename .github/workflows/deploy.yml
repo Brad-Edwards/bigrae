@@ -14,9 +14,7 @@ on:
         type: choice
         options:
           - aws-dev
-          - aws-proof
           - gcp-dev
-          - nazgul
           - orthanc
           - sauron
           - balrog
@@ -264,14 +262,7 @@ jobs:
                 RUN_AWS="true"
                 APPLY_AWS="true"
                 ;;
-              aws-proof)
-                AWS_ENV="proof"
-                AWS_IS_DEV="false"
-                AWS_GITHUB_ENV="aws-proof"
-                RUN_AWS="true"
-                APPLY_AWS="true"
-                ;;
-              gcp-dev|nazgul|orthanc|sauron|balrog)
+              gcp-dev|orthanc|sauron|balrog)
                 GCP_ENV="$ENVIRONMENT"
                 GCP_GITHUB_ENV="$ENVIRONMENT"
                 GCP_RELEASE_SCAN_GITHUB_ENV="gcp-release-scan-${ENVIRONMENT#gcp-}"
@@ -699,7 +690,6 @@ jobs:
       eks_enabled: >-
         ${{
           (needs.changes.outputs.aws_environment == 'dev' && vars.AWS_EKS_DEV_ENABLED == 'true') ||
-          (needs.changes.outputs.aws_environment == 'proof' && vars.AWS_EKS_PROOF_ENABLED == 'true') ||
           (needs.changes.outputs.aws_environment == 'prod' && vars.AWS_EKS_PROD_ENABLED == 'true')
         }}
     secrets:

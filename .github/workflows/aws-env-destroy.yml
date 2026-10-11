@@ -26,7 +26,6 @@ on:
         type: choice
         options:
           - aws-dev
-          - aws-proof
       confirm:
         description: Type DESTROY to confirm teardown of the selected environment.
         required: true
@@ -72,7 +71,6 @@ jobs:
         run: |
           case "${ENVIRONMENT}" in
             aws-dev)   echo "tf_env=dev"   >> "$GITHUB_OUTPUT" ;;
-            aws-proof) echo "tf_env=proof" >> "$GITHUB_OUTPUT" ;;
             *) echo "::error::Unsupported environment: ${ENVIRONMENT}"; exit 1 ;;
           esac
 
@@ -94,10 +92,6 @@ jobs:
             dev)
               ROLE_ARN="${AWS_ROLE_ARN_DEV}"; ROLE_SECRET="AWS_ROLE_ARN_DEV"
               STATE_BUCKET="${TF_INFRA_STATE_BUCKET_DEV}"; BUCKET_SECRET="TF_INFRA_STATE_BUCKET_DEV"
-              ;;
-            proof)
-              ROLE_ARN="${AWS_ROLE_ARN_PROOF}"; ROLE_SECRET="AWS_ROLE_ARN_PROOF"
-              STATE_BUCKET="${TF_INFRA_STATE_BUCKET_PROOF}"; BUCKET_SECRET="TF_INFRA_STATE_BUCKET_PROOF"
               ;;
             *)
               echo "::error::Unsupported Terraform environment: ${TF_ENV}"; exit 1 ;;
@@ -167,10 +161,6 @@ jobs:
             dev)
               CORE="${TF_VARS_DEV_CORE}"; RANGE="${TF_VARS_DEV_RANGE}"
               PORTAL="${TF_VARS_DEV_PORTAL}"; EKS="${TF_VARS_DEV_EKS}"; UP="DEV"
-              ;;
-            proof)
-              CORE="${TF_VARS_PROOF_CORE}"; RANGE="${TF_VARS_PROOF_RANGE}"
-              PORTAL="${TF_VARS_PROOF_PORTAL}"; EKS="${TF_VARS_PROOF_EKS}"; UP="PROOF"
               ;;
             *)
               echo "::error::Unsupported Terraform environment: ${TF_ENV}"; exit 1 ;;

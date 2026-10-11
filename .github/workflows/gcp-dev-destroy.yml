@@ -1,7 +1,7 @@
 name: GCP Environment Destroy
 
 # Manually-dispatched teardown of a GCP tenant's platform-core Terraform stack.
-# The `environment` input selects the tenant (gcp-dev/nazgul/orthanc/sauron/balrog); the
+# The `environment` input selects the tenant (gcp-dev/orthanc/sauron/balrog); the
 # TF root, state prefix, and destroy GitHub Environment are all derived from it.
 # Authenticates with the tenant's destroy Workload Identity Federation identity
 # (env-scoped to `<environment>-destroy`), so no local credentials are needed.
@@ -33,7 +33,6 @@ on:
         type: choice
         options:
           - gcp-dev
-          - nazgul
           - orthanc
           - sauron
           - balrog

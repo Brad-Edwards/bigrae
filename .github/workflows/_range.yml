@@ -102,10 +102,6 @@ jobs:
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
               ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
-              ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
               ROLE_ARN="$AWS_ROLE_ARN_PROD"
@@ -147,10 +143,6 @@ jobs:
               RANGE_SECRET_NAME="TF_VARS_DEV_RANGE"
               TF_VARS_RANGE="${TF_VARS_DEV_RANGE}"
               ;;
-            proof)
-              RANGE_SECRET_NAME="TF_VARS_PROOF_RANGE"
-              TF_VARS_RANGE="${TF_VARS_PROOF_RANGE}"
-              ;;
             prod)
               RANGE_SECRET_NAME="TF_VARS_PROD_RANGE"
               TF_VARS_RANGE="${TF_VARS_PROD_RANGE}"
@@ -179,10 +171,6 @@ jobs:
             dev)
               CONFIG_SECRET_NAME="SHIFTER_CONFIG_DEV_RANGE"
               ACTIVE_SHIFTER_CONFIG="${SHIFTER_CONFIG_DEV_RANGE}"
-              ;;
-            proof)
-              CONFIG_SECRET_NAME="SHIFTER_CONFIG_PROOF_RANGE"
-              ACTIVE_SHIFTER_CONFIG="${SHIFTER_CONFIG_PROOF_RANGE}"
               ;;
             prod)
               CONFIG_SECRET_NAME="SHIFTER_CONFIG_PROD_RANGE"
@@ -222,10 +210,6 @@ jobs:
             dev)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_DEV"
               STATE_BUCKET="${TF_INFRA_STATE_BUCKET_DEV}"
-              ;;
-            proof)
-              BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_PROOF"
-              STATE_BUCKET="${TF_INFRA_STATE_BUCKET_PROOF}"
               ;;
             prod)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET"
@@ -296,10 +280,6 @@ jobs:
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
               ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
-              ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
               ROLE_ARN="$AWS_ROLE_ARN_PROD"
@@ -337,10 +317,6 @@ jobs:
               RANGE_SECRET_NAME="TF_VARS_DEV_RANGE"
               TF_VARS_RANGE="${TF_VARS_DEV_RANGE}"
               ;;
-            proof)
-              RANGE_SECRET_NAME="TF_VARS_PROOF_RANGE"
-              TF_VARS_RANGE="${TF_VARS_PROOF_RANGE}"
-              ;;
             prod)
               RANGE_SECRET_NAME="TF_VARS_PROD_RANGE"
               TF_VARS_RANGE="${TF_VARS_PROD_RANGE}"
@@ -369,10 +345,6 @@ jobs:
             dev)
               CONFIG_SECRET_NAME="SHIFTER_CONFIG_DEV_RANGE"
               ACTIVE_SHIFTER_CONFIG="${SHIFTER_CONFIG_DEV_RANGE}"
-              ;;
-            proof)
-              CONFIG_SECRET_NAME="SHIFTER_CONFIG_PROOF_RANGE"
-              ACTIVE_SHIFTER_CONFIG="${SHIFTER_CONFIG_PROOF_RANGE}"
               ;;
             prod)
               CONFIG_SECRET_NAME="SHIFTER_CONFIG_PROD_RANGE"
@@ -412,10 +384,6 @@ jobs:
             dev)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_DEV"
               STATE_BUCKET="${TF_INFRA_STATE_BUCKET_DEV}"
-              ;;
-            proof)
-              BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_PROOF"
-              STATE_BUCKET="${TF_INFRA_STATE_BUCKET_PROOF}"
               ;;
             prod)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET"

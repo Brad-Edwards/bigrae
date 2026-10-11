@@ -84,10 +84,6 @@ jobs:
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
               ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
-              ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
               ROLE_ARN="$AWS_ROLE_ARN_PROD"
@@ -125,10 +121,6 @@ jobs:
               CORE_SECRET_NAME="TF_VARS_DEV_CORE"
               TF_VARS_CORE="${TF_VARS_DEV_CORE}"
               ;;
-            proof)
-              CORE_SECRET_NAME="TF_VARS_PROOF_CORE"
-              TF_VARS_CORE="${TF_VARS_PROOF_CORE}"
-              ;;
             prod)
               CORE_SECRET_NAME="TF_VARS_PROD_CORE"
               TF_VARS_CORE="${TF_VARS_PROD_CORE}"
@@ -157,10 +149,6 @@ jobs:
             dev)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_DEV"
               STATE_BUCKET="${TF_INFRA_STATE_BUCKET_DEV}"
-              ;;
-            proof)
-              BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_PROOF"
-              STATE_BUCKET="${TF_INFRA_STATE_BUCKET_PROOF}"
               ;;
             prod)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET"
@@ -232,10 +220,6 @@ jobs:
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
               ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
-              ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
               ROLE_ARN="$AWS_ROLE_ARN_PROD"
@@ -271,10 +255,6 @@ jobs:
               CORE_SECRET_NAME="TF_VARS_DEV_CORE"
               TF_VARS_CORE="${TF_VARS_DEV_CORE}"
               ;;
-            proof)
-              CORE_SECRET_NAME="TF_VARS_PROOF_CORE"
-              TF_VARS_CORE="${TF_VARS_PROOF_CORE}"
-              ;;
             prod)
               CORE_SECRET_NAME="TF_VARS_PROD_CORE"
               TF_VARS_CORE="${TF_VARS_PROD_CORE}"
@@ -303,10 +283,6 @@ jobs:
             dev)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_DEV"
               STATE_BUCKET="${TF_INFRA_STATE_BUCKET_DEV}"
-              ;;
-            proof)
-              BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_PROOF"
-              STATE_BUCKET="${TF_INFRA_STATE_BUCKET_PROOF}"
               ;;
             prod)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET"

@@ -30,7 +30,6 @@ on:
         type: choice
         options:
           - gcp-dev
-          - nazgul
           - orthanc
           - sauron
           - balrog

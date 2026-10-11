@@ -20,7 +20,6 @@ on:
         type: choice
         options:
           - dev
-          - proof
         default: dev
       ref:
         description: 'Branch to build from'
@@ -131,10 +130,6 @@ jobs:
               ROLE_SECRET_NAME="AWS_IMAGE_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_IMAGE_ROLE_ARN_DEV"
               ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_IMAGE_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_IMAGE_ROLE_ARN_PROOF"
-              ;;
             *)
               echo "::error::Unsupported AWS environment: $ENVIRONMENT"
               exit 1
@@ -206,10 +201,6 @@ jobs:
             dev)
               BUILD_VPC_ID="$BUILD_VPC_ID_DEV"
               BUILD_SUBNET_ID="$BUILD_SUBNET_ID_DEV"
-              ;;
-            proof)
-              BUILD_VPC_ID="$BUILD_VPC_ID_PROOF"
-              BUILD_SUBNET_ID="$BUILD_SUBNET_ID_PROOF"
               ;;
             *)
               echo "::error::unsupported environment '${ENVIRONMENT}' for base-image build"
@@ -305,11 +296,6 @@ jobs:
               VERIFY_SUBNET_ID="$VERIFY_SUBNET_ID_DEV"
               VERIFY_SECURITY_GROUP_ID="$VERIFY_SG_ID_DEV"
               VERIFY_INSTANCE_PROFILE="$VERIFY_INSTANCE_PROFILE_DEV"
-              ;;
-            proof)
-              VERIFY_SUBNET_ID="$VERIFY_SUBNET_ID_PROOF"
-              VERIFY_SECURITY_GROUP_ID="$VERIFY_SG_ID_PROOF"
-              VERIFY_INSTANCE_PROFILE="$VERIFY_INSTANCE_PROFILE_PROOF"
               ;;
             *)
               echo "::error::unsupported environment '${ENVIRONMENT}' for base-image validation"
