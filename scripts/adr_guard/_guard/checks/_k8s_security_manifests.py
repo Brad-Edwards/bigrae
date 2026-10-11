@@ -22,7 +22,6 @@ HELM_CHART_DIR = "platform/charts/shifter"
 # set for chart-rendered security-context validation.
 HELM_VALUES_FILES = (
     "platform/charts/shifter/values-aws-dev.yaml",
-    "platform/charts/shifter/values-aws-proof.yaml",
     "platform/charts/shifter/values-aws-prod.yaml",
     "platform/charts/shifter/values-gcp-dev.yaml",
     "platform/charts/shifter/values-gcp-prod.yaml",
