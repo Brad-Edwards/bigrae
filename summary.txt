@@ -1,0 +1,484 @@
+SHIFTER CTF SETUP — WORK SUMMARY
+Tenant: orthanc (GCP project prod-lk3ssb). Date: 2026-10-07.
+Shared participant password (all events/seats): Copper-Falcon-Harbor-42
+
+================================================================
+1. TechVault CTF
+================================================================
+- Event id: c2a68599-7dec-4bf4-8612-619d4b1fa6b5 (status: active)
+- Scenario: pack-e03f364c73155f7e8df26f9a8df1c718
+- Window: now -> Oct 9 23:59 America/New_York
+- Seats (18): range1 .. range18
+- All 18 ranges provisioned to READY; labs converge to 28/28 containers.
+
+Vertex model-access bug (found + fixed on all 18 ranges):
+- The image's techvault-metadata.sh builds /etc/techvault/model-env.sh by
+  curl-ing GCE metadata key `claude-model-env` WITHOUT --fail. Shifter never
+  injects that key, so the 404 HTML page was written into the env file; the
+  red/blue Claude agents sourced garbage and had no Vertex access.
+- Fix (in situ, all ranges 52-69): wrote correct /etc/techvault/model-env.sh
+  (CLAUDE_CODE_USE_VERTEX=1, ANTHROPIC_VERTEX_PROJECT_ID=prod-lk3ssb,
+  CLOUD_ML_REGION=us-east5, models claude-sonnet-4-6 / claude-haiku-4-5) and
+  restarted the red/blue tmux agents without the lab-wipe. Verified VERTEX_OK
+  on every range. Range SA shifterorthanc-range-host already had the Vertex
+  role + cloud-platform scope.
+
+Range18 reset (user request):
+- Destroyed old range (id 64); provisioned fresh range (id 88).
+- Lab converged 28/28; model-env fixed BEFORE agents launched (clean start,
+  no restart, no desktop-window disruption). Both red + blue agents on Vertex,
+  VERTEX_OK confirmed.
+
+Desktop experience note:
+- On RDP login, xfce autostart opens the RED/BLUE agent terminals and the SOC
+  consoles (Wazuh, TheHive, Cortex, Shuffle, MISP) in a browser. Restarting the
+  tmux sessions closes attached terminal windows; range18's earlier live session
+  was restored by relaunching the autostart in the user's X session.
+
+Participant guide (live-only rollout, 2026-10-07):
+- Copied the full-stack APTL step-by-step participant handout to every live
+  range desktop as /home/atomik/Desktop/APTL Participant Guide.md.
+- Added a clickable APTL Participant Guide desktop launcher using XFCE's
+  exo-open.
+- Verified identical guide content, ownership, permissions, launcher target,
+  executable launcher, and installed opener on all 18 ranges (52-63, 65-69,
+  and replacement range 88): 18/18 passed, zero failures.
+- These files are local to the running ranges and will be lost after a range
+  reset or reprovision until the guide is included in the owning image.
+
+================================================================
+2. AI Escape Lab CTF
+================================================================
+- Event id: 3bbb636f-41bd-4e3a-9bca-c8fe172419ac (status: active)
+- Scenario: pack-2d76b7dbea855c34958d820b4c72d0cf
+- Window: now -> Oct 9 23:59 America/New_York
+- Seats (18): airange1 .. airange18
+- 7 challenges cloned in from the QA event (8bf421ab).
+- All 18 ranges READY. Access is a browser SSH terminal into eval-sandbox.
+- Vertex: self-configuring (start-lab.sh uses curl --fail and derives project
+  from instance metadata); NOT affected by the TechVault bug. Verified airange1
+  end-to-end (AEL_VERTEX_OK).
+
+Participant UX fix (rolled to all 18 ranges, ids 70-87):
+- eval-sandbox runs as root; added to /etc/bash.bashrc:
+    export IS_SANDBOX=1
+    alias claude='claude --dangerously-skip-permissions'
+  so the agent runs without per-action approval prompts.
+- Made the briefing agent-discoverable: copied /app/BRIEFING.md to
+  /root/.claude/CLAUDE.md (Claude auto-loads it every session), and added a
+  human tip + agent directive so users can ask the agent to re-show the
+  briefing at any time.
+- Added executable /app/start.sh, which runs:
+    claude --dangerously-skip-permissions
+  The participant shell starts in /app, so users can run ./start.sh.
+- Made the briefing's final line:
+    type `claude --dangerously-skip-permissions` or `./start.sh` to begin.
+- A 2026-10-07 audit found that the earlier IS_SANDBOX and briefing additions
+  had persisted only on range 79. Reapplied the complete UX fix idempotently
+  to all ranges 70-87.
+- Verified all 18 ranges: launcher executable/content, briefing final line,
+  human tip + agent directive, CLAUDE.md copy, fresh-shell IS_SANDBOX=1, and
+  active no-prompt alias all passed (18/18, zero failures).
+
+Challenge numbering:
+- Set order 1-7 and numbered the names:
+    1. Mirror, Mirror   2. Escape the Gym   3. External Data
+    4. Reference Confusion   5. Workload Identity   6. Follow the Secrets
+    7. Steal the Benchmark
+
+================================================================
+3. Earlier QA (AI Escape)
+================================================================
+- Full seven-stage participant happy-path validated on a test range; all seven
+  flags recovered the intended way and matched placement.yaml, confirming the
+  scenario is solvable end to end. Flag submission path confirmed (7/7).
+
+================================================================
+4. Issues filed (OpenRAE/env-packs)
+================================================================
+- #429: AI Escape flag-6 hint is inaccurate (the MongoDB password is not in the
+  k8s secret set; it is only the worker's mounted secret). Flag still solvable.
+- #430: AI Escape eval-sandbox Claude needs IS_SANDBOX=1 + a no-prompt claude
+  alias/wrapper + an agent-discoverable briefing baked into the image (the live
+  fixes above are lost on range reset/reprovision until this is baked).
+
+================================================================
+5. Cleanup / housekeeping
+================================================================
+- Temporary IAP firewalls, fetched SSH keys, and IAP tunnels created for the
+  fixes were removed after each step.
+- In-container fixes (TechVault model-env, AI Escape IS_SANDBOX/alias/CLAUDE.md)
+  live on the running ranges only; a range reset/reprovision reverts them until
+  the image bugs (env-packs #428 family, #430) are baked in.
+
+================================================================
+6. Additional CTFs and APTL seats
+================================================================
+- APTL event 521603c3-2334-4051-81d3-404cab1bd88d:
+  - dhivya-aptl -> range 89
+  - preeti-aptl -> range 90
+  - Both ranges READY with 28/28 containers, participant guide installed,
+    both agent environments on Vertex, and APTL_RANGE_OK verified.
+- AI Escape event c03873bc-295e-4fa1-9749-d30a3932b37c:
+  - dhivya-ai -> range 91
+  - preeti-ai -> range 92
+  - Both ranges READY with IS_SANDBOX, no-prompt Claude alias, executable
+    start.sh, agent-discoverable briefing, and AI_RANGE_OK verified.
+- Original APTL event c2a68599-7dec-4bf4-8612-619d4b1fa6b5 expanded to 24:
+  - range19 -> range 93
+  - range20 -> range 94
+  - range21 -> range 95
+  - range22 -> range 96
+  - range23 -> range 97
+  - range24 -> range 98
+  - All six READY with 28/28 containers, participant guide installed, two
+    agent environments on Vertex, and APTL_RANGE_OK verified.
+- Pull requests:
+  - OpenRAE/env-packs #431: AI Escape participant shell improvements.
+  - PaloAltoNetworks/shifter-scenarios #197: Vertex small-model environment.
+  - Relevant Brad-Edwards/shifter changes were already merged to dev in
+    #2489, #2507, and #2512.
+- `range-users.md` lists the usernames for the expanded APTL event and the
+  original 18-seat AI Escape event.
+
+================================================================
+7. APTL range3 reset and SOC browser credentials
+================================================================
+- Reset `range3` only, as requested:
+  - old range 54 destroyed;
+  - replacement range 99 READY with 28/28 containers;
+  - participant guide installed;
+  - two agent environments on Vertex;
+  - APTL_RANGE_OK verified.
+- Confirmed the participant-guide credentials initially returned HTTP 401 for
+  both TheHive and Cortex.
+- Root cause:
+  - TheHive created `aptl-svc@thehive.local` with a random password;
+  - Cortex created API-only identities and did not create the documented
+    `aptl-svc@cortex.local` browser user.
+- Applied an in-place fix to all 26 active APTL ranges. No ranges were reset:
+  - set the documented TheHive service-user password;
+  - created the documented Cortex browser user where absent and set its
+    documented password;
+  - preserved the existing TheHive and Cortex API keys and integrations;
+  - verified both browser login endpoints returned HTTP 200 on every range.
+
+================================================================
+8. APTL ranges 1-11 selective reset
+================================================================
+- Reset range1 and range3 through range11. Left range2 unchanged on range 53.
+- Replacement assignments:
+  - range1 -> range 109
+  - range3 -> range 102
+  - range4 -> range 103
+  - range5 -> range 104
+  - range6 -> range 105
+  - range7 -> range 106
+  - range8 -> range 100
+  - range9 -> range 101
+  - range10 -> range 107
+  - range11 -> range 108
+- All ten replacements are READY with 28/28 containers.
+- All ten have the participant guide, two Vertex-enabled agent environments,
+  a successful APTL_RANGE_OK model call, and working TheHive and Cortex
+  credentials from the guide.
+
+================================================================
+9. APTL range2 reset and status document
+================================================================
+- Reset `range2` only, as requested:
+  - old range 53 destroyed;
+  - replacement range 110 READY with 28/28 containers;
+  - participant guide installed with the expected SHA-256;
+  - two Claude agent environments use Vertex;
+  - APTL_RANGE_OK model call succeeded;
+  - TheHive and Cortex guide credentials returned HTTP 200.
+- `range-users.md` now records explicit status and live range IDs:
+  - range1 and range12 through range24 are dirty / in use;
+  - range2 through range11 are clean / ready;
+  - AI Escape Room status remains unrecorded.
+- Removed the temporary range110 IAP firewall rule, SSH key, and helper scripts.
+
+================================================================
+10. Original 24-seat APTL teardown
+================================================================
+- Teardown target: TechVault CTF event
+  c2a68599-7dec-4bf4-8612-619d4b1fa6b5 only.
+- All 24 participant ranges are destroyed. The event has zero linked ranges.
+- Provider checks found no matching APTL instances or firewall rules.
+- The first parallel teardown pass left 11 ranges failed because provisioner
+  jobs hit PostgreSQL lock timeouts. Serial retries converged all 11 ranges to
+  DESTROYED with VERIFIED_ABSENT cleanup evidence.
+- The AI Escape Lab event was not included in the teardown.
+- `range-users.md` marks range1 through range24 as torn down.
+
+================================================================
+11. AI Escape range8/range9 reset
+================================================================
+- User requested resets for `airange8` and `airange9` only.
+- Old ranges 86 and 87 were destroyed.
+- Replacements are READY in the portal:
+  - airange8 -> range 117
+  - airange9 -> range 118
+- Both replacements have the briefing, executable launcher, CLAUDE.md,
+  IS_SANDBOX marker, and no-prompt Claude alias.
+- Both replacements passed a real Claude/Vertex request with AI_RANGE_OK.
+- Both replacements report 11/11 containers running.
+- Both accounts retain the shared password, have must_change_password=False,
+  and report READY through the portal.
+- Removed the temporary IAP firewall rule, operator SSH metadata, private key,
+  remote staging files, and local helper files.
+- Status tracker correction:
+  - airange1 through airange20 are dirty except airange8 and airange9, which
+    are clean / ready after reset.
+  - airange21 through airange24 remain clean / ready.
+- Gcloud authentication was restored and stayed active through final cleanup.
+
+================================================================
+12. Original 24-seat AI Escape Lab teardown
+================================================================
+- Teardown target: AI Escape Lab CTF event
+  3bbb636f-41bd-4e3a-9bca-c8fe172419ac only.
+- Destroyed all 24 participant ranges serially to avoid teardown lock
+  contention. All 24 participant links are clear.
+- All 26 range generations associated with the event's live history are
+  DESTROYED with VERIFIED_ABSENT cleanup evidence. The extra two generations
+  are the superseded range8/range9 instances from their earlier resets.
+- Independent GCP checks found no matching instances, disks, firewall rules,
+  subnetworks, routes, addresses, or routers.
+- The separate two-person AI event
+  c03873bc-295e-4fa1-9749-d30a3932b37c was not changed:
+  - dhivya-ai -> range 91, READY
+  - preeti-ai -> range 92, READY
+- `range-users.md` marks airange1 through airange24 as torn down.
+- Gcloud remained authenticated.
+
+================================================================
+13. Production model-credential incident containment (2026-10-07/08)
+================================================================
+- Report: a participant in the four-seat Polaris CTF obtained a real GCP
+  access token through the host metadata responder.
+- Effective IAM was narrower than the reported OAuth scope: the shared range
+  host service account had aiplatform.endpoints.predict plus logging and metric
+  writer roles. The token was still a real production bearer credential.
+- Root cause confirmed:
+  - Polaris exposed the host token endpoint through a responder on port 8081.
+  - AI Escape exposed the same host identity through ai-model-metadata on port
+    988.
+  - TechVault's SOC workstation could reach the real 169.254.169.254 metadata
+    service directly.
+  - Core ADR-064 deliberately attaches one shared model-capable service account
+    when the private model broker is not active. Orthanc's broker is disabled.
+- Emergency containment completed without range resets:
+  - stopped and disabled the Polaris responder and blocked port 8081 on ranges
+    28, 30, 31, and 32;
+  - stopped and disabled the AI Escape responder and blocked port 988 on ranges
+    51, 91, and 92;
+  - blocked Docker access to 169.254.169.254 on TechVault ranges 50, 89, and 90;
+  - disabled shifterorthanc-range-host@prod-lk3ssb.iam.gserviceaccount.com.
+- Emergency containment was reversed at the user's request on 2026-10-08:
+  - re-enabled the shared range-host service account;
+  - re-enabled and started the Polaris responder on ranges 28, 30, 31, and 32,
+    and removed the temporary port-8081 reject rule;
+  - re-enabled and started the AI Escape metadata proxy on ranges 51, 91, and
+    92, and removed the temporary port-988 reject rule;
+  - removed the Docker metadata-service reject rule from TechVault ranges 50,
+    89, and 90.
+- Verified the original token path returns HTTP 200 on all ten affected range
+  hosts. A live Claude request from Polaris returned RESTORE_OK.
+- The original exposure is active again: participants who can reach these
+  metadata paths can obtain the shared service account's bearer token. No VPC
+  Service Controls perimeter has been applied.
+- Cloud Audit Logs returned no records for the service account in the preceding
+  24 hours. Vertex prediction data access can be absent from those logs, so this
+  result does not prove that the exposed token was unused.
+- Temporary IAP firewall rules, local management keys, cluster CA material, and
+  temporary instance SSH metadata were removed after containment.
+- Temporary IAP access, local management keys, and the temporary SSH metadata
+  entry used for restoration were removed after verification.
+
+================================================================
+14. Range 50 and AI Escape Lab QA closure (2026-10-08)
+================================================================
+- Destroyed standalone TechVault range 50. The engine and CMS both report
+  DESTROYED. The associated provisioner job completed successfully.
+- Destroyed AI Escape Lab QA range 51. The engine and CMS both report
+  DESTROYED, and the participant range link is clear.
+- Ended AI Escape Lab QA CTF event
+  8bf421ab-0395-437d-9337-abff8a447af5 through the event lifecycle service.
+- Removed the residual temporary IAP firewall rules for ranges 50 and 51.
+- Independent GCP checks found no matching instances, disks, firewall rules,
+  subnetworks, routes, addresses, or routers for ranges 50 or 51.
+- The scheduled Vertex traffic check at 2026-10-08 01:32:43 UTC reported 0
+  requests in 5 minutes, 0 in 15 minutes, and 2 in 60 minutes. The latest
+  nonzero activity was at 2026-10-08 00:35:43 UTC.
+- Gcloud remained authenticated.
+
+================================================================
+15. New 24-seat APTL and AI Escape Lab CTFs (2026-10-08)
+================================================================
+- Created and activated two new events. Both started immediately and end at
+  2026-10-11 03:59 UTC (Saturday 2026-10-10 23:59 America/New_York):
+  - APTL CTF: 3dcb3e15-bbf8-4d94-a768-ddebba684dae
+  - AI Escape Lab CTF: 19a6dfe5-aa6c-4e58-8ed4-5f2b1c133588
+- Ended the two former destroyed 24-seat events and soft-deleted their
+  temporary participant accounts so the requested usernames could be reused.
+- Added the 48 requested accounts in staged waves instead of starting all
+  ranges at once:
+  - APTL: range1 through range24
+  - AI Escape Lab: airange1 through airange24
+- Verified all 48 accounts use the shared event password, are active, and have
+  must_change_password=False.
+- All 48 participant ranges report READY. The exact username-to-range mapping
+  is recorded in range-users.md.
+- Applied and validated the APTL live preparation on every seat:
+  - installed the participant guide and executable desktop launcher;
+  - installed the Vertex model environment for the red and blue agents;
+  - reran the SOC seed with the dynamically prefixed container names;
+  - set and tested the documented Cortex and TheHive browser credentials;
+  - verified 28 running containers, the red/blue agent environment, and a real
+    Claude request returning APTL_RANGE_OK.
+- Applied and validated the AI Escape Lab preparation on every seat:
+  - set IS_SANDBOX=1 and the no-prompt Claude alias;
+  - installed the executable /app/start.sh launcher;
+  - copied the briefing to /root/.claude/CLAUDE.md and added the briefing
+    reminder;
+  - verified 11 running containers and a real Claude request returning
+    AI_RANGE_OK.
+- The AI event has the seven expected numbered challenges in order. The APTL
+  event has no portal challenges, consistent with the previous APTL event.
+- No code was deployed. All changes were event, account, range, or in-range
+  live configuration changes.
+
+================================================================
+16. APTL live browser, credential, and rule-MCP repair (2026-10-08)
+================================================================
+- Applied the repair to the current 24-seat APTL event and the two-person APTL
+  event. The affected range IDs are 89, 90, 119, 121-126, 133-134, 141-149,
+  and 156-161. No range was reset.
+- Confirmed that the documented TheHive and Cortex accounts were valid on all
+  26 ranges. Each login endpoint returned HTTP 200. The access problem came
+  from browser routing and presentation, not from invalid account passwords.
+- Repaired the Wazuh rule-authoring MCP:
+  - raw XML is now a valid MCP request body;
+  - create_detection_rule uses the Wazuh manager rules-file endpoint;
+  - the tool uses Wazuh JWT authentication and overwrite mode;
+  - the affected MCP child processes were stopped so Claude can reload them.
+- Added a dynamic MISP hostname refresh service and timer. This repairs the
+  redirect to misp.techvault.local after container address changes.
+- Added desktop HTML copies of the participant guide and access information.
+  The browser startup script now opens those two pages plus Wazuh, TheHive,
+  Cortex, Shuffle, and MISP as seven tabs.
+- Validated a real MCP rule create, read, and delete cycle on range 119. The
+  temporary rule was deleted.
+- Final fleet validation passed on all 26 ranges: 28 containers, both login
+  checks, all five browser endpoints, MISP resolution and timer, corrected MCP
+  files, participant guide, and seven browser tabs.
+- Repository fixes were submitted for review:
+  - OpenRAE/lilrae PR 1251
+  - OpenRAE/env-packs PR 432
+- The local post-provisioning runbook now includes these repairs and their
+  acceptance checks.
+- Removed both temporary IAP firewall rules, the temporary private key, tunnel
+  files, rollout scripts, and audit outputs. No APTL IAP tunnel remains.
+- Gcloud authentication remained active after cleanup.
+
+================================================================
+17. AI Escape Lab pre-event readiness check (2026-10-08 16:17 UTC)
+================================================================
+- Checked all 24 seats in AI Escape Lab event
+  19a6dfe5-aa6c-4e58-8ed4-5f2b1c133588.
+- All 24 range virtual machines are RUNNING.
+- Every range has exactly 11 running scenario containers.
+- Every eval-sandbox has the briefing, executable /app/start.sh, IS_SANDBOX=1,
+  the no-prompt Claude alias, the Claude instruction file, and the Claude CLI.
+- Every host metadata token endpoint returned HTTP 200, as required by the
+  current accepted model-access design.
+- A real Claude request on every range returned exactly AI_RANGE_OK.
+- No repair or reset was required.
+- Removed the temporary IAP firewall rule and all audit SSH entries. Preserved
+  the required provisioner SSH entry on every host.
+- Gcloud authentication remained active after cleanup.
+
+================================================================
+18. AI Escape progressive hint repair (2026-10-08)
+================================================================
+- Removed the participant shell hint command, hint alias, and local hint files
+  from all 24 live AI Escape ranges.
+- Removed all shell-hint references from the participant briefing and the
+  Claude instruction copy on every range.
+- Replaced the live portal hints for Flags 3 through 7 with progressive hint
+  sequences. Counts are 4, 3, 3, 3, and 4 respectively. Flags 1 and 2 retain
+  their existing 4 and 2 hints, for 23 total portal hints.
+- Corrected the Flag 6 guidance: the MongoDB password is worker-mounted, not in
+  the synthetic Kubernetes secret response.
+- Added Flag 7 guidance for mesh enrollment, EdDSA key selection, and the
+  separate Authorization and X-Token headers.
+- The event had zero prior hint unlocks when the replacement occurred, so no
+  participant hint history was lost.
+- Verified all 24 ranges have no local hint surfaces, retain the launcher and
+  Claude configuration, and still run 11 containers. A post-change Claude
+  canary returned AI_RANGE_OK.
+- Updated and pushed OpenRAE/env-packs PR 431.
+- Removed all temporary firewall rules, SSH entries, tunnels, and local update
+  files. Gcloud authentication remained active.
+
+================================================================
+19. APTL range 2 red-team Claude tab reload (2026-10-08)
+================================================================
+- Recreated only the missing red tmux session on live range 121 through the
+  existing techvault-agents launcher.
+- Left the attached blue tmux session running.
+- Opened a replacement RED terminal tab in the active XFCE session.
+- Verified the red session is attached and its foreground command is Claude.
+- Did not reset the range.
+- Removed the temporary IAP firewall rule and audit SSH entry. Gcloud remained
+  authenticated.
+- Reloaded only the red-team Claude session and terminal tab on APTL range 4
+  (live range 123). The blue session remained attached. No range reset occurred.
+  Temporary access was removed after verification.
+- Reopened the APTL range 4 RED terminal again. The former red tmux session was
+  absent, so the existing role launcher recreated it. Claude is running and the
+  replacement tab is attached. The blue session was not changed.
+
+================================================================
+20. Current 24-seat lab teardown (2026-10-08)
+================================================================
+- Teardown scope was limited to the current 24-seat events:
+  - APTL CTF: 3dcb3e15-bbf8-4d94-a768-ddebba684dae
+  - AI Escape Lab CTF: 19a6dfe5-aa6c-4e58-8ed4-5f2b1c133588
+- The AI Escape event was already ended when the final teardown audit began.
+  All 31 range generations, including seven replacement generations, report
+  DESTROYED. All 24 participant range links are clear.
+- Destroyed the 24 APTL ranges serially. All 24 report DESTROYED, all
+  participant range links are clear, and the APTL event reports ENDED.
+- Independent GCP checks found no matching instances, disks, firewall rules,
+  subnetworks, routes, addresses, routers, or secrets for range IDs 119 through
+  173.
+- The two-person events were not changed. Ranges 89 through 92 remain READY,
+  and their four VMs remain RUNNING.
+- Updated range-users.md to mark both 24-seat labs as torn down.
+- Gcloud authentication remained active.
+
+================================================================
+21. Orthanc compromise sweep (2026-10-08)
+================================================================
+- Completed a 72-hour review of IAM, audit logs, Compute, networking,
+  GKE, Cloud Asset Inventory, and Security Command Center.
+- Found no evidence of participant compromise of the GCP project or GKE
+  platform. The detailed evidence and limitations are in
+  infra-compromise-sweep-2026-10-08.md.
+- No IAM change occurred during the lab window, no user-managed service-account
+  key exists, and no range-host audit record targets an unexpected service.
+- The range-host custom role contains only aiplatform.endpoints.predict. Its
+  remaining project roles only write logs and metrics.
+- Found 621 active critical vulnerability findings across 14 GKE nodes and six
+  older Arsenal range VMs. All findings are software or OS vulnerability
+  findings; none is a compromise-indicator category.
+- Recorded material visibility gaps: no Vertex Data Access audit records,
+  disabled VPC Flow Logs on range subnets, and disabled range NAT logging.
+- Removed one leftover temporary atomik SSH public-key entry from range 30 and
+  preserved the hostadmin entry.
+- Verified no live Secret Manager secret remains for destroyed ranges 119
+  through 173.
+- Gcloud authentication remained active.
