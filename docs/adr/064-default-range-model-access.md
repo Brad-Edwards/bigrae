@@ -84,3 +84,15 @@ The workload IAM scope guard is unchanged. The range host identity still holds n
 project storage or secret roles; only predict-only model invocation and
 logging/monitoring writes are added, so participant-reachable guests gain no
 project storage, secret, or cross-tenant access.
+
+## Audit telemetry clarification (#2535)
+
+The [GCP range telemetry preflight](../architecture/gcp-range-audit-telemetry-preflight-2535.md)
+records the intended default-on network and Vertex Data Access logging boundary.
+Provider audit configuration belongs to deployment Terraform in the model target
+project; guest subnet/NAT settings belong to their existing infrastructure owner.
+Logging grants no new guest model permission, project IAM authority or log-read
+access, and does not enforce spending or identify a human behind a shared guest
+principal. Cloud Logging routing/retention remains project-operator policy.
+The broker stays parked under ADR-068. This clarification is design guidance;
+rendered configuration and live record evidence remain #2535 delivery work.

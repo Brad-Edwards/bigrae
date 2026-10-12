@@ -49,8 +49,8 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2467 after admitting raes-range activate in the provisioner Job policy.
 # Regenerated for #2480 after admitting the OpenVPN pool env and dropping the 1195 port.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "aaff0969559e2f147710bb9b185522eb440421b5fb6e222ffb0902815818264c",
-    "gcp-prod": "6ea1b4566d1cb8e9392eed18f8895287e5ed68fe7e7096ea17d3a0d2f0770e27",
+    "gcp-dev": "9b5092123c38898b93e2587406112935e52d6203d4f5dae9077795475711198b",
+    "gcp-prod": "f9d3ac2e3f0b29dea78dabf9b42b88370756e7116b62634de49ccb169563fb75",
 }
 
 
@@ -123,12 +123,45 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         _, gcp = _render(VALUES_FILES["gcp-dev"])
         self.assertFalse(any(doc["kind"] == "RuntimeClass" for doc in gcp))
 
+    def test_aws_node_pool_labeler_is_bounded_to_the_pool_label(self) -> None:
+        """#2526: the trusted labeler renders only when enabled and may toggle only the pool label."""
+        _, default = _render(VALUES_FILES["aws-dev"])
+        self.assertFalse(any(_identity(doc)[1] == "node-pool-labeler" for doc in default))
+        node_group = "eks-runtime-plugins-1234-abcd"
+        labeler_role = "arn:aws:iam::123456789012:role/shifter-dev-node-pool-labeler"
+        rendered = _helm(
+            "template", "contract-test", str(CHART_DIR), "-f", str(VALUES_FILES["aws-dev"]),
+            "--set", "runtimePluginPool.labeler.enabled=true",
+            "--set", f"runtimePluginPool.labeler.nodeGroupAsg={node_group}",
+            "--set", f"identity.serviceAccountRoleArns.nodePoolLabeler={labeler_role}",
+            "--set", "runtimeEnv.AWS_REGION=us-east-2",
+            "--set", "network.kubernetesApiCidrs={10.100.0.0/16}",
+        ).stdout
+        docs = {_identity(doc): doc for doc in yaml.safe_load_all(rendered) if isinstance(doc, dict)}
+        account = docs[("ServiceAccount", "node-pool-labeler")]
+        self.assertEqual(account["metadata"]["annotations"], {"eks.amazonaws.com/role-arn": labeler_role})
+        self.assertEqual(docs[("ClusterRole", "shifter-node-pool-labeler")]["rules"], [
+            {"apiGroups": [""], "resources": ["nodes"], "verbs": ["get", "list", "watch", "patch"]},
+        ])
+        policy = docs[("ValidatingAdmissionPolicy", "restrict-node-pool-labeler")]
+        self.assertEqual(policy["spec"]["matchConditions"][0]["expression"],
+                         "request.userInfo.username == 'system:serviceaccount:shifter-platform:node-pool-labeler'")
+        self.assertEqual(docs[("ValidatingAdmissionPolicyBinding", "restrict-node-pool-labeler")]["spec"][
+            "validationActions"], ["Deny"])
+        container = docs[("Deployment", "node-pool-labeler")]["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["command"], ["python", "-m", "shared.cloud.eks_node_pool_labeler"])
+        self.assertIn({"name": "RUNTIME_PLUGIN_NODE_GROUP_ASG", "value": node_group}, container["env"])
+        self.assertIn(("NetworkPolicy", "allow-node-pool-labeler-kubernetes-api-egress"), docs)
+        # GKE applies the pool label itself; the labeler never renders there.
+        _, gcp = _render(VALUES_FILES["gcp-dev"])
+        self.assertFalse(any(_identity(doc)[1] == "node-pool-labeler" for doc in gcp))
+
     def test_chart_has_schema_and_all_backend_profiles(self) -> None:
         schema = json.loads((CHART_DIR / "values.schema.json").read_text())
         self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
         self.assertEqual(
             set(VALUES_FILES),
-            {"aws-dev", "aws-proof", "aws-prod", "gcp-dev", "gcp-prod"},
+            {"aws-dev", "aws-prod", "gcp-dev", "gcp-prod"},
         )
 
     def test_neutral_defaults_have_no_provider_specific_artifacts(self) -> None:
@@ -178,7 +211,7 @@ class BackendNeutralChartContractTests(unittest.TestCase):
             ("ValidatingAdmissionPolicy", "restrict-provisioner-jobs"),
             ("ValidatingAdmissionPolicyBinding", "restrict-provisioner-jobs"),
         }
-        for profile in ("aws-dev", "aws-proof", "aws-prod"):
+        for profile in ("aws-dev", "aws-prod"):
             with self.subTest(profile=profile):
                 rendered, documents = _render(VALUES_FILES[profile])
                 identities = {_identity(document) for document in documents}
@@ -540,7 +573,7 @@ class BackendNeutralChartContractTests(unittest.TestCase):
                     )
 
         # AWS/neutral profiles (gcpAccessNodePool false) never acquire the GCP label.
-        for profile in ("aws-dev", "aws-proof", "aws-prod"):
+        for profile in ("aws-dev", "aws-prod"):
             with self.subTest(profile=profile):
                 _, documents = _render(VALUES_FILES[profile])
                 for dialer in ("portal-web", "guacd"):

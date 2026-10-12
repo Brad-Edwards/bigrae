@@ -463,6 +463,37 @@ jobs:
       - name: Capture Terraform outputs
         working-directory: ${{ env.TF_DIR }}
         run: terraform output -json > /tmp/gcp-terraform-outputs.json
+      - name: Verify range audit telemetry
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_RANGE_CELL_PROJECT_ID: ${{ vars.GCP_RANGE_CELL_PROJECT_ID }}
+        run: |
+          # #2535: read back the VPC flow, Cloud NAT, and Vertex Data Access logging
+          # controls against settings.range_telemetry. A mismatch on a Terraform-owned
+          # resource fails the deploy. Provisioner-owned range resources in the platform
+          # and range-cell projects report drift until they are provisioned again with the
+          # new runtime policy. An operator-disabled control is reported only.
+          set -euo pipefail
+          outputs=/tmp/gcp-terraform-outputs.json
+          range_network="$(jq -r '.range_network_name.value // empty' "${outputs}")"
+          if [ -z "${range_network}" ] || ! jq -e '.range_telemetry_terraform_resources.value' "${outputs}" >/dev/null; then
+            echo "::error::Terraform outputs range_network_name and range_telemetry_terraform_resources are required"
+            exit 1
+          fi
+          args=(
+            --config "${RUNNER_TEMP}/shifter.yaml"
+            --project-id "${GCP_PROJECT_ID}"
+            --range-project-id "${GCP_RANGE_CELL_PROJECT_ID:-${GCP_PROJECT_ID}}"
+            --range-network "${range_network}"
+          )
+          while IFS= read -r name; do
+            args+=(--terraform-subnetwork "${name}")
+          done < <(jq -r '.range_telemetry_terraform_resources.value.subnetworks[]' "${outputs}")
+          while IFS= read -r name; do
+            args+=(--terraform-nat-router "${name}")
+          done < <(jq -r '.range_telemetry_terraform_resources.value.nat_routers[]' "${outputs}")
+          uv run --project "${GITHUB_WORKSPACE}/scripts/gcp" \
+            python scripts/gcp/verify_range_audit_telemetry.py "${args[@]}"
       - name: Configure kubectl for the GKE cluster
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -1028,6 +1059,25 @@ jobs:
             python scripts/gcp/apply_shifter_config_overlay.py --config "${config}"
           uv run --project "${GITHUB_WORKSPACE}/shifter/installation" \
             shifter-config render-mission-control-lease-env "${config}" >> "${GITHUB_ENV}"
+      - name: Render range audit telemetry policy from shifter.yaml
+        env:
+          SHIFTER_CONFIG_GCP_DEV: ${{ secrets.SHIFTER_CONFIG_GCP_DEV }}
+          SHIFTER_CONFIG_OVERLAY_JSON: ${{ vars.SHIFTER_CONFIG_OVERLAY_JSON }}
+        run: |
+          # #2535: project settings.range_telemetry into the runtime env so the
+          # provisioner applies the same subnet and NAT logging policy that the
+          # Terraform bridge applied. render_runtime_env.py reads it from the process env.
+          if [ -z "${SHIFTER_CONFIG_GCP_DEV}" ]; then
+            echo "::error::Required secret SHIFTER_CONFIG_GCP_DEV is not set. See docs/dev/deploy-secrets.md."
+            exit 1
+          fi
+          config="${RUNNER_TEMP}/shifter.yaml"
+          printf '%s\n' "${SHIFTER_CONFIG_GCP_DEV}" > "${config}"
+          chmod 600 "${config}"
+          uv run --project "${GITHUB_WORKSPACE}/scripts/gcp" \
+            python scripts/gcp/apply_shifter_config_overlay.py --config "${config}"
+          uv run --project "${GITHUB_WORKSPACE}/shifter/installation" \
+            shifter-config render-gcp-range-telemetry-env "${config}" >> "${GITHUB_ENV}"
       - name: Render generated runtime env
         env:
           # ENGINE_TASK_IMAGE is pinned to the verified provisioner @sha256

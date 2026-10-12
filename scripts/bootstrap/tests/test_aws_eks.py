@@ -969,6 +969,31 @@ def test_populate_eks_workload_secrets_copies_sources_via_file(monkeypatch):
         assert not any("supersecretvalue12345" in a for a in cmd)
 
 
+def test_runtime_plugin_pool_labeler_follows_the_pool_toggle():
+    """The trusted node-pool labeler (#2526) renders only with the plugin pool's node role."""
+    disabled = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images())
+    assert disabled["runtimePluginPool"] == {"labeler": {"enabled": False, "nodeGroupAsg": ""}}
+    assert "nodePoolLabeler" not in disabled["identity"]["serviceAccountRoleArns"]
+
+    outputs = _terraform_outputs()
+    labeler = "arn:aws:iam::123456789012:role/shifter-dev-node-pool-labeler"
+    node_group = "eks-runtime-plugins-1234-abcd"
+    outputs["workload_role_arns"]["value"]["nodePoolLabeler"] = labeler
+    outputs["runtime_plugin_node_group_asg"] = {"value": node_group}
+    enabled = aws_eks.render_aws_values(_config(), outputs, _images())
+    assert enabled["runtimePluginPool"] == {"labeler": {"enabled": True, "nodeGroupAsg": node_group}}
+    assert enabled["identity"]["serviceAccountRoleArns"]["nodePoolLabeler"] == labeler
+
+    # Exactly one of the identity and the pool role means a misconfigured environment.
+    del outputs["runtime_plugin_node_group_asg"]
+    with pytest.raises(ValueError, match="enabled together"):
+        aws_eks.render_aws_values(_config(), outputs, _images())
+    pool_only = _terraform_outputs()
+    pool_only["runtime_plugin_node_group_asg"] = {"value": node_group}
+    with pytest.raises(ValueError, match="enabled together"):
+        aws_eks.render_aws_values(_config(), pool_only, _images())
+
+
 def test_feature_artifact_acquisition_is_enabled_only_by_the_acquirer_identity(monkeypatch):
     """The artifactAcquirer role enables acquisition Jobs (#2463); without it they stay off."""
     disabled = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images())

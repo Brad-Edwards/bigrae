@@ -53,3 +53,32 @@ variable "dc_dsrm_password" {
   EOT
   default     = ""
 }
+
+variable "winrm_bootstrap_password" {
+  type        = string
+  sensitive   = true
+  description = <<-EOT
+    Windows builds only (windows, dc, dc-prebaked). Throwaway password that the
+    builder's user data sets on the built-in Administrator before WinRM starts,
+    so Packer never calls ec2:GetPasswordData to fetch the AMI's generated
+    password. Generated per build and injected as
+    PKR_VAR_winrm_bootstrap_password; never committed. A Windows build without it
+    fails validation instead of falling back to GetPasswordData.
+  EOT
+  default     = ""
+  validation {
+    condition     = var.winrm_bootstrap_password == "" || can(regex("^[A-Za-z0-9+/=!_-]{16,128}$", var.winrm_bootstrap_password))
+    error_message = "The WinRM bootstrap password must be 16 to 128 characters from A-Z, a-z, 0-9 and +/=!_-."
+  }
+}
+
+variable "dc_content_script" {
+  type        = string
+  description = <<-EOT
+    Optional path to an AD-content seed script staged into the image and run
+    post-promotion by finalize.ps1. It accepts a -DnsForwarder parameter. A
+    scenario supplies its own seed (for example from a profile var-file kept with
+    the scenario); core supplies none, and an empty value bakes a base DC.
+  EOT
+  default     = ""
+}

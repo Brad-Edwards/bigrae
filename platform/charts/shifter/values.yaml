@@ -39,6 +39,23 @@ featureArtifactAcquisition:
   egressCidrs: []
   egressExcept: []
 
+# Trusted runtime-plugin node-pool labeler (AWS EKS, #2526). Applies the
+# node-restriction.kubernetes.io/shifter-pool=runtime-plugin label to nodes in the
+# nodeGroupAsg Auto Scaling group. The AWS renderer enables it with the pool.
+runtimePluginPool:
+  labeler:
+    enabled: false
+    nodeGroupAsg: ""
+    # Measured: the platform package, boto3 and the Kubernetes client take about
+    # 180 MiB resident before the first reconcile pass.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 192Mi
+      limits:
+        cpu: 200m
+        memory: 320Mi
+
 namespaces:
   platform: shifter-platform
   jobs: shifter-jobs

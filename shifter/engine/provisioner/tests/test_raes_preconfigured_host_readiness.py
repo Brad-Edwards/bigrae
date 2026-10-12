@@ -63,3 +63,35 @@ def test_host_canary_failure_blocks_readiness_and_closes_transport(monkeypatch):
     with pytest.raises(SetupError, match="participant readiness"):
         verify_preconfigured_hosts([_host()], execution_builder=lambda *_args, **_kwargs: execution)
     execution.close.assert_called_once()
+
+
+def test_native_ec2_host_is_gated_through_neutral_contract_keys(monkeypatch):
+    """#2527: EC2 outputs carry provider-neutral keys; standard hosts are skipped."""
+    execution = SimpleNamespace(
+        wait_for_ready=MagicMock(return_value=True),
+        executor=MagicMock(),
+        target="10.0.0.2",
+        document_name="shell",
+        close=MagicMock(),
+    )
+    orchestrator = MagicMock()
+    orchestrator.orchestrate.return_value = SimpleNamespace(success=True)
+    monkeypatch.setattr("raes_preconfigured_host_readiness.SetupOrchestrator", lambda **_kwargs: orchestrator)
+    ec2_host = {
+        "asset_type": "ec2_vm",
+        "bootstrap_capability": "preconfigured-machine-host",
+        "participant_container_name": "participant-desktop",
+        "participant_username": "student",
+        "participant_readiness_contract": "participant-readiness/v1",
+        "participant_readiness_manifest_sha256": "b" * 64,
+        "os": "linux",
+    }
+
+    verify_preconfigured_hosts(
+        [ec2_host, {"asset_type": "ec2_vm", "os": "linux"}], execution_builder=lambda *_a, **_k: execution
+    )
+
+    assert orchestrator.orchestrate.call_count == 1
+    context = orchestrator.orchestrate.call_args.args[2]
+    assert context["participant_container_name"] == "participant-desktop"
+    assert context["participant_readiness_manifest_sha256"] == "b" * 64

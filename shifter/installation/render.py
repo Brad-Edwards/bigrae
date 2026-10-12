@@ -38,6 +38,8 @@ from __future__ import annotations
 import json
 from typing import Literal
 
+from shared.gcp_range_telemetry import dump_policy_json
+
 from . import warm_pool
 from .capacity_profiles_gcp import resolve_capacity_profile
 from .errors import ConfigIssue, InstallationConfigError
@@ -102,6 +104,8 @@ def render_tfvars(config: RootConfig) -> str:
         rendered += _hcl_string_map(
             "provisioner_static_secret_refs", {str(key): value for key, value in static_refs.items()}
         )
+        telemetry = gcp_settings.range_telemetry.model_dump(mode="json")
+        rendered += "range_telemetry = " + json.dumps(telemetry, separators=(",", ":"), sort_keys=True) + "\n"
         broker = gcp_settings.model_broker.model_dump(mode="json")
         rendered += "model_broker = " + json.dumps(broker, separators=(",", ":"), sort_keys=True) + "\n"
         capacity = resolve_capacity_profile(gcp_settings.shared_service_capacity_profile)
@@ -249,6 +253,21 @@ def render_model_access_env(config: RootConfig) -> str:
         f"MODEL_ACCESS_CATALOG_PATH={model_access.DEFAULT_CATALOG_PATH}\n"
         f"MODEL_ACCESS_CATALOG_DIGEST={digest}\n"
     )
+
+
+def render_gcp_range_telemetry_env(config: RootConfig) -> str:
+    """Render ``settings.range_telemetry`` as the ``GCP_RANGE_TELEMETRY_POLICY_JSON`` env line (#2535).
+
+    The provisioner parses this value with the same shared policy type, so the subnet and
+    NAT logging it applies match the Terraform ``range_telemetry`` bridge rendered by
+    :func:`render_tfvars` from the same validated block. An omitted block renders the
+    default-on policy. Like the other runtime env renderers this emits exactly one
+    ``KEY=VALUE`` line.
+    """
+    if config.backend != "gcp":
+        raise InstallationConfigError([ConfigIssue("backend", "range telemetry policy is GCP only")])
+    policy = GcpBackendSettings.from_root_settings(config.settings).range_telemetry
+    return f"GCP_RANGE_TELEMETRY_POLICY_JSON={dump_policy_json(policy)}\n"
 
 
 def render_mission_control_lease_env(config: RootConfig) -> str:

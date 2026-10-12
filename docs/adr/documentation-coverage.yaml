@@ -24,6 +24,13 @@
       "technical_docs": ["technical/platform_infrastructure/gcp-event-capacity.md"]
     },
     {
+      "id": "gcp-range-audit-telemetry",
+      "title": "GCP range flow, NAT, and Vertex Data Access logging",
+      "requirement": "GEN-001",
+      "user_docs": ["ops/gcp-range-audit-telemetry.md"],
+      "technical_docs": ["technical/platform_infrastructure/gcp-range-audit-telemetry.md"]
+    },
+    {
       "id": "tenant-artifact-preparation",
       "title": "In-tenant artifact preparation and private adapters",
       "requirement": "GEN-001",

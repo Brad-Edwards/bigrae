@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from installation.settings_gcp import GcpBackendSettings
 
 
-def _settings(**overrides: str | dict[str, str]) -> dict[str, object]:
+def _settings(**overrides: object) -> dict[str, object]:
     return {
         "project_id": "acme-shifter",
         "dynamic_secret_project_id": "acme-range-secrets",
@@ -162,6 +162,49 @@ class TestGcpBundleIntegration:
         with pytest.raises(InstallationConfigError) as excinfo:
             load_root_config(config_path)
         assert any(issue.path == "settings.bogus" for issue in excinfo.value.issues)
+
+    def test_loader_accepts_range_telemetry_overrides(self, write_config):
+        from installation.loader import load_root_config
+
+        telemetry = {
+            "vpc_flow_logs": {"flow_sampling": 0.25, "aggregation_interval": "INTERVAL_1_MIN"},
+            "nat_logs": {"filter": "ERRORS_ONLY"},
+            "vertex_data_access_logs": {"enabled": False},
+        }
+        cfg = load_root_config(write_config(self._gcp_config(_settings(range_telemetry=telemetry))))
+
+        settings = GcpBackendSettings.from_root_settings(cfg.settings)
+        assert settings.range_telemetry.vpc_flow_logs.flow_sampling == 0.25
+        assert settings.range_telemetry.nat_logs.filter == "ERRORS_ONLY"
+        assert settings.range_telemetry.vertex_data_access_logs.enabled is False
+
+    def test_range_telemetry_defaults_on_when_block_is_absent(self, write_config):
+        from installation.loader import load_root_config
+
+        cfg = load_root_config(write_config(self._gcp_config(_settings())))
+
+        telemetry = GcpBackendSettings.from_root_settings(cfg.settings).range_telemetry
+        assert telemetry.vpc_flow_logs.enabled is True
+        assert telemetry.nat_logs.enabled is True
+        assert telemetry.vertex_data_access_logs.enabled is True
+
+    @pytest.mark.parametrize(
+        ("telemetry", "path"),
+        [
+            ({"vpc_flow_logs": {"enabled": "no"}}, "settings.range_telemetry.vpc_flow_logs.enabled"),
+            ({"vpc_flow_logs": {"flow_sampling": 0}}, "settings.range_telemetry.vpc_flow_logs.flow_sampling"),
+            ({"nat_logs": {"filter": "SOME"}}, "settings.range_telemetry.nat_logs.filter"),
+            ({"audit": {}}, "settings.range_telemetry.audit"),
+        ],
+    )
+    def test_loader_rejects_invalid_range_telemetry(self, write_config, telemetry, path):
+        from installation.errors import InstallationConfigError
+        from installation.loader import load_root_config
+
+        config_path = write_config(self._gcp_config(_settings(range_telemetry=telemetry)))
+        with pytest.raises(InstallationConfigError) as excinfo:
+            load_root_config(config_path)
+        assert any(issue.path == path for issue in excinfo.value.issues)
 
     def test_loader_rejects_gcp_settings_missing_project_id(self, write_config):
         from installation.loader import validate_root_config_file

@@ -189,6 +189,9 @@ variable "workload_identities" {
     # missing key answers 404; no KMS, so object bytes stay undecryptable.
     # Requires storage_bucket_name.
     feature_artifact_store_read = optional(bool, false)
+    # The trusted runtime-plugin node-pool labeler (#2526): ec2:DescribeInstances,
+    # so it can verify each node's Auto Scaling group before applying the pool label.
+    node_pool_labeler = optional(bool, false)
   }))
 
   validation {
@@ -236,13 +239,12 @@ variable "tags" {
 
 variable "enable_runtime_plugins" {
   description = <<-EOT
-    Create the exclusive gVisor runtime-plugin node group. Default false on EKS:
-    the pool identity keys on the node-restriction.kubernetes.io/shifter-pool
-    label, which NodeRestriction forbids a kubelet from self-registering. EKS
-    applies managed-node-group labels through the kubelet (unlike GKE, whose
-    control plane applies them via a trusted path), so the node fails to join
-    with that label. Enabling it requires a trusted node-labeler for EKS parity
-    with GKE (tracked follow-up). Keep false until that lands.
+    Create the exclusive gVisor runtime-plugin node group and its dedicated node
+    role. Pool identity keys on the node-restriction.kubernetes.io/shifter-pool
+    label, which NodeRestriction forbids a kubelet from setting; on EKS the
+    trusted node-pool labeler applies it to nodes in this pool's Auto Scaling
+    group (#2526). Enabling it requires a workload identity with node_pool_labeler for
+    that controller.
   EOT
   type        = bool
   default     = false

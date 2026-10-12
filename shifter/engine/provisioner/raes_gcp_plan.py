@@ -44,7 +44,7 @@ from gcp_range_cell_naming import (
     range_router_nat_plan,
     shared_router_nat_plan,
 )
-from gcp_range_cell_plan import _range_labels
+from gcp_range_cell_plan import _range_labels, range_telemetry_plan
 from gcp_range_cell_types import (
     DEFAULT_GCE_EGRESS_POLICY,
     FirewallPlan,
@@ -182,6 +182,7 @@ def build_raes_range_cell_plan(
         "private_google_access": resolved_config.private_google_access,
         "labels": _range_labels(range_id, request_uuid),
         "network": {"name": network_name, "self_link": network_link},
+        "telemetry": range_telemetry_plan(resolved_config.range_telemetry),
         "manage_network": manage_network,
         "subnets": subnet_plans,
         "instances": instance_plans,

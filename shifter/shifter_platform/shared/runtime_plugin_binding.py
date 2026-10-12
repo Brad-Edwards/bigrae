@@ -84,19 +84,57 @@ def _domain_profile(profile: RuntimeTargetImageProfile) -> tuple[str, str]:
 
 
 def _validate_aws_image_profile(profile: RuntimeTargetImageProfile) -> None:
-    """Require an exact AMI and AWS-supported boot-image fields."""
+    """Require an exact AMI, EBS disks, and a closed bootstrap contract.
+
+    Native EC2 hosts accept the same preconfigured participant host and
+    prepromoted directory contracts as GCE images (#2527, #2528).
+    """
     if profile.image_kind != "image" or not _AWS_AMI.fullmatch(profile.image_ref):
         raise ValueError("AWS image profiles require an exact AMI ID")
-    if (
-        profile.bootstrap_capability != "standard"
-        or any(_participant_profile(profile))
-        or any(_domain_profile(profile))
-    ):
-        raise ValueError("AWS image profiles do not support machine-host fields")
     if profile.disk_type and profile.disk_type not in {"gp2", "gp3"}:
         raise ValueError("AWS image profile disk type is unsupported")
     if profile.allow_public_web_egress:
         raise ValueError("AWS image profiles do not support public web egress")
+    participant = _participant_profile(profile)
+    domain = _domain_profile(profile)
+    if profile.bootstrap_capability == "preconfigured-machine-host":
+        _validate_participant_readiness(profile, participant, domain)
+    else:
+        _validate_boot_image_capability(profile, participant, domain)
+
+
+def _validate_participant_readiness(
+    profile: RuntimeTargetImageProfile,
+    participant: tuple[str, str, str, str],
+    domain: tuple[str, str],
+) -> None:
+    """Require a complete participant access and readiness contract on any provider."""
+    if any(domain):
+        raise ValueError("machine host images do not accept domain fields")
+    if not profile.management_ssh_username or not all(participant):
+        raise ValueError("machine host images require complete host and participant readiness fields")
+    if not _CONTAINER.fullmatch(profile.participant_container_name):
+        raise ValueError("participant container name is invalid")
+    if profile.participant_readiness_contract != "participant-readiness/v1":
+        raise ValueError("participant readiness contract is unsupported")
+    if not re.fullmatch(r"[0-9a-f]{64}", profile.participant_readiness_manifest_sha256):
+        raise ValueError("participant readiness manifest digest is invalid")
+
+
+def _validate_boot_image_capability(
+    profile: RuntimeTargetImageProfile,
+    participant: tuple[str, str, str, str],
+    domain: tuple[str, str],
+) -> None:
+    """Require compatible bootstrap fields for a standard or prepromoted boot image."""
+    if any(participant):
+        raise ValueError("participant host fields require a preconfigured machine host")
+    if profile.bootstrap_capability == "standard" and any(domain):
+        raise ValueError("standard boot images do not accept domain fields")
+    if profile.bootstrap_capability == "prepromoted-domain-controller" and not all(domain):
+        raise ValueError("prepromoted directory images require DNS and NetBIOS domain names")
+    if profile.bootstrap_capability not in {"standard", "prepromoted-domain-controller"}:
+        raise ValueError("adapter-selected boot image capability is unsupported")
 
 
 def _validate_gcp_image_profile(profile: RuntimeTargetImageProfile) -> None:
@@ -129,19 +167,10 @@ def _validate_gcp_preconfigured_readiness(
     participant: tuple[str, str, str, str],
     domain: tuple[str, str],
 ) -> None:
-    """Require a complete participant access and readiness contract."""
+    """Require the preconfigured capability and its participant readiness contract."""
     if profile.bootstrap_capability != "preconfigured-machine-host":
         raise ValueError("GCP machine images require the preconfigured-machine-host capability")
-    if any(domain):
-        raise ValueError("GCP machine host images do not accept domain fields")
-    if not profile.management_ssh_username or not all(participant):
-        raise ValueError("GCP machine images require complete host and participant readiness fields")
-    if not _CONTAINER.fullmatch(profile.participant_container_name):
-        raise ValueError("participant container name is invalid")
-    if profile.participant_readiness_contract != "participant-readiness/v1":
-        raise ValueError("participant readiness contract is unsupported")
-    if not re.fullmatch(r"[0-9a-f]{64}", profile.participant_readiness_manifest_sha256):
-        raise ValueError("participant readiness manifest digest is invalid")
+    _validate_participant_readiness(profile, participant, domain)
 
 
 def _validate_gcp_boot_image_profile(
@@ -152,14 +181,7 @@ def _validate_gcp_boot_image_profile(
     """Require a concrete GCP boot image and compatible bootstrap fields."""
     if not _GCE_IMAGE_REF.fullmatch(profile.image_ref):
         raise ValueError("GCP image profiles require an exact Compute Engine image resource")
-    if any(participant):
-        raise ValueError("participant host fields require a GCP preconfigured host")
-    if profile.bootstrap_capability == "standard" and any(domain):
-        raise ValueError("standard GCP boot images do not accept domain fields")
-    if profile.bootstrap_capability == "prepromoted-domain-controller" and not all(domain):
-        raise ValueError("prepromoted GCP directory images require DNS and NetBIOS domain names")
-    if profile.bootstrap_capability not in {"standard", "prepromoted-domain-controller"}:
-        raise ValueError("adapter-selected GCP boot image capability is unsupported")
+    _validate_boot_image_capability(profile, participant, domain)
     if profile.disk_type and profile.disk_type not in {
         "pd-standard",
         "pd-balanced",

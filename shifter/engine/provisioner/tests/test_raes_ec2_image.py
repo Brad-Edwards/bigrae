@@ -11,13 +11,15 @@ from raes_plan import RaesPlanImage, RaesPlanNode
 
 def node(**extra):
     return RaesPlanNode(
-        address="node.host",
-        name="host",
-        os_family="linux",
-        count=1,
-        network_addresses=(),
-        image=RaesPlanImage(name="container-host", version="1"),
-        **extra,
+        **{
+            "address": "node.host",
+            "name": "host",
+            "os_family": "linux",
+            "count": 1,
+            "network_addresses": (),
+            "image": RaesPlanImage(name="container-host", version="1"),
+            **extra,
+        }
     )
 
 
@@ -144,3 +146,111 @@ def test_provider_observation_must_satisfy_requested_image_and_resources(alter):
 def test_explicit_disk_cannot_shrink_the_source_snapshot():
     with pytest.raises(Ec2ImageError):
         verify_ec2_image(node(), resolve_ec2_image(node(), [candidate(disk_size_gb=20)]), client())
+
+
+PRECONFIGURED = {
+    "bootstrap_capability": "preconfigured-machine-host",
+    "participant_container_name": "workstation",
+    "participant_username": "participant",
+    "participant_readiness_contract": "participant-readiness/v1",
+    "participant_readiness_manifest_sha256": "a" * 64,
+}
+
+
+def test_preconfigured_host_contract_reaches_the_verified_image():
+    """#2527: the participant readiness contract survives resolution and preflight."""
+    runtime = RuntimeTargetImageProfile(
+        provider="aws",
+        image_ref="ami-0123456789abcdef0",
+        machine_type="m7i.large",
+        management_ssh_username="hostadmin",
+        management_ssh_port=2222,
+        **PRECONFIGURED,
+    )
+    verified = verify_ec2_image(node(), resolve_ec2_image(node(), [], runtime_profile=runtime), client())
+    assert verified.management_ssh_port == 2222
+    assert verified.contract.bootstrap_capability == "preconfigured-machine-host"
+    assert verified.contract.participant_container_name == "workstation"
+    assert verified.contract.participant_readiness_manifest_sha256 == "a" * 64
+
+
+def test_prepromoted_directory_contract_requires_both_domain_names():
+    """#2528: a prepromoted image carries its baked domain identity."""
+    runtime = RuntimeTargetImageProfile(
+        provider="aws",
+        image_ref="ami-0123456789abcdef0",
+        bootstrap_capability="prepromoted-domain-controller",
+        domain_dns_name="corp.example",
+        domain_netbios_name="CORP",
+    )
+    profile = resolve_ec2_image(node(), [], runtime_profile=runtime)
+    assert (profile.contract.domain_dns_name, profile.contract.domain_netbios_name) == ("corp.example", "CORP")
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {**PRECONFIGURED, "participant_readiness_manifest_sha256": ""},
+        {**PRECONFIGURED, "participant_readiness_contract": "participant-readiness/v2"},
+        {"bootstrap_capability": "prepromoted-domain-controller"},
+        {"participant_container_name": "workstation"},
+        {"bootstrap_capability": "nested-hypervisor"},
+    ],
+)
+def test_incomplete_or_mixed_host_contracts_are_refused(fields):
+    resolved = {"management_ssh_username": "hostadmin", **fields}
+    with pytest.raises(Ec2ImageError):
+        resolve_ec2_image(node(), [candidate(**resolved)])
+
+
+def test_runtime_profile_cannot_mix_participant_and_domain_contracts():
+    runtime = RuntimeTargetImageProfile.model_construct(
+        provider="aws",
+        image_kind="image",
+        image_ref="ami-0123456789abcdef0",
+        machine_type="",
+        disk_size_gb=None,
+        disk_type="",
+        management_ssh_username="hostadmin",
+        management_ssh_port=2222,
+        domain_dns_name="corp.example",
+        domain_netbios_name="CORP",
+        **PRECONFIGURED,
+    )
+    with pytest.raises(Ec2ImageError):
+        resolve_ec2_image(node(), [], runtime_profile=runtime)
+
+
+def test_prepromoted_image_must_match_the_authored_windows_domain():
+    """#2528: a baked domain that contradicts the node fails before any mutation."""
+    from raes_ec2_image import Ec2HostContract, VerifiedEc2Image, assert_image_contract_matches_node
+
+    image = VerifiedEc2Image(
+        "ami-0123456789abcdef0",
+        "m7i.large",
+        "/dev/sda1",
+        "snap-0123456789abcdef0",
+        100,
+        "gp3",
+        "x86_64",
+        22,
+        contract=Ec2HostContract(
+            "prepromoted-domain-controller", domain_dns_name="corp.example", domain_netbios_name="CORP"
+        ),
+    )
+    controller = node(os_family="windows", domain_dns_name="corp.example", domain_netbios_name="CORP")
+    assert_image_contract_matches_node(controller, image)
+    assert_image_contract_matches_node(
+        node(os_family="windows", domain_dns_name="Corp.Example.", domain_netbios_name="corp"), image
+    )
+    # A node that authors no domain leaves the directory to the image, as on GCE.
+    assert_image_contract_matches_node(node(os_family="windows"), image)
+    for mismatched in (
+        node(os_family="windows", domain_dns_name="other.example", domain_netbios_name="CORP"),
+        node(os_family="windows", domain_dns_name="corp.example", domain_netbios_name="OTHER"),
+        node(os_family="windows", domain_dns_name="corp.example"),
+        node(domain_dns_name="corp.example", domain_netbios_name="CORP"),
+        node(),
+    ):
+        with pytest.raises(Ec2ImageError):
+            assert_image_contract_matches_node(mismatched, image)

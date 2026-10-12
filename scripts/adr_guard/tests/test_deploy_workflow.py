@@ -217,7 +217,7 @@ class TestManualDeployDispatch(unittest.TestCase):
     environment). push and pull_request run validation only, and no branch name
     selects a deployment target."""
 
-    ENV_OPTIONS = {"aws-dev", "aws-proof", "gcp-dev", "nazgul", "orthanc", "sauron", "balrog"}
+    ENV_OPTIONS = {"aws-dev", "gcp-dev", "orthanc", "sauron", "balrog"}
 
     @classmethod
     def setUpClass(cls):
@@ -271,7 +271,7 @@ class TestManualDeployDispatch(unittest.TestCase):
         self.assertEqual(set(env_input["options"]), self.ENV_OPTIONS)
 
     def test_gcp_dispatches_route_to_their_terraform_and_github_environments(self):
-        for environment in ("gcp-dev", "nazgul", "orthanc", "sauron", "balrog"):
+        for environment in ("gcp-dev", "orthanc", "sauron", "balrog"):
             with self.subTest(environment=environment):
                 out = self.env(
                     "workflow_dispatch",
@@ -714,6 +714,9 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertIn("oras-project/setup-oras@", build)
         self.assertIn("application/vnd.shifter.gce-image.tar.gz", build)
         self.assertIn("application/vnd.shifter.gce-image.v1", build)
+        # ORAS rejects absolute file paths: the disk is pushed by relative name.
+        self.assertIn('cd "${DISK_DIR}"', build)
+        self.assertIn('"${DISK_FILE}:application/vnd.shifter.gce-image.tar.gz"', build)
         self.assertIn("ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/shifter-gce-${IMAGE_TYPE}", build)
         self.assertIn("oci://${PACKAGE}@${DIGEST}", build)
         # Provenance annotations bind the artifact to its protected build.
@@ -964,8 +967,8 @@ class TestGcpDeployPreflightInputs(unittest.TestCase):
 
     def test_non_secret_overlay_reaches_every_ephemeral_config_consumer(self):
         workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
-        self.assertEqual(workflow.count("SHIFTER_CONFIG_OVERLAY_JSON: ${{ vars.SHIFTER_CONFIG_OVERLAY_JSON }}"), 3)
-        self.assertEqual(workflow.count("python scripts/gcp/apply_shifter_config_overlay.py --config"), 3)
+        self.assertEqual(workflow.count("SHIFTER_CONFIG_OVERLAY_JSON: ${{ vars.SHIFTER_CONFIG_OVERLAY_JSON }}"), 4)
+        self.assertEqual(workflow.count("python scripts/gcp/apply_shifter_config_overlay.py --config"), 4)
 
 
 class TestRangePlacementSingleSource(unittest.TestCase):

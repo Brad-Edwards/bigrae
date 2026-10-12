@@ -129,3 +129,25 @@ variable "health_port" {
   type        = number
   default     = 8080
 }
+
+variable "vpc_flow_logs" {
+  description = "#2535 range audit telemetry: flow-log settings for the pool subnet, from settings.range_telemetry.vpc_flow_logs."
+  type = object({
+    enabled              = optional(bool, true)
+    aggregation_interval = optional(string, "INTERVAL_5_SEC")
+    flow_sampling        = optional(number, 0.5)
+    metadata             = optional(string, "INCLUDE_ALL_METADATA")
+  })
+  default  = {}
+  nullable = false
+}
+
+variable "nat_logs" {
+  description = "#2535 range audit telemetry: Cloud NAT logging for the pool NAT, from settings.range_telemetry.nat_logs."
+  type = object({
+    enabled = optional(bool, true)
+    filter  = optional(string, "ALL")
+  })
+  default  = {}
+  nullable = false
+}

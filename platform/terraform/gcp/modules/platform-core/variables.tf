@@ -285,6 +285,12 @@ variable "cloud_sql_deletion_protection" {
   default     = true
 }
 
+variable "gcs_force_destroy" {
+  description = "Allow terraform destroy to empty and delete the assets and audit-logs buckets. Default false; the GCP destroy workflow renders this true so teardown can remove the versioned, populated buckets instead of failing on them."
+  type        = bool
+  default     = false
+}
+
 variable "redis_tier" {
   description = "Memorystore tier for the control-plane Redis instance. Default STANDARD_HA: the platform cache is shared multi-pod state and the production posture is high-availability replication. AUTH and TLS posture are independent of tier — the module enables them unconditionally — so a future disposable environment can opt into BASIC by overriding this variable without weakening the security contract."
   type        = string

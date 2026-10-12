@@ -245,6 +245,18 @@ class TestDataclassDefaults:
         assert config.primary_portal_cidr == "10.40.0.0/20"
 
 
+_TELEMETRY_BASE_ENV = {
+    "CLOUD_PROVIDER": "gcp",
+    "GCP_RANGE_BACKEND": "gce",
+    "GCP_PROJECT_ID": "test-project",
+    "GCP_REGION": "us-central1",
+    "RANGE_NETWORK_ZONE": "us-central1-b",
+    "GCP_RANGE_HOST_SERVICE_ACCOUNT_EMAIL": "range-host@test-project.iam.gserviceaccount.com",
+    "GCP_RANGE_KALI_IMAGE": "projects/shifter/global/images/example-vm",
+    "RANGE_NETWORK_ID": "projects/test-project/global/networks/range-net",
+}
+
+
 class TestRangeNetworkEnv:
     """Tests for provider-neutral range network env parsing."""
 
@@ -631,6 +643,40 @@ class TestRangeNetworkEnv:
         config = load_gce_range_cell_config()
 
         assert config.private_google_access is True
+
+    def test_range_telemetry_defaults_on_when_policy_is_unset(self, mocker):
+        mocker.patch.dict(os.environ, _TELEMETRY_BASE_ENV, clear=True)
+
+        telemetry = load_gce_range_cell_config().range_telemetry
+
+        assert telemetry.vpc_flow_logs.enabled is True
+        assert telemetry.vpc_flow_logs.flow_sampling == 0.5
+        assert telemetry.nat_logs.enabled is True
+        assert telemetry.nat_logs.filter == "ALL"
+
+    def test_range_telemetry_reads_the_rendered_operator_policy(self, mocker):
+        mocker.patch.dict(
+            os.environ,
+            {
+                **_TELEMETRY_BASE_ENV,
+                "GCP_RANGE_TELEMETRY_POLICY_JSON": json.dumps(
+                    {"vpc_flow_logs": {"enabled": False}, "nat_logs": {"filter": "ERRORS_ONLY"}}
+                ),
+            },
+            clear=True,
+        )
+
+        telemetry = load_gce_range_cell_config().range_telemetry
+
+        assert telemetry.vpc_flow_logs.enabled is False
+        assert telemetry.nat_logs.filter == "ERRORS_ONLY"
+
+    @pytest.mark.parametrize("raw", ["", "false", '{"nat_logs": {"enabled": "off"}}'])
+    def test_range_telemetry_malformed_policy_fails_before_any_mutation(self, mocker, raw):
+        mocker.patch.dict(os.environ, {**_TELEMETRY_BASE_ENV, "GCP_RANGE_TELEMETRY_POLICY_JSON": raw}, clear=True)
+
+        with pytest.raises(ValueError, match="range telemetry policy"):
+            load_gce_range_cell_config()
 
     def test_gce_range_cell_config_get_profile_selects_guest_family(self):
         linux = GCERangeImageProfile(

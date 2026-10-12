@@ -114,6 +114,38 @@ describe("pack adapter assignments", () => {
     });
   });
 
+  it("lets an administrator bind an AWS preconfigured participant host", async () => {
+    renderRoute(<AdapterPackBindings organization="org-1" adapters={[adapter]} />);
+    await fillAssignment();
+    fireEvent.click(screen.getByLabelText("Use an administrator-selected provider image for server"));
+    fireEvent.change(screen.getByLabelText("Provider for server"), { target: { value: "aws" } });
+    fireEvent.change(screen.getByLabelText("Image reference for server"), { target: { value: "ami-0123456789abcdef0" } });
+    fireEvent.change(screen.getByLabelText("Bootstrap capability for server"), {
+      target: { value: "preconfigured-machine-host" },
+    });
+    expect(screen.getByRole("button", { name: "Review assignment" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Management SSH username for server"), { target: { value: "host-admin" } });
+    fireEvent.change(screen.getByLabelText("Management SSH port for server"), { target: { value: "2222" } });
+    fireEvent.change(screen.getByLabelText("Participant container for server"), { target: { value: "participant-desktop" } });
+    fireEvent.change(screen.getByLabelText("Participant username for server"), { target: { value: "student" } });
+    fireEvent.change(screen.getByLabelText("Readiness manifest SHA-256 for server"), { target: { value: "b".repeat(64) } });
+    expect(screen.getByRole("button", { name: "Review assignment" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Review assignment" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save assignment" }));
+    await waitFor(() => {
+      const body = mockApi.mock.calls.find(([, options]) => options?.method === "POST")?.[1]?.body as
+        | { bindings: { image_profiles: { server: Record<string, unknown> } } }
+        | undefined;
+      expect(body?.bindings.image_profiles.server).toMatchObject({
+        provider: "aws",
+        bootstrap_capability: "preconfigured-machine-host",
+        participant_container_name: "participant-desktop",
+        participant_readiness_contract: "participant-readiness/v1",
+        management_ssh_port: 2222,
+      });
+    });
+  });
+
   it("lets an administrator bind a prepromoted directory image", async () => {
     renderRoute(<AdapterPackBindings organization="org-1" adapters={[adapter]} />);
     await fillAssignment();

@@ -159,3 +159,64 @@ run "the_pool_identity_never_reads_the_ca" {
     error_message = "The deploy identity may act as the pool identity only through the SA-scoped binding."
   }
 }
+
+# #2535: the pool subnet and its NAT sit in the range VPC, so they follow the same
+# range audit telemetry policy as the provisioner-created range subnets and NATs.
+run "pool_subnet_and_nat_log_by_default" {
+  command = plan
+
+  assert {
+    condition = (
+      google_compute_subnetwork.pool.log_config[0].aggregation_interval == "INTERVAL_5_SEC"
+      && google_compute_subnetwork.pool.log_config[0].flow_sampling == 0.5
+      && google_compute_subnetwork.pool.log_config[0].metadata == "INCLUDE_ALL_METADATA"
+    )
+    error_message = "The pool subnet must carry the default range flow-log settings (#2535)."
+  }
+
+  assert {
+    condition     = google_compute_router_nat.pool.log_config[0].enable == true && google_compute_router_nat.pool.log_config[0].filter == "ALL"
+    error_message = "The pool NAT must log translations and errors by default (#2535)."
+  }
+}
+
+run "pool_follows_the_operator_telemetry_policy" {
+  command = plan
+
+  variables {
+    vpc_flow_logs = { enabled = true, aggregation_interval = "INTERVAL_1_MIN", flow_sampling = 0.1, metadata = "EXCLUDE_ALL_METADATA" }
+    nat_logs      = { enabled = false, filter = "ALL" }
+  }
+
+  assert {
+    condition     = google_compute_subnetwork.pool.log_config[0].aggregation_interval == "INTERVAL_1_MIN" && google_compute_subnetwork.pool.log_config[0].flow_sampling == 0.1
+    error_message = "The pool subnet must use the operator flow-log settings (#2535)."
+  }
+
+  assert {
+    condition     = google_compute_router_nat.pool.log_config[0].enable == false
+    error_message = "An explicit nat_logs.enabled = false must disable pool NAT logging (#2535)."
+  }
+}
+
+run "pool_flow_logs_disabled_removes_the_subnet_log_config" {
+  command = plan
+
+  variables {
+    vpc_flow_logs = { enabled = false }
+  }
+
+  assert {
+    condition     = length(google_compute_subnetwork.pool.log_config) == 0
+    error_message = "Disabled flow logs must render no subnet log_config block (#2535)."
+  }
+}
+
+run "pool_telemetry_resource_names_are_published_for_the_readback" {
+  command = plan
+
+  assert {
+    condition     = output.subnetwork_name == "shifter-test-vpn" && output.nat_router_name == "shifter-test-vpn-nat"
+    error_message = "The pool must publish its Terraform-owned subnet and NAT router names (#2535)."
+  }
+}

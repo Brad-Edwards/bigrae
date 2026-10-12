@@ -115,6 +115,12 @@ resource "google_compute_router_nat" "range_nat" {
       source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
     }
   }
+
+  # #2535: range egress NAT logging follows settings.range_telemetry.nat_logs.
+  log_config {
+    enable = var.nat_logs.enabled
+    filter = var.nat_logs.filter
+  }
 }
 
 # #2029 multi-region range placement: a range cell placed in a region other than
@@ -168,6 +174,11 @@ resource "google_compute_router_nat" "range_nat_extra" {
       name                    = subnetwork.value
       source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
     }
+  }
+
+  log_config {
+    enable = var.nat_logs.enabled
+    filter = var.nat_logs.filter
   }
 }
 

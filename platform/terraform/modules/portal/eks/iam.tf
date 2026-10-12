@@ -33,6 +33,11 @@ locals {
     identity_name
     if identity.feature_artifact_store_read
   ])
+  workload_node_pool_labeler = toset([
+    for identity_name, identity in var.workload_identities :
+    identity_name
+    if identity.node_pool_labeler
+  ])
   workload_platform_application_access = toset([
     for identity_name, identity in var.workload_identities :
     identity_name
@@ -489,6 +494,27 @@ resource "aws_iam_role_policy" "workload_feature_artifact_store" {
         Condition = {
           StringEquals = { "kms:ViaService" = "s3.${var.aws_region}.amazonaws.com" }
         }
+      },
+    ]
+  })
+}
+
+# Trusted runtime-plugin node-pool labeler (#2526): reads each EKS node's
+# instance (state, DNS name and its AWS-set aws:autoscaling:groupName tag).
+# ec2:DescribeInstances has no resource-level scoping.
+resource "aws_iam_role_policy" "workload_node_pool_labeler" {
+  for_each = local.workload_node_pool_labeler
+
+  name = "node-pool-labeler"
+  role = aws_iam_role.workload[each.key].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "DescribeNodeInstances"
+        Effect   = "Allow"
+        Action   = ["ec2:DescribeInstances"]
+        Resource = "*"
       },
     ]
   })

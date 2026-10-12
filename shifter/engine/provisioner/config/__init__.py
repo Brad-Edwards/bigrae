@@ -19,6 +19,12 @@ Dependency direction is one-way (leaves first, no cycles):
 ``_env``, ``_crypto`` -> ``_gcp_backend``, ``_ngfw`` -> ``_gdc`` -> ``_range`` -> ``_gce``;
 """
 
+from ._bootstrap import (
+    BOOTSTRAP_PRECONFIGURED_MACHINE_HOST,
+    BOOTSTRAP_PREPROMOTED_DC,
+    BOOTSTRAP_STANDARD,
+    PARTICIPANT_READINESS_CONTRACT_V1,
+)
 from ._content_delivery import (
     RaesContentDeliveryConfig,
     load_raes_content_delivery_config,
@@ -72,11 +78,15 @@ from ._range import (
 )
 
 __all__ = [
+    "BOOTSTRAP_PRECONFIGURED_MACHINE_HOST",
+    "BOOTSTRAP_PREPROMOTED_DC",
+    "BOOTSTRAP_STANDARD",
     "GCE_BOOTSTRAP_PRECONFIGURED_MACHINE_HOST",
     "GCE_BOOTSTRAP_PREPROMOTED_DC",
     "GCE_BOOTSTRAP_STANDARD",
     "GCE_PARTICIPANT_READINESS_CONTRACT_V1",
     "GCE_SUPPORTED_BOOTSTRAP_CAPABILITIES",
+    "PARTICIPANT_READINESS_CONTRACT_V1",
     "FieldDecryptError",
     "GCERangeCellConfig",
     "GCERangeImageProfile",
