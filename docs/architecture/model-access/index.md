@@ -4,7 +4,8 @@ Current status: the broker is parked and unsupported under
 [ADR-068](../../adr/068-model-access-broker-parked.md); ADR-064 keyless-direct is
 the only supported guest model path. The broker design and implementation
 guidance below are historical; they do not authorize activation or extension.
-For the replacement recommendation and its qualification plan, see the
+For the selected LiteLLM OSS replacement, deployment-owned rotation and
+qualification plan, see the
 [#2274 evaluation](gateway-replacement-evaluation-2274.md). For repository
 boundaries, see the
 [#2274 gateway preflight](gateway-preflight-2274.md).
@@ -25,7 +26,7 @@ deployment ranges. Shared resources do not require shared participant tokens.
 
 | Document | Purpose |
 | --- | --- |
-| [Gateway replacement evaluation](gateway-replacement-evaluation-2274.md) | #2274 comparison of LiteLLM, Bifrost and Agent Router, proposed integration, edition costs and qualification plan. |
+| [Gateway replacement evaluation](gateway-replacement-evaluation-2274.md) | #2274 comparison, selected LiteLLM OSS integration, deployment-owned rotation and qualification plan. |
 | [Gateway replacement preflight](gateway-preflight-2274.md) | #2274 clarified replacement scope, ADR-068 precedence and repository boundaries for future integration. |
 | [Architecture and contracts](architecture.md) | Ownership, configuration, allocation, API, persistence, protocol, lifecycle, and user flows. |
 | [Tenant source management](source-management.md) | Implemented source publication, credentials, provider routing and live range transitions. |

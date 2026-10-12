@@ -5,7 +5,10 @@ Architecture guidance, 2026-10-12; inspected baseline `4f2272731`. The maintaine
 supersedes #2274's conditional deferral and broker-improvement outcome. This run
 has no formal requirement. The
 [replacement evaluation](gateway-replacement-evaluation-2274.md) records product
-fit and the proposed integration. Paths below omit `shifter/shifter_platform/` for
+fit, the 2026-10-13 LiteLLM OSS selection and the proposed integration. Rotation
+uses documented key create/delete APIs through existing lifecycle automation and
+secret delivery, with bounded overlap and stable native budget ownership. Paths
+below omit `shifter/shifter_platform/` for
 platform modules; other paths are repository-relative.
 
 ## Starting posture and evaluation scope

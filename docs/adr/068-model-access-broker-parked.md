@@ -75,7 +75,8 @@ removal or replacement decision. Its tests must not make CI unreliable for other
 work. Model calls from ranges are not metered or limited, consistent with ADR-064.
 
 The [#2274 replacement evaluation](../architecture/model-access/gateway-replacement-evaluation-2274.md)
-compares maintained products under the maintainer's replacement direction. It
-recommends self-hosted LiteLLM for qualification, records edition and private-TLS
-decisions, and defines proposed integration and acceptance cases. This is design
-evidence, not an adoption or guest-path switch; the decisions above remain in force.
+compares maintained products and records the maintainer's 2026-10-13 selection
+of self-hosted LiteLLM OSS with deployment-owned rotation through documented key
+create/delete APIs. It defines proposed integration and qualification, including
+secure credential delivery and budget continuity. This product selection changes
+no runtime or guest model path; the decisions above remain in force.

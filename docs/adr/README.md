@@ -3,8 +3,9 @@
 This directory holds the machine-readable part of ADR enforcement.
 
 ADR-068's [gateway replacement evaluation](../architecture/model-access/gateway-replacement-evaluation-2274.md)
-records the clarified #2274 scope, maintained-product comparison and proposed
-qualification. Its registry evidence pointer adds no executable check, exception
+records the clarified #2274 scope, maintained-product comparison, selected
+LiteLLM OSS edition, deployment-owned rotation and proposed qualification. Its
+registry evidence pointer adds no executable check, exception
 or runtime support claim. Broker parking and the supported keyless-direct path
 remain unchanged until a separate adoption/cutover decision.
 

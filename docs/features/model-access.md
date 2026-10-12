@@ -5,7 +5,8 @@ broker and its controls. Keyless-direct is the supported guest model path.
 The broker-dependent user flows below describe retained implementation, not an
 available supported service. The
 [replacement evaluation](../architecture/model-access/gateway-replacement-evaluation-2274.md)
-recommends LiteLLM for qualification; it does not enable these controls.
+records the selected LiteLLM OSS replacement with deployment-owned rotation;
+it does not enable these controls.
 
 A model source connects an approved model to an account that pays for its use.
 It is independent of where the range or Shifter runs. A Vertex source may use
