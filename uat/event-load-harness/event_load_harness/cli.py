@@ -89,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--capacity-profile-id",
         dest="capacity_profile_id",
-        help="Versioned shared-service capacity identity (strict gate: gcp-shared-v1-p30).",
+        help="Versioned shared-service capacity identity; the strict gate runs that tier's authored budget.",
     )
     p.add_argument("--concurrency", type=int, help="Number of concurrent virtual users.")
     p.add_argument("--ramp-seconds", dest="ramp_seconds", type=float, help="Linear ramp-up window.")

@@ -198,6 +198,8 @@ def register_pack(
         safe_log_value(row.scenario_id),
         row.source_kind,
     )
+    scenario_id = row.scenario_id
+    transaction.on_commit(lambda: _request_feature_artifacts(scenario_id))
     return RegisteredPack(
         scenario_id=row.scenario_id,
         source_kind=row.source_kind,
@@ -305,6 +307,8 @@ def _replace_existing(
             )
         except Exception as exc:
             raise CMSError("pack revision audit failed") from exc
+        scenario_id = row.scenario_id
+        transaction.on_commit(lambda: _request_feature_artifacts(scenario_id))
         return RegisteredPack(
             row.scenario_id,
             row.source_kind,
@@ -413,3 +417,22 @@ def _audit_registration(row: RaesPackageSource, user: User, request_id: str) -> 
         )
     except Exception as exc:
         raise CMSError("pack registration audit failed") from exc
+
+
+def _request_feature_artifacts(scenario_id: str) -> None:
+    """Acquire the pack's declared feature artifacts before any range needs them (ADR-034-R12).
+
+    Best effort: registration never fails because acquisition could not be
+    claimed. A launch that still finds an artifact unavailable fails only that
+    range.
+    """
+    from cms.raes.feature_artifacts import request_pack_feature_artifacts
+
+    try:
+        request_pack_feature_artifacts(scenario_id)
+    except Exception as exc:
+        logger.warning(
+            "register_pack: feature artifact acquisition not requested scenario_id=%s error=%s",
+            safe_log_value(scenario_id),
+            type(exc).__name__,
+        )

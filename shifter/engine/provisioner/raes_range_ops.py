@@ -29,21 +29,20 @@ rather than by direct SQL.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 from shared.operation_results import MAX_DIAGNOSTIC_CHARS, ResultStep
 from shared.raes.completion_evidence import build_completion_evidence
-from shared.raes.operation_input import RaesOperationInput, image_lookup_key
+from shared.raes.operation_input import RaesOperationInput
 
-from config import GCERangeCellConfig, GCERangeImageProfile, load_gce_range_cell_config
+from config import GCERangeCellConfig, load_gce_range_cell_config
 from provisioner_db_appends import OperationRef, append_operation_step_result
 from provisioner_db_operation_input import (
     RaesOperationRun,
     get_activation_operation_input,
     get_raes_operation_input,
 )
-from raes_gce_image import resolve_gce_image, resolve_gce_image_from_binding, resolve_gce_image_from_runtime_profile
+from raes_gce_image import registry_image_resolver
 from raes_gcp_apply import RaesGceApplyOptions, RaesGceDestroyOptions, apply_raes_range_cell, destroy_raes_range_cell
 from raes_gcp_inventory import VERIFIED_ABSENT, inventory_raes_range_cell
 from raes_gcp_network_allocation import (
@@ -56,7 +55,14 @@ from raes_gcp_network_allocation import (
 from raes_gcp_network_allocation import (
     allocated_networks_for_provision as _allocated_networks_for_provision,
 )
-from raes_plan import RaesPlan, RaesPlanNode, parse_plan
+from raes_openvpn import (
+    cleanup_failed_provision_openvpn,
+    cleanup_raes_openvpn,
+    prepare_raes_openvpn,
+    vpn_access_fragment,
+    vpn_access_names,
+)
+from raes_plan import RaesPlan, parse_plan
 from raes_range_contract import _classify_failure, _require_gce_live_fire_binding
 from raes_range_members import realized_members as _realized_members
 from raes_snapshot import snapshot_resources
@@ -65,9 +71,6 @@ from range_subnet_allocation import _release_subnet_allocations_best_effort
 
 logger = logging.getLogger(__name__)
 _GceNetworkAllocation = GceNetworkAllocation
-
-#: Registry provider key for the GCE realization backend (engine_raes_image_mapping).
-_GCE_REGISTRY_PROVIDER = "gce"
 
 #: The single closed failure code an RAES realization/teardown failure reports.
 #: The bounded diagnostic rides the result payload; only this code reaches the
@@ -100,36 +103,6 @@ def _config_for_range_placement(request_id: str, config: GCERangeCellConfig) -> 
     zone returns the config unchanged, preserving single-region behaviour.
     """
     return resolve_range_cell_placement(request_id, config)
-
-
-def _registry_resolver(operation_input: RaesOperationInput) -> Callable[[RaesPlanNode], GCERangeImageProfile]:
-    """Return an image resolver bound to the projected candidates + GCE policy."""
-
-    def resolve(node: RaesPlanNode) -> GCERangeImageProfile:
-        """Resolve one node's image profile: a fenced artifact binding first, else the registry projection."""
-        # A generation-fenced artifact binding means the Engine already resolved
-        # this node's authored artifact requirement to an exact backend image at
-        # launch; realize it verbatim and never re-resolve (ADR-034-R8). Only a
-        # node with no artifact requirement falls through to the legacy
-        # source-alias registry projection.
-        binding = operation_input.artifact_binding_for(node.address)
-        if binding is not None:
-            return resolve_gce_image_from_binding(node, binding)
-        if operation_input.runtime_plugin is not None:
-            runtime_profile = operation_input.runtime_plugin.bindings.image_profile_for(node.address)
-            if runtime_profile is not None:
-                return resolve_gce_image_from_runtime_profile(node, runtime_profile)
-        # The lookup key rule is shared with the Engine that scoped the
-        # projection; deriving it separately here is what would make an image
-        # silently go missing.
-        name = image_lookup_key(
-            source_name=node.image.name if node.image else None,
-            os_family=node.os_family,
-        )
-        candidates = operation_input.image_candidates_for(_GCE_REGISTRY_PROVIDER, name) if name else []
-        return resolve_gce_image(node, candidates)
-
-    return resolve
 
 
 def _require_generation(request_id: str, operation_id: str | None, operation: str) -> tuple[OperationRef, str]:
@@ -219,6 +192,9 @@ def run_raes_range_provision(request_id: str, *, operation_id: str | None = None
         if operation_input.range_backend == "ec2":
             from raes_ec2_runtime import provision_ec2_run
 
+            if operation_input.remote_access is not None:
+                # The EC2 shared pool is #2481; never launch without it silently.
+                raise RaesRealizationError("OpenVPN access is not realized by the EC2 range backend")
             apply_result = provision_ec2_run(run, plugin_plans, enrollment)
         else:
             backend = _require_gce_live_fire_binding(operation_input)
@@ -231,6 +207,7 @@ def run_raes_range_provision(request_id: str, *, operation_id: str | None = None
                 raes_plan,
                 config,
             )
+            openvpn = prepare_raes_openvpn(run.request_id, range_id, raes_plan, operation_input.remote_access)
 
             def release_pre_mutation_allocation() -> None:
                 """Release this generation's reservation before provider mutation."""
@@ -242,7 +219,7 @@ def run_raes_range_provision(request_id: str, *, operation_id: str | None = None
                 request_id,
                 range_id,
                 raes_plan,
-                _registry_resolver(operation_input),
+                registry_image_resolver(operation_input),
                 options=RaesGceApplyOptions(
                     config=config,
                     egress_mode=operation_input.egress_mode,
@@ -253,6 +230,7 @@ def run_raes_range_provision(request_id: str, *, operation_id: str | None = None
                     on_pre_mutation_failure=(
                         release_pre_mutation_allocation if network_allocation.network_cidrs else None
                     ),
+                    openvpn=openvpn,
                 ),
                 delivery_bindings=operation_input.binding_transport(),
                 access_bindings=operation_input.access_binding_transport(),
@@ -273,20 +251,47 @@ def run_raes_range_provision(request_id: str, *, operation_id: str | None = None
         )
     except Exception as exc:
         _release_failed_provision_allocation(run, raes_plan, config, network_allocation, pre_mutation_release_attempted)
+        cleanup_failed_provision_openvpn(run.request_id, run.input.legacy_range_id, run.input.remote_access)
         reason_code, diagnostic = _classify_failure(exc, "raes range provision")
         logger.error("RAES range provision failed for request_id=%s", request_id)
         _report_failure(ref, operation, diagnostic, reason_code)
         raise
-    _report(ref, operation, ResultStep.RAES_PROVISION_SNAPSHOT, {"resources": resources})
     # The realized member/access projection rides the terminal result itself, so
     # the Engine validates it and transitions READY in one transaction against
-    # this generation's own state (#1710, ADR-032-R10).
-    _report(
+    # this generation's own state (#1710, ADR-032-R10). So does the owner-free
+    # OpenVPN realization, which the Engine binds to the range owner (#2030).
+    _report_realized_provision(
         ref,
-        operation,
-        ResultStep.RAES_TERMINAL_READY,
-        {"raes_status": "succeeded", "members": members, "completion": completion},
+        request_id,
+        resources,
+        {
+            "raes_status": "succeeded",
+            "members": members,
+            "completion": completion,
+            **vpn_access_fragment(apply_result.get("vpn_access")),
+        },
     )
+
+
+def _report_realized_provision(
+    ref: OperationRef, request_id: str, resources: list[dict[str, str]], ready: dict[str, Any]
+) -> None:
+    """Append the realized snapshot and terminal ready result for a provision generation."""
+    operation = "provision"
+    try:
+        _report(ref, operation, ResultStep.RAES_PROVISION_SNAPSHOT, {"resources": resources})
+        _report(ref, operation, ResultStep.RAES_TERMINAL_READY, ready)
+    except Exception as exc:
+        # The appends validate the result contract. A rejected realized result must
+        # still end the generation with a terminal failure; otherwise the range stays
+        # PROVISIONING indefinitely and occupies the owner's active-range slot. The
+        # cloud resources are realized, so allocations are not released here: the
+        # failed range is torn down through the normal destroy operation, which also
+        # removes its OpenVPN access.
+        reason_code, diagnostic = _classify_failure(exc, "raes range provision result")
+        logger.error("RAES range provision result was rejected for request_id=%s", request_id)
+        _report_failure(ref, operation, diagnostic, reason_code)
+        raise
 
 
 def _release_failed_provision_allocation(
@@ -305,7 +310,10 @@ def _release_failed_provision_allocation(
         and not pre_mutation_release_attempted
     ):
         cleanup_inventory = _raes_cleanup_inventory(
-            run.request_id, run.input.legacy_range_id, raes_plan, config, network_allocation
+            run.request_id,
+            run.input.legacy_range_id,
+            raes_plan,
+            _destroy_options(config, network_allocation, run.input),
         )
         if cleanup_inventory.get("outcome") == VERIFIED_ABSENT:
             _release_subnet_allocations_best_effort(run.request_id, operation_id=run.operation_id)
@@ -352,6 +360,11 @@ def run_raes_range_activate(request_id: str, *, operation_id: str | None = None)
             raes_plan,
             config,
         )
+        # The claimant's OpenVPN credentials, keyed on the range's request id like
+        # a cold provision; the warm-prepare generation never held any (#2030).
+        openvpn = prepare_raes_openvpn(
+            run.request_id, activation.legacy_range_id, raes_plan, operation_input.remote_access
+        )
         result = activate_raes_range_cell(
             activation=activation,
             prepared_generation=UUID(activation.prepared_generation_fence),
@@ -359,6 +372,7 @@ def run_raes_range_activate(request_id: str, *, operation_id: str | None = None)
             ops=default_activation_ops(
                 config=config,
                 allocated_network_cidrs=network_allocation.require_available(),
+                openvpn=openvpn,
             ),
         )
         resources = result.completion["resources"]
@@ -372,16 +386,29 @@ def run_raes_range_activate(request_id: str, *, operation_id: str | None = None)
         ref,
         operation,
         ResultStep.RAES_TERMINAL_READY,
-        {"raes_status": "succeeded", "members": result.members, "completion": result.completion},
+        {
+            "raes_status": "succeeded",
+            "members": result.members,
+            "completion": result.completion,
+            **vpn_access_fragment(result.vpn_access),
+        },
+    )
+
+
+def _destroy_options(
+    config: GCERangeCellConfig, network_allocation: GceNetworkAllocation, operation_input: RaesOperationInput
+) -> RaesGceDestroyOptions:
+    """Return the reconstructive destroy options shared by teardown and its inventory."""
+    return RaesGceDestroyOptions(
+        config=config,
+        allocated_network_cidrs=network_allocation.network_cidrs or None,
+        reconstruct_without_allocation=network_allocation.required and not network_allocation.network_cidrs,
+        remote_access=vpn_access_names(operation_input.remote_access),
     )
 
 
 def _raes_cleanup_inventory(
-    request_id: str,
-    range_id: int,
-    raes_plan: RaesPlan,
-    config: GCERangeCellConfig,
-    network_allocation: GceNetworkAllocation,
+    request_id: str, range_id: int, raes_plan: RaesPlan, options: RaesGceDestroyOptions
 ) -> dict[str, Any]:
     """Inventory owned resources after a successful destroy; never fail the terminal report.
 
@@ -389,14 +416,7 @@ def _raes_cleanup_inventory(
     the destroy still terminalizes but no consumer treats it as verified cleanup.
     """
     try:
-        return inventory_raes_range_cell(
-            request_id,
-            range_id,
-            raes_plan,
-            config=config,
-            allocated_network_cidrs=network_allocation.network_cidrs or None,
-            reconstruct_without_allocation=network_allocation.required and not network_allocation.network_cidrs,
-        )
+        return inventory_raes_range_cell(request_id, range_id, raes_plan, options)
     except Exception:
         logger.exception("RAES cleanup inventory failed for request_id=%s", request_id)
         return {"outcome": "INCOMPLETE", "residual_categories": [], "scope": {}}
@@ -435,16 +455,10 @@ def run_raes_range_destroy(request_id: str, *, operation_id: str | None = None) 
             raes_plan,
             config,
         )
-        destroy_raes_range_cell(
-            request_id,
-            range_id,
-            raes_plan,
-            RaesGceDestroyOptions(
-                config=config,
-                allocated_network_cidrs=network_allocation.network_cidrs or None,
-                reconstruct_without_allocation=network_allocation.required and not network_allocation.network_cidrs,
-            ),
-        )
+        destroy_options = _destroy_options(config, network_allocation, operation_input)
+        destroy_raes_range_cell(request_id, range_id, raes_plan, destroy_options)
+        # The gateway is gone; delete the generation's OpenVPN credentials (#2030).
+        cleanup_raes_openvpn(run.request_id, range_id, operation_input.remote_access)
     except Exception as exc:
         reason_code, diagnostic = _classify_failure(exc, "raes range destroy")
         logger.error("RAES range destroy failed for request_id=%s", request_id)
@@ -454,7 +468,7 @@ def run_raes_range_destroy(request_id: str, *, operation_id: str | None = None) 
     # this evidence, not the delete loop completing (#2086, ADR-063-R4/R5). The
     # reservation remains held until absence is proven so another range cannot
     # reuse an occupied CIDR after a partial or unreadable cleanup.
-    cleanup_inventory = _raes_cleanup_inventory(request_id, range_id, raes_plan, config, network_allocation)
+    cleanup_inventory = _raes_cleanup_inventory(request_id, range_id, raes_plan, destroy_options)
     if network_allocation.network_cidrs and cleanup_inventory.get("outcome") == VERIFIED_ABSENT:
         _release_subnet_allocations_best_effort(request_id, operation_id=generation)
     _report(

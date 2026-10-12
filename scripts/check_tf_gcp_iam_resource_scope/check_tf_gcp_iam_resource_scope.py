@@ -64,10 +64,9 @@ FORBIDDEN_ROLES = FORBIDDEN_SECRET_ROLES | FORBIDDEN_STORAGE_ROLES
 # object-mutation, or service-account IAM-admin access. A project-scoped custom
 # role bound to a workload SA is a violation if it carries any of these (or a
 # matching wildcard). The service-account permissions close ADR-008-R7's
-# gateway-identity escalation: project-level setIamPolicy/create/delete let a
-# workload seize any service account (GCP cannot resource-name-scope
-# setIamPolicy), so the OpenVPN gateway uses a pre-provisioned per-SA pool
-# instead of a dynamic-creation custom role.
+# identity escalation: project-level setIamPolicy/create/delete let a workload
+# seize any service account (GCP cannot resource-name-scope setIamPolicy), so
+# no workload holds a dynamic service-account custom role.
 FORBIDDEN_CUSTOM_PERMISSIONS = frozenset(
     {
         "secretmanager.versions.access",

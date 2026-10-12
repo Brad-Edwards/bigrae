@@ -30,6 +30,9 @@ class Drift:
 
 
 _NON_SHRINKING_FLOOR_FIELDS = frozenset({("terraform", "capacity.cloud_sql_disk_size_gb")})
+# The shared OpenVPN pool (#2480) exists only where the tenant opted in; an
+# installation without it carries no pool evidence to compare.
+_VPN_POOL_FIELD_PREFIX = "capacity.vpn_pool_"
 
 
 def compare_capacity_state(desired: dict[str, object], observed: dict[str, object]) -> list[Drift]:
@@ -44,6 +47,8 @@ def compare_capacity_state(desired: dict[str, object], observed: dict[str, objec
         wanted = _mapping(desired, section, "desired")
         actual = _mapping(observed, section, "observed")
         for field, wanted_value in sorted(wanted.items()):
+            if field.startswith(_VPN_POOL_FIELD_PREFIX) and observed.get("vpn_pool") == "absent":
+                continue
             if field not in actual:
                 raise DriftInputError(f"missing observed field {section}.{field}")
             actual_value = actual[field]
@@ -85,6 +90,7 @@ def collect_live_state(
     redis_instance: str,
     cluster: str,
     namespace: str,
+    vpn_pool: str | None = None,
 ) -> dict[str, object]:
     """Read effective provider and Kubernetes state with fixed, read-only argv."""
     sql = _run_json(["gcloud", "sql", "instances", "describe", sql_instance, "--project", project, "--format=json"])
@@ -175,7 +181,35 @@ def collect_live_state(
     if any(value in (None, "") for value in terraform.values()):
         raise DriftInputError("provider resources have incomplete capacity evidence")
     kubernetes = _extract_kubernetes(workloads, autoscalers, backends, runtime)
-    return {"profile_id": profile_labels[0], "terraform": terraform, "kubernetes": kubernetes}
+    observed: dict[str, object] = {"profile_id": profile_labels[0], "terraform": terraform, "kubernetes": kubernetes}
+    if vpn_pool:
+        terraform.update(_vpn_pool_state(vpn_pool, project=project, region=region))
+    else:
+        observed["vpn_pool"] = "absent"
+    return observed
+
+
+def _vpn_pool_state(name: str, *, project: str, region: str) -> dict[str, object]:
+    """Read the pool autoscaler bounds and server machine type."""
+    location = ["--project", project, "--region", region, "--format=json"]
+    group = _run_json(["gcloud", "compute", "instance-groups", "managed", "describe", name, *location])
+    policy = _run_json(["gcloud", "compute", "autoscalers", "describe", name, *location]).get("autoscalingPolicy", {})
+    template = str(group.get("instanceTemplate", "")).rsplit("/", 1)[-1]
+    machine = _dig(
+        _run_json(["gcloud", "compute", "instance-templates", "describe", template, *location]),
+        "properties",
+        "machineType",
+    )
+    target = _dig(policy, "cpuUtilization", "utilizationTarget")
+    state = {
+        "capacity.vpn_pool_machine_type": str(machine).rsplit("/", 1)[-1] if machine else None,
+        "capacity.vpn_pool_min_vms": _as_int(_dig(policy, "minNumReplicas")),
+        "capacity.vpn_pool_max_vms": _as_int(_dig(policy, "maxNumReplicas")),
+        "capacity.vpn_pool_cpu_target_pct": round(float(target) * 100) if isinstance(target, (int, float)) else None,
+    }
+    if any(value in (None, "") for value in state.values()):
+        raise DriftInputError("the OpenVPN pool has incomplete capacity evidence")
+    return state
 
 
 def _extract_kubernetes(
@@ -310,6 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--redis-instance")
     parser.add_argument("--cluster")
     parser.add_argument("--namespace", default="shifter-platform")
+    parser.add_argument("--vpn-pool", help="OpenVPN pool instance group name, when the tenant deploys the pool")
     return parser
 
 
@@ -333,6 +368,7 @@ def main(argv: list[str] | None = None) -> int:
                 redis_instance=args.redis_instance,
                 cluster=args.cluster,
                 namespace=args.namespace,
+                vpn_pool=args.vpn_pool,
             )
         drifts = compare_capacity_state(desired, observed)
     except DriftInputError as exc:

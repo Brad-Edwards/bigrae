@@ -346,7 +346,16 @@ def _persist_allocation(context: _CommitContext) -> ModelAllocation:
         source_policy_revision=request.source_policy_revision,
         intent_digest=context.intent_digest,
         policy_digest=context.policy_digest,
-        deadline=min(request.window_end, datetime.fromisoformat(str(context.revision_vector["fresh_until"]))),
+        # The credential lifetime is the range session window, not the membership
+        # freshness window. Membership freshness (revision_vector["fresh_until"],
+        # ~5 min) is a re-validation interval, not a hard cap: owner revocations are
+        # caught synchronously on every exchange/refresh/authenticate by the
+        # authority-fence pins (_recheck_authority), and each rotation additionally
+        # re-derives the effective policy from the current projection
+        # (_revalidate_membership). Capping the credential at fresh_until killed any
+        # provision or session that outlasted the freshness window (e.g. GCE range
+        # boot, which exceeds 5 minutes). See ADR-064 and _revalidate_membership.
+        deadline=request.window_end,
         alias_shards={alias: shard.shard_id for alias, shard in context.selected.items()},
         snapshot={
             "request": request.model_dump(mode="json"),

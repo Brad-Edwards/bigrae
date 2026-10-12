@@ -33,6 +33,7 @@ from raes_gcp_apply import (
 from raes_gcp_composition import RaesGceCompositionError
 from raes_gcp_firewall import node_tag
 from raes_gcp_plan import RaesGcePlanError, build_raes_range_cell_plan
+from raes_gcp_vpn_plan import RaesGceVpnAccess, vpn_pool_firewall_name
 from raes_plan import (
     RaesPlan,
     RaesPlanAccount,
@@ -48,6 +49,15 @@ from raes_plan import (
 
 class _NotFound(Exception):
     """Fake Google NotFound exception."""
+
+
+@pytest.fixture(autouse=True)
+def _fake_advisory_lock_database(monkeypatch):
+    monkeypatch.setenv("DB_HOST", "localhost")
+    monkeypatch.setenv("DB_USER", "test")
+    monkeypatch.setenv("DB_NAME", "test")
+    monkeypatch.setenv("DB_PASSWORD", "test-only")
+    monkeypatch.setattr("provisioner_db.psycopg.connect", lambda **_kwargs: MagicMock())
 
 
 def _config(network_mode: str = "vpc-per-range") -> GCERangeCellConfig:
@@ -114,12 +124,42 @@ def _clients(*, exists: bool = False, instance_insert_error: Exception | None = 
 
     op_service = MagicMock()
     op_service.wait.return_value = SimpleNamespace(status="DONE")
+    routers = service()
+    router_state = {}
+
+    def router_get(**kwargs):
+        name = kwargs["router"]
+        if name in router_state:
+            return router_state[name]
+        if exists:
+            return {"name": name, "network": "projects/proj-1/global/networks/shared", "nats": []}
+        raise _NotFound()
+
+    def router_insert(**kwargs):
+        body = kwargs["router_resource"]
+        router_state[body["name"]] = body
+        return SimpleNamespace(name="op")
+
+    def router_patch(**kwargs):
+        name = kwargs["router"]
+        router_state[name] = {**router_state.get(name, {"name": name}), **kwargs["router_resource"]}
+        return SimpleNamespace(name="op")
+
+    def router_delete(**kwargs):
+        router_state.pop(kwargs["router"], None)
+        return SimpleNamespace(name="op")
+
+    routers.get.side_effect = router_get
+    routers.list.side_effect = lambda **_kwargs: list(router_state.values())
+    routers.insert.side_effect = router_insert
+    routers.patch.side_effect = router_patch
+    routers.delete.side_effect = router_delete
     return SimpleNamespace(
         networks=service(),
         subnetworks=service(),
         firewalls=service(),
         addresses=service(),
-        routers=service(),
+        routers=routers,
         instances=service(instance_insert_error),
         global_operations=op_service,
         region_operations=op_service,
@@ -1332,6 +1372,7 @@ class TestDestroy:
             ),
         )
         assert not clients.networks.delete.called
+        assert clients.routers.delete.called
 
     def test_deletes_every_per_instance_authored_account_secret(self):
         account = RaesPlanAccount(username="alice", target_address="node.web", auth_method="key")
@@ -1512,3 +1553,136 @@ class TestParticipantAccessRealization:
         instance = output["instances"][0]
         assert instance["participant_access_channels"] == []
         assert instance["ssh_key_secret_arn"] == ""
+
+
+_VPN_REALIZATION = {
+    "generation": "11111111-2222-3333-4444-555555555555",
+    "target_ref": "node.web#0",
+    "endpoint": "203.0.113.7",
+    "port": 1194,
+    "secret_ref": "projects/secrets-proj/secrets/vpn-profile",
+}
+_VPN_ACCESS = RaesGceVpnAccess("node.web#0", ("10.49.0.0/24",))
+
+
+class _FakeOpenVpn:
+    """Prepared OpenVPN access double recording when the profile is minted."""
+
+    def __init__(self, *, mintable: bool = True) -> None:
+        self.mintable = mintable
+        self.published = 0
+
+    @staticmethod
+    def plan_access() -> RaesGceVpnAccess:
+        return _VPN_ACCESS
+
+    def publish(self):
+        if not self.mintable:
+            raise ValueError("OpenVPN issuer secret has an invalid shape")
+        self.published += 1
+        return dict(_VPN_REALIZATION)
+
+
+class TestOpenVpnPoolAccess:
+    """The pool rule is part of the apply; the profile is minted after verification (#2480)."""
+
+    def _options(self, clients, openvpn):
+        secret_ops, _ = _secret_ops()
+        account_ops, _ = _account_secret_ops()
+        return _apply_options(
+            _config("shared-vpc"),
+            clients,
+            secret_ops,
+            account_secret_ops=account_ops,
+            allocated_network_cidrs=(("net.lan", "10.9.0.0/24"),),
+            credential_installer=lambda **_kwargs: {"acct.analyst": "projects/proj-1/secrets/analyst-key"},
+            openvpn=openvpn,
+        )
+
+    def test_apply_admits_the_pool_and_reports_the_profile(self):
+        clients = _clients()
+        openvpn = _FakeOpenVpn()
+
+        output = apply_raes_range_cell(
+            "11111111-2222-3333-4444-555555555555",
+            7,
+            _access_plan(),
+            _resolver,
+            self._options(clients, openvpn),
+            access_bindings=[_access_transport()],
+        )
+
+        assert output["vpn_access"] == _VPN_REALIZATION
+        assert openvpn.published == 1
+        rules = [call.kwargs["firewall_resource"] for call in clients.firewalls.insert.call_args_list]
+        pool = next(rule for rule in rules if rule["name"] == vpn_pool_firewall_name(7))
+        assert pool["source_ranges"] == ["10.49.0.0/24"]
+        assert pool["allowed"] == [{"I_p_protocol": "tcp", "ports": ["22"]}]
+        inserted = [call.kwargs["instance_resource"]["name"] for call in clients.instances.insert.call_args_list]
+        assert not any("vpn" in name for name in inserted)
+
+    def test_a_profile_that_cannot_be_minted_fails_and_cleans_up_by_name(self, monkeypatch):
+        import raes_gcp_apply
+
+        cleanups = []
+        monkeypatch.setattr(
+            raes_gcp_apply,
+            "destroy_raes_range_cell",
+            lambda *_args, **_kwargs: cleanups.append(_args[3].remote_access),
+        )
+
+        with pytest.raises(ValueError, match="invalid shape"):
+            apply_raes_range_cell(
+                "11111111-2222-3333-4444-555555555555",
+                7,
+                _access_plan(),
+                _resolver,
+                self._options(_clients(), _FakeOpenVpn(mintable=False)),
+                access_bindings=[_access_transport()],
+            )
+
+        # Cleanup reconstructs the pool rule by name; it never re-validates the target's channels.
+        assert cleanups == [RaesGceVpnAccess("node.web#0")]
+
+    def test_destroy_removes_the_pool_rule(self):
+        clients = _clients(exists=True)
+        secret_ops, _ = _secret_ops()
+        account_ops, _ = _account_secret_ops()
+
+        destroy_raes_range_cell(
+            "11111111-2222-3333-4444-555555555555",
+            7,
+            _access_plan(),
+            RaesGceDestroyOptions(
+                config=_config("shared-vpc"),
+                clients=clients,
+                secret_ops=secret_ops,
+                account_secret_ops=account_ops,
+                allocated_network_cidrs=(("net.lan", "10.9.0.0/24"),),
+                remote_access=RaesGceVpnAccess("node.web#0"),
+            ),
+        )
+
+        deleted = {call.kwargs["firewall"] for call in clients.firewalls.delete.call_args_list}
+        assert vpn_pool_firewall_name(7) in deleted
+
+    def test_inventory_counts_a_residual_pool_rule(self):
+        from raes_gcp_inventory import inventory_raes_range_cell
+
+        def residual(remote_access, category):
+            report = inventory_raes_range_cell(
+                "11111111-2222-3333-4444-555555555555",
+                7,
+                _access_plan(),
+                RaesGceDestroyOptions(
+                    config=_config("shared-vpc"),
+                    clients=_clients(exists=True),
+                    allocated_network_cidrs=(("net.lan", "10.9.0.0/24"),),
+                    remote_access=remote_access,
+                ),
+            )
+            return {row["category"]: row["count"] for row in report["residual_categories"]}[category]
+
+        with_access = RaesGceVpnAccess("node.web#0")
+        assert residual(with_access, "firewalls") == residual(None, "firewalls") + 1
+        assert residual(with_access, "instances") == residual(None, "instances")

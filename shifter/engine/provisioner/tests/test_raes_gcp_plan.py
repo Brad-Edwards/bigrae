@@ -27,6 +27,7 @@ from raes_access import RealizedAccessBinding
 from raes_gce_image import resolve_gce_image_from_runtime_profile
 from raes_gcp_firewall import node_tag
 from raes_gcp_plan import RaesGcePlanError, RaesGcePlanOptions, build_raes_range_cell_plan
+from raes_gcp_vpn_plan import RaesGceVpnAccess, vpn_pool_firewall_name
 from raes_identity import RESERVED_MANAGEMENT_LOGIN
 from raes_plan import RaesPlan, RaesPlanAcl, RaesPlanImage, RaesPlanNetwork, RaesPlanNode, RaesPlanServicePort
 
@@ -801,6 +802,83 @@ class TestParticipantAccess:
         assert instance["participant_access_usernames"]["ssh"] != RESERVED_MANAGEMENT_LOGIN
 
 
+class TestVpnPoolFirewall:
+    """The shared OpenVPN pool reaches only the target node's declared channels (#2480)."""
+
+    _POOL = ("10.49.0.0/24",)
+
+    @staticmethod
+    def _capable_config() -> GCERangeCellConfig:
+        return GCERangeCellConfig(
+            project_id="proj-1",
+            region="us-east1",
+            zone="us-east1-b",
+            network_mode="shared-vpc",
+            network_id="projects/proj-1/global/networks/range",
+            portal_network_cidrs=("203.0.113.0/24",),
+            linux=GCERangeImageProfile(source_image="projects/x/global/images/ubuntu-1"),
+        )
+
+    @staticmethod
+    def _access(channels=("rdp", "ssh"), target="node.a"):
+        return tuple(
+            RealizedAccessBinding(
+                target_address=target,
+                channel=channel,
+                account_address=f"acct.{channel}",
+                username="kali",
+                auth_method="key" if channel == "ssh" else "password",
+            )
+            for channel in channels
+        )
+
+    def _build(self, *, remote_access, access=None, nodes=None):
+        return build_raes_range_cell_plan(
+            "11111111-2222-3333-4444-555555555555",
+            7,
+            _plan(nodes or (_node(), _node(address="node.b", name="dc")), (_network(),)),
+            _resolver(),
+            RaesGcePlanOptions(
+                config=self._capable_config(),
+                access_bindings=self._access() if access is None else access,
+                allocated_network_cidrs=(("net.a", "10.90.1.0/24"),),
+                remote_access=remote_access,
+            ),
+        )
+
+    def test_the_pool_reaches_only_the_target_node_on_its_channels(self):
+        plan = self._build(remote_access=RaesGceVpnAccess("node.a#0", self._POOL))
+
+        rule = next(rule for rule in plan["firewalls"] if rule["name"] == vpn_pool_firewall_name(7))
+        target = next(instance for instance in plan["instances"] if instance["uuid"] == "node.a#0")
+        other = next(instance for instance in plan["instances"] if instance["uuid"] == "node.b#0")
+        assert rule["direction"] == "INGRESS"
+        assert rule["source_ranges"] == ["10.49.0.0/24"]
+        assert rule["allowed"] == [{"IPProtocol": "tcp", "ports": ["22", "3389"]}]
+        assert len(rule["target_tags"]) == 1
+        assert rule["target_tags"][0] in target["tags"]
+        assert rule["target_tags"][0] not in other["tags"]
+        assert "vpn_gateway" not in plan
+        assert not any(instance["uuid"].endswith("vpn-gateway") for instance in plan["instances"])
+
+    def test_a_range_without_remote_access_admits_no_pool(self):
+        plan = self._build(remote_access=None)
+        assert not [rule for rule in plan["firewalls"] if "vpn" in rule["name"]]
+
+    def test_teardown_reconstructs_the_rule_name_without_declared_access(self):
+        plan = self._build(remote_access=RaesGceVpnAccess("node.a#0"), access=())
+
+        assert vpn_pool_firewall_name(7) in {rule["name"] for rule in plan["firewalls"]}
+
+    def test_a_target_without_channels_fails_closed(self):
+        with pytest.raises(RaesGcePlanError, match="no participant channel"):
+            self._build(remote_access=RaesGceVpnAccess("node.b#0", self._POOL))
+
+    def test_an_unknown_target_fails_closed(self):
+        with pytest.raises(RaesGcePlanError, match="no participant channel"):
+            self._build(remote_access=RaesGceVpnAccess("node.zzz#0", self._POOL))
+
+
 class TestRangeOwnedNat:
     """A non-`none` range owns a Cloud Router+NAT; a `none` range has none (PLAT-238)."""
 
@@ -830,3 +908,52 @@ class TestRangeOwnedNat:
             egress_policy=GceEgressPolicy(mode="none"),
         )
         assert "router_nat" not in plan
+
+    def test_shared_vpc_uses_regional_explicit_nat_instead_of_range_router(self):
+        plan = build_raes_range_cell_plan(
+            "req-1",
+            7,
+            _plan((_node(),), (_network(),)),
+            _resolver(),
+            _config(network_mode="shared-vpc", network_id="projects/proj-1/global/networks/ranges"),
+            egress_policy=GceEgressPolicy(mode="status-quo"),
+            allocated_network_cidrs=(("net.a", "10.90.1.0/24"),),
+        )
+
+        assert "router_nat" not in plan
+        assert plan["shared_nat"]["router_name"] == "shifter-ranges-nat-router"
+        assert plan["shared_nat"]["subnetwork_self_links"] == [subnet["self_link"] for subnet in plan["subnets"]]
+
+
+class TestRangeAuditTelemetry:
+    """The RAES plan path carries the same subnet and NAT logging policy (#2535)."""
+
+    def test_plan_carries_the_operator_telemetry_policy(self):
+        import dataclasses
+
+        from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
+
+        config = dataclasses.replace(
+            _config(),
+            range_telemetry=GcpRangeTelemetryPolicy.model_validate({"nat_logs": {"enabled": False}}),
+        )
+
+        plan = build_raes_range_cell_plan("req-1", 7, _plan((_node(),), (_network(),)), _resolver(), config)
+
+        assert plan["telemetry"]["nat_logs"] == {"enabled": False, "filter": "ALL"}
+        assert plan["telemetry"]["vpc_flow_logs"]["enabled"] is True
+
+    def test_none_range_logs_flows_without_gaining_a_nat_path(self):
+        from gcp_range_cell_resources import subnetwork_resource
+
+        plan = build_raes_range_cell_plan(
+            "req-1",
+            7,
+            _plan((_node(),), (_network(),)),
+            _resolver(),
+            _config(),
+            egress_policy=GceEgressPolicy(mode="none"),
+        )
+
+        assert "router_nat" not in plan and "shared_nat" not in plan
+        assert subnetwork_resource(plan, plan["subnets"][0])["log_config"]["enable"] is True

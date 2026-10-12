@@ -11,6 +11,8 @@ output "bundle_outputs" {
     ingress_certificate_arn         = module.eks.ingress_certificate_arn
     ingress_certificate_dns_records = module.eks.ingress_certificate_validation_records
     ingress_waf_acl_arn             = module.eks.ingress_waf_acl_arn
+    portal_db_address               = module.eks.portal_db_address
+    portal_db_port                  = module.eks.portal_db_port
   }
 }
 
@@ -70,13 +72,18 @@ output "provider_api_cidrs" {
 }
 
 output "private_service_cidrs" {
-  description = "Private EKS VPC CIDRs consumed by chart network policy."
-  value       = [var.vpc_cidr]
+  description = "Portal VPC CIDR(s) hosting the shared RDS/Redis data plane, consumed by chart network policy (ADR-044-R6)."
+  value       = [module.eks.portal_vpc_cidr]
 }
 
 output "kubernetes_api_cidrs" {
-  description = "Private cluster API reachability CIDRs consumed by chart network policy."
-  value       = var.private_subnet_cidrs
+  description = "Kubernetes API reachability CIDRs for the provisioner-launcher egress policy. In-cluster clients dial the API at the kubernetes.default ClusterIP (the service CIDR); the private subnet CIDRs are retained so the control-plane ENIs stay reachable too."
+  value       = concat([module.eks.service_ipv4_cidr], var.private_subnet_cidrs)
+}
+
+output "provider_api_egress_except" {
+  description = "CIDRs carved out of the broad provider-API (0.0.0.0/0:443) egress so only the launcher policy grants Kubernetes API access. The service CIDR covers the kubernetes.default ClusterIP that every in-cluster client dials."
+  value       = [module.eks.service_ipv4_cidr]
 }
 
 output "model_broker" {

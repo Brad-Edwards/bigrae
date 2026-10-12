@@ -42,8 +42,9 @@ from gcp_range_cell_naming import (
     _subnet_tag,
     _subnetwork_self_link,
     range_router_nat_plan,
+    shared_router_nat_plan,
 )
-from gcp_range_cell_plan import _range_labels
+from gcp_range_cell_plan import _range_labels, range_telemetry_plan
 from gcp_range_cell_types import (
     DEFAULT_GCE_EGRESS_POLICY,
     FirewallPlan,
@@ -65,6 +66,7 @@ from raes_gcp_firewall import (
     service_base_priority,
 )
 from raes_gcp_plan_errors import RaesGcePlanError
+from raes_gcp_vpn_plan import RaesGceVpnAccess, vpn_pool_firewalls
 from raes_plan import RaesPlan, RaesPlanNetwork, RaesPlanNode
 
 #: Default guest login user the provisioner injects (management reachability). The
@@ -89,6 +91,7 @@ class RaesGcePlanOptions:
     egress_policy: GceEgressPolicy = DEFAULT_GCE_EGRESS_POLICY
     allocated_network_cidrs: Sequence[tuple[str, str]] | None = None
     reconstruct_for_teardown: bool = False
+    remote_access: RaesGceVpnAccess | None = None
 
 
 def build_raes_range_cell_plan(
@@ -179,6 +182,7 @@ def build_raes_range_cell_plan(
         "private_google_access": resolved_config.private_google_access,
         "labels": _range_labels(range_id, request_uuid),
         "network": {"name": network_name, "self_link": network_link},
+        "telemetry": range_telemetry_plan(resolved_config.range_telemetry),
         "manage_network": manage_network,
         "subnets": subnet_plans,
         "instances": instance_plans,
@@ -189,15 +193,20 @@ def build_raes_range_cell_plan(
             raes_plan,
             resolved_config,
             resolved_options.egress_policy,
-        ),
+        )
+        + vpn_pool_firewalls(range_id, instance_plans, resolved_options.remote_access),
     }
     # A non-`none` range owns an explicit Cloud Router + NAT scoped to its subnets;
     # a `none` (zero-egress) range omits it so its subnets carry no NAT path.
     if (resolved_options.egress_policy.mode or "status-quo").strip().lower() != "none":
-        plan["router_nat"] = cast(
-            RouterNatPlan,
-            range_router_nat_plan(range_id, [subnet["self_link"] for subnet in subnet_plans]),
-        )
+        if manage_network:
+            plan["router_nat"] = cast(
+                RouterNatPlan, range_router_nat_plan(range_id, [subnet["self_link"] for subnet in subnet_plans])
+            )
+        else:
+            plan["shared_nat"] = cast(
+                RouterNatPlan, shared_router_nat_plan(network_name, [subnet["self_link"] for subnet in subnet_plans])
+            )
     return plan
 
 
@@ -210,6 +219,7 @@ def _plan_options(
     if set(legacy) - allowed:
         raise TypeError("unknown GCE plan option")
     return RaesGcePlanOptions(
+        remote_access=resolved.remote_access,
         config=cast(GCERangeCellConfig | None, legacy.get("config", resolved.config)),
         access_bindings=cast(Sequence[RealizedAccessBinding], legacy.get("access_bindings", resolved.access_bindings)),
         egress_policy=cast(GceEgressPolicy, legacy.get("egress_policy", resolved.egress_policy)),

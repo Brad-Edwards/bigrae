@@ -67,8 +67,8 @@ After a successful build:
 - Start: `start-caldera` → http://localhost:8888 (red/admin)
 
 **Claude Code:**
-- `@anthropic-ai/claude-code`
-- Pre-configured for AWS Bedrock
+- Bedrock configuration only; the binary is never baked. Scenarios declare it as
+  an artifact feature and Shifter delivers it at range realization (ADR-034-R11).
 
 ## Ubuntu AMI Contents
 
@@ -97,8 +97,8 @@ After a successful build:
 - Git, curl, nano, netcat
 
 **Claude Code:**
-- `@anthropic-ai/claude-code`
-- Pre-configured for AWS Bedrock
+- Bedrock configuration only; the binary is never baked. Scenarios declare it as
+  an artifact feature and Shifter delivers it at range realization (ADR-034-R11).
 
 ## Windows AMI Contents
 

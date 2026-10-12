@@ -2,10 +2,10 @@
 
 Forwards the runtime env-var contract that ephemeral provisioner Jobs need. On
 GCP the values ride ``_GCP_PROVISIONER_ENV_KEYS``; on AWS (#1826) the provisioner
-now runs as a Kubernetes Job on EKS instead of an ECS task, so the contract that
-used to be baked into the ECS task definition
-(``platform/terraform/modules/engine-provisioner/task_definition.tf``) is
-forwarded here as ``_AWS_PROVISIONER_ENV_KEYS`` from the platform runtime env.
+now runs as a Kubernetes Job on EKS instead of an ECS task, so the provisioner
+environment contract (assembled by the ``portal/eks-provisioner-env`` Terraform
+module) is forwarded here as ``_AWS_PROVISIONER_ENV_KEYS`` from the platform
+runtime env.
 Sensitive keys are separated into Secret-backed ``secretKeyRef`` env by the
 neutral Job manifest builder via ``shared.cloud.sensitive_env`` — this module
 only assembles the flat forwarded dict. Split out of the former single-module
@@ -51,6 +51,11 @@ _GCP_PROVISIONER_ENV_KEYS = (
     "RANGE_NETWORK_ZONE",
     "PORTAL_NETWORK_CIDRS",
     "ACCESS_NETWORK_CIDRS",
+    # Shared participant OpenVPN pool (#2480): profiles point at the pool
+    # endpoint and are signed by the tenant CA; ranges admit the pool networks.
+    "RANGE_OPENVPN_ENDPOINT",
+    "RANGE_OPENVPN_ISSUER_SECRET_ID",
+    "RANGE_OPENVPN_POOL_CIDRS",
     "GCP_PROVISIONER_SERVICE_ACCOUNT_EMAIL",
     "GCP_RANGE_BACKEND",
     "GCP_RANGE_PLANE",
@@ -77,6 +82,7 @@ _GCP_PROVISIONER_ENV_KEYS = (
     "GCP_RANGE_DC_DISK_TYPE",
     "GCP_RANGE_EGRESS_ALLOW_CIDRS",
     "GCP_RANGE_PRIVATE_GOOGLE_ACCESS",
+    "GCP_RANGE_TELEMETRY_POLICY_JSON",
     "GCP_RANGE_HOST_MGMT_SSH_PORT",
     "GCP_RANGE_PREPROVISIONED_FIREWALLS",
     "GDC_ACCESS_SECRET_ID",
@@ -237,7 +243,20 @@ def _get_aws_provisioner_env_overrides() -> dict[str, str] | None:
         "AWS_REGION": getattr(settings, "AWS_REGION", ""),
     }
 
-    return _forward_env(_AWS_PROVISIONER_ENV_KEYS, fallback_values)
+    env_overrides = _forward_env(_AWS_PROVISIONER_ENV_KEYS, fallback_values)
+    if env_overrides is None:
+        return None
+
+    # The launcher entrypoint switches its OWN DB_USER to the RDS IAM runtime user
+    # (portal_runtime) for the outbox connection, which would otherwise leak into
+    # the forwarded Job env. The provisioner Job must instead connect as its
+    # dedicated RDS IAM role, carried unswitched in PROVISIONER_DB_USER -- the
+    # value the fail-closed admission policy pins the Job's DB_USER against
+    # (mirrors the GCP launcher's PROVISIONER_DB_* -> DB_* remap). See #1826.
+    provisioner_db_user = os.environ.get("PROVISIONER_DB_USER", "").strip()
+    if provisioner_db_user:
+        env_overrides["DB_USER"] = provisioner_db_user
+    return env_overrides
 
 
 def _get_provisioner_env_overrides() -> dict[str, str] | None:

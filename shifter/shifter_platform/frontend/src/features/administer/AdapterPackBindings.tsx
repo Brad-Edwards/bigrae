@@ -91,22 +91,33 @@ const emptyImageProfile = (): AdapterTargetImageProfile => ({
   domain_netbios_name: "",
 });
 
+function validHostContract(profile: AdapterTargetImageProfile): boolean {
+  const domain = Boolean(profile.domain_dns_name || profile.domain_netbios_name);
+  const participant = Boolean(profile.participant_container_name || profile.participant_username
+    || profile.participant_readiness_manifest_sha256);
+  if (profile.bootstrap_capability === "standard") return !domain && !participant;
+  if (profile.bootstrap_capability === "prepromoted-domain-controller") {
+    return !participant && Boolean(profile.domain_dns_name && profile.domain_netbios_name);
+  }
+  return profile.bootstrap_capability === PRECONFIGURED_HOST_CAPABILITY && !domain
+    && Boolean(profile.management_ssh_username && profile.participant_container_name && profile.participant_username)
+    && profile.participant_readiness_contract === PARTICIPANT_READINESS_CONTRACT
+    && /^[0-9a-f]{64}$/.test(profile.participant_readiness_manifest_sha256);
+}
+
 function validImageProfile(profile: AdapterTargetImageProfile): boolean {
   if (!profile.image_ref || profile.management_ssh_port < 1 || profile.management_ssh_port > 65535) return false;
   if (profile.provider === "aws") return !profile.allow_public_web_egress
-    && profile.image_kind === BOOT_IMAGE_KIND && /^ami-(?:[0-9a-f]{8}|[0-9a-f]{17})$/.test(profile.image_ref);
+    && profile.image_kind === BOOT_IMAGE_KIND && /^ami-(?:[0-9a-f]{8}|[0-9a-f]{17})$/.test(profile.image_ref)
+    && validHostContract(profile);
   if (profile.image_kind === BOOT_IMAGE_KIND && profile.bootstrap_capability !== PRECONFIGURED_HOST_CAPABILITY) {
-    if (profile.bootstrap_capability === "standard") return !profile.domain_dns_name && !profile.domain_netbios_name;
-    return profile.bootstrap_capability === "prepromoted-domain-controller"
-      && Boolean(profile.domain_dns_name && profile.domain_netbios_name);
+    return validHostContract(profile);
   }
   return profile.bootstrap_capability === PRECONFIGURED_HOST_CAPABILITY
     && (profile.image_kind === MACHINE_IMAGE_KIND
       ? /^projects\/[a-z0-9][a-z0-9.:-]*\/global\/machineImages\/[a-z][-a-z0-9]*$/.test(profile.image_ref)
       : /^projects\/[a-z0-9][a-z0-9.:-]*\/global\/images\/[a-z][-a-z0-9]*$/.test(profile.image_ref))
-    && Boolean(profile.management_ssh_username && profile.participant_container_name && profile.participant_username)
-    && profile.participant_readiness_contract === PARTICIPANT_READINESS_CONTRACT
-    && /^[0-9a-f]{64}$/.test(profile.participant_readiness_manifest_sha256);
+    && validHostContract(profile);
 }
 
 function PackAssignmentForm({ organization, pack, adapters, onSaved }: Readonly<{
@@ -241,7 +252,7 @@ function TargetImageProfile({ name, value, onChange }: Readonly<{
           onChange={(event) => update({ allow_public_web_egress: event.target.checked })} />
         <Label htmlFor={"plugin-public-web-egress-" + name}>Allow participant public web access (TCP 80/443)</Label>
       </div> : null}
-      {value.provider === "gcp" && value.image_kind === BOOT_IMAGE_KIND ? <div className="space-y-1">
+      {value.image_kind === BOOT_IMAGE_KIND ? <div className="space-y-1">
         <Label htmlFor={`plugin-bootstrap-capability-${name}`}>Bootstrap capability for {name}</Label>
         <select id={`plugin-bootstrap-capability-${name}`} value={value.bootstrap_capability}
           className="block w-full rounded border bg-background p-2" onChange={(event) => update({
@@ -258,14 +269,13 @@ function TargetImageProfile({ name, value, onChange }: Readonly<{
           <option value={PRECONFIGURED_HOST_CAPABILITY}>Preconfigured participant host</option>
         </select>
       </div> : null}
-      {value.provider === "gcp" && value.image_kind === BOOT_IMAGE_KIND
-        && value.bootstrap_capability === "prepromoted-domain-controller" ? <>
+      {value.image_kind === BOOT_IMAGE_KIND && value.bootstrap_capability === "prepromoted-domain-controller" ? <>
         <ProfileInput id={`plugin-domain-dns-${name}`} label={`Domain DNS name for ${name}`}
           value={value.domain_dns_name} onChange={(domain_dns_name) => update({ domain_dns_name })} />
         <ProfileInput id={`plugin-domain-netbios-${name}`} label={`Domain NetBIOS name for ${name}`}
           value={value.domain_netbios_name} onChange={(domain_netbios_name) => update({ domain_netbios_name })} />
       </> : null}
-      {value.provider === "gcp" && value.bootstrap_capability === PRECONFIGURED_HOST_CAPABILITY ? <>
+      {value.bootstrap_capability === PRECONFIGURED_HOST_CAPABILITY ? <>
         <ProfileInput id={`plugin-participant-container-${name}`} label={`Participant container for ${name}`}
           value={value.participant_container_name} onChange={(participant_container_name) => update({ participant_container_name })} />
         <ProfileInput id={`plugin-participant-user-${name}`} label={`Participant username for ${name}`}

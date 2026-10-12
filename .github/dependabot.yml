@@ -153,6 +153,21 @@ updates:
           - "patch"
 
   - package-ecosystem: "uv"
+    directory: "/shifter/engine/openvpn"
+    target-branch: "dev"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
     directory: "/scripts/bootstrap"
     target-branch: "dev"
     commit-message:
@@ -397,6 +412,7 @@ updates:
       - "/shifter/engine/provisioner"
       - "/shifter/engine/guacd"
       - "/shifter/engine/guacamole"
+      - "/shifter/engine/openvpn"
     target-branch: "dev"
     commit-message:
       prefix: "chore"

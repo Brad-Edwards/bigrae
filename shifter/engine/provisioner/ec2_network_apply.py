@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +13,43 @@ from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 
 from ec2_range_network import Ec2GroupIntent, Ec2NetworkConfig, Ec2NetworkError, Ec2NetworkPlan, Ec2SubnetIntent
+
+# The EC2 API is eventually consistent: a describe issued right after a create or a
+# rule/route/association change can omit the new resource or show the prior state.
+# Readbacks of just-converged state are retried within this bounded window (~11.5s)
+# before the observation is treated as real.
+_OBSERVE_ATTEMPTS = 8
+_OBSERVE_INITIAL_DELAY_SECONDS = 0.5
+_OBSERVE_MAX_DELAY_SECONDS = 2.0
+
+
+class Ec2NetworkNotObservable(Ec2NetworkError):
+    """Converged state is not (yet) visible in an EC2 readback."""
+
+
+def _eventually[T](observe: Callable[[], T]) -> T:
+    """Re-run a read-only observation across EC2's read-after-write window.
+
+    Only :class:`Ec2NetworkNotObservable` is retried. Ownership, placement and
+    admission failures raise immediately, and a state still unobservable after the
+    window propagates. ``observe`` must never mutate.
+    """
+    delay = _OBSERVE_INITIAL_DELAY_SECONDS
+    for _ in range(_OBSERVE_ATTEMPTS - 1):
+        try:
+            return observe()
+        except Ec2NetworkNotObservable:
+            time.sleep(delay)
+            delay = min(delay * 2, _OBSERVE_MAX_DELAY_SECONDS)
+    return observe()
+
+
+def _created_rows(response: dict[str, Any], key: str, message: str) -> list[dict[str, Any]]:
+    """Return a just-created resource's lookup, signalling when it is not yet visible."""
+    rows = _rows(response, key)
+    if not rows:
+        raise Ec2NetworkNotObservable(message)
+    return rows
 
 
 @dataclass(frozen=True)
@@ -23,7 +62,15 @@ class Ec2NetworkResources:
 
 
 def _rows(response: dict[str, Any], key: str) -> list[dict[str, Any]]:
-    """Require a complete lookup with at most one ownership candidate."""
+    """Require a complete lookup with at most one ownership candidate.
+
+    Callers must not pass ``MaxResults``: EC2 derives ``NextToken`` from its
+    account-wide resource scan, not the caller's filters, so a bounded page emits a
+    continuation token (read here as an incomplete lookup) whenever the account holds
+    more resources of that type than the page, even when the filters match one or none.
+    Omitting ``MaxResults`` lets the server-side filters return the few owned matches in
+    a single default page; a genuine ``NextToken`` then means a truly oversized result.
+    """
     if response.get("NextToken"):
         raise Ec2NetworkError("EC2 owned-resource lookup exceeded its bound")
     values = response.get(key, [])
@@ -73,7 +120,7 @@ def _peer_for_destination(routes: list[dict[str, Any]], destination: str) -> str
 def _subnet(plan: Ec2NetworkPlan, wanted: Ec2SubnetIntent, ec2: BaseClient) -> str:
     """Converge one reserved subnet without adopting foreign or exposed resources."""
     filters = [{"Name": "vpc-id", "Values": [plan.config.vpc_id]}, {"Name": "cidr-block", "Values": [wanted.cidr]}]
-    rows = _rows(ec2.describe_subnets(Filters=filters, MaxResults=5), "Subnets")
+    rows = _rows(ec2.describe_subnets(Filters=filters), "Subnets")
     if not rows:
         try:
             ec2.create_subnet(
@@ -85,9 +132,11 @@ def _subnet(plan: Ec2NetworkPlan, wanted: Ec2SubnetIntent, ec2: BaseClient) -> s
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") != "InvalidSubnet.Conflict":
                 raise
-        rows = _rows(ec2.describe_subnets(Filters=filters, MaxResults=5), "Subnets")
-    if not rows:
-        raise Ec2NetworkError("EC2 subnet creation is not yet observable")
+        rows = _eventually(
+            lambda: _created_rows(
+                ec2.describe_subnets(Filters=filters), "Subnets", "EC2 subnet creation is not yet observable"
+            )
+        )
     row = rows[0]
     _owned(row, plan, wanted.address)
     _verify_subnet(plan, wanted, row)
@@ -139,7 +188,7 @@ def _group(plan: Ec2NetworkPlan, wanted: Ec2GroupIntent, ec2: BaseClient) -> str
         {"Name": "vpc-id", "Values": [plan.config.vpc_id]},
         {"Name": "group-name", "Values": [wanted.resource_name]},
     ]
-    rows = _rows(ec2.describe_security_groups(Filters=filters, MaxResults=5), "SecurityGroups")
+    rows = _rows(ec2.describe_security_groups(Filters=filters), "SecurityGroups")
     if not rows:
         try:
             ec2.create_security_group(
@@ -151,9 +200,13 @@ def _group(plan: Ec2NetworkPlan, wanted: Ec2GroupIntent, ec2: BaseClient) -> str
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") != "InvalidGroup.Duplicate":
                 raise
-        rows = _rows(ec2.describe_security_groups(Filters=filters, MaxResults=5), "SecurityGroups")
-    if not rows:
-        raise Ec2NetworkError("EC2 security group creation is not yet observable")
+        rows = _eventually(
+            lambda: _created_rows(
+                ec2.describe_security_groups(Filters=filters),
+                "SecurityGroups",
+                "EC2 security group creation is not yet observable",
+            )
+        )
     group = rows[0]
     _owned(group, plan, wanted.address)
     if group.get("VpcId") != plan.config.vpc_id or group.get("GroupName") != wanted.resource_name:
@@ -161,15 +214,20 @@ def _group(plan: Ec2NetworkPlan, wanted: Ec2GroupIntent, ec2: BaseClient) -> str
     # Remove the AWS-created universal egress grant before any VM can attach.
     _rules(ec2, group, "egress", wanted.egress)
     _rules(ec2, group, "ingress", wanted.ingress)
-    observed = _rows(ec2.describe_security_groups(GroupIds=[group["GroupId"]]), "SecurityGroups")
+    _eventually(lambda: _verify_group(plan, wanted, group["GroupId"], ec2))
+    return group["GroupId"]
+
+
+def _verify_group(plan: Ec2NetworkPlan, wanted: Ec2GroupIntent, group_id: str, ec2: BaseClient) -> None:
+    """Read back a converged security group's exact grants (read-only)."""
+    observed = _rows(ec2.describe_security_groups(GroupIds=[group_id]), "SecurityGroups")
     if not observed:
-        raise Ec2NetworkError("EC2 security group readback is unavailable")
+        raise Ec2NetworkNotObservable("EC2 security group readback is unavailable")
     _owned(observed[0], plan, wanted.address)
     if _permissions(observed[0].get("IpPermissions", [])) != _permissions(wanted.ingress) or _permissions(
         observed[0].get("IpPermissionsEgress", [])
     ) != _permissions(wanted.egress):
-        raise Ec2NetworkError("EC2 security group rules differ from the admitted plan")
-    return group["GroupId"]
+        raise Ec2NetworkNotObservable("EC2 security group rules differ from the admitted plan")
 
 
 def _route_table(plan: Ec2NetworkPlan, subnets: dict[str, str], routes: dict[str, str], ec2: BaseClient) -> str:
@@ -183,20 +241,24 @@ def _route_table(plan: Ec2NetworkPlan, subnets: dict[str, str], routes: dict[str
             if item["Key"] != "shifter:generation"
         ],
     ]
-    rows = _rows(ec2.describe_route_tables(Filters=filters, MaxResults=5), "RouteTables")
+    rows = _rows(ec2.describe_route_tables(Filters=filters), "RouteTables")
     if not rows:
         ec2.create_route_table(
             VpcId=plan.config.vpc_id, TagSpecifications=[{"ResourceType": "route-table", "Tags": plan.tags(subject)}]
         )
-        rows = _rows(ec2.describe_route_tables(Filters=filters, MaxResults=5), "RouteTables")
-    if not rows:
-        raise Ec2NetworkError("EC2 route table creation is not yet observable")
+        rows = _eventually(
+            lambda: _created_rows(
+                ec2.describe_route_tables(Filters=filters),
+                "RouteTables",
+                "EC2 route table creation is not yet observable",
+            )
+        )
     row = rows[0]
     _owned(row, plan, subject)
     if row.get("VpcId") != plan.config.vpc_id:
         raise Ec2NetworkError("EC2 route table is outside the admitted network")
     _apply_routes(plan, row, subnets, routes, ec2)
-    _verify_routes(plan, subnets, routes, row["RouteTableId"], ec2)
+    _eventually(lambda: _verify_routes(plan, subnets, routes, row["RouteTableId"], ec2))
     return row["RouteTableId"]
 
 
@@ -246,7 +308,7 @@ def _verify_routes(
     """Verify exact routing and association coverage after network convergence."""
     rows = _rows(ec2.describe_route_tables(RouteTableIds=[table_id]), "RouteTables")
     if not rows:
-        raise Ec2NetworkError("EC2 route table readback is unavailable")
+        raise Ec2NetworkNotObservable("EC2 route table readback is unavailable")
     row = rows[0]
     _owned(row, plan, "backend.ec2.route-table")
     expected = {(plan.config.vpc_cidr, "local"), *routes.items()}
@@ -262,7 +324,7 @@ def _verify_routes(
         or observed != expected
         or len(row.get("Routes", [])) != len(expected)
     ):
-        raise Ec2NetworkError("EC2 route table readback differs from the admitted network")
+        raise Ec2NetworkNotObservable("EC2 route table readback differs from the admitted network")
 
 
 def _verify_associations(associations: list[dict[str, Any]], subnets: dict[str, str]) -> None:
@@ -274,7 +336,7 @@ def _verify_associations(associations: list[dict[str, Any]], subnets: dict[str, 
             item.get("Main") or item.get("AssociationState", {}).get("State") != "associated" for item in associations
         )
     ):
-        raise Ec2NetworkError("EC2 route table readback differs from the admitted network")
+        raise Ec2NetworkNotObservable("EC2 route table readback differs from the admitted network")
 
 
 def ensure_ec2_network(plan: Ec2NetworkPlan, ec2: BaseClient) -> Ec2NetworkResources:

@@ -23,7 +23,6 @@ from typing import Any
 import psycopg
 from psycopg import sql
 from shared.enums import ResourceStatus
-from shared.remote_access import parse_openvpn_binding
 
 from config import has_ngfw_attachment_state
 from log_redact import safe_log_fingerprint
@@ -225,7 +224,6 @@ def write_provisioned_state(
     subnets: dict[str, dict[str, Any]],
     instances: list[dict[str, Any]],
     ngfw_instance_id: int | None = None,
-    vpn_access_binding: dict[str, object] | None = None,
     *,
     operation: OperationRef | None = None,
 ) -> None:
@@ -236,15 +234,9 @@ def write_provisioned_state(
         subnets:         Mapping of subnet name → subnet data dict.
         instances:       List of instance data dicts.
         ngfw_instance_id: FK to the NGFW Instance, if any.
-        vpn_access_binding: Closed non-secret OpenVPN result, if supported.
         operation:       ADR-043 operation identity for the shadow result append;
                          ``None`` (or a ref without an operation_id) skips it.
     """
-    if vpn_access_binding is not None:
-        # Reject extensions (especially accidental credential/profile fields)
-        # before opening a DB transaction. Only the closed ref-only contract is
-        # eligible for persistence.
-        parse_openvpn_binding(vpn_access_binding)
     provider = _get_cloud_provider()
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -255,7 +247,6 @@ def write_provisioned_state(
                 """
                 UPDATE mission_control_range
                 SET provisioned_instances = %s,
-                    vpn_access_binding = %s,
                     ngfw_instance_id = %s,
                     destroyed_at = NULL,
                     updated_at = NOW()
@@ -263,7 +254,6 @@ def write_provisioned_state(
                 """,
                 (
                     json.dumps(provisioned_instances),
-                    json.dumps(vpn_access_binding) if vpn_access_binding is not None else None,
                     ngfw_instance_id,
                     range_id,
                 ),
@@ -385,8 +375,6 @@ def get_range_data_by_request_id(request_id: str) -> dict[str, Any]:
                 rng.status,
                 rng.range_backend,
                 rng.instantiation_purpose,
-                rng.remote_access_capability,
-                rng.vpn_gateway_pool_slot,
                 rng.egress_mode,
                 rng.placement_zone
             FROM engine_request r
@@ -444,15 +432,13 @@ def get_range_data_by_request_id(request_id: str) -> dict[str, Any]:
             # deploy-wide GCP_RANGE_BACKEND selector.
             "range_backend": row[6],
             "instantiation_purpose": row[7],
-            "remote_access_capability": row[8],
-            "vpn_gateway_pool_slot": row[9],
             # Effective egress posture pinned at create (PLAT-238, ADR-017-R5).
             # Read from the range's own pinned column (like range_config/backend),
             # never re-resolved from workspace state or the deployment env once
             # pinned. NULL-safe default keeps legacy rows on the compatibility path.
-            "egress_mode": row[10] or "status-quo",
+            "egress_mode": row[8] or "status-quo",
             # #2029 realized multi-region placement zone (empty for single-zone
             # and every pre-#2029 row); read back on destroy so teardown targets
             # the exact zone apply selected.
-            "placement_zone": row[11],
+            "placement_zone": row[9],
         }

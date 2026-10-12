@@ -58,10 +58,10 @@ class _FakeVpnOps:
         self._present = present
         sink.append(self)
 
-    def delete_generation(self, range_id, generation, *, delete_identity=True):
-        self.deleted.append((range_id, generation, delete_identity))
+    def delete_profile(self, range_id, generation):
+        self.deleted.append((range_id, generation))
 
-    def issuer_present(self, range_id, generation):
+    def profile_present(self, range_id, generation):
         if isinstance(self._present, Exception):
             raise self._present
         return self._present
@@ -75,7 +75,7 @@ def _install_fake_vpn(monkeypatch, *, present=False):
 
 
 class TestScrubPreClaimAccess:
-    def test_deletes_every_node_account_and_vpn_generation(self, monkeypatch):
+    def test_deletes_every_node_account_and_vpn_profile(self, monkeypatch):
         plan = SimpleNamespace(
             nodes=[SimpleNamespace(address="n1"), SimpleNamespace(address="n2")],
             accounts=[
@@ -99,7 +99,7 @@ class TestScrubPreClaimAccess:
 
         assert ssh == [(1001, "n1"), (1001, "n2")]
         assert acct == [(1001, "n1", "alice", "password")]  # the empty-auth account is skipped
-        assert vpn_ops[-1].deleted == [(1001, prepared, True)]
+        assert vpn_ops[-1].deleted == [(1001, prepared)]
 
 
 class TestRealizeClaimantAccess:
@@ -126,20 +126,21 @@ class TestRealizeClaimantAccess:
                 {
                     "config": config,
                     "allocated_network_cidrs": (("backend.gce.network.default", "10.90.0.0/28"),),
+                    "openvpn": None,
                 },
             )
         ]
 
 
 class TestPriorAccessRevoked:
-    def test_true_when_issuer_absent(self, monkeypatch):
+    def test_true_when_profile_absent(self, monkeypatch):
         vpn_ops = _install_fake_vpn(monkeypatch, present=False)
         prepared = uuid4()
         assert GceActivationOps.prior_access_revoked(_activation(), prepared) is True
-        # It scrubs (belt-and-suspenders) then checks the issuer is absent.
-        assert vpn_ops[-1].deleted == [(1001, prepared, True)]
+        # It scrubs (belt-and-suspenders) then checks the profile is absent.
+        assert vpn_ops[-1].deleted == [(1001, prepared)]
 
-    def test_false_when_issuer_still_present(self, monkeypatch):
+    def test_false_when_profile_still_present(self, monkeypatch):
         _install_fake_vpn(monkeypatch, present=True)
         assert GceActivationOps.prior_access_revoked(_activation(), uuid4()) is False
 
@@ -153,7 +154,7 @@ class TestRealizeClaimantAccessOnCell:
     def test_happy_path_returns_projected_members(self, monkeypatch):
         members = [{"target_address": "n1", "channel": "ssh"}]
         monkeypatch.setattr(raes_gcp_activate_realize, "parse_plan", lambda plan: SimpleNamespace())
-        monkeypatch.setattr(raes_gcp_activate_realize, "_registry_resolver", lambda oi: lambda node: None)
+        monkeypatch.setattr(raes_gcp_activate_realize, "registry_image_resolver", lambda oi: lambda node: None)
         monkeypatch.setattr(
             raes_gcp_activate_realize,
             "realize_access_on_existing_cell",
@@ -174,7 +175,7 @@ class TestRealizeClaimantAccessOnCell:
 
     def test_realization_error_fails_closed(self, monkeypatch):
         monkeypatch.setattr(raes_gcp_activate_realize, "parse_plan", lambda plan: SimpleNamespace())
-        monkeypatch.setattr(raes_gcp_activate_realize, "_registry_resolver", lambda oi: lambda node: None)
+        monkeypatch.setattr(raes_gcp_activate_realize, "registry_image_resolver", lambda oi: lambda node: None)
 
         def _boom(*a, **k):
             raise RuntimeError("apply failed")
@@ -187,7 +188,7 @@ class TestRealizeClaimantAccessOnCell:
     @pytest.mark.parametrize("addresses", ["n1", {"n1": True}, [1], None])
     def test_malformed_verification_addresses_fail_before_snapshot(self, monkeypatch, addresses):
         monkeypatch.setattr(raes_gcp_activate_realize, "parse_plan", lambda plan: SimpleNamespace())
-        monkeypatch.setattr(raes_gcp_activate_realize, "_registry_resolver", lambda oi: lambda node: None)
+        monkeypatch.setattr(raes_gcp_activate_realize, "registry_image_resolver", lambda oi: lambda node: None)
         monkeypatch.setattr(
             raes_gcp_activate_realize,
             "realize_access_on_existing_cell",
@@ -198,6 +199,47 @@ class TestRealizeClaimantAccessOnCell:
         with pytest.raises(raes_gcp_activate_realize.ActivationRealizationError):
             raes_gcp_activate_realize.realize_claimant_access_on_cell(_activation(), uuid4())
         assert snapshots == []
+
+
+class TestRealizeClaimantOpenVpn:
+    """Activation realizes the claimant's OpenVPN access with the cell (#2030, #2480)."""
+
+    def _patch(self, monkeypatch, result: dict) -> list:
+        seen: list = []
+        monkeypatch.setattr(raes_gcp_activate_realize, "parse_plan", lambda plan: SimpleNamespace())
+        monkeypatch.setattr(raes_gcp_activate_realize, "registry_image_resolver", lambda oi: lambda node: None)
+        monkeypatch.setattr(
+            raes_gcp_activate_realize,
+            "realize_access_on_existing_cell",
+            lambda *a, **k: (
+                seen.append(k["options"])
+                or {
+                    "instances": [],
+                    "composition_verified_addresses": [],
+                    "operating_systems": [],
+                    "compute_substrates": [],
+                    **result,
+                }
+            ),
+        )
+        monkeypatch.setattr(raes_gcp_activate_realize, "_realized_members", lambda result: [])
+        monkeypatch.setattr(raes_gcp_activate_realize, "snapshot_resources", lambda plan, verified: [])
+        return seen
+
+    def test_the_prepared_session_rides_the_apply_and_its_realization_returns(self, monkeypatch):
+        realization = {"generation": "g", "target_ref": "n1#0", "endpoint": "e", "port": 1194, "secret_ref": "s"}
+        seen = self._patch(monkeypatch, {"vpn_access": realization})
+        session = object()
+
+        result = raes_gcp_activate_realize.realize_claimant_access_on_cell(_activation(), uuid4(), openvpn=session)
+
+        assert seen[0].openvpn is session
+        assert result.vpn_access == realization
+
+    def test_a_malformed_realization_fails_closed(self, monkeypatch):
+        self._patch(monkeypatch, {"vpn_access": "profile"})
+        with pytest.raises(raes_gcp_activate_realize.ActivationRealizationError):
+            raes_gcp_activate_realize.realize_claimant_access_on_cell(_activation(), uuid4(), openvpn=object())
 
 
 class _FakePlan:
@@ -247,7 +289,7 @@ class TestRunRaesRangeActivate:
         completion = {"resources": []}
         monkeypatch.setattr(
             "raes_gcp_activate.activate_raes_range_cell",
-            lambda **kwargs: SimpleNamespace(members=members, completion=completion),
+            lambda **kwargs: SimpleNamespace(members=members, completion=completion, vpn_access=None),
         )
         raes_range_ops.run_raes_range_activate("rid")
         assert [step for step, _payload in reports] == [
@@ -259,6 +301,38 @@ class TestRunRaesRangeActivate:
         assert ready_payload["members"] == members
         assert ready_payload["completion"] == completion
         assert ready_payload["raes_status"] == "succeeded"
+
+    def test_activation_prepares_and_reports_the_claimants_vpn(self, monkeypatch):
+        activation = _activation()
+        reports: list = []
+        _patch_activate_orchestration(monkeypatch, reports=reports, activation=activation)
+        session = object()
+        prepared: list = []
+        monkeypatch.setattr(raes_range_ops, "prepare_raes_openvpn", lambda *args: prepared.append(args) or session)
+        ops_kwargs: list = []
+        monkeypatch.setattr(
+            "raes_gcp_activate.default_activation_ops", lambda **kwargs: ops_kwargs.append(kwargs) or object()
+        )
+        monkeypatch.setattr(
+            raes_range_ops,
+            "_allocated_networks_for_destroy",
+            lambda *args: raes_range_ops._GceNetworkAllocation(required=False),
+        )
+        monkeypatch.setattr(raes_range_ops, "_require_gce_live_fire_binding", lambda operation_input: "gce")
+        monkeypatch.setattr(raes_range_ops, "load_gce_range_cell_config", lambda **kwargs: object())
+        monkeypatch.setattr(raes_range_ops, "_config_for_range_placement", lambda request_id, config: config)
+        realization = {"generation": "rid", "target_ref": "n1#0", "endpoint": "e", "port": 1194, "secret_ref": "s"}
+        monkeypatch.setattr(
+            "raes_gcp_activate.activate_raes_range_cell",
+            lambda **kwargs: SimpleNamespace(members=[], completion={"resources": []}, vpn_access=realization),
+        )
+
+        raes_range_ops.run_raes_range_activate("rid")
+
+        assert prepared[0][0] == "rid"
+        assert ops_kwargs[0]["openvpn"] is session
+        ready_payload = next(payload for step, payload in reports if step is ResultStep.RAES_TERMINAL_READY)
+        assert ready_payload["vpn_access"] == realization
 
     def test_input_read_failure_reports_and_raises(self, monkeypatch):
         reports: list = []
@@ -327,7 +401,7 @@ class TestRunRaesRangeActivate:
         )
         monkeypatch.setattr(
             "raes_gcp_activate.activate_raes_range_cell",
-            lambda **kwargs: SimpleNamespace(members=[], completion={"resources": []}),
+            lambda **kwargs: SimpleNamespace(members=[], completion={"resources": []}, vpn_access=None),
         )
 
         raes_range_ops.run_raes_range_activate("rid")
@@ -337,6 +411,7 @@ class TestRunRaesRangeActivate:
             {
                 "config": config,
                 "allocated_network_cidrs": (("backend.gce.network.default", "10.90.0.0/28"),),
+                "openvpn": None,
             }
         ]
 
@@ -369,7 +444,7 @@ class _NotFound(Exception):
     pass
 
 
-class TestIssuerPresent:
+class TestProfilePresent:
     @pytest.fixture(autouse=True)
     def _explicit_dynamic_secret_project(self, monkeypatch):
         """Exercise the supported same-project migration posture explicitly."""
@@ -381,18 +456,18 @@ class TestIssuerPresent:
 
         client = SimpleNamespace(access_secret_version=access)
         exceptions = SimpleNamespace(NotFound=_NotFound)
-        return vpn_secrets.GCPVpnSecretOps(client=client, exceptions=exceptions, project_id="proj-1")
+        return vpn_secrets.GCPVpnSecretOps(client=client, exceptions=exceptions, project_id="proj-1", issuer_secret="")
 
-    def test_true_when_issuer_secret_resolves(self):
-        ops = self._ops(access=lambda request: SimpleNamespace(payload=SimpleNamespace(data=b"issuer-material")))
-        assert ops.issuer_present(1001, uuid4()) is True
+    def test_true_when_profile_secret_resolves(self):
+        ops = self._ops(access=lambda request: SimpleNamespace(payload=SimpleNamespace(data=b"profile")))
+        assert ops.profile_present(1001, uuid4()) is True
 
-    def test_false_when_issuer_secret_absent(self):
+    def test_false_when_profile_secret_absent(self):
         def _raise(request):
             raise _NotFound
 
         ops = self._ops(access=_raise)
-        assert ops.issuer_present(1001, uuid4()) is False
+        assert ops.profile_present(1001, uuid4()) is False
 
 
 class TestGetActivationOperationInput:

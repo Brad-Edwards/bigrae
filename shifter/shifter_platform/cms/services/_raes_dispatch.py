@@ -204,7 +204,7 @@ def _runtime_plugin_scope(
         check_scenario_access(source.scenario_id, content_authorizer)
         organization_uuid = source.organization_uuid
     elif source.organization_uuid is not None and source.organization_uuid != organization_uuid:
-        raise CMSError("The pack is unavailable in this workspace")
+        raise CMSError("The pack is unavailable in this workspace because it belongs to a different organization")
     if organization_uuid is None:
         raise CMSError("The workspace has no organization binding")
     return RuntimePluginScope(

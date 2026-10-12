@@ -70,7 +70,7 @@ def test_gcp_migration_job_bootstraps_smoke_pack_and_image_registry() -> None:
     migration = text[text.index("Run database migrations and bootstrap") : text.index("Sync Guacamole runtime secret")]
     assert (
         'args: ["/bin/sh", "-c", "python manage.py bootstrap_inbox_catalog '
-        '&& python manage.py seed_raes_image_registry"]' in migration
+        '&& python manage.py seed_raes_image_registry && python manage.py acquire_feature_artifacts"]' in migration
     )
     assert 'args: ["/bin/true"]' not in migration
 

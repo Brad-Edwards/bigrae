@@ -41,7 +41,11 @@ def _scope(run: RaesOperationRun) -> Ec2CleanupScope:
     if purpose is not InstantiationPurpose.LIVE_FIRE or not evaluate_range_backend_admission("ec2", purpose).admitted:
         raise ValueError("Native EC2 lifecycle requires live-fire admission")
     return Ec2CleanupScope(
-        os.environ["ENVIRONMENT"],
+        # Scope AWS range resources (tags, secret ARNs, cleanup inventory) by the
+        # infrastructure environment name (dev/proof/prod), which the provisioner-iam
+        # tag conditions and resource/secret ARNs are keyed on -- NOT the Django
+        # ENVIRONMENT (development/production), which would be IAM-denied (#1826).
+        os.environ["DEPLOYMENT_ENVIRONMENT"],
         os.environ["AWS_REGION"],
         os.environ["RANGE_VPC_ID"],
         UUID(run.request_id),

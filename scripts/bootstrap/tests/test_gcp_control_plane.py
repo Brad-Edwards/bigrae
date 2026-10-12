@@ -33,7 +33,7 @@ PINNED_IMAGE_TAG = "abc1234"
 # =============================================================================
 
 
-def _sample_gcp_control_plane_outputs(project_id: str = "prod-rwctxzl6shxk") -> dict[str, dict[str, object]]:
+def _sample_gcp_control_plane_outputs(project_id: str = "example-gcp-project") -> dict[str, dict[str, object]]:
     """Return representative Terraform outputs for the GCP control-plane path."""
     return {
         "gke_cluster_name": {"value": "shifter-gcp-dev-platform"},
@@ -283,7 +283,7 @@ class TestGdcControlPlaneTerraform:
         # Pin the bootstrap-sa path explicitly: the default is now operator-adc (#1738),
         # but this test exercises the tf-bootstrap-SA credential + access-wait flow.
         config = deploy.GDCBootstrapConfig(
-            project_id="prod-rwctxzl6shxk", cluster_id="cluster1", terraform_identity="bootstrap-sa"
+            project_id="example-gcp-project", cluster_id="cluster1", terraform_identity="bootstrap-sa"
         )
         tf_dir = mock_repo_root / "platform" / "terraform" / "gcp" / "environments" / "gcp-dev"
         tf_dir.mkdir(parents=True)
@@ -336,7 +336,7 @@ gke_master_authorized_cidrs = []
         )
         mock_init.assert_called_once_with(config, config.terraform_state_bucket_name, Path("bootstrap.json"))
         mock_wait.assert_called_once_with(config, Path("bootstrap.json"))
-        assert mock_init.call_args.args[1] == "prod-rwctxzl6shxk-terraform-state"
+        assert mock_init.call_args.args[1] == "example-gcp-project-terraform-state"
         assert mock_init.call_args.args[0] is config
         mock_apply.assert_called_once_with(config)
         assert mock_apply.call_args.args[0] is config
@@ -345,7 +345,7 @@ gke_master_authorized_cidrs = []
     def test_operator_adc_identity_skips_tf_bootstrap_service_account(self, mock_repo_root):
         """operator-adc runs terraform under ADC and never provisions the privileged tf-bootstrap SA (#1718)."""
         config = deploy.GDCBootstrapConfig(
-            project_id="prod-rwctxzl6shxk", cluster_id="cluster1", terraform_identity="operator-adc"
+            project_id="example-gcp-project", cluster_id="cluster1", terraform_identity="operator-adc"
         )
         tf_dir = mock_repo_root / "platform" / "terraform" / "gcp" / "environments" / "gcp-dev"
         tf_dir.mkdir(parents=True)
@@ -655,7 +655,7 @@ class TestGdcTerraformBootstrapCredentials:
 
     def test_bootstrap_credentials_set_google_env_vars_and_cleanup(self, monkeypatch):
         """Terraform bootstrap must provision temporary credentials and clean them up afterwards."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
 
         def fake_run_cmd(cmd, *args, **kwargs):
             if cmd[:5] == ["gcloud", "iam", "service-accounts", "keys", "create"]:
@@ -723,7 +723,7 @@ class TestGdcTerraformBootstrapCredentials:
 
     def test_prunes_stale_user_managed_bootstrap_keys_before_creating_a_new_one(self):
         """Interrupted reruns must not accumulate leftover bootstrap keys."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         listed_keys = subprocess.CompletedProcess(
             ["gcloud"],
             0,
@@ -773,14 +773,14 @@ class TestGdcTerraformInitRetries:
 
     def test_retries_init_on_eventual_bucket_iam_consistency(self):
         """Documented GCS backend 403s must be retried until init succeeds."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         denied = subprocess.CompletedProcess(
             ["terraform"],
             1,
             stdout="Initializing the backend...\n",
             stderr=(
                 "Error: Failed to get existing workspaces: querying Cloud Storage failed: "
-                "googleapi: Error 403: shifter-gcp-dev-tf-bootstrap@prod-rwctxzl6shxk.iam.gserviceaccount.com "
+                "googleapi: Error 403: shifter-gcp-dev-tf-bootstrap@example-gcp-project.iam.gserviceaccount.com "
                 "does not have storage.objects.list access to the Google Cloud Storage bucket."
             ),
         )
@@ -821,7 +821,7 @@ class TestGdcTerraformInitRetries:
 
     def test_retries_invalid_jwt_signature_until_key_propagates(self):
         """Fresh service-account keys must be retried until Terraform can exchange them."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         invalid_auth = subprocess.CompletedProcess(
             ["terraform"],
             1,
@@ -847,7 +847,7 @@ class TestGdcTerraformInitRetries:
 
     def test_fails_fast_on_non_retryable_init_error(self):
         """Non-propagation Terraform failures must abort immediately."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         invalid_backend = subprocess.CompletedProcess(
             ["terraform"],
             1,
@@ -878,7 +878,7 @@ class TestGdcTerraformApplyRetries:
 
     def test_retries_apply_on_iam_permission_propagation(self):
         """403 permission errors from freshly granted project roles must be retried."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         denied = subprocess.CompletedProcess(
             ["terraform"],
             1,
@@ -886,7 +886,7 @@ class TestGdcTerraformApplyRetries:
             stderr=(
                 "Error: Error creating Repository: googleapi: Error 403: Permission "
                 "'artifactregistry.repositories.create' denied on resource "
-                "'//artifactregistry.googleapis.com/projects/prod-rwctxzl6shxk/locations/us-central1'."
+                "'//artifactregistry.googleapis.com/projects/example-gcp-project/locations/us-central1'."
             ),
         )
         allowed = subprocess.CompletedProcess(["terraform"], 0, stdout="Apply complete!\n", stderr="")
@@ -906,7 +906,7 @@ class TestGdcTerraformApplyRetries:
 
     def test_fails_fast_on_non_retryable_apply_error(self):
         """Non-permission Terraform apply failures must abort immediately."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         invalid_apply = subprocess.CompletedProcess(
             ["terraform"],
             1,
@@ -930,7 +930,7 @@ class TestGdcTerraformBootstrapAccess:
 
     def test_waits_until_storage_and_artifact_registry_access_are_usable(self):
         """Bootstrap must not start apply until the temporary credentials can list required resources."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         denied = subprocess.CompletedProcess(
             ["gcloud"],
             1,
@@ -938,7 +938,7 @@ class TestGdcTerraformBootstrapAccess:
             stderr=(
                 "ERROR: (gcloud.artifacts.repositories.list) googleapi: Error 403: "
                 "Permission 'artifactregistry.repositories.list' denied on resource "
-                "'//artifactregistry.googleapis.com/projects/prod-rwctxzl6shxk/locations/us-central1'."
+                "'//artifactregistry.googleapis.com/projects/example-gcp-project/locations/us-central1'."
             ),
         )
         allowed = subprocess.CompletedProcess(["gcloud"], 0, stdout="ok\n", stderr="")
@@ -978,7 +978,7 @@ class TestGdcTerraformBootstrapAccess:
 
     def test_fails_fast_when_probe_error_is_not_retryable(self):
         """Permanent probe failures must abort instead of looping blindly."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         invalid = subprocess.CompletedProcess(
             ["gcloud"],
             1,
@@ -1008,7 +1008,7 @@ class TestGdcControlPlaneHelmValues:
 
     def test_renders_values_with_live_project_specific_inputs(self):
         """The generated values must carry project-specific images, env contracts, and identity bindings."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         values = deploy.render_gcp_helm_values(
             config,
@@ -1020,30 +1020,51 @@ class TestGdcControlPlaneHelmValues:
         # CLOUD_PROVIDER reaches the merged runtime env solely via the GCP backend
         # runtime-env renderer (scripts/gcp/render_runtime_env.py); PLAT-2005.
         assert values["runtimeEnv"]["CLOUD_PROVIDER"] == "gcp"
-        assert values["runtimeEnv"]["GCP_PROJECT_ID"] == "prod-rwctxzl6shxk"
-        assert values["runtimeEnv"]["GOOGLE_CLOUD_PROJECT"] == "prod-rwctxzl6shxk"
+        assert values["runtimeEnv"]["GCP_PROJECT_ID"] == "example-gcp-project"
+        assert values["runtimeEnv"]["GOOGLE_CLOUD_PROJECT"] == "example-gcp-project"
         assert values["runtimeEnv"]["DJANGO_DEBUG"] == "false"
         assert values["runtimeEnv"]["SESSION_COOKIE_SECURE"] == "true"
         assert values["runtimeEnv"]["SITE_URL"] == "https://portal.example.test"
         assert (
             values["runtimeEnv"]["GDC_VM_IMAGE_GCS_SECRET_ID"]
-            == "projects/prod-rwctxzl6shxk/secrets/shifter-gcp-dev-gdc-vm-image-gcs"
+            == "projects/example-gcp-project/secrets/shifter-gcp-dev-gdc-vm-image-gcs"
         )
         assert (
             values["serviceAccounts"]["portal"]["annotations"]["iam.gke.io/gcp-service-account"]
-            == "shiftergcpdev-portal@prod-rwctxzl6shxk.iam.gserviceaccount.com"
+            == "shiftergcpdev-portal@example-gcp-project.iam.gserviceaccount.com"
         )
         assert (
             values["serviceAccounts"]["workers"]["annotations"]["iam.gke.io/gcp-service-account"]
-            == "shiftergcpdev-workers@prod-rwctxzl6shxk.iam.gserviceaccount.com"
+            == "shiftergcpdev-workers@example-gcp-project.iam.gserviceaccount.com"
         )
         assert (
             values["serviceAccounts"]["provisioner"]["annotations"]["iam.gke.io/gcp-service-account"]
-            == "shiftergcpdev-provisioner@prod-rwctxzl6shxk.iam.gserviceaccount.com"
+            == "shiftergcpdev-provisioner@example-gcp-project.iam.gserviceaccount.com"
         )
 
-    def test_migration_job_uses_the_dedicated_identity_and_owner_secret(self):
+    def test_feature_artifact_acquisition_follows_the_acquirer_identity(self):
         config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        outputs = _sample_gcp_control_plane_outputs(config.project_id)
+
+        disabled = deploy.render_gcp_helm_values(config, outputs, image_tag=PINNED_IMAGE_TAG)
+        assert disabled["capabilities"]["featureArtifactAcquisition"] is False
+        assert disabled["featureArtifactAcquisition"]["egressCidrs"] == []
+        assert "FEATURE_ARTIFACT_JOB_IMAGE" not in disabled["runtimeEnv"]
+
+        acquirer = f"shiftergcpdev-artifact-acq@{config.project_id}.iam.gserviceaccount.com"
+        outputs["workload_service_accounts"]["value"]["artifact-acquirer"] = acquirer
+        enabled = deploy.render_gcp_helm_values(config, outputs, image_tag=PINNED_IMAGE_TAG)
+
+        assert enabled["capabilities"]["featureArtifactAcquisition"] is True
+        # The Job runs exactly the attested platform image its admission policy pins.
+        assert enabled["runtimeEnv"]["FEATURE_ARTIFACT_JOB_IMAGE"] == enabled["images"]["platform"]
+        acquisition = enabled["featureArtifactAcquisition"]
+        assert acquisition["serviceAccountAnnotations"] == {"iam.gke.io/gcp-service-account": acquirer}
+        assert acquisition["egressCidrs"] == ["0.0.0.0/0"]
+        assert {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"} <= set(acquisition["egressExcept"])
+
+    def test_migration_job_uses_the_dedicated_identity_and_owner_secret(self):
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         values = deploy.render_gcp_helm_values(config, outputs, image_tag=PINNED_IMAGE_TAG)
 
@@ -1065,7 +1086,8 @@ class TestGdcControlPlaneHelmValues:
         assert container["args"] == [
             "/bin/sh",
             "-c",
-            "python manage.py bootstrap_inbox_catalog && python manage.py seed_raes_image_registry",
+            "python manage.py bootstrap_inbox_catalog && python manage.py seed_raes_image_registry"
+            " && python manage.py acquire_feature_artifacts",
         ]
         db_secret = next(item for item in container["env"] if item["name"] == "DB_SECRET_ID")
         assert db_secret["valueFrom"]["configMapKeyRef"]["key"] == "DB_MIGRATION_SECRET_ID"
@@ -1102,13 +1124,13 @@ class TestGdcControlPlaneHelmValues:
         assert container["image"] == values["images"]["platform"]
         assert (
             values["serviceAccounts"]["ctfScheduler"]["annotations"]["iam.gke.io/gcp-service-account"]
-            == "shiftergcpdev-ctf-scheduler@prod-rwctxzl6shxk.iam.gserviceaccount.com"
+            == "shiftergcpdev-ctf-scheduler@example-gcp-project.iam.gserviceaccount.com"
         )
         assert values["images"]["platform"].endswith("@sha256:" + ("1" * 64))
         assert values["images"]["guacd"].endswith("@sha256:" + ("2" * 64))
         assert values["images"]["guacamoleClient"].endswith("@sha256:" + ("3" * 64))
         assert (
-            values["runtimeEnv"]["ENGINE_TASK_IMAGE"] == "us-central1-docker.pkg.dev/prod-rwctxzl6shxk/"
+            values["runtimeEnv"]["ENGINE_TASK_IMAGE"] == "us-central1-docker.pkg.dev/example-gcp-project/"
             "shifter-gcp-dev-pulumi-provisioner/pulumi-provisioner:abc1234"
         )
         assert values["guacamoleRuntimeSecret"] == {"name": "guacamole-runtime"}
@@ -1142,7 +1164,7 @@ class TestGdcControlPlaneHelmValues:
         from installation.render import render_mission_control_lease_env
         from installation.schema import RootConfig
 
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         root = RootConfig.model_validate(
             {
@@ -1177,7 +1199,7 @@ class TestGdcControlPlaneHelmValues:
     def test_range_cluster_api_cidrs_from_control_plane_endpoint(self):
         """The range-cluster egress allowlist mirrors the configured control-plane endpoint."""
         config = deploy.GDCBootstrapConfig(
-            project_id="prod-rwctxzl6shxk",
+            project_id="example-gcp-project",
             cluster_id="cluster1",
             control_plane_platform_endpoint="10.240.0.5:6444",
         )
@@ -1194,7 +1216,7 @@ class TestGdcControlPlaneHelmValues:
     def test_range_access_cidrs_from_range_network_cidr(self):
         """Participant range access (issue #1349): the portal/guacd egress allowlist
         is the range network CIDR so those workloads can dial range guests."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         values = deploy.render_gcp_helm_values(config, outputs, image_tag=PINNED_IMAGE_TAG)
 
@@ -1202,7 +1224,7 @@ class TestGdcControlPlaneHelmValues:
 
     def test_range_access_cidrs_empty_when_range_network_cidr_absent(self):
         """No range network CIDR -> empty allowlist so the egress policy stays unrendered."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         outputs["range_network_cidr"] = {"value": ""}
         values = deploy.render_gcp_helm_values(config, outputs, image_tag=PINNED_IMAGE_TAG)
@@ -1211,7 +1233,7 @@ class TestGdcControlPlaneHelmValues:
 
     def test_rejects_insecure_public_bootstrap_values(self):
         """The Helm values renderer must refuse public bare-IP debug deployments on GCP."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         outputs["public_hostname"] = {"value": ""}
         outputs["managed_tls_enabled"] = {"value": False}
@@ -1224,7 +1246,7 @@ class TestGdcControlPlaneHelmValues:
             )
 
     def test_rejects_latest_image_tag(self):
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with pytest.raises(ValueError, match="latest"):
@@ -1241,7 +1263,7 @@ class TestGdcControlPlaneHelmValues:
         out-of-band Kubernetes Secret; they must never be serialized into Helm
         values (and thus Helm release history).
         """
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         values = deploy.render_gcp_helm_values(config, outputs, image_tag=PINNED_IMAGE_TAG)
@@ -1255,7 +1277,7 @@ class TestGdcControlPlaneHelmValues:
 
 class TestGdcControlPlaneImages:
     def test_push_gcp_control_plane_images_uses_only_pinned_tags(self, capsys):
-        outputs = _sample_gcp_control_plane_outputs("prod-rwctxzl6shxk")
+        outputs = _sample_gcp_control_plane_outputs("example-gcp-project")
 
         deploy.push_gcp_control_plane_images(outputs, image_tag=PINNED_IMAGE_TAG, dry_run=True)
 
@@ -1265,7 +1287,7 @@ class TestGdcControlPlaneImages:
             assert f"{image}:{PINNED_IMAGE_TAG}" in output
 
     def test_push_gcp_control_plane_images_gates_virtctl_by_backend(self, capsys):
-        outputs = _sample_gcp_control_plane_outputs("prod-rwctxzl6shxk")
+        outputs = _sample_gcp_control_plane_outputs("example-gcp-project")
 
         # Default (GCE range backend): the provisioner image omits the GDC-only
         # virtctl tooling, so a fresh apply never binds the non-existent KubeVirt
@@ -1367,7 +1389,7 @@ class TestGdcControlPlaneHelmChart:
         helm = shutil.which("helm")
         assert helm is not None, "helm is required for security-relevant chart render validation"
 
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         values_path = tmp_path / "values.json"
         values_path.write_text(
@@ -1521,7 +1543,7 @@ class TestGdcControlPlaneGuacamoleRuntimeSecret:
         }
 
     def test_syncs_guacamole_runtime_secret_through_kubectl_stdin(self):
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         def subprocess_run(cmd, **kwargs):
@@ -1551,7 +1573,7 @@ class TestGdcControlPlaneGuacamoleRuntimeSecret:
         assert applied["stringData"]["POSTGRESQL_PASSWORD"] == "supersecret"
 
     def test_dry_run_does_not_fetch_or_apply_guacamole_runtime_secret(self):
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with patch("deploy.subprocess.run") as mock_run:
@@ -2194,7 +2216,7 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_ensure_gcp_identity_platform_operator_creates_user(self):
         """Bootstrap must create the first operator via the Identity Platform admin API."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with (
@@ -2220,7 +2242,7 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_ensure_gcp_identity_platform_operator_returns_operator_email(self):
         """Bootstrap should return the first operator email so the runtime can elevate that user."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with (
@@ -2236,7 +2258,7 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_ensure_gcp_identity_platform_operator_skips_existing_user(self):
         """Bootstrap should treat an existing operator account as success."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with (
@@ -2253,7 +2275,7 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_ensure_gcp_identity_platform_operator_prompts_when_env_missing(self):
         """Interactive bootstrap should prompt for the first operator when env values are absent."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with (
@@ -2285,7 +2307,7 @@ class TestGcpBootstrapIdentityPlatform:
         identity_allowed_email_domain Terraform output before touching
         Identity Platform — that domain is the same allow-list the
         Identity Platform beforeCreate hook enforces."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         # _sample_gcp_control_plane_outputs sets identity_allowed_email_domain
         # to "paloaltonetworks.com"; an email outside that domain must fail.
@@ -2304,7 +2326,7 @@ class TestGcpBootstrapIdentityPlatform:
         run before terraform apply), SHIFTER_GCP_OPERATOR_EMAIL_DOMAIN is the
         fallback enforcement seam."""
         monkeypatch.setenv("SHIFTER_GCP_OPERATOR_EMAIL_DOMAIN", "example.org")
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
         outputs.pop("identity_allowed_email_domain")  # simulate no terraform output
 
@@ -2319,7 +2341,7 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_ensure_gcp_identity_platform_operator_rejects_malformed_email(self):
         """Bootstrap must fail before touching Identity Platform when the operator email is malformed."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with (
@@ -2333,7 +2355,7 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_render_gcp_platform_runtime_env_elevates_bootstrap_operator(self):
         """The generated runtime env should elevate the first operator without hardcoding an email in the repo."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
 
         rendered = deploy.render_gcp_platform_runtime_env(
             config,
@@ -2354,7 +2376,7 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_render_gcp_platform_runtime_env_uses_blank_guest_password_samples(self):
         """The generated env contract must not embed sample guest passwords in source-controlled output."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
 
         rendered = deploy.render_gcp_platform_runtime_env(
             config,
@@ -2374,7 +2396,7 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_render_gcp_platform_runtime_env_leaves_static_secret_refs_to_terraform_outputs(self):
         """Static secret refs come only from the Terraform IAM/runtime declaration map."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
 
         rendered = deploy.render_gcp_platform_runtime_env(config, bootstrap_env_values={})
 
@@ -2384,7 +2406,9 @@ class TestGcpBootstrapIdentityPlatform:
 
     def test_render_gcp_platform_runtime_env_wires_guest_image_urls_from_bucket(self):
         """Guest boot images resolve to the packer-gcp export bucket per environment."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1", environment="gcp-dev")
+        config = deploy.GDCBootstrapConfig(
+            project_id="example-gcp-project", cluster_id="cluster1", environment="gcp-dev"
+        )
 
         rendered = deploy.render_gcp_platform_runtime_env(config, bootstrap_env_values={})
 
@@ -2404,7 +2428,7 @@ class TestGcpBootstrapIdentityPlatform:
         requires it to exist in platform-runtime with a matching value.
         """
         config = deploy.GDCBootstrapConfig(
-            project_id="prod-rwctxzl6shxk", cluster_id="cluster1", environment="gcp-dev", region="us-central1"
+            project_id="example-gcp-project", cluster_id="cluster1", environment="gcp-dev", region="us-central1"
         )
 
         rendered = deploy.render_gcp_platform_runtime_env(config, bootstrap_env_values={})
@@ -2417,7 +2441,7 @@ class TestArtifactRegistryServiceIdentity:
     """Tests for pre-provisioning the Artifact Registry service identity."""
 
     def test_dry_run_skips_network_calls(self):
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
 
         with patch("subprocess.run") as mock_run, patch("deploy.urllib_request.urlopen") as mock_urlopen:
             deploy.ensure_gcp_artifact_registry_service_identity(config, dry_run=True)
@@ -2484,7 +2508,7 @@ class TestGcpIdentityAdminApi:
             def read(self) -> bytes:
                 return b'{"localId":"user-123"}'
 
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with (
@@ -2511,14 +2535,14 @@ class TestGcpIdentityAdminApi:
         class _FakeHttpError(deploy.urllib_error.HTTPError):
             def __init__(self) -> None:
                 super().__init__(
-                    url="https://identitytoolkit.googleapis.com/v1/projects/prod-rwctxzl6shxk/accounts",
+                    url="https://identitytoolkit.googleapis.com/v1/projects/example-gcp-project/accounts",
                     code=400,
                     msg="Bad Request",
                     hdrs=None,
                     fp=io.BytesIO(b'{"error":{"message":"EMAIL_EXISTS"}}'),
                 )
 
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
         outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
         with (
@@ -2572,16 +2596,16 @@ class TestGdcBootstrapRangeBackend:
 
     def test_gce_backend_skips_substrate_and_deploys_control_plane(self):
         """The gce backend never touches the substrate (no SA-key creation) and deploys the control plane."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1", range_backend="gce")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1", range_backend="gce")
         # The gce path gates on the range preconditions before any mutation (#1509).
         # Satisfy them for real -- required range vars set and the gcloud image
         # probe returns success -- by patching only the process boundary, rather
         # than mocking the first-party check_gce_range_preconditions (ADR-019-R1).
         range_env = {
             "RANGE_NETWORK_ZONE": "us-central1-a",
-            "GCP_RANGE_LINUX_IMAGE": "projects/prod-rwctxzl6shxk/global/images/family/shifter-ubuntu",
-            "GCP_RANGE_DC_IMAGE": "projects/prod-rwctxzl6shxk/global/images/family/shifter-dc",
-            "GCP_RANGE_HOST_SERVICE_ACCOUNT_EMAIL": "range-host@prod-rwctxzl6shxk.iam.gserviceaccount.com",
+            "GCP_RANGE_LINUX_IMAGE": "projects/example-gcp-project/global/images/family/shifter-ubuntu",
+            "GCP_RANGE_DC_IMAGE": "projects/example-gcp-project/global/images/family/shifter-dc",
+            "GCP_RANGE_HOST_SERVICE_ACCOUNT_EMAIL": "range-host@example-gcp-project.iam.gserviceaccount.com",
         }
         image_probe_ok = subprocess.CompletedProcess(["gcloud"], 0, stdout="an-image\n", stderr="")
         with (
@@ -2613,7 +2637,7 @@ class TestGdcBootstrapRangeBackend:
 
     def test_gdc_backend_builds_substrate_before_control_plane(self, tmp_path):
         """The gdc backend still builds the substrate (including the vm-image secret) before the control plane."""
-        config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", cluster_id="cluster1", range_backend="gdc")
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1", range_backend="gdc")
         staged = {
             "ssh_metadata": tmp_path / "ssh-metadata",
             "assets_dir": tmp_path / "assets",
@@ -2761,6 +2785,124 @@ def test_staging_rejects_missing_broker_readback_before_render(tmp_path):
     assert not (tmp_path / "shifter.values.generated.json").exists()
 
 
+def test_staging_writes_range_telemetry_policy_into_generated_values(tmp_path):
+    """The deploy call site renders settings.range_telemetry into the runtime env (#2535)."""
+    import json
+
+    import yaml
+
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text(
+        yaml.safe_dump(
+            {
+                "backend": "gcp",
+                "deployment": {"name": "shifter", "domain": "portal.example.test"},
+                "secrets": {"django_secret_key": "prompt"},
+                "settings": {
+                    "project_id": "example-gcp-project",
+                    "dynamic_secret_project_id": "secrets-example",
+                    "region": "us-central1",
+                    "range_telemetry": {"nat_logs": {"filter": "ERRORS_ONLY"}},
+                },
+            }
+        )
+    )
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+    outputs = _sample_gcp_control_plane_outputs(config.project_id)
+
+    values_path = gcp_control_plane.stage_gcp_control_plane_values(
+        config, outputs, tmp_path, image_tag=PINNED_IMAGE_TAG, image_identities=None
+    )
+
+    policy = json.loads(json.loads(values_path.read_text())["runtimeEnv"]["GCP_RANGE_TELEMETRY_POLICY_JSON"])
+    assert policy["nat_logs"] == {"enabled": True, "filter": "ERRORS_ONLY"}
+    assert policy["vpc_flow_logs"]["enabled"] is True
+    assert policy["vertex_data_access_logs"] == {"enabled": True}
+
+
+def test_range_audit_telemetry_readback_runs_with_fixed_argv(tmp_path):
+    """Bootstrap runs the read-only telemetry readback against the applied range VPC (#2535)."""
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text("backend: gcp\n")
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+    outputs = {
+        "range_network_name": {"value": "shifter-dev-range"},
+        "range_telemetry_terraform_resources": {
+            "value": {
+                "subnetworks": ["shifter-dev-vpn"],
+                "nat_routers": ["shifter-dev-range-nat", "shifter-dev-vpn-nat"],
+            }
+        },
+    }
+
+    with (
+        patch.dict(os.environ, {"GCP_RANGE_CELL_PROJECT_ID": "example-range-project"}),
+        patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run,
+    ):
+        gcp_control_plane.verify_gcp_range_audit_telemetry(config, outputs)
+
+    argv = run.call_args.args[0]
+    assert "shell" not in run.call_args.kwargs
+    assert argv[:4] == ["uv", "run", "--project", str(gcp_control_plane.get_repo_root() / "scripts" / "gcp")]
+    assert argv[4:6] == [
+        "python",
+        str(gcp_control_plane.get_repo_root() / "scripts/gcp/verify_range_audit_telemetry.py"),
+    ]
+    assert argv[6:] == [
+        "--config",
+        str(root_path),
+        "--project-id",
+        "example-gcp-project",
+        "--range-project-id",
+        "example-range-project",
+        "--range-network",
+        "shifter-dev-range",
+        "--terraform-subnetwork",
+        "shifter-dev-vpn",
+        "--terraform-nat-router",
+        "shifter-dev-range-nat",
+        "--terraform-nat-router",
+        "shifter-dev-vpn-nat",
+    ]
+
+
+def test_range_audit_telemetry_readback_requires_the_terraform_owned_resources_output(tmp_path):
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text("backend: gcp\n")
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+
+    with patch("subprocess.run") as run, pytest.raises(SystemExit):
+        gcp_control_plane.verify_gcp_range_audit_telemetry(config, {"range_network_name": {"value": "range"}})
+
+    run.assert_not_called()
+
+
+def test_range_audit_telemetry_readback_requires_the_range_network_output(tmp_path):
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text("backend: gcp\n")
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+
+    with patch("subprocess.run") as run, pytest.raises(SystemExit):
+        gcp_control_plane.verify_gcp_range_audit_telemetry(config, {})
+
+    run.assert_not_called()
+
+
+def test_range_audit_telemetry_readback_failure_stops_the_bootstrap(tmp_path):
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text("backend: gcp\n")
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+    failure = subprocess.CalledProcessError(1, ["uv"])
+
+    outputs = {
+        "range_network_name": {"value": "range"},
+        "range_telemetry_terraform_resources": {"value": {"subnetworks": [], "nat_routers": []}},
+    }
+
+    with patch("subprocess.run", side_effect=failure), pytest.raises(SystemExit):
+        gcp_control_plane.verify_gcp_range_audit_telemetry(config, outputs)
+
+
 def test_staging_writes_configured_lease_policy_into_generated_values(tmp_path):
     """The real deploy call site wires the root lease policy into the rendered values (#27)."""
     import json
@@ -2775,7 +2917,7 @@ def test_staging_writes_configured_lease_policy_into_generated_values(tmp_path):
                 "deployment": {"name": "shifter", "domain": "portal.example.test"},
                 "secrets": {"django_secret_key": "prompt"},
                 "settings": {
-                    "project_id": "prod-rwctxzl6shxk",
+                    "project_id": "example-gcp-project",
                     "dynamic_secret_project_id": "secrets-example",
                     "region": "us-central1",
                     "mission_control_leases": {
@@ -2788,7 +2930,7 @@ def test_staging_writes_configured_lease_policy_into_generated_values(tmp_path):
             }
         )
     )
-    config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", shifter_config_path=str(root_path))
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
     outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
     values_path = gcp_control_plane.stage_gcp_control_plane_values(
@@ -2829,7 +2971,7 @@ def test_staging_projects_every_selected_capacity_profile(
                 "deployment": {"name": "shifter", "domain": "portal.example.test"},
                 "secrets": {"django_secret_key": "prompt"},
                 "settings": {
-                    "project_id": "prod-rwctxzl6shxk",
+                    "project_id": "example-gcp-project",
                     "dynamic_secret_project_id": "secrets-example",
                     "region": "us-central1",
                     "shared_service_capacity_profile": profile_id,
@@ -2837,7 +2979,7 @@ def test_staging_projects_every_selected_capacity_profile(
             }
         )
     )
-    config = deploy.GDCBootstrapConfig(project_id="prod-rwctxzl6shxk", shifter_config_path=str(root_path))
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
     outputs = _sample_gcp_control_plane_outputs(config.project_id)
 
     values_path = gcp_control_plane.stage_gcp_control_plane_values(

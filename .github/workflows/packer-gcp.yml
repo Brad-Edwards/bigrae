@@ -30,7 +30,6 @@ on:
         type: choice
         options:
           - gcp-dev
-          - nazgul
           - orthanc
           - sauron
           - balrog
@@ -62,7 +61,10 @@ jobs:
     environment: gcp-build-${{ inputs.environment == 'gcp-dev' && 'dev' || inputs.environment }}
     outputs:
       gce_image_id: ${{ steps.build_gce_image.outputs.image_id }}
-      gce_base_disk_uri: ${{ steps.export_gce_base_disk.outputs.uri }}
+      # Object name only: the bucket name embeds the project ID, a secret, and
+      # Actions drops any job output that may contain a secret. The publish job
+      # rebuilds the URI from the same environment's bucket variable.
+      gce_base_disk_object: ${{ steps.export_gce_base_disk.outputs.object }}
       gce_base_disk_role: ${{ steps.export_gce_base_disk.outputs.role }}
       gce_base_disk_published: ${{ steps.export_gce_base_disk.outputs.published }}
     permissions:
@@ -340,7 +342,8 @@ jobs:
           # would expand empty here, overwriting one <role>.tar.gz per build.
           # GCE-native tarball (disk.raw in a .tar.gz), not qcow2 - re-imported
           # directly by `gcloud compute images create --source-uri`, no conversion.
-          DEST="gs://${GCP_GCE_BASE_IMAGE_BUCKET}/${ROLE}-${BUILT_IMAGE_ID}.tar.gz"
+          OBJECT="${ROLE}-${BUILT_IMAGE_ID}.tar.gz"
+          DEST="gs://${GCP_GCE_BASE_IMAGE_BUCKET}/${OBJECT}"
           # The export runs as a Cloud Build job that spins up a daisy worker VM.
           # Pin BOTH identities to the build SA: --cloudbuild-service-account so
           # the build itself runs as our least-priv SA (this project's builds
@@ -363,7 +366,7 @@ jobs:
             --compute-service-account="${BUILD_SA}" \
             --log-location="gs://${GCP_GCE_BASE_IMAGE_BUCKET}/export-logs"
           {
-            echo "uri=${DEST}"
+            echo "object=${OBJECT}"
             echo "role=${ROLE}"
             echo "published=true"
           } >> "$GITHUB_OUTPUT"
@@ -418,7 +421,7 @@ jobs:
 
       - name: Publish GCE base image to GHCR
         env:
-          GCE_BASE_DISK_URI: ${{ needs.build.outputs.gce_base_disk_uri }}
+          GCE_BASE_DISK_URI: gs://${{ vars.GCP_GCE_BASE_IMAGE_BUCKET }}/${{ needs.build.outputs.gce_base_disk_object }}
           GCE_IMAGE_ID: ${{ needs.build.outputs.gce_image_id }}
           IMAGE_TYPE: ${{ needs.build.outputs.gce_base_disk_role }}
           GH_TOKEN: ${{ github.token }}
@@ -432,22 +435,26 @@ jobs:
               ;;
           esac
           case "${IMAGE_TYPE}" in kali|ubuntu|dc) ;; *) exit 1 ;; esac
-          case "${GCE_BASE_DISK_URI}" in gs://*.tar.gz) ;; *)
+          case "${GCE_BASE_DISK_URI}" in gs://?*/?*.tar.gz) ;; *)
             echo "::error::Expected a GCS GCE-native disk tarball export, got an invalid disk URI."
             exit 1
             ;;
           esac
           PACKAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/shifter-gce-${IMAGE_TYPE}"
           TAG="gce-${GCE_IMAGE_ID}"
-          DISK_PATH="$(mktemp "${RUNNER_TEMP}/${IMAGE_TYPE}.XXXXXX.tar.gz")"
-          trap 'rm -f "${DISK_PATH}"' EXIT
+          DISK_DIR="$(mktemp -d "${RUNNER_TEMP}/gce-disk.XXXXXX")"
+          DISK_FILE="${IMAGE_TYPE}.tar.gz"
+          trap 'rm -f "${DISK_DIR}/${DISK_FILE}"; rmdir "${DISK_DIR}"' EXIT
           # ORAS hashes a file before upload. Keep the disk out of the checkout
           # and clean it even when the registry upload fails.
-          gcloud storage cp --quiet "${GCE_BASE_DISK_URI}" "${DISK_PATH}"
+          gcloud storage cp --quiet "${GCE_BASE_DISK_URI}" "${DISK_DIR}/${DISK_FILE}"
           printf '%s' "${GH_TOKEN}" | oras login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
           # Provenance annotations bind the artifact to its protected build so the
           # tenant bootstrap can validate it before importing (issue #2309). The
           # digest-pinned reference (never the mutable tag) is the deploy input.
+          # ORAS rejects absolute file paths, so push the file by its relative
+          # name from its own directory.
+          cd "${DISK_DIR}"
           DIGEST="$(oras push --format json \
             --artifact-type application/vnd.shifter.gce-image.v1 \
             --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
@@ -455,7 +462,7 @@ jobs:
             --annotation "com.shifter.image.gce-image-id=${GCE_IMAGE_ID}" \
             --annotation "com.shifter.build.run-id=${GITHUB_RUN_ID}" \
             --annotation "com.shifter.build.repository=${GITHUB_REPOSITORY}" \
-            "${PACKAGE}:${TAG}" "${DISK_PATH}:application/vnd.shifter.gce-image.tar.gz" | jq -er '.digest')"
+            "${PACKAGE}:${TAG}" "${DISK_FILE}:application/vnd.shifter.gce-image.tar.gz" | jq -er '.digest')"
           case "${DIGEST}" in sha256:[0-9a-f][0-9a-f]*) ;; *)
             echo "::error::ORAS did not return an OCI manifest digest."
             exit 1

@@ -16,7 +16,12 @@ policy and independent wheel execution; live cloud isolation is not yet qualifie
 Worker jobs also require the `gvisor` RuntimeClass and dedicated plugin nodes.
 Admission rejects default runtimes and platform-node placement. The GCP deployment
 declares a bounded GKE Sandbox pool with warm capacity; AWS declares a dedicated
-EKS sandbox node pool with the same workload restrictions. An installation without the required runtime fails closed.
+EKS sandbox node pool with the same workload restrictions. Pool membership is the
+`node-restriction.kubernetes.io/shifter-pool=runtime-plugin` label, which a
+kubelet cannot set. GKE applies it through its control plane; on EKS a trusted
+labeler applies it only to running nodes that AWS has tagged as members of the
+pool's own Auto Scaling group, and admission confines that labeler to the one
+label (#2526). An installation without the required runtime fails closed.
 It cannot run tenant code in the default container runtime as a fallback.
 
 Tenant admins can now assign installed versions to registered packs and select
@@ -171,7 +176,10 @@ The profile is organization-owned runtime data stored with the pack assignment,
 then pinned with the adapter and pack digest for the range lifetime. GCP profiles
 accept exact image resources with either standard or prepromoted-directory
 bootstrap metadata, or the closed preconfigured-machine-host contract. AWS
-profiles accept exact AMI IDs. An authored portable artifact binding remains
+profiles accept exact AMI IDs with the same three bootstrap contracts (#2527,
+#2528): the native EC2 backend gates a preconfigured host on the same
+participant readiness canary, and refuses, before any mutation, a prepromoted
+image whose baked domain differs from the authored one. An authored portable artifact binding remains
 authoritative when present, and the adapter worker never receives cloud image
 selection authority.
 Runtime hooks receive bounded, operation-scoped input and authorized guest or

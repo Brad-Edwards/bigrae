@@ -20,6 +20,7 @@ from raes_gcp_apply import (
 )
 from raes_gcp_plan import RaesGcePlanOptions, build_raes_range_cell_plan
 from raes_gcp_verification import _realize_directory
+from raes_gcp_vpn_apply import publish_vpn_access, vpn_access_plan
 from raes_guest_plan import assert_management_login_separate
 from raes_operating_system import validate_operating_systems
 from raes_participant_host_keys import observe_participant_host_keys
@@ -52,6 +53,7 @@ def realize_existing_cell(
             access_bindings=realized_access,
             egress_policy=GceEgressPolicy(mode=resolved_options.egress_mode),
             allocated_network_cidrs=runtime.allocated_network_cidrs,
+            remote_access=vpn_access_plan(resolved_options),
         ),
     )
     for instance in plan["instances"]:
@@ -85,4 +87,5 @@ def realize_existing_cell(
         "composition_verified_addresses": sorted(verified),
         "operating_systems": operating_systems,
         "compute_substrates": compute_substrates,
+        **publish_vpn_access(runtime),
     }

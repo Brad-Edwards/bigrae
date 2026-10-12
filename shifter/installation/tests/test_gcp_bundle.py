@@ -120,6 +120,7 @@ class TestGcpGeneratedOutputs:
             set(runtime_inventory_gcp.GCP_GENERATED_RUNTIME_ENV_KEYS)
             | set(runtime_inventory_gcp.GCP_OPTIONAL_GENERATED_RUNTIME_ENV_KEYS)
             | set(runtime_inventory_gcp.GCP_CAPACITY_RUNTIME_ENV_KEYS)
+            | set(runtime_inventory_gcp.GCP_HELM_RENDERED_RUNTIME_ENV_KEYS)
         )
         from installation.gcp_model_broker import BROKER_RUNTIME_ENV_KEYS
 

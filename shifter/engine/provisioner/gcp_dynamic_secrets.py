@@ -43,8 +43,6 @@ class DynamicSecretClass(StrEnum):
     GDC_VM_RDP_PASSWORD = auto()
     VMSERIES_SSH = auto()
     VERTEX_SERVICE_ACCOUNT_KEY = auto()
-    VPN_ISSUER = auto()
-    VPN_SERVER = auto()
     VPN_PROFILE = auto()
 
 
@@ -70,8 +68,6 @@ _DYNAMIC_SECRET_NAME_CLASSES = {
     DynamicSecretClass.GDC_VM_RDP_PASSWORD: _DynamicSecretNameClass("gdc-vm", "rdp-password"),
     DynamicSecretClass.VMSERIES_SSH: _DynamicSecretNameClass("vmseries", "ssh"),
     DynamicSecretClass.VERTEX_SERVICE_ACCOUNT_KEY: _DynamicSecretNameClass("vertex", "service-account-key"),
-    DynamicSecretClass.VPN_ISSUER: _DynamicSecretNameClass("vpn", "issuer"),
-    DynamicSecretClass.VPN_SERVER: _DynamicSecretNameClass("vpn", "server"),
     DynamicSecretClass.VPN_PROFILE: _DynamicSecretNameClass("vpn", "profile"),
 }
 

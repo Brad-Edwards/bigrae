@@ -346,6 +346,64 @@ def test_render_env_rejects_incomplete_model_access_projection(monkeypatch):
         module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
 
 
+_OPENVPN_POOL = {
+    "endpoint": "203.0.113.7",
+    "subnet_cidr": "10.49.0.0/24",
+    "issuer_secret": "projects/p/secrets/shifter-test-vpn-issuer",
+    "control_audience": "https://portal.example.com/vpn-control",
+    "service_account_email": "shifter-test-vpn@p.iam.gserviceaccount.com",
+    "service_account_id": "123456789012345678901",
+}
+
+
+@pytest.mark.parametrize(("configured", "rendered_value"), [(None, "false"), ("", "false"), ("TRUE", "true")])
+def test_render_env_always_renders_the_openvpn_opt_in(monkeypatch, configured, rendered_value):
+    """Unset renders false, so turning the opt-in off revokes a stale true (#2030)."""
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+    if configured is None:
+        monkeypatch.delenv("RANGE_OPENVPN_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("RANGE_OPENVPN_ENABLED", configured)
+    outputs = {**_outputs(), "openvpn_pool": {"value": _OPENVPN_POOL}}
+    rendered = module.render_env(outputs, engine_image=PINNED_ENGINE_DIGEST)
+    assert f"RANGE_OPENVPN_ENABLED={rendered_value}\n" in rendered
+
+
+def test_render_env_wires_the_shared_pool_only_when_enabled(monkeypatch):
+    """The portal and provisioner learn the pool from Terraform; off blanks every key (#2480)."""
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+    monkeypatch.setenv("RANGE_OPENVPN_ENABLED", "true")
+    outputs = {**_outputs(), "openvpn_pool": {"value": _OPENVPN_POOL}}
+    rendered = module.render_env(outputs, engine_image=PINNED_ENGINE_DIGEST).splitlines()
+    for line in (
+        "RANGE_OPENVPN_ENDPOINT=203.0.113.7",
+        "RANGE_OPENVPN_POOL_CIDRS=10.49.0.0/24",
+        "RANGE_OPENVPN_ISSUER_SECRET_ID=projects/p/secrets/shifter-test-vpn-issuer",
+        "VPN_CONTROL_AUDIENCE=https://portal.example.com/vpn-control",
+        "VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL=shifter-test-vpn@p.iam.gserviceaccount.com",
+        "VPN_CONTROLLER_SERVICE_ACCOUNT_ID=123456789012345678901",
+    ):
+        assert line in rendered
+
+    monkeypatch.setenv("RANGE_OPENVPN_ENABLED", "false")
+    disabled = module.render_env(outputs, engine_image=PINNED_ENGINE_DIGEST).splitlines()
+    assert "RANGE_OPENVPN_ENDPOINT=" in disabled and "VPN_CONTROLLER_SERVICE_ACCOUNT_ID=" in disabled
+
+
+def test_render_env_refuses_an_opt_in_without_a_deployed_pool(monkeypatch):
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+    monkeypatch.setenv("RANGE_OPENVPN_ENABLED", "true")
+    with pytest.raises(ValueError, match="openvpn_pool"):
+        module.render_env({**_outputs(), "openvpn_pool": {"value": None}}, engine_image=PINNED_ENGINE_DIGEST)
+
+
+def test_render_env_rejects_a_non_boolean_openvpn_opt_in(monkeypatch):
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+    monkeypatch.setenv("RANGE_OPENVPN_ENABLED", "yes")
+    with pytest.raises(ValueError, match="RANGE_OPENVPN_ENABLED"):
+        module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
+
+
 def test_render_env_omits_mission_control_lease_when_unset():
     module = _load_module("render_runtime_env.py", "render_runtime_env")
     rendered = module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
@@ -385,6 +443,40 @@ def test_render_env_rejects_present_but_blank_mission_control_lease(monkeypatch,
         module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
 
 
+def test_render_env_passes_through_range_telemetry_policy(monkeypatch):
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+    monkeypatch.setenv(
+        "GCP_RANGE_TELEMETRY_POLICY_JSON",
+        '{"vpc_flow_logs": {"enabled": true, "flow_sampling": 0.25}, "nat_logs": {"enabled": false}}',
+    )
+
+    rendered = module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
+
+    line = next(row for row in rendered.splitlines() if row.startswith("GCP_RANGE_TELEMETRY_POLICY_JSON="))
+    assert json.loads(line.split("=", 1)[1]) == {
+        "nat_logs": {"enabled": False},
+        "vpc_flow_logs": {"enabled": True, "flow_sampling": 0.25},
+    }
+
+
+def test_render_env_omits_range_telemetry_policy_when_unset():
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+
+    rendered = module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
+
+    # Absent -> omitted so the provisioner applies the default-on policy.
+    assert "GCP_RANGE_TELEMETRY_POLICY_JSON" not in rendered
+
+
+@pytest.mark.parametrize(("value", "message"), [("", "present but blank"), ("[]", "JSON object"), ("{x", "valid JSON")])
+def test_render_env_rejects_malformed_range_telemetry_policy(monkeypatch, value, message):
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+    monkeypatch.setenv("GCP_RANGE_TELEMETRY_POLICY_JSON", value)
+
+    with pytest.raises(ValueError, match=message):
+        module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
+
+
 def test_render_env_keys_match_runtime_inventory(monkeypatch):
     module = _load_module("render_runtime_env.py", "render_runtime_env")
 
@@ -398,6 +490,7 @@ def test_render_env_keys_match_runtime_inventory(monkeypatch):
         "MISSION_CONTROL_LEASE_POLICY_JSON",
         '{"initial_days":7,"extension_days":3,"maximum_days":90,"extensions_enabled":false}',
     )
+    monkeypatch.setenv("GCP_RANGE_TELEMETRY_POLICY_JSON", '{"nat_logs":{"enabled":true}}')
     _seed_gce_range_env(monkeypatch)
     outputs = _outputs(
         identity_allowed_emails=["alice@example.com", "bob@example.com"],

@@ -120,7 +120,7 @@ The current built-in support/evidence projection is in
 It is documentation only; do not reproduce it as a scenario-ID branch or CMS
 allowlist. Destroy renders with image and provision-capability checks disabled,
 so a newly unsupported composition can still be cleaned up deterministically.
-That recovery also tolerates a missing CIDR or OpenVPN gateway-pool binding when
+That recovery also tolerates a missing CIDR binding when
 provision failed before allocation: deletion uses deterministic owned-resource
 names and remains idempotent. If the launcher reports the canonical command
 grammar denial, verify that the base and Helm `restrict-provisioner-jobs`
@@ -133,8 +133,13 @@ Set the GCE range-cell variables documented in
 `docs/dev/deploy-secrets.md` ("GCE range-cell backend variables"). The
 minimum for a live range is: `RANGE_NETWORK_ZONE`, `GCP_RANGE_LINUX_IMAGE`,
 and any additional guest image profiles required by the authored topology.
-Native guests do not receive a host service account. Plugin installation and
-compatibility are separate from range readiness; see the
+By default, range guests receive a keyless, least-privilege model-access
+identity (ADR-064): the range host service account carries a predict-only Vertex
+role and the provisioner attaches it to guests through Workload Identity, with no
+key material minted or delivered. Guests stay identity-less only when the broker
+is the guest model path (`MODEL_BROKER_GUEST_VIP` set), which is optional
+(ADR-067). Plugin installation and compatibility are separate from range
+readiness; see the
 [external runtime boundary](../architecture/external-scenario-runtime-design.md).
 
 The deployment `shifter.yaml` must also set
@@ -177,6 +182,48 @@ control-plane `GCP_PROJECT_ID` is a deploy-overlay placeholder.
   IAP is created), so guests are unreachable and ranges cannot reach READY. It is
   retained as a selectable mode for a future peering/IAP implementation; do not
   use it for live deployments yet.
+
+### Shared-VPC NAT capacity and event egress
+
+Non-zero-egress range subnets are enrolled explicitly in a provisioner-owned
+regional Cloud Router/NAT. The provisioner serializes Router changes and removes
+each subnet from NAT before deleting it. This Router is separate from the
+Terraform-owned migration-bridge NAT; do not configure both to cover the same
+subnet. A `none` range is never enrolled, and a conflicting all-subnet NAT
+causes admission to fail rather than relying on a firewall-only deny.
+An existing range whose already-created subnets are still explicitly listed on
+the Terraform bridge can replay without duplicate NAT enrollment. Before
+destroying such a range, remove those subnet links from the Terraform bridge
+through that environment's deploy workflow; destroy refuses while the bridge
+still owns them. New subnets are never admitted onto the bridge.
+
+Cloud NAT currently allows [50 explicit subnet ranges per gateway and 50
+gateways per Router](https://docs.cloud.google.com/nat/quota); a VPC can have up
+to five Cloud Routers per region. The provisioner uses one regional Router and
+shards explicit subnets across its gateways, so plan against *subnets per
+range*, including recovery spares, not only participant count. Its 2,500
+explicit-subnet theoretical ceiling is not a guaranteed event size: NAT
+[port/IP allocation](https://docs.cloud.google.com/nat/docs/ports-and-addresses),
+subnet/IP space, VMs, addresses, image launch rates, and the event capacity
+assessment can bind first. Review provider quota and NAT utilization before a
+large event; shared NAT is a regional failure domain. A capacity or conflicting
+scope refusal must be corrected at the source/configuration boundary, not by
+adding an all-subnet gateway or a one-off range firewall rule.
+
+For CTF participant and managed-spare launches, the event workspace supplies
+the egress policy while each range remains owned by its participant or spare
+account and bound to that account's authorized workspace. Workspace policy
+changes are audited and affect subsequent range reservations only. Already
+launched ranges retain their pinned mode; a recovery spare whose mode no longer
+matches the event is refused before the old participant range is torn down.
+
+### Range audit telemetry
+
+Range subnets get VPC Flow Logs and range NAT gateways get Cloud NAT logging by
+default. The platform project also logs Vertex AI Data Access calls. Change
+these controls with `settings.range_telemetry` in `shifter.yaml`. The deploy
+verifies them after Terraform apply. See
+[GCP range audit telemetry](../ops/gcp-range-audit-telemetry.md).
 
 ## Legacy RangeSpec image mapping
 
@@ -319,15 +366,84 @@ there is no qcow2 export or CDI import.
 
 ## Service accounts
 
-Native range guests receive no platform cloud identity. Exact preconfigured
-machine-image profiles may use the bounded range-host identity pool selected by
-the range allocation slot. Pool identities have no roles by default; they are
-host-infrastructure identities, not per-range model authorization.
+By default, range guests receive a keyless, least-privilege model-access
+identity (ADR-064). On GCP the range host service account carries a predict-only
+Vertex custom role (`aiplatform.endpoints.predict`) in the platform project,
+attached to guests through Workload Identity; it is least privilege and never
+grants cloud management, project storage, secrets, another range, or the portal
+API. Exact preconfigured machine-image profiles use the bounded range-host
+identity pool selected by the range allocation slot.
 
-New ranges no longer mint provider service-account keys or copy a shared model
-key into guests. Legacy key revocation remains part of teardown. Model access
-must use the broker contract in ADR-059; adapter compatibility does not establish
-that the broker lifecycle or a particular provider has been qualified.
+The keyless-direct identity and the ADR-059 broker are mutually exclusive per
+range: when the broker is the guest model path (`MODEL_BROKER_GUEST_VIP` set) the
+provisioner leaves guests identity-less; the keyless identity is attached only
+when no broker guest path is configured. Enforcement is optional (ADR-067): no
+deployment must run the broker to give ranges model access, and keyless-direct is
+the default for all ranges, including CTF ranges. No provider service-account
+keys or shared model keys are minted into guests; legacy key revocation remains
+part of teardown.
+
+## Participant OpenVPN access
+
+Participants can reach their range through a native OpenVPN client instead of
+the browser (ADR-039-R10). The range-access page offers an `.ovpn` download; the
+tunnel reaches exactly one range member, the scenario's participant-access
+target, and only on its declared participant channels (SSH 22, RDP 3389). Every
+other range member is reachable only by attacking the range from that target.
+
+Every participant connects to one shared OpenVPN server pool per deployment
+(#2480), not to a per-range gateway:
+
+- A regional managed instance group of Container-Optimized OS VMs runs outside
+  the GKE cluster, in its own subnet of the range VPC (`openvpn_pool_subnet_cidr`,
+  default `10.49.0.0/24`). The VMs have no public addresses.
+- One external passthrough load balancer on a reserved address is the only
+  listener: UDP 1194, mutual TLS with tls-crypt. Every profile names that
+  address. Client-IP affinity keeps a client on one server.
+- Before a server admits a client, it asks the portal. The portal admits the
+  certificate only while its range is `READY` for the same owner and generation
+  before the access deadline, keeps one active session per range (a newer
+  connection replaces the older one), and returns the target address and ports.
+  The server then allows that client to reach only that address and those ports
+  and pushes only that route.
+- Clients ping every 5 seconds and reconnect after 30 seconds of silence, so an
+  unplanned server loss costs about 30 seconds. A server that is stopped (deploy,
+  scale-in, replacement) tells its clients to reconnect immediately.
+- Servers renew their sessions every 15 seconds. Destroy, pause, owner change,
+  the deadline, or a newer session disconnects a tunnel within one heartbeat. A
+  server that cannot confirm its sessions with the portal disconnects every
+  client after 90 seconds.
+- A range with OpenVPN admits the pool subnet only to its target node, on its
+  declared channel ports.
+
+Enable it per deployment:
+
+1. Apply `platform/terraform/gcp/global/cicd-oidc` for the deployment's identity
+   profile. The deploy identity needs the conditioned pool role it adds
+   (instance templates, the regional instance group, and the autoscaler, limited
+   to the pool's own VM names).
+2. Set the deployment variable `RANGE_OPENVPN_ENABLED=true` (default `false`) and
+   run the CI deploy. It creates the pool, its PKI, and its release record, and
+   renders the pool wiring into the runtime environment. The local
+   `gdc-bootstrap` path never deploys the pool; see step 6 of the GCP deployment
+   in [`docs/technical/dev/setup.md`](../technical/dev/setup.md).
+3. Size the pool through `settings.shared_service_capacity_profile`. Each profile
+   plans 25 participants per `e2-standard-2` server, keeps one spare server above
+   the planned count, scales out at 30% CPU, and allows twice the minimum. Check
+   the live values with `scripts/gcp/check_event_capacity_drift.py --vpn-pool`.
+
+Each deploy rebuilds and scans the pool image, records its digest, and replaces
+the servers by surging new ones in before old ones leave. Connected participants
+reconnect once, like browser sessions during the control-plane restart. The
+deploy also creates the tenant CA once and renews the pool server certificate
+30 days before it expires; private keys never enter Terraform state.
+
+Warm-pool generations carry no VPN; a claim mints the claimant's profile. A CTF
+spare is provisioned with a profile for its managed spare identity, and recovery
+hands the binding to the participant, because that identity can never
+authenticate and so could never have downloaded the profile. A range whose owner
+could have downloaded the profile never changes owner in place. EC2 is tracked
+by #2481.
 
 ## Baking a new pre-promoted DC image
 

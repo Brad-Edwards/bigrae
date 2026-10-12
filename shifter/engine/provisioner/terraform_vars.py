@@ -256,7 +256,6 @@ def _build_range_terraform_variables(
     range_id: int,
     user_id: int,
     range_spec: dict[str, Any],
-    remote_access_capability: dict[str, object] | None = None,
     pinned_egress_mode: str = "status-quo",
 ) -> dict[str, Any]:
     """Build Terraform variables dict from range spec and the pinned egress decision.
@@ -302,8 +301,6 @@ def _build_range_terraform_variables(
         return variables
 
     if provider == "aws":
-        if remote_access_capability is not None:
-            variables["openvpn_access"] = remote_access_capability
         variables.update(_build_aws_extra_tf_variables())
         return variables
 
@@ -315,7 +312,6 @@ def _build_gce_range_cell_variables(
     range_id: int,
     range_spec: dict[str, Any],
     scenario_artifact: dict[str, Any] | None,
-    remote_access_capability: dict[str, object] | None,
     egress_mode: str = "status-quo",
 ) -> dict[str, Any]:
     """Build the closed GCE VM-cell request around an opaque scenario artifact.
@@ -341,7 +337,6 @@ def _build_gce_range_cell_variables(
         scenario_artifact=scenario_artifact,
         network_bindings=bindings,
         access_declarations=access_declarations,
-        remote_access=remote_access_capability,
         egress_mode=egress_mode,
     )
 
@@ -351,13 +346,12 @@ class RangeVariableContext:
     """The per-operation binding a range-variable build needs beyond the range spec.
 
     Bundled into one argument (keeping the build seam within the parameter budget):
-    the #1666 backend ownership binding, the #1695 OpenVPN remote-access capability,
-    the digest-bound GCE scenario artifact, and the PLAT-238 pinned egress posture.
+    the #1666 backend ownership binding, the digest-bound GCE scenario artifact,
+    and the PLAT-238 pinned egress posture.
     """
 
     scenario_artifact: dict[str, Any] | None = None
     backend: str | None = None
-    remote_access_capability: dict[str, object] | None = None
     egress_mode: str = "status-quo"
 
 
@@ -375,8 +369,8 @@ def build_range_variables(
     range provision/destroy paths call so the GCE backend never receives
     AWS-translated instance shapes.
 
-    ``context`` carries the per-operation binding (backend, remote access,
-    scenario artifact, pinned egress mode). ``context.backend`` is the #1666
+    ``context`` carries the per-operation binding (backend, scenario artifact,
+    pinned egress mode). ``context.backend`` is the #1666
     ownership binding: when supplied it selects the shape from the persisted
     binding (so a bound destroy builds the right variables even after the deploy
     selector flips); ``None`` falls back to the deploy-wide env selector.
@@ -393,7 +387,6 @@ def build_range_variables(
             range_id,
             range_spec,
             ctx.scenario_artifact,
-            ctx.remote_access_capability,
             ctx.egress_mode,
         )
     return _build_range_terraform_variables(
@@ -401,6 +394,5 @@ def build_range_variables(
         range_id,
         user_id,
         range_spec,
-        ctx.remote_access_capability,
         ctx.egress_mode,
     )

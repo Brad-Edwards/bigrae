@@ -16,7 +16,9 @@ from ._helpers import (
     _KUBERNETES_REQUEST_TIMEOUT_SECONDS,
     _SENSITIVE_ENV_NAME_INFIX,
     _SHIFTER_ANNOTATION_TASK_IDENTITY,
+    ADMISSION_CONFLICT_ATTEMPTS,
     _api_call,
+    admission_conflict_backoff_seconds,
 )
 from ._secrets import _cleanup_sensitive_secret, _install_owner_reference_or_unwind
 from ._types import _JobIdentity, _JobLaunch, _KubernetesApis
@@ -151,12 +153,16 @@ def _observe_reserved_job(launch: _JobLaunch) -> object | None:
 
 def _is_retryable_create_conflict(launch: _JobLaunch, create_exc: Exception, attempt: int) -> bool:
     """Return whether a deterministic create hit a transient admission conflict."""
-    return launch.identity is not None and getattr(create_exc, "status", None) == 409 and attempt < 2
+    return (
+        launch.identity is not None
+        and getattr(create_exc, "status", None) == 409
+        and attempt < ADMISSION_CONFLICT_ATTEMPTS - 1
+    )
 
 
 def _create_or_observe_job(launch: _JobLaunch) -> tuple[object, str, str | None, bool]:
     """Create a Job or reconcile the same deterministic Job after ambiguity."""
-    for attempt in range(3):
+    for attempt in range(ADMISSION_CONFLICT_ATTEMPTS):
         try:
             created = _api_call(
                 launch.apis.batch,
@@ -175,8 +181,8 @@ def _create_or_observe_job(launch: _JobLaunch) -> tuple[object, str, str | None,
                 # ResourceQuota admission can return an optimistic-concurrency
                 # conflict when several Jobs are created together. The Job was
                 # not accepted, so retry its deterministic create after a short
-                # bounded delay.
-                time.sleep(0.1 * (attempt + 1))
+                # bounded, jittered delay.
+                time.sleep(admission_conflict_backoff_seconds(attempt))
                 continue
             if launch.identity is None or status in {400, 401, 403, 405, 406, 415, 422}:
                 _cleanup_sensitive_secret(launch.apis.core, launch.secret_name, launch.namespace)

@@ -260,6 +260,10 @@ async def test_slow_socket_consumer_cannot_delay_upstream_revocation(stack):
         writer.transport.abort()
 
 
+# The broker settles the reservation from its own thread while this test polls it.
+# SQLite locks the table for that write, so the read fails intermittently with
+# "database table is locked"; the concurrency this asserts needs PostgreSQL.
+@pytest.mark.postgres
 @pytest.mark.parametrize("fence", ["revoke", "control_loss", "disconnect", "drain", "deadline"])
 async def test_live_stream_fences_within_ten_seconds_and_keeps_liability(stack, fence):
     if fence == "deadline":

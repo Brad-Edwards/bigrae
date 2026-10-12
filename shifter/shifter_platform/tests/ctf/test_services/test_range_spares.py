@@ -163,6 +163,83 @@ class TestProvisionEventSpares:
         assert audit.new_state["created"] == 2
 
     @pytest.mark.django_db
+    def test_spares_pin_event_egress_without_rebinding_owner_workspace(self, event_with_scenario, organizer_user):
+        from engine.models import Range as EngineRange
+        from workspaces.models import Workspace
+
+        Workspace.objects.filter(pk=event_with_scenario.workspace_id).update(egress_policy="none")
+
+        result = provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
+
+        assert result["created"] == 2
+        for spare in CTFSpareRange.objects.filter(event=event_with_scenario):
+            instance = RangeInstance.objects.get(pk=spare.range_instance_id)
+            engine_range = EngineRange.objects.get(request__request_id=instance.request.request_id)
+            assert instance.user_id == spare.owner_user_id
+            assert instance.workspace_id != event_with_scenario.workspace_id
+            assert engine_range.workspace_id == instance.workspace_id
+            assert engine_range.egress_mode == "none"
+            launch_audit = AuditLog.objects.get(
+                action=AuditAction.PROVISION,
+                actor_id=spare.owner_user_id,
+                new_state__request_id=str(instance.request.request_id),
+            )
+            assert launch_audit.new_state["egress_policy_workspace_id"] == event_with_scenario.workspace_id
+            assert launch_audit.new_state["egress_mode"] == "none"
+
+    @pytest.mark.django_db
+    def test_two_participants_use_event_policy_with_distinct_owner_scopes(
+        self, event_with_scenario, participant_user, second_participant_user
+    ):
+        from ctf.services.range.provision import provision_participant_range
+        from engine.models import Range as EngineRange
+        from workspaces.models import Workspace
+
+        Workspace.objects.filter(pk=event_with_scenario.workspace_id).update(egress_policy="none")
+        owner_workspaces = set()
+        for user in (participant_user, second_participant_user):
+            participant = CTFParticipant.objects.create(
+                event=event_with_scenario,
+                user=user,
+                email=user.email,
+                name=user.username,
+                status=ParticipantStatus.ACTIVE.value,
+            )
+            result = provision_participant_range(participant.pk)
+            instance = RangeInstance.objects.get(pk=result["range_instance_id"])
+            engine_range = EngineRange.objects.get(request__request_id=instance.request.request_id)
+            assert instance.user_id == user.pk
+            assert instance.workspace_id != event_with_scenario.workspace_id
+            assert engine_range.workspace_id == instance.workspace_id
+            assert engine_range.egress_mode == "none"
+            owner_workspaces.add(instance.workspace_id)
+        assert len(owner_workspaces) == 2
+
+    @pytest.mark.django_db
+    def test_archived_event_workspace_denies_participant_launch_without_personal_fallback(
+        self, event_with_scenario, participant_user
+    ):
+        from django.utils import timezone
+
+        from ctf.exceptions import CTFRangeError
+        from ctf.services.range.provision import provision_participant_range
+        from workspaces.models import Workspace
+
+        Workspace.objects.filter(pk=event_with_scenario.workspace_id).update(archived_at=timezone.now())
+        participant = CTFParticipant.objects.create(
+            event=event_with_scenario,
+            user=participant_user,
+            email=participant_user.email,
+            name="Denied Participant",
+            status=ParticipantStatus.ACTIVE.value,
+        )
+
+        with pytest.raises(CTFRangeError):
+            provision_participant_range(participant.pk)
+
+        assert not RangeInstance.objects.filter(user_id=participant_user.pk).exists()
+
+    @pytest.mark.django_db
     def test_top_up_is_idempotent_at_the_same_target(self, event_with_scenario, organizer_user):
         provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
         first_ids = set(CTFSpareRange.objects.filter(event=event_with_scenario).values_list("pk", flat=True))

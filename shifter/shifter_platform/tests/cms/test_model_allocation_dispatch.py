@@ -310,6 +310,70 @@ def test_launch_refreshes_real_user_selector_and_applies_its_spend_account(djang
     assert allocation.snapshot["effective_policy"]["spend_account_refs"] == ["acct-shared"]
 
 
+def test_credential_deadline_is_session_window_not_membership_freshness(django_user_model, settings):
+    """The allocation deadline (and therefore the credential hard expiry) is the
+    range session window, never the ~5-minute membership freshness window.
+
+    Regression for the guest model-access credential dying mid-provision: the
+    membership freshness is a re-validation interval enforced continuously by the
+    authority-fence pins on every exchange/refresh/authenticate, not a hard cap on
+    the credential. A GCE range that takes longer than the freshness window to boot
+    and enroll must still receive a usable, session-length credential.
+    """
+    from datetime import timedelta
+
+    from django.db import transaction
+    from django.utils import timezone
+
+    from cms.services._model_allocation import prepare_model_access_for_dispatch
+    from config.model_access_sharing import publish_model_access_binding
+    from engine.services import record_model_observations
+    from engine.services._model_allocation_launch import allocate_launch_models
+    from shared.model_access import SharingFacet, SharingPool, seal_sharing_binding
+    from shared.model_access.reservation import ModelQuotaObservation
+
+    from ..engine.services.test_sharing import _binding_dto, _pool_dto
+
+    actor, request, _ = setup_launch(django_user_model, settings)
+    catalog = settings.MODEL_ACCESS_CATALOG
+    binding = _binding_dto(facets=(SharingFacet.SPEND,)).model_dump(mode="json")
+    binding["selector"] = {"kind": "user", "ids": [str(actor.pk)]}
+    publish_model_access_binding(
+        actor=actor,
+        deployment_id=catalog.deployment_id,
+        catalog=catalog,
+        binding=seal_sharing_binding(binding),
+        pool=SharingPool.model_validate(_pool_dto()),
+        expected_definition_revision=0,
+    )
+    now = timezone.now()
+    # Membership freshness is deliberately far nearer than the session window, so a
+    # deadline equal to window_end proves fresh_until is not capping the credential.
+    assert request.window_end > now + timedelta(minutes=6)
+    record_model_observations(
+        catalog,
+        lambda _: [
+            ModelQuotaObservation(
+                quota_pool_id="vertex-tokens-eu",
+                catalog_digest=catalog.digest,
+                source="observed_provider",
+                observed_at=now,
+                valid_until=now + timedelta(minutes=5),
+                limit=1000000,
+                usage=0,
+                healthy_shard_ids=("vertex-primary",),
+            )
+        ],
+    )
+    with transaction.atomic():
+        prepare_model_access_for_dispatch(request.request_id, range_id=request.range_id)
+        (allocation,) = allocate_launch_models(
+            {"resource": "raes-range", "operation": "provision", "request_id": str(request.request_id)},
+            request.operation_id,
+        )
+    assert allocation.deadline == request.window_end
+
+
 def test_resume_reauthorizes_after_status_change_and_commits_new_grant(django_user_model, settings):
     from django.db import transaction
 

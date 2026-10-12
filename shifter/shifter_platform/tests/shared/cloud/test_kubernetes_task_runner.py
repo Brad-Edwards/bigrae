@@ -168,6 +168,27 @@ class TestInjectedProfileDrivesJobShape:
         pod_spec = batch_api.create_namespaced_job.call_args.kwargs["body"].spec.template.spec
         assert not hasattr(pod_spec.containers[0], "security_context")
 
+    def test_container_command_pins_the_entrypoint_only_when_profiled(self) -> None:
+        """A pinned command replaces the image entrypoint; existing profiles emit none."""
+        for profile, expected in (
+            (
+                replace(_profile(), container_command=("python", "-m", "pkg.job")),
+                ["python", "-m", "pkg.job"],
+            ),
+            (_profile(), None),
+        ):
+            batch_api = MagicMock()
+            batch_api.create_namespaced_job.return_value = SimpleNamespace(metadata=SimpleNamespace(name="job-c"))
+            _runner(profile, batch_api, MagicMock()).run_task(
+                task_definition="img:latest",
+                cluster="ns",
+                command=["claude-code", "2.1.289", "linux-x64-glibc"],
+                container_name=_HARDENED_CONTAINER,
+            )
+            container = batch_api.create_namespaced_job.call_args.kwargs["body"].spec.template.spec.containers[0]
+            assert getattr(container, "command", None) == expected
+            assert container.args == ["claude-code", "2.1.289", "linux-x64-glibc"]
+
     def test_requires_namespace(self) -> None:
         runner = KubernetesTaskRunner(_profile())
         with pytest.raises(CloudTaskError, match="namespace"):

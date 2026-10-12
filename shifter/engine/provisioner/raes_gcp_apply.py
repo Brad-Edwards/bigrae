@@ -36,6 +36,7 @@ from gcp_range_cell_host_binding import GCEInstanceBindingError
 from gcp_range_cell_ops import _get_or_none
 from gcp_range_cell_outputs import InstanceCredentials, instance_output, subnet_outputs
 from gcp_range_cell_resources import instance_resource
+from gcp_range_cell_shared_nat import assert_shared_nat_capacity
 from gcp_range_cell_types import GceEgressPolicy, InstancePlan, RangeCellPlan, ResourceDict
 from gcp_range_cells import (
     _assert_preconfigured_host_binding,
@@ -64,6 +65,7 @@ from raes_gcp_destroy import RaesGceDestroyOptions, destroy_raes_range_cell
 from raes_gcp_plan import RaesGcePlanOptions, build_raes_range_cell_plan
 from raes_gcp_secret_ops import RaesGceSecretOps, _default_secret_ops
 from raes_gcp_verification import _verify_raes_apply
+from raes_gcp_vpn_apply import publish_vpn_access, vpn_access_plan
 from raes_guest_plan import (
     _access_by_node,
     _accounts_by_node,
@@ -116,6 +118,7 @@ def _apply_runtime(
         allocated_network_cidrs=options.allocated_network_cidrs,
         runtime_plugin=options.runtime_plugin,
         model_enrollment=options.model_enrollment,
+        openvpn=options.openvpn,
     )
 
 
@@ -210,6 +213,7 @@ def _provision_raes_resources(
     authored account credential installed and verified on the guest, so a
     declared endpoint never appears with a credential that was never realized.
     """
+    assert_shared_nat_capacity(plan, runtime.clients)
     if plan["manage_network"]:
         _record_created(created, "network", plan["network"]["name"], _ensure_network(plan, runtime.clients))
     for subnet in plan["subnets"]:
@@ -309,6 +313,8 @@ def _cleanup_failed_apply(
     runtime: RaesGceApplyRuntime,
 ) -> None:
     """Run reconstructive cleanup using the apply pass's resolved clients."""
+    # Teardown reconstructs the pool rule by name only.
+    remote_access = runtime.openvpn.plan_access().names_only() if runtime.openvpn is not None else None
     destroy_raes_range_cell(
         request_uuid,
         range_id,
@@ -320,6 +326,7 @@ def _cleanup_failed_apply(
             account_secret_ops=runtime.account_secret_ops,
             directory_secret_ops=runtime.directory_secret_ops,
             allocated_network_cidrs=runtime.allocated_network_cidrs,
+            remote_access=remote_access,
         ),
     )
 
@@ -354,6 +361,7 @@ def _prepare_raes_apply(
             access_bindings=realized_access,
             egress_policy=GceEgressPolicy(mode=options.egress_mode, model_broker=options.model_broker),
             allocated_network_cidrs=options.allocated_network_cidrs,
+            remote_access=vpn_access_plan(options),
         ),
     )
     for instance in plan["instances"]:
@@ -443,6 +451,7 @@ def apply_raes_range_cell(
             created,
         )
         verified_observations = _verify_raes_apply(plan, raes_plan, instance_outputs, delivery_bindings, runtime)
+        vpn_access = publish_vpn_access(runtime)
     except GCEInstanceBindingError:
         # A conflicting VM is not ours to delete, even if a race placed it
         # after the read-only preflight and some network resources were made.
@@ -456,6 +465,7 @@ def apply_raes_range_cell(
         "subnets": subnet_outputs(plan),
         "instances": instance_outputs,
         **verified_observations,
+        **vpn_access,
     }
 
 

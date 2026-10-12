@@ -78,6 +78,10 @@ GCP_GENERATED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "QUEUE_MC_CONSUMER_ID",
         "QUEUE_MC_PUBLISHER_ID",
         "RANGE_EVENTS_TOPIC_ID",
+        "RANGE_OPENVPN_ENABLED",
+        "RANGE_OPENVPN_ENDPOINT",
+        "RANGE_OPENVPN_ISSUER_SECRET_ID",
+        "RANGE_OPENVPN_POOL_CIDRS",
         "RANGE_NETWORK_CIDR",
         "RANGE_NETWORK_ID",
         "RANGE_NETWORK_REGION",
@@ -92,6 +96,9 @@ GCP_GENERATED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "SITE_URL",
         "STORAGE_BUCKET_NAME",
         "TF_STATE_BUCKET",
+        "VPN_CONTROL_AUDIENCE",
+        "VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL",
+        "VPN_CONTROLLER_SERVICE_ACCOUNT_ID",
     }
 )
 
@@ -109,8 +116,17 @@ GCP_CAPACITY_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Keys the GCP Helm-values renderer (scripts/bootstrap/gcp_control_plane.py) projects
+# from attested image identities, not from Terraform outputs. FEATURE_ARTIFACT_JOB_IMAGE
+# is the platform image isolated acquisition Jobs run (#2479), emitted only when the
+# environment defines the artifact-acquirer identity; absent means acquisition is off.
+GCP_HELM_RENDERED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset({"FEATURE_ARTIFACT_JOB_IMAGE"})
+
 GCP_OPTIONAL_GENERATED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
     {
+        # Range audit telemetry policy (#2535): rendered from settings.range_telemetry by
+        # the deploy pipeline. Absent -> the provisioner applies the default-on policy.
+        "GCP_RANGE_TELEMETRY_POLICY_JSON",
         "IDENTITY_ALLOWED_EMAILS",
         "PLATFORM_BOOTSTRAP_STAFF_EMAILS",
         "PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS",
@@ -182,6 +198,9 @@ GCP_PROVISIONER_FORWARDED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "MODEL_ENROLLMENT_CONTROL_URL",
         "MODEL_ENROLLMENT_CA_PEM_B64",
         "ACCESS_NETWORK_CIDRS",
+        "RANGE_OPENVPN_ENDPOINT",
+        "RANGE_OPENVPN_ISSUER_SECRET_ID",
+        "RANGE_OPENVPN_POOL_CIDRS",
         "AGENT_STORAGE_BUCKET",
         "CLOUD_PROJECT_ID",
         "CLOUD_PROVIDER",
@@ -215,6 +234,7 @@ GCP_PROVISIONER_FORWARDED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "GCP_RANGE_LINUX_MACHINE_TYPE",
         "GCP_RANGE_PLANE",
         "GCP_RANGE_PRIVATE_GOOGLE_ACCESS",
+        "GCP_RANGE_TELEMETRY_POLICY_JSON",
         "GCP_RANGE_WINDOWS_DISK_SIZE_GB",
         "GCP_RANGE_WINDOWS_DISK_TYPE",
         "GCP_RANGE_WINDOWS_IMAGE",

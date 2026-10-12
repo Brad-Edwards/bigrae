@@ -38,6 +38,8 @@ _CAPACITY_WORKLOADS = {
     "guacd": ("guacd", "guacd"),
     "guacamoleClient": ("guacamole-client", "guacamole-client"),
 }
+# Workloads whose autoscaler the profile owns (the chart's capacity-autoscaling.yaml).
+_CAPACITY_AUTOSCALED = ("portal", "guacd")
 
 
 def _control_access_env(control: dict[str, object]) -> dict[str, str]:
@@ -81,8 +83,10 @@ def apply_capacity_profile(base: str, profile_id: str) -> str:
 
     Bootstrap renders these values through Helm. The release workflow later
     applies the Kustomize base, so it must carry the same profile or it would
-    silently restore the base resource limits while retaining the profile
-    labels and autoscalers.
+    silently restore the base resource limits. It also owns the autoscalers and
+    the Guacamole connection ceiling: otherwise a tier change kept the
+    bootstrap-time autoscaler bounds, which immediately scaled the new replica
+    count back to the old maximum.
     """
     projection = resolve_capacity_profile(profile_id).helm_projection()
     documents = [document for document in yaml.safe_load_all(base) if document]
@@ -108,6 +112,19 @@ def apply_capacity_profile(base: str, profile_id: str) -> str:
         if len(containers) != 1:
             raise ValueError(f"capacity projection requires exactly one {container_name} container")
         containers[0]["resources"] = copy.deepcopy(workload["resources"])
+        if projection_key == "guacamoleClient":
+            _set_env(containers[0], "POSTGRESQL_ABSOLUTE_MAX_CONNECTIONS", workload["postgresqlAbsoluteMaxConnections"])
+        if projection_key in _CAPACITY_AUTOSCALED:
+            documents = [
+                document
+                for document in documents
+                if not (
+                    document.get("kind") == "HorizontalPodAutoscaler"
+                    and document.get("metadata", {}).get("name") == deployment_name
+                )
+            ]
+            if workload["autoscaling"]["enabled"]:
+                documents.append(_autoscaler(deployment, workload["autoscaling"], profile_id))
 
     runtime_matches = [
         document
@@ -120,6 +137,46 @@ def apply_capacity_profile(base: str, profile_id: str) -> str:
         {key: str(value) for key, value in projection["runtimeEnv"].items()}
     )
     return yaml.safe_dump_all(documents, sort_keys=False)
+
+
+def _set_env(container: dict, name: str, value: object) -> None:
+    """Set one literal environment variable on a container, replacing any prior value."""
+    env = [entry for entry in container.get("env", []) if entry.get("name") != name]
+    env.append({"name": name, "value": str(value)})
+    container["env"] = env
+
+
+def _autoscaler(deployment: dict, autoscaling: dict, profile_id: str) -> dict:
+    """Return the profile's HorizontalPodAutoscaler for one Deployment (chart capacity-autoscaling.yaml)."""
+    metadata = deployment["metadata"]
+    return {
+        "apiVersion": "autoscaling/v2",
+        "kind": "HorizontalPodAutoscaler",
+        "metadata": {
+            "name": metadata["name"],
+            "namespace": metadata.get("namespace", "shifter-platform"),
+            "labels": {"app.kubernetes.io/part-of": "shifter"},
+            "annotations": {"shifter.dev/capacity-profile": profile_id},
+        },
+        "spec": {
+            "scaleTargetRef": {"apiVersion": "apps/v1", "kind": "Deployment", "name": metadata["name"]},
+            "minReplicas": autoscaling["minReplicas"],
+            "maxReplicas": autoscaling["maxReplicas"],
+            "behavior": {"scaleDown": {"stabilizationWindowSeconds": autoscaling["scaleDownStabilizationSeconds"]}},
+            "metrics": [
+                {
+                    "type": "Resource",
+                    "resource": {
+                        "name": "cpu",
+                        "target": {
+                            "type": "Utilization",
+                            "averageUtilization": autoscaling["cpuUtilizationPercentage"],
+                        },
+                    },
+                }
+            ],
+        },
+    }
 
 
 def combine_resources(base: str, broker: str) -> str:

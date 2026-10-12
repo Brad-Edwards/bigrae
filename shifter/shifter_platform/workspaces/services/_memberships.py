@@ -425,7 +425,7 @@ def remove_workspace_member(
         logger.info(
             "workspace membership removed workspace_id=%s user_id=%s",
             workspace.pk,
-            target_user_id,
+            target.user_id,
         )
         return result
 

@@ -6,9 +6,40 @@ projects the same identity into Terraform, Helm, the event gate, and drift
 inspection. Do not maintain an event-only tfvars or Helm override.
 
 The supported profiles are `gcp-shared-v1-p10`, `gcp-shared-v1-p30`,
-`gcp-shared-v1-p50`, and `gcp-shared-v1-p100`. The strict automated
-qualification gate currently exists for p30. A larger profile is deployable,
-but it is not qualified until it has its own strict gate budget and evidence.
+`gcp-shared-v1-p50`, `gcp-shared-v1-p100`, `gcp-shared-v1-p200`,
+`gcp-shared-v1-p300`, and `gcp-shared-v1-p500`. Every profile carries its own
+strict gate budget, and the gate runs at that profile's participant count. Only
+p30 has recorded qualification evidence so far. A larger profile is deployable,
+but treat it as unqualified until its gate passes and the evidence is recorded.
+
+### Large tiers and the quota they need
+
+The large tiers continue the p50 to p100 growth rates. `guacamole-client` stays
+at exactly one replica (#928 token affinity) and every participant's display
+stream passes through it, so these tiers give that pod more CPU and memory. Each
+SQL connection budget stays within Cloud SQL's default `max_connections` for the
+instance memory (1,000 at 120 GB and above), and validation rejects a tier that
+exceeds it.
+
+| Profile | Portal pods min/max | guacd pods min/max | Access nodes min/max | guacamole-client CPU/memory limit | OpenVPN servers min/max | Cloud SQL | Redis |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| p200 | 26 / 52 | 16 / 32 | 12 / 24 | 4 / 4Gi | 9 / 18 | `db-custom-32-122880`, regional | 32 GB |
+| p300 | 38 / 76 | 24 / 48 | 18 / 36 | 6 / 6Gi | 13 / 26 | `db-custom-48-184320`, regional | 48 GB |
+| p500 | 62 / 124 | 40 / 80 | 28 / 57 | 8 / 8Gi | 21 / 42 | `db-custom-64-245760`, regional | 80 GB |
+
+Before selecting a large tier, confirm these quotas in the tenant's region and
+request increases ahead of the event:
+
+- **Compute Engine CPUs (E2).** Access nodes are `e2-standard-8` and OpenVPN
+  servers `e2-standard-2`. At maximum, p200 needs 192 + 36 vCPUs, p300
+  288 + 52, and p500 456 + 84. These figures exclude the GKE system and
+  provisioner pools and the range VMs, which have their own capacity plan.
+- **Cloud SQL.** The tier's machine type must be available in the region, and
+  the regional (HA) instance doubles its footprint.
+- **Memorystore.** The Redis size above, as a Standard (HA) instance.
+- **Vertex AI.** Model quotas (tokens and requests per minute) scale with how
+  many participants call models at once; request them separately per model and
+  region.
 
 ## Preconditions
 
@@ -44,12 +75,14 @@ but it is not qualified until it has its own strict gate budget and evidence.
    ```
 
 3. Run the normal reviewed GCP deployment workflow with the rendered Terraform
-   bridge. Do not edit a node pool, Deployment, HPA, BackendConfig, Cloud SQL
+   bridge. The deploy applies the profile's pod counts, resources, autoscaler
+   bounds, and Guacamole connection ceiling, so a tier change through CI takes
+   full effect. Do not edit a node pool, Deployment, HPA, BackendConfig, Cloud SQL
    instance, or Redis instance by hand. The p30 minimums themselves carry the
    event; autoscaling is supplemental headroom.
 
-4. Wait for Terraform, GKE rollouts, HPAs, BackendConfigs, Cloud SQL, and Redis
-   to stabilize. Guacamole client replicas must remain exactly one; portal and
+4. Wait for Terraform, GKE rollouts, HPAs, BackendConfigs, Cloud SQL, Redis,
+   and the OpenVPN pool (when enabled) to stabilize. Guacamole client replicas must remain exactly one; portal and
    guacd are the horizontally scaled workloads.
 
 5. Prove the effective state matches the selected profile:
@@ -58,10 +91,14 @@ but it is not qualified until it has its own strict gate budget and evidence.
    uv run python scripts/gcp/check_event_capacity_drift.py \
      --desired /tmp/shifter-event-capacity.json \
      --project <project> --region <region> --cluster <cluster> \
-     --sql-instance <sql-instance> --redis-instance <redis-instance>
+     --sql-instance <sql-instance> --redis-instance <redis-instance> \
+     --vpn-pool <vpn-instance-group>
    ```
 
-   Exit 0 and `capacity drift: none` are required. Exit 1 is real drift. Exit 2
+   Pass `--vpn-pool` with the `openvpn_pool.instance_group` Terraform output when
+   participant OpenVPN is enabled; the check then compares the pool's machine
+   type, minimum and maximum servers, and CPU target. Without it the pool fields
+   are skipped. Exit 0 and `capacity drift: none` are required. Exit 1 is real drift. Exit 2
    means evidence was missing or malformed and is also a stop condition.
 
 ## Run the p30 public-path gate

@@ -14,9 +14,7 @@ on:
         type: choice
         options:
           - aws-dev
-          - aws-proof
           - gcp-dev
-          - nazgul
           - orthanc
           - sauron
           - balrog
@@ -121,17 +119,12 @@ jobs:
               - 'shifter/engine/provisioner/**'
               # Retired in #1311; its removal changes the engine image context.
               - 'shifter/cyberscript/**'
-              # NB: module is `engine-provisioner`, not the historical
-              # `pulumi-provisioner` name; the latter was a stale typo
-              # the path filter inherited from before the rename.
-              - 'platform/terraform/modules/engine-provisioner/**'
               - 'platform/terraform/modules/ecr/**'
               - 'platform/terraform/environments/*/*.tf'
               - '.github/workflows/_shifter-engine.yml'
               - '.github/workflows/deploy.yml'
             shifter_platform:
               - 'platform/terraform/modules/portal/**'
-              - 'platform/terraform/modules/guacamole/**'
               - 'platform/terraform/environments/*/portal/**'
               - '.github/workflows/_shifter-platform.yml'
             # Portal image build/deploy trigger (#913). Mirrors the
@@ -203,7 +196,7 @@ jobs:
               # so an installation change must rebuild both GCP consumers.
               - 'shifter/installation/**'
               - 'shifter/shifter_platform/config/settings.py'
-              - 'shifter/shifter_platform/engine/ecs.py'
+              - 'shifter/shifter_platform/engine/ecs/**'
               - 'shifter/shifter_platform/entrypoint.sh'
               - 'shifter/shifter_platform/entrypoint-lib.sh'
               - 'shifter/shifter_platform/shared/management/commands/run_worker.py'
@@ -269,14 +262,7 @@ jobs:
                 RUN_AWS="true"
                 APPLY_AWS="true"
                 ;;
-              aws-proof)
-                AWS_ENV="proof"
-                AWS_IS_DEV="false"
-                AWS_GITHUB_ENV="aws-proof"
-                RUN_AWS="true"
-                APPLY_AWS="true"
-                ;;
-              gcp-dev|nazgul|orthanc|sauron|balrog)
+              gcp-dev|orthanc|sauron|balrog)
                 GCP_ENV="$ENVIRONMENT"
                 GCP_GITHUB_ENV="$ENVIRONMENT"
                 GCP_RELEASE_SCAN_GITHUB_ENV="gcp-release-scan-${ENVIRONMENT#gcp-}"
@@ -588,10 +574,7 @@ jobs:
       AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
       TF_INFRA_STATE_BUCKET: ${{ secrets.TF_INFRA_STATE_BUCKET }}
       TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-      TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
-      AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
       TF_VARS_DEV_CORE: ${{ secrets.TF_VARS_DEV_CORE }}
-      TF_VARS_PROOF_CORE: ${{ secrets.TF_VARS_PROOF_CORE }}
       TF_VARS_PROD_CORE: ${{ secrets.TF_VARS_PROD_CORE }}
 
   range:
@@ -619,23 +602,19 @@ jobs:
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
       AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-      AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
       TF_VARS_DEV_RANGE: ${{ secrets.TF_VARS_DEV_RANGE }}
-      TF_VARS_PROOF_RANGE: ${{ secrets.TF_VARS_PROOF_RANGE }}
       TF_VARS_PROD_RANGE: ${{ secrets.TF_VARS_PROD_RANGE }}
       SHIFTER_CONFIG_DEV_RANGE: ${{ secrets.SHIFTER_CONFIG_DEV_RANGE }}
-      SHIFTER_CONFIG_PROOF_RANGE: ${{ secrets.SHIFTER_CONFIG_PROOF_RANGE }}
       SHIFTER_CONFIG_PROD_RANGE: ${{ secrets.SHIFTER_CONFIG_PROD_RANGE }}
       TF_INFRA_STATE_BUCKET: ${{ secrets.TF_INFRA_STATE_BUCKET }}
       TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-      TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
 
   shifter-engine:
     name: Shifter Engine
     needs: [changes, quality, core]
-    # `_shifter-engine.yml::build` + `deploy` request `id-token: write`
-    # (AWS OIDC for ECR + ECS task push) and `attestations: write` (SBOM +
-    # provenance attestation, ADR-037-R5/R6).
+    # `_shifter-engine.yml::build` + `verify-provisioner-image` request
+    # `id-token: write` (AWS OIDC for ECR push) and `attestations: write`
+    # (SBOM + provenance attestation, ADR-037-R5/R6).
     permissions:
       contents: read
       id-token: write
@@ -659,7 +638,6 @@ jobs:
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
       AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-      AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
 
   shifter_platform:
     name: Shifter Platform
@@ -704,25 +682,19 @@ jobs:
       eks_enabled: >-
         ${{
           (needs.changes.outputs.aws_environment == 'dev' && vars.AWS_EKS_DEV_ENABLED == 'true') ||
-          (needs.changes.outputs.aws_environment == 'proof' && vars.AWS_EKS_PROOF_ENABLED == 'true') ||
           (needs.changes.outputs.aws_environment == 'prod' && vars.AWS_EKS_PROD_ENABLED == 'true')
         }}
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
       AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-      AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
       PLATFORM_BOOTSTRAP_STAFF_EMAILS: ${{ secrets.PLATFORM_BOOTSTRAP_STAFF_EMAILS }}
       PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS: ${{ secrets.PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS }}
       TF_VARS_DEV_PORTAL: ${{ secrets.TF_VARS_DEV_PORTAL }}
       TF_VARS_PROD_PORTAL: ${{ secrets.TF_VARS_PROD_PORTAL }}
       TF_INFRA_STATE_BUCKET: ${{ secrets.TF_INFRA_STATE_BUCKET }}
       TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-      TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
-      TF_VARS_PROOF_PORTAL: ${{ secrets.TF_VARS_PROOF_PORTAL }}
       TF_VARS_DEV_EKS: ${{ secrets.TF_VARS_DEV_EKS }}
-      TF_VARS_PROOF_EKS: ${{ secrets.TF_VARS_PROOF_EKS }}
       TF_VARS_PROD_EKS: ${{ secrets.TF_VARS_PROD_EKS }}
       SHIFTER_CONFIG_DEV_RANGE: ${{ secrets.SHIFTER_CONFIG_DEV_RANGE }}
-      SHIFTER_CONFIG_PROOF_RANGE: ${{ secrets.SHIFTER_CONFIG_PROOF_RANGE }}
       SHIFTER_CONFIG_PROD_RANGE: ${{ secrets.SHIFTER_CONFIG_PROD_RANGE }}
       SMOKE_TEST_USER_EMAIL: ${{ secrets.SMOKE_TEST_USER_EMAIL }}

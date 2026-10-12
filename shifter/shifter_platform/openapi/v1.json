@@ -23349,12 +23349,15 @@
       },
       "ParticipantAdd": {
         "type": "object",
-        "description": "Request body for inviting a single participant.\n\n``name`` and ``email`` are both required and non-blank (mirroring the legacy\ntruthiness check). ``email`` is a plain ``CharField`` rather than an\n``EmailField`` because the service layer owns email validation.",
+        "description": "Request body for inviting a single participant.\n\n``name`` and ``email`` are both required and non-blank (mirroring the legacy\ntruthiness check). ``email`` is a plain ``CharField`` rather than an\n``EmailField`` because the service layer owns email validation.\n\n``username`` is optional: when supplied it is the participant's single\nuser-chosen handle (login + scoreboard display, #2455); when omitted the\naccount gets a generated handle (anonymous mode) and ``name`` is the display.",
         "properties": {
           "name": {
             "type": "string"
           },
           "email": {
+            "type": "string"
+          },
+          "username": {
             "type": "string"
           }
         },

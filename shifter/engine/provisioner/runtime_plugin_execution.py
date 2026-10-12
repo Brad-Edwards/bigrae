@@ -22,6 +22,13 @@ from runtime_plugin_values import resolve_runtime_values
 
 logger = logging.getLogger(__name__)
 
+# A plugin guest action can be the first contact with its target: a node with no
+# bootstrap step (a pre-promoted domain controller) is never readiness-gated
+# earlier in provisioning, and a booting Windows guest refuses SSH for longer than
+# a minute. Use the same bound as node readiness elsewhere; once the guest is up,
+# later actions on it return immediately.
+_GUEST_READY_TIMEOUT_SECONDS = 300
+
 
 class RuntimePluginExecutionError(RuntimeError):
     """Closed error: private scripts and transport diagnostics are never exposed."""
@@ -137,7 +144,7 @@ def _execute(bundle: GuestPluginPlans, instances: list[dict[str, Any]]) -> None:
             role="raes-node",
         )
         try:
-            if not execution.wait_for_ready(timeout_seconds=60):
+            if not execution.wait_for_ready(timeout_seconds=_GUEST_READY_TIMEOUT_SECONDS):
                 raise ValueError("Plugin guest is not ready")
             outcome = execution.executor.run_command(
                 execution.target,

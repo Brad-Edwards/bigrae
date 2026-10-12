@@ -5,19 +5,14 @@ Field names are the google-cloud-compute (proto-plus) message field names
 ``*_resource=`` kwargs of the Compute clients, which construct the proto messages
 from them. Note the proto-plus quirks ``I_p_protocol`` (REST ``IPProtocol``) and
 ``network_i_p`` (REST ``networkIP``).
-
-The OpenVPN forwarding-gateway bodies live in ``_gcp_range_cell_openvpn`` and are
-re-exported here, so importers see the same surface as before that split.
 """
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from typing import Any, cast
 
-from _gcp_range_cell_openvpn import (
-    openvpn_gateway_address_resource,
-    openvpn_gateway_instance_resource,
-)
 from config import GCERangeCellConfig
 from gcp_range_cell_naming import (
     _disk_type_self_link,
@@ -39,10 +34,12 @@ __all__ = [
     "address_resource",
     "firewall_resource",
     "instance_resource",
+    "log_config_matches",
+    "nat_log_config",
     "network_resource",
-    "openvpn_gateway_address_resource",
-    "openvpn_gateway_instance_resource",
+    "provider_field",
     "router_nat_resource",
+    "subnetwork_log_config",
     "subnetwork_resource",
 ]
 
@@ -66,7 +63,69 @@ def subnetwork_resource(plan: RangeCellPlan, subnet: SubnetPlan) -> ComputeResou
         "ip_cidr_range": subnet["cidr"],
         "region": plan["region"],
         "private_ip_google_access": plan["private_google_access"],
+        "log_config": subnetwork_log_config(plan),
     }
+
+
+def subnetwork_log_config(plan: RangeCellPlan) -> ComputeResource:
+    """Render the subnetwork flow-log config from the plan's telemetry policy (#2535).
+
+    A disabled control renders an explicit ``enable: False`` so replay turns logging off
+    on an owned subnet rather than leaving a stale setting in place.
+    """
+    flow = plan["telemetry"]["vpc_flow_logs"]
+    if not flow["enabled"]:
+        return {"enable": False}
+    return {
+        "enable": True,
+        "aggregation_interval": flow["aggregation_interval"],
+        "flow_sampling": flow["flow_sampling"],
+        "metadata": flow["metadata"],
+    }
+
+
+def nat_log_config(plan: RangeCellPlan) -> ComputeResource:
+    """Render the Cloud NAT log config from the plan's telemetry policy (#2535)."""
+    nat = plan["telemetry"]["nat_logs"]
+    if not nat["enabled"]:
+        return {"enable": False}
+    return {"enable": True, "filter": nat["filter"]}
+
+
+def provider_field(value: object, name: str) -> object:
+    """Read a field from a provider message or its test dictionary."""
+    return value.get(name) if isinstance(value, Mapping) else getattr(value, name, None)
+
+
+def _provider_value(value: object, name: str) -> object:
+    """Read a provider field, unwrapping enum members to their names."""
+    field_value = provider_field(value, name)
+    return getattr(field_value, "name", field_value)
+
+
+def _setting_matches(name: str, observed: object, wanted: object) -> bool:
+    """Compare one log setting; the provider stores ``flow_sampling`` as a 32-bit float."""
+    if name == "flow_sampling":
+        return isinstance(observed, int | float) and math.isclose(
+            float(observed), float(cast(float, wanted)), rel_tol=1e-6
+        )
+    return observed == wanted
+
+
+def log_config_matches(actual: object, desired: Mapping[str, object]) -> bool:
+    """Return whether a provider ``log_config`` carries every rendered setting.
+
+    An absent config matches only a disabled control. A disabled control compares only
+    ``enable``, because the provider may keep stale settings beside ``enable: False``.
+    """
+    enabled = bool(desired.get("enable"))
+    if actual is None or bool(_provider_value(actual, "enable")) != enabled:
+        return actual is None and not enabled
+    return not enabled or all(
+        _setting_matches(name, _provider_value(actual, name), wanted)
+        for name, wanted in desired.items()
+        if name != "enable"
+    )
 
 
 def router_nat_resource(plan: RangeCellPlan) -> ComputeResource:
@@ -92,6 +151,7 @@ def router_nat_resource(plan: RangeCellPlan) -> ComputeResource:
                     {"name": self_link, "source_ip_ranges_to_nat": ["ALL_IP_RANGES"]}
                     for self_link in router_nat["subnetwork_self_links"]
                 ],
+                "log_config": nat_log_config(plan),
             }
         ],
     }

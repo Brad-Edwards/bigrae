@@ -39,8 +39,10 @@ repos:
         args: [--maxkb=500]
       - id: check-merge-conflict
       - id: detect-private-key
-        # Exclude: tests (check key format strings) + crypto.py (key generation module, not leaked secrets)
-        exclude: ^(shifter/engine/provisioner/tests/|shifter/shifter_platform/tests/engine/ssh/|scripts/bootstrap/tests/|shifter/engine/provisioner/utils/crypto\.py)
+        # Exclude: tests (check key format strings) + key-handling modules that hold only PEM armor
+        # labels, never key material: crypto.py (SSH key generation), ensure_vpn_pki.py (formats the
+        # generated OpenVPN tls-crypt key) and vpn_access.py (validates that key's armor) (#2480).
+        exclude: ^(shifter/engine/provisioner/tests/|shifter/shifter_platform/tests/engine/ssh/|scripts/bootstrap/tests/|shifter/engine/provisioner/utils/crypto\.py|scripts/gcp/ensure_vpn_pki\.py|shifter/engine/provisioner/vpn_access\.py)
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
@@ -204,13 +206,13 @@ repos:
         name: Portal target-service SG ingress source scoping (#933)
         entry: python3 scripts/check_portal_target_sg_sources/check_portal_target_sg_sources.py
         language: system
-        files: ^platform/terraform/environments/(dev|proof|prod)/portal/main\.tf$
+        files: ^platform/terraform/environments/(dev|prod)/portal/main\.tf$
 
       - id: check-tf-iam-ec2-scope
         name: AWS EC2 lifecycle IAM scoping (shared provisioner IAM)
         entry: python3 scripts/check_tf_iam_ec2_scope/check_tf_iam_ec2_scope.py
         language: system
-        files: ^platform/terraform/modules/(engine-provisioner/iam|provisioner-iam/main)\.tf$
+        files: ^platform/terraform/modules/provisioner-iam/main\.tf$
 
       - id: check-tf-iam-elb-scope
         name: AWS ELBv2 (GWLB/VPN NLB/EKS ALB controller) IAM scoping
@@ -222,7 +224,7 @@ repos:
         name: AWS SSM Run Command IAM scoping (shared provisioner IAM)
         entry: python3 scripts/check_tf_iam_ssm_scope/check_tf_iam_ssm_scope.py
         language: system
-        files: ^platform/terraform/modules/(engine-provisioner/iam|provisioner-iam/main)\.tf$
+        files: ^platform/terraform/modules/provisioner-iam/main\.tf$
 
       - id: check-tf-iam-role-naming
         name: AWS IAM role naming seam (shifter-* prefix)
@@ -260,13 +262,10 @@ repos:
         entry: >-
           bash -c '
           python3 scripts/check_tf_kms_secrets_grant/check_tf_kms_secrets_grant.py
-          platform/terraform/modules/engine-provisioner/*.tf
           platform/terraform/modules/provisioner-iam/*.tf
-          platform/terraform/modules/portal/ec2/*.tf
-          platform/terraform/modules/guacamole/*.tf
           '
         language: system
-        files: ^platform/terraform/modules/(engine-provisioner|provisioner-iam|portal/ec2|guacamole)/.+\.tf$
+        files: ^platform/terraform/modules/provisioner-iam/.+\.tf$
         pass_filenames: false
 
       - id: check-tf-gcp-iam-resource-scope
@@ -285,9 +284,8 @@ repos:
         entry: >-
           python3 scripts/check_tf_rds_security/check_tf_rds_security.py
           platform/terraform/modules/portal/rds/main.tf
-          platform/terraform/modules/guacamole/rds.tf
         language: system
-        files: ^(platform/terraform/modules/portal/rds/main\.tf|platform/terraform/modules/guacamole/rds\.tf)$
+        files: ^platform/terraform/modules/portal/rds/main\.tf$
         pass_filenames: false
 
   # k8s image-registry + PSS-label grep guards (fast, no schema downloads).
@@ -350,5 +348,13 @@ repos:
         additional_dependencies:
           - pyyaml>=6.0
         files: ^(platform/k8s/gcp/base/.*\.ya?ml$|platform/charts/shifter/.*)
+        pass_filenames: true
+        verbose: true
+
+      - id: adr-guard-gcp-overlay-identity
+        name: architecture (adr guard gcp overlay deploy identity)
+        entry: python3 scripts/adr_guard/adr_guard.py --checks no-live-gcp-deploy-identity --files
+        language: system
+        files: ^platform/k8s/gcp/overlays/.*
         pass_filenames: true
         verbose: true

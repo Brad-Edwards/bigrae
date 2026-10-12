@@ -109,10 +109,11 @@ class ParticipantListView(APIView):
             serializer.is_valid(raise_exception=True)
             name = serializer.validated_data["name"]
             email = serializer.validated_data["email"]
+            username = serializer.validated_data.get("username") or None
             try:
                 # Non-rollbackable invite (may trigger provisioning): intent then outcome.
                 with admin_external_audit(request, "participant.add", action=AuditAction.CREATE):
-                    participant = add_participant(event_id, email, name)
+                    participant = add_participant(event_id, email, name, username=username)
             except CTFValidationError:
                 _raise_bad_request(_INVALID_PARTICIPANT_REQUEST)
             return Response(
@@ -166,8 +167,9 @@ class ParticipantImportView(APIView):
             if not name or not email:
                 errors.append({"index": idx, "error": "name and email are required"})
                 continue
+            username = p_data.get("username") or None
             try:
-                participant = add_participant(event_id, email, name)
+                participant = add_participant(event_id, email, name, username=username)
                 imported.append(
                     {
                         "id": str(participant.id),

@@ -203,9 +203,10 @@ The CTF bridge mints a closed OpenVPN capability from the event cleanup deadline
 and the single participant-access Kali member, falling back to the unique
 hydrated Kali member for legacy templates without access declarations. Engine persists it beside the
 range; Mission Control ranges and topology without that capability do not create
-a VPN edge. Provisioning may attach a request-owned OpenVPN gateway only when
-that capability is present. The provider adapter enforces a `/32` path to that member and
-stores the server identity and participant profile in the provider secret store.
+a VPN edge. Provisioning admits the deployment's shared OpenVPN pool (#2480) to
+that member only when the capability is present, and stores the participant
+profile in the provider secret store. The pool asks the portal before it admits
+a client and then allows only the member's address and declared ports.
 Django persists only a closed, non-secret binding containing the generation, owner,
 target, endpoint, profile version, and secret reference. Profile bytes are resolved
 and validated in memory only after CTF provenance, participant ownership, range
@@ -219,9 +220,11 @@ exists because clearing a database reference cannot revoke a downloaded credenti
 recovery must destroy that generation and provision a new one for the replacement
 owner before it becomes ready.
 Certificates remain valid through the trusted teardown deadline, subject to a
-397-day maximum capability window that fails before cloud mutation. On GCE, each
-generation gets a distinct no-role gateway service account with read access only
-to its own server secret; the shared range-host identity cannot read VPN secrets.
+397-day maximum capability window that fails before cloud mutation. Each
+participant holds one live session per range; a newer connection replaces the
+older one, and destroy, pause, or the deadline disconnects it within one pool
+heartbeat. On GCE only the provisioner reads the CA, the pool identity reads only
+its server identity, and the shared range-host identity cannot read VPN secrets.
 See [the provider-neutral range substrate](../../architecture/provider-neutral-range-substrate)
 for the ADR-039 contract and [the issue 1695 architecture preflight](../../architecture/ctf-openvpn-participant-access-preflight-1695)
 for the threat model and containment decisions.

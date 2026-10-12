@@ -24,15 +24,12 @@ PROVISIONER_IAM_CANONICAL_PATH = Path(
 )
 
 IAM_MODULE_GLOBS: tuple[str, ...] = (
-    "platform/terraform/modules/portal/ec2/*.tf",
     "platform/terraform/modules/portal/vpc/*.tf",
     "platform/terraform/modules/portal/cognito/*.tf",
     "platform/terraform/modules/portal/rds/*.tf",
     "platform/terraform/modules/portal/ctfd/*.tf",
     "platform/terraform/modules/range/vpc/*.tf",
-    "platform/terraform/modules/engine-provisioner/*.tf",
     "platform/terraform/modules/provisioner-iam/*.tf",
-    "platform/terraform/modules/guacamole/*.tf",
     "platform/terraform/modules/log-aggregation/*.tf",
 )
 

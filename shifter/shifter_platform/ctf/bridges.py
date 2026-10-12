@@ -84,6 +84,7 @@ class CTFRangeLaunchOptions:
     # CTF ranges belong to participants, while private pack visibility is
     # authorized by the event owner who selected the pack.
     content_authorizer: User | None = None
+    event_policy_workspace_id: int | None = None
 
 
 def cms_declare_event_capacity(
@@ -208,6 +209,7 @@ def cms_create_range(
         model_admission_subject=options.model_admission_subject,
         model_launch_scope=options.model_launch_scope,
         content_authorizer=options.content_authorizer,
+        ctf_policy_workspace_id=options.event_policy_workspace_id,
     )
     return RangeProvisionResult(request_id=result.request_id)
 
@@ -251,6 +253,13 @@ def cms_resolve_model_access_range_instances(range_instance_ids: tuple[int, ...]
     import cms.services as cms_services
 
     return cms_services.resolve_model_access_range_instances(range_instance_ids)
+
+
+def cms_resolve_model_access_range_reference(range_instance_id: int) -> OwnedReference:
+    """Resolve one CTF-owned CMS instance PK to its range's sharing identity, in any state."""
+    import cms.services as cms_services
+
+    return cms_services.resolve_model_access_range_reference(range_instance_id)
 
 
 def cms_find_model_access_selected_ranges(
@@ -408,6 +417,15 @@ def cms_range_owner_reassignment_available(range_instance_id: int) -> bool:
     import cms.services as cms_services
 
     return cms_services.range_owner_reassignment_available(range_instance_id)
+
+
+def cms_range_egress_compatible_with_event(
+    range_instance_id: int, event_owner: User, event_workspace_id: int | None
+) -> bool:
+    """Check a spare's pinned posture against its event policy before reservation."""
+    import cms.services as cms_services
+
+    return cms_services.range_egress_compatible_with_event(range_instance_id, event_owner, event_workspace_id)
 
 
 def cms_list_scenarios(user: User) -> list[tuple[str, str]]:

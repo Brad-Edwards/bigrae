@@ -1,11 +1,10 @@
 # Substrate-neutral Shifter provisioner IAM (#1826).
 #
-# The Shifter provisioner performs identical AWS work whether it runs as an ECS
-# Fargate task (legacy) or an EKS Kubernetes Job (the management-plane default).
-# This module is the single source of truth for the privileged provisioner's AWS
-# permission set, attached to a caller-supplied role: the ECS task role
-# (modules/engine-provisioner) or the EKS provisioner IRSA role
-# (modules/portal/eks). The large EC2 / RunInstances / GWLB policies are managed
+# The Shifter provisioner runs as an EKS Kubernetes Job (the AWS management-plane
+# runtime). This module is the single source of truth for the privileged
+# provisioner's AWS permission set, attached to a caller-supplied role: the EKS
+# provisioner IRSA role (modules/portal/eks-provisioner-env). The large EC2 /
+# RunInstances / GWLB policies are managed
 # (attached by ARN) to stay under the 10,240-byte per-role inline aggregate; the
 # smaller policies are inline on the caller's role. Both together stay under the
 # per-role managed-policy count limit.
@@ -524,11 +523,24 @@ resource "aws_iam_role_policy" "s3_agent" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:GetObject", "s3:ListBucket"]
-      Resource = [var.agent_s3_bucket_arn, "${var.agent_s3_bucket_arn}/*"]
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:ListBucket"]
+        Resource = [var.agent_s3_bucket_arn, "${var.agent_s3_bucket_arn}/*"]
+      },
+      {
+        # The bucket encrypts objects with SSE-KMS: reading one (delivered RAES
+        # content, agents) decrypts with its key, and the NGFW bootstrap upload
+        # generates a data key. Only through S3.
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource = var.agent_s3_kms_key_arn
+        Condition = {
+          StringEquals = { "kms:ViaService" = "s3.${local.region}.amazonaws.com" }
+        }
+      },
+    ]
   })
 }
 

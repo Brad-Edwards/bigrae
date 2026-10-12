@@ -670,7 +670,7 @@ Examples:
   ./scripts/bootstrap/deploy.py terraform --env prod --profile my-prod-profile
 
   # Bootstrap a repeatable Google Distributed Cloud VM Runtime cluster
-  ./scripts/bootstrap/deploy.py gdc-bootstrap --project-id prod-rwctxzl6shxk --cluster-id cluster1
+  ./scripts/bootstrap/deploy.py gdc-bootstrap --project-id example-gcp-project --cluster-id cluster1
         """,
     )
 

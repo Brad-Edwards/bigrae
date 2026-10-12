@@ -179,12 +179,14 @@ session. Three sources:
   latency and response classes, effective guacd readiness, and backend-service
   health. Missing data is a named gap and fails the strict gate.
 
-## GCP p30 event gate (#1816)
+## GCP event gate (#1816, #2502)
 
-The `guacamole-event-gate` profile is a qualification gate for
-`gcp-shared-v1-p30`, not a synthetic portal-core approximation. It requires 30
-distinct mode-0600 manifest entries with `email`, `password`, `totp_secret`, and
-`api_key`, then drives the real Identity Platform/TOTP, product session, range
+The `guacamole-event-gate` profile is a qualification gate for a GCP
+shared-service capacity profile, not a synthetic portal-core approximation. It
+runs the selected profile's authored budget at that profile's participant count:
+`--capacity-profile-id gcp-shared-v1-p300` requires `--concurrency 300`. It
+requires one distinct mode-0600 manifest entry per participant with `email`,
+`password`, `totp_secret`, and `api_key`, then drives the real Identity Platform/TOTP, product session, range
 target, versioned Guacamole bootstrap, WebSocket tunnel, display sync, and
 120-second continuous hold for every participant.
 

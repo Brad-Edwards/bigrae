@@ -47,6 +47,26 @@ def _fail_credential_setup_channel(*, message: str, range_id: int, instance_key:
     raise RaesAccountCredentialError("failed to establish authored-account credential setup channel") from None
 
 
+def _fail_account_credential(
+    *, range_id: int, instance_key: str, account: RaesPlanAccount, exc: BaseException
+) -> NoReturn:
+    """Record an authored-account credential failure and raise a secret-safe error.
+
+    Same contract as :func:`_fail_credential_setup_channel`: the exception message
+    and traceback can carry secret material, so only non-secret identifiers and the
+    exception class name are logged (never ``logging.exception``) and the context is
+    suppressed with ``from None``.
+    """
+    logger.error(
+        "authored-account credential setup failed range_id=%s instance_key=%s auth_method=%s error_type=%s",
+        range_id,
+        instance_key,
+        account.auth_method,
+        type(exc).__name__,
+    )
+    raise RaesAccountCredentialError("failed to realize authored-account credential") from None
+
+
 @dataclass(frozen=True)
 class RaesAccountCredentialOps:
     """Injectable Secret Manager operations for authored-account credentials."""
@@ -167,8 +187,8 @@ def install_instance_account_credentials(
                 # Defense in depth; the plan parser rejects this first.
                 else:
                     raise ValueError("unsupported authored-account credential strategy")
-            except Exception:
-                raise RaesAccountCredentialError("failed to realize authored-account credential") from None
+            except Exception as exc:
+                _fail_account_credential(range_id=range_id, instance_key=instance_key, account=account, exc=exc)
             secret_refs[account.address] = secret_ref
         # Process-local projection. The access publisher selects only the exact
         # declared participant account and removes this intermediate map.

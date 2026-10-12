@@ -387,7 +387,14 @@ def _warm_prepare_dispatch(
             return False
 
         _dispatch_raes_package(request_id, system_user, source, backend_admission, workspace_id, egress_mode)
-        _audit_raes_range_provision(request_id, bucket.scenario, system_user, WARM_RANGE_SOURCE)
+        _audit_raes_range_provision(
+            request_id,
+            bucket.scenario,
+            system_user,
+            WARM_RANGE_SOURCE,
+            egress_policy_workspace_id=workspace_id,
+            egress_mode=egress_mode,
+        )
         return True
     except Exception:
         logger.exception("warm-pool: failed to prepare a generation for bucket=%s", bucket.id)

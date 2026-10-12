@@ -66,7 +66,7 @@ $block = @(
     "$ti      type: powershell",
     "$ti      runAs: localSystem",
     "$ti      content: |-",
-    "$ti        # $marker: reset active DHCP adapters to DHCP-provided DNS so",
+    "$ti        # ${marker}: reset active DHCP adapters to DHCP-provided DNS so",
     "$ti        # first-boot DNS is deterministic before startSsm (issue #1633).",
     "$ti        `$ErrorActionPreference = 'Stop'",
     "$ti        Get-NetIPInterface -AddressFamily IPv4 |",

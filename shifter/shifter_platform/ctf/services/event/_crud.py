@@ -336,9 +336,18 @@ def force_delete_event(
         except Exception:
             logger.exception("Failed to delete S3 object %s during force delete", s3_key)
 
-    # Hard delete inside atomic block — Django CASCADE handles children
+    # Hard delete inside atomic block — Django CASCADE handles children. The
+    # cascade removes the participant rows the retention purge discovers accounts
+    # through, so release each temporary account (anonymize, freeing its username)
+    # and fence its communications first, committed with the delete itself.
+    from ctf.services.communication import on_participant_removed
+    from ctf.services.participant.accounts import anonymize_participant_account
+
     with transaction.atomic():
         _e._cancel_event_tasks(event)
+        for participant in CTFParticipant.all_objects.filter(event=event, user__isnull=False):
+            if anonymize_participant_account(participant.pk):
+                on_participant_removed(participant)
         event.delete(soft=False)
 
     logger.warning(

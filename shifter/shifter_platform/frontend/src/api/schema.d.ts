@@ -5749,10 +5749,15 @@ export interface components {
          *     ``name`` and ``email`` are both required and non-blank (mirroring the legacy
          *     truthiness check). ``email`` is a plain ``CharField`` rather than an
          *     ``EmailField`` because the service layer owns email validation.
+         *
+         *     ``username`` is optional: when supplied it is the participant's single
+         *     user-chosen handle (login + scoreboard display, #2455); when omitted the
+         *     account gets a generated handle (anonymous mode) and ``name`` is the display.
          */
         ParticipantAdd: {
             name: string;
             email: string;
+            username?: string;
         };
         /** @description Result returned after adding a single participant (provisioned and registered). */
         ParticipantAddResult: {

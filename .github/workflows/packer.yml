@@ -12,6 +12,7 @@ on:
           - ubuntu
           - windows
           - dc
+          - dc-prebaked
           - brokenbk
       environment:
         description: 'AWS environment to build in'
@@ -19,7 +20,6 @@ on:
         type: choice
         options:
           - dev
-          - proof
         default: dev
       ref:
         description: 'Branch to build from'
@@ -123,16 +123,11 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_IMAGE_ROLE_ARN_DEV: ${{ secrets.AWS_IMAGE_ROLE_ARN_DEV }}
-          AWS_IMAGE_ROLE_ARN_PROOF: ${{ secrets.AWS_IMAGE_ROLE_ARN_PROOF }}
         run: |
           case "$ENVIRONMENT" in
             dev)
               ROLE_SECRET_NAME="AWS_IMAGE_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_IMAGE_ROLE_ARN_DEV"
-              ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_IMAGE_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_IMAGE_ROLE_ARN_PROOF"
               ;;
             *)
               echo "::error::Unsupported AWS environment: $ENVIRONMENT"
@@ -146,6 +141,7 @@ jobs:
           echo "role_arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (${{ inputs.environment }})
+        id: aws-creds
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ steps.aws-role.outputs.role_arn }}
@@ -153,9 +149,24 @@ jobs:
           # calls to this run/attempt (design note #1656).
           role-session-name: image-build-${{ inputs.ami_type }}-${{ github.run_id }}-${{ github.run_attempt }}
           aws-region: us-east-2
+          # A base-image build plus the #1633 fresh-boot verify gate can run well
+          # past the 1h default session (Kali + verify ~1h40m), and a mid-build
+          # RequestExpired loses the whole build. Request the role's 6h max.
+          role-duration-seconds: 21600
 
       - name: Initialize Packer
         run: packer init .
+
+      # Windows builders take a per-build Administrator password through user
+      # data, so Packer never calls ec2:GetPasswordData (which security
+      # monitoring flags). The templates fail validation without it.
+      - name: Generate WinRM bootstrap password (Windows/DC)
+        if: contains(fromJSON('["windows","dc","dc-prebaked"]'), inputs.ami_type)
+        run: |
+          set -euo pipefail
+          WINRM_PW="$(openssl rand -hex 24)Aa1!"
+          echo "::add-mask::$WINRM_PW"
+          echo "PKR_VAR_winrm_bootstrap_password=$WINRM_PW" >> "$GITHUB_ENV"
 
       - name: Validate template
         run: packer validate -var-file=${{ inputs.environment }}.pkrvars.hcl -only='*.${{ inputs.ami_type }}' .
@@ -174,25 +185,30 @@ jobs:
       # take their launch network from admin-set variables / validated inputs rather
       # than the committed file. A dispatcher cannot choose the builder subnet, and a
       # missing variable fails the build closed with a clear message.
+      # dc-prebaked promotes an AD forest at bake time; the DSRM secret is
+      # generated per build and injected as PKR_VAR_dc_dsrm_password (never
+      # committed). promote-bake.ps1 fails closed if it is empty.
+      - name: Generate DSRM password (dc-prebaked)
+        if: inputs.ami_type == 'dc-prebaked'
+        run: |
+          set -euo pipefail
+          DSRM="$(openssl rand -base64 24)Aa1!"
+          echo "::add-mask::$DSRM"
+          echo "PKR_VAR_dc_dsrm_password=$DSRM" >> "$GITHUB_ENV"
+
       - name: Build AMI
         if: inputs.ami_type != 'dc'
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AMI_TYPE: ${{ inputs.ami_type }}
           BUILD_VPC_ID_DEV: ${{ vars.PACKER_BUILD_VPC_ID_DEV }}
-          BUILD_VPC_ID_PROOF: ${{ vars.PACKER_BUILD_VPC_ID_PROOF }}
           BUILD_SUBNET_ID_DEV: ${{ vars.PACKER_BUILD_SUBNET_ID_DEV }}
-          BUILD_SUBNET_ID_PROOF: ${{ vars.PACKER_BUILD_SUBNET_ID_PROOF }}
         run: |
           set -euo pipefail
           case "$ENVIRONMENT" in
             dev)
               BUILD_VPC_ID="$BUILD_VPC_ID_DEV"
               BUILD_SUBNET_ID="$BUILD_SUBNET_ID_DEV"
-              ;;
-            proof)
-              BUILD_VPC_ID="$BUILD_VPC_ID_PROOF"
-              BUILD_SUBNET_ID="$BUILD_SUBNET_ID_PROOF"
               ;;
             *)
               echo "::error::unsupported environment '${ENVIRONMENT}' for base-image build"
@@ -276,11 +292,8 @@ jobs:
           # so the candidate's subnet/sg/instance-profile cannot be chosen by the
           # dispatcher (issue #1633 codex security review).
           VERIFY_SUBNET_ID_DEV: ${{ vars.PACKER_VERIFY_SUBNET_ID_DEV }}
-          VERIFY_SUBNET_ID_PROOF: ${{ vars.PACKER_VERIFY_SUBNET_ID_PROOF }}
           VERIFY_SG_ID_DEV: ${{ vars.PACKER_VERIFY_SG_ID_DEV }}
-          VERIFY_SG_ID_PROOF: ${{ vars.PACKER_VERIFY_SG_ID_PROOF }}
           VERIFY_INSTANCE_PROFILE_DEV: ${{ vars.PACKER_VERIFY_INSTANCE_PROFILE_DEV }}
-          VERIFY_INSTANCE_PROFILE_PROOF: ${{ vars.PACKER_VERIFY_INSTANCE_PROFILE_PROOF }}
         run: |
           set -euo pipefail
           case "$ENVIRONMENT" in
@@ -288,11 +301,6 @@ jobs:
               VERIFY_SUBNET_ID="$VERIFY_SUBNET_ID_DEV"
               VERIFY_SECURITY_GROUP_ID="$VERIFY_SG_ID_DEV"
               VERIFY_INSTANCE_PROFILE="$VERIFY_INSTANCE_PROFILE_DEV"
-              ;;
-            proof)
-              VERIFY_SUBNET_ID="$VERIFY_SUBNET_ID_PROOF"
-              VERIFY_SECURITY_GROUP_ID="$VERIFY_SG_ID_PROOF"
-              VERIFY_INSTANCE_PROFILE="$VERIFY_INSTANCE_PROFILE_PROOF"
               ;;
             *)
               echo "::error::unsupported environment '${ENVIRONMENT}' for base-image validation"
@@ -329,15 +337,24 @@ jobs:
           bash scripts/bake/base-image-verify.sh
 
       - name: Update ${{ inputs.environment }} SSM Parameter
+        env:
+          AMI_TYPE: ${{ inputs.ami_type }}
+          RUN_ID: ${{ github.run_id }}
         run: |
+          set -euo pipefail
+          # dc-prebaked is the AWS pre-promoted DC build; it publishes the runtime
+          # DC pointer /shifter/ami/dc (the plain `dc` type instead seeds that
+          # pointer from dc-amis.json). Every other type publishes its own name.
+          PARAM_TYPE="$AMI_TYPE"
+          if [ "$PARAM_TYPE" = "dc-prebaked" ]; then PARAM_TYPE="dc"; fi
           aws ssm put-parameter \
-            --name "/shifter/ami/${{ inputs.ami_type }}" \
+            --name "/shifter/ami/${PARAM_TYPE}" \
             --type String \
             --value "$AMI_ID" \
             --overwrite \
-            --description "Built by GitHub Actions run ${{ github.run_id }}"
+            --description "Built by GitHub Actions run ${RUN_ID}"
           {
-            echo "- **SSM Parameter:** \`/shifter/ami/${{ inputs.ami_type }}\` updated"
+            echo "- **SSM Parameter:** \`/shifter/ami/${PARAM_TYPE}\` updated"
             echo ""
             echo "**Next step:** Test in ${{ inputs.environment }} before deploying dependent portal/range infrastructure."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -350,7 +367,9 @@ jobs:
           path: shifter/packer/${{ inputs.ami_type }}-manifest.json
 
       - name: Cleanup Packer builder and verify instances
-        if: always()
+        # Without credentials nothing could have been launched; running anyway only
+        # fails on the runner's own role and buries the real error (e.g. a refused ref).
+        if: always() && steps.aws-creds.outcome == 'success'
         run: |
           echo "Terminating any packer-builder-${{ inputs.ami_type }} / ami-verify-${{ inputs.ami_type }} instances..."
           INSTANCE_IDS=$(aws ec2 describe-instances \

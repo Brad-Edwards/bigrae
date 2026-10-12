@@ -133,6 +133,80 @@ def test_normal_apply_projects_selected_capacity_profile():
     runtime = next(document for document in applied if document.get("kind") == "ConfigMap")
     assert runtime["data"]["SHARED_SERVICE_CAPACITY_PROFILE"] == "gcp-shared-v1-p10"
     assert runtime["data"]["PORTAL_WEB_WORKERS"] == "4"
+    # The release apply owns the autoscalers and the Guacamole connection ceiling,
+    # so a tier change through CI cannot keep the bootstrap-time bounds.
+    autoscalers = {
+        document["metadata"]["name"]: document["spec"]
+        for document in applied
+        if document.get("kind") == "HorizontalPodAutoscaler"
+    }
+    assert {name: (spec["minReplicas"], spec["maxReplicas"]) for name, spec in autoscalers.items()} == {
+        "portal-web": (2, 4),
+        "guacd": (1, 3),
+    }
+    assert autoscalers["portal-web"]["scaleTargetRef"]["name"] == "portal-web"
+    client = next(document for document in applied if document.get("metadata", {}).get("name") == "guacamole-client")
+    assert {"name": "POSTGRESQL_ABSOLUTE_MAX_CONNECTIONS", "value": "10"} in (
+        client["spec"]["template"]["spec"]["containers"][0]["env"]
+    )
+
+
+def test_a_tier_change_replaces_stale_autoscalers_and_the_connection_ceiling():
+    path = Path(__file__).resolve().parents[1] / "render_model_broker.py"
+    spec = importlib.util.spec_from_file_location("render_model_broker_tier_change", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    documents = [
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": name, "namespace": "shifter-platform"},
+            "spec": {
+                "replicas": 1,
+                "template": {
+                    "metadata": {},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": container,
+                                "resources": {},
+                                "env": [{"name": "POSTGRESQL_ABSOLUTE_MAX_CONNECTIONS", "value": "30"}],
+                            }
+                        ]
+                    },
+                },
+            },
+        }
+        for name, container in (
+            ("portal-web", "portal"),
+            ("guacd", "guacd"),
+            ("guacamole-client", "guacamole-client"),
+        )
+    ]
+    documents += [
+        {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "platform-runtime"}, "data": {}},
+        {
+            "apiVersion": "autoscaling/v2",
+            "kind": "HorizontalPodAutoscaler",
+            "metadata": {"name": "portal-web", "namespace": "shifter-platform"},
+            "spec": {"minReplicas": 5, "maxReplicas": 10},
+        },
+    ]
+
+    applied = list(
+        yaml.safe_load_all(module.apply_capacity_profile(yaml.safe_dump_all(documents), "gcp-shared-v1-p300"))
+    )
+
+    portal_autoscalers = [
+        document
+        for document in applied
+        if document.get("kind") == "HorizontalPodAutoscaler" and document["metadata"]["name"] == "portal-web"
+    ]
+    assert len(portal_autoscalers) == 1
+    assert (portal_autoscalers[0]["spec"]["minReplicas"], portal_autoscalers[0]["spec"]["maxReplicas"]) == (38, 76)
+    client = next(document for document in applied if document.get("metadata", {}).get("name") == "guacamole-client")
+    env = client["spec"]["template"]["spec"]["containers"][0]["env"]
+    assert [entry["value"] for entry in env if entry["name"] == "POSTGRESQL_ABSOLUTE_MAX_CONNECTIONS"] == ["300"]
 
 
 def test_deploy_job_installs_renderer_dependencies_before_use():

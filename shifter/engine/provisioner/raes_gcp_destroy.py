@@ -23,6 +23,7 @@ from gcp_range_cell_destroy import _mark_disks_auto_delete
 from gcp_range_cell_firewall import public_web_firewall_name
 from gcp_range_cell_model_broker import broker_firewall_name
 from gcp_range_cell_ops import _delete_resource
+from gcp_range_cell_shared_nat import remove_shared_nat
 from gcp_range_cell_types import InstancePlan, RangeCellPlan
 from raes_account_credentials import (
     RaesAccountCredentialOps,
@@ -36,6 +37,7 @@ from raes_active_directory import (
 )
 from raes_gcp_plan import RaesGcePlanOptions, build_raes_range_cell_plan
 from raes_gcp_secret_ops import RaesGceSecretOps, _default_secret_ops
+from raes_gcp_vpn_plan import RaesGceVpnAccess
 from raes_plan import RaesPlan, RaesPlanAccount, RaesPlanNode
 
 __all__ = ["RaesGceDestroyOptions", "destroy_raes_range_cell"]
@@ -52,6 +54,8 @@ class RaesGceDestroyOptions:
     directory_secret_ops: RaesDirectorySecretOps | None = None
     allocated_network_cidrs: Sequence[tuple[str, str]] | None = None
     reconstruct_without_allocation: bool = False
+    # The range's OpenVPN access names (#2480: pool firewall, profile secret), when it holds a capability.
+    remote_access: RaesGceVpnAccess | None = None
 
 
 @dataclass(frozen=True)
@@ -101,8 +105,11 @@ def destroy_raes_range_cell(
             config=runtime.config,
             allocated_network_cidrs=resolved_options.allocated_network_cidrs,
             reconstruct_for_teardown=resolved_options.reconstruct_without_allocation,
+            remote_access=resolved_options.remote_access,
         ),
     )
+    # The pool ingress rule, when the range has OpenVPN access, is part of
+    # ``plan["firewalls"]`` and goes with the network resources.
     _destroy_instances(plan, raes_plan, runtime)
     delete_raes_directory_secrets(plan["range_id"], raes_plan, runtime.directory_secret_ops)
     _destroy_network_resources(plan, runtime.clients)
@@ -157,6 +164,7 @@ def _instance_accounts(raes_plan: RaesPlan, instance: InstancePlan) -> tuple[Rae
 
 def _destroy_network_resources(plan: RangeCellPlan, clients: GCEClients) -> None:
     """Delete the range-owned router/NAT, firewalls, subnets, and an owned network in order."""
+    remove_shared_nat(plan, clients)
     # The range-owned Cloud Router (carrying the Cloud NAT) references this range's
     # subnets, so it is torn down before them (PLAT-238). Absent for a `none` range.
     router_nat = plan.get("router_nat")

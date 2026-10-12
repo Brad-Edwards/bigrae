@@ -593,6 +593,11 @@
       "source_file": "config/_cloud.py"
     },
     {
+      "default": "False",
+      "name": "RANGE_OPENVPN_ENABLED",
+      "source_file": "config/settings.py"
+    },
+    {
       "default": "'100'",
       "name": "RANGE_RECONCILE_BATCH_SIZE",
       "source_file": "config/settings.py"
@@ -743,13 +748,13 @@
       "source_file": "config/_ctf_content_settings.py"
     },
     {
-      "default": "'268435456'",
-      "name": "SHIFTER_RAES_CONTENT_DELIVERY_MAX_PAYLOAD_BYTES",
+      "default": "'raes/content-delivery'",
+      "name": "SHIFTER_RAES_CONTENT_DELIVERY_PREFIX",
       "source_file": "config/_raes_settings.py"
     },
     {
-      "default": "'raes/content-delivery'",
-      "name": "SHIFTER_RAES_CONTENT_DELIVERY_PREFIX",
+      "default": "'45'",
+      "name": "SHIFTER_RAES_FEATURE_ARTIFACT_WAIT_SECONDS",
       "source_file": "config/_raes_settings.py"
     },
     {
@@ -818,8 +823,18 @@
       "source_file": "config/settings.py"
     },
     {
-      "default": "'24'",
-      "name": "VPN_GATEWAY_POOL_SIZE",
+      "default": "''",
+      "name": "VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL",
+      "source_file": "config/settings.py"
+    },
+    {
+      "default": "''",
+      "name": "VPN_CONTROLLER_SERVICE_ACCOUNT_ID",
+      "source_file": "config/settings.py"
+    },
+    {
+      "default": "''",
+      "name": "VPN_CONTROL_AUDIENCE",
       "source_file": "config/settings.py"
     },
     {

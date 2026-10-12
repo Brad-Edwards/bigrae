@@ -13,6 +13,7 @@ from shifter_adapter_sdk.runtime import PROTOCOL, InspectionInput, InspectionRes
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.cloud.exceptions import CloudTaskError
 from shared.cloud.kubernetes._client import load_kubernetes_api
+from shared.cloud.kubernetes._helpers import create_with_admission_retry, is_admission_conflict
 from shared.cloud.runtime_plugins import (
     PLUGIN_NAMESPACE,
     interrupt_plugin,
@@ -54,9 +55,13 @@ def _pull_secret(row: RuntimePluginInstallation, request: InspectionInput | Runt
         "data": {".dockerconfigjson": encoded},
     }
     try:
-        core.create_namespaced_secret(namespace=PLUGIN_NAMESPACE, body=body, _request_timeout=30)
+        # Concurrent plugin launches race on the namespace ResourceQuota; an
+        # admission Conflict created nothing and is retried, never read back.
+        create_with_admission_retry(
+            lambda: core.create_namespaced_secret(namespace=PLUGIN_NAMESPACE, body=body, _request_timeout=30)
+        )
     except api_exception as exc:
-        if getattr(exc, "status", None) != 409:
+        if getattr(exc, "status", None) != 409 or is_admission_conflict(exc):
             raise CloudTaskError("Plugin registry credentials could not be installed") from None
         current = core.read_namespaced_secret(name=name, namespace=PLUGIN_NAMESPACE, _request_timeout=30)
         owners = current.metadata.owner_references or []

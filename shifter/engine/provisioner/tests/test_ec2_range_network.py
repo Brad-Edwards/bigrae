@@ -50,9 +50,19 @@ def build(raes=None, cfg=None, **kwargs):
         scope=Ec2CleanupScope(cfg.environment, cfg.region, cfg.vpc_id, UUID(int=1), UUID(int=2), 7),
         allocated_cidrs=kwargs.get("allocated", {"net.lan": "10.50.1.0/28"}),
         images={"node.host": image()},
-        participant_channels={"node.host": ("ssh",)},
+        participant_channels=kwargs.get("channels", {"node.host": ("ssh",)}),
         egress_mode=kwargs.get("mode", "deny-all"),
     )
+
+
+def test_duplicate_participant_channels_collapse_to_one_grant():
+    # Two participants sharing the ssh channel both yield tcp/22 from the access CIDRs;
+    # AWS rejects a permission appearing twice in one authorize call, so the plan must
+    # collapse the exact duplicate to a single grant.
+    group = build(channels={"node.host": ("ssh", "ssh")}).groups[0]
+    ssh_rules = [rule for rule in group.ingress if rule["IpProtocol"] == "tcp" and rule.get("FromPort") == 22]
+    assert len(ssh_rules) == 1
+    assert all(group.ingress.count(rule) == 1 for rule in group.ingress)
 
 
 def test_plan_uses_reserved_subnet_without_rewriting_authored_topology():

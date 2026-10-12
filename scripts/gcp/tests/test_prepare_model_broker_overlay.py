@@ -11,7 +11,8 @@ SPEC = importlib.util.spec_from_file_location("prepare_model_broker_overlay", MO
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
-TEMPLATE = Path(__file__).resolve().parents[3] / "platform/deploy/gcp/nazgul/model-broker-overlay.template.json"
+# A reviewed broker overlay, kept as a fixture so the test owns its input.
+TEMPLATE = Path(__file__).resolve().parent / "fixtures" / "model-broker-overlay.template.json"
 
 
 def test_reviewed_overlay_binds_only_the_deployment_project_and_seals_catalog():

@@ -49,6 +49,17 @@ locals {
     [for bucket in local.platform_storage_bucket_names : "resource.name == 'projects/_/buckets/${bucket}'"],
     [for bucket in local.platform_storage_bucket_names : "resource.name.startsWith('projects/_/buckets/${bucket}/objects/')"],
   ))
+  # Shared participant OpenVPN pool (#2480). Compute supports IAM Conditions on
+  # instances, disks and instance templates, so those are limited to the pool's
+  # <prefix>-vpn- names: deploy can run the pool but cannot create, re-image or
+  # inject metadata into any other VM (runners, range hosts) or template.
+  vpn_pool_name_prefix = "${var.name_prefix}-vpn-"
+  vpn_pool_condition = join(" || ", [
+    "(resource.type != 'compute.googleapis.com/Instance' && resource.type != 'compute.googleapis.com/Disk' && resource.type != 'compute.googleapis.com/InstanceTemplate')",
+    "resource.name.extract('/instances/{name}').startsWith('${local.vpn_pool_name_prefix}')",
+    "resource.name.extract('/disks/{name}').startsWith('${local.vpn_pool_name_prefix}')",
+    "resource.name.extract('/instanceTemplates/{name}').startsWith('${local.vpn_pool_name_prefix}')",
+  ])
   lifecycle_iam_bucket_names = setunion(
     toset([local.terraform_state_bucket_name]),
     var.platform_external_bucket_names,
@@ -310,6 +321,52 @@ resource "google_project_iam_member" "destroy_storage" {
     title       = "platform-buckets-only"
     description = "Destroy may tear down assets, audit-log, and GDC image buckets, never release evidence."
     expression  = local.platform_storage_condition
+  }
+}
+
+resource "google_project_iam_custom_role" "deploy_vpn_pool" {
+  count       = local.deploy_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "${replace(var.name_prefix, "-", "_")}_deploy_vpn_pool"
+  title       = "Shifter platform deploy OpenVPN pool"
+  description = "Instance template, regional instance group and autoscaler lifecycle for the shared OpenVPN pool only."
+  permissions = var.deploy_vpn_pool_permissions
+}
+
+resource "google_project_iam_member" "deploy_vpn_pool" {
+  depends_on = [google_service_account.deploy, google_project_iam_custom_role.deploy_vpn_pool]
+  count      = local.deploy_enabled ? 1 : 0
+  project    = var.project_id
+  role       = "projects/${var.project_id}/roles/${replace(var.name_prefix, "-", "_")}_deploy_vpn_pool"
+  member     = "serviceAccount:${local.service_account_emails.deploy}"
+
+  condition {
+    title       = "openvpn-pool-vms-only"
+    description = "VM, disk and template permissions apply only to the shared OpenVPN pool's names."
+    expression  = local.vpn_pool_condition
+  }
+}
+
+resource "google_project_iam_custom_role" "destroy_vpn_pool" {
+  count       = local.destroy_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "${replace(var.name_prefix, "-", "_")}_destroy_vpn_pool"
+  title       = "Shifter platform destroy OpenVPN pool"
+  description = "Teardown of the shared OpenVPN pool's instance templates, regional instance group and autoscaler."
+  permissions = var.destroy_vpn_pool_permissions
+}
+
+resource "google_project_iam_member" "destroy_vpn_pool" {
+  depends_on = [google_service_account.destroy, google_project_iam_custom_role.destroy_vpn_pool]
+  count      = local.destroy_enabled ? 1 : 0
+  project    = var.project_id
+  role       = "projects/${var.project_id}/roles/${replace(var.name_prefix, "-", "_")}_destroy_vpn_pool"
+  member     = "serviceAccount:${local.service_account_emails.destroy}"
+
+  condition {
+    title       = "openvpn-pool-vms-only"
+    description = "Template permissions apply only to the shared OpenVPN pool's names."
+    expression  = local.vpn_pool_condition
   }
 }
 

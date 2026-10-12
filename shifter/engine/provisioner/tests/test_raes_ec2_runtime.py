@@ -16,6 +16,7 @@ def configured(monkeypatch):
     for key, value in {
         "CLOUD_PROVIDER": "aws",
         "ENVIRONMENT": "test",
+        "DEPLOYMENT_ENVIRONMENT": "test",
         "AWS_REGION": "us-east-2",
         "RANGE_VPC_ID": "vpc-" + "0" * 17,
         "RANGE_VPC_CIDR": "10.50.0.0/16",

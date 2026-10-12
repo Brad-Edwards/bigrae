@@ -62,11 +62,52 @@ class RangeWorkspaceRebindOutcome(enum.Enum):
     """The Engine range carried neither the expected source nor the target (drift/concurrency)."""
 
 
+def _vpn_custody_never_left(owner: User) -> bool:
+    """Return whether ``owner`` could never have downloaded an OpenVPN profile.
+
+    Profile delivery requires the authenticated owner. An inactive account with
+    an unusable password -- a platform-managed spare or warm-pool identity --
+    can never authenticate, so a binding it holds was never delivered.
+    """
+    return not owner.is_active and not owner.has_usable_password()
+
+
 def range_owner_reassignment_available_by_request(request_id: UUID) -> bool:
     """Return whether ownership can move without leaving a client credential live."""
     from engine.models import Range
 
-    return Range.objects.filter(request__request_id=request_id, vpn_access_binding__isnull=True).exists()
+    range_obj = Range.objects.select_related("user").filter(request__request_id=request_id).first()
+    return range_obj is not None and (range_obj.vpn_access_binding is None or _vpn_custody_never_left(range_obj.user))
+
+
+def get_pinned_range_egress_mode_by_request(request_id: UUID) -> str | None:
+    """Project the immutable launch posture for a trusted CTF spare claim."""
+    from engine.models import Range
+
+    return Range.objects.filter(request__request_id=request_id).values_list("egress_mode", flat=True).first()
+
+
+def get_range_failure_reason_by_request(request_id: UUID) -> str:
+    """The failure recorded for ``request_id``: reason code plus the bounded diagnostic.
+
+    The range keeps only the closed reason code; the provisioner's authored,
+    value-free diagnostic (MAX_DIAGNOSTIC_CHARS) rides the latest terminal-failed
+    operation result. Empty when nothing failed.
+    """
+    from engine.models import OperationResultInbox, Range
+    from shared.operation_results import ResultStep
+
+    reason = Range.objects.filter(request__request_id=request_id).values_list("error_message", flat=True).first()
+    envelope = (
+        OperationResultInbox.objects.filter(request_id=request_id, result_step=ResultStep.RAES_TERMINAL_FAILED.value)
+        .order_by("-created_at")
+        .values_list("envelope", flat=True)
+        .first()
+    )
+    payload = envelope.get("payload") if isinstance(envelope, dict) else None
+    diagnostic = payload.get("diagnostic") if isinstance(payload, dict) else None
+    parts = [part for part in (reason, diagnostic) if isinstance(part, str) and part]
+    return ": ".join(parts)
 
 
 def destroy_range_by_request(request_id: UUID) -> bool:
@@ -320,11 +361,11 @@ def reassign_range_owner_by_request(request_id: UUID, new_user: User) -> bool:
             )
             return True
 
-        if range_obj.vpn_access_binding is not None:
-            # The downloaded client credential is already outside platform custody.
-            # Refuse the ownership change rather than leave it valid for a former
-            # participant. Callers must destroy the generation (which removes the
-            # gateway and all secrets) and provision a replacement for the new owner.
+        if range_obj.vpn_access_binding is not None and not _vpn_custody_never_left(range_obj.user):
+            # The downloaded client credential may already be outside platform
+            # custody. Refuse the ownership change rather than leave it valid for a
+            # former participant. Callers must destroy the generation (which removes
+            # the gateway and all secrets) and provision a replacement for the new owner.
             raise RangeOwnershipTransferBlocked("Range ownership cannot change while participant VPN access is active")
 
         # Receipt authorization is server-held, so it can be revoked atomically
@@ -336,7 +377,14 @@ def reassign_range_owner_by_request(request_id: UUID, new_user: User) -> bool:
 
         range_obj.user = new_user
         range_obj.cms_user_id = new_user.id
-        range_obj.save(update_fields=["user", "cms_user_id"])
+        update_fields = ["user", "cms_user_id"]
+        if range_obj.vpn_access_binding is not None:
+            # The prior owner never could have received the profile, so the
+            # generation's credential is still solely in platform custody and the
+            # binding moves with the range (ADR-039-R10, #2030).
+            range_obj.vpn_access_binding = {**range_obj.vpn_access_binding, "owner_user_id": new_user.id}
+            update_fields.append("vpn_access_binding")
+        range_obj.save(update_fields=update_fields)
 
         if range_obj.request is not None:
             range_obj.request.user = new_user
