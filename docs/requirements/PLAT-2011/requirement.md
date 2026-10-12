@@ -14,6 +14,13 @@ updated_at: 2026-07-26T21:30:40.607851Z
 
 The platform shall provide a stable typed Account root above Organization and Workspace in the bounded workspaces domain. Individual accounts shall own resources directly without organization or workspace subdivisions; team and enterprise accounts shall have a default organization, and every organization shall have a default workspace, with additional subdivisions permitted. Organization and Workspace public and internal IDs shall be preserved where ancestry is valid. New account membership shall target a stable principal and shall never arise merely from default creation; existing organization and workspace memberships retain their durable rows until the coordinated S8 cutover. The shared scope contract and owning-domain schema shall require explicit account scope with valid optional organization/workspace ancestry for new account-scoped resources; installation scope shall be explicit rather than inferred from absent customer IDs. Existing workspace-bound rows retain their scalar scope and owner identity until S8. Owning domains shall retain scalar scope references without cross-layer model imports or ForeignKeys. Ambiguous historical personal-workspace and ownership evidence shall block the coordinated S8 cutover without deletion or guessed reassignment.
 
+
+ADR-066 S4 clarification: principal-aware account administration, membership/ownership
+facts, scoped profile/lifecycle commands and canonical DRF/browser adapters are
+prepared without replacing production routes or legacy authority. The coordinated
+S8 activation in #2321 binds these paths and maps historical facts. Prepared
+Django-admin writes are disabled in favor of the canonical validated commands.
+
 ## Rationale
 
 The earlier per-user personal organization/workspace compatibility rule in ADR-046 cannot represent an individual without invented subdivisions. ADR-066 supersedes that rule while retaining the workspaces domain boundary, validated scalar references, and durable organization/workspace IDs. S1 adds the new schema, contracts, and mapping checks; S8 is the single production activation point for new authority and final scope enforcement.
@@ -88,3 +95,9 @@ The earlier per-user personal organization/workspace compatibility rule in ADR-0
 - TESTS → TEST `shifter/shifter_platform/tests/cms/test_range_workspace_scoping.py` (Cross-workspace denial across every interactive range lifecycle surface)
 - DOCUMENTS → DOCUMENTATION `docs/architecture/range-workspace-scoping-preflight-1327.md` (Range workspace scoping architecture preflight (ADR-046-R9/R10))
 - IMPLEMENTS → PULL_REQUEST `1931` (feat(platform): scope range launches to workspaces)
+
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/models/_ownership.py` (S4 prepared administration; activation remains coordinated)
+
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services/_policy_range_scope.py` (S4 prepared administration; activation remains coordinated)
+
+- TESTS → TEST `shifter/shifter_platform/tests/cms/test_policy_range_scope.py` (S4 prepared administration; activation remains coordinated)

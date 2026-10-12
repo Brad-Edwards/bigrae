@@ -22,11 +22,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _engine_reassign_range_owner_call(request_id: Any, new_user: User) -> bool:  # NOSONAR
+def _engine_reassign_range_owner_call(
+    request_id: Any, new_user: User, *, expected_owner_id=None, expected_scope=None
+) -> bool:  # NOSONAR
     """Late-bound call so test patches of cms.services.engine_reassign_range_owner apply."""
     from cms import services as _cs
 
-    result: bool = _cs.engine_reassign_range_owner(request_id, new_user)
+    kwargs = {}
+    if expected_owner_id is not None:
+        kwargs["expected_owner_id"] = expected_owner_id
+    if expected_scope is not None:
+        kwargs["expected_scope"] = expected_scope
+    result: bool = _cs.engine_reassign_range_owner(request_id, new_user, **kwargs)
     return result
 
 
@@ -156,7 +163,9 @@ def _rehome_to_new_owner_workspace(instance: RangeInstance, new_user: User) -> N
     )
 
 
-def reassign_range_owner(range_instance_pk: int, new_user: User, *, rehome: bool = False) -> None:
+def reassign_range_owner(
+    range_instance_pk: int, new_user: User, *, rehome: bool = False, expected_owner_id: int | None = None
+) -> None:
     """Reassign an existing ``RangeInstance``'s ownership to ``new_user``.
 
     Updates the CMS ``RangeInstance.user_id`` and the owning CMS ``Request.user``,
@@ -225,6 +234,9 @@ def reassign_range_owner(range_instance_pk: int, new_user: User, *, rehome: bool
     if instance.request is None:
         raise CMSError(f"Range {range_instance_pk} has no associated request")
 
+    if expected_owner_id is not None and instance.user_id != expected_owner_id:
+        raise CMSError("Range ownership changed")
+
     if instance.user_id == new_user.id:
         logger.info(
             "reassign_range_owner: range_instance_pk=%s already owned by user_id=%s, no-op",
@@ -236,32 +248,18 @@ def reassign_range_owner(range_instance_pk: int, new_user: User, *, rehome: bool
     if not rehome:
         _assert_new_owner_in_workspace(instance, new_user, range_instance_pk)
 
-    request_id = instance.request.request_id
-
     try:
         with transaction.atomic():
-            instance.user_id = new_user.id
-            instance.save(update_fields=["user_id"])
-
-            instance.request.user = new_user
-            instance.request.save(update_fields=["user"])
-
-            if rehome:
-                _rehome_to_new_owner_workspace(instance, new_user)
-
-            try:
-                accepted = _engine_reassign_range_owner_call(request_id, new_user)
-            except RangeOwnershipTransferBlocked as exc:
-                raise CMSError(
-                    f"Cannot reassign range {range_instance_pk}: destroy its participant VPN generation first."
-                ) from exc
-            if not accepted:
-                logger.warning(
-                    "reassign_range_owner: no engine range for request_id=%s (range_instance_pk=%s)",
-                    request_id,
-                    range_instance_pk,
-                )
-                raise CMSError(f"Range {range_instance_pk} has no engine range for request {request_id}")
+            current = RangeInstance.objects.select_for_update().get(pk=instance.pk)
+            expected = instance.user_id if expected_owner_id is None else expected_owner_id
+            request = current.request
+            if request is None:
+                raise CMSError("Range ownership unavailable")
+            request = type(request).objects.select_for_update().get(pk=request.pk)
+            if current.user_id != expected or request.user_id != expected:
+                raise CMSError("Range ownership changed")
+            current.request = request
+            _reassign_range_owner_locked(current, new_user, rehome=rehome, expected_owner_id=expected)
     except IntegrityError as exc:
         # The new owner already holds an active range for this source (#307).
         # The CMS UPDATE fails before the engine call, so the whole transaction
@@ -285,3 +283,43 @@ def reassign_range_owner(range_instance_pk: int, new_user: User, *, rehome: bool
         range_instance_pk,
         new_user.id,
     )
+
+
+def _reassign_range_owner_locked(
+    instance: RangeInstance,
+    new_user: User,
+    *,
+    rehome: bool = False,
+    expected_owner_id: int | None = None,
+    expected_scope=None,
+) -> None:
+    """Canonical CMS/Engine ownership writer; caller owns admission and row locks."""
+    range_instance_pk = instance.pk
+    request = instance.request
+    if request is None:
+        raise CMSError("Range ownership projection unavailable")
+    request_id = request.request_id
+    instance.user_id = new_user.id
+    instance.save(update_fields=["user_id"])
+
+    request.user = new_user
+    request.save(update_fields=["user"])
+
+    if rehome:
+        _rehome_to_new_owner_workspace(instance, new_user)
+
+    try:
+        accepted = _engine_reassign_range_owner_call(
+            request_id, new_user, expected_owner_id=expected_owner_id, expected_scope=expected_scope
+        )
+    except RangeOwnershipTransferBlocked as exc:
+        raise CMSError(
+            f"Cannot reassign range {range_instance_pk}: destroy its participant VPN generation first."
+        ) from exc
+    if not accepted:
+        logger.warning(
+            "reassign_range_owner: no engine range for request_id=%s (range_instance_pk=%s)",
+            request_id,
+            range_instance_pk,
+        )
+        raise CMSError(f"Range {range_instance_pk} has no engine range for request {request_id}")

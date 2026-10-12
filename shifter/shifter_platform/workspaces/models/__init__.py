@@ -16,6 +16,7 @@ from ._invitation import WorkspaceInvitation
 from ._membership import WorkspaceMembership
 from ._organization import Organization
 from ._organization_membership import OrganizationMembership
+from ._ownership import WorkspaceOwnership
 from ._quota import (
     QUOTA_MODE_ADVISORY,
     QUOTA_MODE_CHOICES,
@@ -67,6 +68,7 @@ __all__ = [
     "Workspace",
     "WorkspaceInvitation",
     "WorkspaceMembership",
+    "WorkspaceOwnership",
     "WorkspaceQuotaDecision",
     "WorkspaceQuotaPolicy",
     "WorkspaceQuotaReservation",

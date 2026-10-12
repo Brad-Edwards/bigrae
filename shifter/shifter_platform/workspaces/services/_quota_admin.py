@@ -251,7 +251,11 @@ def workspace_quota_usage(actor: User, workspace_uuid: str | UUID) -> WorkspaceQ
         WorkspaceAuthorizationError: The actor may not read the workspace.
     """
     authorization = authorize_workspace(actor, workspace_uuid, WorkspaceOperation.READ_WORKSPACE)
-    workspace_id = authorization.workspace_id
+    return _workspace_quota_projection(authorization.workspace_id, authorization.workspace_uuid)
+
+
+def _workspace_quota_projection(workspace_id: int, workspace_uuid: UUID) -> WorkspaceQuotaProjection:
+    """Canonical immutable usage projection shared by legacy and prepared reads."""
     policies = {p.resource: p for p in WorkspaceQuotaPolicy.objects.filter(workspace_id=workspace_id)}
     resources = tuple(
         _usage_for(workspace_id, resource, policies.get(resource))
@@ -273,7 +277,7 @@ def workspace_quota_usage(actor: User, workspace_uuid: str | UUID) -> WorkspaceQ
         ]
     )
     return WorkspaceQuotaProjection(
-        workspace_uuid=authorization.workspace_uuid,
+        workspace_uuid=workspace_uuid,
         resources=resources,
         recent_decisions=decisions,
     )

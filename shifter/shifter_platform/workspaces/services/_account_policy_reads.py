@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from workspaces.models import Account, Organization, Workspace
 
 from ._account import AccountScopeError, hierarchy_target_scope
 from ._account_policy_admin import AccountAdminView, _active_actor, _require_action
+from ._account_policy_lifecycle import _scope_for_lifecycle
 
 _DENIED = "Scope unavailable"
 _BATCH_SIZE = 100
@@ -46,6 +48,21 @@ class WorkspaceAdminView:
     uuid: UUID
     name: str
     is_default: bool
+    archived_at: datetime | None = None
+    egress_policy: str = "status-quo"
+    owner_principal_uuids: tuple[UUID, ...] = ()
+
+
+def _workspace_view(row: Workspace) -> WorkspaceAdminView:
+    """One canonical prepared workspace response including lifecycle/owner facts."""
+    return WorkspaceAdminView(
+        row.uuid,
+        row.name,
+        row.is_default,
+        row.archived_at,
+        row.egress_policy,
+        tuple(item.principal_uuid for item in row.ownerships.all()),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,16 +105,21 @@ def admin_get_workspace(
     account_uuid: UUID,
     organization_uuid: UUID,
     workspace_uuid: UUID,
+    *,
+    include_archived: bool = False,
 ) -> WorkspaceAdminView:
     """Read one live workspace only beneath both persisted parents."""
-    scope = hierarchy_target_scope("workspace", workspace_uuid)
+    scope = _scope_for_lifecycle(workspace_uuid, restore=include_archived)
     if scope.account_uuid != account_uuid or scope.organization_uuid != organization_uuid:
         raise AccountScopeError(_DENIED)
     _require_action(actor, provider, _READ_WORKSPACE, TargetRef("workspace", workspace_uuid), scope)
-    workspace = Workspace.objects.filter(uuid=workspace_uuid, archived_at__isnull=True).first()
+    query = Workspace.objects.filter(uuid=workspace_uuid)
+    if not include_archived:
+        query = query.filter(archived_at__isnull=True)
+    workspace = query.first()
     if workspace is None:
         raise AccountScopeError(_DENIED)
-    return WorkspaceAdminView(workspace.uuid, workspace.name, workspace.is_default)
+    return _workspace_view(workspace)
 
 
 def _valid_page(offset: int, limit: int) -> None:
@@ -127,7 +149,9 @@ def _allowed_batch(
                 actor.principal,
                 action,
                 TargetRef(target_type, uuid),
-                hierarchy_target_scope(target_type, uuid),
+                _scope_for_lifecycle(uuid, restore=True)
+                if target_type == "workspace"
+                else hierarchy_target_scope(target_type, uuid),
                 actor.ceiling,
             )
             for uuid in uuids
@@ -219,10 +243,14 @@ def admin_list_workspaces(
     *,
     offset: int = 0,
     limit: int = 50,
+    include_archived: bool = False,
+    search: str = "",
 ) -> WorkspaceAdminPage:
     """Page only live workspaces readable beneath the exact parent organization."""
     _active_actor(actor)
     _valid_page(offset, limit)
+    if not isinstance(search, str) or len(search) > 200:
+        raise AccountScopeError(_DENIED)
     scope = hierarchy_target_scope("organization", organization_uuid)
     if scope.account_uuid != account_uuid:
         raise AccountScopeError(_DENIED)
@@ -232,10 +260,16 @@ def admin_list_workspaces(
     permitted, exact_uuid = _collection_ceiling(actor, _READ_WORKSPACE, "workspace")
     if not permitted:
         return WorkspaceAdminPage(0, ())
-    query = Workspace.objects.filter(organization=organization, archived_at__isnull=True)
+    if not isinstance(include_archived, bool):
+        raise AccountScopeError(_DENIED)
+    query = Workspace.objects.filter(organization=organization, name__icontains=search.strip()).prefetch_related(
+        "ownerships"
+    )
+    if not include_archived:
+        query = query.filter(archived_at__isnull=True)
     if exact_uuid is not None:
         query = query.filter(uuid=exact_uuid)
     count, rows = _visible_page(
         query, actor, provider, _READ_WORKSPACE, "workspace", lambda row: row.uuid, window=(offset, limit)
     )
-    return WorkspaceAdminPage(count, tuple(WorkspaceAdminView(row.uuid, row.name, row.is_default) for row in rows))
+    return WorkspaceAdminPage(count, tuple(_workspace_view(row) for row in rows))

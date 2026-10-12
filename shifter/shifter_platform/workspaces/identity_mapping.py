@@ -105,6 +105,10 @@ def _classify_shared_memberships(
             for member in WorkspaceMembership.objects.filter(workspace=workspace).order_by("pk")
         )
     for scope_kind, scope_id, user_id, role in rows:
+        if user_id is None:
+            # Principal-only facts already have their durable identity. They are
+            # not legacy user/role rows and must remain untouched by this plan.
+            continue
         principal_uuid = principal_by_user.get(user_id)
         if not isinstance(principal_uuid, UUID) or principal_uuid.int == 0:
             blockers.append(MappingBlocker("principal_missing", user_id))

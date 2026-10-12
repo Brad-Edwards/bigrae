@@ -9,12 +9,16 @@ consumed by ``management.api``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 from management.policy import require_principal_administration
+from shared.audit import AuditAction, AuditEntityType, AuditEvent, RequestAudit, audit_log
 from shared.authorization import AuthorizationProvider
 from shared.credentials import CredentialContext
 
@@ -30,6 +34,60 @@ ADMIN_USER_SEARCH_MAX_LEN = 100
 
 # Allowlisted account-origin filter values for the Administer user list.
 ADMIN_ACCOUNT_ORIGINS = ("provider", "local", "ctf")
+
+
+def update_policy_user_metadata(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    user_id: int,
+    changes: Mapping[str, str],
+    *,
+    audit: RequestAudit | None = None,
+) -> User:
+    """Preserve validated contact/display edits without touching identity or authority."""
+    require_principal_administration(actor, provider)
+    if not changes or not set(changes) <= {"username", "email", "first_name", "last_name"}:
+        raise ValueError("Invalid user metadata")
+    attribution = audit or RequestAudit()
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user_id)
+        from management.models import UserProfile
+
+        profile = UserProfile.objects.select_for_update().filter(user=user).first()
+        if profile is not None and (profile.is_ctf_account or profile.deleted_at or profile.anonymized_at):
+            raise ValueError("User metadata unavailable")
+        fields = []
+        for field, value in changes.items():
+            if not isinstance(value, str):
+                raise ValueError("Invalid user metadata")
+            if getattr(user, field) != value:
+                setattr(user, field, value)
+                fields.append(field)
+        try:
+            user.full_clean(exclude=["password", "last_login", "date_joined"])
+        except ValidationError as exc:
+            raise ValueError("Invalid user metadata") from exc
+        if fields:
+            try:
+                user.save(update_fields=fields)
+            except IntegrityError as exc:
+                raise ValueError("Invalid user metadata") from exc
+            audit_log(
+                AuditEvent(
+                    entity_type=AuditEntityType.USER,
+                    entity_id=user.pk,
+                    action=AuditAction.UPDATE,
+                    actor_type="principal",
+                    actor_principal_uuid=actor.principal.uuid,
+                    new_state={"changed_fields": sorted(fields)},
+                    context="user_metadata",
+                    source_ip=attribution.source_ip,
+                    user_agent=attribution.user_agent[:500],
+                    request_id=attribution.request_id[:64],
+                ),
+                strict=True,
+            )
+        return user
 
 
 def classify_account_origin(profile: UserProfile | None) -> str:

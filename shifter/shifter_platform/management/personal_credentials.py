@@ -14,13 +14,76 @@ from shared.api_tokens.audit import TokenEvent, record_token_event
 from shared.api_tokens.models import ApiToken
 from shared.api_tokens.policy import require_personal_token_grant
 from shared.api_tokens.scopes import AUTHORIZATION_ACTION_SCOPES, credential_ceiling, validate_scopes
-from shared.authorization import AuthorizationRequest, TargetRef, configured_authorization_provider
+from shared.authorization import (
+    AuthorizationProvider,
+    AuthorizationRequest,
+    TargetRef,
+    configured_authorization_provider,
+)
 from shared.credentials import CredentialContext, resolve_credential_scope
 from shared.identity_scope import ResourceScope
+from shared.principal_port import resolve_principal
 
 from .principals import principal_for_user
 
 _CREDENTIAL_OPERATION_DENIED = "Credential operation denied"
+
+
+def _authorize_token_administration(actor: CredentialContext, provider: AuthorizationProvider) -> None:
+    """Revocation administration never grants the right to issue or use a token."""
+    try:
+        if actor.kind == "temporary":
+            raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+        resolve_principal(actor.principal)
+        request = AuthorizationRequest(
+            actor.principal,
+            "installation.revoke_personal_tokens",
+            TargetRef("installation"),
+            ResourceScope("installation"),
+            actor.ceiling,
+        )
+        if not provider.check(request).allowed:
+            raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+    except Exception as exc:
+        raise ValueError(_CREDENTIAL_OPERATION_DENIED) from exc
+
+
+def admin_list_personal_tokens(
+    actor: CredentialContext, provider: AuthorizationProvider, principal_uuid: UUID, *, offset: int = 0, limit: int = 50
+) -> dict[str, object]:
+    """List safe metadata for one human, authorized before count and pagination."""
+    from .credential_pagination import credential_page
+
+    _authorize_token_administration(actor, provider)
+    if not isinstance(principal_uuid, UUID):
+        raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+    return credential_page(
+        ApiToken.objects.filter(principal_uuid=principal_uuid).order_by("-created_at", "-pk"),
+        offset=offset,
+        limit=limit,
+    )
+
+
+def admin_revoke_personal_token(
+    actor: CredentialContext, provider: AuthorizationProvider, credential_uuid: UUID, *, request=None
+) -> None:
+    """Revoke an exact credential through Knox and strict principal audit."""
+    _authorize_token_administration(actor, provider)
+    with transaction.atomic():
+        token = ApiToken.objects.select_for_update().filter(credential_uuid=credential_uuid).first()
+        if token is None:
+            raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+        if token.revoked_at is None:
+            token.revoke()
+            record_token_event(
+                TokenEvent.REVOKED,
+                token_id=token.token_id,
+                token_pk=token.pk,
+                actor_type="principal",
+                actor_principal_uuid=actor.principal.uuid,
+                request=request,
+                context="administrator credential revocation",
+            )
 
 
 class RotateArguments(TypedDict):

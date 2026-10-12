@@ -34,8 +34,10 @@ create_service_principal = _principals.create_service_principal
 delete_managed_pool_user = _principals.delete_managed_pool_user
 ensure_human_principal = _principals.ensure_human_principal
 principal_for_user = _principals.principal_for_user
+principal_identity_for_user = _principals.principal_identity_for_user
 resolve_principal = _principals.resolve_principal
 resolve_principal_uuid = _principals.resolve_principal_uuid
+resolve_verified_principal = _principals.resolve_verified_principal
 resolve_service_credential = _principals.resolve_service_credential
 set_service_contact = _principals.set_service_contact
 
@@ -497,3 +499,10 @@ def set_ctf_password_change_required(user: User, required: bool) -> None:
         raise ValueError("Password-change state is only valid for CTF accounts")
     profile.must_change_password = required
     profile.save(update_fields=["must_change_password"])
+
+
+def require_principal_administration(actor, provider) -> None:
+    """Public identity-administration authorization at the composition seam."""
+    from .policy import require_principal_administration as authorize
+
+    authorize(actor, provider)

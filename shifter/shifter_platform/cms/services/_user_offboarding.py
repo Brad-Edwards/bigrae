@@ -78,7 +78,7 @@ def _transfer_ranges(source_user: User, replacement_user: User, audit: Offboardi
     for pk in instance_pks:
         try:
             with transaction.atomic():
-                reassign_range_owner(pk, replacement_user)
+                reassign_range_owner(pk, replacement_user, expected_owner_id=source_user.id)
                 audit_log(
                     AuditEvent(
                         entity_type=AuditEntityType.RANGE,

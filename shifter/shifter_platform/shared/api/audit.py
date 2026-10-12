@@ -191,6 +191,13 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset.order_by("-timestamp", "-id")
 
 
+_POLICY_AUDIT_SCHEMA_AUTH: list[dict[str, list[str]]] = [{"ApiTokenAuth": []}, {"cookieAuth": []}]
+
+
+@extend_schema_view(
+    list=extend_schema(parameters=[AuditLogQuerySerializer], auth=_POLICY_AUDIT_SCHEMA_AUTH),  # type: ignore[arg-type]
+    retrieve=extend_schema(auth=_POLICY_AUDIT_SCHEMA_AUTH),  # type: ignore[arg-type]
+)
 class PolicyAuditLogViewSet(AuditLogViewSet):
     """S8 policy-aware audit API, prepared without changing current routing."""
 

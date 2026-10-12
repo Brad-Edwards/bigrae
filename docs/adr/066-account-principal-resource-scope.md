@@ -184,6 +184,15 @@ These changes do not grant a service principal a Django admin session, make
 cloud IAM an application grant, or alter historical audit evidence. Before S8,
 the established gates remain the sole production authority.
 
+The #2317 [preflight](../architecture/account-administration-preflight-2317.md)
+and [coverage inventory](../architecture/account-administration-coverage-2317.md)
+clarify the integration boundary: human-user lifecycle is not customer Account
+lifecycle, deployment-wide settings are not customer policy, and invitation
+acceptance is not identity resolution by email. Prepared adapters and catalog
+entries do not prove mounted-operation coverage. Provider failure cannot become
+an empty authorized result; transfer summaries must preserve blocked outcomes
+and must not claim atomicity across independently committed resources.
+
 The OpenFGA application-policy boundary, supported SDK operations, durable
 write semantics, deployment contract, and cutover constraints are clarified by
 `docs/architecture/openfga-authorization-preflight-2315.md`. That clarification
@@ -258,3 +267,13 @@ be retained as hidden defaults.
 Shared-hosting support increases the importance of negative authorization,
 mapping, and provider-isolation evidence. Schema presence alone does not claim
 that S8 cutover or live multi-customer isolation has occurred.
+
+### Prepared composition boundaries (#2317)
+
+Dormant domain URL modules own their account administration routes. The
+composition root imports the public `PolicyAdminView` admission/error base and
+`AuthorizationMutationSerializer` operation projection for its two cross-domain
+adapters. The layer checker permits only those named presentation symbols and
+the exact tenancy journal/placement services. Domain persistence and private
+helpers remain inaccessible to composition. No production URL or Django-admin
+registration changes in S4.

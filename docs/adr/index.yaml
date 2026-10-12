@@ -4217,7 +4217,7 @@
       },
       {
         "id": "ADR-066-R7",
-        "description": "At S8, HTTP admits a valid credential and the owning service enforces application administration through the shared principal, registered action, resolved target/scope, live OpenFGA decision, and credential ceiling for HTTP and direct callers alike. Human and service application administrators have the same valid application operations when credentials permit. This supersedes ADR-045-R3's staff-session-only audit read, ADR-046-R13's Django-superuser-only transfer override, ADR-046-R10's superuser-only quota authoring, and ADR-048-R2/R3's organization overrides for integrated operations; earlier production gates remain until S8. The deployment-global audit ledger is read only with installation.read_audit; customer audit access cannot be inferred from unscoped historical rows. Retained Django-admin and legacy browser writes use authorized services or lose their write path, and transfers resolve both source and destination authority without fabricating grants or changing cloud authority.",
+        "description": "At S8, HTTP admits a valid credential and the owning service enforces application administration through the shared principal, registered action, resolved target/scope, live OpenFGA decision, and credential ceiling for HTTP and direct callers alike. Human and service application administrators have the same valid application operations when credentials permit. This supersedes ADR-045-R3's staff-session-only audit read, ADR-046-R13's Django-superuser-only transfer override, ADR-046-R10's superuser-only quota authoring, and ADR-048-R2/R3's organization overrides for integrated operations; earlier production gates remain until S8. The deployment-global audit ledger is read only with installation.read_audit; customer audit access cannot be inferred from unscoped historical rows. Retained Django-admin and legacy browser writes use authorized services or lose their write path, and transfers resolve both source and destination authority without fabricating grants or changing cloud authority. Human-user lifecycle, customer Account lifecycle, and deployment settings remain distinct. Coverage must distinguish prepared adapters from mounted operations; provider failure is not an empty authorized result, and transfer summaries preserve blocked outcomes without claiming cross-resource atomicity.",
         "checks": []
       }
     ],
@@ -4237,6 +4237,9 @@
       "docs/architecture/unified-credential-auth-preflight-2316.md",
       "docs/architecture/account-administration-preflight-2317.md",
       "docs/architecture/account-administration-coverage-2317.md",
+      "docs/features/account-administration.md",
+      "docs/technical/shifter_platform/account-administration.md",
+      "shifter/shifter_platform/tests/integration/authorization/test_openfga_released_server.py",
       "docs/technical/shifter_platform/access-credentials.md",
       "shifter/shifter_platform/tests/shared/test_credential_db_guards.py",
       "shifter/shifter_platform/tests/shared/test_principal_audit.py",

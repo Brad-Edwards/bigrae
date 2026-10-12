@@ -1,49 +1,75 @@
-# Account administration coverage and S8 handoff (#2317)
+# Account administration operation inventory (#2317)
 
-ADR-066 keeps legacy production authority in place through S4. The policy-aware
-adapters below are deliberately unmounted; routing or replacing a legacy gate
-before S8 would create two competing authorities. This inventory records exact
-action targets and the remaining work for the coordinated cutover. It is not a
-claim that the issue's acceptance criteria are complete.
+This inventory completes the S4 preparation described in ADR-066. It compares
+all administer, audit, organization/workspace and range-scoping methods in the
+baseline v1 contract with the prepared service, DRF, browser and non-API paths.
+The scope clarification in [issue #2317](https://github.com/Brad-Edwards/shifter/issues/2317#issuecomment-5825481291)
+makes #2321 the sole production activation point. Completion of this preparation
+does not claim that unmounted routes enforce production traffic.
 
-| Operation family | Target and action | S4 enforcement and tests | S8 handoff |
-| --- | --- | --- | --- |
-| Account create | installation / `installation.manage_accounts` | `admin_create_account`; human/service, ceiling, denial, strict structural audit | Mount collection route and account creation UI. |
-| Account list/detail/current individual | account / `account.read`; installation administrator list override | `admin_list_accounts`, `admin_get_account`, `admin_individual_account`; filtering before count/page and exact target tests | Mount routes and individual account view without an organization selector. |
-| Organization list/detail/create | organization / `organization.read`; account / `account.manage_organizations` | `admin_list_organizations`, `admin_get_organization`, `admin_create_organization`; sibling/parent tests | Mount routes and business account screens. |
-| Workspace list/detail/create | workspace / `workspace.read`; organization / `organization.manage_workspaces` | `admin_list_workspaces`, `admin_get_workspace`, `admin_create_workspace`; sibling/parent/archived tests | Mount routes and business organization screens. |
-| Account membership list/add/remove | account / `account.manage_members` | `admin_list_account_members`, `admin_add_account_member`, `admin_remove_account_member`; explicit membership and strict audit tests | Mount member routes and account member UI. |
-| Workspace quota and egress authoring | workspace / `workspace.manage_quota`, `workspace.manage_egress` | Policy commands reuse locked writers; service principal, denial, archived, audit and direct API tests | Mount policy routes; retire superuser and workspace-role authority for these commands. |
-| User list/detail/lifecycle/set-active/delete/reset | installation / `installation.manage_principals` | Prepared `PolicyAdminUser*View` classes and guarded lifecycle/reset services; service principal, ceiling, invariant and API tests | Replace staff/model-permission routes and retain the v1 response contract. |
-| Global audit list/detail | installation / `installation.read_audit` | `authorized_audit_events` and `PolicyAuditLogViewSet`; service, ceiling, provider-loss and list/detail tests | Replace the staff-session route and document bearer-capable OpenAPI security. Historical rows remain installation-only. |
-| Personal and service credential administration | installation / `installation.use_personal_tokens`, `installation.revoke_personal_tokens`, `installation.manage_service_credentials` | #2316 policy services and credential API remain the incumbent; this slice has not changed them | Verify full administrator, service, ceiling and browser ceremony cases in the combined route suite. |
-| Workspace rename/archive/restore | workspace / `workspace.update`, `workspace.archive`, `workspace.restore` | Prepared policy commands reuse locked legacy writers; service principal, denial, archive and API tests | Mount policy routes and retire human-only role authority for these commands. |
-| Workspace ownership and membership | workspace / `workspace.transfer`, `workspace.manage_members` | Prepared single-workspace ownership transfer checks policy for a service actor, source owner and existing destination membership, then reuses the locked/audited writer. Legacy role-authorized commands and routes remain the sole production path. | Expose the policy transfer through public principal UUIDs and prepare membership commands for service administrators; replace human-only routes at cutover. |
-| Workspace invitations | workspace / `workspace.manage_invitations` | Legacy human-role service and routes remain the sole production path | Add a principal-aware invitation command, delivery and acceptance mapping without deriving a grant from email or creator. |
-| Scoped group/policy assignment | account, organization, workspace / matching `manage_authorization` and delegated action checks | #2315 supplies the durable policy journal; prepared account/organization metadata, group membership, policy, predefined, direct assignment and operation adapters use exact SQL ancestry and the existing journal. Service and API tests cover parent mismatch, exact target and credential ceiling. | Mount account and organization routes; run released-provider delegation and cross-scope suites with the full role catalog. |
-| Cross-domain organizer grant and offboarding transfer | installation / `installation.manage_principals`; source and destination resource actions | Current `config.api_administer` staff/superuser route remains unchanged | Check each persisted source and requested destination through owning services; preserve CMS/Engine/workspace transfer invariants and strict attribution. |
-| Django admin and legacy browser writes | Same action as the owning operation | Current quota admin delegates to the legacy service; profile admin has direct writes | Route retained writes through policy services or disable them after equivalent canonical UI/API operations are live. |
-| Counts, search, export and download | Action of the underlying collection/resource | Prepared account/subdivision/member lists filter before count and page. No account or audit export/download endpoint exists in the current v1 modules. | Apply the same authorized projection before every retained search, aggregation, export and download in the routed S8 surface. |
+Prepared paths are exercised through `config.account_admin_urls`; its domain
+URL modules are not included by production. `AccountAdministrationEntry` and
+`PlatformAdministrationPage` are not imported by production router/navigation.
+All actors use admission-derived credentials; facts, flags and UI hints do not
+grant policy. Public principal and hierarchy inputs use UUIDs; existing v1
+user-ID and request-correlation contracts are retained.
 
-The S8 route swap must be atomic with #2321's mapping and authority cutover.
-Before activation, compare this inventory with the full v1 URL set and
-`ACTION_CATALOG`, run PostgreSQL and released OpenFGA behavior suites, regenerate
-OpenAPI and frontend types, and test browser navigation and account selection.
-
-## Issue #2317 acceptance status
-
-This S4 preparation does not complete any of the issue's five acceptance
-criteria. The new API adapters are unmounted and the incumbent browser and
-service paths retain their legacy gates. A passing test of a prepared adapter
-does not prove behavior of a production route.
-
-| Acceptance criterion | Prepared evidence | Work required before closure |
+| Baseline methods / behavior | Prepared operation and registered gate | Enforcement and behavioral evidence |
 | --- | --- | --- |
-| Customer and sibling-scope isolation across direct, detail, list, create, update, and export | Account, organization, and workspace service/API tests exercise exact ancestry, policy-filtered pages, and creation. | Route the canonical API/browser operations at S8 and verify every retained update, search, aggregation, export, and download against the same scope rules. |
-| Human and service administrator parity across platform, identity, policy, and credentials | Prepared identity, audit, quota, egress, and scoped authorization adapters exercise selected human and service paths. #2316 owns credential administration. | Verify all retained operations, including credential ceremonies and non-API paths, through mounted routes with both principal kinds. |
-| Delegated ceiling and sibling/higher-scope denial | Prepared commands check credential ceilings, exact targets, and delegation before journal writes. | Run the full role catalog and released-provider cross-scope suite against the live API, browser, and service boundaries. |
-| Source/destination ownership authority and consistent affected scope | A prepared single-workspace transfer reuses the locked writer. | Replace the legacy transfer routes and cover cross-domain offboarding, source and destination policy, membership and owner invariants, and affected-scope updates. |
-| Action/scope/enforcement mapping and behavior test for every baseline operation and non-API path | The table above maps the prepared administration families and identifies the S8 gaps. | Complete the baseline v1 and retained non-API inventory with behavior tests for each route, Django-admin write, service, callback, and export path. |
+| Workspace context; administrable organizations GET | `/accounts/context/`, `/accounts/`, `/accounts/current/`; account.read and exact subdivision reads | `_policy_context`, `_account_policy_admin`, `_account_policy_reads`; account-policy, profile and prepared-route tests. Individual presentation has no subdivision selector; service identities do not impersonate a contact. |
+| Organization detail GET/PATCH | `/accounts/{account}/organizations/{organization}/`; organization.read/update | `_policy_profiles`, `policy_profile_views`; profile and prepared-route tests preserve exact parent, validation and PATCH mask. Browser account-page tests exercise selection and mask. |
+| Workspace collection GET/POST, detail GET/PATCH | Account/org workspace list/search/create/detail plus `/workspaces/{uuid}/rename/`; workspace.read/update, organization.manage_workspaces | `_account_policy_reads`, `_account_policy_admin`, `_account_policy_lifecycle`; account-policy service/API, lifecycle and profile tests cover authorized counts, search, archived discovery, siblings, ceilings, defaults and strict audit. |
+| Workspace archive/restore POST | Same paths; workspace.archive/restore | Incumbent locked lifecycle writers through policy commands. Defaults and personal compatibility protection remain; archival does not delete ranges. `test_account_policy_admin.py`, `test_lifecycle.py`. |
+| Workspace owner transfer POST | Same path, principal source/destination UUIDs; workspace.transfer | `_policy_memberships`; multiowner facts, destination membership, last-owner and audit rollback tests. Owner add/remove are also prepared. No role/policy grant accompanies ownership. |
+| Workspace self membership GET and leave POST | Same path families; workspace.read and separately registered workspace.leave | `_policy_memberships`, `policy_membership_views`; self query takes no subject, leave cannot abandon the last owner. Principal membership tests. |
+| Workspace roster GET/POST, remove POST, role POST | Principal roster GET/POST/DELETE. Role authoring is replaced by scoped policy/group assignment, not stored membership roles | workspace.manage_members; `_policy_memberships` tests human/service, empty-role facts, ceiling denial, owner protection, quota and strict rollback. The integer-user compatibility transfer delegates to principal ownership facts without editing legacy roles. Old user-role mutation is not mounted in the prepared URLConf. |
+| Workspace invitation GET/POST, resend/revoke POST | Same path families; workspace.manage_invitations | `_policy_invitations` reuses signature/generation/delivery/rate/quota/status writers. Invitation and browser panel tests cover rotation, revoke, sibling denial, exact verified binding/current inviter and replay. Principal provenance constraints forbid partial/mixed rows. |
+| Workspace quota GET, egress PUT | Same path families plus quota-policy PUT; workspace.read/manage_quota/manage_egress | `_policy_profiles`, `_account_policy_quota`; incumbent projection and locked writers. Policy profile/quota/egress service/API tests and prepared browser limits. Egress remains a provisioning selection, not retrofit enforcement. |
+| Authorization/predefined catalogs GET | Existing catalog paths, same central catalog | `authorization_views`; catalog/model/surface tests. No copied action list or evaluator. |
+| Groups and policies GET/POST | Existing workspace paths, generalized installation/account/org paths; matching manage_authorization | Existing `_authorization_policy` and `_authorization_scoped_api`; account/scoped authorization API and browser tests preserve exact ancestry and authority-before-count. |
+| Group membership, policy assignment/actions, direct/predefined assignment POST | Same journal adapters generalized to every concrete scope | Matching manage/delegate_authorization plus native action/descendant proof; existing delegation, policy journal, native conformance and released OpenFGA tests. Frozen idempotency, uncertainty and current-authority recovery remain. |
+| Authorization operation GET/POST reconciliation | Same scope's journal read/reconcile | Existing operation services and browser operation status/retry controls. No new mutation workflow or implicit retry. |
+| Users collection/detail GET and search/filter/page | Same paths; installation.manage_principals | `management.admin_services`, `PolicyAdminUser*View`; lifecycle/policy and composition tests authorize before search/count/lookup. No staff/superuser/model-permission veto. |
+| User lifecycle/set-active/delete POST | Same paths; installation.manage_principals | Existing locked `management.lifecycle`; policy-lifecycle tests retain temporary-account, recovery and lifecycle invariants. Prepared hints are advisory and include the durable principal UUID. |
+| User reset-password POST | Same path; installation.manage_principals | Existing password-reset delivery and throttling; policy lifecycle/reset tests. A service administrator never receives the human's password. |
+| User grant-organizer POST | Same path with a concrete account/org/workspace and idempotency key | Root manage_principals plus scoped create_event delegation/journal. `api_account_administration`; journal API tests and scoped browser mutation reuse. No Django global-group mutation or creator impersonation. |
+| User transfer-ownership POST | Same path and bounded summary; installation.manage_principals plus workspace.transfer / range.transfer_ownership | `_policy_offboarding` composes tenancy and Engine public services. Offboarding/composition tests verify inactive source, active/member destination, blocked outcomes, projection drift and no fabricated membership/grants. Effects are per-resource. |
+| Global audit collection/detail GET, filter/search | Same paths; installation.read_audit | Existing authorized audit service and PolicyAuditLogViewSet plus AuditPage; audit policy/store/browser suites. Historical evidence stays installation-wide. No export/download operation exists in this baseline inventory. |
+| Lease settings GET, tenant/group PUT and reset POST (five operations) | Same paths; installation.manage_lease_policy | Prepared policy subclasses invoke existing revision-aware locked lease writers. `test_policy_lease_admin.py` and runtime lease suite cover service authority, ceiling and validation. Customer quota never grants deployment lease authority. |
+| Range-scoping collection GET and range workspace POST | Same paths; workspace.manage_range_scope in persisted source and requested destination | CMS `_policy_range_scope`, tenancy proofs and Engine CAS. Tests move all ancestry/reservations together, move back, reject destination policy/quota, preserve immutable aggregates, discover archived sources and roll back strict audit failures. Browser confirmation uses public correlation/destination UUIDs. |
+| Personal/service credentials and privileged revoke | Existing credential API plus prepared administrator personal list/revoke | Incumbent #2316 services and ceremonies; exact installation actions, credential policy/native admission tests and `test_policy_token_admin.py`. Full administrator excludes own personal-token use; owner-session issuance/rotation still requires its separate action and ceremony. |
 
-Keep #2317 open when this preparation merges. The coordinated S8 delivery in
-#2321 must verify the remaining criteria before #2317 can be closed.
+## Non-API paths
+
+| Path | Prepared behavior and evidence |
+| --- | --- |
+| Django User/UserProfile admin add/change/delete/bulk | `PolicyUserAdmin`, `PolicyUserProfileAdmin`, `PolicyAdminSite` are dormant. Reads use policy. Direct writes are disabled; canonical profile/lifecycle/reset commands retain supported operations. Provider binding, recovery state, password, flags and authority cannot be edited as ordinary metadata. Policy admin tests cover each write hook and admission without staff flags. |
+| Workspace quota/invitation admin | Dormant `PolicyWorkspaceQuotaAdmin` / `PolicyWorkspaceInvitationAdmin` filter the complete policy-visible queryset before Django counts/pages; all writes/bulk actions disabled in favor of canonical commands. Legacy registrations stay live only until S8. |
+| Audit/activity admin | Dormant immutable policy reads; no add/change/delete or bulk mutation. Historical rows are installation-only. |
+| Login invitation staging/callback | Existing signed token staging and CSRF/login proof; prepared callback uses fresh issuer+subject directory binding and current inviter policy. The adapter is not registered until S8. Invitation behavioral tests exercise acceptance and replay. |
+| Legacy browser paths | Existing shell serves the current SPA. Prepared account/platform components reuse apiFetch, same-origin session/CSRF and TanStack Query. No production route/nav swap or new browser-storage credential path. Account/scope panel, range confirmation and platform identity tests cover prepared interactions. |
+| Management commands/utilities | No retained production administrative command grants policy, edits account ancestry or performs lifecycle deletion. `delete_user` now requires both the explicit test-run marker and test environment before any lookup, and is not wired to the prepared admin site/API. Identity onboarding remains with the existing admission/proof services. |
+| Count, search, pagination, export/download | Authorized collections are filtered before count/page; queries are bounded. The baseline administer/audit/workspace inventory exposes no export/download. Credential one-time delivery and range access downloads remain under their incumbent dedicated services and ceremonies. |
+
+## Acceptance mapping
+
+- [x] Customer/sibling isolation in prepared direct services, routed test API,
+  collection/search/detail/create/update and browser scope selection:
+  `_account_policy_admin`, `_account_policy_reads`, `_policy_profiles` and their
+  service/API/browser tests.
+- [x] Human/service parity for prepared platform, identity, policy, quota, lease,
+  audit and credential administration, preserving owner-session ceremonies:
+  policy lifecycle, credential, lease, composition and released-provider suites.
+- [x] Delegated credential ceiling, ancestor proof, sibling/higher scope and
+  revocation denial: existing native policy/delegation journal suites plus
+  released-server hierarchy discovery using the declared administrator ceiling.
+- [x] Source/destination authority and consistent affected ownership/scope:
+  `_policy_offboarding`, `_policy_range_scope`, tenancy membership/owner writers,
+  Engine expected-owner/ancestry CAS and quota reservation tests. Offboarding carries the original departing user through enumeration and each locked writer; named active-range collisions remain bounded blocked outcomes. Terminal status convergence locks and rereads the persisted range binding before quota release.
+- [x] Baseline operation and non-API mapping: the method inventory and tables
+  above, derived prepared OpenAPI/client, dormant routes and admin registrations.
+
+#2321 activates these prepared surfaces together with the final account mapping
+and authority cutover. S4 has no mixed-authority production rollout; the issue
+can be closed after its completed preparation is reviewed and merged according
+to the authoritative scope clarification.

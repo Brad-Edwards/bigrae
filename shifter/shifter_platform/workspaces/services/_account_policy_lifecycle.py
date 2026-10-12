@@ -4,17 +4,18 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
 
 from shared.audit import RequestAudit
 from shared.authorization import AuthorizationProvider, TargetRef
 from shared.credentials import CredentialContext
 from shared.identity_scope import ResourceScope
+from shared.principal_port import PrincipalResolutionError, principal_identity_for_user
 from workspaces.models import Workspace
 
 from ._account import AccountScopeError, hierarchy_target_scope
 from ._account_policy_admin import _require_action
-from ._admin_transfer import _transfer_one_workspace
 from ._lifecycle import (
     WorkspaceAuditContext,
     WorkspaceProjection,
@@ -25,6 +26,7 @@ from ._lifecycle import (
     _restore_workspace_locked,
     _validate_name,
 )
+from ._policy_memberships import admin_transfer_workspace_principal
 
 _DENIED = "Scope unavailable"
 
@@ -138,15 +140,13 @@ def policy_transfer_workspace_ownership(
         raise _error("same_user", "The replacement account must differ from the departing account")
     scope = _scope_for_lifecycle(workspace_uuid, restore=False)
     _require_action(actor, provider, "workspace.transfer", TargetRef("workspace", workspace_uuid), scope)
-    with transaction.atomic():
-        workspace = _locked_workspace(workspace_uuid, scope)
-        if workspace.archived_at is not None:
-            raise AccountScopeError(_DENIED)
-        if workspace.personal_for_user_id is not None:
-            raise _error("personal_workspace_protected", "Personal workspace ownership cannot be changed")
-        outcome = _transfer_one_workspace(workspace.pk, source_user_id, new_owner_user_id, _audit(actor, audit))
-        if outcome is None:
-            raise _error("owner_not_found", "Workspace owner not found")
-        if outcome.outcome == "blocked_no_membership":
-            raise _error("membership_not_found", "The target account is not a member of this workspace")
-        return _projection(workspace)
+    users = get_user_model().objects.in_bulk((source_user_id, new_owner_user_id))
+    if len(users) != 2:
+        raise AccountScopeError(_DENIED)
+    try:
+        source = principal_identity_for_user(users[source_user_id])
+        destination = principal_identity_for_user(users[new_owner_user_id])
+    except PrincipalResolutionError as exc:
+        raise AccountScopeError(_DENIED) from exc
+    admin_transfer_workspace_principal(actor, provider, workspace_uuid, source.uuid, destination.uuid, audit=audit)
+    return _projection(Workspace.objects.select_related("organization").get(uuid=workspace_uuid))

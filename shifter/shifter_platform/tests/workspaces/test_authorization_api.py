@@ -464,7 +464,8 @@ def test_predefined_workspace_administrator_assignment_is_typed_and_scoped(autho
     assert response.json()["state"] == "confirmed"
     assert provider.changes[0].grant_tuple.relation == "direct_administrator"
     assert "workspace.update" in provider.checked_actions
-    assert "workspace.read" not in provider.checked_actions
+    assert "workspace.read" in provider.checked_actions
+    assert "workspace.leave" not in provider.checked_actions
     assert "workspace.launch_range" not in provider.checked_actions
 
 

@@ -63,6 +63,14 @@ def ensure_human_principal(user: User) -> PrincipalRef:
         return _principal_ref(principal)
 
 
+def principal_identity_for_user(user: User) -> PrincipalRef:
+    """Read stable human ownership identity without authenticating that user."""
+    principal = Principal.objects.filter(user_id=user.pk, kind=Principal.Kind.HUMAN).first()
+    if principal is None:
+        raise PrincipalConflictError("Principal unavailable")
+    return _principal_ref(principal)
+
+
 def principal_for_user(user: User) -> PrincipalRef:
     """Resolve a pre-existing human identity without creating one on a read."""
     if user is None or user.pk is None:
@@ -128,6 +136,22 @@ def resolve_principal(principal_ref: PrincipalRef) -> PrincipalRef:
     )
     if principal is None:
         raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    return _principal_ref(principal)
+
+
+def resolve_verified_principal(identity) -> PrincipalRef:
+    """Match a freshly verified provider identity to one active human principal."""
+    principal = (
+        _active_principals()
+        .filter(
+            kind=Principal.Kind.HUMAN,
+            provider_bindings__issuer=identity.issuer,
+            provider_bindings__subject=identity.subject,
+        )
+        .first()
+    )
+    if principal is None:
+        raise PrincipalConflictError("Principal unavailable")
     return _principal_ref(principal)
 
 

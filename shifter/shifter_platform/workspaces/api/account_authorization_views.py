@@ -42,12 +42,16 @@ from workspaces.api.serializers import (
 )
 
 
-def _target_ref(target_type: str, target_uuid: UUID) -> TargetRef:
+def _target_ref(target_type: str, target_uuid: UUID | None) -> TargetRef:
     """Accept only the two prepared customer authorization scopes."""
     if target_type == "account":
         return TargetRef("account", target_uuid)
     if target_type == "organization":
         return TargetRef("organization", target_uuid)
+    if target_type == "workspace":
+        return TargetRef("workspace", target_uuid)
+    if target_type == "installation" and target_uuid is None:
+        return TargetRef("installation")
     raise AuthorizationAPIError("authorization_denied", 403)
 
 
@@ -55,11 +59,15 @@ def _context(
     request: Request, target_type: str, target_uuid: UUID, account_uuid: UUID | None
 ) -> tuple[CredentialContext, ResourceScope, AuthorizationProvider]:
     """Resolve exact SQL ancestry and reject a path naming a different parent."""
-    if target_type not in {"account", "organization"}:
+    if target_type not in {"installation", "account", "organization", "workspace"}:
         raise AuthorizationAPIError("authorization_denied", 403)
     try:
         credential = authenticated_credential(request)
-        scope = services.hierarchy_target_scope(target_type, target_uuid)
+        scope = (
+            ResourceScope("installation")
+            if target_type == "installation"
+            else services.hierarchy_target_scope(target_type, target_uuid)
+        )
         if account_uuid is not None and scope.account_uuid != account_uuid:
             raise AuthorizationAPIError("authorization_denied", 403)
         if target_type == "organization" and account_uuid is None:
