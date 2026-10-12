@@ -73,3 +73,9 @@ The bootstrap guide and deploy reference mark the broker as not supported for us
 The broker's code, migrations, and tests stay in the repository and in CI until a
 removal or replacement decision. Its tests must not make CI unreliable for other
 work. Model calls from ranges are not metered or limited, consistent with ADR-064.
+
+The [#2274 replacement evaluation](../architecture/model-access/gateway-replacement-evaluation-2274.md)
+compares maintained products under the maintainer's replacement direction. It
+recommends self-hosted LiteLLM for qualification, records edition and private-TLS
+decisions, and defines proposed integration and acceptance cases. This is design
+evidence, not an adoption or guest-path switch; the decisions above remain in force.

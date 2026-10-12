@@ -2,6 +2,12 @@
 
 This directory holds the machine-readable part of ADR enforcement.
 
+ADR-068's [gateway replacement evaluation](../architecture/model-access/gateway-replacement-evaluation-2274.md)
+records the clarified #2274 scope, maintained-product comparison and proposed
+qualification. Its registry evidence pointer adds no executable check, exception
+or runtime support claim. Broker parking and the supported keyless-direct path
+remain unchanged until a separate adoption/cutover decision.
+
 The GCP model-broker IAM guard accepts the cluster-derived
 `var.workload_identity_pool` reference for its exact Kubernetes service account
 binding. The owning GKE output is resource-backed so fresh bootstrap creates the

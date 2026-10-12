@@ -1,11 +1,20 @@
 # Per-range model and tool access design — #681
 
-Status: proposed implementation design, 2026-09-06. Requirement: **PLAT-202**.
-Repository baseline: `6fd946352ec22c8bf373a04b52f738f9f6c6a9f4` on `dev`.
+Current status: the broker is parked and unsupported under
+[ADR-068](../../adr/068-model-access-broker-parked.md); ADR-064 keyless-direct is
+the only supported guest model path. The broker design and implementation
+guidance below are historical; they do not authorize activation or extension.
+For the replacement recommendation and its qualification plan, see the
+[#2274 evaluation](gateway-replacement-evaluation-2274.md). For repository
+boundaries, see the
+[#2274 gateway preflight](gateway-preflight-2274.md).
+
+Historical design: 2026-09-06, requirement **PLAT-202**;
+baseline `6fd946352ec22c8bf373a04b52f738f9f6c6a9f4` on `dev`.
 The source issue remains the canonical work tracker:
 [#681](https://github.com/Brad-Edwards/shifter/issues/681).
 
-The selected design gives each admitted range generation a revocable,
+The historical design gives each admitted range generation a revocable,
 budgeted capability to a deployment-owned broker. Provider credentials stay
 outside participant control. Scenario and event configuration selects logical
 profiles; Engine allocates approved model/account/project shards and owns
@@ -16,6 +25,8 @@ deployment ranges. Shared resources do not require shared participant tokens.
 
 | Document | Purpose |
 | --- | --- |
+| [Gateway replacement evaluation](gateway-replacement-evaluation-2274.md) | #2274 comparison of LiteLLM, Bifrost and Agent Router, proposed integration, edition costs and qualification plan. |
+| [Gateway replacement preflight](gateway-preflight-2274.md) | #2274 clarified replacement scope, ADR-068 precedence and repository boundaries for future integration. |
 | [Architecture and contracts](architecture.md) | Ownership, configuration, allocation, API, persistence, protocol, lifecycle, and user flows. |
 | [Tenant source management](source-management.md) | Implemented source publication, credentials, provider routing and live range transitions. |
 | [Tenant source-management preflight](source-management-preflight-2243.md) | #2243 tenant authority, provider/hosting separation, write-only credentials, live-edit accounting and whole-repository validation boundaries. |
@@ -41,6 +52,7 @@ deployment ranges. Shared resources do not require shared participant tokens.
 | [ADR-060](../../adr/060-model-access-allocation-accounting.md) | Allocation and mandatory accounting decision. |
 | [ADR-061](../../adr/061-model-access-operations-qualification.md) | Revocation, operation, and qualification decision. |
 | [ADR-064](../../adr/064-default-range-model-access.md) | Direct keyless default, mutually exclusive with broker-enforced access per range. |
+| [ADR-068](../../adr/068-model-access-broker-parked.md) | Current decision: broker parked, direct access supported, future controls optional. |
 | [Tenant user guide](../../features/model-access.md) | What organizers, participants, and operators will see. |
 
 ## Scope and support claims
