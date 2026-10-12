@@ -55,6 +55,7 @@ from .publication import (
 from .render import (
     render_capacity_projection,
     render_cloud_provider_tfvars,
+    render_gcp_range_telemetry_env,
     render_mission_control_lease_env,
     render_model_access_catalog,
     render_model_access_env,
@@ -152,6 +153,20 @@ def _cmd_render_mission_control_lease_env(path_str: str, output: str | None) -> 
     return _emit_rendered(
         render_mission_control_lease_env(config), output, config.backend, what="Mission Control lease runtime env"
     )
+
+
+def _cmd_render_gcp_range_telemetry_env(path_str: str, output: str | None) -> int:
+    """Render the ``GCP_RANGE_TELEMETRY_POLICY_JSON`` runtime env line for ``path_str``."""
+    config_path = Path(path_str)
+    try:
+        config = load_root_config(config_path)
+        rendered = render_gcp_range_telemetry_env(config)
+    except InstallationConfigError as exc:
+        print(f"{config_path}: invalid", file=sys.stderr)
+        for issue in exc.issues:
+            print(f"  - {issue.render()}", file=sys.stderr)
+        return 1
+    return _emit_rendered(rendered, output, config.backend, what="GCP range telemetry runtime env")
 
 
 def _cmd_render_model_access(path_str: str, output: str | None, *, catalog: bool) -> int:
@@ -323,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = _cmd_render_runtime(args.path, args.output)
     elif args.command == "render-warm-pool-env":
         exit_code = _cmd_render_warm_pool_env(args.path, args.output)
+    elif args.command == "render-gcp-range-telemetry-env":
+        exit_code = _cmd_render_gcp_range_telemetry_env(args.path, args.output)
     elif args.command == "render-mission-control-lease-env":
         exit_code = _cmd_render_mission_control_lease_env(args.path, args.output)
     elif args.command == "render-model-access-catalog":

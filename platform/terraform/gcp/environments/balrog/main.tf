@@ -69,7 +69,8 @@ module "packer_build_infra" {
 }
 
 module "platform_core" {
-  model_broker = var.model_broker
+  model_broker    = var.model_broker
+  range_telemetry = var.range_telemetry
 
   source = "../../modules/platform-core"
 

@@ -124,6 +124,9 @@ GCP_HELM_RENDERED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset({"FEATURE_ARTIFAC
 
 GCP_OPTIONAL_GENERATED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
     {
+        # Range audit telemetry policy (#2535): rendered from settings.range_telemetry by
+        # the deploy pipeline. Absent -> the provisioner applies the default-on policy.
+        "GCP_RANGE_TELEMETRY_POLICY_JSON",
         "IDENTITY_ALLOWED_EMAILS",
         "PLATFORM_BOOTSTRAP_STAFF_EMAILS",
         "PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS",
@@ -231,6 +234,7 @@ GCP_PROVISIONER_FORWARDED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "GCP_RANGE_LINUX_MACHINE_TYPE",
         "GCP_RANGE_PLANE",
         "GCP_RANGE_PRIVATE_GOOGLE_ACCESS",
+        "GCP_RANGE_TELEMETRY_POLICY_JSON",
         "GCP_RANGE_WINDOWS_DISK_SIZE_GB",
         "GCP_RANGE_WINDOWS_DISK_TYPE",
         "GCP_RANGE_WINDOWS_IMAGE",

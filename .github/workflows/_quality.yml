@@ -349,6 +349,12 @@ jobs:
           python3 scripts/check_tf_gcp_iam_resource_scope/check_tf_gcp_iam_resource_scope.py \
             platform/terraform/gcp/modules/portal/iam/*.tf
 
+      # Issue #504 / #2535: platform-core/main.tf stays a composition facade
+      # (module blocks, VPC peering, and the cross-module topology invariant);
+      # resources belong in submodules.
+      - name: Run check-gcp-tf-modules
+        run: python3 scripts/check_gcp_tf_modules/check_gcp_tf_modules.py
+
       # ADR-004-R11: require blocking CI Checkov with canonical inputs.
       # A local hook is optional; if present, it must match this policy.
       - name: Run check-checkov-invocation-parity
@@ -390,6 +396,7 @@ jobs:
           python3 -m unittest scripts.check_tf_gcp_runner_network.test_check_tf_gcp_runner_network
           python3 -m unittest scripts.check_tf_gcp_iam_resource_scope.test_check_tf_gcp_iam_resource_scope
           python3 -m unittest scripts.check_tf_gcp_wif_trust.test_check_tf_gcp_wif_trust
+          python3 -m unittest scripts.check_gcp_tf_modules.test_check_gcp_tf_modules
 
   # ===========================================================================
   # Terraform root validation (issue #1528)

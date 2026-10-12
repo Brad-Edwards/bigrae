@@ -1050,6 +1050,19 @@ To add a production path:
   unchanged (`.*` already spans the leading whitespace the redundant `\s*` matched)
   and is pinned by the existing `tests/test_agent_attribution.py` parity tests. No
   change to what the guardrail forbids.
+- **GCP platform-core facade guard (`scripts/check_gcp_tf_modules`)**: #2535 wires
+  the guard and its unit tests into the `_quality.yml` Terraform lint job. Before
+  this change, no CI job or hook ran the guard, and `platform-core/main.tf` had
+  three direct resources. The Secret Manager audit config now lives in
+  `gcp/modules/project-audit-config`. The Cloud Build grant for the Identity
+  Platform blocking function now lives in `portal/identity-platform`. Both moves
+  have `moved` blocks. The guard allowlists only the cross-module
+  `terraform_data.network_topology_invariant`, which creates no cloud resource.
+- **GCP deploy overlay consumers (`scripts/adr_guard/tests/test_deploy_workflow.py`)**:
+  #2535 adds a fourth ephemeral `shifter.yaml` consumer to `_gcp-dev.yml`, the
+  range telemetry env render. It applies `SHIFTER_CONFIG_OVERLAY_JSON` like the
+  other three consumers, so the exact consumer count changes from 3 to 4. The
+  invariant does not change: every consumer applies the overlay.
 # Private scenario boundary
 
 `AGENTS.md`, `.github/copilot-instructions.md`, and `.gc/plan-rules.md` require

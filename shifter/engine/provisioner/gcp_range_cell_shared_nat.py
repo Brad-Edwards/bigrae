@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from gcp_range_cell_clients import GCEClients
 from gcp_range_cell_naming import range_router_nat_plan
 from gcp_range_cell_ops import _get_or_none, _wait_for_operation
+from gcp_range_cell_resources import log_config_matches, nat_log_config
 from gcp_range_cell_types import RangeCellPlan
 from provisioner_db import get_db_connection
 
@@ -25,9 +26,17 @@ def _canonical_subnet_link(link: str) -> str:
 
 
 def allocate_explicit_subnets(
-    existing: Mapping[str, Sequence[str]], requested: Sequence[str], *, nat_name: str
+    existing: Mapping[str, Sequence[str]],
+    requested: Sequence[str],
+    *,
+    nat_name: str,
+    log_config: Mapping[str, object],
 ) -> list[dict[str, object]]:
-    """Preserve existing assignments while packing new subnets into bounded gateways."""
+    """Preserve existing assignments while packing new subnets into bounded gateways.
+
+    Every gateway carries ``log_config``: a router patch replaces the whole ``nats``
+    list, so enrollment and removal must re-render logging or they would drop it (#2535).
+    """
     slots = {name: [_canonical_subnet_link(link) for link in links] for name, links in existing.items()}
     seen = {link for links in slots.values() for link in links}
     for raw_link in requested:
@@ -50,6 +59,7 @@ def allocate_explicit_subnets(
             "nat_ip_allocate_option": "AUTO_ONLY",
             "source_subnetwork_ip_ranges_to_nat": "LIST_OF_SUBNETWORKS",
             "subnetworks": [{"name": link, "source_ip_ranges_to_nat": ["ALL_IP_RANGES"]} for link in links],
+            "log_config": dict(log_config),
         }
         for name, links in slots.items()
         if links
@@ -247,7 +257,9 @@ def _assert_shared_capacity_locked(plan: RangeCellPlan, clients: GCEClients) -> 
         raise RuntimeError("shared-nat-router-capacity-exhausted")
     current = _router(plan, clients, own["router_name"])
     enrolled = _gateway_subnets(plan, current) if current is not None else {}
-    allocate_explicit_subnets(enrolled, own["subnetwork_self_links"], nat_name=own["nat_name"])
+    allocate_explicit_subnets(
+        enrolled, own["subnetwork_self_links"], nat_name=own["nat_name"], log_config=nat_log_config(plan)
+    )
 
 
 def assert_shared_nat_capacity(plan: RangeCellPlan, clients: GCEClients) -> None:
@@ -268,7 +280,10 @@ def _ensure_shared_nat_locked(plan: RangeCellPlan, clients: GCEClients) -> None:
         return
     current = _router(plan, clients, nat["router_name"])
     enrolled = _gateway_subnets(plan, current) if current is not None else {}
-    gateways = allocate_explicit_subnets(enrolled, nat["subnetwork_self_links"], nat_name=nat["nat_name"])
+    log_config = nat_log_config(plan)
+    gateways = allocate_explicit_subnets(
+        enrolled, nat["subnetwork_self_links"], nat_name=nat["nat_name"], log_config=log_config
+    )
     if current is None:
         operation = clients.routers.insert(
             project=plan["project_id"],
@@ -280,7 +295,10 @@ def _ensure_shared_nat_locked(plan: RangeCellPlan, clients: GCEClients) -> None:
                 "nats": gateways,
             },
         )
-    elif {link for links in enrolled.values() for link in links} >= set(nat["subnetwork_self_links"]):
+    elif {link for links in enrolled.values() for link in links} >= set(nat["subnetwork_self_links"]) and all(
+        log_config_matches(_field(gateway, "log_config"), log_config) for gateway in _items(_field(current, "nats"))
+    ):
+        # Membership alone is not convergence: a replay also restores NAT logging.
         return
     else:
         operation = clients.routers.patch(
@@ -319,7 +337,7 @@ def _remove_shared_nat_locked(plan: RangeCellPlan, clients: GCEClients) -> None:
     remaining = {name: [link for link in links if link not in requested] for name, links in enrolled.items()}
     if remaining == enrolled:
         return
-    gateways = allocate_explicit_subnets(remaining, [], nat_name=nat["nat_name"])
+    gateways = allocate_explicit_subnets(remaining, [], nat_name=nat["nat_name"], log_config=nat_log_config(plan))
     if gateways:
         operation = clients.routers.patch(
             project=plan["project_id"],

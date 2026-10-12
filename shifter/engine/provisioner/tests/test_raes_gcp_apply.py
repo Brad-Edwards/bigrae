@@ -142,7 +142,7 @@ def _clients(*, exists: bool = False, instance_insert_error: Exception | None = 
 
     def router_patch(**kwargs):
         name = kwargs["router"]
-        router_state[name] = {**router_state[name], **kwargs["router_resource"]}
+        router_state[name] = {**router_state.get(name, {"name": name}), **kwargs["router_resource"]}
         return SimpleNamespace(name="op")
 
     def router_delete(**kwargs):

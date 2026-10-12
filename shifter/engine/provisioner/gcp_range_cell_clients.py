@@ -32,6 +32,13 @@ class FirewallsCollectionClient(ComputeCollectionClient, Protocol):
         """Converge one existing firewall rule to a new body and return an operation."""
 
 
+class SubnetworksCollectionClient(ComputeCollectionClient, Protocol):
+    """Subnetwork operations additionally used to converge flow-log config (#2535)."""
+
+    def patch(self, **kwargs: object) -> object:
+        """Patch one existing subnetwork with its fingerprint and return an operation."""
+
+
 class RoutersCollectionClient(ComputeCollectionClient, Protocol):
     """Router operations including explicit NAT membership reconciliation."""
 
@@ -73,7 +80,7 @@ class GCEClients:
     """Compute Engine clients used by the range-cell backend."""
 
     networks: ComputeCollectionClient
-    subnetworks: ComputeCollectionClient
+    subnetworks: SubnetworksCollectionClient
     firewalls: FirewallsCollectionClient
     addresses: ComputeCollectionClient
     routers: RoutersCollectionClient

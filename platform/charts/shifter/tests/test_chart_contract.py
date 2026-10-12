@@ -49,8 +49,8 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2467 after admitting raes-range activate in the provisioner Job policy.
 # Regenerated for #2480 after admitting the OpenVPN pool env and dropping the 1195 port.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "aaff0969559e2f147710bb9b185522eb440421b5fb6e222ffb0902815818264c",
-    "gcp-prod": "6ea1b4566d1cb8e9392eed18f8895287e5ed68fe7e7096ea17d3a0d2f0770e27",
+    "gcp-dev": "9b5092123c38898b93e2587406112935e52d6203d4f5dae9077795475711198b",
+    "gcp-prod": "f9d3ac2e3f0b29dea78dabf9b42b88370756e7116b62634de49ccb169563fb75",
 }
 
 

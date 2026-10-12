@@ -52,3 +52,13 @@ output "backend_service" {
   description = "Load balancer backend service, for the deploy-time health check."
   value       = google_compute_region_backend_service.pool.name
 }
+
+output "subnetwork_name" {
+  description = "#2535: Terraform-owned pool subnet in the range VPC; the telemetry readback gates it."
+  value       = google_compute_subnetwork.pool.name
+}
+
+output "nat_router_name" {
+  description = "#2535: Terraform-owned pool NAT router in the range VPC; the telemetry readback gates it."
+  value       = google_compute_router.pool.name
+}

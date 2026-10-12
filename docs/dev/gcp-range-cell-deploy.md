@@ -217,6 +217,14 @@ changes are audited and affect subsequent range reservations only. Already
 launched ranges retain their pinned mode; a recovery spare whose mode no longer
 matches the event is refused before the old participant range is torn down.
 
+### Range audit telemetry
+
+Range subnets get VPC Flow Logs and range NAT gateways get Cloud NAT logging by
+default. The platform project also logs Vertex AI Data Access calls. Change
+these controls with `settings.range_telemetry` in `shifter.yaml`. The deploy
+verifies them after Terraform apply. See
+[GCP range audit telemetry](../ops/gcp-range-audit-telemetry.md).
+
 ## Legacy RangeSpec image mapping
 
 The scenario-owned legacy `RangeSpec` adapter resolves current instances to one

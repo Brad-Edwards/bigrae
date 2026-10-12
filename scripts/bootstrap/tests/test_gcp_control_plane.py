@@ -2785,6 +2785,124 @@ def test_staging_rejects_missing_broker_readback_before_render(tmp_path):
     assert not (tmp_path / "shifter.values.generated.json").exists()
 
 
+def test_staging_writes_range_telemetry_policy_into_generated_values(tmp_path):
+    """The deploy call site renders settings.range_telemetry into the runtime env (#2535)."""
+    import json
+
+    import yaml
+
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text(
+        yaml.safe_dump(
+            {
+                "backend": "gcp",
+                "deployment": {"name": "shifter", "domain": "portal.example.test"},
+                "secrets": {"django_secret_key": "prompt"},
+                "settings": {
+                    "project_id": "example-gcp-project",
+                    "dynamic_secret_project_id": "secrets-example",
+                    "region": "us-central1",
+                    "range_telemetry": {"nat_logs": {"filter": "ERRORS_ONLY"}},
+                },
+            }
+        )
+    )
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+    outputs = _sample_gcp_control_plane_outputs(config.project_id)
+
+    values_path = gcp_control_plane.stage_gcp_control_plane_values(
+        config, outputs, tmp_path, image_tag=PINNED_IMAGE_TAG, image_identities=None
+    )
+
+    policy = json.loads(json.loads(values_path.read_text())["runtimeEnv"]["GCP_RANGE_TELEMETRY_POLICY_JSON"])
+    assert policy["nat_logs"] == {"enabled": True, "filter": "ERRORS_ONLY"}
+    assert policy["vpc_flow_logs"]["enabled"] is True
+    assert policy["vertex_data_access_logs"] == {"enabled": True}
+
+
+def test_range_audit_telemetry_readback_runs_with_fixed_argv(tmp_path):
+    """Bootstrap runs the read-only telemetry readback against the applied range VPC (#2535)."""
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text("backend: gcp\n")
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+    outputs = {
+        "range_network_name": {"value": "shifter-dev-range"},
+        "range_telemetry_terraform_resources": {
+            "value": {
+                "subnetworks": ["shifter-dev-vpn"],
+                "nat_routers": ["shifter-dev-range-nat", "shifter-dev-vpn-nat"],
+            }
+        },
+    }
+
+    with (
+        patch.dict(os.environ, {"GCP_RANGE_CELL_PROJECT_ID": "example-range-project"}),
+        patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run,
+    ):
+        gcp_control_plane.verify_gcp_range_audit_telemetry(config, outputs)
+
+    argv = run.call_args.args[0]
+    assert "shell" not in run.call_args.kwargs
+    assert argv[:4] == ["uv", "run", "--project", str(gcp_control_plane.get_repo_root() / "scripts" / "gcp")]
+    assert argv[4:6] == [
+        "python",
+        str(gcp_control_plane.get_repo_root() / "scripts/gcp/verify_range_audit_telemetry.py"),
+    ]
+    assert argv[6:] == [
+        "--config",
+        str(root_path),
+        "--project-id",
+        "example-gcp-project",
+        "--range-project-id",
+        "example-range-project",
+        "--range-network",
+        "shifter-dev-range",
+        "--terraform-subnetwork",
+        "shifter-dev-vpn",
+        "--terraform-nat-router",
+        "shifter-dev-range-nat",
+        "--terraform-nat-router",
+        "shifter-dev-vpn-nat",
+    ]
+
+
+def test_range_audit_telemetry_readback_requires_the_terraform_owned_resources_output(tmp_path):
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text("backend: gcp\n")
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+
+    with patch("subprocess.run") as run, pytest.raises(SystemExit):
+        gcp_control_plane.verify_gcp_range_audit_telemetry(config, {"range_network_name": {"value": "range"}})
+
+    run.assert_not_called()
+
+
+def test_range_audit_telemetry_readback_requires_the_range_network_output(tmp_path):
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text("backend: gcp\n")
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+
+    with patch("subprocess.run") as run, pytest.raises(SystemExit):
+        gcp_control_plane.verify_gcp_range_audit_telemetry(config, {})
+
+    run.assert_not_called()
+
+
+def test_range_audit_telemetry_readback_failure_stops_the_bootstrap(tmp_path):
+    root_path = tmp_path / "shifter.yaml"
+    root_path.write_text("backend: gcp\n")
+    config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", shifter_config_path=str(root_path))
+    failure = subprocess.CalledProcessError(1, ["uv"])
+
+    outputs = {
+        "range_network_name": {"value": "range"},
+        "range_telemetry_terraform_resources": {"value": {"subnetworks": [], "nat_routers": []}},
+    }
+
+    with patch("subprocess.run", side_effect=failure), pytest.raises(SystemExit):
+        gcp_control_plane.verify_gcp_range_audit_telemetry(config, outputs)
+
+
 def test_staging_writes_configured_lease_policy_into_generated_values(tmp_path):
     """The real deploy call site wires the root lease policy into the rendered values (#27)."""
     import json

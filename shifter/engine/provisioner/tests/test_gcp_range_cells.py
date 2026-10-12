@@ -34,6 +34,8 @@ from gcp_range_cells import (
     _build_clients,
     _ensure_firewall,
     _ensure_instance,
+    _ensure_router_nat,
+    _ensure_subnetwork,
     _insert_instance,
     apply_range_cell,
     destroy_range_cell,
@@ -253,7 +255,7 @@ def _mock_clients(*, exists: bool = False) -> SimpleNamespace:
 
     def router_patch(**kwargs):
         name = kwargs["router"]
-        router_state[name] = {**router_state[name], **kwargs["router_resource"]}
+        router_state[name] = {**router_state.get(name, {"name": name}), **kwargs["router_resource"]}
         return SimpleNamespace(name="op")
 
     def router_delete(**kwargs):
@@ -2035,3 +2037,116 @@ def test_instance_output_omits_sftp_root_when_profile_has_none():
         config,
     )
     assert "sftp_root_directory" not in output
+
+
+def test_render_plan_carries_the_operator_range_telemetry_policy():
+    from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
+
+    config = dataclasses.replace(
+        _sample_config(),
+        range_telemetry=GcpRangeTelemetryPolicy.model_validate(
+            {"vpc_flow_logs": {"flow_sampling": 0.2}, "nat_logs": {"filter": "ERRORS_ONLY"}}
+        ),
+    )
+
+    plan = render_range_cell_plan("req-123", _variables(), config)
+
+    assert plan["telemetry"]["vpc_flow_logs"]["flow_sampling"] == 0.2
+    assert plan["telemetry"]["nat_logs"] == {"enabled": True, "filter": "ERRORS_ONLY"}
+
+
+def test_zero_egress_range_gets_flow_logs_but_no_nat_path():
+    """Logging never authorizes a NAT path: a `none` range keeps no router_nat (#2535)."""
+    from gcp_range_cell_resources import subnetwork_resource
+
+    plan = render_range_cell_plan("req-123", _variables(egress_mode="none"), _sample_config())
+
+    assert "router_nat" not in plan and "shared_nat" not in plan
+    assert subnetwork_resource(plan, plan["subnets"][0])["log_config"]["enable"] is True
+
+
+def _existing(log_config: dict | None, **fields: object) -> dict:
+    resource = {"fingerprint": "fp-1", **fields}
+    if log_config is not None:
+        resource["log_config"] = log_config
+    return resource
+
+
+@pytest.mark.parametrize(
+    ("observed", "expect_patch"),
+    [
+        (None, True),
+        ({"enable": False}, True),
+        (
+            {
+                "enable": True,
+                "aggregation_interval": "INTERVAL_5_SEC",
+                "flow_sampling": 0.1,
+                "metadata": "INCLUDE_ALL_METADATA",
+            },
+            True,
+        ),
+        (
+            {
+                "enable": True,
+                "aggregation_interval": "INTERVAL_5_SEC",
+                "flow_sampling": 0.5,
+                "metadata": "INCLUDE_ALL_METADATA",
+            },
+            False,
+        ),
+    ],
+)
+def test_ensure_subnetwork_replay_converges_flow_logging(observed, expect_patch):
+    from gcp_range_cell_resources import subnetwork_log_config
+
+    plan = render_range_cell_plan("req-123", _variables(), _sample_config())
+    subnet = plan["subnets"][0]
+    clients = _mock_clients(exists=True)
+    clients.subnetworks.get.side_effect = None
+    clients.subnetworks.get.return_value = _existing(observed)
+
+    created = _ensure_subnetwork(plan, clients, subnet)
+
+    assert created is False
+    clients.subnetworks.insert.assert_not_called()
+    if expect_patch:
+        clients.subnetworks.patch.assert_called_once_with(
+            project=plan["project_id"],
+            region=plan["region"],
+            subnetwork=subnet["resource_name"],
+            subnetwork_resource={"fingerprint": "fp-1", "log_config": subnetwork_log_config(plan)},
+        )
+    else:
+        clients.subnetworks.patch.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("observed", "expect_patch"),
+    [(None, True), ({"enable": True, "filter": "ERRORS_ONLY"}, True), ({"enable": True, "filter": "ALL"}, False)],
+)
+def test_ensure_router_nat_replay_converges_nat_logging(observed, expect_patch):
+    from gcp_range_cell_resources import router_nat_resource
+
+    plan = render_range_cell_plan("req-123", _variables(), _sample_config())
+    nat_name = plan["router_nat"]["nat_name"]
+    gateway = {"name": nat_name}
+    if observed is not None:
+        gateway["log_config"] = observed
+    clients = _mock_clients(exists=True)
+    clients.routers.get.side_effect = None
+    clients.routers.get.return_value = {"name": plan["router_nat"]["router_name"], "nats": [gateway]}
+
+    created = _ensure_router_nat(plan, clients)
+
+    assert created is False
+    clients.routers.insert.assert_not_called()
+    if expect_patch:
+        clients.routers.patch.assert_called_once_with(
+            project=plan["project_id"],
+            region=plan["region"],
+            router=plan["router_nat"]["router_name"],
+            router_resource={"nats": router_nat_resource(plan)["nats"]},
+        )
+    else:
+        clients.routers.patch.assert_not_called()
