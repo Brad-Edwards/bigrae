@@ -110,7 +110,7 @@ def test_service_admin_workspace_lifecycle_http_adapters(monkeypatch):
     assert restored.status_code == 200 and not restored.data["is_archived"]
 
 
-def test_service_admin_transfers_existing_workspace_owner_with_strict_audit():
+def test_integer_owner_bridge_changes_principal_facts_without_role_grants():
     account = services.create_account(kind="team", name="Customer")
     organization = Organization.objects.get(account_id=account.id, is_default=True)
     workspace = Workspace.objects.create(organization=organization, name="Extra")
@@ -126,18 +126,25 @@ def test_service_admin_transfers_existing_workspace_owner_with_strict_audit():
         CredentialCeiling(frozenset({"workspace.transfer"})),
         actor.scopes,
     )
+    from workspaces.models import WorkspaceOwnership
+
+    for user in (source, target):
+        WorkspaceMembership.objects.create(workspace=workspace, principal_uuid=user.identity_principal.uuid, role="")
+    WorkspaceOwnership.objects.create(workspace=workspace, principal_uuid=source.identity_principal.uuid)
     provider = Provider()
 
     result = services.policy_transfer_workspace_ownership(actor, provider, workspace.uuid, source.pk, target.pk)
 
     assert result.uuid == workspace.uuid
-    assert WorkspaceMembership.objects.get(workspace=workspace, user=target).role == "owner"
-    assert WorkspaceMembership.objects.get(workspace=workspace, user=source).role == "admin"
+    assert WorkspaceMembership.objects.get(workspace=workspace, user=target).role == "admin"
+    assert WorkspaceMembership.objects.get(workspace=workspace, user=source).role == "owner"
     assert provider.requests[0].action == "workspace.transfer"
     assert provider.requests[0].target.uuid == workspace.uuid
     assert AuditLog.objects.filter(
         entity_type="workspace", entity_id=workspace.pk, actor_principal_uuid=actor.principal.uuid
     ).exists()
+
+    assert WorkspaceOwnership.objects.get(workspace=workspace).principal_uuid == target.identity_principal.uuid
 
 
 def test_service_admin_transfer_requires_policy_and_existing_target_membership():
@@ -160,6 +167,6 @@ def test_service_admin_transfer_requires_policy_and_existing_target_membership()
         services.policy_transfer_workspace_ownership(
             actor, Provider(allowed=False), workspace.uuid, source.pk, target.pk
         )
-    with pytest.raises(services.WorkspaceLifecycleError):
+    with pytest.raises(services.AccountScopeError):
         services.policy_transfer_workspace_ownership(actor, Provider(), workspace.uuid, source.pk, target.pk)
     assert WorkspaceMembership.objects.get(workspace=workspace, user=source).role == "owner"

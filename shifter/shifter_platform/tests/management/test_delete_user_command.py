@@ -75,3 +75,15 @@ def test_delete_user_propagates_protected_error(monkeypatch) -> None:
 
     with pytest.raises(CommandError, match="protected related records"):
         call_command("delete_user", user.email)
+
+
+def test_testing_utility_cannot_run_against_production_posture(settings, monkeypatch):
+    settings.ENVIRONMENT = "production"
+    settings.IS_TEST_RUN = False
+
+    def forbidden_lookup(*_args, **_kwargs):
+        pytest.fail("Production user lookup must not happen")
+
+    monkeypatch.setattr(get_user_model().objects, "filter", forbidden_lookup)
+    with pytest.raises(CommandError, match="test posture"):
+        call_command("delete_user", "synthetic@example.test", dry_run=True)

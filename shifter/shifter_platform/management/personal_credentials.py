@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TypedDict, Unpack
+from typing import TYPE_CHECKING, TypedDict, Unpack
 from uuid import UUID
 
 from django.contrib.auth.models import User
@@ -14,13 +14,87 @@ from shared.api_tokens.audit import TokenEvent, record_token_event
 from shared.api_tokens.models import ApiToken
 from shared.api_tokens.policy import require_personal_token_grant
 from shared.api_tokens.scopes import AUTHORIZATION_ACTION_SCOPES, credential_ceiling, validate_scopes
-from shared.authorization import AuthorizationRequest, TargetRef, configured_authorization_provider
+from shared.authorization import (
+    AuthorizationProvider,
+    AuthorizationRequest,
+    TargetRef,
+    configured_authorization_provider,
+)
 from shared.credentials import CredentialContext, resolve_credential_scope
 from shared.identity_scope import ResourceScope
+from shared.principal_port import resolve_principal
 
 from .principals import principal_for_user
 
+if TYPE_CHECKING:
+    from django.http import HttpRequest
+
 _CREDENTIAL_OPERATION_DENIED = "Credential operation denied"
+
+
+def _authorize_token_administration(actor: CredentialContext, provider: AuthorizationProvider) -> None:
+    """Revocation administration never grants the right to issue or use a token."""
+    try:
+        if actor.kind == "temporary":
+            raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+        resolve_principal(actor.principal)
+        request = AuthorizationRequest(
+            actor.principal,
+            "installation.revoke_personal_tokens",
+            TargetRef("installation"),
+            ResourceScope("installation"),
+            actor.ceiling,
+        )
+        if not provider.check(request).allowed:
+            raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+    except Exception as exc:
+        raise ValueError(_CREDENTIAL_OPERATION_DENIED) from exc
+
+
+def admin_list_personal_tokens(
+    actor: CredentialContext, provider: AuthorizationProvider, principal_uuid: UUID, *, offset: int = 0, limit: int = 50
+) -> dict[str, object]:
+    """List safe metadata for one human, authorized before count and pagination."""
+    from .credential_pagination import credential_page
+
+    _authorize_token_administration(actor, provider)
+    if not isinstance(principal_uuid, UUID):
+        raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+    return credential_page(
+        ApiToken.objects.filter(principal_uuid=principal_uuid).order_by("-created_at", "-pk"),
+        offset=offset,
+        limit=limit,
+    )
+
+
+def admin_revoke_personal_token(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    credential_uuid: UUID,
+    *,
+    request: HttpRequest | None = None,
+) -> None:
+    """Revoke an exact credential through Knox and strict principal audit."""
+    _authorize_token_administration(actor, provider)
+    with transaction.atomic():
+        owner_id = (
+            ApiToken.objects.filter(credential_uuid=credential_uuid).values_list("created_by_id", flat=True).first()
+        )
+        if owner_id is not None:
+            User.objects.select_for_update().get(pk=owner_id)
+        token = ApiToken.objects.select_for_update().filter(credential_uuid=credential_uuid).first()
+        if token is None or token.created_by_id != owner_id:
+            raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+        if token.revoked_at is None:
+            token.revoke()
+            record_token_event(
+                TokenEvent.REVOKED,
+                token_id=token.token_id,
+                token_pk=token.pk,
+                actor_principal_uuid=actor.principal.uuid,
+                request=request,
+                context="administrator credential revocation",
+            )
 
 
 class RotateArguments(TypedDict):
@@ -104,8 +178,9 @@ def _persist_issue(
         # reads above intentionally do not run while holding SQL locks.
         from .models import Principal
 
+        owner = User.objects.select_for_update(of=("self",)).select_related("profile").get(pk=user.pk)
         Principal.objects.select_for_update().get(uuid=actor.principal.uuid, is_active=True)
-        _session_owner(actor, User.objects.select_related("profile").get(pk=user.pk))
+        _session_owner(actor, owner)
         token, raw = ApiToken.create_token(
             name=name.strip(), created_by=user, scopes=scopes, expires_at=expires_at, target=target
         )
@@ -135,6 +210,7 @@ def revoke_own_token(actor: CredentialContext, user: User, credential_uuid: UUID
     """Idempotently revoke an exact owned credential even after grant loss."""
     _session_owner(actor, user)
     with transaction.atomic():
+        _session_owner(actor, User.objects.select_for_update(of=("self",)).select_related("profile").get(pk=user.pk))
         token = (
             ApiToken.objects.select_for_update()
             .filter(credential_uuid=credential_uuid, created_by=user, principal_uuid=actor.principal.uuid)
@@ -157,6 +233,8 @@ def rotate_personal_token(credential_uuid: UUID, **kwargs: Unpack[RotateArgument
     """Authorize before locks, then atomically replace and retire the old proof."""
     normalized = _authorize_issue(kwargs["actor"], kwargs["user"], kwargs["scopes"], kwargs["target"], kwargs["scope"])
     with transaction.atomic():
+        owner = User.objects.select_for_update(of=("self",)).select_related("profile").get(pk=kwargs["user"].pk)
+        _session_owner(kwargs["actor"], owner)
         previous = (
             ApiToken.objects.select_for_update()
             .filter(credential_uuid=credential_uuid, created_by=kwargs["user"], revoked_at__isnull=True)

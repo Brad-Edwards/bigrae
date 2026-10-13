@@ -158,3 +158,18 @@ def test_two_legacy_users_cannot_collapse_onto_one_principal():
     )
     assert not plan.individuals
     assert {blocker.reason for blocker in plan.blockers} == {"duplicate_principal_mapping"}
+
+
+def test_prepared_membership_fact_is_not_remapped_as_a_legacy_user():
+    organization = Organization.objects.create(name="Mixed preparation")
+    workspace = Workspace.objects.create(organization=organization, name="Shared")
+    prepared = uuid4()
+    WorkspaceMembership.objects.create(workspace=workspace, user=None, principal_uuid=prepared, role="")
+    plan = plan_legacy_account_mapping(
+        principal_by_user={},
+        owner_ids_by_workspace={workspace.pk: set()},
+        account_types_by_organization={organization.uuid: "team"},
+    )
+    assert not plan.blockers
+    assert not plan.memberships
+    assert WorkspaceMembership.objects.get(workspace=workspace).principal_uuid == prepared

@@ -20,6 +20,13 @@ Services must never be resolved as their creator's human user.
 
 All non-public platform HTTP/JSON API endpoints shall be served through Django REST Framework (DRF) and shall enforce the platform's API authentication and scope-based authorization established by PLAT-102: session-cookie authentication with CSRF for browser/SPA clients, and scoped API tokens for programmatic clients. Each endpoint shall declare its required scopes from the central scope registry. Application logic shall remain in the service layer; the DRF layer shall own only HTTP concerns (authentication, scope authorization, serialization/validation, error envelope, pagination). Ad-hoc Django function-view JSON endpoints outside DRF (Mission Control, CTF, CMS) shall be migrated onto this surface. The platform API shall expose an OpenAPI schema.
 
+
+ADR-066 S4 clarification: principal-aware account administration, membership/ownership
+facts, scoped profile/lifecycle commands and canonical DRF/browser adapters are
+prepared without replacing production routes or legacy authority. The coordinated
+S8 activation in #2321 binds these paths and maps historical facts. Prepared
+Django-admin writes are disabled in favor of the canonical validated commands.
+
 ## Rationale
 
 PLAT-102 establishes the token + scope authentication foundation, but the platform currently has two divergent API styles: DRF (risk_register /api/v1) and ad-hoc Django function views (Mission Control, CTF, CMS). A single DRF-based API surface gives one authentication/authorization path, consistent error and pagination contracts, and an OpenAPI schema, the foundation a future SPA frontend and external integrations both consume over the same contract. Consolidating early, before the SPA is built, avoids migrating endpoints out from under a live frontend and removes a class of per-endpoint security retrofits. Business logic already lives in the service layer, so migration re-houses the HTTP layer rather than rewriting behavior.
@@ -87,3 +94,7 @@ PLAT-102 establishes the token + scope authentication foundation, but the platfo
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#1244` (PLAT-106: drop dead risk_register APIKey reference from access.py (follow-up to #1124))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/mission_control/api/_vpn.py` (Scoped Mission Control OpenVPN profile DRF endpoint)
 - TESTS → TEST `shifter/shifter_platform/tests/mission_control/test_vpn_profile_api.py` (Mission Control VPN profile API authorization and delivery tests)
+
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/config/account_admin_urls.py` (S4 prepared administration; activation remains coordinated)
+
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_prepared_admin_routes.py` (S4 prepared administration; activation remains coordinated)

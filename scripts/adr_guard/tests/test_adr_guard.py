@@ -1037,7 +1037,17 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                     "workspaces.services": ["OrganizationAuthorizationError", "get_organization_profile"]
                 },
                 "config": {
-                    "workspaces.services": ["list_administrable_organizations", "hierarchy_target_scope"]
+                    "workspaces.services": [
+                        "list_administrable_organizations",
+                        "hierarchy_target_scope",
+                        "AccountScopeError",
+                        "AuthorizationMutationConflict",
+                        "PolicyMutationRequest",
+                        "apply_policy_mutation",
+                        "event_placement_scope",
+                    ],
+                    "management.api.policy_views": ["PolicyAdminView"],
+                    "workspaces.api.serializers": ["AuthorizationMutationSerializer"],
                 },
                 "mission_control": {
                     "engine.services": [
