@@ -2,6 +2,13 @@
 
 This directory holds the machine-readable part of ADR enforcement.
 
+ADR-068's [gateway replacement evaluation](../architecture/model-access/gateway-replacement-evaluation-2274.md)
+records the clarified #2274 scope, maintained-product comparison, selected
+LiteLLM OSS edition, deployment-owned rotation and proposed qualification. Its
+registry evidence pointer adds no executable check, exception
+or runtime support claim. Broker parking and the supported keyless-direct path
+remain unchanged until a separate adoption/cutover decision.
+
 The GCP model-broker IAM guard accepts the cluster-derived
 `var.workload_identity_pool` reference for its exact Kubernetes service account
 binding. The owning GKE output is resource-backed so fresh bootstrap creates the
@@ -58,6 +65,14 @@ the [operator procedure](../ops/artifact-preparation.md) and
 how the deployed boundaries are exercised.
 The documentation coverage manifest links the operator guide and technical
 design from the feature and platform indexes under GEN-001.
+
+The [#2463 feature-artifact acquisition preflight](../architecture/raes-feature-artifact-acquisition-preflight-2463.md)
+records ADR-034-R11 and ADR-034-R12 (platform-owned recipe acquisition of
+backend-owned feature artifacts, tracked in an Engine-owned inventory, acquired once before ranges
+need them, failing per range) and the matching ADR-034-R4, R6 and R7 and
+ADR-032-R3 and R9 amendments (streaming delivery with no fixed payload cap). It
+introduces no new check; the rules are design policy until the implementation
+lands with its behavioral tests.
 
 The same qualification corrected ADR-008-R7's GCP dynamic-secret conditions.
 The closed roles contain only Secret Manager permissions; fully qualified
@@ -119,6 +134,12 @@ Implementation and qualification ownership is explicit in the linked backlog.
 Accepted ADR-064 supersedes ADR-059's "no-service-account guest default" for
 GCP: range guests receive a default-on, keyless predict-only Vertex model
 identity via Workload Identity, mutually exclusive per range with the broker.
+
+Accepted ADR-068 supersedes ADR-067 and the parked broker design in ADR-059,
+ADR-060 and ADR-061. The broker is parked and not supported for use, and
+keyless-direct (ADR-064) is the only live guest model path. Any future model
+access control path is a transparent proxy whose controls are optional, with no
+controls by default.
 
 The enforcement entrypoint is:
 

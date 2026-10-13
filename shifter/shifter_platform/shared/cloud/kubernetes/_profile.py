@@ -90,6 +90,11 @@ class KubernetesTaskProfile:
     # Selected by the host, never by a tenant manifest. Missing runtimes fail
     # scheduling instead of falling back to the cluster's default runtime.
     runtime_class_name: str | None = None
+    # Exact container command (overrides the image ENTRYPOINT). Empty keeps the
+    # image entrypoint and passes only args, which existing profiles rely on; a
+    # task that must not run the image's own entrypoint (the DB-less feature-artifact
+    # acquisition Job, #2463) pins its command here, where admission can match it.
+    container_command: tuple[str, ...] = field(default_factory=tuple)
 
     def hardening_for(self, container_name: str) -> ProvisionerHardeningProfile | None:
         """Return the hardening profile when it applies to ``container_name``."""

@@ -199,7 +199,12 @@ class TestGCPTaskRunnerRunTask:
         batch_api = MagicMock()
         batch_api.read_namespaced_job.side_effect = _ApiException(404)
         expected_name = build_idempotent_job_name("pulumi-provisioner", "intent-1")
+        # Several Jobs created together can lose the quota race repeatedly; four
+        # straight conflicts exceeded the old 3-attempt budget.
         batch_api.create_namespaced_job.side_effect = [
+            _ApiException(409),
+            _ApiException(409),
+            _ApiException(409),
             _ApiException(409),
             SimpleNamespace(metadata=SimpleNamespace(name=expected_name)),
         ]
@@ -219,8 +224,11 @@ class TestGCPTaskRunnerRunTask:
         )
 
         assert task_id == f"shifter-jobs/{expected_name}"
-        assert batch_api.create_namespaced_job.call_count == 2
-        sleep.assert_called_once_with(0.1)
+        assert batch_api.create_namespaced_job.call_count == 5
+        delays = [call.args[0] for call in sleep.call_args_list]
+        assert len(delays) == 4
+        # Full-jitter exponential backoff: each delay within its doubling cap.
+        assert all(0 <= delay <= 0.1 * 2**attempt for attempt, delay in enumerate(delays))
 
     def test_redelivery_observes_existing_idempotent_job(self) -> None:
         batch_api = MagicMock()

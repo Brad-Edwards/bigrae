@@ -43,8 +43,6 @@ on:
         required: true
       AWS_ROLE_ARN_DEV:
         required: true
-      AWS_ROLE_ARN_PROOF:
-        required: false
       PLATFORM_BOOTSTRAP_STAFF_EMAILS:
         required: false
       PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS:
@@ -62,15 +60,9 @@ on:
         required: false
       TF_INFRA_STATE_BUCKET_DEV:
         required: false
-      TF_INFRA_STATE_BUCKET_PROOF:
-        required: false
-      TF_VARS_PROOF_PORTAL:
-        required: false
       # Protected JSON inputs for the isolated EKS root. These include
       # provider-derived runtime references but never secret payloads.
       TF_VARS_DEV_EKS:
-        required: false
-      TF_VARS_PROOF_EKS:
         required: false
       TF_VARS_PROD_EKS:
         required: false
@@ -82,8 +74,6 @@ on:
       # reason as TF_VARS_*; the render step fails loud for the active
       # environment. Reuses the same secrets _range.yml already declares.
       SHIFTER_CONFIG_DEV_RANGE:
-        required: false
-      SHIFTER_CONFIG_PROOF_RANGE:
         required: false
       SHIFTER_CONFIG_PROD_RANGE:
         required: false
@@ -126,17 +116,12 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
             dev)
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
-              ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
               ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
@@ -277,17 +262,12 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
             dev)
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
-              ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
               ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
@@ -321,7 +301,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_VARS_DEV_PORTAL: ${{ secrets.TF_VARS_DEV_PORTAL }}
-          TF_VARS_PROOF_PORTAL: ${{ secrets.TF_VARS_PROOF_PORTAL }}
           TF_VARS_PROD_PORTAL: ${{ secrets.TF_VARS_PROD_PORTAL }}
         run: |
           # Select strictly on inputs.environment in shell. A GitHub Actions
@@ -333,10 +312,6 @@ jobs:
             dev)
               PORTAL_SECRET_NAME="TF_VARS_DEV_PORTAL"
               TF_VARS_PORTAL="${TF_VARS_DEV_PORTAL}"
-              ;;
-            proof)
-              PORTAL_SECRET_NAME="TF_VARS_PROOF_PORTAL"
-              TF_VARS_PORTAL="${TF_VARS_PROOF_PORTAL}"
               ;;
             prod)
               PORTAL_SECRET_NAME="TF_VARS_PROD_PORTAL"
@@ -356,7 +331,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           SHIFTER_CONFIG_DEV_RANGE: ${{ secrets.SHIFTER_CONFIG_DEV_RANGE }}
-          SHIFTER_CONFIG_PROOF_RANGE: ${{ secrets.SHIFTER_CONFIG_PROOF_RANGE }}
           SHIFTER_CONFIG_PROD_RANGE: ${{ secrets.SHIFTER_CONFIG_PROD_RANGE }}
         run: |
           # Select strictly on inputs.environment in shell (same rule as the
@@ -366,10 +340,6 @@ jobs:
             dev)
               CONFIG_SECRET_NAME="SHIFTER_CONFIG_DEV_RANGE"
               ACTIVE_SHIFTER_CONFIG="${SHIFTER_CONFIG_DEV_RANGE}"
-              ;;
-            proof)
-              CONFIG_SECRET_NAME="SHIFTER_CONFIG_PROOF_RANGE"
-              ACTIVE_SHIFTER_CONFIG="${SHIFTER_CONFIG_PROOF_RANGE}"
               ;;
             prod)
               CONFIG_SECRET_NAME="SHIFTER_CONFIG_PROD_RANGE"
@@ -401,7 +371,6 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_INFRA_STATE_BUCKET_PROD: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           AWS_REGION: us-east-2
         run: |
@@ -410,10 +379,6 @@ jobs:
             dev)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_DEV"
               STATE_BUCKET="${TF_INFRA_STATE_BUCKET_DEV}"
-              ;;
-            proof)
-              BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET_PROOF"
-              STATE_BUCKET="${TF_INFRA_STATE_BUCKET_PROOF}"
               ;;
             prod)
               BUCKET_SECRET_NAME="TF_INFRA_STATE_BUCKET"
@@ -508,17 +473,12 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
             dev)
               ROLE_SECRET_NAME="AWS_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_ROLE_ARN_DEV"
-              ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_ROLE_ARN_PROOF"
               ;;
             prod)
               ROLE_SECRET_NAME="AWS_ROLE_ARN"
@@ -591,7 +551,6 @@ jobs:
       PORTAL_IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
       ENGINE_IMAGE_DIGEST: ${{ inputs.engine_image_digest }}
       SHIFTER_CONFIG_DEV: ${{ secrets.SHIFTER_CONFIG_DEV_RANGE }}
-      SHIFTER_CONFIG_PROOF: ${{ secrets.SHIFTER_CONFIG_PROOF_RANGE }}
       SHIFTER_CONFIG_PROD: ${{ secrets.SHIFTER_CONFIG_PROD_RANGE }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -627,15 +586,11 @@ jobs:
         env:
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           TF_INFRA_STATE_BUCKET: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_VARS_DEV_EKS: ${{ secrets.TF_VARS_DEV_EKS }}
-          TF_VARS_PROOF_EKS: ${{ secrets.TF_VARS_PROOF_EKS }}
           TF_VARS_PROD_EKS: ${{ secrets.TF_VARS_PROD_EKS }}
           SHIFTER_CONFIG_DEV_RANGE: ${{ secrets.SHIFTER_CONFIG_DEV_RANGE }}
-          SHIFTER_CONFIG_PROOF_RANGE: ${{ secrets.SHIFTER_CONFIG_PROOF_RANGE }}
           SHIFTER_CONFIG_PROD_RANGE: ${{ secrets.SHIFTER_CONFIG_PROD_RANGE }}
         working-directory: scripts/bootstrap
         run: uv run python -m preflight --cloud aws --env "$ENVIRONMENT" --component eks --headless
@@ -644,12 +599,10 @@ jobs:
         id: aws-role
         env:
           AWS_ROLE_ARN_DEV: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          AWS_ROLE_ARN_PROOF: ${{ secrets.AWS_ROLE_ARN_PROOF }}
           AWS_ROLE_ARN_PROD: ${{ secrets.AWS_ROLE_ARN }}
         run: |
           case "$ENVIRONMENT" in
             dev) ROLE_ARN="$AWS_ROLE_ARN_DEV" ;;
-            proof) ROLE_ARN="$AWS_ROLE_ARN_PROOF" ;;
             prod) ROLE_ARN="$AWS_ROLE_ARN_PROD" ;;
             *) echo "::error::Unsupported AWS environment: $ENVIRONMENT"; exit 1 ;;
           esac
@@ -668,10 +621,8 @@ jobs:
       - name: Render isolated EKS backend and protected inputs
         env:
           TF_INFRA_STATE_BUCKET_DEV: ${{ secrets.TF_INFRA_STATE_BUCKET_DEV }}
-          TF_INFRA_STATE_BUCKET_PROOF: ${{ secrets.TF_INFRA_STATE_BUCKET_PROOF }}
           TF_INFRA_STATE_BUCKET_PROD: ${{ secrets.TF_INFRA_STATE_BUCKET }}
           TF_VARS_DEV_EKS: ${{ secrets.TF_VARS_DEV_EKS }}
-          TF_VARS_PROOF_EKS: ${{ secrets.TF_VARS_PROOF_EKS }}
           TF_VARS_PROD_EKS: ${{ secrets.TF_VARS_PROD_EKS }}
           DEPLOYMENT_ROLE_ARN: ${{ steps.aws-role.outputs.role_arn }}
         run: |
@@ -680,10 +631,6 @@ jobs:
             dev)
               STATE_BUCKET="$TF_INFRA_STATE_BUCKET_DEV"
               EKS_INPUTS="$TF_VARS_DEV_EKS"
-              ;;
-            proof)
-              STATE_BUCKET="$TF_INFRA_STATE_BUCKET_PROOF"
-              EKS_INPUTS="$TF_VARS_PROOF_EKS"
               ;;
             prod)
               STATE_BUCKET="$TF_INFRA_STATE_BUCKET_PROD"
@@ -716,7 +663,6 @@ jobs:
           set -euo pipefail
           case "$ENVIRONMENT" in
             dev) ROOT_CONFIG="$SHIFTER_CONFIG_DEV" ;;
-            proof) ROOT_CONFIG="$SHIFTER_CONFIG_PROOF" ;;
             prod) ROOT_CONFIG="$SHIFTER_CONFIG_PROD" ;;
           esac
           if [ -z "$ROOT_CONFIG" ]; then
@@ -812,6 +758,10 @@ jobs:
             --env "${ENV}" \
             --stack portal \
             --github-env
+
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
+        with:
+          version: v1.34.1
 
       - name: Run linux post-deploy smoke
         id: smoke

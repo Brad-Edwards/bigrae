@@ -45,6 +45,24 @@ class TestRunCmdSecretStdin:
         out = capsys.readouterr().out
         assert "LEAKYTOKEN" not in out
 
+    def test_json_value_redacted_but_error_text_preserved(self, capsys):
+        import json as _json
+
+        from bootstrap_core import run_cmd_secret_stdin
+
+        values = _json.dumps({"secretReferences": {"database": "supersecretvalue12345"}, "n": "dev"})
+        # Child echoes stdin (the values) then emits a helm-like error and fails.
+        rc = run_cmd_secret_stdin(
+            ["sh", "-c", "cat; echo 'Error: admission webhook denied the request' 1>&2; exit 1"],
+            secret_stdin=values,
+        )
+
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "supersecretvalue12345" not in out  # long value scrubbed
+        assert "REDACTED" in out
+        assert "admission webhook denied the request" in out  # error preserved
+
     def test_dry_run_does_not_execute_or_log_secret(self, capsys):
         from bootstrap_core import run_cmd_secret_stdin
 

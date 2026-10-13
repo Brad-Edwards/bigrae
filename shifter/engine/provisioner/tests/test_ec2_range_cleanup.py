@@ -17,7 +17,17 @@ def fixture():
             {"InstanceId": "i-" + "0" * 17, "VpcId": scope.vpc_id, "Tags": tags, "State": {"Name": "running"}}
         ],
         "volumes": [],
-        "interfaces": [],
+        # describe_network_interfaces returns tags under TagSet (not Tags); a
+        # correctly owned guest ENI must still be recognized as in-scope (#1826).
+        "interfaces": [
+            {
+                "NetworkInterfaceId": "eni-" + "0" * 17,
+                "VpcId": scope.vpc_id,
+                "TagSet": tags,
+                "RequesterManaged": False,
+                "Attachment": {"InstanceId": "i-" + "0" * 17},
+            }
+        ],
         "subnets": [{"SubnetId": "subnet-" + "0" * 17, "VpcId": scope.vpc_id, "Tags": tags}],
         "groups": [{"GroupId": "sg-" + "0" * 17, "VpcId": scope.vpc_id, "GroupName": "range", "Tags": tags}],
         "route_tables": [
@@ -41,7 +51,9 @@ def fixture():
         ("route_tables", "describe_route_tables", "RouteTables"),
     ):
         getattr(ec2, operation).side_effect = lambda category=category, key=key, **kw: {key: deepcopy(rows[category])}
-    ec2.terminate_instances.side_effect = lambda **kw: rows["instances"].clear()
+    # Terminating the guest releases its primary ENI (DeleteOnTermination), so the
+    # post-termination re-inventory observes neither the instance nor its interface.
+    ec2.terminate_instances.side_effect = lambda **kw: (rows["instances"].clear(), rows["interfaces"].clear())
     for category, operation in (
         ("subnets", "delete_subnet"),
         ("groups", "delete_security_group"),
@@ -63,11 +75,39 @@ def test_destroy_waits_for_instances_and_independently_proves_empty_inventory():
     assert not any(rows.values())
 
 
-@pytest.mark.parametrize("drift", ["generation", "vpc", "main", "foreign_association"])
+def test_inventory_lookups_never_bound_describe_with_max_results():
+    # MaxResults makes EC2 emit NextToken from its account-wide scan, which _inventory
+    # reads as incomplete and rejects -- spuriously refusing cleanup once the account
+    # holds more resources of a type than the page (e.g. EKS pod ENIs, #1826). The
+    # tag-scoped describes must omit MaxResults; a genuine NextToken still means truncation.
+    scope, ec2, _ = fixture()
+    inventory_ec2_resources(scope, ec2)
+    operations = (
+        "describe_instances",
+        "describe_volumes",
+        "describe_network_interfaces",
+        "describe_security_groups",
+        "describe_route_tables",
+        "describe_subnets",
+    )
+    for operation in operations:
+        describe = getattr(ec2, operation)
+        assert describe.call_count
+        assert all("MaxResults" not in call.kwargs for call in describe.call_args_list)
+
+
+@pytest.mark.parametrize("drift", ["generation", "interface_generation", "vpc", "main", "foreign_association"])
 def test_destroy_refuses_foreign_or_ambiguous_ownership_before_any_mutation(drift):
     scope, ec2, rows = fixture()
     if drift == "generation":
         rows["subnets"][0]["Tags"] = [
+            {"Key": key, "Value": value}
+            for key, value in (scope.tags() | {"shifter:generation": str(UUID(int=3))}).items()
+        ]
+    elif drift == "interface_generation":
+        # An ENI carrying a foreign generation must be refused: proof the ownership
+        # check reads interface tags from TagSet, not the always-absent Tags.
+        rows["interfaces"][0]["TagSet"] = [
             {"Key": key, "Value": value}
             for key, value in (scope.tags() | {"shifter:generation": str(UUID(int=3))}).items()
         ]

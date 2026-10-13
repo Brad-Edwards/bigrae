@@ -3,6 +3,13 @@
   "docs_root": "docs",
   "features": [
     {
+      "id": "account-administration",
+      "title": "Prepared account and principal administration",
+      "requirement": "PLAT-241",
+      "user_docs": ["features/account-administration.md"],
+      "technical_docs": ["technical/shifter_platform/account-administration.md"]
+    },
+    {
       "id": "unified-access-credentials",
       "title": "Personal and native service credentials",
       "requirement": "PLAT-102",
@@ -22,6 +29,13 @@
       "requirement": "GEN-001",
       "user_docs": ["ops/gcp-event-capacity.md"],
       "technical_docs": ["technical/platform_infrastructure/gcp-event-capacity.md"]
+    },
+    {
+      "id": "gcp-range-audit-telemetry",
+      "title": "GCP range flow, NAT, and Vertex Data Access logging",
+      "requirement": "GEN-001",
+      "user_docs": ["ops/gcp-range-audit-telemetry.md"],
+      "technical_docs": ["technical/platform_infrastructure/gcp-range-audit-telemetry.md"]
     },
     {
       "id": "tenant-artifact-preparation",

@@ -8,15 +8,18 @@ config they return a dict, with no cloud calls.
 
 from __future__ import annotations
 
+from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
+
 from config import GCERangeCellConfig, GCERangeImageProfile, gce_image_profile_fingerprint
+from gcp_range_cell_plan import range_telemetry_plan
 from gcp_range_cell_resources import (
     HOST_PUBLIC_KEY_METADATA_KEY,
     address_resource,
     firewall_resource,
     instance_resource,
+    log_config_matches,
     network_resource,
-    openvpn_gateway_address_resource,
-    openvpn_gateway_instance_resource,
+    router_nat_resource,
     subnetwork_resource,
 )
 
@@ -31,7 +34,12 @@ def _plan() -> dict:
         "private_google_access": True,
         "labels": {"range": "shifter-range-42", "managed-by": "shifter"},
         "network": {"name": "shifter-range-42", "self_link": "projects/p/global/networks/shifter-range-42"},
+        "telemetry": range_telemetry_plan(GcpRangeTelemetryPolicy()),
     }
+
+
+def _telemetry(**overrides: dict) -> dict:
+    return range_telemetry_plan(GcpRangeTelemetryPolicy.model_validate(overrides))
 
 
 def _instance(*, os_type: str = "kali", attach_service_account: bool = True) -> dict:
@@ -93,6 +101,97 @@ class TestSubnetworkResource:
         assert body["private_ip_google_access"] is True
 
 
+_TELEMETRY_SUBNET = {
+    "resource_name": "shifter-r-42-example",
+    "network_link": "projects/p/global/networks/shifter-range-42",
+    "cidr": "10.50.2.0/28",
+}
+
+
+class TestRangeAuditTelemetry:
+    """Subnet flow logs and NAT logging ride in the provider bodies (#2535)."""
+
+    def _nat_plan(self, telemetry: dict | None = None) -> dict:
+        plan = _plan()
+        if telemetry is not None:
+            plan["telemetry"] = telemetry
+        plan["router_nat"] = {
+            "router_name": "shifter-r-42-router",
+            "nat_name": "shifter-r-42-nat",
+            "subnetwork_self_links": ["projects/p/regions/us-central1/subnetworks/shifter-r-42-example"],
+        }
+        return plan
+
+    def test_subnetwork_enables_flow_logs_with_default_settings(self):
+        body = subnetwork_resource(_plan(), _TELEMETRY_SUBNET)
+
+        assert body["log_config"] == {
+            "enable": True,
+            "aggregation_interval": "INTERVAL_5_SEC",
+            "flow_sampling": 0.5,
+            "metadata": "INCLUDE_ALL_METADATA",
+        }
+
+    def test_subnetwork_uses_the_operator_flow_log_override(self):
+        plan = _plan()
+        plan["telemetry"] = _telemetry(
+            vpc_flow_logs={
+                "aggregation_interval": "INTERVAL_1_MIN",
+                "flow_sampling": 0.1,
+                "metadata": "EXCLUDE_ALL_METADATA",
+            }
+        )
+
+        body = subnetwork_resource(plan, _TELEMETRY_SUBNET)
+
+        assert body["log_config"] == {
+            "enable": True,
+            "aggregation_interval": "INTERVAL_1_MIN",
+            "flow_sampling": 0.1,
+            "metadata": "EXCLUDE_ALL_METADATA",
+        }
+
+    def test_subnetwork_explicitly_disables_flow_logs_when_the_operator_turns_them_off(self):
+        plan = _plan()
+        plan["telemetry"] = _telemetry(vpc_flow_logs={"enabled": False})
+
+        assert subnetwork_resource(plan, _TELEMETRY_SUBNET)["log_config"] == {"enable": False}
+
+    def test_range_owned_nat_logs_translations_and_errors_by_default(self):
+        body = router_nat_resource(self._nat_plan())
+
+        assert body["nats"][0]["log_config"] == {"enable": True, "filter": "ALL"}
+        assert body["nats"][0]["source_subnetwork_ip_ranges_to_nat"] == "LIST_OF_SUBNETWORKS"
+
+    def test_range_owned_nat_uses_the_operator_filter_or_disable(self):
+        errors_only = router_nat_resource(self._nat_plan(_telemetry(nat_logs={"filter": "ERRORS_ONLY"})))
+        disabled = router_nat_resource(self._nat_plan(_telemetry(nat_logs={"enabled": False})))
+
+        assert errors_only["nats"][0]["log_config"] == {"enable": True, "filter": "ERRORS_ONLY"}
+        assert disabled["nats"][0]["log_config"] == {"enable": False}
+
+    def test_log_config_comparison_reads_provider_messages_and_enums(self):
+        desired = subnetwork_resource(_plan(), _TELEMETRY_SUBNET)["log_config"]
+        enum = type("Enum", (), {"name": "INTERVAL_5_SEC"})()
+        provider = type(
+            "LogConfig",
+            (),
+            {
+                "enable": True,
+                "aggregation_interval": enum,
+                "flow_sampling": 0.5000001,
+                "metadata": "INCLUDE_ALL_METADATA",
+            },
+        )()
+
+        assert log_config_matches(provider, desired) is True
+        assert log_config_matches(None, desired) is False
+        assert log_config_matches({**desired, "flow_sampling": 0.1}, desired) is False
+        assert log_config_matches({"enable": False}, desired) is False
+        assert log_config_matches(None, {"enable": False}) is True
+        assert log_config_matches({"enable": True, "filter": "ALL"}, {"enable": False}) is False
+
+
 class TestFirewallResource:
     def test_ingress_with_allowed_translates_proto_fields(self):
         firewall = {
@@ -136,42 +235,6 @@ class TestAddressResource:
             "address": "10.50.2.4",
             "subnetwork": "projects/p/regions/us-central1/subnetworks/sn",
         }
-
-
-class TestOpenVpnGatewayResource:
-    def test_gateway_has_public_udp_edge_and_target_only_forwarding_bootstrap(self):
-        gateway = {
-            "resource_name": "shifter-r-42-vpn-gateway",
-            "address_name": "shifter-r-42-vpn-gateway-ip",
-            "private_ip": "10.50.2.5",
-            "subnetwork_link": "projects/p/regions/us-central1/subnetworks/sn",
-            "target_ip": "10.50.2.4",
-            "tag": "shifter-r-42-vpn-gateway",
-            "service_account_email": "sh-vpn-generation@test-project.iam.gserviceaccount.com",
-            "profile": GCERangeImageProfile(
-                source_image="projects/debian-cloud/global/images/family/debian-12",
-                machine_type="e2-standard-2",
-                disk_size_gb=50,
-            ),
-        }
-        config = _config(service_account_email="range-host@test-project.iam.gserviceaccount.com")
-
-        address = openvpn_gateway_address_resource(gateway)
-        body = openvpn_gateway_instance_resource(_plan(), gateway, config)
-
-        assert address["address"] == "10.50.2.5"
-        assert body["can_ip_forward"] is True
-        assert body["network_interfaces"][0]["access_configs"] == [{"name": "External NAT", "type_": "ONE_TO_ONE_NAT"}]
-        assert body["service_accounts"][0]["email"] == "sh-vpn-generation@test-project.iam.gserviceaccount.com"
-        startup = body["metadata"]["items"][0]["value"]
-        assert "shifter-range-42-vpn-87a99f875af246e6a4590e5eb1ab1bf2-server" in startup
-        assert "urllib.parse.quote" not in startup
-        assert "dh none" in startup
-        assert '"10.50.2.4/32"' in startup
-        assert "shifter-openvpn-health.service" in startup
-        assert '("0.0.0.0", 1195)' in startup
-        assert 'b"ready\\\\n"' in startup
-        assert "ca_private_key" not in startup
 
 
 def _metadata_map(body: dict) -> dict[str, str]:

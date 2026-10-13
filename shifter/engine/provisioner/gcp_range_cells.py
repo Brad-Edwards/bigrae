@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 
 from config import GCE_BOOTSTRAP_PRECONFIGURED_MACHINE_HOST, GCERangeCellConfig, load_gce_range_cell_config
 from gcp_range_cell_clients import GCEClients, _build_clients
@@ -27,10 +27,12 @@ from gcp_range_cell_resources import (
     address_resource,
     firewall_resource,
     instance_resource,
+    log_config_matches,
+    nat_log_config,
     network_resource,
-    openvpn_gateway_address_resource,
-    openvpn_gateway_instance_resource,
+    provider_field,
     router_nat_resource,
+    subnetwork_log_config,
     subnetwork_resource,
 )
 from gcp_range_cell_shared_nat import assert_shared_nat_capacity, ensure_shared_nat
@@ -80,6 +82,7 @@ def _ensure_subnetwork(plan: RangeCellPlan, clients: GCEClients, subnet: SubnetP
     )
     if existing is not None:
         logger.info("GCE range subnetwork exists name_fp=%s", safe_log_fingerprint(name))
+        _converge_subnetwork_log_config(plan, clients, name, existing)
         return False
     operation = clients.subnetworks.insert(
         project=plan["project_id"],
@@ -88,6 +91,48 @@ def _ensure_subnetwork(plan: RangeCellPlan, clients: GCEClients, subnet: SubnetP
     )
     _wait_for_operation(plan, clients, operation, "region")
     return True
+
+
+def _converge_subnetwork_log_config(plan: RangeCellPlan, clients: GCEClients, name: str, existing: object) -> None:
+    """Patch an owned subnetwork whose flow-log config drifted from the plan (#2535).
+
+    Existence is not compliance: a replay after a partial create, or after an operator
+    policy change, must leave the subnet with the planned flow logging.
+    """
+    desired = subnetwork_log_config(plan)
+    if log_config_matches(provider_field(existing, "log_config"), desired):
+        return
+    logger.info("GCE range subnetwork flow-log drift; patching name_fp=%s", safe_log_fingerprint(name))
+    operation = clients.subnetworks.patch(
+        project=plan["project_id"],
+        region=plan["region"],
+        subnetwork=name,
+        subnetwork_resource={"fingerprint": provider_field(existing, "fingerprint"), "log_config": desired},
+    )
+    _wait_for_operation(plan, clients, operation, "region")
+
+
+def _converge_router_nat_log_config(plan: RangeCellPlan, clients: GCEClients, name: str, existing: object) -> None:
+    """Patch an owned range router whose NAT logging drifted from the plan (#2535).
+
+    The range-owned router is deterministic from the plan, so the patch restores the
+    planned gateway (scope and logging) rather than editing one field in place.
+    """
+    desired = nat_log_config(plan)
+    nat_name = plan["router_nat"]["nat_name"]
+    gateways = provider_field(existing, "nats")
+    items = gateways if isinstance(gateways, Iterable) and not isinstance(gateways, str | bytes | Mapping) else ()
+    gateway = next((item for item in items if provider_field(item, "name") == nat_name), None)
+    if gateway is not None and log_config_matches(provider_field(gateway, "log_config"), desired):
+        return
+    logger.info("GCE range router/NAT logging drift; patching name_fp=%s", safe_log_fingerprint(name))
+    operation = clients.routers.patch(
+        project=plan["project_id"],
+        region=plan["region"],
+        router=name,
+        router_resource={"nats": router_nat_resource(plan)["nats"]},
+    )
+    _wait_for_operation(plan, clients, operation, "region")
 
 
 def _ensure_firewall(plan: RangeCellPlan, clients: GCEClients, firewall: FirewallPlan) -> bool:
@@ -119,7 +164,7 @@ def _ensure_router_nat(plan: RangeCellPlan, clients: GCEClients) -> bool:
 
     Present only for a non-``none`` range; a zero-egress range has no ``router_nat``
     element and therefore no NAT path. Idempotent: an existing router of the same
-    name is left in place (the NAT config is deterministic from the plan).
+    name is kept, and only its NAT logging is converged to the plan (#2535).
     """
     shared_nat = plan.get("shared_nat")
     if shared_nat is not None:
@@ -139,6 +184,7 @@ def _ensure_router_nat(plan: RangeCellPlan, clients: GCEClients) -> bool:
     )
     if existing is not None:
         logger.info("GCE range router/NAT exists name_fp=%s", safe_log_fingerprint(name))
+        _converge_router_nat_log_config(plan, clients, name, existing)
         return False
     operation = clients.routers.insert(
         project=plan["project_id"],
@@ -348,72 +394,6 @@ def _provision_range_resources(
     return instance_outputs
 
 
-def _external_ip(instance: object) -> str:
-    """Return the instance's first NAT external IP, or empty when absent."""
-    interfaces = getattr(instance, "network_interfaces", None) or []
-    if not interfaces:
-        return ""
-    access_configs = getattr(interfaces[0], "access_configs", None) or []
-    if not access_configs:
-        return ""
-    return str(getattr(access_configs[0], "nat_i_p", "") or getattr(access_configs[0], "nat_ip", ""))
-
-
-def _ensure_openvpn_gateway(
-    plan: RangeCellPlan,
-    clients: GCEClients,
-    config: GCERangeCellConfig,
-) -> ResourceDict | None:
-    """Create/reconcile the request-owned gateway and return non-secret readiness."""
-    gateway = plan.get("vpn_gateway")
-    if gateway is None:
-        return None
-    address = _get_or_none(
-        clients.addresses.get,
-        clients.google_exceptions,
-        project=plan["project_id"],
-        region=plan["region"],
-        address=gateway["address_name"],
-    )
-    if address is None:
-        operation = clients.addresses.insert(
-            project=plan["project_id"],
-            region=plan["region"],
-            address_resource=openvpn_gateway_address_resource(gateway),
-        )
-        _wait_for_operation(plan, clients, operation, "region")
-    existing = _get_or_none(
-        clients.instances.get,
-        clients.google_exceptions,
-        project=plan["project_id"],
-        zone=plan["zone"],
-        instance=gateway["resource_name"],
-    )
-    if existing is None:
-        operation = clients.instances.insert(
-            project=plan["project_id"],
-            zone=plan["zone"],
-            instance_resource=openvpn_gateway_instance_resource(plan, gateway, config),
-        )
-        _wait_for_operation(plan, clients, operation, "zone")
-        existing = clients.instances.get(
-            project=plan["project_id"],
-            zone=plan["zone"],
-            instance=gateway["resource_name"],
-        )
-    endpoint = _external_ip(existing)
-    if not endpoint:
-        raise RuntimeError("GCE OpenVPN gateway has no public endpoint")
-    return {
-        "endpoint": endpoint,
-        "port": 1194,
-        "health_endpoint": gateway["private_ip"],
-        "health_port": 1195,
-        "target_ref": gateway["target_ref"],
-        "ready": False,
-    }
-
-
 def apply_range_cell(
     request_uuid: str,
     variables: ResourceDict,
@@ -427,8 +407,7 @@ def apply_range_cell(
     """Create or reconcile a live-fire GCE range cell and return provisioner outputs."""
     resolved_config = config or load_gce_range_cell_config()
     # Validate the closed contract and scenario binding before constructing any
-    # provider or secret client, let alone mutating a cloud resource. The gateway
-    # VM runs as the range's reserved pool identity (ADR-008-R7).
+    # provider or secret client, let alone mutating a cloud resource.
     range_data = get_range_data_by_request_id(request_uuid)
     # Bind the config to this range's realized zone (chosen at range creation and
     # stored on the row) before anything reads region/zone. Empty placement keeps
@@ -439,7 +418,6 @@ def apply_range_cell(
         request_uuid,
         variables,
         resolved_config,
-        vpn_gateway_pool_slot=range_data.get("vpn_gateway_pool_slot"),
         range_host_pool_slot=range_host_pool_slot,
     )
     resolved_clients = clients or _build_clients()
@@ -447,7 +425,6 @@ def apply_range_cell(
     resolved_vertex_ops = vertex_ops or _default_vertex_ops()
     try:
         instance_outputs = _provision_range_resources(plan, resolved_clients, resolved_config, resolved_secret_ops)
-        vpn_gateway = _ensure_openvpn_gateway(plan, resolved_clients, resolved_config)
         closed_result = range_cell_result(variables, plan, instance_outputs)
     except Exception:
         logger.exception("GCE range-cell apply failed; attempting cleanup request_id=%s", request_uuid)
@@ -463,11 +440,8 @@ def apply_range_cell(
         )
         cleanup(request_uuid, variables)
         raise
-    result: ResourceDict = {
+    return {
         "subnets": subnet_outputs(plan),
         "instances": instance_outputs,
         "range_cell": closed_result,
     }
-    if vpn_gateway is not None:
-        result["vpn_gateway"] = vpn_gateway
-    return result

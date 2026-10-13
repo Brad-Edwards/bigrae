@@ -2,6 +2,8 @@
 
 ## Status
 
+**Superseded by [ADR-068](068-model-access-broker-parked.md) (2026-10-05).** Its third-party gateway selection and its rejection of a no-limit mode do not reflect the intended default of no controls. ADR-068 parks the broker, keeps keyless-direct as the only live path, and requires any future control path to default to no controls.
+
 Accepted for [#2411](https://github.com/Brad-Edwards/shifter/issues/2411), 2026-09-30,
 and relates to the AI Gateway milestone
 [#2274](https://github.com/Brad-Edwards/shifter/issues/2274). Supersedes the

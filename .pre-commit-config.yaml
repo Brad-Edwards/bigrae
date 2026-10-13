@@ -39,8 +39,10 @@ repos:
         args: [--maxkb=500]
       - id: check-merge-conflict
       - id: detect-private-key
-        # Exclude: tests (check key format strings) + crypto.py (key generation module, not leaked secrets)
-        exclude: ^(shifter/engine/provisioner/tests/|shifter/shifter_platform/tests/engine/ssh/|scripts/bootstrap/tests/|shifter/engine/provisioner/utils/crypto\.py)
+        # Exclude: tests (check key format strings) + key-handling modules that hold only PEM armor
+        # labels, never key material: crypto.py (SSH key generation), ensure_vpn_pki.py (formats the
+        # generated OpenVPN tls-crypt key) and vpn_access.py (validates that key's armor) (#2480).
+        exclude: ^(shifter/engine/provisioner/tests/|shifter/shifter_platform/tests/engine/ssh/|scripts/bootstrap/tests/|shifter/engine/provisioner/utils/crypto\.py|scripts/gcp/ensure_vpn_pki\.py|shifter/engine/provisioner/vpn_access\.py)
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
@@ -204,7 +206,7 @@ repos:
         name: Portal target-service SG ingress source scoping (#933)
         entry: python3 scripts/check_portal_target_sg_sources/check_portal_target_sg_sources.py
         language: system
-        files: ^platform/terraform/environments/(dev|proof|prod)/portal/main\.tf$
+        files: ^platform/terraform/environments/(dev|prod)/portal/main\.tf$
 
       - id: check-tf-iam-ec2-scope
         name: AWS EC2 lifecycle IAM scoping (shared provisioner IAM)
@@ -346,5 +348,13 @@ repos:
         additional_dependencies:
           - pyyaml>=6.0
         files: ^(platform/k8s/gcp/base/.*\.ya?ml$|platform/charts/shifter/.*)
+        pass_filenames: true
+        verbose: true
+
+      - id: adr-guard-gcp-overlay-identity
+        name: architecture (adr guard gcp overlay deploy identity)
+        entry: python3 scripts/adr_guard/adr_guard.py --checks no-live-gcp-deploy-identity --files
+        language: system
+        files: ^platform/k8s/gcp/overlays/.*
         pass_filenames: true
         verbose: true

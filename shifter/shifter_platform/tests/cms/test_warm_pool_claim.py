@@ -234,6 +234,31 @@ class TestClaimOrchestration:
         assert system_row.maximum_expires_at == existing_maximum
         assert system_row.extension_days == 0
 
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_hit_grants_the_claimants_vpn_bounded_by_the_new_lease(self, monkeypatch, settings, enabled):
+        """The claim mints the claimant's OpenVPN authority before activation (#2030)."""
+        from django.contrib.auth import get_user_model
+
+        settings.RANGE_OPENVPN_ENABLED = enabled
+        settings.LOCAL_PROVISIONER = ""
+        user = get_user_model().objects.create_user(username=f"warm-vpn-{enabled}@example.com")
+        system_row = self._unleased_system_range(user)
+        generation = SimpleNamespace(request_id=uuid4(), uuid=uuid4(), bucket_id="gce-example")
+        self._patch_claim(monkeypatch, generation)
+        monkeypatch.setattr("cms.services._warm_pool_claim._system_range_instance_for", lambda request_id: system_row)
+        monkeypatch.setattr("cms.services._range_reassign.reassign_range_owner", lambda *args, **kwargs: None)
+        grants: list = []
+        monkeypatch.setattr(
+            "engine.services.grant_raes_remote_access",
+            lambda request_id, deadline: grants.append((request_id, deadline)) or deadline is not None,
+        )
+
+        attempt_warm_claim(_request("gce", "example", user=user))
+
+        system_row.refresh_from_db()
+        assert grants == [(generation.request_id, system_row.maximum_expires_at if enabled else None)]
+        assert self.enqueued == [generation.request_id]
+
     def test_miss_cold_falls_back(self, monkeypatch):
         self._patch_claim(monkeypatch, None)
         result = attempt_warm_claim(_request("gce", "example", user=SimpleNamespace(id=1)))

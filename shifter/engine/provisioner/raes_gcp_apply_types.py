@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 from config import GCERangeCellConfig
 from gcp_range_cell_clients import GCEClients
@@ -15,6 +16,19 @@ from raes_gcp_secret_ops import RaesGceSecretOps
 from raes_operating_system import observe_operating_systems
 from raes_preconfigured_host_readiness import verify_preconfigured_hosts
 from raes_substrate_observation import observe_gce_substrates
+
+if TYPE_CHECKING:
+    from raes_gcp_vpn_plan import RaesGceVpnAccess
+
+
+class RaesGceOpenVpn(Protocol):
+    """A generation's prepared participant OpenVPN access (#2030, ``raes_openvpn``)."""
+
+    def plan_access(self) -> RaesGceVpnAccess:
+        """Return the pool firewall inputs for this range."""
+
+    def publish(self) -> dict[str, object]:
+        """Mint the generation's profile and return the owner-free realization."""
 
 
 @dataclass(frozen=True)
@@ -40,6 +54,7 @@ class RaesGceApplyOptions:
     runtime_plugin: Callable[..., None] | None = None
     model_enrollment: Callable[..., None] | None = None
     model_broker: dict[str, object] | None = None
+    openvpn: RaesGceOpenVpn | None = None
 
 
 @dataclass(frozen=True)
@@ -61,3 +76,4 @@ class RaesGceApplyRuntime:
     allocated_network_cidrs: Sequence[tuple[str, str]] | None
     runtime_plugin: Callable[..., None] | None
     model_enrollment: Callable[..., None] | None
+    openvpn: RaesGceOpenVpn | None = None

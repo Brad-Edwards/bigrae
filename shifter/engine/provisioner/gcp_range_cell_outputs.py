@@ -29,6 +29,11 @@ def _preconfigured_host_output(instance: InstancePlan) -> ResourceDict:
         "gcp_participant_username": instance["profile"].participant_username,
         "gcp_participant_readiness_contract": instance["profile"].participant_readiness_contract,
         "gcp_participant_readiness_manifest_sha256": instance["profile"].participant_readiness_manifest_sha256,
+        # Provider-neutral names shared with native EC2 (readiness and access consumers).
+        "participant_container_name": instance["profile"].participant_container_name,
+        "participant_username": instance["profile"].participant_username,
+        "participant_readiness_contract": instance["profile"].participant_readiness_contract,
+        "participant_readiness_manifest_sha256": instance["profile"].participant_readiness_manifest_sha256,
         # The participant desktop is inside the nested host, while port 22 is
         # reserved for key-only host management. Guacamole must not try to use
         # the desktop password for SFTP against that outer host.
@@ -101,6 +106,7 @@ def instance_output(
         "gcp_image_profile_fingerprint": instance["image_profile_fingerprint"],
         "gcp_source_image": instance["profile"].source_image,
         "gcp_bootstrap_capability": instance["profile"].bootstrap_capability,
+        "bootstrap_capability": instance["profile"].bootstrap_capability,
         "gcp_service_account_email": _service_account_output(instance, config),
     }
     if instance["profile"].bootstrap_capability == GCE_BOOTSTRAP_PRECONFIGURED_MACHINE_HOST:

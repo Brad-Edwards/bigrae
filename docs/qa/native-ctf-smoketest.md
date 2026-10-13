@@ -83,7 +83,7 @@ print('tasks', list(CTFScheduledTask.objects.filter(event=e).values_list('task_t
 4. Set a non-zero **hint** with a penalty on one challenge.
 5. Release the challenges (or schedule release).
 
-**[CLI/DB] verify** flags are stored hashed and the prerequisite exists:
+**[CLI/DB] verify** each challenge has its flag rows and the prerequisite exists:
 
 ```bash
 manage shell -c "from ctf.models import CTFChallenge, CTFChallengePrerequisite as P; \

@@ -106,16 +106,25 @@ certificate wait, so the certificate may reach `ACTIVE` out of band; once it is
 active, a final `gdc-bootstrap` re-run fast-forwards (cached images, no-op
 Terraform) and completes green after the portal HTTPS check.
 
-## The k8s overlay ships a placeholder project
+## The k8s overlay ships a placeholder project: never hand-edit it
 
 The committed tenant overlay ships a `shifter-<environment>` placeholder project
 in `platform/k8s/gcp/overlays/<environment>/kustomization.yaml` (the image
 `newName`s) and `patch-serviceaccounts.patch` (the Workload Identity
-annotations). CI deploys read the overlay and do not rewrite it from GitHub
-Environment values, so replace the placeholder with the real project before the
-first CI deploy, or the Kubernetes deploy pulls from a nonexistent registry and
-binds pods to nonexistent identities. Only the project changes; the repository
-segment (`shifter-<environment>-portal`) and the SA localparts
-(`shifter<environment>-portal`) stay. The local `gdc-bootstrap` path uses the
-Helm chart, not this overlay, so a placeholder here does not block the local
-standup, only CI deploys.
+annotations). **Do not replace the placeholder with the real project and do not
+commit a real project id or service-account email into the overlay.** The real
+deploy identity is reconnaissance-sensitive and tenant-specific; it must never
+land in the repo (ADR-004-R14, ADR-011) and is enforced by the
+`no-live-gcp-deploy-identity` adr-guard check.
+
+The CI deploy renders the real identity into the overlay at deploy time from the
+Terraform outputs: `scripts/gcp/render_overlay_identity.py` rewrites the image
+`newName`s from `artifact_registry_image_roots` and the GSA annotations from
+`workload_service_accounts` (matched by localpart) in the ephemeral runner
+checkout, before the digest-pin step. Nothing is written back to git. Only the
+project changes at deploy time; the repository segment
+(`shifter-<environment>-portal`) and the SA localparts
+(`shifter<environment>-portal`) are already correct in the committed placeholder
+and stay. The local `gdc-bootstrap` path uses the Helm chart, not this overlay,
+and takes the project from `--project-id` / `local.auto.tfvars`, so the
+placeholder never blocks the local standup either.

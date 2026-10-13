@@ -40,7 +40,7 @@ class TestGcpTemplateStructure:
     def test_variables_file_exists(self):
         assert (GCP_DIR / "variables.pkr.hcl").exists()
 
-    @pytest.mark.parametrize("var_file", ["dev.pkrvars.hcl", "proof.pkrvars.hcl"])
+    @pytest.mark.parametrize("var_file", ["dev.pkrvars.hcl"])
     def test_var_files_exist(self, var_file):
         assert (GCP_DIR / var_file).exists(), f"Missing GCP var-file: gcp/{var_file}"
 

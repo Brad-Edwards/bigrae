@@ -79,13 +79,43 @@ AWS_RENDERER_OWNED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "AUDIT_DEPLOYMENT_SCOPE",
         "AUTH_PROVIDER",
         "CLOUD_PROVIDER",
+        # The AWS infrastructure environment name (dev/proof/prod), equal to the
+        # Terraform/IAM environment. The standalone provisioner tags and scopes range
+        # resources with this (not the Django ENVIRONMENT=development/production), so it
+        # matches the provisioner-iam tag conditions and resource/secret ARNs (#1826).
+        "DEPLOYMENT_ENVIRONMENT",
         "DJANGO_ALLOWED_HOSTS",
         "DJANGO_CSRF_TRUSTED_ORIGINS",
         # ENGINE_TASK_IMAGE is generated from the attested provisioner image
         # digest (mirrors GCP's render_runtime_env.py); the Terraform runtime_env
         # must not supply it.
         "ENGINE_TASK_IMAGE",
+        # Platform image for isolated feature-artifact acquisition Jobs (#2463);
+        # generated from the attested platform digest, empty where the environment
+        # does not define the artifactAcquirer identity.
+        "FEATURE_ARTIFACT_JOB_IMAGE",
+        # Provisioner-Job admission contract (restrict-provisioner-jobs, #1826): the
+        # policy pins the Job's imagePullPolicy and DB_USER to these renderer-owned
+        # values, which the launcher also applies when building the Job.
+        "ENGINE_TASK_IMAGE_PULL_POLICY",
+        "PROVISIONER_DB_USER",
+        # Deployed pods run outside build/dev-default mode, so config._email requires
+        # EMAIL_BACKEND; the renderer defaults it to the console backend.
+        "EMAIL_BACKEND",
         "ENVIRONMENT",
+        # Migrations run once in the dedicated pre-helm migration Job; the renderer
+        # sets SKIP_MIGRATIONS=1 so deployed pods skip per-pod startup migrations
+        # (which crash-looped the launcher under DB load). See #1826.
+        "SKIP_MIGRATIONS",
+        # Guacamole data-plane wiring (aws_eks.render_aws_values): the PostgreSQL
+        # host/port come from the shared portal RDS bundle output, the database
+        # name is the dedicated guacamole database, and GUACAMOLE_SECRET_ID points
+        # at the eks-owned guacamole-json-auth container the portal entrypoint
+        # hydrates into GUACAMOLE_JSON_AUTH_SECRET.
+        "GUACAMOLE_POSTGRESQL_DATABASE",
+        "GUACAMOLE_POSTGRESQL_HOSTNAME",
+        "GUACAMOLE_POSTGRESQL_PORT",
+        "GUACAMOLE_SECRET_ID",
         # Mission Control lease policy (#27): rendered from the validated
         # settings.mission_control_leases block, not the Terraform runtime_env.
         "MISSION_CONTROL_LEASE_POLICY_JSON",
@@ -118,6 +148,7 @@ AWS_PROVISIONER_FORWARDED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "MODEL_ENROLLMENT_CA_PEM_B64",
         "CLOUD_PROVIDER",
         "ENVIRONMENT",
+        "DEPLOYMENT_ENVIRONMENT",
         "AWS_REGION",
         "SECRETS_KMS_KEY_ARN",
         "DB_HOST",
@@ -143,6 +174,10 @@ AWS_PROVISIONER_FORWARDED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "KALI_INSTANCE_TYPE",
         "VICTIM_INSTANCE_TYPE",
         "AGENT_S3_BUCKET",
+        # Source-backed RAES content delivery downloads payloads from the platform
+        # storage bucket (provisioner config RAES_CONTENT_DELIVERY_BUCKET, falling
+        # back to STORAGE_BUCKET_NAME), at parity with the GCP provisioner.
+        "STORAGE_BUCKET_NAME",
         "S3_ENDPOINT_ID",
         "FIREWALL_ENDPOINT_ID",
         "SSM_ENDPOINTS_SUBNET_CIDR",

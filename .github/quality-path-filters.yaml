@@ -44,6 +44,8 @@ schema_version: 1
 
 force_full_matrix:
   - .github/workflows/**
+  # Local composite actions are CI control plane called by the workflows.
+  - .github/actions/**
   - .github/quality-path-filters.yaml
 
 quality_units:
@@ -86,6 +88,15 @@ quality_units:
       security: [packer-sast]
       test: [packer-tests]
 
+  - id: openvpn
+    paths:
+      - shifter/engine/openvpn/**
+    sonar: true
+    responsibilities:
+      lint: [openvpn-lint]
+      security: [openvpn-sast]
+      test: [openvpn-tests]
+
   - id: bootstrap
     paths:
       - scripts/bootstrap/**
@@ -98,7 +109,6 @@ quality_units:
   - id: gcp_scripts
     paths:
       - scripts/gcp/**
-      - platform/deploy/gcp/**
     sonar: false
     responsibilities:
       lint: [gcp-scripts-lint]
@@ -367,6 +377,9 @@ exclusions:
       # Exact-release Trivy exposure-management policy consumed by the
       # release-scan gate in .github/workflows/_gcp-dev.yml (--ignorefile).
       - .trivyignore.yaml
+      # OSV-Scanner suppressions (time-boxed, no-upstream-fix) consumed by the
+      # Security (osv-scanner) quality job via --config.
+      - osv-scanner.toml
       - tools/install-vale.sh
 
   - type: config

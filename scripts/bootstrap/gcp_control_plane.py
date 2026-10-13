@@ -570,6 +570,31 @@ def _helm_service_account_values(service_accounts: dict[str, str]) -> dict[str, 
     }
 
 
+# The acquisition Job reaches public package registries and object storage on 443
+# through the portal VPC's Cloud NAT; private, carrier-grade NAT and link-local
+# ranges are carved out so it cannot reach the cluster, the VPC or the metadata
+# server through this rule (Workload Identity's metadata access is a separate,
+# port-scoped chart policy).
+_ACQUISITION_EGRESS_EXCEPT = (
+    "10.0.0.0/8",  # NOSONAR - RFC 1918 private range, excluded.
+    "172.16.0.0/12",  # NOSONAR - RFC 1918 private range, excluded.
+    "192.168.0.0/16",  # NOSONAR - RFC 1918 private range, excluded.
+    "100.64.0.0/10",  # NOSONAR - carrier-grade NAT range, excluded.
+    "169.254.0.0/16",  # NOSONAR - link-local range, excluded.
+)
+
+
+def _gcp_feature_artifact_acquisition_values(acquirer: object) -> dict[str, object]:
+    """Acquisition Job identity and egress values (#2479); empty when disabled."""
+    if not acquirer:
+        return {"serviceAccountAnnotations": {}, "egressCidrs": [], "egressExcept": []}
+    return {
+        "serviceAccountAnnotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: str(acquirer)},
+        "egressCidrs": ["0.0.0.0/0"],  # NOSONAR - public 443 for the acquisition namespace only.
+        "egressExcept": list(_ACQUISITION_EGRESS_EXCEPT),
+    }
+
+
 def _helm_image_values(image_identities: dict[str, str]) -> dict[str, str]:
     """Return exact attested image identities for chart workloads."""
     required = {"platform", "guacd", "guacamoleClient"}
@@ -653,6 +678,7 @@ class GcpRenderArtifacts:
     model_access_catalog_json: str = ""
     model_access_env: str = ""
     mission_control_lease_env: str = ""
+    range_telemetry_env: str = ""
     model_broker_runtime: dict | None = None
     capacity_profile_id: str = "gcp-shared-v1-p10"
 
@@ -698,6 +724,10 @@ def render_gcp_helm_values(
     # authoritative here, independent of this render process's environment.
     if artifacts.mission_control_lease_env:
         runtime_env.update(parse_env_contract(artifacts.mission_control_lease_env))
+    # Range audit telemetry policy (#2535): the provisioner applies the same validated
+    # settings.range_telemetry the Terraform bridge consumed.
+    if artifacts.range_telemetry_env:
+        runtime_env.update(parse_env_contract(artifacts.range_telemetry_env))
     edge_policy_name = str(_get_output_value(outputs, "cloud_armor_security_policy_name")).strip()
     # The range-provisioning Jobs reach the GDC range cluster apiserver through
     # the internal TCP load balancer on the peered range VPC. Allow egress to
@@ -716,20 +746,28 @@ def render_gcp_helm_values(
         runtime_settings=artifacts.model_broker_runtime,
     )
     runtime_env.update(broker.get("enrollment_env", {}))
+    images = _helm_image_values(
+        image_identities
+        if image_identities is not None
+        else _get_string_mapping_output(outputs, "attested_image_identities")
+    )
+    acquirer = service_accounts.get("artifact-acquirer") if isinstance(service_accounts, Mapping) else None
+    if acquirer:
+        # Isolated acquisition Jobs run exactly the attested platform image, which
+        # their admission policy pins (#2479).
+        runtime_env["FEATURE_ARTIFACT_JOB_IMAGE"] = images["platform"]
     values: dict[str, object] = {
         "releaseNamespace": "shifter-system",
         "modelBroker": broker,
+        "capabilities": {"featureArtifactAcquisition": bool(acquirer)},
+        "featureArtifactAcquisition": _gcp_feature_artifact_acquisition_values(acquirer),
         "serviceAccounts": _helm_service_account_values(service_accounts),
         "runtimeEnv": runtime_env,
         # Reference only: the guacamole-runtime Kubernetes Secret is synced out
         # of band from Secret Manager (see sync_gcp_guacamole_runtime_secret).
         # Secret values must never enter Helm values or release history (#1180).
         "guacamoleRuntimeSecret": {"name": _GUACAMOLE_RUNTIME_RESOURCE_NAME},
-        "images": _helm_image_values(
-            image_identities
-            if image_identities is not None
-            else _get_string_mapping_output(outputs, "attested_image_identities")
-        ),
+        "images": images,
         "edge": {
             "ingress": {
                 "enabled": True,
@@ -1303,6 +1341,51 @@ def render_range_egress_tfvars(repo_root: Path, config_path: Path, output_path: 
     )
 
 
+def verify_gcp_range_audit_telemetry(
+    config: GDCBootstrapConfig, outputs: dict[str, dict[str, object]], dry_run: bool = False
+) -> None:
+    """Run the read-only range audit telemetry readback after Terraform apply (#2535).
+
+    The readback compares the VPC flow, Cloud NAT, and Vertex Data Access logging controls
+    with ``settings.range_telemetry``. A mismatch on a Terraform-owned resource, named by
+    the ``range_telemetry_terraform_resources`` output, exits non-zero and stops the
+    bootstrap. Provisioner-owned range resources in the platform and range-cell projects
+    are reported as pending reprovision. Only fixed argv and public identifiers are passed.
+    """
+    repo_root = get_repo_root()
+    range_network = str(outputs.get("range_network_name", {}).get("value", "")).strip()
+    owned = outputs.get("range_telemetry_terraform_resources", {}).get("value")
+    if not range_network or not isinstance(owned, dict):
+        error(
+            "Terraform outputs range_network_name and range_telemetry_terraform_resources are required "
+            "to verify range audit telemetry."
+        )
+        sys.exit(1)
+    shifter_config_path = resolve_shifter_config_path(config, repo_root)
+    scripts_dir = repo_root / "scripts" / "gcp"
+    argv = [
+        "uv",
+        "run",
+        "--project",
+        str(scripts_dir),
+        "python",
+        str(scripts_dir / "verify_range_audit_telemetry.py"),
+        "--config",
+        str(shifter_config_path),
+        "--project-id",
+        config.project_id,
+        "--range-project-id",
+        _range_cell_project_id(config, os.environ),
+        "--range-network",
+        range_network,
+    ]
+    for name in owned.get("subnetworks") or ():
+        argv += ["--terraform-subnetwork", str(name)]
+    for name in owned.get("nat_routers") or ():
+        argv += ["--terraform-nat-router", str(name)]
+    run_cmd(argv, dry_run=dry_run)
+
+
 def ensure_gcp_artifact_registry_service_identity(config: GDCBootstrapConfig, dry_run: bool = False) -> None:
     """Force-create the Artifact Registry service agent before Terraform grants it IAM."""
     service = "artifactregistry.googleapis.com"
@@ -1481,6 +1564,7 @@ def stage_gcp_control_plane_values(
     from installation.gcp_model_broker import validate_model_broker_readback
     from installation.loader import load_root_config
     from installation.render import (
+        render_gcp_range_telemetry_env,
         render_mission_control_lease_env,
         render_model_access_catalog,
         render_model_access_env,
@@ -1502,6 +1586,7 @@ def stage_gcp_control_plane_values(
             model_access_catalog_json=catalog_json,
             model_access_env=render_model_access_env(root_config),
             mission_control_lease_env=render_mission_control_lease_env(root_config),
+            range_telemetry_env=render_gcp_range_telemetry_env(root_config),
             model_broker_runtime=root_config.settings.get("model_broker_runtime"),
             capacity_profile_id=gcp_settings.shared_service_capacity_profile,
         ),
@@ -1996,7 +2081,9 @@ def _gcp_migration_job(platform_image: str) -> dict[str, object]:
                             "args": [
                                 "/bin/sh",
                                 "-c",
-                                "python manage.py bootstrap_inbox_catalog && python manage.py seed_raes_image_registry",
+                                "python manage.py bootstrap_inbox_catalog"
+                                " && python manage.py seed_raes_image_registry"
+                                " && python manage.py acquire_feature_artifacts",
                             ],
                             "envFrom": [{"configMapRef": {"name": "platform-runtime"}}],
                             "env": [
@@ -2342,6 +2429,7 @@ def bootstrap_gcp_control_plane(config: GDCBootstrapConfig, dry_run: bool = Fals
     if dry_run:
         return outputs
 
+    verify_gcp_range_audit_telemetry(config, outputs, dry_run=dry_run)
     bootstrap_operator_email = ensure_gcp_identity_platform_operator(config, outputs, dry_run=dry_run)
     image_tag = resolve_gcp_control_plane_image_tag()
     push_gcp_control_plane_images(

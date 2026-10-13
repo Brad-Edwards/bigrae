@@ -29,6 +29,7 @@ from engine.services import RangeBindings, create_raes_range
 from shared.raes.dispatch_port import ShifterDispatchResult
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
 
     from shared.raes.artifact_binding import ArtifactBinding
@@ -112,6 +113,7 @@ class CmsRaesDispatchPort:
                     artifact=artifact_bindings,
                     runtime_plugin_scope=self.runtime_plugin_scope,
                     defer_dispatch=prepare_models,
+                    openvpn_deadline=self._openvpn_deadline(),
                 ),
                 workspace_id=self.workspace_id,
                 egress_mode=self.egress_mode,
@@ -122,6 +124,19 @@ class CmsRaesDispatchPort:
         return ShifterDispatchResult(
             request_id=ref.request_id, accepted=ref.accepted, status=ref.status, range_id=ref.range_id
         )
+
+    def _openvpn_deadline(self) -> datetime | None:
+        """Return this launch's OpenVPN deadline: its persisted lease ceiling, when admitted (#2030)."""
+        from cms.models import RangeInstance
+        from cms.services._range_remote_access import openvpn_deadline
+
+        admission = self.backend_admission
+        lease_ceiling = (
+            RangeInstance.objects.filter(request__request_id=self.request_id)
+            .values_list("maximum_expires_at", flat=True)
+            .first()
+        )
+        return openvpn_deadline(admission.backend if admission and admission.admitted else None, lease_ceiling)
 
     def _resolve_artifact_bindings(self, compiled_plan: dict[str, Any]) -> tuple[ArtifactBinding, ...]:
         """Resolve authored artifact requirements to fenced bindings at launch (#1580).
@@ -193,6 +208,12 @@ class CmsRaesDispatchPort:
             storage=get_object_storage(),
             bucket=settings.STORAGE_BUCKET_NAME,
             prefix=settings.RAES_CONTENT_DELIVERY_PREFIX,
-            max_payload_bytes=settings.RAES_CONTENT_DELIVERY_MAX_PAYLOAD_BYTES,
         )
-        return prepare_content_delivery(pack_root=self.pack_root, serialized_plan=compiled_plan, target=target)
+        from cms.raes.feature_artifacts import feature_artifact_resolver
+
+        return prepare_content_delivery(
+            pack_root=self.pack_root,
+            serialized_plan=compiled_plan,
+            target=target,
+            acquire_feature=feature_artifact_resolver(compiled_plan),
+        )

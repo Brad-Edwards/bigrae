@@ -171,6 +171,8 @@ def _build_container(
         "env": env,
         "image_pull_policy": profile.image_pull_policy,
     }
+    if profile.container_command:
+        kwargs["command"] = list(profile.container_command)
     if profile.resource_requests is not None or profile.resource_limits is not None:
         kwargs["resources"] = _api_call(
             client,

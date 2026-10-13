@@ -13,6 +13,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy, GcpRangeTelemetryPolicyError, load_policy_json
 from shared.sftp_root import DEFAULT_SFTP_ROOT_BY_OS
 
 from ._env import _get_bool_env, _get_int_env, _parse_csv_env
@@ -86,6 +87,9 @@ class GCERangeCellConfig:
     # Optional private Google API routing for approved guest infrastructure.
     # Enabling routing grants no provider identity or model authorization.
     private_google_access: bool = False
+    # Range audit telemetry (#2535): subnet flow-log and NAT logging policy rendered
+    # from settings.range_telemetry. Default-on when the deployment omits it.
+    range_telemetry: GcpRangeTelemetryPolicy = field(default_factory=GcpRangeTelemetryPolicy)
     # Management SSH port for container hosts whose participant endpoint
     # publishes host :22, forcing the host
     # sshd the provisioner drives to a dedicated port. Native single-service
@@ -261,4 +265,17 @@ def load_gce_range_cell_config(*, backend: str | None = None) -> GCERangeCellCon
         private_google_access=_get_bool_env("GCP_RANGE_PRIVATE_GOOGLE_ACCESS", False),
         model_broker_vip=os.environ.get("MODEL_BROKER_GUEST_VIP", ""),
         host_mgmt_ssh_port=_get_int_env("GCP_RANGE_HOST_MGMT_SSH_PORT", 2222),
+        range_telemetry=_load_range_telemetry(),
     )
+
+
+def _load_range_telemetry() -> GcpRangeTelemetryPolicy:
+    """Parse ``GCP_RANGE_TELEMETRY_POLICY_JSON`` with the shared validator.
+
+    Unset selects the default-on policy. A blank or malformed value fails here, before
+    any Compute mutation, so a broken substitution can never turn logging off.
+    """
+    try:
+        return load_policy_json(os.environ.get("GCP_RANGE_TELEMETRY_POLICY_JSON"))
+    except GcpRangeTelemetryPolicyError as exc:
+        raise ValueError(str(exc)) from None

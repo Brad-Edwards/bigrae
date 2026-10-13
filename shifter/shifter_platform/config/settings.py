@@ -444,12 +444,19 @@ RANGE_RECONCILE_STALE_SECONDS: int = int(os.environ.get("RANGE_RECONCILE_STALE_S
 # Maximum RangeInstance rows the reconciler processes per run (bounded batch).
 RANGE_RECONCILE_BATCH_SIZE: int = int(os.environ.get("RANGE_RECONCILE_BATCH_SIZE", "100"))
 
-# ADR-008-R7: size of the pre-provisioned GCP OpenVPN gateway service-account
-# pool. Each active range that requests OpenVPN reserves one slot
-# (Range.allocate_vpn_gateway_slot -> sh-vpn-pool-<slot>); this bounds concurrent
-# OpenVPN ranges and MUST match the Terraform `vpn_gateway_pool_size` that
-# pre-creates the pool SAs. Single isolated tenant / single project.
-VPN_GATEWAY_POOL_SIZE: int = int(os.environ.get("VPN_GATEWAY_POOL_SIZE", "24"))
+# ADR-039-R10: deployment opt-in for participant OpenVPN access (#2030, #2480).
+# When true, a GCE RAES launch whose scenario declares exactly one
+# participant-access target mints an OpenVPN capability. The participant then
+# connects through the tenant's shared OpenVPN server pool.
+RANGE_OPENVPN_ENABLED: bool = _env_bool("RANGE_OPENVPN_ENABLED", False)
+
+# The shared OpenVPN pool controller authenticates to the portal with a
+# Google-signed identity token for this audience. The token email and immutable
+# numeric subject must match the pool service account (#2480). Unset values
+# refuse every controller request.
+VPN_CONTROL_AUDIENCE: str = os.environ.get("VPN_CONTROL_AUDIENCE", "")
+VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL: str = os.environ.get("VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL", "")
+VPN_CONTROLLER_SERVICE_ACCOUNT_ID: str = os.environ.get("VPN_CONTROLLER_SERVICE_ACCOUNT_ID", "")
 
 # ------------------------------------------------------------------------------
 # CTF Configuration

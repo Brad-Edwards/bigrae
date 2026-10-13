@@ -245,6 +245,18 @@ class TestDataclassDefaults:
         assert config.primary_portal_cidr == "10.40.0.0/20"
 
 
+_TELEMETRY_BASE_ENV = {
+    "CLOUD_PROVIDER": "gcp",
+    "GCP_RANGE_BACKEND": "gce",
+    "GCP_PROJECT_ID": "test-project",
+    "GCP_REGION": "us-central1",
+    "RANGE_NETWORK_ZONE": "us-central1-b",
+    "GCP_RANGE_HOST_SERVICE_ACCOUNT_EMAIL": "range-host@test-project.iam.gserviceaccount.com",
+    "GCP_RANGE_KALI_IMAGE": "projects/shifter/global/images/example-vm",
+    "RANGE_NETWORK_ID": "projects/test-project/global/networks/range-net",
+}
+
+
 class TestRangeNetworkEnv:
     """Tests for provider-neutral range network env parsing."""
 
@@ -631,6 +643,40 @@ class TestRangeNetworkEnv:
         config = load_gce_range_cell_config()
 
         assert config.private_google_access is True
+
+    def test_range_telemetry_defaults_on_when_policy_is_unset(self, mocker):
+        mocker.patch.dict(os.environ, _TELEMETRY_BASE_ENV, clear=True)
+
+        telemetry = load_gce_range_cell_config().range_telemetry
+
+        assert telemetry.vpc_flow_logs.enabled is True
+        assert telemetry.vpc_flow_logs.flow_sampling == 0.5
+        assert telemetry.nat_logs.enabled is True
+        assert telemetry.nat_logs.filter == "ALL"
+
+    def test_range_telemetry_reads_the_rendered_operator_policy(self, mocker):
+        mocker.patch.dict(
+            os.environ,
+            {
+                **_TELEMETRY_BASE_ENV,
+                "GCP_RANGE_TELEMETRY_POLICY_JSON": json.dumps(
+                    {"vpc_flow_logs": {"enabled": False}, "nat_logs": {"filter": "ERRORS_ONLY"}}
+                ),
+            },
+            clear=True,
+        )
+
+        telemetry = load_gce_range_cell_config().range_telemetry
+
+        assert telemetry.vpc_flow_logs.enabled is False
+        assert telemetry.nat_logs.filter == "ERRORS_ONLY"
+
+    @pytest.mark.parametrize("raw", ["", "false", '{"nat_logs": {"enabled": "off"}}'])
+    def test_range_telemetry_malformed_policy_fails_before_any_mutation(self, mocker, raw):
+        mocker.patch.dict(os.environ, {**_TELEMETRY_BASE_ENV, "GCP_RANGE_TELEMETRY_POLICY_JSON": raw}, clear=True)
+
+        with pytest.raises(ValueError, match="range telemetry policy"):
+            load_gce_range_cell_config()
 
     def test_gce_range_cell_config_get_profile_selects_guest_family(self):
         linux = GCERangeImageProfile(
@@ -1554,7 +1600,7 @@ class TestLoadRaesContentDeliveryConfig:
 
         config = load_raes_content_delivery_config()
 
-        assert config == RaesContentDeliveryConfig(bucket="", max_bytes=268435456)
+        assert config == RaesContentDeliveryConfig(bucket="")
 
     def test_prefers_dedicated_bucket_env_var(self, mocker):
         mocker.patch.dict(
@@ -1572,10 +1618,11 @@ class TestLoadRaesContentDeliveryConfig:
 
         assert load_raes_content_delivery_config().bucket == "platform-assets"
 
-    def test_reads_max_bytes_override(self, mocker):
+    def test_no_payload_size_setting_exists(self, mocker):
+        """ADR-032-R9: no fixed payload cap may come back through a setting."""
         mocker.patch.dict(os.environ, {"RAES_CONTENT_DELIVERY_MAX_BYTES": "1024"}, clear=True)
 
-        assert load_raes_content_delivery_config().max_bytes == 1024
+        assert load_raes_content_delivery_config() == RaesContentDeliveryConfig(bucket="")
 
 
 class TestDecryptField:

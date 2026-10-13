@@ -17,6 +17,7 @@ from ctf.enums import ParticipantStatus
 from ctf.exceptions import CTFValidationError
 from ctf.services.participant.accounts import (
     create_participant_accounts,
+    normalize_participant_username,
     purge_expired_participant_accounts,
     rename_participant_username,
 )
@@ -535,3 +536,65 @@ def test_live_temporary_account_notification_socket_is_exact_and_password_gated(
     set_ctf_password_change_required(user, True)
     calls, messages = _websocket_boundary_messages(User.objects.get(pk=user.pk), "/ws/notifications/")
     assert not calls and messages[0]["code"] == 4403
+
+
+# --- Single user-chosen username = login + scoreboard display (#2455) ---
+
+
+@pytest.mark.parametrize("handle", ["blue-team", "red01", "ctf-operator", "player-7", "team_01"])
+def test_user_chosen_username_without_range_prefix_is_accepted(ctf_event, monkeypatch, handle):
+    monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
+
+    participant = add_participant(ctf_event.id, email="", name="ignored display", username=handle)
+
+    # The chosen handle is both the login username and the display name (one field).
+    assert participant.user.username == handle
+    assert participant.name == handle
+    assert not participant.user.username.startswith("range-")
+    # Still an isolated temporary CTF account despite the custom handle.
+    assert get_user_profile(participant.user).is_ctf_account is True
+
+
+def test_user_chosen_username_is_normalized_lowercase(ctf_event, monkeypatch):
+    monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
+
+    participant = add_participant(ctf_event.id, email="", name="x", username="MixedCase")
+
+    assert participant.user.username == "mixedcase"
+
+
+@pytest.mark.parametrize("bad", ["ab", "has space", "user@example.com", "-leading", "trailing-", "UPPER!!"])
+def test_invalid_usernames_are_rejected(bad):
+    with pytest.raises(CTFValidationError):
+        normalize_participant_username(bad)
+
+
+def test_email_disjoint_username_rejects_at_symbol():
+    with pytest.raises(CTFValidationError):
+        normalize_participant_username("someone@example.com")
+
+
+def test_duplicate_user_chosen_username_is_rejected(ctf_event, monkeypatch):
+    monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
+
+    add_participant(ctf_event.id, email="", name="x", username="duplicate-handle")
+    with pytest.raises(CTFValidationError) as exc:
+        add_participant(ctf_event.id, email="", name="y", username="duplicate-handle")
+    assert exc.value.code == "CTF_DUPLICATE_USERNAME"
+
+
+def test_public_registration_form_exposes_username_with_scoreboard_notice():
+    from ctf.forms import PublicRegistrationForm
+
+    form = PublicRegistrationForm()
+    assert "username" in form.fields
+    assert "name" not in form.fields
+    assert "scoreboard" in form.fields["username"].help_text.lower()
+
+
+def test_public_registration_form_rejects_invalid_username():
+    from ctf.forms import PublicRegistrationForm
+
+    form = PublicRegistrationForm(data={"username": "has a space", "email": "someone@example.com"})
+    assert not form.is_valid()
+    assert "username" in form.errors

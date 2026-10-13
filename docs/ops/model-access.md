@@ -1,5 +1,13 @@
 # Model-access operations design
 
+Current support: [ADR-068](../adr/068-model-access-broker-parked.md) parks the
+broker; keyless-direct is the supported guest model path. These broker procedures
+are historical implementation guidance and do not authorize activation. The
+[#2274 replacement evaluation](../architecture/model-access/gateway-replacement-evaluation-2274.md)
+defines qualification for the selected LiteLLM OSS gateway, including
+deployment-owned key rotation, automatic private TLS renewal and fresh bootstrap;
+it is not an installed service.
+
 Status: proposed for [#681](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md),
 ADR-061, 2026-09-06. Procedures describe implementation requirements.
 Management endpoints and operational commands must be delivered and tested

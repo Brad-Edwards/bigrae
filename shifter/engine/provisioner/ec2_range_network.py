@@ -296,9 +296,24 @@ def _group_for_node(
     egress = [_permission("-1", range_cidrs)]
     if config.broker_cidrs:
         egress.append(_permission("tcp", config.broker_cidrs, 443))
+    # Collapse exact-duplicate grants (e.g. two participants sharing one channel both
+    # yield tcp/22 from the access CIDRs): AWS rejects a permission that appears more
+    # than once in a single authorize call ("The same permission must not appear
+    # multiple times"). The readback comparison is set-based, so this stays consistent.
+    ingress = _dedupe_permissions(ingress)
+    egress = _dedupe_permissions(egress)
     if sum(len(rule["IpRanges"]) for rule in ingress) > 60:
         raise Ec2NetworkError("EC2 security group ingress exceeds the rule budget")
     return Ec2GroupIntent(node.address, _name(range_id, node.address), tuple(ingress), tuple(egress))
+
+
+def _dedupe_permissions(permissions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop exact-duplicate IP permissions, preserving order (AWS forbids repeats)."""
+    unique: list[dict[str, Any]] = []
+    for permission in permissions:
+        if permission not in unique:
+            unique.append(permission)
+    return unique
 
 
 def _service_grants(node: RaesPlanNode, range_cidrs: tuple[str, ...]) -> list[dict[str, Any]]:

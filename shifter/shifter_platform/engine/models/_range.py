@@ -129,11 +129,6 @@ class Range(RangeAllocationMixin, models.Model):
         help_text="Subnet CIDR (e.g., 10.1.5.0/24)",
     )
     subnet_index = models.PositiveIntegerField(null=True, blank=True, help_text="Unique index for CIDR allocation")
-    # ADR-008-R7: reserved slot into the pre-provisioned GCP OpenVPN gateway SA
-    # pool (sh-vpn-pool-<slot>); freed implicitly by the destroy/failed status.
-    vpn_gateway_pool_slot = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Reserved GCP OpenVPN gateway SA pool slot (single-project pool)"
-    )
     placement_zone = models.CharField(max_length=63, blank=True, default="", help_text="GCE placement zone (#2029)")
     victim_ip = models.GenericIPAddressField(null=True, blank=True)
     victim_instance_id = models.CharField(

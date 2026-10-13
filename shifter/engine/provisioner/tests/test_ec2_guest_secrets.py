@@ -90,3 +90,50 @@ def test_existing_guest_cannot_regenerate_a_missing_management_identity(method):
     with pytest.raises(Ec2SecretError):
         getattr(secrets, method)(7, "node.a#0", create=False)
     api.create_secret.assert_not_called()
+
+
+def test_just_created_secret_is_read_back_through_read_after_write_lag(monkeypatch):
+    # Secrets Manager is eventually consistent: DescribeSecret/GetSecretValue right
+    # after a successful CreateSecret can return ResourceNotFoundException (observed
+    # on AWS EKS, failing participant credential setup at random).
+    sleeps = []
+    monkeypatch.setattr("ec2_guest_secrets.time.sleep", sleeps.append)
+    secrets, api = store()
+    name = secrets.name(7, "account-key", "node.a#0", "student")
+    api.describe_secret.side_effect = [
+        error("ResourceNotFoundException"),  # does not exist yet -> create
+        error("ResourceNotFoundException"),  # created, not yet visible
+        description(name),
+    ]
+    api.get_secret_value.side_effect = [error("ResourceNotFoundException"), {"SecretString": "created-value"}]
+    ref, value = secrets.ensure(7, "account-key", ("node.a#0", "student"), lambda: "created-value")
+    assert (ref, value) == (description(name)["ARN"], "created-value")
+    api.create_secret.assert_called_once()
+    assert sleeps == [0.5, 0.5]
+
+
+def test_created_secret_that_never_becomes_visible_fails_closed_within_a_bound(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr("ec2_guest_secrets.time.sleep", sleeps.append)
+    secrets, api = store()
+    api.describe_secret.side_effect = error("ResourceNotFoundException")
+    with pytest.raises(Ec2SecretError) as caught:
+        secrets.ensure(7, "account-key", ("node.a#0", "student"), lambda: "created-value")
+    assert "ResourceNotFoundException" in str(caught.value)
+    assert api.describe_secret.call_count == 1 + 8
+    assert sum(sleeps) <= 12
+    api.get_secret_value.assert_not_called()
+
+
+def test_existing_secret_absence_is_not_retried(monkeypatch):
+    # Only a secret this call just created gets the readback window; a describe that
+    # fails for any other reason propagates on the first attempt.
+    sleeps = []
+    monkeypatch.setattr("ec2_guest_secrets.time.sleep", sleeps.append)
+    secrets, api = store()
+    name = secrets.name(7, "host-ssh", "node.a#0")
+    api.describe_secret.return_value = description(name)
+    api.get_secret_value.side_effect = error("ResourceNotFoundException")
+    with pytest.raises(Ec2SecretError):
+        secrets.ensure(7, "host-ssh", ("node.a#0",), lambda: "secret")
+    assert sleeps == []

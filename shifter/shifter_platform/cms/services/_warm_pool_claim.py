@@ -210,6 +210,7 @@ def _run_atomic_claim(request: WarmClaimRequest, candidates: list[tuple[str, str
                 else build_range_lease(request.range_source, enforced_deadline=request.enforced_deadline)
             )
             _assign_initial_user_lease(range_instance, lease)
+            _grant_claim_remote_access(request, generation, lease)
             activation_enqueued = _admit_claim_models(request, generation, range_instance)
             audit_log(
                 AuditEvent(
@@ -284,6 +285,19 @@ def attempt_warm_claim(request: WarmClaimRequest, override: WarmPoolOverride | N
         request.user.id,
     )
     return outcome.request_id
+
+
+def _grant_claim_remote_access(request: WarmClaimRequest, generation: _WarmGeneration, lease: RangeLease) -> None:
+    """Grant the claimant's OpenVPN authority before activation is composed (#2030).
+
+    A warm generation is prepared without participant VPN; the claimant's
+    capability is minted here, bounded by the claimant's lease ceiling, so the
+    activation realizes a gateway owned by the claimant (ADR-039-R10).
+    """
+    from cms.services._range_remote_access import openvpn_deadline
+    from engine.services import grant_raes_remote_access
+
+    grant_raes_remote_access(generation.request_id, openvpn_deadline(request.backend, lease.maximum_expires_at))
 
 
 def _admit_claim_models(

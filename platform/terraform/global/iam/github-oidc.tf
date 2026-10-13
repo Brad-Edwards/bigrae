@@ -5,11 +5,11 @@ variable "aws_region" {
 }
 
 variable "environment" {
-  description = "Environment name (dev, prod, or proof)"
+  description = "Environment name (dev or prod)"
   type        = string
   validation {
-    condition     = contains(["dev", "prod", "proof"], var.environment)
-    error_message = "Environment must be 'dev', 'prod', or 'proof'."
+    condition     = contains(["dev", "prod"], var.environment)
+    error_message = "Environment must be 'dev' or 'prod'."
   }
 }
 
@@ -1109,6 +1109,7 @@ resource "aws_iam_policy" "security" {
           "secretsmanager:RotateSecret",
           "secretsmanager:CancelRotateSecret"
         ]
+        # Dash-namespaced secrets; slash-namespaced shifter/* live in eks policy.
         Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:shifter-*"
       },
       {
@@ -1256,9 +1257,47 @@ resource "aws_iam_policy" "eks" {
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/shifter-${var.environment}-eks-*"
         Condition = {
           StringEquals = {
-            "iam:PassedToService" = "eks.amazonaws.com"
+            # Cluster role -> eks.amazonaws.com; managed node-group node role ->
+            # eks-nodegroup.amazonaws.com (checked by EKS on CreateNodegroup).
+            "iam:PassedToService" = [
+              "eks.amazonaws.com",
+              "eks-nodegroup.amazonaws.com"
+            ]
           }
         }
+      },
+      {
+        # EKS creates/validates its service-linked roles on cluster + node-group
+        # creation (e.g. AWSServiceRoleForAmazonEKSNodegroup): CreateNodegroup
+        # calls iam:GetRole on the SLR, and CreateCluster/CreateNodegroup create
+        # the SLR when absent. Scoped to the aws-service-role EKS namespace only.
+        Sid    = "EksServiceLinkedRoles"
+        Effect = "Allow"
+        Action = [
+          "iam:GetRole",
+          "iam:CreateServiceLinkedRole"
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/eks*.amazonaws.com/AWSServiceRoleForAmazonEKS*"
+      },
+      {
+        # Slash-namespaced deploy secrets on the EKS path: the eks root creates
+        # and manages shifter/<env>/eks/* (modules/portal/eks/kms_secrets.tf) and
+        # the deploy reads shifter/<env>/{app,cognito}. Kept in this category, not
+        # security, which is at the AWS managed-policy size ceiling (#254).
+        Sid    = "ManageEksDeploySecrets"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DeleteSecret",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:UpdateSecret",
+          "secretsmanager:TagResource",
+          "secretsmanager:UntagResource",
+          "secretsmanager:GetResourcePolicy"
+        ]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:shifter/*"
       }
     ]
   })
@@ -1299,6 +1338,9 @@ resource "aws_iam_policy" "management" {
           "ssm:PutParameter",
           "ssm:GetParameter",
           "ssm:GetParameters",
+          # The EKS provisioner-env + range peering read the range topology
+          # contract at /shifter/<env>/range/ with a by-path lookup (ADR-044-R6).
+          "ssm:GetParametersByPath",
           "ssm:DeleteParameter",
           "ssm:DescribeParameters",
           "ssm:AddTagsToResource",

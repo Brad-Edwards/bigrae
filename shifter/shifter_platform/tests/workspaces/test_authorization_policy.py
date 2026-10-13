@@ -382,7 +382,8 @@ def test_predefined_administrator_checks_exact_policy_actions_not_unrelated_acti
     checked_actions = {item.action for item in provider.check_requests}
     assert result.state == AuthorizationOperation.State.CONFIRMED
     assert "workspace.update" in checked_actions
-    assert "workspace.read" not in checked_actions
+    assert "workspace.read" in checked_actions
+    assert "workspace.leave" not in checked_actions
     assert "workspace.launch_range" not in checked_actions
 
 

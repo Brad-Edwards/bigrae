@@ -26,8 +26,7 @@ from shared.cloud.kubernetes import KubernetesTaskProfile, KubernetesTaskRunner,
 _SHIFTER_TASK_RUNNER_GCP = "gcp"
 
 # Exclusive provisioner node-pool placement (#1711). Provisioner Jobs SSH-drive
-# range hosts and probe the OpenVPN gateway; pinning them to the tainted
-# provisioner pool gives their pods alias IPs from the provisioner pod range,
+# range hosts; pinning them to the tainted provisioner pool gives their pods alias IPs from the provisioner pod range,
 # which is the only source the range VPC's management ingress admits. The node
 # label matches the pool's ``node-restriction.kubernetes.io/shifter-pool`` label
 # and the toleration matches its ``dedicated=provisioner:NoSchedule`` taint (both

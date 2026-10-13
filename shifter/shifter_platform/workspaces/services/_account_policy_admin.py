@@ -395,11 +395,13 @@ def _installation_list_access(actor: CredentialContext, provider: AuthorizationP
         raise AccountScopeError(_DENIED) from exc
 
 
-def _account_batches(exact_uuid: UUID | None) -> Iterator[tuple[Account, ...]]:
+def _account_batches(exact_uuid: UUID | None, search: str = "") -> Iterator[tuple[Account, ...]]:
     """Read bounded SQL batches while retaining a stable count cursor."""
     cursor = 0
     while True:
         query = Account.objects.filter(pk__gt=cursor)
+        if search:
+            query = query.filter(name__icontains=search)
         if exact_uuid is not None:
             query = query.filter(uuid=exact_uuid)
         batch = tuple(query.order_by("pk")[:_LIST_BATCH_SIZE])
@@ -417,11 +419,12 @@ def _page_account_rows(
     exact_uuid: UUID | None,
     offset: int,
     limit: int,
+    search: str = "",
 ) -> AccountAdminPage:
     """Count and slice only accounts allowed by the live batch decisions."""
     count = 0
     results: list[AccountAdminView] = []
-    for batch in _account_batches(exact_uuid):
+    for batch in _account_batches(exact_uuid, search):
         visible = (True,) * len(batch) if global_access else _read_batch(actor, provider, batch)
         for account, allowed in zip(batch, visible, strict=True):
             if not allowed:
@@ -438,10 +441,13 @@ def admin_list_accounts(
     *,
     offset: int = 0,
     limit: int = 50,
+    search: str = "",
 ) -> AccountAdminPage:
     """Filter account authority before counting or slicing a collection."""
     _active_actor(actor)
     _valid_account_page(offset, limit)
+    if not isinstance(search, str) or len(search) > 200:
+        raise AccountScopeError(_DENIED)
     global_access = _installation_list_access(actor, provider)
     if not global_access and _READ_ACCOUNT not in actor.ceiling.actions:
         return AccountAdminPage(0, ())
@@ -450,5 +456,5 @@ def admin_list_accounts(
         return AccountAdminPage(0, ())
     exact_uuid = exact_target.uuid if exact_target is not None else None
     return _page_account_rows(
-        actor, provider, global_access=global_access, exact_uuid=exact_uuid, offset=offset, limit=limit
+        actor, provider, global_access=global_access, exact_uuid=exact_uuid, offset=offset, limit=limit, search=search
     )

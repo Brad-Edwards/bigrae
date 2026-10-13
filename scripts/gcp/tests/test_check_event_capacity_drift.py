@@ -151,3 +151,57 @@ def test_live_state_uses_effective_autoscaling_minimum_for_access_capacity(monke
     )
 
     assert observed["terraform"]["capacity.access_node_count"] == 3
+
+
+def _live(monkeypatch, extra: list[dict], **kwargs) -> dict:
+    responses = iter(_live_responses() + extra)
+    monkeypatch.setattr(_MODULE, "_run_json", lambda _argv: next(responses))
+    return collect_live_state(
+        {},
+        project="project",
+        region="region",
+        sql_instance="sql",
+        redis_instance="redis",
+        cluster="cluster",
+        namespace="namespace",
+        **kwargs,
+    )
+
+
+def test_a_deployed_openvpn_pool_reports_its_sizing(monkeypatch):
+    pool = [
+        {"instanceTemplate": "https://compute.googleapis.com/compute/v1/projects/p/regions/r/instanceTemplates/t-1"},
+        {"autoscalingPolicy": {"minNumReplicas": 3, "maxNumReplicas": 6, "cpuUtilization": {"utilizationTarget": 0.3}}},
+        {"properties": {"machineType": "e2-standard-2"}},
+    ]
+
+    observed = _live(monkeypatch, pool, vpn_pool="shifter-x-vpn")
+
+    assert {key: value for key, value in observed["terraform"].items() if "vpn_pool" in key} == {
+        "capacity.vpn_pool_machine_type": "e2-standard-2",
+        "capacity.vpn_pool_min_vms": 3,
+        "capacity.vpn_pool_max_vms": 6,
+        "capacity.vpn_pool_cpu_target_pct": 30,
+    }
+    assert "vpn_pool" not in observed
+
+
+def test_an_installation_without_the_pool_skips_only_the_pool_fields(monkeypatch):
+    observed = _live(monkeypatch, [])
+    desired = {
+        "profile_id": "gcp-shared-v1-p30",
+        "terraform": {**observed["terraform"], "capacity.vpn_pool_min_vms": 3},
+        "kubernetes": {},
+    }
+
+    assert observed["vpn_pool"] == "absent"
+    assert compare_capacity_state(desired, observed) == []
+    observed.pop("vpn_pool")
+    with pytest.raises(DriftInputError, match="vpn_pool_min_vms"):
+        compare_capacity_state(desired, observed)
+
+
+def test_incomplete_pool_evidence_fails_closed(monkeypatch):
+    pool = [{"instanceTemplate": "t"}, {"autoscalingPolicy": {}}, {"properties": {}}]
+    with pytest.raises(DriftInputError, match="OpenVPN pool"):
+        _live(monkeypatch, pool, vpn_pool="shifter-x-vpn")

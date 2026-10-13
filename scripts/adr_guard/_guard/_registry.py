@@ -12,6 +12,7 @@ from .checks.cloud_identifiers import (
     check_no_live_cloud_identifiers,
     check_no_terraform_operational_placeholders,
 )
+from .checks.gcp_deploy_identity import check_no_live_gcp_deploy_identity
 from .checks.complexity import (
     check_python_complexity_gate,
 )
@@ -81,6 +82,7 @@ CHECKS = {
     "deploy-workflow-runner-exposure": check_deploy_runner_exposure,
     "workflow-action-sha-pinning": check_workflow_action_sha_pinning,
     "no-live-cloud-identifiers": check_no_live_cloud_identifiers,
+    "no-live-gcp-deploy-identity": check_no_live_gcp_deploy_identity,
     "no-mission-control-flag-literals": check_mission_control_no_flag_literals,
     "no-terraform-operational-placeholders": check_no_terraform_operational_placeholders,
     "github-oidc-no-admin-access": check_github_oidc_no_admin_access,
@@ -113,6 +115,7 @@ CHECK_LEVELS = {
         "deploy-workflow-runner-exposure",
         "workflow-action-sha-pinning",
         "no-live-cloud-identifiers",
+        "no-live-gcp-deploy-identity",
         "no-mission-control-flag-literals",
         "no-terraform-operational-placeholders",
         "github-oidc-no-admin-access",
@@ -145,6 +148,7 @@ CHECK_LEVELS = {
         "deploy-workflow-runner-exposure",
         "workflow-action-sha-pinning",
         "no-live-cloud-identifiers",
+        "no-live-gcp-deploy-identity",
         "no-mission-control-flag-literals",
         "no-terraform-operational-placeholders",
         "github-oidc-no-admin-access",

@@ -17,6 +17,7 @@ from cms.api import (
     runtime_plugins,
     tenant_packs,
     views,
+    vpn_control,
 )
 
 app_name = "cms"
@@ -93,6 +94,9 @@ urlpatterns = [
         preparation_adapters.PreparationAdapterGrantListView.as_view(),
         name="preparation-adapter-grants",
     ),
+    path("vpn-control/sessions/", vpn_control.VpnSessionAuthorizeView.as_view(), name="vpn-control-authorize"),
+    path("vpn-control/heartbeat/", vpn_control.VpnSessionHeartbeatView.as_view(), name="vpn-control-heartbeat"),
+    path("vpn-control/sessions/end/", vpn_control.VpnSessionEndView.as_view(), name="vpn-control-end"),
     path(
         "artifact-preparation/workers/<uuid:operation_id>/",
         preparation_workers.PreparationWorkerView.as_view(),

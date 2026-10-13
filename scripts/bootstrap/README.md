@@ -439,7 +439,7 @@ file-backed operator workflow within the selected checkout only; sibling
 checkouts are never searched. Unknown modes fail closed.
 
 ```bash
-./scripts/bootstrap/deploy.py gdc-bootstrap --project-id prod-rwctxzl6shxk --cluster-id cluster1
+./scripts/bootstrap/deploy.py gdc-bootstrap --project-id example-gcp-project --cluster-id cluster1
 ```
 
 This follows the official Google Distributed Cloud on Compute Engine evaluation path, but bakes in the

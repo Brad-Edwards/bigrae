@@ -389,7 +389,11 @@ standalone, recovery-rebuild, and warm-claim activation) funnels through the CMS
 authoritative launch path, which enforces the gate once, before dispatch. The
 sharing overlap resolves against the canonical membership subject — a CTF
 participant's draw reference (`ctf:draw:<id>`) is threaded from the launch caller
-so a conflicting or stale published binding on that draw refuses the launch; a
+so a conflicting or stale published binding on that draw refuses the launch.
+Once the participant has a realized range, the subject is that range's
+reference, and a replacement launch (rebuild or re-provision) inherits the
+reference of the range it replaces in any lifecycle state, including FAILED, so
+restrictions published against that range carry over (#2462). A
 brand-new spare or non-CTF launch has no draw/range membership yet, so no
 range-scoped binding applies pre-dispatch. The admit/deny verdict is a
 deterministic function of its inputs, so a launch retry recomputes the same

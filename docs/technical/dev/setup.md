@@ -561,6 +561,79 @@ project in either file can leave Terraform and GitHub correctly configured while
 the CI Kubernetes deploy still pulls from another project's registry or binds
 pods to another project's identities.
 
+#### Optional: model access broker
+
+> **Not supported for use.** The broker is parked: keep `settings.model_broker`
+> and `settings.model_access` disabled. Three known defects make it unfit to run:
+> its TLS certificates are never renewed, so deploys fail 16 days after the first
+> broker deploy and its certificate expires at day 30; a fresh tenant with a
+> broker template fails its first deploy; and every model call requires finite
+> spend, rate, and concurrency limits. Range guests reach models through the
+> keyless default below. This section documents the settings for reference only.
+
+The ADR-059 model access broker is off by default. Without it, range guests use
+the keyless Vertex identity (ADR-064). Turning it on needs three
+`shifter.yaml` settings blocks that must agree with each other, plus prerequisites
+outside the repository. Validation rejects a partial broker configuration before
+any cloud change.
+
+- `settings.model_broker`: `enabled: true`, the broker `hostname`, a private IPv4
+  `vip` inside the platform GKE subnet, and `admitted_subnets`. Each admitted
+  subnet must sit inside `range_network_cidr` and be disjoint from the VIP and
+  from the other subnets. The block also needs the TLS Secret, control TLS
+  Secret, and CA ConfigMap names, and `model_projects`, which maps each model
+  project ID to its invocation service-account ID. `global_access` stays `false`
+  unless cross-region private clients need the VIP.
+- `settings.model_access`: `enabled: true` and a versioned, priced catalog
+  with its digest. Every account needs a positive spend, rate, and concurrency
+  ceiling; the schema has no unlimited mode.
+- `settings.model_broker_runtime`: the provider inventory, whose principals must
+  equal the applied invocation service accounts, and the fingerprint Secret name
+  and key version. It also takes `guest_trust_ca_pem`, the public broker CA
+  certificate that guests trust. With an empty CA, no guest can enroll.
+
+Supply the blocks one of two ways:
+
+1. A reviewed template at
+   `platform/deploy/gcp/<environment>/model-broker-overlay.template.json`, the
+   recommended path. It must contain exactly the three blocks above and the
+   placeholders `__GCP_PROJECT_ID__`, `__GUEST_CA_PEM__`, and
+   `__CATALOG_DIGEST__`. It must also use the fixed names
+   `model-broker-tls-v1`, `model-control-tls-v1`, `model-access-ca-v1`, and
+   `broker-fingerprint-v1`. On each CI deploy,
+   `scripts/gcp/prepare_model_broker_overlay.py` creates or verifies the broker
+   CA, both TLS Secrets, the CA ConfigMap, and the fingerprint Secret in
+   `shifter-platform`. It also fills in the CA and the catalog digest. The
+   reference shape is
+   `scripts/gcp/tests/fixtures/model-broker-overlay.template.json`.
+2. The `SHIFTER_CONFIG_OVERLAY_JSON` variable, or the blocks written directly into
+   `shifter.yaml`. Neither path creates the trust objects or computes the catalog
+   digest: create the Kubernetes Secrets and ConfigMap first, and set the digest
+   and CA yourself. The local `gdc-bootstrap` path supports only this form. The
+   chart mounts the trust objects by name, so a missing object makes the Helm
+   upgrade fail.
+
+Before enabling:
+
+- Run the first deploy without the template. The template step connects to the
+  GKE cluster before Terraform runs, so on a fresh tenant it fails because the
+  cluster does not exist yet. Add the template once the cluster exists.
+- Prepare every model project. Each one needs billing enabled, the label
+  `shifter-deployment=<deployment.name>`, and the Vertex models enabled. Terraform
+  enables the APIs and creates the invocation service account and its roles
+  there. The CI deploy identity holds roles only in the platform project, so
+  grant it equivalent authority in each other model project first.
+- Set `GCP_RANGE_PRIVATE_GOOGLE_ACCESS=false`. Broker clients require
+  source-preserving isolated egress, and a broker-enrolled range with Private
+  Google Access on fails to provision.
+- Plan certificate renewal. The template path issues 30-day TLS certificates
+  and a 365-day CA, and refuses to deploy when a certificate has less than 14
+  days left or the CA less than 30. It does not renew either automatically yet.
+
+See [GCP packaging](../../architecture/model-access/gcp-packaging.md) and the
+[model access GCP probes](../../ops/model-access-gcp-probes.md) for the full
+contract and post-deploy checks.
+
 ### 4. Deploy
 
 The first clean install runs locally under your own credentials (Workload Identity
@@ -668,3 +741,42 @@ With `--range-backend gdc`, the flow first builds or reconciles the GDC substrat
 The GCP path requires a real hostname and managed TLS. Point the configured
 hostname to the reserved global ingress IP so the Google-managed certificate can
 become active.
+
+### 6. Optional: participant OpenVPN access
+
+Participant OpenVPN (ADR-039-R10) is off by default. When it is on, every
+deployment runs one shared, autoscaled OpenVPN server pool, and participants
+download an `.ovpn` profile for their range. The local `gdc-bootstrap` path never
+deploys the pool, so turn it on after bootstrap through the CI deploy:
+
+1. Apply `platform/terraform/gcp/global/cicd-oidc` for the tenant's identity
+   profile from a revision that includes the pool. The apply adds the deploy and
+   destroy roles `<prefix>_deploy_vpn_pool` and `<prefix>_destroy_vpn_pool`. Each
+   role covers the pool's instance templates, regional instance group, and
+   autoscaler, and its VM, disk, and template permissions apply only to the
+   pool's `shifter-<environment>-vpn-` names. Without these roles the deploy
+   fails when it creates the pool's instance template. Confirm both bindings:
+
+   ```bash
+   gcloud projects get-iam-policy <project> --format=json \
+     | jq -r '.bindings[] | select(.role | test("vpn_pool")) | .role'
+   ```
+
+2. Set the GitHub Environment variable `RANGE_OPENVPN_ENABLED=true` for the
+   tenant.
+3. Run the CI deploy:
+   `gh workflow run deploy.yml --ref <branch> -f environment=<environment>`.
+   It creates the pool, the tenant OpenVPN CA, and the pool server certificate.
+   It also records the scanned image digest, starts the servers, and waits until
+   every server is healthy behind the load balancer.
+4. Plan quota for the pool: it adds `e2-standard-2` VMs (two vCPUs each) up to
+   the capacity profile's maximum, plus one external address for the endpoint
+   and one for the pool's NAT.
+
+Do not set `openvpn_pool_enabled = true` in `local.auto.tfvars` for a local
+bootstrap. The local path does not build the server image or write the PKI and
+release record, so those servers never start. Launches stay safe either way: the
+runtime switch is off unless the CI deploy renders `RANGE_OPENVPN_ENABLED=true`,
+and that render fails if no pool exists. See "Participant OpenVPN access" in
+[`docs/dev/gcp-range-cell-deploy.md`](../../dev/gcp-range-cell-deploy.md) for
+the network design, sizing, and session rules.

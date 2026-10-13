@@ -15,6 +15,7 @@ variables {
   secrets_manager_kms_key_arn = "arn:aws:kms:us-east-2:123456789012:key/test"
   db_resource_id              = "db-test"
   agent_s3_bucket_arn         = "arn:aws:s3:::test-agent"
+  agent_s3_kms_key_arn        = "arn:aws:kms:us-east-2:123456789012:key/test-storage"
   range_vpc_id                = "vpc-mock-range"
   range_availability_zone     = "us-east-2a"
   range_instance_role_arn     = "arn:aws:iam::123456789012:role/range"
@@ -33,5 +34,17 @@ run "native_guest_creation_and_cleanup_remain_environment_scoped" {
       !contains(statement.Action, "iam:PassRole") && !contains(statement.Action, "ec2:CreateVpc") && !contains(statement.Action, "*")
     ])
     error_message = "Native guests do not need cloud roles or a new VPC."
+  }
+}
+
+run "storage_bucket_reads_decrypt_only_its_key_through_s3" {
+  command = plan
+  assert {
+    condition = (
+      jsondecode(aws_iam_role_policy.s3_agent.policy).Statement[1].Resource == "arn:aws:kms:us-east-2:123456789012:key/test-storage" &&
+      jsondecode(aws_iam_role_policy.s3_agent.policy).Statement[1].Action == ["kms:Decrypt", "kms:GenerateDataKey"] &&
+      jsondecode(aws_iam_role_policy.s3_agent.policy).Statement[1].Condition.StringEquals["kms:ViaService"] == "s3.us-east-2.amazonaws.com"
+    )
+    error_message = "The provisioner may use only the storage bucket's SSE-KMS key, and only through S3."
   }
 }

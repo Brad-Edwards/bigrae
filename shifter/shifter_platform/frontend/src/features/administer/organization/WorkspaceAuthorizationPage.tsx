@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router";
 
 import {
+  type AuthorizationScope,
   useAuthorizationCatalog,
   useAuthorizationGroups,
   useAuthorizationOperation,
@@ -26,13 +27,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 
-function MutationOutcome({
+export function MutationOutcome({
   workspaceUuid,
   result,
   error,
   uncertain,
   onRetry,
-}: Readonly<{ workspaceUuid: string; result?: AuthorizationMutation; error?: unknown; uncertain?: boolean; onRetry?: () => void }>) {
+}: Readonly<{ workspaceUuid: AuthorizationScope; result?: AuthorizationMutation; error?: unknown; uncertain?: boolean; onRetry?: () => void }>) {
   const pending = result?.state === "requested" || result?.state === "unresolved";
   const operation = useAuthorizationOperation(workspaceUuid, result?.operation_id ?? "", pending);
   const reconcile = useReconcileAuthorizationOperation(workspaceUuid, result?.operation_id ?? "");
@@ -148,10 +149,11 @@ function EffectSelect({ value, onChange }: Readonly<{ value: AuthorizationEffect
 
 export function WorkspaceAuthorizationPage() {
   const { workspaceUuid = "" } = useParams();
-  return <WorkspaceAuthorizationContent key={workspaceUuid} workspaceUuid={workspaceUuid} />;
+  return <ScopeAuthorizationContent key={workspaceUuid} workspaceUuid={workspaceUuid} />;
 }
 
-function WorkspaceAuthorizationContent({ workspaceUuid }: Readonly<{ workspaceUuid: string }>) {
+export function ScopeAuthorizationContent({ workspaceUuid }: Readonly<{ workspaceUuid: AuthorizationScope }>) {
+  const scopeType = typeof workspaceUuid === "string" ? "workspace" : workspaceUuid.kind;
   const groups = useAuthorizationGroups(workspaceUuid);
   const policies = useAuthorizationPolicies(workspaceUuid);
   const catalog = useAuthorizationCatalog();
@@ -175,7 +177,7 @@ function WorkspaceAuthorizationContent({ workspaceUuid }: Readonly<{ workspaceUu
     <div className="space-y-6">
       <PageHeader
         title="Policies and groups"
-        description="Manage workspace groups, policies, assignments, and revocations."
+        description={`Manage ${scopeType} groups, policies, assignments, and revocations.`}
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <CreateMetadataCard
@@ -202,12 +204,12 @@ function WorkspaceAuthorizationContent({ workspaceUuid }: Readonly<{ workspaceUu
       <PredefinedAssignmentForm
         workspaceUuid={workspaceUuid}
         groups={(groups.data ?? []).filter((item) => item.is_active)}
-        policies={(predefined.data ?? []).filter((item) => item.target_type === "workspace")}
+        policies={(predefined.data ?? []).filter((item) => item.target_type === scopeType)}
       />
       <ActionAssignmentForm
         workspaceUuid={workspaceUuid}
         policies={(policies.data ?? []).filter((item) => item.is_active && !item.predefined_code)}
-        actions={(catalog.data ?? []).filter((item) => item.target_type === "workspace" && item.delegable)}
+        actions={(catalog.data ?? []).filter((item) => item.target_type === scopeType && item.delegable)}
       />
     </div>
   );
@@ -218,7 +220,7 @@ function PredefinedAssignmentForm({
   groups,
   policies,
 }: Readonly<{
-  workspaceUuid: string;
+  workspaceUuid: AuthorizationScope;
   groups: readonly { uuid: string; name: string }[];
   policies: readonly { code: string; name: string }[];
 }>) {
@@ -296,7 +298,7 @@ function MetadataList({ title, items }: Readonly<{ title: string; items: readonl
   );
 }
 
-function GroupMembershipForm({ workspaceUuid, groups }: Readonly<{ workspaceUuid: string; groups: readonly { uuid: string; name: string }[] }>) {
+function GroupMembershipForm({ workspaceUuid, groups }: Readonly<{ workspaceUuid: AuthorizationScope; groups: readonly { uuid: string; name: string }[] }>) {
   const [groupUuid, setGroupUuid] = useState("");
   const [principalUuid, setPrincipalUuid] = useState("");
   const [effect, setEffect] = useState<AuthorizationEffect>("grant");
@@ -320,7 +322,7 @@ function GroupMembershipForm({ workspaceUuid, groups }: Readonly<{ workspaceUuid
   );
 }
 
-function PolicyAssignmentForm({ workspaceUuid, groups, policies }: Readonly<{ workspaceUuid: string; groups: readonly { uuid: string; name: string }[]; policies: readonly { uuid: string; name: string }[] }>) {
+function PolicyAssignmentForm({ workspaceUuid, groups, policies }: Readonly<{ workspaceUuid: AuthorizationScope; groups: readonly { uuid: string; name: string }[]; policies: readonly { uuid: string; name: string }[] }>) {
   const [policyUuid, setPolicyUuid] = useState("");
   const [subjectKind, setSubjectKind] = useState<"principal" | "group">("principal");
   const [subjectUuid, setSubjectUuid] = useState("");
@@ -348,7 +350,7 @@ function PolicyAssignmentForm({ workspaceUuid, groups, policies }: Readonly<{ wo
   );
 }
 
-function ActionAssignmentForm({ workspaceUuid, policies, actions }: Readonly<{ workspaceUuid: string; policies: readonly { uuid: string; name: string }[]; actions: readonly { code: string }[] }>) {
+function ActionAssignmentForm({ workspaceUuid, policies, actions }: Readonly<{ workspaceUuid: AuthorizationScope; policies: readonly { uuid: string; name: string }[]; actions: readonly { code: string }[] }>) {
   const [policyUuid, setPolicyUuid] = useState("");
   const [subjectUuid, setSubjectUuid] = useState("");
   const [action, setAction] = useState("");

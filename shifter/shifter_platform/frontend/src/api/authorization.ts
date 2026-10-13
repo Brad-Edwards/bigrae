@@ -13,17 +13,39 @@ import type {
   PredefinedAuthorizationPolicy,
 } from "./types";
 
+export type AuthorizationScope = string | Readonly<{
+  kind: "installation" | "account" | "organization" | "workspace";
+  uuid?: string;
+  accountUuid?: string;
+}>;
+
 export const authorizationKeys = {
   all: ["authorization"] as const,
   catalog: () => ["authorization", "catalog"] as const,
   predefinedCatalog: () => ["authorization", "predefined-catalog"] as const,
-  groups: (workspaceUuid: string) => ["authorization", workspaceUuid, "groups"] as const,
-  policies: (workspaceUuid: string) => ["authorization", workspaceUuid, "policies"] as const,
-  operation: (workspaceUuid: string, operationUuid: string) =>
+  groups: (workspaceUuid: AuthorizationScope) => ["authorization", workspaceUuid, "groups"] as const,
+  policies: (workspaceUuid: AuthorizationScope) => ["authorization", workspaceUuid, "policies"] as const,
+  operation: (workspaceUuid: AuthorizationScope, operationUuid: string) =>
     ["authorization", workspaceUuid, "operations", operationUuid] as const,
 };
 
-const workspacePath = (workspaceUuid: string) => `/workspaces/${workspaceUuid}/authorization`;
+const workspacePath = (scope: AuthorizationScope) => {
+  if (typeof scope === "string") return `/workspaces/${encodeURIComponent(scope)}/authorization`;
+  const uuid = encodeURIComponent(scope.uuid ?? "");
+  if (scope.kind === "installation") return "/administer/authorization";
+  if (scope.kind === "account") return `/accounts/${uuid}/authorization`;
+  if (scope.kind === "organization") return `/accounts/${encodeURIComponent(scope.accountUuid ?? "")}/organizations/${uuid}/authorization`;
+  return `/workspaces/${uuid}/authorization`;
+};
+
+const operationPath = (scope: AuthorizationScope, uuid: string) => {
+  // Root organizer commands have a concrete organization UUID. The owning
+  // recovery service derives its account ancestry without a client guess.
+  const prefix = typeof scope !== "string" && scope.kind === "organization" && !scope.accountUuid
+    ? `/organizations/${encodeURIComponent(scope.uuid ?? "")}/authorization`
+    : workspacePath(scope);
+  return `${prefix}/operations/${encodeURIComponent(uuid)}/`;
+};
 
 export function useAuthorizationCatalog() {
   return useQuery({
@@ -40,7 +62,7 @@ export function usePredefinedAuthorizationCatalog() {
   });
 }
 
-export function useAuthorizationGroups(workspaceUuid: string) {
+export function useAuthorizationGroups(workspaceUuid: AuthorizationScope) {
   return useQuery({
     queryKey: authorizationKeys.groups(workspaceUuid),
     enabled: Boolean(workspaceUuid),
@@ -49,7 +71,7 @@ export function useAuthorizationGroups(workspaceUuid: string) {
   });
 }
 
-export function useAuthorizationPolicies(workspaceUuid: string) {
+export function useAuthorizationPolicies(workspaceUuid: AuthorizationScope) {
   return useQuery({
     queryKey: authorizationKeys.policies(workspaceUuid),
     enabled: Boolean(workspaceUuid),
@@ -58,7 +80,7 @@ export function useAuthorizationPolicies(workspaceUuid: string) {
   });
 }
 
-function useCreateMetadata(workspaceUuid: string, kind: "groups" | "policies") {
+function useCreateMetadata(workspaceUuid: AuthorizationScope, kind: "groups" | "policies") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { name: string; description?: string }) =>
@@ -74,16 +96,16 @@ function useCreateMetadata(workspaceUuid: string, kind: "groups" | "policies") {
   });
 }
 
-export const useCreateAuthorizationGroup = (workspaceUuid: string) =>
+export const useCreateAuthorizationGroup = (workspaceUuid: AuthorizationScope) =>
   useCreateMetadata(workspaceUuid, "groups");
-export const useCreateAuthorizationPolicy = (workspaceUuid: string) =>
+export const useCreateAuthorizationPolicy = (workspaceUuid: AuthorizationScope) =>
   useCreateMetadata(workspaceUuid, "policies");
 
 interface MutationBase {
   effect: AuthorizationEffect;
 }
 
-function useRelationshipMutation<T extends MutationBase>(path: string) {
+export function useRelationshipMutation<T>(path: string) {
   const [recovering, setRecovering] = useState(false);
   const mutation = useMutation({
     mutationFn: (command: { path: string; body: T & { idempotency_key: string } }) =>
@@ -111,38 +133,38 @@ function useRelationshipMutation<T extends MutationBase>(path: string) {
   };
 }
 
-export function useGroupMembership(workspaceUuid: string, groupUuid: string) {
+export function useGroupMembership(workspaceUuid: AuthorizationScope, groupUuid: string) {
   return useRelationshipMutation<MutationBase & { principal_uuid: string }>(
     `${workspacePath(workspaceUuid)}/groups/${groupUuid}/memberships/`,
   );
 }
 
-export function usePolicyAssignment(workspaceUuid: string, policyUuid: string) {
+export function usePolicyAssignment(workspaceUuid: AuthorizationScope, policyUuid: string) {
   return useRelationshipMutation<MutationBase & { subject_kind: "principal" | "group"; subject_uuid: string }>(
     `${workspacePath(workspaceUuid)}/policies/${policyUuid}/assignments/`,
   );
 }
 
-export function usePolicyAction(workspaceUuid: string, policyUuid: string) {
+export function usePolicyAction(workspaceUuid: AuthorizationScope, policyUuid: string) {
   return useRelationshipMutation<MutationBase & { action: string }>(
     `${workspacePath(workspaceUuid)}/policies/${policyUuid}/actions/`,
   );
 }
 
-export function useDirectAssignment(workspaceUuid: string) {
+export function useDirectAssignment(workspaceUuid: AuthorizationScope) {
   return useRelationshipMutation<MutationBase & { action: string; subject_kind: "principal" | "group"; subject_uuid: string }>(
     `${workspacePath(workspaceUuid)}/direct-assignments/`,
   );
 }
 
-export function usePredefinedAssignment(workspaceUuid: string) {
+export function usePredefinedAssignment(workspaceUuid: AuthorizationScope) {
   return useRelationshipMutation<MutationBase & { policy_code: string; subject_kind: "principal" | "group"; subject_uuid: string }>(
     `${workspacePath(workspaceUuid)}/predefined-assignments/`,
   );
 }
 
 export function useAuthorizationOperation(
-  workspaceUuid: string,
+  workspaceUuid: AuthorizationScope,
   operationUuid: string,
   enabled = true,
 ) {
@@ -151,7 +173,7 @@ export function useAuthorizationOperation(
     enabled: enabled && Boolean(workspaceUuid) && Boolean(operationUuid),
     queryFn: ({ signal }) =>
       apiFetch<AuthorizationOperation>(
-        `${workspacePath(workspaceUuid)}/operations/${operationUuid}/`,
+        operationPath(workspaceUuid, operationUuid),
         { signal },
       ),
     retry: false,
@@ -163,12 +185,12 @@ export function useAuthorizationOperation(
   });
 }
 
-export function useReconcileAuthorizationOperation(workspaceUuid: string, operationUuid: string) {
+export function useReconcileAuthorizationOperation(workspaceUuid: AuthorizationScope, operationUuid: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
       apiFetch<AuthorizationOperation>(
-        `${workspacePath(workspaceUuid)}/operations/${operationUuid}/`,
+        operationPath(workspaceUuid, operationUuid),
         { method: "POST", body: {} },
       ),
     retry: false,

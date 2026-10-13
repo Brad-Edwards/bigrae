@@ -210,6 +210,50 @@ variable "destroy_storage_permissions" {
   ]
 }
 
+variable "deploy_vpn_pool_permissions" {
+  description = "Compute permissions for the shared OpenVPN pool (#2480); VM, disk and template permissions are conditioned to the pool's names."
+  type        = list(string)
+  default = [
+    "compute.autoscalers.create",
+    "compute.autoscalers.delete",
+    "compute.autoscalers.get",
+    "compute.autoscalers.update",
+    # regionInstanceGroupManagers.insert/patch check these on the caller; the
+    # Compute service agent then creates the VMs from the template.
+    "compute.disks.create",
+    "compute.instances.create",
+    "compute.instances.setLabels",
+    "compute.instances.setMetadata",
+    "compute.instances.setServiceAccount",
+    "compute.instances.setTags",
+    "compute.instanceGroupManagers.create",
+    "compute.instanceGroupManagers.delete",
+    "compute.instanceGroupManagers.get",
+    "compute.instanceGroupManagers.update",
+    "compute.instanceGroupManagers.use",
+    "compute.instanceGroups.delete",
+    "compute.instanceTemplates.create",
+    "compute.instanceTemplates.delete",
+    "compute.instanceTemplates.get",
+    "compute.instanceTemplates.list",
+    "compute.instanceTemplates.useReadOnly",
+  ]
+}
+
+variable "destroy_vpn_pool_permissions" {
+  description = "Compute permissions to tear down the shared OpenVPN pool (#2480), conditioned to the pool's names."
+  type        = list(string)
+  default = [
+    "compute.autoscalers.delete",
+    "compute.autoscalers.get",
+    "compute.instanceGroupManagers.delete",
+    "compute.instanceGroupManagers.get",
+    "compute.instanceGroups.delete",
+    "compute.instanceTemplates.delete",
+    "compute.instanceTemplates.get",
+  ]
+}
+
 variable "promotion_reader_service_account_email" {
   description = "Prod promote SA email granted read-only access to source images by the source-project root."
   type        = string

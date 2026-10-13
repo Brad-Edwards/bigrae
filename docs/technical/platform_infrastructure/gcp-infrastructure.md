@@ -155,7 +155,7 @@ If `email_backend` is set without `email_from_address` (or without `email_sender
 
 ## Current `gcp-dev` concrete values
 
-- Project: `prod-rwctxzl6shxk`
+- Project: `example-gcp-project`
 - Hostname: `shifter.example.com`
 - Managed TLS: enabled
 - Authorized admin CIDRs: empty; operator and CI access use Connect Gateway

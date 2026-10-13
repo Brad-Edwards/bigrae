@@ -25,7 +25,7 @@ echo "=== Adding Kali official apt repository + keyring ==="
 # neither needed nor wanted).
 curl -fsS --proto =https https://archive.kali.org/archive-keyring.gpg \
   -o /usr/share/keyrings/kali-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/kali-archive-keyring.gpg] http://http.kali.org/kali kali-rolling main contrib non-free non-free-firmware" \
+echo "deb [signed-by=/usr/share/keyrings/kali-archive-keyring.gpg] https://http.kali.org/kali kali-rolling main contrib non-free non-free-firmware" \
   > /etc/apt/sources.list.d/kali.list
 # Track Kali Rolling as the system distro: drop the Debian suite lists so the
 # full-upgrade below moves the whole base onto Kali.

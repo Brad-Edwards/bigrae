@@ -32,6 +32,8 @@ class ManagementConfig(AppConfig):
             services.principal_for_user,
             services.resolve_principal,
             services.resolve_principal_uuid,
+            services.resolve_verified_principal,
+            services.principal_identity_for_user,
         )
 
         def on_user_saved(

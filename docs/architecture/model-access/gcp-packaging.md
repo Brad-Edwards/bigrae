@@ -138,9 +138,10 @@ egress mode and the explicit broker capability, then pass it to the firewall
 consumer; integration tests inspect their resulting rules and reject
 strict zero egress, a mismatched VIP and Private Google Access.
 
-M06 does not enroll production ranges: the operation runners supply no broker
-capability, and the configuration loader supplies no broker VIP. M08 owns those
-admission and deployment bindings in its generation-owned projection. Global
+M06 did not enroll production ranges: its operation runners supplied no broker
+capability, and its configuration loader supplied no broker VIP. M08 added those
+admission and deployment bindings in its generation-owned projection (see
+[Guest egress projection](#guest-egress-projection)). Global
 deployment enablement alone grants no range access. Similarly,
 `peer_matches_binding` is a tested transport contract for the M05 listener;
 this package has no production listener calling it. These tests establish the

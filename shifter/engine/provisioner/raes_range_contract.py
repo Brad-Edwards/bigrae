@@ -9,6 +9,8 @@ from shared.range_instantiation_policy import (
 )
 
 from cloud.exceptions import CloudError
+from executors.base import GuestReadinessTimeoutError
+from raes_content_payload import RaesContentDeliveryError
 from raes_gcp_network_allocation import RaesRealizationError
 
 _FAILURE_REASON_CODE = "cloud_operation_failed"
@@ -49,6 +51,18 @@ def _require_gce_live_fire_binding(operation_input: RaesOperationInput) -> str:
     return admission.backend
 
 
+#: Failures whose messages are authored text, safe to report: RAES realization
+#: errors raised by this module, content-delivery errors, which carry only
+#: constant messages naming the failing step (enforced by
+#: test_content_delivery_errors_carry_only_authored_text), and guest readiness
+#: timeouts, which carry only the wait and a fixed probe-failure category.
+_AUTHORED_FAILURES: tuple[tuple[type[BaseException], str, str], ...] = (
+    (RaesRealizationError, _INVALID_STATE_REASON_CODE, "{stage}: {message}"),
+    (RaesContentDeliveryError, _FAILURE_REASON_CODE, "{stage} failed: {message}"),
+    (GuestReadinessTimeoutError, _TIMEOUT_REASON_CODE, "{stage} timed out: {message}"),
+)
+
+
 def _classify_failure(exc: BaseException, stage: str) -> tuple[str, str]:
     """Map a realization failure onto an authored reason code and diagnostic.
 
@@ -65,9 +79,9 @@ def _classify_failure(exc: BaseException, stage: str) -> tuple[str, str]:
     crosses to keep the channel useful for triage. Full context stays in the
     provisioner's own logs, where the raw error is re-raised to the task runner.
     """
-    if isinstance(exc, RaesRealizationError):
-        # Authored by this module, so its text is already safe to report.
-        return _INVALID_STATE_REASON_CODE, f"{stage}: {exc}"
+    for error_type, reason_code, template in _AUTHORED_FAILURES:
+        if isinstance(exc, error_type):
+            return reason_code, template.format(stage=stage, message=exc)
     if isinstance(exc, TimeoutError):
         return _TIMEOUT_REASON_CODE, f"{stage} timed out ({type(exc).__name__})"
     return _FAILURE_REASON_CODE, f"{stage} failed ({type(exc).__name__})"

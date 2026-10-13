@@ -25,6 +25,36 @@ capabilities:
   # profiles enable this; AWS/neutral profiles leave it false so no GCP node
   # label/taint toleration leaks into their manifests.
   gcpAccessNodePool: false
+  # Isolated feature-artifact acquisition Jobs (ADR-034-R12, #2463). The AWS
+  # renderer enables this only when the environment defines the artifactAcquirer
+  # workload identity.
+  featureArtifactAcquisition: false
+
+# Isolated feature-artifact acquisition Jobs (ADR-034-R12, #2463), used when
+# capabilities.featureArtifactAcquisition is on. Renderers set the HTTPS egress
+# the Job needs to reach upstream registries and object storage (the cluster's
+# own ranges excluded), and provider identity annotations for its service account.
+featureArtifactAcquisition:
+  serviceAccountAnnotations: {}
+  egressCidrs: []
+  egressExcept: []
+
+# Trusted runtime-plugin node-pool labeler (AWS EKS, #2526). Applies the
+# node-restriction.kubernetes.io/shifter-pool=runtime-plugin label to nodes in the
+# nodeGroupAsg Auto Scaling group. The AWS renderer enables it with the pool.
+runtimePluginPool:
+  labeler:
+    enabled: false
+    nodeGroupAsg: ""
+    # Measured: the platform package, boto3 and the Kubernetes client take about
+    # 180 MiB resident before the first reconcile pass.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 192Mi
+      limits:
+        cpu: 200m
+        memory: 320Mi
 
 namespaces:
   platform: shifter-platform
@@ -107,6 +137,13 @@ identity:
 # contract that the static base manifest (platform/k8s/gcp/base) encodes.
 provisioner:
   taskRunner: gcp
+
+provisionerAdmission:
+  # When true, restrict-provisioner-jobs inlines its param values into the policy CEL
+  # instead of a ConfigMap paramRef. Set true only on backends whose control plane
+  # cannot resolve ValidatingAdmissionPolicy ConfigMap params (AWS EKS); GCP resolves
+  # them, so it keeps the paramRef.
+  inlineParams: false
 
 runtime:
   secretReferences: {}
@@ -354,6 +391,12 @@ network:
   enabled: true
   ingressSourceCidrs: []
   providerApiCidrs: []
+  # CIDRs excluded from the broad provider-API (443) egress via ipBlock.except so
+  # the wildcard AWS-API allow cannot also reach the in-cluster Kubernetes API.
+  # Empty by default (GKE): the parity target reaches provider APIs on narrow
+  # ranges that never include the control plane. AWS sets this to the service
+  # CIDR so only the launcher policy grants API access (#1826).
+  providerApiEgressExcept: []
   privateServiceCidrs: []
   # GKE service CIDR containing kubernetes.default.svc. Scoped only to the
   # dedicated launcher pod so other platform workloads remain API-tokenless.
@@ -376,6 +419,17 @@ network:
   rangeAccessPorts:
     - 22
     - 3389
+  # Ports the provisioner Jobs dial on range guests: guest SSH (22), the
+  # container-host management sshd (2222), RDP (3389), and WinRM (5985/5986).
+  # Kept in step with scripts/gcp/render_private_service_netpol.py for the
+  # kustomize deploy path.
+  rangeProvisionerPorts:
+    - 22
+    - 2222
+    - 3389
+    - 5985
+    - 5986
+    - 1195
 
 edge:
   hostname: ""

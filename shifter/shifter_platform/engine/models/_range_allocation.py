@@ -34,30 +34,3 @@ class RangeAllocationMixin:
                 f"No subnet indices available. Maximum {cls.SUBNET_INDEX_MAX} "
                 "concurrent ranges supported. Destroy some ranges first."
             )
-
-    @classmethod
-    def allocate_vpn_gateway_slot(cls: type[Any]) -> int:
-        """Reserve the first free OpenVPN gateway slot while holding the range-table lock."""
-        from django.conf import settings
-        from django.db import connection
-
-        pool_size = int(getattr(settings, "VPN_GATEWAY_POOL_SIZE", 0))
-        if pool_size <= 0:
-            raise ValueError("VPN_GATEWAY_POOL_SIZE must be a positive integer to provision OpenVPN ranges")
-        with transaction.atomic():
-            if connection.vendor != "sqlite":
-                with connection.cursor() as cursor:
-                    cursor.execute("LOCK TABLE mission_control_range IN EXCLUSIVE MODE")
-            used_slots = set(
-                cls.objects.exclude(status__in=[cls.Status.DESTROYED, cls.Status.FAILED])
-                .exclude(vpn_gateway_pool_slot__isnull=True)
-                .values_list("vpn_gateway_pool_slot", flat=True)
-            )
-            for slot in range(pool_size):
-                if slot not in used_slots:
-                    return slot
-            raise ValueError(
-                f"OpenVPN gateway pool exhausted. Maximum {pool_size} concurrent OpenVPN "
-                "ranges supported; increase VPN_GATEWAY_POOL_SIZE (and the Terraform pool) "
-                "or destroy some ranges first."
-            )

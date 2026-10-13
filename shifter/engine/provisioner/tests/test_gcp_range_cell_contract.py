@@ -133,7 +133,6 @@ def test_different_scenario_compositions_cross_the_same_outer_contract(scenario_
         "scenario_artifact",
         "network_bindings",
         "access_declarations",
-        "remote_access",
     }
     assert request["scenario_artifact"]["payload"]["scenario_id"] == scenario_payload["scenario_id"]
     assert request["access_declarations"] == scenario_payload["participant_access"]

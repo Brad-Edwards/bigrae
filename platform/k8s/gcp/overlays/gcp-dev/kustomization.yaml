@@ -20,13 +20,13 @@ secretGenerator:
 
 images:
   - name: us-docker.pkg.dev/placeholder-project/shifter/portal
-    newName: us-central1-docker.pkg.dev/prod-oesaxg/shifter-gcp-dev-portal/portal
+    newName: us-central1-docker.pkg.dev/shifter-gcp-dev/shifter-gcp-dev-portal/portal
     newTag: 0.0.0
   - name: us-docker.pkg.dev/placeholder-project/shifter/guacd
-    newName: us-central1-docker.pkg.dev/prod-oesaxg/shifter-gcp-dev-guacd/guacd
+    newName: us-central1-docker.pkg.dev/shifter-gcp-dev/shifter-gcp-dev-guacd/guacd
     newTag: 0.0.0
   - name: us-docker.pkg.dev/placeholder-project/shifter/guacamole-client
-    newName: us-central1-docker.pkg.dev/prod-oesaxg/shifter-gcp-dev-guacamole-client/guacamole-client
+    newName: us-central1-docker.pkg.dev/shifter-gcp-dev/shifter-gcp-dev-guacamole-client/guacamole-client
     newTag: 0.0.0
 
 patches:

@@ -285,6 +285,12 @@ variable "cloud_sql_deletion_protection" {
   default     = true
 }
 
+variable "gcs_force_destroy" {
+  description = "Allow terraform destroy to empty and delete the assets and audit-logs buckets. Default false; the GCP destroy workflow renders this true so teardown can remove the versioned, populated buckets instead of failing on them."
+  type        = bool
+  default     = false
+}
+
 variable "redis_tier" {
   description = "Memorystore tier for the control-plane Redis instance. Default STANDARD_HA: the platform cache is shared multi-pod state and the production posture is high-availability replication. AUTH and TLS posture are independent of tier — the module enables them unconditionally — so a future disposable environment can opt into BASIC by overriding this variable without weakening the security contract."
   type        = string
@@ -612,4 +618,42 @@ variable "messaging_notification_channels" {
   description = "Cloud Monitoring notification channel resource IDs for messaging alerts."
   type        = list(string)
   default     = []
+}
+
+# Shared participant OpenVPN server pool (#2480). Sizing comes from the shared
+# service capacity profile (vpn_pool_* projection).
+variable "openvpn_pool_enabled" {
+  description = "Deploy the shared participant OpenVPN server pool (RANGE_OPENVPN_ENABLED)."
+  type        = bool
+  default     = false
+}
+
+variable "openvpn_pool_subnet_cidr" {
+  description = "Pool subnet in the range VPC; must not overlap any other platform or range network."
+  type        = string
+  default     = "10.49.0.0/24"
+}
+
+variable "openvpn_pool_machine_type" {
+  description = "Pool server machine type (capacity profile)."
+  type        = string
+  default     = "e2-standard-2"
+}
+
+variable "openvpn_pool_min_vms" {
+  description = "Minimum pool servers (capacity profile)."
+  type        = number
+  default     = 2
+}
+
+variable "openvpn_pool_max_vms" {
+  description = "Maximum pool servers (capacity profile)."
+  type        = number
+  default     = 4
+}
+
+variable "openvpn_pool_cpu_target_pct" {
+  description = "Pool autoscaler CPU target in percent (capacity profile)."
+  type        = number
+  default     = 30
 }

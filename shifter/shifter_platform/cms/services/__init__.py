@@ -68,6 +68,7 @@ from engine.services import (
 from engine.services import release_capacity_reservations as engine_release_capacity_reservations
 from engine.services import release_range_capacity as engine_release_range_capacity
 from engine.services import resolve_model_access_range_page as engine_resolve_model_access_range_page
+from engine.services import resolve_model_access_range_reference as engine_resolve_model_access_range_reference
 from engine.services import resolve_model_access_range_views as engine_resolve_model_access_range_views
 from engine.services import resume_range as engine_resume_range
 from engine.services import validate_sharing_binding as engine_validate_sharing_binding
@@ -96,6 +97,7 @@ from ._model_access_sharing import (
     ModelAccessSelectorError,
     find_model_access_selected_ranges,
     resolve_model_access_range_instances,
+    resolve_model_access_range_reference,
     resolve_model_access_range_views,
     resolve_model_access_selected_ranges,
     resolve_model_access_selector,
@@ -114,6 +116,8 @@ from ._non_user_range_launch import NonUserWorkflow, create_non_user_range
 
 # --- Public service functions ------------------------------------------------
 from ._pack_conformance import validate_registered_pack_conformance
+from ._policy_offboarding import policy_reassign_range_owner, policy_transfer_user_ownership
+from ._policy_range_scope import policy_list_range_scope_bindings, policy_rebind_range_workspace
 from ._queries import (
     find_range_instance_id_by_request,
     get_range_spec_by_id,
@@ -311,6 +315,7 @@ __all__ = (
     "engine_release_capacity_reservations",
     "engine_release_range_capacity",
     "engine_resolve_model_access_range_page",
+    "engine_resolve_model_access_range_reference",
     "engine_resolve_model_access_range_views",
     "engine_resume_range",
     "engine_validate_sharing_binding",
@@ -356,6 +361,10 @@ __all__ = (
     "model_source_alias_options",
     "pause_range",
     "pause_range_by_request_id",
+    "policy_list_range_scope_bindings",
+    "policy_reassign_range_owner",
+    "policy_rebind_range_workspace",
+    "policy_transfer_user_ownership",
     "project_ctf_receipt_binding",
     "project_range_cleanup_outcome",
     "project_scenario_images",
@@ -375,6 +384,7 @@ __all__ = (
     "reset_tenant_lease_policy",
     "resolve_mission_control_lease_policy",
     "resolve_model_access_range_instances",
+    "resolve_model_access_range_reference",
     "resolve_model_access_range_views",
     "resolve_model_access_selected_ranges",
     "resolve_model_access_selector",

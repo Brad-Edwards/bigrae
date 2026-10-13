@@ -255,6 +255,13 @@ def cms_resolve_model_access_range_instances(range_instance_ids: tuple[int, ...]
     return cms_services.resolve_model_access_range_instances(range_instance_ids)
 
 
+def cms_resolve_model_access_range_reference(range_instance_id: int) -> OwnedReference:
+    """Resolve one CTF-owned CMS instance PK to its range's sharing identity, in any state."""
+    import cms.services as cms_services
+
+    return cms_services.resolve_model_access_range_reference(range_instance_id)
+
+
 def cms_find_model_access_selected_ranges(
     range_uuids: tuple[UUID, ...],
 ) -> tuple[ModelAccessRangeInstanceView, ...]:

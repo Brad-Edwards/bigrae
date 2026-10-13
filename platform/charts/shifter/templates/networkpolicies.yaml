@@ -225,6 +225,10 @@ spec:
         {{- range .Values.network.providerApiCidrs }}
         - ipBlock:
             cidr: {{ . | quote }}
+            {{- with $.Values.network.providerApiEgressExcept }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
         {{- end }}
       ports:
         - protocol: TCP
@@ -246,6 +250,10 @@ spec:
         {{- range .Values.network.providerApiCidrs }}
         - ipBlock:
             cidr: {{ . | quote }}
+            {{- with $.Values.network.providerApiEgressExcept }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
         {{- end }}
       ports:
         - protocol: TCP
@@ -322,9 +330,10 @@ metadata:
     {{- include "shifter.partOfLabels" . | nindent 4 }}
 spec:
   # The provisioner Job reaches range guests during provisioning (host/guest SSH
-  # setup). Range VMs are private-only, so without this the default-deny blocks
-  # the provisioner -> range path even though the per-range GCE firewall permits
-  # it. AWS/kustomize parity: render_private_service_netpol.py emits the same rule.
+  # setup and WinRM). Range VMs are
+  # private-only, so without this the default-deny blocks the provisioner -> range
+  # path even though the per-range GCE firewall permits it. Kustomize parity:
+  # render_private_service_netpol.py emits the same rule.
   podSelector: {}
   policyTypes:
     - Egress
@@ -335,7 +344,7 @@ spec:
             cidr: {{ . | quote }}
         {{- end }}
       ports:
-        {{- range .Values.network.rangeAccessPorts }}
+        {{- range .Values.network.rangeProvisionerPorts }}
         - protocol: TCP
           port: {{ . }}
         {{- end }}

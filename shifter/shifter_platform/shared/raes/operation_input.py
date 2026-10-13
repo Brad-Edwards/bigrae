@@ -58,6 +58,7 @@ from .operation_input_identity import (
     image_lookup_key,
     plan_image_lookup_keys,
 )
+from .operation_input_remote_access import RaesRemoteAccess, parse_remote_access
 
 __all__ = [
     "MAX_ACCESS_BINDINGS",
@@ -69,6 +70,7 @@ __all__ = [
     "RaesOperationInput",
     "RaesOperationInputError",
     "RaesRangeIdentity",
+    "RaesRemoteAccess",
     "build_raes_operation_input",
     "candidate_key",
     "image_lookup_key",
@@ -92,6 +94,7 @@ class RaesInputBindings:
     artifact: Sequence[ArtifactBinding] = ()
     runtime_plugin: RuntimePluginPin | None = None
     model_enrollments: tuple[ModelGuestBinding, ...] = ()
+    remote_access: RaesRemoteAccess | None = None
 
 
 # Bounded per ADR-043-R2/R7: the input is a reference-only projection, never a
@@ -112,6 +115,7 @@ _INPUT_KEYS = frozenset(
         "runtime_plugin",
         "model_enrollments",
         "resource_generation",
+        "remote_access",
     }
 )
 
@@ -125,8 +129,10 @@ _INPUT_KEYS = frozenset(
 # deployment baseline) -- the exact pre-feature behavior, never a silent
 # *weakening*: a ``none`` zero-egress or an active egress posture is always carried
 # explicitly, so a missing field can never be read as "allow egress".
+# ``remote_access`` (#2030) is emitted only for a range holding an OpenVPN
+# capability, so every other input stays byte-identical to the prior shape.
 _OPTIONAL_INPUT_KEYS = frozenset(
-    {"artifact_bindings", "egress_mode", "runtime_plugin", "model_enrollments", "resource_generation"}
+    {"artifact_bindings", "egress_mode", "runtime_plugin", "model_enrollments", "resource_generation", "remote_access"}
 )
 
 # Mirrors ``installation.range_egress.RangeEgressMode`` without importing it (the
@@ -158,6 +164,7 @@ class RaesOperationInput:
     runtime_plugin: RuntimePluginPin | None = None
     model_enrollments: tuple[ModelGuestBinding, ...] = ()
     resource_generation: str | None = None
+    remote_access: RaesRemoteAccess | None = None
 
     def artifact_binding_for(self, target: str) -> ArtifactBinding | None:
         """Return the fenced artifact binding for a node address, or None.
@@ -346,10 +353,17 @@ def parse_raes_operation_input(payload: object) -> RaesOperationInput:
         except ValueError:
             valid_epoch = False
         _require(valid_epoch, "raes operation input resource generation is missing or invalid")
+    access_bindings = _validated_access_bindings(obj["access_bindings"])
+    remote_access = parse_remote_access(obj["remote_access"]) if "remote_access" in obj else None
+    _require(
+        remote_access is None
+        or remote_access.target_ref in {f"{binding.target_address}#0" for binding in access_bindings},
+        "raes operation input remote access target is not a declared participant-access target",
+    )
     return RaesOperationInput(
         plan=_require_mapping(obj["plan"], "raes operation input plan"),
         delivery_bindings=_validated_bindings(obj["delivery_bindings"]),
-        access_bindings=_validated_access_bindings(obj["access_bindings"]),
+        access_bindings=access_bindings,
         artifact_bindings=_validated_artifact_bindings(obj.get("artifact_bindings", [])),
         range_backend=_validated_backend(obj["range_backend"]),
         instantiation_purpose=_optional_str(obj["instantiation_purpose"]),
@@ -359,6 +373,7 @@ def parse_raes_operation_input(payload: object) -> RaesOperationInput:
         runtime_plugin=plugin,
         model_enrollments=_model_enrollments(obj, plugin),
         resource_generation=resource_generation,
+        remote_access=remote_access,
     )
 
 
@@ -401,5 +416,7 @@ def build_raes_operation_input(
         payload["model_enrollments"] = [row.model_dump(mode="json") for row in bindings.model_enrollments]
     if identity.resource_generation is not None:
         payload["resource_generation"] = identity.resource_generation
+    if bindings.remote_access is not None:
+        payload["remote_access"] = bindings.remote_access.to_transport()
     parse_raes_operation_input(payload)
     return payload

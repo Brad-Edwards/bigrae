@@ -24,9 +24,7 @@ triggers a deploy (#730).
 | Pull request | Quality only; no deploy |
 | Push to `dev` / `main` | Quality only; no deploy |
 | Manual dispatch, `environment: aws-dev` | Quality, then AWS dev deploy |
-| Manual dispatch, `environment: aws-proof` | Quality, then AWS proof deploy |
 | Manual dispatch, `environment: gcp-dev` | Quality, then GCP dev deploy |
-| Manual dispatch, `environment: nazgul` | Quality, then Nazgul deploy |
 | Manual dispatch, `environment: orthanc` | Quality, then Orthanc deploy |
 | Manual dispatch, `environment: sauron` | Quality, then Sauron deploy |
 | Manual dispatch, `environment: balrog` | Quality, then Balrog deploy |
@@ -277,8 +275,7 @@ Event / input                  → Behavior
 Pull request                   → Quality only
 Push to dev / main             → Quality only
 dispatch environment=aws-dev   → AWS dev deploy
-dispatch environment=aws-proof → AWS proof deploy
-dispatch environment=gcp-dev|nazgul|orthanc|sauron|balrog → selected GCP deploy
+dispatch environment=gcp-dev|orthanc|sauron|balrog → selected GCP deploy
 ```
 
 ## Provider Routing
@@ -293,7 +290,7 @@ dispatch environment=gcp-dev|nazgul|orthanc|sauron|balrog → selected GCP deplo
 
 `deploy.yml` runs on `workflow_dispatch`. The `environment` input selects the deployment target; the bootstrap flags are strict by default.
 
-- `environment`: which environment to deploy: `aws-dev`, `aws-proof`, or `gcp-dev`. A closed choice enum. The branch you run the workflow from is the code that deploys.
+- `environment`: which environment to deploy: `aws-dev` or `gcp-dev`. A closed choice enum. The branch you run the workflow from is the code that deploys.
 - `aws_first_deploy` (default `false`): allow the AWS engine deploy to skip the ECS task-family existence check. Set `true` only for the first-ever deploy to a fresh AWS environment, before the platform Terraform apply has created the provisioner task definition. On any normal deploy a missing or typo'd task family fails the run instead of skipping silently. Clear it (re-run without the flag) once the platform stack has been applied.
 - `gcp_require_active_certificate` (default `true`): require the GKE ManagedCertificate to be Active for the public hostname. Set `false` only for first-time GCP bootstrap, before DNS for the hostname has been pointed at the ingress IP.
 
@@ -328,7 +325,7 @@ Terraform plans are also posted as PR comments.
 - Check branch protection rules
 - Verify path filters match your changes
 - Look for `paths-filter` in deploy.yml
-- A deploy is a manual dispatch: `gh workflow run deploy.yml --ref <branch> -f environment=<aws-dev|aws-proof|gcp-dev|nazgul|orthanc|sauron|balrog>`. Pushes and PRs run validation only; no branch push deploys.
+- A deploy is a manual dispatch: `gh workflow run deploy.yml --ref <branch> -f environment=<aws-dev|gcp-dev|orthanc|sauron|balrog>`. Pushes and PRs run validation only; no branch push deploys.
 
 ### Terraform Plan Fails
 - Check for formatting issues: `terraform fmt -recursive`

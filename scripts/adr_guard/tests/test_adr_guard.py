@@ -1037,7 +1037,17 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                     "workspaces.services": ["OrganizationAuthorizationError", "get_organization_profile"]
                 },
                 "config": {
-                    "workspaces.services": ["list_administrable_organizations", "hierarchy_target_scope"]
+                    "workspaces.services": [
+                        "list_administrable_organizations",
+                        "hierarchy_target_scope",
+                        "AccountScopeError",
+                        "AuthorizationMutationConflict",
+                        "PolicyMutationRequest",
+                        "apply_policy_mutation",
+                        "event_placement_scope",
+                    ],
+                    "management.api.policy_views": ["PolicyAdminView"],
+                    "workspaces.api.serializers": ["AuthorizationMutationSerializer"],
                 },
                 "mission_control": {
                     "engine.services": [
@@ -3539,7 +3549,6 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             set(ADR_GUARD.HELM_VALUES_FILES),
             {
                 "platform/charts/shifter/values-aws-dev.yaml",
-                "platform/charts/shifter/values-aws-proof.yaml",
                 "platform/charts/shifter/values-aws-prod.yaml",
                 "platform/charts/shifter/values-gcp-dev.yaml",
                 "platform/charts/shifter/values-gcp-prod.yaml",
@@ -5554,7 +5563,7 @@ class NoLiveCloudIdentifiersTests(unittest.TestCase):
                 repo_root,
                 "platform/terraform/x/net.tf",
                 'dns        = ["8.8.8.8", "8.8.4.4", "1.1.1.1"]\n'
-                'gcp_health = ["130.211.0.0/22", "35.191.0.0/16"]\n'
+                'gcp_health = ["130.211.0.0/22", "35.191.0.0/16", "209.85.204.0/22"]\n'
                 'gcp_iap    = "35.235.240.0/20"\n'
                 'googleapis = "199.36.153.8/30"\n'
                 'doc        = "203.0.113.10/32"\n'
@@ -5615,6 +5624,17 @@ class NoLiveCloudIdentifiersTests(unittest.TestCase):
                 repo_root,
                 "scripts/x/test_thing.py",
                 'a = "123456789012"\nb = "111122223333"\nc = "000000000000"\n',
+            )
+            violations = ADR_GUARD.check_no_live_cloud_identifiers(repo_root, None)
+            self.assertEqual(violations, [])
+
+    def test_allows_public_ami_publisher_owners(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write(
+                repo_root,
+                "shifter/packer/x.pkr.hcl",
+                'owners = ["099720109477"]\nowners = ["136693071363"]\nowners = ["679593333241"]\n',
             )
             violations = ADR_GUARD.check_no_live_cloud_identifiers(repo_root, None)
             self.assertEqual(violations, [])
@@ -6426,6 +6446,84 @@ class PublishedContractSnapshotsImmutableTests(unittest.TestCase):
         violations = ADR_GUARD.check_published_contract_snapshots_immutable(ADR_GUARD.REPO_ROOT, None)
         self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")
 
+
+
+class NoLiveGcpDeployIdentityTests(unittest.TestCase):
+    REAL_PROJECT = "prod-ab3xyz"
+
+    def _write(self, repo_root: Path, rel: str, body: str) -> Path:
+        path = repo_root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_flags_real_project_in_kustomization_newname(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write(
+                repo_root,
+                "platform/k8s/gcp/overlays/orthanc/kustomization.yaml",
+                "images:\n"
+                "  - name: us-docker.pkg.dev/placeholder-project/shifter/portal\n"
+                f"    newName: us-central1-docker.pkg.dev/{self.REAL_PROJECT}/shifter-orthanc-portal/portal\n",
+            )
+            violations = ADR_GUARD.check_no_live_gcp_deploy_identity(repo_root, None)
+            self.assertEqual(
+                {v.path for v in violations},
+                {"platform/k8s/gcp/overlays/orthanc/kustomization.yaml"},
+            )
+            for v in violations:
+                self.assertEqual(v.rule_id, "ADR-004-R14")
+                self.assertEqual(v.check, "no-live-gcp-deploy-identity")
+                # Messages must never echo the live value (preflight rule).
+                self.assertNotIn(self.REAL_PROJECT, v.message)
+
+    def test_flags_real_project_in_service_account_email(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write(
+                repo_root,
+                "platform/k8s/gcp/overlays/orthanc/patch-serviceaccounts.patch",
+                "    iam.gke.io/gcp-service-account: "
+                f"shifterorthanc-portal@{self.REAL_PROJECT}.iam.gserviceaccount.com\n",
+            )
+            violations = ADR_GUARD.check_no_live_gcp_deploy_identity(repo_root, None)
+            self.assertTrue(violations)
+            for v in violations:
+                self.assertEqual(v.rule_id, "ADR-004-R14")
+                self.assertNotIn(self.REAL_PROJECT, v.message)
+
+    def test_allows_placeholder_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write(
+                repo_root,
+                "platform/k8s/gcp/overlays/orthanc/kustomization.yaml",
+                "images:\n"
+                "  - name: us-docker.pkg.dev/placeholder-project/shifter/portal\n"
+                "    newName: us-central1-docker.pkg.dev/shifter-orthanc/shifter-orthanc-portal/portal\n",
+            )
+            self._write(
+                repo_root,
+                "platform/k8s/gcp/overlays/orthanc/patch-serviceaccounts.patch",
+                "    iam.gke.io/gcp-service-account: "
+                "shifterorthanc-portal@shifter-orthanc.iam.gserviceaccount.com\n",
+            )
+            self.assertEqual(ADR_GUARD.check_no_live_gcp_deploy_identity(repo_root, None), [])
+
+    def test_ignores_non_overlay_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            # A real project in a doc/test outside the overlay tree is out of this
+            # check's scope (the overlay surface is where committed identity is
+            # categorically wrong).
+            self._write(
+                repo_root,
+                "docs/dev/example.md",
+                f"deploy.py gdc-bootstrap --project-id {self.REAL_PROJECT}\n"
+                f"us-central1-docker.pkg.dev/{self.REAL_PROJECT}/x/y\n",
+            )
+            self.assertEqual(ADR_GUARD.check_no_live_gcp_deploy_identity(repo_root, None), [])
 
 
 if __name__ == "__main__":

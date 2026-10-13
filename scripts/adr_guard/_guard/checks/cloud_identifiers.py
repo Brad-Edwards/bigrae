@@ -43,7 +43,7 @@ _IDENTIFIER_CHECK = "no-live-cloud-identifiers"
 #  - AWS documentation's canonical example account IDs + the all-zero
 #    placeholder.
 #  - Public AMI-publisher account IDs. These are well-known, documented AWS
-#    accounts (Canonical, OffSec/Kali) used as `owner` filters to resolve
+#    accounts (Canonical, Debian, OffSec/Kali) used as `owner` filters to resolve
 #    official base images; they are not Shifter infrastructure and changing
 #    them would break AMI lookups.
 _SYNTHETIC_ACCOUNT_IDS: frozenset[str] = frozenset(
@@ -56,6 +56,8 @@ _SYNTHETIC_ACCOUNT_IDS: frozenset[str] = frozenset(
         "000000000000",
         # Canonical (Ubuntu) - public AMI publisher
         "099720109477",
+        # Debian - official public AMI publisher
+        "136693071363",
         # OffSec (Kali Linux) - public AMI publisher
         "679593333241",
     }

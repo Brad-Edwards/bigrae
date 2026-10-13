@@ -39,6 +39,7 @@ from .settings_gcp import GcpBackendSettings
 # their distinct producers without drifting from either inventory.
 _GCP_RENDERER = "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)"
 _GCP_CAPACITY_RENDERER = "canonical GCP shared-service capacity profile Helm projection"
+_GCP_HELM_RENDERER = "GCP Helm-values renderer (scripts/bootstrap/gcp_control_plane.py)"
 
 # Anchored grammar for a GCP ``django_secret_key`` reference: a Google Secret Manager
 # resource name (``projects/<project>/secrets/<name>/versions/<version>``), or a
@@ -132,6 +133,23 @@ def _gcp_runtime_output(name: str, *, optional: bool) -> GeneratedOutput:
     )
 
 
+def _gcp_helm_rendered_runtime_output(name: str) -> GeneratedOutput:
+    """Build one public runtime output projected from attested image identities."""
+    return GeneratedOutput(
+        name=name,
+        kind=OutputKind.RUNTIME_ENV,
+        owner=_GCP_HELM_RENDERER,
+        source="attested image identity projected during GCP Helm-value assembly",
+        destination=OutputDestination.RUNTIME_ENV,
+        sensitivity=OutputSensitivity.PUBLIC,
+        process_roles=_gcp_output_roles(name),
+        description=(
+            f"Public GCP image identity ({name}) emitted into the platform runtime environment. "
+            "Optional; emitted only when the deployment enables it."
+        ),
+    )
+
+
 def _gcp_capacity_runtime_output(name: str) -> GeneratedOutput:
     """Build one public runtime output owned by the typed capacity profile."""
     return GeneratedOutput(
@@ -173,6 +191,10 @@ def _gcp_generated_outputs() -> tuple[GeneratedOutput, ...]:
         *(_gcp_runtime_output(name, optional=False) for name in required),
         *(_gcp_runtime_output(name, optional=True) for name in optional),
         *(_gcp_capacity_runtime_output(name) for name in sorted(runtime_inventory_gcp.GCP_CAPACITY_RUNTIME_ENV_KEYS)),
+        *(
+            _gcp_helm_rendered_runtime_output(name)
+            for name in sorted(runtime_inventory_gcp.GCP_HELM_RENDERED_RUNTIME_ENV_KEYS)
+        ),
     )
 
 

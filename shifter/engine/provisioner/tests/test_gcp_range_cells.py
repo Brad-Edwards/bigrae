@@ -6,7 +6,6 @@ import dataclasses
 import ipaddress
 import sys
 from copy import deepcopy
-from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, call
 
@@ -18,7 +17,6 @@ from shared.range_cells import (
     validate_gcp_vm_range_cell_result,
 )
 from shared.range_instantiation_policy import PREREQUISITE_DENIAL_CODE, UNSUPPORTED_CAPABILITY_CODE
-from shared.remote_access import build_openvpn_capability
 
 from cloud.exceptions import CloudError
 from config import (
@@ -36,24 +34,22 @@ from gcp_range_cells import (
     _build_clients,
     _ensure_firewall,
     _ensure_instance,
-    _ensure_openvpn_gateway,
+    _ensure_router_nat,
+    _ensure_subnetwork,
     _insert_instance,
     apply_range_cell,
     destroy_range_cell,
     render_range_cell_plan,
 )
 from gcp_range_host_identity import gcp_range_host_pool_service_account_email
-from gcp_vpn_identity import gcp_vpn_gateway_pool_service_account_email
 from state_helpers import _build_instance_state
-
-_TEST_VPN_GATEWAY_POOL_SLOT = 7
 
 
 @pytest.fixture(autouse=True)
-def _stub_range_data_for_pool_slot(monkeypatch):
-    """apply/destroy read the reserved gateway pool slot from the range row
-    (ADR-008-R7). Stub that DB read so the GCE backend tests stay DB-free."""
-    stub = MagicMock(return_value={"vpn_gateway_pool_slot": _TEST_VPN_GATEWAY_POOL_SLOT})
+def _stub_range_data(monkeypatch):
+    """apply/destroy read the range row for placement. Stub that DB read so the
+    GCE backend tests stay DB-free."""
+    stub = MagicMock(return_value={})
     monkeypatch.setattr("gcp_range_cells.get_range_data_by_request_id", stub, raising=False)
     monkeypatch.setattr("gcp_range_cell_destroy.get_range_data_by_request_id", stub, raising=False)
     # Shared NAT holds a database advisory lock; keep these Compute lifecycle
@@ -167,7 +163,6 @@ def _variables(
     *,
     payload: dict | None = None,
     bindings: list[dict] | None = None,
-    remote_access: bool = False,
     egress_mode: str = "status-quo",
 ) -> dict:
     scenario_payload = deepcopy(payload if payload is not None else _scenario_payload())
@@ -187,9 +182,6 @@ def _variables(
         ),
         network_bindings=bindings,
         access_declarations=scenario_payload.get("participant_access", []),
-        remote_access=(
-            build_openvpn_capability(_LINUX_UUID, datetime.now(UTC) + timedelta(days=5)) if remote_access else None
-        ),
         egress_mode=egress_mode,
     )
 
@@ -263,7 +255,7 @@ def _mock_clients(*, exists: bool = False) -> SimpleNamespace:
 
     def router_patch(**kwargs):
         name = kwargs["router"]
-        router_state[name] = {**router_state[name], **kwargs["router_resource"]}
+        router_state[name] = {**router_state.get(name, {"name": name}), **kwargs["router_resource"]}
         return SimpleNamespace(name="op")
 
     def router_delete(**kwargs):
@@ -512,64 +504,6 @@ def test_render_range_cell_plan_default_profile_keeps_public_web_denied():
     plan = render_range_cell_plan("req-123", _variables(), _sample_config())
 
     assert not any(firewall["name"].endswith("-egress-web") for firewall in plan["firewalls"])
-
-
-def test_render_range_cell_plan_private_google_access_adds_target_only_vpn_gateway():
-    config = dataclasses.replace(_shared_vpc_config(), private_google_access=True)
-
-    plan = render_range_cell_plan(
-        "req-123", _variables(remote_access=True), config, vpn_gateway_pool_slot=_TEST_VPN_GATEWAY_POOL_SLOT
-    )
-
-    gateway = plan["vpn_gateway"]
-    assert gateway["target_ref"] == _LINUX_UUID
-    assert gateway["target_ip"] == "10.50.2.3"
-    assert gateway["service_account_email"] == gcp_vpn_gateway_pool_service_account_email(
-        "test-project", _TEST_VPN_GATEWAY_POOL_SLOT
-    )
-    assert gateway["private_ip"] not in plan["subnets"][0]["ip_assignments"].values()
-    firewalls = {rule["name"]: rule for rule in plan["firewalls"]}
-    vpn_sources = [ipaddress.ip_network(cidr) for cidr in firewalls["shifter-r-42-vpn-in"]["source_ranges"]]
-    assert any(ipaddress.ip_address("8.8.8.8") in cidr for cidr in vpn_sources)
-    assert all(not cidr.overlaps(ipaddress.ip_network("10.0.0.0/8")) for cidr in vpn_sources)
-    assert firewalls["shifter-r-42-vpn-in"]["allowed"] == [{"IPProtocol": "udp", "ports": ["1194"]}]
-    assert firewalls["shifter-r-42-vpn-health"]["source_ranges"] == ["10.40.0.0/20"]
-    assert firewalls["shifter-r-42-vpn-health"]["allowed"] == [{"IPProtocol": "tcp", "ports": ["1195"]}]
-    assert firewalls["shifter-r-42-vpn-target"]["destination_ranges"] == ["10.50.2.3/32"]
-    assert firewalls["shifter-r-42-vpn-deny"]["denied"] == [{"IPProtocol": "all"}]
-
-
-def test_topology_without_capability_does_not_create_a_vpn_gateway():
-    config = dataclasses.replace(_shared_vpc_config(), private_google_access=True)
-
-    plan = render_range_cell_plan("req-123", _variables(), config)
-
-    assert "vpn_gateway" not in plan
-
-
-def test_gcp_gateway_result_stays_pending_until_external_service_probe():
-    config = dataclasses.replace(_shared_vpc_config(), private_google_access=True)
-    plan = render_range_cell_plan(
-        "req-123", _variables(remote_access=True), config, vpn_gateway_pool_slot=_TEST_VPN_GATEWAY_POOL_SLOT
-    )
-    clients = _mock_clients(exists=True)
-    clients.addresses.get.side_effect = None
-    clients.addresses.get.return_value = object()
-    clients.instances.get.side_effect = None
-    clients.instances.get.return_value = SimpleNamespace(
-        network_interfaces=[SimpleNamespace(access_configs=[SimpleNamespace(nat_i_p="203.0.113.10")])]
-    )
-
-    gateway = _ensure_openvpn_gateway(plan, clients, config)
-
-    assert gateway == {
-        "endpoint": "203.0.113.10",
-        "port": 1194,
-        "health_endpoint": plan["vpn_gateway"]["private_ip"],
-        "health_port": 1195,
-        "target_ref": _LINUX_UUID,
-        "ready": False,
-    }
 
 
 def test_render_range_cell_plan_rejects_subnet_without_uuid():
@@ -1466,52 +1400,6 @@ def test_apply_creates_every_planned_gcp_resource_with_the_expected_body(mocker)
     ] == [instance["resource_name"] for instance in plan["instances"]]
 
 
-def test_apply_creates_a_missing_openvpn_gateway_and_returns_its_endpoint(mocker):
-    config = dataclasses.replace(_shared_vpc_config(), private_google_access=True)
-    variables = _variables(remote_access=True)
-    plan = render_range_cell_plan(
-        "req-123",
-        variables,
-        config,
-        vpn_gateway_pool_slot=_TEST_VPN_GATEWAY_POOL_SLOT,
-    )
-    gateway = plan["vpn_gateway"]
-    assert gateway is not None
-    clients = _mock_clients(exists=False)
-    secret_ops, _ = _mock_secret_ops(mocker)
-    vertex_ops, _ = _mock_vertex_ops(mocker)
-    gateway_gets = 0
-
-    def get_instance(*, instance, **_kwargs):
-        nonlocal gateway_gets
-        if instance != gateway["resource_name"]:
-            raise NotFound()
-        gateway_gets += 1
-        if gateway_gets == 1:
-            raise NotFound()
-        return SimpleNamespace(
-            network_interfaces=[SimpleNamespace(access_configs=[SimpleNamespace(nat_i_p="203.0.113.10")])]
-        )
-
-    clients.instances.get.side_effect = get_instance
-
-    output = apply_range_cell(
-        "req-123",
-        variables,
-        config=config,
-        clients=clients,
-        secret_ops=secret_ops,
-        vertex_ops=vertex_ops,
-    )
-
-    assert output["vpn_gateway"]["endpoint"] == "203.0.113.10"
-    assert gateway_gets == 2
-    assert clients.addresses.insert.call_count == len(plan["instances"]) + 1
-    assert clients.instances.insert.call_count == len(plan["instances"]) + 1
-    assert clients.addresses.insert.call_args_list[-1].kwargs["address_resource"]["name"] == gateway["address_name"]
-    assert clients.instances.insert.call_args_list[-1].kwargs["instance_resource"]["name"] == gateway["resource_name"]
-
-
 def test_apply_emits_closed_lifecycle_membership_and_access_result(mocker):
     clients = _mock_clients(exists=False)
     secret_ops, _ = _mock_secret_ops(mocker)
@@ -1801,6 +1689,7 @@ def test_apply_range_cell_is_idempotent_when_resources_exist(mocker):
                 "gcp_image_profile_fingerprint": expected_plan["instances"][0]["image_profile_fingerprint"],
                 "gcp_source_image": "projects/kali/global/images/kali",
                 "gcp_bootstrap_capability": "standard",
+                "bootstrap_capability": "standard",
                 "gcp_service_account_email": "range-host@test-project.iam.gserviceaccount.com",
                 "rdp_password_secret_arn": "projects/test/secrets/rdp",
                 "gcp_bootstrap_rdp_password_secret_ref": "projects/test/secrets/rdp",
@@ -1836,6 +1725,7 @@ def test_apply_range_cell_is_idempotent_when_resources_exist(mocker):
                 "gcp_image_profile_fingerprint": expected_plan["instances"][1]["image_profile_fingerprint"],
                 "gcp_source_image": "projects/windows-cloud/global/images/family/windows-2022",
                 "gcp_bootstrap_capability": "standard",
+                "bootstrap_capability": "standard",
                 "gcp_service_account_email": "range-host@test-project.iam.gserviceaccount.com",
             },
         ],
@@ -2056,11 +1946,7 @@ def test_destroy_range_cell_marks_inherited_disks_for_instance_deletion(mocker):
         assert call_args.kwargs["auto_delete"] is True
 
 
-def test_destroy_range_cell_tolerates_missing_cidr_after_pre_mutation_failure(
-    mocker,
-    _stub_range_data_for_pool_slot,
-):
-    _stub_range_data_for_pool_slot.return_value = {"vpn_gateway_pool_slot": None}
+def test_destroy_range_cell_tolerates_missing_cidr_after_pre_mutation_failure(mocker):
     clients = _mock_clients(exists=False)
     secret_ops, mocks = _mock_secret_ops(mocker)
     vertex_ops, vertex_mocks = _mock_vertex_ops(mocker)
@@ -2068,7 +1954,7 @@ def test_destroy_range_cell_tolerates_missing_cidr_after_pre_mutation_failure(
 
     destroy_range_cell(
         "req-123",
-        _variables(bindings=[], remote_access=True),
+        _variables(bindings=[]),
         config=config,
         clients=clients,
         secret_ops=secret_ops,
@@ -2151,3 +2037,116 @@ def test_instance_output_omits_sftp_root_when_profile_has_none():
         config,
     )
     assert "sftp_root_directory" not in output
+
+
+def test_render_plan_carries_the_operator_range_telemetry_policy():
+    from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
+
+    config = dataclasses.replace(
+        _sample_config(),
+        range_telemetry=GcpRangeTelemetryPolicy.model_validate(
+            {"vpc_flow_logs": {"flow_sampling": 0.2}, "nat_logs": {"filter": "ERRORS_ONLY"}}
+        ),
+    )
+
+    plan = render_range_cell_plan("req-123", _variables(), config)
+
+    assert plan["telemetry"]["vpc_flow_logs"]["flow_sampling"] == 0.2
+    assert plan["telemetry"]["nat_logs"] == {"enabled": True, "filter": "ERRORS_ONLY"}
+
+
+def test_zero_egress_range_gets_flow_logs_but_no_nat_path():
+    """Logging never authorizes a NAT path: a `none` range keeps no router_nat (#2535)."""
+    from gcp_range_cell_resources import subnetwork_resource
+
+    plan = render_range_cell_plan("req-123", _variables(egress_mode="none"), _sample_config())
+
+    assert "router_nat" not in plan and "shared_nat" not in plan
+    assert subnetwork_resource(plan, plan["subnets"][0])["log_config"]["enable"] is True
+
+
+def _existing(log_config: dict | None, **fields: object) -> dict:
+    resource = {"fingerprint": "fp-1", **fields}
+    if log_config is not None:
+        resource["log_config"] = log_config
+    return resource
+
+
+@pytest.mark.parametrize(
+    ("observed", "expect_patch"),
+    [
+        (None, True),
+        ({"enable": False}, True),
+        (
+            {
+                "enable": True,
+                "aggregation_interval": "INTERVAL_5_SEC",
+                "flow_sampling": 0.1,
+                "metadata": "INCLUDE_ALL_METADATA",
+            },
+            True,
+        ),
+        (
+            {
+                "enable": True,
+                "aggregation_interval": "INTERVAL_5_SEC",
+                "flow_sampling": 0.5,
+                "metadata": "INCLUDE_ALL_METADATA",
+            },
+            False,
+        ),
+    ],
+)
+def test_ensure_subnetwork_replay_converges_flow_logging(observed, expect_patch):
+    from gcp_range_cell_resources import subnetwork_log_config
+
+    plan = render_range_cell_plan("req-123", _variables(), _sample_config())
+    subnet = plan["subnets"][0]
+    clients = _mock_clients(exists=True)
+    clients.subnetworks.get.side_effect = None
+    clients.subnetworks.get.return_value = _existing(observed)
+
+    created = _ensure_subnetwork(plan, clients, subnet)
+
+    assert created is False
+    clients.subnetworks.insert.assert_not_called()
+    if expect_patch:
+        clients.subnetworks.patch.assert_called_once_with(
+            project=plan["project_id"],
+            region=plan["region"],
+            subnetwork=subnet["resource_name"],
+            subnetwork_resource={"fingerprint": "fp-1", "log_config": subnetwork_log_config(plan)},
+        )
+    else:
+        clients.subnetworks.patch.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("observed", "expect_patch"),
+    [(None, True), ({"enable": True, "filter": "ERRORS_ONLY"}, True), ({"enable": True, "filter": "ALL"}, False)],
+)
+def test_ensure_router_nat_replay_converges_nat_logging(observed, expect_patch):
+    from gcp_range_cell_resources import router_nat_resource
+
+    plan = render_range_cell_plan("req-123", _variables(), _sample_config())
+    nat_name = plan["router_nat"]["nat_name"]
+    gateway = {"name": nat_name}
+    if observed is not None:
+        gateway["log_config"] = observed
+    clients = _mock_clients(exists=True)
+    clients.routers.get.side_effect = None
+    clients.routers.get.return_value = {"name": plan["router_nat"]["router_name"], "nats": [gateway]}
+
+    created = _ensure_router_nat(plan, clients)
+
+    assert created is False
+    clients.routers.insert.assert_not_called()
+    if expect_patch:
+        clients.routers.patch.assert_called_once_with(
+            project=plan["project_id"],
+            region=plan["region"],
+            router=plan["router_nat"]["router_name"],
+            router_resource={"nats": router_nat_resource(plan)["nats"]},
+        )
+    else:
+        clients.routers.patch.assert_not_called()

@@ -2,6 +2,7 @@
 
 import getpass
 import ipaddress
+import json
 import os
 import re
 import subprocess  # nosec B404
@@ -348,9 +349,10 @@ def run_cmd_secret_stdin(
       caller uses a static remote command); this asserts the secret is absent
       from argv so a caller cannot accidentally place the token on the command
       line (where it would be visible via ``/proc/<pid>/cmdline``).
-    - The child's stdout/stderr are captured and discarded instead of being
-      streamed or dumped verbatim on failure (as :func:`run_cmd` does), so a
-      token echoed by the remote command cannot reach the operator log.
+    - The child's stdout/stderr are captured and never streamed. On failure they
+      are logged only after every secret-stdin value is scrubbed (see
+      :func:`_redact_secret_stdin`), so the error is diagnosable while a token or
+      value echoed by the child cannot reach the operator log verbatim.
     - Only the integer exit code is returned — never a ``CompletedProcess``
       carrying captured output — so the result itself cannot leak the secret.
 
@@ -375,8 +377,49 @@ def run_cmd_secret_stdin(
         env=_subprocess_env(),
     )
     if result.returncode != 0:
-        error(f"Command failed (exit {result.returncode}); child output suppressed to avoid secret leakage")
+        # Surface the child's error with every secret-stdin value scrubbed out, so
+        # a failing command (e.g. a Helm upgrade) is diagnosable without leaking the
+        # token/values piped on stdin. Redaction is conservative: the raw stdin plus
+        # every JSON string value in it (length >= 8) is replaced, longest first.
+        combined = (result.stdout or "") + (result.stderr or "")
+        redacted = _redact_secret_stdin(combined, secret_stdin).strip()
+        if redacted:
+            error(f"Command failed (exit {result.returncode}); child output (secret values redacted):")
+            _emit_line(redacted)
+        else:
+            error(f"Command failed (exit {result.returncode}); no child output captured")
     return result.returncode
+
+
+def _redact_secret_stdin(text: str, secret_stdin: str) -> str:
+    """Redact secret-stdin values from captured child output.
+
+    Adds the raw stdin and, when it parses as JSON, every string leaf value of
+    length >= 8 to the redaction set (short values like ``dev``/``aws``/``true``
+    are not secrets and redacting them would garble the error). Replaces longest
+    matches first so a value that is a substring of another is not partially left.
+    """
+    secrets: set[str] = set()
+    stripped = secret_stdin.strip()
+    if stripped:
+        secrets.add(stripped)
+    try:
+        parsed: object = json.loads(secret_stdin)
+    except (ValueError, TypeError):
+        parsed = None
+    stack = [parsed]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, str) and len(item) >= 8:
+            secrets.add(item)
+    redacted = text
+    for secret in sorted(secrets, key=len, reverse=True):
+        redacted = redacted.replace(secret, "***REDACTED***")
+    return redacted
 
 
 def get_aws_account_id(profile: str = None) -> str:

@@ -10,6 +10,12 @@ import sys
 from pathlib import Path
 
 _ALLOWED_YAML_SUFFIXES = {".yaml", ".yml"}
+# Referenced by the cloud.google.com/backend-config annotation on the base
+# guacamole-client Service.
+GUACAMOLE_BACKEND_CONFIG_NAME = "guacamole-client-backendconfig"
+# GCP treats a backend service's timeout as the MAXIMUM WebSocket lifetime, so
+# the 30s default severs every Guacamole tunnel after 30 seconds.
+_GUACAMOLE_BACKEND_TIMEOUT_SEC = 86400
 _MANAGED_CERTIFICATE_OUTPUT_KEY = "managed_tls_enabled"
 _PUBLIC_HOSTNAME_OUTPUT_KEY = "public_hostname"
 _PUBLIC_INGRESS_IP_NAME_OUTPUT_KEY = "public_ingress_ip_name"
@@ -52,7 +58,19 @@ def render_manifest(outputs: dict[str, object]) -> str:
     managed_tls_enabled = bool(_value(outputs, _MANAGED_CERTIFICATE_OUTPUT_KEY))
     ingress_ip_name = _value(outputs, _PUBLIC_INGRESS_IP_NAME_OUTPUT_KEY)
 
-    manifest_parts: list[str] = []
+    manifest_parts: list[str] = [
+        "\n".join(
+            [
+                "apiVersion: cloud.google.com/v1",
+                "kind: BackendConfig",
+                _YAML_METADATA,
+                f"  name: {GUACAMOLE_BACKEND_CONFIG_NAME}",
+                _YAML_NAMESPACE,
+                _YAML_SPEC,
+                f"  timeoutSec: {_GUACAMOLE_BACKEND_TIMEOUT_SEC}",
+            ]
+        )
+    ]
     if public_hostname and managed_tls_enabled:
         manifest_parts.append(
             "\n".join(

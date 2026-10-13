@@ -106,7 +106,7 @@ class _GcpBootstrapProcess:
 # =============================================================================
 
 
-def _sample_gcp_control_plane_outputs(project_id: str = "prod-rwctxzl6shxk") -> dict[str, dict[str, object]]:
+def _sample_gcp_control_plane_outputs(project_id: str = "example-gcp-project") -> dict[str, dict[str, object]]:
     """Return representative Terraform outputs for the GCP control-plane path."""
     return {
         "gke_cluster_name": {"value": "shifter-gcp-dev-platform"},
@@ -391,7 +391,7 @@ class TestMainCLI:
         with (
             patch(
                 "sys.argv",
-                ["deploy.py", "gdc-bootstrap", "--project-id", "prod-rwctxzl6shxk", "--cluster-id", "cluster1"],
+                ["deploy.py", "gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"],
             ),
             patch("shutil.which", side_effect=lambda tool: None if tool == "gcloud" else f"/usr/bin/{tool}"),
             pytest.raises(SystemExit) as exc,
@@ -475,7 +475,7 @@ class TestMainCLI:
                     "deploy.py",
                     "gdc-bootstrap",
                     "--project-id",
-                    "prod-rwctxzl6shxk",
+                    "example-gcp-project",
                     "--cluster-id",
                     "cluster1",
                     "--range-backend",
@@ -492,7 +492,7 @@ class TestMainCLI:
 
         output = capsys.readouterr().out
         assert "Bootstrapping cluster1 GDC Cluster" in output
-        assert "GCP Project: prod-rwctxzl6shxk" in output
+        assert "GCP Project: example-gcp-project" in output
         assert "GDC bootstrap complete" in output
 
     # ---------------------------------------------------------------------
@@ -539,7 +539,7 @@ class TestMainCLI:
                     "deploy.py",
                     "gdc-bootstrap",
                     "--project-id",
-                    "prod-rwctxzl6shxk",
+                    "example-gcp-project",
                     "--cluster-id",
                     "cluster1",
                     "--dry-run",
@@ -695,7 +695,7 @@ class TestMainCLI:
             patch.dict("os.environ", {"GCP_RANGE_BACKEND": ""}, clear=False),
             patch(
                 "sys.argv",
-                ["deploy.py", "gdc-bootstrap", "--project-id", "prod-rwctxzl6shxk", "--cluster-id", "cluster1"],
+                ["deploy.py", "gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"],
             ),
             patch("deploy.check_dependencies"),
             patch("deploy.gdc_bootstrap_cluster") as mock_gdc_bootstrap,
@@ -715,7 +715,7 @@ class TestMainCLI:
                     "deploy.py",
                     "gdc-bootstrap",
                     "--project-id",
-                    "prod-rwctxzl6shxk",
+                    "example-gcp-project",
                     "--cluster-id",
                     "cluster1",
                     "--range-backend",
@@ -736,7 +736,7 @@ class TestMainCLI:
         with (
             patch(
                 "sys.argv",
-                ["deploy.py", "gdc-bootstrap", "--project-id", "prod-rwctxzl6shxk", "--cluster-id", "cluster1"],
+                ["deploy.py", "gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"],
             ),
             patch("deploy.check_dependencies"),
             patch("deploy.gdc_bootstrap_cluster") as mock_gdc_bootstrap,
@@ -777,7 +777,7 @@ class TestMainCLI:
                     "deploy.py",
                     "gdc-bootstrap",
                     "--project-id",
-                    "prod-rwctxzl6shxk",
+                    "example-gcp-project",
                     "--cluster-id",
                     "cluster1",
                     "--terraform-identity",
@@ -802,7 +802,9 @@ class TestMainCLI:
         """
         with patch.dict("os.environ", {"SHIFTER_GCP_TERRAFORM_IDENTITY": ""}, clear=False):
             parser = deploy._build_parser()
-            args = parser.parse_args(["gdc-bootstrap", "--project-id", "prod-rwctxzl6shxk", "--cluster-id", "cluster1"])
+            args = parser.parse_args(
+                ["gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"]
+            )
             config = deploy._build_gdc_bootstrap_config(args)
 
         assert config.terraform_identity == "operator-adc"
@@ -820,7 +822,7 @@ class TestMainCLI:
             [
                 "gdc-bootstrap",
                 "--project-id",
-                "prod-rwctxzl6shxk",
+                "example-gcp-project",
                 "--cluster-id",
                 "cluster1",
                 "--terraform-identity",
@@ -843,7 +845,7 @@ class TestMainCLI:
                         "deploy.py",
                         "gdc-bootstrap",
                         "--project-id",
-                        "prod-rwctxzl6shxk",
+                        "example-gcp-project",
                         "--cluster-id",
                         "cluster1",
                         "--yes",

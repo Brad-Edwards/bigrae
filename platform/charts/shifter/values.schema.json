@@ -203,7 +203,8 @@
         "gcpBackendConfig": { "type": "boolean" },
         "gcpManagedTls": { "type": "boolean" },
         "kubernetesJobLauncher": { "type": "boolean" },
-        "gcpAccessNodePool": { "type": "boolean" }
+        "gcpAccessNodePool": { "type": "boolean" },
+        "featureArtifactAcquisition": { "type": "boolean" }
       }
     },
     "namespaces": {
@@ -213,6 +214,33 @@
       "properties": {
         "platform": { "$ref": "#/$defs/dnsLabel" },
         "jobs": { "$ref": "#/$defs/dnsLabel" }
+      }
+    },
+    "featureArtifactAcquisition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serviceAccountAnnotations", "egressCidrs", "egressExcept"],
+      "properties": {
+        "serviceAccountAnnotations": { "$ref": "#/$defs/annotations" },
+        "egressCidrs": { "$ref": "#/$defs/cidrList" },
+        "egressExcept": { "$ref": "#/$defs/cidrList" }
+      }
+    },
+    "runtimePluginPool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["labeler"],
+      "properties": {
+        "labeler": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "nodeGroupAsg", "resources"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "nodeGroupAsg": { "type": "string", "pattern": "^[A-Za-z0-9_+=,.@/:-]{0,255}$" },
+            "resources": { "type": "object" }
+          }
+        }
       }
     },
     "serviceAccounts": {
@@ -285,6 +313,13 @@
       "required": ["taskRunner"],
       "properties": {
         "taskRunner": { "enum": ["gcp", "aws"] }
+      }
+    },
+    "provisionerAdmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inlineParams": { "type": "boolean" }
       }
     },
     "runtime": {
@@ -412,17 +447,20 @@
         "enabled",
         "ingressSourceCidrs",
         "providerApiCidrs",
+        "providerApiEgressExcept",
         "privateServiceCidrs",
         "kubernetesApiCidrs",
         "rangeClusterApiCidrs",
         "rangeClusterApiPort",
         "rangeAccessCidrs",
-        "rangeAccessPorts"
+        "rangeAccessPorts",
+        "rangeProvisionerPorts"
       ],
       "properties": {
         "enabled": { "const": true },
         "ingressSourceCidrs": { "$ref": "#/$defs/cidrList" },
         "providerApiCidrs": { "$ref": "#/$defs/cidrList" },
+        "providerApiEgressExcept": { "$ref": "#/$defs/cidrList" },
         "privateServiceCidrs": { "$ref": "#/$defs/cidrList" },
         "kubernetesApiCidrs": { "$ref": "#/$defs/cidrList" },
         "rangeClusterApiCidrs": { "$ref": "#/$defs/cidrList" },
@@ -433,6 +471,15 @@
         },
         "rangeAccessCidrs": { "$ref": "#/$defs/cidrList" },
         "rangeAccessPorts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        },
+        "rangeProvisionerPorts": {
           "type": "array",
           "uniqueItems": true,
           "items": {

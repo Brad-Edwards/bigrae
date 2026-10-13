@@ -20,7 +20,6 @@ on:
         type: choice
         options:
           - dev
-          - proof
         default: dev
       ref:
         description: 'Branch to build from'
@@ -124,16 +123,11 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           AWS_IMAGE_ROLE_ARN_DEV: ${{ secrets.AWS_IMAGE_ROLE_ARN_DEV }}
-          AWS_IMAGE_ROLE_ARN_PROOF: ${{ secrets.AWS_IMAGE_ROLE_ARN_PROOF }}
         run: |
           case "$ENVIRONMENT" in
             dev)
               ROLE_SECRET_NAME="AWS_IMAGE_ROLE_ARN_DEV"
               ROLE_ARN="$AWS_IMAGE_ROLE_ARN_DEV"
-              ;;
-            proof)
-              ROLE_SECRET_NAME="AWS_IMAGE_ROLE_ARN_PROOF"
-              ROLE_ARN="$AWS_IMAGE_ROLE_ARN_PROOF"
               ;;
             *)
               echo "::error::Unsupported AWS environment: $ENVIRONMENT"
@@ -147,6 +141,7 @@ jobs:
           echo "role_arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (${{ inputs.environment }})
+        id: aws-creds
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ steps.aws-role.outputs.role_arn }}
@@ -161,6 +156,17 @@ jobs:
 
       - name: Initialize Packer
         run: packer init .
+
+      # Windows builders take a per-build Administrator password through user
+      # data, so Packer never calls ec2:GetPasswordData (which security
+      # monitoring flags). The templates fail validation without it.
+      - name: Generate WinRM bootstrap password (Windows/DC)
+        if: contains(fromJSON('["windows","dc","dc-prebaked"]'), inputs.ami_type)
+        run: |
+          set -euo pipefail
+          WINRM_PW="$(openssl rand -hex 24)Aa1!"
+          echo "::add-mask::$WINRM_PW"
+          echo "PKR_VAR_winrm_bootstrap_password=$WINRM_PW" >> "$GITHUB_ENV"
 
       - name: Validate template
         run: packer validate -var-file=${{ inputs.environment }}.pkrvars.hcl -only='*.${{ inputs.ami_type }}' .
@@ -196,19 +202,13 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           AMI_TYPE: ${{ inputs.ami_type }}
           BUILD_VPC_ID_DEV: ${{ vars.PACKER_BUILD_VPC_ID_DEV }}
-          BUILD_VPC_ID_PROOF: ${{ vars.PACKER_BUILD_VPC_ID_PROOF }}
           BUILD_SUBNET_ID_DEV: ${{ vars.PACKER_BUILD_SUBNET_ID_DEV }}
-          BUILD_SUBNET_ID_PROOF: ${{ vars.PACKER_BUILD_SUBNET_ID_PROOF }}
         run: |
           set -euo pipefail
           case "$ENVIRONMENT" in
             dev)
               BUILD_VPC_ID="$BUILD_VPC_ID_DEV"
               BUILD_SUBNET_ID="$BUILD_SUBNET_ID_DEV"
-              ;;
-            proof)
-              BUILD_VPC_ID="$BUILD_VPC_ID_PROOF"
-              BUILD_SUBNET_ID="$BUILD_SUBNET_ID_PROOF"
               ;;
             *)
               echo "::error::unsupported environment '${ENVIRONMENT}' for base-image build"
@@ -292,11 +292,8 @@ jobs:
           # so the candidate's subnet/sg/instance-profile cannot be chosen by the
           # dispatcher (issue #1633 codex security review).
           VERIFY_SUBNET_ID_DEV: ${{ vars.PACKER_VERIFY_SUBNET_ID_DEV }}
-          VERIFY_SUBNET_ID_PROOF: ${{ vars.PACKER_VERIFY_SUBNET_ID_PROOF }}
           VERIFY_SG_ID_DEV: ${{ vars.PACKER_VERIFY_SG_ID_DEV }}
-          VERIFY_SG_ID_PROOF: ${{ vars.PACKER_VERIFY_SG_ID_PROOF }}
           VERIFY_INSTANCE_PROFILE_DEV: ${{ vars.PACKER_VERIFY_INSTANCE_PROFILE_DEV }}
-          VERIFY_INSTANCE_PROFILE_PROOF: ${{ vars.PACKER_VERIFY_INSTANCE_PROFILE_PROOF }}
         run: |
           set -euo pipefail
           case "$ENVIRONMENT" in
@@ -304,11 +301,6 @@ jobs:
               VERIFY_SUBNET_ID="$VERIFY_SUBNET_ID_DEV"
               VERIFY_SECURITY_GROUP_ID="$VERIFY_SG_ID_DEV"
               VERIFY_INSTANCE_PROFILE="$VERIFY_INSTANCE_PROFILE_DEV"
-              ;;
-            proof)
-              VERIFY_SUBNET_ID="$VERIFY_SUBNET_ID_PROOF"
-              VERIFY_SECURITY_GROUP_ID="$VERIFY_SG_ID_PROOF"
-              VERIFY_INSTANCE_PROFILE="$VERIFY_INSTANCE_PROFILE_PROOF"
               ;;
             *)
               echo "::error::unsupported environment '${ENVIRONMENT}' for base-image validation"
@@ -375,7 +367,9 @@ jobs:
           path: shifter/packer/${{ inputs.ami_type }}-manifest.json
 
       - name: Cleanup Packer builder and verify instances
-        if: always()
+        # Without credentials nothing could have been launched; running anyway only
+        # fails on the runner's own role and buries the real error (e.g. a refused ref).
+        if: always() && steps.aws-creds.outcome == 'success'
         run: |
           echo "Terminating any packer-builder-${{ inputs.ami_type }} / ami-verify-${{ inputs.ami_type }} instances..."
           INSTANCE_IDS=$(aws ec2 describe-instances \

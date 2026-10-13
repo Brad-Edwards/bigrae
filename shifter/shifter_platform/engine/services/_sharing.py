@@ -70,7 +70,11 @@ from ._sharing_persistence import (
     _upsert_pool,
     _write_binding_record,
 )
-from ._sharing_ranges import resolve_model_access_range_page, resolve_model_access_range_views
+from ._sharing_ranges import (
+    resolve_model_access_range_page,
+    resolve_model_access_range_reference,
+    resolve_model_access_range_views,
+)
 from ._sharing_resolution import _match_for_subject
 
 if TYPE_CHECKING:
@@ -89,6 +93,7 @@ __all__ = [
     "publish_membership_projection",
     "publish_sharing_binding",
     "resolve_model_access_range_page",
+    "resolve_model_access_range_reference",
     "resolve_model_access_range_views",
     "validate_sharing_binding",
 ]

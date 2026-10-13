@@ -52,6 +52,8 @@ locals {
     "migrator",
     "provisioner-launcher",
     "provisioner",
+    # Isolated feature-artifact acquisition Jobs (#2479).
+    "artifact-acquirer",
   ])
 
   # GCP service-account account_id is capped at 30 chars. The account_id is
@@ -64,6 +66,7 @@ locals {
   # reference resolves through google_service_account.workload[key].email.
   workload_account_id_suffix = {
     "provisioner-launcher" = "prov-launcher"
+    "artifact-acquirer"    = "artifact-acq"
   }
 
   workload_identity_members = {
@@ -73,6 +76,18 @@ locals {
     migrator             = "serviceAccount:${var.workload_identity_pool}[shifter-platform/migrator]"
     provisioner-launcher = "serviceAccount:${var.workload_identity_pool}[shifter-platform/provisioner-launcher]"
     provisioner          = "serviceAccount:${var.workload_identity_pool}[shifter-jobs/provisioner]"
+    artifact-acquirer    = "serviceAccount:${var.workload_identity_pool}[shifter-acquisition/artifact-acquirer]"
+  }
+
+  # Feature-artifact delivery prefix on the assets bucket (ADR-034-R12, #2479): the
+  # acquisition Job may only create objects there; the launcher (which verifies
+  # what the Job stored) and the migrator (deploy bootstrap reuse checks) may only
+  # read there. Nothing else in the bucket is reachable to them.
+  feature_artifact_object_prefix = "projects/_/buckets/${var.assets_bucket_name}/objects/${trim(var.feature_artifact_prefix, "/")}/"
+  feature_artifact_delivery_access = {
+    artifact-acquirer    = "roles/storage.objectCreator"
+    provisioner-launcher = "roles/storage.objectViewer"
+    migrator             = "roles/storage.objectViewer"
   }
 
   node_roles = toset([
@@ -283,6 +298,20 @@ resource "google_storage_bucket_iam_member" "workload_buckets" {
   member = "serviceAccount:${google_service_account.workload[each.value.workload].email}"
 }
 
+resource "google_storage_bucket_iam_member" "feature_artifact_delivery" {
+  for_each = local.feature_artifact_delivery_access
+
+  bucket = var.assets_bucket_name
+  role   = each.value
+  member = "serviceAccount:${google_service_account.workload[each.key].email}"
+
+  condition {
+    title       = "feature-artifact-delivery-prefix"
+    description = "Only objects under the content-addressed feature-artifact delivery prefix."
+    expression  = "resource.name.startsWith(\"${local.feature_artifact_object_prefix}\")"
+  }
+}
+
 # Secret creation is authorized on the parent project before a Secret resource
 # (and therefore resource.name) exists. This custom role contains only create
 # and is deliberately unconditioned inside the dedicated project boundary.
@@ -384,34 +413,6 @@ resource "google_project_iam_member" "portal_legacy_dynamic_secret_accessor" {
     description = "Migration-only portal reads for participant-facing legacy credentials."
     expression  = "(${local.legacy_participant_secret_condition})"
   }
-}
-
-# OpenVPN gateway identity pool (ADR-008-R7). Each active range that requests
-# OpenVPN reserves one member of this pre-provisioned, no-role service-account
-# pool (Range.vpn_gateway_pool_slot -> sh-vpn-pool-<slot>) and the range VM runs
-# as it, isolated to that range's server secret. The provisioner holds
-# serviceAccountUser on each *specific* pool member (a resource-scoped binding),
-# so it can attach a pool identity WITHOUT any project-wide
-# create/delete/setIamPolicy grant. This deletes the former project-level
-# `vpnGatewayIdentityAdmin` custom role, which let the runtime provisioner call
-# setIamPolicy against any service account in the project (e.g. the build SA) and
-# escalate cross-identity -- GCP IAM cannot condition setIamPolicy on a service
-# account's resource name, so a dynamic-creation grant could not be name-scoped.
-# The pool assumes a single isolated tenant/project (no cross-project SA usage,
-# no org-policy change); `vpn_gateway_pool_size` bounds concurrent OpenVPN ranges
-# and must match VPN_GATEWAY_POOL_SIZE in the engine runtime env.
-resource "google_service_account" "vpn_gateway_pool" {
-  count        = var.vpn_gateway_pool_size
-  project      = var.project_id
-  account_id   = "sh-vpn-pool-${count.index}"
-  display_name = "Shifter OpenVPN gateway pool member ${count.index}"
-}
-
-resource "google_service_account_iam_member" "provisioner_vpn_gateway_pool_act_as" {
-  count              = var.vpn_gateway_pool_size
-  service_account_id = google_service_account.vpn_gateway_pool[count.index].name
-  role               = "roles/iam.serviceAccountUser"
-  member             = "serviceAccount:${google_service_account.workload["provisioner"].email}"
 }
 
 resource "google_service_account" "range_host_pool" {

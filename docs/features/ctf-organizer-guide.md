@@ -59,8 +59,9 @@ closes the public route without changing the stored switch.
 ## 2. Add Challenges
 
 Under an event, **Challenges → Create**. For each challenge set its name, category,
-description, points, difficulty, and the flag. Flags are stored as a salted hash, so
-the plaintext flag is never persisted after creation.
+description, points, difficulty, and the flag. A static flag is stored as plaintext
+without its wrapper, and participants may submit it as `FLAG{value}`, `{value}`, or
+just `value` (the `FLAG` prefix is case-insensitive).
 
 Additional controls:
 

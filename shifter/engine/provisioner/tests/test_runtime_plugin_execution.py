@@ -105,6 +105,9 @@ def test_plans_round_trip_then_execute_configure_and_verify_only_on_original_gue
     assert guest.builder.call_count == 2
     assert all(call.args == (output,) for call in guest.builder.call_args_list)
     assert guest.context.executor.run_command.call_count == 2
+    # The first action may be the first contact with a slow-booting guest (e.g. a
+    # pre-promoted DC), so each action allows the standard node-readiness bound.
+    assert all(call.kwargs == {"timeout_seconds": 300} for call in guest.context.wait_for_ready.call_args_list)
     assert guest.context.close.call_count == 2
     assert "private-output" not in caplog.text
     assert "Runtime plugin guest action completed ordinal=2" in caplog.text

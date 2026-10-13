@@ -82,6 +82,49 @@ vulnerabilities:
       ships the fix. Reachable only via the portal-authenticated internal webapp
       API. Pending upstream. #2237
     expired_at: 2026-12-16
+  - id: CVE-2026-68494 # jackson-core
+    statement: >-
+      jackson-core vendored in the Guacamole 1.6.0 webapp and in-use JSON-auth
+      extension; no Guacamole release ships the patched jackson (upstream :latest
+      bundles the same 2.19.0). Reachable only via the portal-authenticated
+      internal webapp; JSON-auth payloads are HMAC-signed, so arbitrary JSON
+      cannot be submitted for deserialization. Pending upstream. #2237
+    expired_at: 2026-12-16
+  - id: CVE-2026-89407 # jackson-core
+    statement: >-
+      jackson-core vendored in the Guacamole 1.6.0 webapp and in-use JSON-auth
+      extension; no Guacamole release ships the patched jackson. Reachable only
+      via the portal-authenticated internal webapp; JSON-auth payloads are
+      HMAC-signed. Pending upstream. #2237
+    expired_at: 2026-12-16
+  - id: CVE-2026-89425 # jackson-core
+    statement: >-
+      jackson-core vendored in the Guacamole 1.6.0 webapp and in-use JSON-auth
+      extension; no Guacamole release ships the patched jackson. Reachable only
+      via the portal-authenticated internal webapp; JSON-auth payloads are
+      HMAC-signed. Pending upstream. #2237
+    expired_at: 2026-12-16
+  - id: CVE-2026-68497 # jackson-databind
+    statement: >-
+      jackson-databind vendored in the Guacamole 1.6.0 webapp and in-use
+      JSON-auth extension; no Guacamole release ships the patched jackson.
+      Reachable only via the portal-authenticated internal webapp; JSON-auth
+      payloads are HMAC-signed. Pending upstream. #2237
+    expired_at: 2026-12-16
+  - id: CVE-2026-91776 # jackson-databind
+    statement: >-
+      jackson-databind vendored in the Guacamole 1.6.0 webapp and in-use
+      JSON-auth extension; no Guacamole release ships the patched jackson.
+      Reachable only via the portal-authenticated internal webapp; JSON-auth
+      payloads are HMAC-signed. Pending upstream. #2237
+    expired_at: 2026-12-16
+  - id: CVE-2026-91777 # jackson-databind
+    statement: >-
+      jackson-databind vendored in the Guacamole 1.6.0 webapp and in-use
+      JSON-auth extension; no Guacamole release ships the patched jackson.
+      Reachable only via the portal-authenticated internal webapp; JSON-auth
+      payloads are HMAC-signed. Pending upstream. #2237
+    expired_at: 2026-12-16
   - id: CVE-2026-41409 # mina-core (CRITICAL)
     statement: >-
       Apache MINA vendored in the Guacamole webapp; no Guacamole release ships the

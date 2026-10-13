@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from django.contrib.auth.models import User
@@ -30,6 +31,9 @@ from cms.scenarios.registry import get_catalog_entry
 from cms.services import PackRegistrationRequest, register_pack
 from shared.api.errors import api_error_response
 from shared.audit import get_request_id
+from shared.errors import classify_user_message
+
+logger = logging.getLogger(__name__)
 
 
 def _actor_user(request: Request) -> User:
@@ -119,8 +123,14 @@ class PackRegisterView(APIView):
                 request_id=get_request_id(request._request),
             )
         except CMSError as exc:
+            logger.exception("pack registration failed")
             return api_error_response(
-                code="invalid", message=str(exc), status_code=status.HTTP_400_BAD_REQUEST, request=request
+                code="invalid",
+                message=classify_user_message(
+                    str(exc), default="The pack registration request could not be completed."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                request=request,
             )
         return Response(
             {

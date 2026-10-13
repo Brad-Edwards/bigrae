@@ -8,7 +8,6 @@ import json
 import sys
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -125,29 +124,6 @@ def _provision_env(provider: str, subnet_cidr: str):
         patch("importlib.import_module", _import_module),
     ):
         yield
-
-
-class _MemoryVpnSecretOps:
-    """Minimal provider-secret port for the provision orchestration test."""
-
-    def __init__(self) -> None:
-        self.values: dict[str, str] = {}
-
-    def read_or_create_issuer(self, range_id, generation, payload_factory):
-        ref = f"issuer:{range_id}:{generation}"
-        self.values.setdefault(ref, payload_factory())
-        return self.values[ref]
-
-    def put_server(self, range_id, generation, payload):
-        self.values[f"server:{range_id}:{generation}"] = payload
-
-    def put_profile(self, range_id, generation, payload):
-        ref = f"profile:{range_id}:{generation}"
-        self.values[ref] = payload
-        return ref
-
-    def delete_generation(self, range_id, generation, *, delete_identity=True):
-        return None
 
 
 class TestParseSerialNumber:
@@ -588,59 +564,6 @@ class TestRangeStatePayloads:
         assert provisioned_instances[0]["instance_id"] == "vmrt-vm-1"
         assert provisioned_instances[0]["provider_metadata"]["gcp"]["vm_name"] == "vmrt-vm-1"
 
-    def test_write_provisioned_state_persists_only_a_validated_vpn_binding(self, monkeypatch):
-        from provisioner_db import write_provisioned_state
-
-        mock_cursor = MagicMock()
-        mock_cursor.rowcount = 1
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
-        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-        mock_conn.__exit__ = MagicMock(return_value=False)
-        binding = {
-            "version": "openvpn-binding-v1",
-            "channel": "openvpn",
-            "generation": "87a99f87-5af2-46e6-a459-0e5eb1ab1bf2",
-            "owner_user_id": 42,
-            "target_ref": "6ed14925-d8a1-42bd-a2d9-ce3730ab9313",
-            "endpoint": "vpn.example.test",
-            "port": 1194,
-            "profile_version": "openvpn-profile-v1",
-            "secret_ref": "projects/test/secrets/range-vpn-profile",
-            "ready": True,
-        }
-
-        monkeypatch.setattr("provisioner_db.get_db_connection", MagicMock(return_value=mock_conn))
-        write_provisioned_state(
-            range_id=42,
-            subnets={},
-            instances=[],
-            vpn_access_binding=binding,
-        )
-
-        persisted = json.loads(mock_cursor.execute.call_args.args[1][1])
-        assert persisted == binding
-        assert "vpn_access_binding" in mock_cursor.execute.call_args.args[0]
-
-    def test_write_provisioned_state_rejects_an_extended_vpn_binding_before_db_write(self, monkeypatch):
-        from shared.remote_access import OpenVpnBindingError
-
-        from provisioner_db import write_provisioned_state
-
-        connection = MagicMock()
-        monkeypatch.setattr("provisioner_db.get_db_connection", connection)
-
-        with pytest.raises(OpenVpnBindingError, match="unknown fields"):
-            write_provisioned_state(
-                range_id=42,
-                subnets={},
-                instances=[],
-                vpn_access_binding={"profile": "credential material must not be persisted"},
-            )
-
-        connection.assert_not_called()
-
     def test_destroyed_range_clears_the_vpn_binding(self, monkeypatch):
         from provisioner_db import mark_range_instances_destroyed
 
@@ -759,111 +682,8 @@ class TestGdcProvisioning:
             subnets=terraform_output["subnets"],
             instances=terraform_output["instances"],
             ngfw_instance_id=None,
-            vpn_access_binding=None,
             operation=OperationRef(request_id=request_id, operation_id=operation_id),
         )
-
-    def test_run_terraform_provision_persists_finalized_vpn_binding(self, monkeypatch):
-        """The real prepare/apply/verify/finalize chain reaches persisted state."""
-        from shared.remote_access import build_openvpn_capability, parse_openvpn_binding
-
-        from config import RangeNetworkConfig
-        from terraform_ops import RangeOperation, _run_terraform_provision
-
-        generation = uuid4()
-        target_ref = uuid4()
-        range_spec = {
-            "subnets": [
-                {
-                    "name": "attack",
-                    "uuid": "subnet-vpn",
-                    "instances": [
-                        {
-                            "uuid": str(target_ref),
-                            "name": "attacker",
-                            "role": "attacker",
-                            "os_type": "kali",
-                        }
-                    ],
-                }
-            ]
-        }
-        capability = build_openvpn_capability(target_ref, datetime.now(UTC) + timedelta(days=5))
-        terraform_output = {
-            "subnets": {
-                "attack": {
-                    "uuid": "subnet-vpn",
-                    "subnet_id": "subnet-123",
-                    "subnet_cidr": "10.9.0.0/28",
-                }
-            },
-            "instances": [
-                {
-                    "uuid": str(target_ref),
-                    "name": "attacker",
-                    "role": "attacker",
-                    "os": "kali",
-                    "subnet_name": "attack",
-                    "instance_id": "i-vpn-target",
-                    "private_ip": "10.9.0.10",
-                }
-            ],
-            "vpn_gateway": {
-                "endpoint": "vpn.example.test",
-                "port": 1194,
-                "health_endpoint": "10.9.0.20",
-                "health_port": 1195,
-                "target_ref": str(target_ref),
-                "ready": False,
-            },
-        }
-        secret_ops = _MemoryVpnSecretOps()
-        mock_write_state = MagicMock()
-        monkeypatch.setattr("terraform_ops.update_range_status", MagicMock())
-        monkeypatch.setattr(
-            "range_subnet_allocation.load_range_network_config",
-            MagicMock(return_value=RangeNetworkConfig("vpc-vpn", "10.9.0.0/16", "us-east-2")),
-        )
-        monkeypatch.setattr(
-            "terraform_ops.build_range_variables",
-            MagicMock(return_value={"range_id": 42, "subnets": range_spec["subnets"]}),
-        )
-        monkeypatch.setattr(
-            "terraform_ops.range_terraform_runner.apply_range",
-            MagicMock(return_value=terraform_output),
-        )
-        monkeypatch.setattr("terraform_ops.get_vpn_secret_ops", MagicMock(return_value=secret_ops))
-        monkeypatch.setattr("vpn_access._probe_openvpn_gateway", lambda endpoint, port: True)
-        monkeypatch.setattr("terraform_ops.run_instance_setup", MagicMock())
-        monkeypatch.setattr("terraform_ops.write_provisioned_state", mock_write_state)
-        monkeypatch.setattr(
-            "terraform_ops.get_range_data_by_request_id",
-            MagicMock(return_value={"ngfw_instance_id": None}),
-        )
-        monkeypatch.setattr("terraform_ops.update_range_status", MagicMock())
-
-        with _provision_env("aws", "10.9.0.0/28"):
-            _run_terraform_provision(
-                RangeOperation(
-                    str(generation),
-                    42,
-                    7,
-                    range_spec,
-                    remote_access_capability=capability,
-                    operation_id=str(uuid4()),
-                )
-            )
-
-        binding = mock_write_state.call_args.kwargs["vpn_access_binding"]
-        parsed = parse_openvpn_binding(binding)
-        assert parsed.generation == generation
-        assert parsed.owner_user_id == 7
-        assert parsed.target_ref == target_ref
-        assert parsed.endpoint == "vpn.example.test"
-        assert parsed.port == 1194
-        assert parsed.secret_ref == f"profile:42:{generation}"
-        assert parsed.ready is True
-        assert secret_ops.values[parsed.secret_ref].startswith("client\n")
 
     def test_run_instance_setup_skips_pod_backed_assets(self, monkeypatch):
         from instance_orchestrator import run_instance_setup
