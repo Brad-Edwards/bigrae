@@ -327,7 +327,10 @@ remain trusted. Deployment-owned bootstrap removes documented Cloud SQL runtime
 role defaults, checks effective inheritance/ownership and fails closed on drift.
 It preserves the separate qualified migration owner. Native IAM and admission
 negative tests, released-server SQL tests and existing guards enforce this
-boundary. Two historical permission migrations now quote the active database
+boundary. The released-server lane publishes supplemental coverage for these
+SQL duties to Sonar, alongside the platform fast-lane report. The existing
+whole-package floor and changed-code coverage gate remain enforced; supplemental
+service coverage does not replace either. Two historical permission migrations now quote the active database
 name when granting/revoking CONNECT, correcting cold-install targeting without
 changing their schema or intended duties. This does not redefine historical
 account-policy invariants.
