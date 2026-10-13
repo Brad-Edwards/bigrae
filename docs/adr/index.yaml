@@ -4320,6 +4320,7 @@
     ],
     "evidence": [
       "docs/adr/068-model-access-broker-parked.md",
+      "docs/architecture/model-access/gateway-replacement-evaluation-2274.md",
       "docs/adr/064-default-range-model-access.md",
       "docs/technical/dev/setup.md",
       "https://github.com/Brad-Edwards/shifter/issues/2274"
