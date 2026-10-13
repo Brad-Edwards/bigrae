@@ -24,11 +24,12 @@ from shared.model_access import AuthorityInvalidation, AuthorityState, OwnedRefe
 from shared.model_access.authority_port import invalidate_authority, suppress_authority_invalidation_signals
 
 from . import model_access_authority as _model_access_authority
+from . import policy as _policy
 from . import principals as _principals
 from .audit_context import AuditContext
 from .models import ActivityLog, UserProfile
-from .policy import require_principal_administration as require_principal_administration
 
+require_principal_administration = _policy.require_principal_administration
 PrincipalConflictError = _principals.PrincipalConflictError
 bind_principal_provider_identity = _principals.bind_principal_provider_identity
 create_service_principal = _principals.create_service_principal
