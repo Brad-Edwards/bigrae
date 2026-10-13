@@ -1,6 +1,6 @@
 """Public dormant account administration routing surface."""
 
-from django.urls import path
+from django.urls import URLPattern, path
 
 from workspaces.api import account_admin_views as accounts
 from workspaces.api import account_authorization_views as authorization
@@ -9,7 +9,7 @@ from workspaces.api import policy_profile_views as profiles
 from workspaces.api.authorization_views import AuthorizationCatalogView, PredefinedAuthorizationCatalogView
 
 
-def _authorization_routes(prefix: str, target_type: str):
+def _authorization_routes(prefix: str, target_type: str) -> list[URLPattern]:
     """One existing journal adapter for every concrete hierarchy scope."""
     defaults: dict[str, object] = {"target_type": target_type}
     if target_type == "installation":

@@ -31,12 +31,13 @@ it("edits profile metadata, confirms credential revocation and displays blocked 
     if (path === "/administer/users/") return Promise.resolve({ count: 1, results: [{ id: 42, display_name: "Target" }] });
     if (path === "/administer/users/42/") return Promise.resolve({ id: 42, principal_uuid: "principal-one", display_name: "Target", username: "target", email: "target@example.test", first_name: "", last_name: "", available_actions: ["transfer_ownership"] });
     if (path.endsWith("/personal-credentials/")) return Promise.resolve({ count: 1, next_offset: null, results: [{ credential_uuid: "credential", name: "Synthetic token" }] });
-    if (path.endsWith("/transfer-ownership/")) return Promise.resolve({ ranges_reassigned: 1, ranges_blocked: 2, workspaces_transferred: 1, workspaces_blocked_no_membership: 0 });
+    if (path.endsWith("/transfer-ownership/")) return Promise.resolve({ ranges_reassigned: 1, ranges_blocked: 2, workspaces_transferred: 1, workspaces_blocked_no_membership: 0, workspaces_blocked: 0 });
     return Promise.resolve(options?.method ? {} : { count: 0, results: [] });
   });
   const user = setupUser(); renderRoute(<PlatformAdministrationPage />);
   await user.click(await screen.findByRole("button", { name: "Target" }));
   await user.type(await screen.findByLabelText("First name"), "Synthetic");
+  expect(screen.getByLabelText("User email")).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Save user profile" }));
   await waitFor(() => expect(mocked).toHaveBeenCalledWith("/administer/users/42/", expect.objectContaining({ method: "PATCH", body: { first_name: "Synthetic" } })));
   await user.click(screen.getByRole("button", { name: "Revoke Synthetic token" }));
@@ -63,4 +64,21 @@ it("reconciles a successful unresolved organizer command in its original scope",
   await user.click(screen.getByRole("button", { name: "Assign event creation" }));
   await user.click(await screen.findByRole("button", { name: "Reconcile status" }));
   await waitFor(() => expect(mocked).toHaveBeenCalledWith("/accounts/original/authorization/operations/operation/", expect.objectContaining({ method: "POST" })));
+});
+
+it("allows the owning human to edit recovery email through their own session", async () => {
+  const mocked = vi.mocked(apiFetch); mocked.mockReset();
+  mocked.mockImplementation((path, options) => {
+    if (path === "/accounts/context/") return Promise.resolve({ principal_kind: "human", principal_uuid: "principal-one" });
+    if (path === "/administer/users/") return Promise.resolve({ count: 1, results: [{ id: 42, display_name: "Owner" }] });
+    if (path === "/administer/users/42/") return Promise.resolve({ id: 42, principal_uuid: "principal-one", display_name: "Owner", email: "before@example.test", available_actions: [] });
+    return Promise.resolve(options?.method ? {} : { count: 0, results: [] });
+  });
+  const user = setupUser(); renderRoute(<PlatformAdministrationPage />);
+  await user.click(await screen.findByRole("button", { name: "Owner" }));
+  const email = await screen.findByLabelText("User email");
+  await waitFor(() => expect(email).toBeEnabled());
+  await user.clear(email); await user.type(email, "owner@example.test");
+  await user.click(screen.getByRole("button", { name: "Save user profile" }));
+  await waitFor(() => expect(mocked).toHaveBeenCalledWith("/administer/users/42/", expect.objectContaining({ method: "PATCH", body: { email: "owner@example.test" } })));
 });

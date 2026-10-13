@@ -1,5 +1,9 @@
 """Dormant workspace admin inspection; all authoring uses policy service commands."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
 from django.core.exceptions import PermissionDenied
 
 from shared.admin_policy import PolicyReadOnlyAdmin
@@ -8,18 +12,22 @@ from workspaces.models import WorkspaceInvitation, WorkspaceQuotaPolicy
 from workspaces.services._account_policy_admin import _active_actor
 from workspaces.services._account_policy_reads import _allowed_batch
 
+if TYPE_CHECKING:
+    from django.db.models import Model, QuerySet
+    from django.http import HttpRequest
+
 
 class _ScopedReadOnlyAdmin(PolicyReadOnlyAdmin):
     """Derive the complete authorized queryset before Django counts or paginates."""
 
-    def has_module_permission(self, request):
+    def has_module_permission(self, request: HttpRequest) -> bool:
         try:
             _active_actor(self._credential(request))
             return True
         except Exception:
             return False
 
-    def has_view_permission(self, request, obj=None):
+    def has_view_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         if obj is None:
             return self.has_module_permission(request)
         try:
@@ -28,12 +36,12 @@ class _ScopedReadOnlyAdmin(PolicyReadOnlyAdmin):
                 configured_authorization_provider(),
                 self.policy_action,
                 "workspace",
-                (obj.workspace.uuid,),
+                (cast("WorkspaceQuotaPolicy | WorkspaceInvitation", obj).workspace.uuid,),
             )[0]
         except Exception:
             return False
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Model]:
         if not self.has_module_permission(request):
             raise PermissionDenied
         actor = self._credential(request)
@@ -41,7 +49,7 @@ class _ScopedReadOnlyAdmin(PolicyReadOnlyAdmin):
         query = self.model.objects.filter(
             workspace__organization__account__isnull=False, workspace__archived_at__isnull=True
         ).select_related("workspace")
-        visible = []
+        visible: list[int] = []
         cursor = 0
         while True:
             batch = tuple(query.filter(pk__gt=cursor).order_by("pk")[:100])

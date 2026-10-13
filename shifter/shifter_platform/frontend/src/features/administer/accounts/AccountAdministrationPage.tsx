@@ -81,11 +81,11 @@ function AccountContent({ account }: Readonly<{ account: Account }>) {
     <NameForm label="Account name" initial={account.name} submit="Save account" pending={save.isPending} error={save.error} onSave={name => save.mutate({ name })} />
     <Tabs defaultValue="members"><TabsList>
       <TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="policies">Policies and groups</TabsTrigger>
-      {account.kind !== "individual" ? <TabsTrigger value="organizations">Organizations</TabsTrigger> : null}
+      {account.kind === "individual" ? null : <TabsTrigger value="organizations">Organizations</TabsTrigger>}
     </TabsList>
       <TabsContent value="members"><ScopeMembershipPanel scope={{ kind: "account", uuid: account.uuid }} /></TabsContent>
       <TabsContent value="policies"><ScopeAuthorizationContent workspaceUuid={{ kind: "account", uuid: account.uuid }} /></TabsContent>
-      {account.kind !== "individual" ? <TabsContent value="organizations"><OrganizationCollection accountUuid={account.uuid} /></TabsContent> : null}
+      {account.kind === "individual" ? null : <TabsContent value="organizations"><OrganizationCollection accountUuid={account.uuid} /></TabsContent>}
     </Tabs>
   </div>;
 }

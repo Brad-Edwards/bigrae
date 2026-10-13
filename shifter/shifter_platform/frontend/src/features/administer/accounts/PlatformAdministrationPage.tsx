@@ -48,7 +48,8 @@ function PolicyIdentityAdministration() {
 function PolicyUserDetails({ id }: Readonly<{ id: number }>) {
   const detail = useAdministrationQuery<AdministrationSchemas["PolicyAdminUserDetail"]>(`/administer/users/${id}/`);
   const [action, setAction] = useState("");
-  const path = action === "delete" ? "delete" : action === "reset_password" ? "reset-password" : "lifecycle";
+  const actionPaths: Record<string, string> = { delete: "delete", reset_password: "reset-password" };
+  const path = actionPaths[action] ?? "lifecycle";
   const mutation = useAdministrationMutation(`/administer/users/${id}/${path}/`);
   const labels: Record<string, string> = { activate: "Activate", deactivate: "Deactivate", suspend: "Suspend", restore: "Restore", delete: "Delete", reset_password: "Reset password" };
   if (detail.isPending) return <p>Loading user…</p>;
@@ -70,7 +71,7 @@ function OffboardingForm({ userId }: Readonly<{ userId: number }>) {
   const [ranges, setRanges] = useState(true);
   const [workspaces, setWorkspaces] = useState(true);
   const [confirming, setConfirming] = useState(false);
-  const mutation = useAdministrationMutation<AdministrationSchemas["TransferOwnershipResult"], AdministrationSchemas["PolicyTransferOwnershipCommand"]>(`/administer/users/${userId}/transfer-ownership/`);
+  const mutation = useAdministrationMutation<AdministrationSchemas["PolicyTransferOwnershipResult"], AdministrationSchemas["PolicyTransferOwnershipCommand"]>(`/administer/users/${userId}/transfer-ownership/`);
   return <AdministrationSection title="Offboarding ownership transfer">
     <p>Each resource retains its scope and destination eligibility checks. Blocked resources remain owned by the source.</p>
     <Label htmlFor="offboarding-replacement">Replacement user ID</Label><Input id="offboarding-replacement" type="number" min={1} step={1} value={replacement} onChange={event => { setReplacement(event.target.value); setConfirming(false); }} />
@@ -79,7 +80,7 @@ function OffboardingForm({ userId }: Readonly<{ userId: number }>) {
     <Button disabled={!replacement || (!ranges && !workspaces) || mutation.isPending} onClick={() => setConfirming(true)}>Review ownership transfer</Button>
     <AdministrationError error={mutation.error} />
     {confirming ? <Button disabled={mutation.isPending} onClick={() => mutation.mutate({ replacement_user_id: Number(replacement), resource_kinds: [...(ranges ? ["ranges" as const] : []), ...(workspaces ? ["workspaces" as const] : [])] })}>Confirm offboarding transfer</Button> : null}
-    {mutation.data ? <output>Ranges transferred: {mutation.data.ranges_reassigned}; blocked: {mutation.data.ranges_blocked}. Workspaces transferred: {mutation.data.workspaces_transferred}; blocked: {mutation.data.workspaces_blocked_no_membership}.</output> : null}
+    {mutation.data ? <output>Ranges transferred: {mutation.data.ranges_reassigned}; blocked: {mutation.data.ranges_blocked}. Workspaces transferred: {mutation.data.workspaces_transferred}; blocked: {mutation.data.workspaces_blocked}.</output> : null}
   </AdministrationSection>;
 }
 
@@ -126,11 +127,14 @@ function CredentialRevocation({ credential }: Readonly<{ credential: Administrat
 }
 
 function UserMetadataForm({ user }: Readonly<{ user: AdministrationSchemas["PolicyAdminUserDetail"] }>) {
+  const context = useAdministrationQuery<AdministrationSchemas["AccountPrincipalContext"]>("/accounts/context/");
+  const ownsRecoveryEmail = context.data?.principal_kind === "human" && context.data.principal_uuid === user.principal_uuid;
   const [draft, setDraft] = useState<AdministrationSchemas["PatchedPolicyUserMetadataCommand"]>({});
   const save = useAdministrationMutation<unknown, AdministrationSchemas["PatchedPolicyUserMetadataCommand"]>(`/administer/users/${user.id}/`, "PATCH");
   const fields = { username: "Username", email: "User email", first_name: "First name", last_name: "Last name" } as const;
   return <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate(draft, { onSuccess: () => setDraft({}) }); }}>
-    {Object.entries(fields).map(([field, label]) => <div key={field}><Label htmlFor={`user-${field}`}>{label}</Label><Input id={`user-${field}`} value={draft[field as keyof typeof fields] ?? user[field as keyof typeof fields] ?? ""} onChange={event => setDraft(current => ({ ...current, [field]: event.target.value }))} /></div>)}
+    {Object.entries(fields).map(([field, label]) => <div key={field}><Label htmlFor={`user-${field}`}>{label}</Label><Input id={`user-${field}`} disabled={field === "email" && !ownsRecoveryEmail} value={draft[field as keyof typeof fields] ?? user[field as keyof typeof fields] ?? ""} onChange={event => setDraft(current => ({ ...current, [field]: event.target.value }))} /></div>)}
+    {ownsRecoveryEmail ? null : <p>The account owner must change their recovery email in their own browser session.</p>}
     <Button type="submit" disabled={save.isPending || Object.keys(draft).length === 0}>Save user profile</Button><AdministrationError error={save.error} />
   </form>;
 }

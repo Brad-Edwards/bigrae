@@ -12,6 +12,7 @@ from django.utils import timezone
 from shared.audit import AuditAction, RequestAudit
 from shared.authorization import AuthorizationProvider, AuthorizationRequest, CredentialCeiling, TargetRef
 from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 from shared.principal_port import principal_for_user, resolve_principal_uuid, resolve_verified_principal
 from shared.verified_identity import VerifiedIdentity
 from workspaces.models import WorkspaceInvitation, WorkspaceMembership
@@ -47,7 +48,7 @@ def _unavailable() -> WorkspaceInvitationError:
     return WorkspaceInvitationError("invitation_invalid", "Invitation is invalid")
 
 
-def _authorize(actor, provider, workspace_uuid):
+def _authorize(actor: CredentialContext, provider: AuthorizationProvider, workspace_uuid: uuid.UUID) -> ResourceScope:
     """Check exact SQL ancestry and live policy before opening the write transaction."""
     try:
         scope = hierarchy_target_scope("workspace", workspace_uuid)
@@ -58,6 +59,7 @@ def _authorize(actor, provider, workspace_uuid):
 
 
 def _attribution(actor: CredentialContext, audit: RequestAudit | None) -> MembershipAuditContext:
+    """Bind invitation evidence to the authenticated principal and request."""
     request = audit or RequestAudit()
     return MembershipAuditContext(
         actor_type="principal",
@@ -125,7 +127,15 @@ def admin_issue_workspace_invitation(
         return _projection(invitation)
 
 
-def _manage(actor, provider, workspace_uuid, invitation_uuid, *, revoke, audit):
+def _manage(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    workspace_uuid: uuid.UUID,
+    invitation_uuid: uuid.UUID,
+    *,
+    revoke: bool,
+    audit: RequestAudit | None,
+) -> WorkspaceInvitationProjection:
     """Use the same generation/status/signing invariants for resend and revoke."""
     scope = _authorize(actor, provider, workspace_uuid)
     if not revoke:
@@ -168,12 +178,26 @@ def _manage(actor, provider, workspace_uuid, invitation_uuid, *, revoke, audit):
         return _projection(invitation)
 
 
-def admin_resend_workspace_invitation(actor, provider, workspace_uuid, invitation_uuid, *, audit=None):
+def admin_resend_workspace_invitation(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    workspace_uuid: uuid.UUID,
+    invitation_uuid: uuid.UUID,
+    *,
+    audit: RequestAudit | None = None,
+) -> WorkspaceInvitationProjection:
     """Rotate the generation; a token from any earlier delivery stops working."""
     return _manage(actor, provider, workspace_uuid, invitation_uuid, revoke=False, audit=audit)
 
 
-def admin_revoke_workspace_invitation(actor, provider, workspace_uuid, invitation_uuid, *, audit=None):
+def admin_revoke_workspace_invitation(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    workspace_uuid: uuid.UUID,
+    invitation_uuid: uuid.UUID,
+    *,
+    audit: RequestAudit | None = None,
+) -> WorkspaceInvitationProjection:
     """Revoke only the invitation in the exact authorized workspace."""
     return _manage(actor, provider, workspace_uuid, invitation_uuid, revoke=True, audit=audit)
 

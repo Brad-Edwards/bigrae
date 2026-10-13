@@ -2198,6 +2198,17 @@ export interface components {
             replacement_user_id: number;
             resource_kinds: components["schemas"]["ResourceKindsEnum"][];
         };
+        /** @description Prepared summary counts all resource rejections without guessing their cause. */
+        PolicyTransferOwnershipResult: {
+            source_user_id: number;
+            replacement_user_id: number;
+            ranges_reassigned: number;
+            ranges_blocked: number;
+            workspaces_transferred: number;
+            workspaces_already_owned: number;
+            workspaces_blocked_no_membership: number;
+            readonly workspaces_blocked: number;
+        };
         /** @description A membership invitation exposes no legacy role or implicit authority grant. */
         PolicyWorkspaceInvitation: {
             /** Format: uuid */
@@ -2375,16 +2386,6 @@ export interface components {
         /** @description One bounded display name for a real business-account subdivision. */
         SubdivisionCommand: {
             name: string;
-        };
-        /** @description Bounded, secret-free summary of an offboarding ownership transfer. */
-        TransferOwnershipResult: {
-            source_user_id: number;
-            replacement_user_id: number;
-            ranges_reassigned: number;
-            ranges_blocked: number;
-            workspaces_transferred: number;
-            workspaces_already_owned: number;
-            workspaces_blocked_no_membership: number;
         };
         /**
          * @description Read-only workspace lifecycle projection (#1940, PLAT-233).
@@ -5173,7 +5174,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TransferOwnershipResult"];
+                    "application/json": components["schemas"]["PolicyTransferOwnershipResult"];
                 };
             };
             /** @description Authentication failed. */

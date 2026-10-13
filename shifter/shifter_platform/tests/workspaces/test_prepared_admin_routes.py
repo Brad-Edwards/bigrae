@@ -59,6 +59,8 @@ def test_prepared_http_profile_membership_and_quota_operations(monkeypatch, kind
     assert WorkspaceMembership.objects.filter(workspace=workspace, principal_uuid=subject.uuid).exists()
     response = client.get(f"/api/v1/workspaces/{workspace.uuid}/quota/")
     assert response.status_code == 200 and response.data["workspace_uuid"] == str(workspace.uuid)
+    response = client.get(f"/api/v1/accounts/{account.uuid}/organizations/{organization.uuid}/workspaces/")
+    assert response.status_code == 200 and response.data["results"][0]["uuid"] == str(workspace.uuid)
     assert (
         client.post(
             f"/api/v1/workspaces/{workspace.uuid}/memberships/",
@@ -152,3 +154,46 @@ def test_prepared_audit_contract_advertises_bearer_and_cookie_admission():
     for path in ("/api/v1/audit/", "/api/v1/audit/{id}/"):
         assert {"ApiTokenAuth": []} in schema["paths"][path]["get"]["security"]
         assert {"cookieAuth": []} in schema["paths"][path]["get"]["security"]
+
+
+@pytest.mark.urls("config.account_admin_urls")
+def test_standalone_organization_operation_recovery_uses_persisted_ancestry(monkeypatch, settings):
+    from django.contrib.auth import get_user_model
+
+    from management.models import Principal
+    from tests.workspaces.test_authorization_api import FakeProvider
+
+    user = get_user_model().objects.create_user(username="organization-recovery", password="test-pass")
+    subject = Principal.objects.create(kind="service", name="Synthetic subject")
+    account = services.create_account(kind="team", name="Synthetic account")
+    organization = Organization.objects.get(account_id=account.id)
+    provider = FakeProvider()
+    provider.write_error = True
+    settings.OPENFGA_MODEL_ID = provider.model_id
+    monkeypatch.setattr("shared.authorization.port._provider_factory", lambda: provider)
+    client = APIClient()
+    client.force_authenticate(user)
+    mutation = client.post(
+        f"/api/v1/accounts/{account.uuid}/organizations/{organization.uuid}/authorization/direct-assignments/",
+        {
+            "subject_kind": "principal",
+            "subject_uuid": str(subject.uuid),
+            "action": "organization.read",
+            "effect": "grant",
+            "idempotency_key": str(uuid4()),
+        },
+        format="json",
+    )
+    assert mutation.status_code == 202 and mutation.data["state"] == "unresolved"
+    operation_id = mutation.data["operation_id"]
+    url = f"/api/v1/organizations/{organization.uuid}/authorization/operations/{operation_id}/"
+    observed = client.get(url)
+    assert observed.status_code == 200 and observed.data["state"] == "unresolved"
+    provider.write_error = False
+    reconciled = client.post(url, {}, format="json")
+    assert reconciled.status_code == 200 and reconciled.data["state"] == "confirmed"
+    other = Organization.objects.create(account=organization.account, name="Other organization")
+    other_url = f"/api/v1/organizations/{other.uuid}/authorization/operations/{operation_id}/"
+    assert client.get(other_url).status_code in {403, 404}
+    provider.allowed = False
+    assert client.get(url).status_code == 403

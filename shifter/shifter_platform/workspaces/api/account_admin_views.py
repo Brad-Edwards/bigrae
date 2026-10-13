@@ -289,7 +289,12 @@ class AccountWorkspaceCollectionView(_AccountAPIView):
             configured_authorization_provider(),
             account_uuid,
             organization_uuid,
-            **query.validated_data,
+            offset=query.validated_data["offset"],
+            limit=query.validated_data["limit"],
+            filters=services.WorkspaceAdminFilters(
+                include_archived=query.validated_data["include_archived"],
+                search=query.validated_data["search"],
+            ),
         )
         return Response(WorkspacePageSerializer(page).data)
 

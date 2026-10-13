@@ -51,6 +51,7 @@ from ._account_policy_lifecycle import (
 from ._account_policy_reads import (
     OrganizationAdminPage,
     OrganizationAdminView,
+    WorkspaceAdminFilters,
     WorkspaceAdminPage,
     WorkspaceAdminView,
     admin_get_account,
@@ -167,6 +168,7 @@ from ._policy_invitations import (
     policy_accept_workspace_invitation,
 )
 from ._policy_memberships import (
+    WorkspaceOwnershipCandidate,
     admin_add_scope_member,
     admin_add_workspace_owner,
     admin_list_scope_members,
@@ -246,6 +248,7 @@ __all__ = [
     "QuotaVerdict",
     "RangeRebindAuthorization",
     "ResolvedResourceScope",
+    "WorkspaceAdminFilters",
     "WorkspaceAdminPage",
     "WorkspaceAdminView",
     "WorkspaceAuditContext",
@@ -258,6 +261,7 @@ __all__ = [
     "WorkspaceMembershipError",
     "WorkspaceMembershipProjection",
     "WorkspaceOperation",
+    "WorkspaceOwnershipCandidate",
     "WorkspaceOwnershipTransferResult",
     "WorkspaceProjection",
     "WorkspaceQuotaAuditContext",

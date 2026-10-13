@@ -33,7 +33,7 @@ function WorkspaceContent({ workspace }: Readonly<{ workspace: Workspace }>) {
     {confirming ? <div className="space-y-2"><p>Confirm this workspace lifecycle change? Existing ranges remain bound to the workspace.</p><Button disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({}, { onSuccess: () => setConfirming(false) })}>Confirm workspace change</Button><Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button></div> : null}
     <AdministrationError error={lifecycle.error} />
     <RangeScopePanel key={workspace.uuid} workspaceUuid={workspace.uuid} />
-    {!workspace.archived_at ? <Tabs defaultValue="members"><TabsList>
+    {workspace.archived_at ? null : <Tabs defaultValue="members"><TabsList>
       <TabsTrigger value="members">Workspace members</TabsTrigger><TabsTrigger value="invitations">Invitations</TabsTrigger><TabsTrigger value="ownership">Ownership</TabsTrigger><TabsTrigger value="limits">Quota and egress</TabsTrigger><TabsTrigger value="policies">Workspace policies</TabsTrigger>
     </TabsList>
       <TabsContent value="members"><ScopeMembershipPanel scope={{ kind: "workspace", uuid: workspace.uuid }} /></TabsContent>
@@ -41,7 +41,7 @@ function WorkspaceContent({ workspace }: Readonly<{ workspace: Workspace }>) {
       <TabsContent value="ownership"><WorkspaceOwnership workspace={workspace} /></TabsContent>
       <TabsContent value="limits"><WorkspaceLimits workspace={workspace} /></TabsContent>
       <TabsContent value="policies"><ScopeAuthorizationContent workspaceUuid={workspace.uuid} /></TabsContent>
-    </Tabs> : null}
+    </Tabs>}
   </AdministrationSection>;
 }
 

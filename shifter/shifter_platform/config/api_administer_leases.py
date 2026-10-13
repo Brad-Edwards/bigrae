@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
@@ -32,6 +32,7 @@ from shared.credentials import CredentialContext
 from shared.mission_control_lease import MAX_LEASE_DAYS, MissionControlLeasePolicy
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
     from rest_framework.request import Request
 
 _ADMIN_AUTHENTICATION = [ApiTokenAuthentication, SessionAuthentication]
@@ -210,7 +211,7 @@ def _error_response(request: Request, exc: MissionControlLeasePolicyAdminError) 
     )
 
 
-def _current_response(request: Request, actor=None) -> Response:
+def _current_response(request: Request, actor: User | CredentialContext | None = None) -> Response:
     """Return the current settings projection after reauthorization."""
     try:
         settings = get_mission_control_lease_settings(actor if actor is not None else request.user)
@@ -226,10 +227,10 @@ class _LeasePolicyAdminView(APIView):
     permission_classes = [IsStaffSession]
     policy_administration = False
 
-    def _actor(self, request: Request):
-        return authenticated_credential(request) if self.policy_administration else request.user
+    def _actor(self, request: Request) -> User | CredentialContext:
+        return authenticated_credential(request) if self.policy_administration else cast("User", request.user)
 
-    def _audit(self, request: Request):
+    def _audit(self, request: Request) -> LeasePolicyAuditContext:
         return _audit_context(request, authenticated_credential(request) if self.policy_administration else None)
 
 

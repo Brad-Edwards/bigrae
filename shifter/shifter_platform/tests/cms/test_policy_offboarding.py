@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from cms import services
 from cms.models import RangeInstance
@@ -178,3 +179,194 @@ def test_active_range_collision_preserves_prior_workspace_transfer(owned_resourc
     instance.refresh_from_db()
     assert instance.user_id == source.pk
     assert workspace.ownerships.get().principal_uuid == identities.principal_for_user(destination).uuid
+
+
+@pytest.mark.parametrize("drift", ["membership", "ownership"])
+def test_later_workspace_rejection_retains_committed_offboarding_results(owned_resources, monkeypatch, drift):
+    from cms.services import _policy_offboarding
+    from workspaces.models import WorkspaceMembership
+
+    actor, source, destination, workspace, *_ = owned_resources
+    later = Workspace.objects.create(organization=workspace.organization, name="Later workspace")
+    source_ref = identities.principal_for_user(source)
+    destination_ref = identities.principal_for_user(destination)
+    for principal in (source_ref, destination_ref):
+        workspaces.admin_add_scope_member(actor, Provider(), "workspace", later.uuid, principal)
+    WorkspaceOwnership.objects.create(workspace=later, principal_uuid=source_ref.uuid)
+    original = _policy_offboarding.admin_transfer_workspace_principal
+
+    def transfer(*args, **kwargs):
+        if args[2] == later.uuid:
+            if drift == "membership":
+                WorkspaceMembership.objects.filter(workspace=later, principal_uuid=destination_ref.uuid).delete()
+            else:
+                WorkspaceOwnership.objects.filter(workspace=later, principal_uuid=source_ref.uuid).delete()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_policy_offboarding, "admin_transfer_workspace_principal", transfer)
+    result = services.policy_transfer_user_ownership(actor, Provider(), source, destination, kinds=("workspaces",))
+    assert result.workspaces_transferred == 1 and result.workspaces_blocked == 1
+    assert result.workspaces_blocked_no_membership == 0
+    assert workspace.ownerships.get().principal_uuid == destination_ref.uuid
+    assert not later.ownerships.filter(principal_uuid=destination_ref.uuid).exists()
+
+
+def _later_range(owned_resources, *, workspace=None):
+    _, source, _, original_workspace, *_ = owned_resources
+    workspace = workspace or original_workspace
+    request_id = uuid4()
+    scope = {
+        "scope_kind": "account",
+        "account_id": workspace.organization.account_id,
+        "organization_id": workspace.organization_id,
+        "workspace_id": workspace.pk,
+    }
+    intent = CmsRequest.objects.create(
+        request_id=request_id, request_type=RequestType.RANGE.value, user=source, **scope
+    )
+    engine_intent = EngineRequest.objects.create(
+        request_id=request_id, request_type=RequestType.RANGE.value, user=source
+    )
+    runtime = EngineRange.objects.create(
+        user=source,
+        cms_user_id=source.pk,
+        request=engine_intent,
+        status=EngineRange.Status.READY,
+        subnet_index=EngineRange.allocate_subnet_index(),
+        **scope,
+    )
+    other_source = next(item.value for item in RangeSource if item.value != RangeSource.MISSION_CONTROL.value)
+    instance = RangeInstance.objects.create(
+        request=intent,
+        user_id=source.pk,
+        scenario_id="synthetic-later",
+        range_source=other_source,
+        status=ResourceStatus.READY.value,
+        **scope,
+    )
+    return instance, runtime
+
+
+def _later_owned_workspace(owned_resources):
+    actor, source, destination, workspace, *_ = owned_resources
+    later = Workspace.objects.create(organization=workspace.organization, name="Later owned workspace")
+    for user in (source, destination):
+        workspaces.admin_add_scope_member(
+            actor, Provider(), "workspace", later.uuid, identities.principal_for_user(user)
+        )
+    WorkspaceOwnership.objects.create(workspace=later, principal_uuid=identities.principal_for_user(source).uuid)
+    return later
+
+
+@pytest.mark.parametrize("archive_when", ["before_transfer", "before_lock"])
+def test_archived_range_tenancy_retains_prior_committed_offboarding_counts(owned_resources, monkeypatch, archive_when):
+    from cms.services import _policy_offboarding
+
+    actor, source, destination, _, _, _, _, first = owned_resources
+    archived = _later_owned_workspace(owned_resources)
+    later, _ = _later_range(owned_resources, workspace=archived)
+
+    def archive():
+        archived.archived_at = timezone.now()
+        archived.save(update_fields=["archived_at"])
+
+    if archive_when == "before_transfer":
+        archive()
+    else:
+        original = _policy_offboarding._transfer_locked
+
+        def transfer(*args, **kwargs):
+            if args[1].uuid == later.uuid:
+                archive()
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(_policy_offboarding, "_transfer_locked", transfer)
+    result = services.policy_transfer_user_ownership(actor, Provider(), source, destination, kinds=("ranges",))
+    assert result.ranges_reassigned == 1 and result.ranges_blocked == 1
+    first.refresh_from_db()
+    later.refresh_from_db()
+    assert first.user_id == destination.pk and later.user_id == source.pk
+
+
+@pytest.mark.parametrize("missing_membership", [False, True])
+def test_archived_workspace_is_blocked_without_aborting_eligible_offboarding(owned_resources, missing_membership):
+    actor, source, destination, workspace, _, _, _, instance = owned_resources
+    archived = _later_owned_workspace(owned_resources)
+    source_ref = identities.principal_for_user(source)
+    destination_ref = identities.principal_for_user(destination)
+    if missing_membership:
+        workspaces.admin_remove_scope_member(actor, Provider(), "workspace", archived.uuid, destination_ref.uuid)
+    archived.archived_at = timezone.now()
+    archived.save(update_fields=["archived_at"])
+    provider = Provider()
+    result = services.policy_transfer_user_ownership(
+        actor, provider, source, destination, kinds=("workspaces", "ranges")
+    )
+    assert result.workspaces_transferred == 1 and result.workspaces_blocked == 1
+    assert result.workspaces_blocked_no_membership == 0
+    assert result.ranges_reassigned == 1 and result.ranges_blocked == 0
+    assert workspace.ownerships.get().principal_uuid == destination_ref.uuid
+    assert archived.ownerships.get().principal_uuid == source_ref.uuid
+    instance.refresh_from_db()
+    assert instance.user_id == destination.pk
+    check = next(request for request in provider.requests if request.target.uuid == archived.uuid)
+    assert check.action == "workspace.transfer"
+    assert check.scope.workspace_uuid == archived.uuid
+    assert check.scope.organization_uuid == archived.organization.uuid
+    assert check.scope.account_uuid == archived.organization.account.uuid
+
+
+def test_archived_workspace_still_requires_exact_policy_before_any_offboarding_effect(owned_resources):
+    actor, source, destination, workspace, _, _, _, instance = owned_resources
+    archived = _later_owned_workspace(owned_resources)
+    archived.archived_at = timezone.now()
+    archived.save(update_fields=["archived_at"])
+    provider = Provider(allowed_targets=frozenset({None, workspace.uuid}))
+    with pytest.raises(workspaces.AccountScopeError):
+        services.policy_transfer_user_ownership(actor, provider, source, destination, kinds=("workspaces", "ranges"))
+    assert provider.requests[-1].target.uuid == archived.uuid
+    assert provider.requests[-1].action == "workspace.transfer"
+    assert workspace.ownerships.get().principal_uuid == identities.principal_for_user(source).uuid
+    instance.refresh_from_db()
+    assert instance.user_id == source.pk
+
+
+@pytest.mark.parametrize("rejection", ["policy", "projection"])
+def test_later_range_rejection_retains_committed_offboarding_results(owned_resources, monkeypatch, rejection):
+    from cms.services import _policy_offboarding
+    from engine.services import RangeProjectionIntegrityError
+
+    actor, source, destination, _, _, _, _, first = owned_resources
+    later, _ = _later_range(owned_resources)
+    original = _policy_offboarding.policy_reassign_range_owner
+
+    def transfer(*args, **kwargs):
+        if args[2] == later.uuid:
+            error = PermissionError if rejection == "policy" else RangeProjectionIntegrityError
+            raise error("Resource changed")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_policy_offboarding, "policy_reassign_range_owner", transfer)
+    result = services.policy_transfer_user_ownership(actor, Provider(), source, destination, kinds=("ranges",))
+    assert result.ranges_reassigned == 1 and result.ranges_blocked == 1
+    first.refresh_from_db()
+    later.refresh_from_db()
+    assert first.user_id == destination.pk and later.user_id == source.pk
+
+
+def test_legacy_offboarding_retains_prior_success_after_engine_projection_drift(owned_resources):
+    from cms.services import _user_offboarding
+    from workspaces.models import WorkspaceMembership
+
+    _, source, destination, workspace, _, _, _, first = owned_resources
+    WorkspaceMembership.objects.create(workspace=workspace, user=destination, role="member")
+    later, runtime = _later_range(owned_resources)
+    runtime.cms_user_id = destination.pk
+    runtime.save(update_fields=["cms_user_id"])
+    result = _user_offboarding._transfer_ranges(
+        source, destination, _user_offboarding.OffboardingAuditContext("user", source.pk)
+    )
+    assert result == (1, 1)
+    first.refresh_from_db()
+    later.refresh_from_db()
+    assert first.user_id == destination.pk and later.user_id == source.pk

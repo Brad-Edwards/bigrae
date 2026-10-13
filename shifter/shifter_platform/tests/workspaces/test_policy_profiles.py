@@ -63,7 +63,9 @@ def test_archived_workspace_discovery_is_explicit_and_retains_scope_policy():
     actor = _actor("service", actions=frozenset({"workspace.read"}))
     provider = Provider(allowed_targets=frozenset({workspace.uuid}))
     assert services.admin_list_workspaces(actor, provider, account.uuid, organization.uuid).count == 0
-    page = services.admin_list_workspaces(actor, provider, account.uuid, organization.uuid, include_archived=True)
+    page = services.admin_list_workspaces(
+        actor, provider, account.uuid, organization.uuid, filters=services.WorkspaceAdminFilters(include_archived=True)
+    )
     assert page.count == 1 and page.results[0].archived_at is not None
 
 
@@ -87,6 +89,10 @@ def test_workspace_search_filters_before_authorized_count_and_page():
     visible = services.create_account_workspace(account.uuid, organization.uuid, "Matching visible")
     services.create_account_workspace(account.uuid, organization.uuid, "Matching hidden")
     page = services.admin_list_workspaces(
-        actor, Provider(allowed_targets=frozenset({visible.uuid})), account.uuid, organization.uuid, search="Matching"
+        actor,
+        Provider(allowed_targets=frozenset({visible.uuid})),
+        account.uuid,
+        organization.uuid,
+        filters=services.WorkspaceAdminFilters(search="Matching"),
     )
     assert page.count == 1 and page.results[0].uuid == visible.uuid

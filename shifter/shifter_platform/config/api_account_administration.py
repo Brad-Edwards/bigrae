@@ -32,10 +32,16 @@ class PolicyTransferOwnershipCommand(TransferOwnershipRequestSerializer, ClosedS
     """Keep the existing closed resource-kind selection, rejecting unknown fields."""
 
 
+class PolicyTransferOwnershipResult(TransferOwnershipResultSerializer):
+    """Prepared summary counts all resource rejections without guessing their cause."""
+
+    workspaces_blocked = serializers.IntegerField(read_only=True)
+
+
 class PolicyAdministerTransferOwnershipView(PolicyAdminView):
     """Root identity authority composes independently authorized resource effects."""
 
-    @extend_schema(request=PolicyTransferOwnershipCommand, responses=TransferOwnershipResultSerializer)
+    @extend_schema(request=PolicyTransferOwnershipCommand, responses=PolicyTransferOwnershipResult)
     def post(self, request: Request, pk: int) -> Response:
         command = PolicyTransferOwnershipCommand(data=request.data)
         command.is_valid(raise_exception=True)
@@ -67,8 +73,9 @@ class PolicyAdministerTransferOwnershipView(PolicyAdminView):
             "workspaces_transferred": result.workspaces_transferred,
             "workspaces_already_owned": result.workspaces_already_owned,
             "workspaces_blocked_no_membership": result.workspaces_blocked_no_membership,
+            "workspaces_blocked": result.workspaces_blocked,
         }
-        return Response(TransferOwnershipResultSerializer(payload).data)
+        return Response(PolicyTransferOwnershipResult(payload).data)
 
 
 class ScopedOrganizerCommand(ClosedSerializer):
@@ -105,13 +112,7 @@ class PolicyAdministerGrantOrganizerView(PolicyAdminView):
         target_uuid: UUID = values["target_uuid"]
         kind = values["target_type"]
         scope = event_placement_scope(kind, target_uuid)
-        target = (
-            TargetRef("account", target_uuid)
-            if kind == "account"
-            else TargetRef("organization", target_uuid)
-            if kind == "organization"
-            else TargetRef("workspace", target_uuid)
-        )
+        target = TargetRef(kind, target_uuid)
         result = apply_policy_mutation(
             PolicyMutationRequest(
                 actor=actor.principal,

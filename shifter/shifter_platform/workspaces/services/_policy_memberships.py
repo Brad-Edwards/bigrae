@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal, overload
+from dataclasses import dataclass
+from typing import Literal, cast, overload
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, RequestAudit, audit_log
 from shared.authorization import AuthorizationProvider, TargetRef
@@ -19,32 +21,61 @@ from ._account_policy_admin import AccountMemberPage, AccountMemberView, _requir
 from ._memberships import MembershipAuditContext, WorkspaceMembershipError, raise_member_seats_exhausted
 from ._quota import WorkspaceQuotaAuditContext, WorkspaceQuotaRejected, admit_workspace_member_seat
 
+_SCOPE_UNAVAILABLE = "Scope unavailable"
+_TRANSFER_ACTION = "workspace.transfer"
+_WorkspaceOwnershipBlockReason = Literal["archived", "no_membership"]
 
-def _authorize_scope_member(actor, provider, target_type, target_uuid) -> ResourceScope:
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceOwnershipCandidate:
+    """A preauthorized ownership fact with a precise planning rejection."""
+
+    workspace_uuid: UUID
+    blocked_reason: _WorkspaceOwnershipBlockReason | None = None
+
+
+def _authorize_scope_member(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    target_type: str,
+    target_uuid: UUID,
+) -> ResourceScope:
     """Resolve the registered scope and require its exact membership action."""
     if target_type not in {"organization", "workspace"}:
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     scope = hierarchy_target_scope(target_type, target_uuid)
-    _require_action(actor, provider, f"{target_type}.manage_members", TargetRef(target_type, target_uuid), scope)
+    _require_action(
+        actor,
+        provider,
+        f"{target_type}.manage_members",
+        TargetRef(cast(Literal["organization", "workspace"], target_type), target_uuid),
+        scope,
+    )
     return scope
 
 
 @overload
-def _locked_scope(target_type: Literal["organization"], scope: ResourceScope) -> Organization: ...
+def _locked_scope(target_type: Literal["organization"], scope: ResourceScope) -> Organization:
+    """Lock the exact persisted organization."""
+    ...
 
 
 @overload
-def _locked_scope(target_type: Literal["workspace"], scope: ResourceScope) -> Workspace: ...
+def _locked_scope(target_type: Literal["workspace"], scope: ResourceScope) -> Workspace:
+    """Lock the exact persisted workspace."""
+    ...
 
 
 @overload
-def _locked_scope(target_type: str, scope: ResourceScope) -> Organization | Workspace: ...
+def _locked_scope(target_type: str, scope: ResourceScope) -> Organization | Workspace:
+    """Lock one of the two registered membership parents."""
+    ...
 
 
 def _locked_scope(target_type: str, scope: ResourceScope) -> Organization | Workspace:
     """Recheck authorized ancestry/lifecycle under the owning row mutex."""
     if scope.account_uuid is None or scope.organization_uuid is None:
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     row: Organization | Workspace | None
     if target_type == "organization":
         row = (
@@ -57,7 +88,7 @@ def _locked_scope(target_type: str, scope: ResourceScope) -> Organization | Work
         )
     else:
         if target_type != "workspace" or scope.workspace_uuid is None:
-            raise AccountScopeError("Scope unavailable")
+            raise AccountScopeError(_SCOPE_UNAVAILABLE)
         row = (
             Workspace.objects.select_for_update(of=("self",))
             .filter(
@@ -69,18 +100,27 @@ def _locked_scope(target_type: str, scope: ResourceScope) -> Organization | Work
             .first()
         )
     if row is None:
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     return row
 
 
-def _members(parent: Organization | Workspace):
+def _members(parent: Organization | Workspace) -> QuerySet[OrganizationMembership] | QuerySet[WorkspaceMembership]:
     """Use the incumbent membership storage, excluding unmapped legacy rows."""
     if isinstance(parent, Organization):
         return OrganizationMembership.objects.filter(organization=parent, principal_uuid__isnull=False)
     return WorkspaceMembership.objects.filter(workspace=parent, principal_uuid__isnull=False)
 
 
-def _membership_audit(parent, actor, action, principal_uuid, request, *, context="scope_membership", source_uuid=None):
+def _membership_audit(
+    parent: Organization | Workspace,
+    actor: CredentialContext,
+    action: str,
+    principal_uuid: UUID,
+    request: RequestAudit | None,
+    *,
+    context: str = "scope_membership",
+    source_uuid: UUID | None = None,
+) -> None:
     """Strict evidence shares the SQL mutation's transaction and principal identity."""
     attribution = request or RequestAudit()
     audit_log(
@@ -120,11 +160,16 @@ def admin_list_scope_members(
     )
     rows = _members(parent).order_by("pk")
     return AccountMemberPage(
-        rows.count(), tuple(AccountMemberView(row.principal_uuid) for row in rows[offset : offset + limit])
+        rows.count(), tuple(AccountMemberView(cast(UUID, row.principal_uuid)) for row in rows[offset : offset + limit])
     )
 
 
-def _add_scope_member_locked(parent, subject, actor, audit):
+def _add_scope_member_locked(
+    parent: Organization | Workspace,
+    subject: PrincipalRef,
+    actor: CredentialContext,
+    audit: RequestAudit | None,
+) -> None:
     """Insert only a fact, with the incumbent locked seat admission and audit."""
     query = _members(parent)
     if query.filter(principal_uuid=subject.uuid).exists():
@@ -162,7 +207,7 @@ def admin_add_scope_member(
     try:
         subject = resolve_principal(principal)
     except Exception as exc:
-        raise AccountScopeError("Scope unavailable") from exc
+        raise AccountScopeError(_SCOPE_UNAVAILABLE) from exc
     try:
         with transaction.atomic():
             _add_scope_member_locked(_locked_scope(target_type, scope), subject, actor, audit)
@@ -195,10 +240,10 @@ def admin_remove_scope_member(
     with transaction.atomic():
         parent = _locked_scope(target_type, scope)
         if isinstance(parent, Workspace) and parent.ownerships.filter(principal_uuid=principal_uuid).exists():
-            raise AccountScopeError("Scope unavailable")
+            raise AccountScopeError(_SCOPE_UNAVAILABLE)
         membership = _members(parent).select_for_update().filter(principal_uuid=principal_uuid).first()
         if membership is None:
-            raise AccountScopeError("Scope unavailable")
+            raise AccountScopeError(_SCOPE_UNAVAILABLE)
         _membership_audit(parent, actor, AuditAction.DELETE, principal_uuid, audit)
         membership.delete()
 
@@ -214,28 +259,20 @@ def admin_transfer_workspace_principal(
 ) -> None:
     """Compare source ownership and destination membership under the workspace lock."""
     scope = hierarchy_target_scope("workspace", workspace_uuid)
-    _require_action(actor, provider, "workspace.transfer", TargetRef("workspace", workspace_uuid), scope)
+    _require_action(actor, provider, _TRANSFER_ACTION, TargetRef("workspace", workspace_uuid), scope)
     try:
         destination = resolve_principal_uuid(destination_principal_uuid)
     except Exception as exc:
-        raise AccountScopeError("Scope unavailable") from exc
+        raise AccountScopeError(_SCOPE_UNAVAILABLE) from exc
     if source_principal_uuid == destination.uuid:
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     with transaction.atomic():
         parent = _locked_scope("workspace", scope)
-        if not isinstance(parent, Workspace) or parent.personal_for_user_id is not None:
-            raise AccountScopeError("Scope unavailable")
-        source = (
-            parent.ownerships.filter(principal_uuid=source_principal_uuid).first()
-            if source_principal_uuid is not None
-            else None
-        )
-        if source_principal_uuid is not None and source is None:
-            raise AccountScopeError("Scope unavailable")
-        if source_principal_uuid is None and parent.ownerships.exists():
-            raise AccountScopeError("Scope unavailable")
+        if parent.personal_for_user_id is not None:
+            raise AccountScopeError(_SCOPE_UNAVAILABLE)
+        source = _workspace_transfer_source(parent, source_principal_uuid)
         if not _members(parent).filter(principal_uuid=destination.uuid).exists():
-            raise AccountScopeError("Scope unavailable")
+            raise AccountScopeError(_SCOPE_UNAVAILABLE)
         WorkspaceOwnership.objects.get_or_create(workspace=parent, principal_uuid=destination.uuid)
         if source is not None:
             source.delete()
@@ -260,7 +297,7 @@ def admin_add_workspace_owner(
 ) -> None:
     """Add an ownership fact; no policy or legacy role is manufactured."""
     scope = hierarchy_target_scope("workspace", workspace_uuid)
-    _require_action(actor, provider, "workspace.transfer", TargetRef("workspace", workspace_uuid), scope)
+    _require_action(actor, provider, _TRANSFER_ACTION, TargetRef("workspace", workspace_uuid), scope)
     principal = resolve_principal_uuid(principal_uuid)
     with transaction.atomic():
         workspace = _locked_scope("workspace", scope)
@@ -268,7 +305,7 @@ def admin_add_workspace_owner(
             workspace.personal_for_user_id is not None
             or not _members(workspace).filter(principal_uuid=principal.uuid).exists()
         ):
-            raise AccountScopeError("Scope unavailable")
+            raise AccountScopeError(_SCOPE_UNAVAILABLE)
         _, created = WorkspaceOwnership.objects.get_or_create(workspace=workspace, principal_uuid=principal.uuid)
         if created:
             _membership_audit(
@@ -286,12 +323,12 @@ def admin_remove_workspace_owner(
 ) -> None:
     """Remove an explicit owner only while at least one other owner remains."""
     scope = hierarchy_target_scope("workspace", workspace_uuid)
-    _require_action(actor, provider, "workspace.transfer", TargetRef("workspace", workspace_uuid), scope)
+    _require_action(actor, provider, _TRANSFER_ACTION, TargetRef("workspace", workspace_uuid), scope)
     with transaction.atomic():
         workspace = _locked_scope("workspace", scope)
         ownership = workspace.ownerships.filter(principal_uuid=principal_uuid).first()
         if workspace.personal_for_user_id is not None or ownership is None or workspace.ownerships.count() <= 1:
-            raise AccountScopeError("Scope unavailable")
+            raise AccountScopeError(_SCOPE_UNAVAILABLE)
         _membership_audit(workspace, actor, AuditAction.DELETE, principal_uuid, audit, context="workspace_ownership")
         ownership.delete()
 
@@ -301,7 +338,7 @@ def policy_owned_workspace_candidates(
     provider: AuthorizationProvider,
     source_principal_uuid: UUID,
     destination_principal_uuid: UUID,
-) -> tuple[tuple[UUID, bool], ...]:
+) -> tuple[WorkspaceOwnershipCandidate, ...]:
     """Preauthorize a complete bounded offboarding plan before the first effect."""
     from ._authorization_delegation import _MAX_DELEGATION_DESCENDANTS
 
@@ -309,18 +346,26 @@ def policy_owned_workspace_candidates(
         actor, provider, "installation.manage_principals", TargetRef("installation"), ResourceScope("installation")
     )
     rows = tuple(
-        Workspace.objects.filter(
-            ownerships__principal_uuid=source_principal_uuid, personal_for_user__isnull=True
-        ).order_by("pk")[: _MAX_DELEGATION_DESCENDANTS + 1]
+        Workspace.objects.filter(ownerships__principal_uuid=source_principal_uuid, personal_for_user__isnull=True)
+        .select_related("organization")
+        .order_by("pk")[: _MAX_DELEGATION_DESCENDANTS + 1]
     )
     if len(rows) > _MAX_DELEGATION_DESCENDANTS:
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     candidates = []
     for row in rows:
-        scope = hierarchy_target_scope("workspace", row.uuid)
-        _require_action(actor, provider, "workspace.transfer", TargetRef("workspace", row.uuid), scope)
-        eligible = _members(row).filter(principal_uuid=destination_principal_uuid).exists()
-        candidates.append((row.uuid, eligible))
+        # Archived ownership remains visible to offboarding. Resolve its
+        # validated parent as the restore command does; mutation still requires
+        # an active workspace under the owning row lock.
+        parent = hierarchy_target_scope("organization", row.organization.uuid)
+        scope = ResourceScope("account", parent.account_uuid, parent.organization_uuid, row.uuid)
+        _require_action(actor, provider, _TRANSFER_ACTION, TargetRef("workspace", row.uuid), scope)
+        reason: _WorkspaceOwnershipBlockReason | None = None
+        if row.archived_at is not None:
+            reason = "archived"
+        elif not _members(row).filter(principal_uuid=destination_principal_uuid).exists():
+            reason = "no_membership"
+        candidates.append(WorkspaceOwnershipCandidate(row.uuid, reason))
     return tuple(candidates)
 
 
@@ -337,22 +382,26 @@ def scope_has_principal_member(scope: ResourceScope, principal: PrincipalRef, *,
     if resolved.workspace_id is not None:
         if lock:
             _locked_scope("workspace", scope)
-        return WorkspaceMembership.objects.filter(
+        result = WorkspaceMembership.objects.filter(
             workspace_id=resolved.workspace_id, principal_uuid=principal.uuid
         ).exists()
-    if resolved.organization_id is not None:
+    elif resolved.organization_id is not None:
         if lock:
             _locked_scope("organization", scope)
-        return OrganizationMembership.objects.filter(
+        result = OrganizationMembership.objects.filter(
             organization_id=resolved.organization_id, principal_uuid=principal.uuid
         ).exists()
-    if resolved.account_id is None:
-        raise AccountScopeError("Scope unavailable")
-    query = Account.objects.select_for_update() if lock else Account.objects
-    account = query.get(pk=resolved.account_id)
-    if account.kind == Account.Kind.INDIVIDUAL:
-        return account.individual_principal_uuid == principal.uuid
-    return AccountMembership.objects.filter(account=account, principal_uuid=principal.uuid).exists()
+    else:
+        if resolved.account_id is None:
+            raise AccountScopeError(_SCOPE_UNAVAILABLE)
+        query = Account.objects.select_for_update() if lock else Account.objects
+        account = query.get(pk=resolved.account_id)
+        result = (
+            account.individual_principal_uuid == principal.uuid
+            if account.kind == Account.Kind.INDIVIDUAL
+            else AccountMembership.objects.filter(account=account, principal_uuid=principal.uuid).exists()
+        )
+    return result
 
 
 def policy_self_workspace_membership(
@@ -364,7 +413,7 @@ def policy_self_workspace_membership(
     if not WorkspaceMembership.objects.filter(
         workspace__uuid=workspace_uuid, principal_uuid=actor.principal.uuid
     ).exists():
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     return AccountMemberView(actor.principal.uuid)
 
 
@@ -390,3 +439,13 @@ def policy_leave_workspace(
         ).delete()
         if removed:
             _membership_audit(workspace, actor, AuditAction.DELETE, actor.principal.uuid, audit)
+
+
+def _workspace_transfer_source(workspace: Workspace, source_uuid: UUID | None) -> WorkspaceOwnership | None:
+    """Check the original source fact while the workspace mutex is held."""
+    source = workspace.ownerships.filter(principal_uuid=source_uuid).first() if source_uuid is not None else None
+    if source_uuid is not None and source is None:
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
+    if source_uuid is None and workspace.ownerships.exists():
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
+    return source

@@ -33,6 +33,8 @@ from shared.api_tokens.authentication import ApiTokenAuthentication
 from shared.audit import request_audit
 from shared.authorization import AuthorizationProviderBindingError, TargetRef, configured_authorization_provider
 
+_USER_NOT_FOUND = "User not found"
+
 
 class PolicyAdminUserDetailSerializer(AdminUserDetailSerializer):
     """Prepared identity and valid-operation hints; endpoints still reauthorize."""
@@ -152,7 +154,7 @@ class PolicyAdminUserDetailView(PolicyAdminView, RetrieveAPIView):
                 audit=request_audit(request, credential=actor),
             )
         except User.DoesNotExist as exc:
-            raise NotFound("User not found") from exc
+            raise NotFound(_USER_NOT_FOUND) from exc
         except ValueError:
             return api_error_response(
                 code="invalid_user_metadata", message="User metadata unavailable", status_code=400, request=request
@@ -177,7 +179,7 @@ def _policy_transition(request: Request, pk: int, action: lifecycle.AccountLifec
     require_principal_administration(actor, provider)
     user = services.get_admin_user(pk)
     if user is None:
-        raise NotFound("User not found")
+        raise NotFound(_USER_NOT_FOUND)
     attribution = request_audit(request, credential=actor)
     lifecycle.transition_account(
         user,
@@ -233,7 +235,7 @@ class PolicyAdminUserResetPasswordView(PolicyAdminView, APIView):
         require_principal_administration(actor, provider)
         user = services.get_admin_user(pk)
         if user is None:
-            raise NotFound("User not found")
+            raise NotFound(_USER_NOT_FOUND)
         attribution = request_audit(request, credential=actor)
         password_reset.request_password_reset(
             user,

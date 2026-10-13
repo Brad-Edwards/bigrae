@@ -338,6 +338,24 @@ def rebind_range_workspace_by_request(
     return outcome
 
 
+def _check_reassignment_projection(
+    range_obj: Range,
+    expected_owner_id: int | None,
+    expected_scope: tuple[str, int | None, int | None, int | None] | None,
+) -> None:
+    """Compare frozen ownership and ancestry under the existing Engine row lock."""
+    if expected_owner_id is not None and (
+        range_obj.user_id != expected_owner_id
+        or range_obj.cms_user_id != expected_owner_id
+        or range_obj.request is None
+        or range_obj.request.user_id != expected_owner_id
+    ):
+        raise RangeProjectionIntegrityError("Range ownership projections disagree")
+    actual_scope = (range_obj.scope_kind, range_obj.account_id, range_obj.organization_id, range_obj.workspace_id)
+    if expected_scope is not None and actual_scope != expected_scope:
+        raise RangeProjectionIntegrityError("Range scope projections disagree")
+
+
 def reassign_range_owner_by_request(
     request_id: UUID,
     new_user: User,
@@ -370,16 +388,7 @@ def reassign_range_owner_by_request(
             logger.warning("reassign_range_owner_by_request: no range for request_id=%s", request_id)
             return False
 
-        if expected_owner_id is not None and (
-            range_obj.user_id != expected_owner_id
-            or range_obj.cms_user_id != expected_owner_id
-            or range_obj.request is None
-            or range_obj.request.user_id != expected_owner_id
-        ):
-            raise RangeProjectionIntegrityError("Range ownership projections disagree")
-        actual_scope = (range_obj.scope_kind, range_obj.account_id, range_obj.organization_id, range_obj.workspace_id)
-        if expected_scope is not None and actual_scope != expected_scope:
-            raise RangeProjectionIntegrityError("Range scope projections disagree")
+        _check_reassignment_projection(range_obj, expected_owner_id, expected_scope)
         if range_obj.user_id == new_user.id:
             logger.info(
                 "reassign_range_owner_by_request: already owned by user_id=%s request_id=%s",

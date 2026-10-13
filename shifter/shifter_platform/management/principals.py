@@ -12,6 +12,7 @@ from shared.api_tokens.scopes import credential_ceiling, validate_scopes
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
+from shared.verified_identity import VerifiedIdentity
 
 from .models import Principal, PrincipalConflictError, ProviderBinding, ServiceCredentialAdmission, UserProfile
 
@@ -67,7 +68,7 @@ def principal_identity_for_user(user: User) -> PrincipalRef:
     """Read stable human ownership identity without authenticating that user."""
     principal = Principal.objects.filter(user_id=user.pk, kind=Principal.Kind.HUMAN).first()
     if principal is None:
-        raise PrincipalConflictError("Principal unavailable")
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
     return _principal_ref(principal)
 
 
@@ -139,7 +140,7 @@ def resolve_principal(principal_ref: PrincipalRef) -> PrincipalRef:
     return _principal_ref(principal)
 
 
-def resolve_verified_principal(identity) -> PrincipalRef:
+def resolve_verified_principal(identity: VerifiedIdentity) -> PrincipalRef:
     """Match a freshly verified provider identity to one active human principal."""
     principal = (
         _active_principals()
@@ -151,7 +152,7 @@ def resolve_verified_principal(identity) -> PrincipalRef:
         .first()
     )
     if principal is None:
-        raise PrincipalConflictError("Principal unavailable")
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
     return _principal_ref(principal)
 
 

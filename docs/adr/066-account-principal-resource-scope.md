@@ -193,6 +193,20 @@ entries do not prove mounted-operation coverage. Provider failure cannot become
 an empty authorized result; transfer summaries must preserve blocked outcomes
 and must not claim atomicity across independently committed resources.
 
+Per-resource membership, ownership, policy and projection rejection must retain
+earlier committed offboarding counts. The prepared summary reports all blocked
+workspaces separately from confirmed missing-membership cases. Credential
+revocation and rotation acquire the owner mutex before the token mutex, matching
+identity lifecycle. Recovery-email changes require the owning human session;
+an installation principal-administration grant alone cannot redirect recovery.
+Standalone organization operation recovery derives its persisted account
+ancestry and retains the journal's current-effect authorization checks.
+
+The prepared OpenAPI TypeScript declaration follows the incumbent generated
+schema analysis exclusion under the exact, owned, time-bounded ADR-003-R7
+exception. DRF contract drift and TypeScript consumer checks remain mandatory;
+handwritten administration code retains the ordinary analysis gates.
+
 The OpenFGA application-policy boundary, supported SDK operations, durable
 write semantics, deployment contract, and cutover constraints are clarified by
 `docs/architecture/openfga-authorization-preflight-2315.md`. That clarification

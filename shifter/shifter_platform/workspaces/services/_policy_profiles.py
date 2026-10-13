@@ -18,6 +18,8 @@ from ._organization import OrganizationAuditContext, OrganizationProfile, _profi
 from ._policy_memberships import _locked_scope
 from ._quota_admin import WorkspaceQuotaProjection, _workspace_quota_projection
 
+_SCOPE_UNAVAILABLE = "Scope unavailable"
+
 
 def admin_update_account(
     actor: CredentialContext,
@@ -34,7 +36,7 @@ def admin_update_account(
         or not changes["name"].strip()
         or len(changes["name"]) > 200
     ):
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     scope = hierarchy_target_scope("account", account_uuid)
     _require_action(actor, provider, "account.update", TargetRef("account", account_uuid), scope)
     request = audit or RequestAudit()
@@ -71,7 +73,7 @@ def admin_get_organization_profile(
     """Return the canonical profile only beneath its exact SQL parent."""
     scope = hierarchy_target_scope("organization", organization_uuid)
     if scope.account_uuid != account_uuid:
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     _require_action(actor, provider, "organization.read", TargetRef("organization", organization_uuid), scope)
     from workspaces.models import Organization
 
@@ -90,7 +92,7 @@ def admin_update_organization_profile(
     """Keep the existing PATCH mask, validation, locked writer and strict evidence."""
     scope = hierarchy_target_scope("organization", organization_uuid)
     if scope.account_uuid != account_uuid:
-        raise AccountScopeError("Scope unavailable")
+        raise AccountScopeError(_SCOPE_UNAVAILABLE)
     _require_action(actor, provider, "organization.update", TargetRef("organization", organization_uuid), scope)
     _validate_changes(changes)
     request = audit or RequestAudit()

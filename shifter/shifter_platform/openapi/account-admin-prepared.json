@@ -4540,7 +4540,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TransferOwnershipResult"
+                                    "$ref": "#/components/schemas/PolicyTransferOwnershipResult"
                                 }
                             }
                         },
@@ -9466,6 +9466,47 @@
                     "resource_kinds"
                 ]
             },
+            "PolicyTransferOwnershipResult": {
+                "type": "object",
+                "description": "Prepared summary counts all resource rejections without guessing their cause.",
+                "properties": {
+                    "source_user_id": {
+                        "type": "integer"
+                    },
+                    "replacement_user_id": {
+                        "type": "integer"
+                    },
+                    "ranges_reassigned": {
+                        "type": "integer"
+                    },
+                    "ranges_blocked": {
+                        "type": "integer"
+                    },
+                    "workspaces_transferred": {
+                        "type": "integer"
+                    },
+                    "workspaces_already_owned": {
+                        "type": "integer"
+                    },
+                    "workspaces_blocked_no_membership": {
+                        "type": "integer"
+                    },
+                    "workspaces_blocked": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "ranges_blocked",
+                    "ranges_reassigned",
+                    "replacement_user_id",
+                    "source_user_id",
+                    "workspaces_already_owned",
+                    "workspaces_blocked",
+                    "workspaces_blocked_no_membership",
+                    "workspaces_transferred"
+                ]
+            },
             "PolicyWorkspaceInvitation": {
                 "type": "object",
                 "description": "A membership invitation exposes no legacy role or implicit authority grant.",
@@ -9939,42 +9980,6 @@
                 },
                 "required": [
                     "name"
-                ]
-            },
-            "TransferOwnershipResult": {
-                "type": "object",
-                "description": "Bounded, secret-free summary of an offboarding ownership transfer.",
-                "properties": {
-                    "source_user_id": {
-                        "type": "integer"
-                    },
-                    "replacement_user_id": {
-                        "type": "integer"
-                    },
-                    "ranges_reassigned": {
-                        "type": "integer"
-                    },
-                    "ranges_blocked": {
-                        "type": "integer"
-                    },
-                    "workspaces_transferred": {
-                        "type": "integer"
-                    },
-                    "workspaces_already_owned": {
-                        "type": "integer"
-                    },
-                    "workspaces_blocked_no_membership": {
-                        "type": "integer"
-                    }
-                },
-                "required": [
-                    "ranges_blocked",
-                    "ranges_reassigned",
-                    "replacement_user_id",
-                    "source_user_id",
-                    "workspaces_already_owned",
-                    "workspaces_blocked_no_membership",
-                    "workspaces_transferred"
                 ]
             },
             "Workspace": {

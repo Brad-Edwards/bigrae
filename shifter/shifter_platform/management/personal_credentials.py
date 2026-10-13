@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TypedDict, Unpack
+from typing import TYPE_CHECKING, TypedDict, Unpack
 from uuid import UUID
 
 from django.contrib.auth.models import User
@@ -25,6 +25,9 @@ from shared.identity_scope import ResourceScope
 from shared.principal_port import resolve_principal
 
 from .principals import principal_for_user
+
+if TYPE_CHECKING:
+    from django.http import HttpRequest
 
 _CREDENTIAL_OPERATION_DENIED = "Credential operation denied"
 
@@ -65,13 +68,22 @@ def admin_list_personal_tokens(
 
 
 def admin_revoke_personal_token(
-    actor: CredentialContext, provider: AuthorizationProvider, credential_uuid: UUID, *, request=None
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    credential_uuid: UUID,
+    *,
+    request: HttpRequest | None = None,
 ) -> None:
     """Revoke an exact credential through Knox and strict principal audit."""
     _authorize_token_administration(actor, provider)
     with transaction.atomic():
+        owner_id = (
+            ApiToken.objects.filter(credential_uuid=credential_uuid).values_list("created_by_id", flat=True).first()
+        )
+        if owner_id is not None:
+            User.objects.select_for_update().get(pk=owner_id)
         token = ApiToken.objects.select_for_update().filter(credential_uuid=credential_uuid).first()
-        if token is None:
+        if token is None or token.created_by_id != owner_id:
             raise ValueError(_CREDENTIAL_OPERATION_DENIED)
         if token.revoked_at is None:
             token.revoke()
@@ -79,7 +91,6 @@ def admin_revoke_personal_token(
                 TokenEvent.REVOKED,
                 token_id=token.token_id,
                 token_pk=token.pk,
-                actor_type="principal",
                 actor_principal_uuid=actor.principal.uuid,
                 request=request,
                 context="administrator credential revocation",
@@ -167,8 +178,9 @@ def _persist_issue(
         # reads above intentionally do not run while holding SQL locks.
         from .models import Principal
 
+        owner = User.objects.select_for_update(of=("self",)).select_related("profile").get(pk=user.pk)
         Principal.objects.select_for_update().get(uuid=actor.principal.uuid, is_active=True)
-        _session_owner(actor, User.objects.select_related("profile").get(pk=user.pk))
+        _session_owner(actor, owner)
         token, raw = ApiToken.create_token(
             name=name.strip(), created_by=user, scopes=scopes, expires_at=expires_at, target=target
         )
@@ -198,6 +210,7 @@ def revoke_own_token(actor: CredentialContext, user: User, credential_uuid: UUID
     """Idempotently revoke an exact owned credential even after grant loss."""
     _session_owner(actor, user)
     with transaction.atomic():
+        _session_owner(actor, User.objects.select_for_update(of=("self",)).select_related("profile").get(pk=user.pk))
         token = (
             ApiToken.objects.select_for_update()
             .filter(credential_uuid=credential_uuid, created_by=user, principal_uuid=actor.principal.uuid)
@@ -220,6 +233,8 @@ def rotate_personal_token(credential_uuid: UUID, **kwargs: Unpack[RotateArgument
     """Authorize before locks, then atomically replace and retire the old proof."""
     normalized = _authorize_issue(kwargs["actor"], kwargs["user"], kwargs["scopes"], kwargs["target"], kwargs["scope"])
     with transaction.atomic():
+        owner = User.objects.select_for_update(of=("self",)).select_related("profile").get(pk=kwargs["user"].pk)
+        _session_owner(kwargs["actor"], owner)
         previous = (
             ApiToken.objects.select_for_update()
             .filter(credential_uuid=credential_uuid, created_by=kwargs["user"], revoked_at__isnull=True)

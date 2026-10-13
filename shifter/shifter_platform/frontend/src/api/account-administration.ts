@@ -11,7 +11,8 @@ export type Workspace = AdministrationSchemas["WorkspaceView"];
 export type MembershipPage = AdministrationSchemas["AccountMemberPage"];
 export type Scope = Readonly<{ kind: "account" | "organization" | "workspace"; uuid: string }>;
 
-export const scopePath = (scope: Scope) => `/${scope.kind === "account" ? "accounts" : scope.kind === "organization" ? "organizations" : "workspaces"}/${encodeURIComponent(scope.uuid)}`;
+const scopeCollections = { account: "accounts", organization: "organizations", workspace: "workspaces" } as const;
+export const scopePath = (scope: Scope) => `/${scopeCollections[scope.kind]}/${encodeURIComponent(scope.uuid)}`;
 
 export function useAdministrationQuery<T>(path: string, query?: Record<string, QueryValue>, enabled = true) {
   return useQuery({

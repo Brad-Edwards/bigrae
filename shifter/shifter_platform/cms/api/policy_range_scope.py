@@ -2,6 +2,7 @@
 
 from uuid import UUID
 
+from django.db.models import QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import NotFound
@@ -18,6 +19,7 @@ from cms.api.range_scope import (
     WorkspaceRangeScopeListView,
 )
 from cms.exceptions import RangeScopeAdminError
+from cms.models import RangeInstance
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
@@ -38,7 +40,7 @@ class PolicyWorkspaceRangeScopeListView(WorkspaceRangeScopeListView):
     authentication_classes = [ApiTokenAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticatedSessionOrApiToken]
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[RangeInstance]:
         try:
             return services.policy_list_range_scope_bindings(
                 authenticated_credential(self.request),

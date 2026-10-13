@@ -32,7 +32,7 @@ before releasing the source. Reopened historical reservations support moving
 back without bypassing quota. Strict audit failure rolls effects back.
 
 Prepared Django-admin classes disable add/change/delete and bulk mutation.
-`PolicyAdminSite` admits active policy sessions without a staff-flag requirement;
+`PolicyAdminSite` admits active human browser sessions without a staff-flag requirement;
 registered model admins authorize reads and filter before counting. Canonical
 DRF/browser commands replace direct lifecycle, invitation and quota writes.
 The existing admin site and registrations remain unchanged until S8.
@@ -70,3 +70,21 @@ range projection and releases the current persisted workspace reservation, even
 when the consumer loaded its instance before a scope move. The integer-user
 workspace transfer compatibility helper uses principal ownership facts and
 leaves legacy role rows unchanged.
+
+Known per-resource policy, membership, ownership and projection rejections retain
+earlier committed offboarding effects. The prepared `workspaces_blocked` count
+covers all workspace rejections; the incumbent missing-membership count retains
+its narrower meaning. Archived ownership is reported as blocked after an exact
+policy check, without preventing transfers of eligible resources. Standalone
+organization operation recovery derives the
+persisted account ancestry before the journal reauthorizes its recorded effect.
+
+Personal credential commands lock the owner before the token, matching lifecycle
+revocation. Metadata email changes require that owner's human session under the
+same locked user boundary. The administrative grant alone cannot redirect a
+password reset to another recipient.
+
+The exact generated TypeScript declaration follows the incumbent schema analysis
+exclusion recorded as an owned, time-bounded ADR-003-R7 exception. DRF drift,
+TypeScript compilation and consumer tests remain enforced; handwritten code is
+fully analyzed.

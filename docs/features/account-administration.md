@@ -27,6 +27,10 @@ principal can use the administrative API without impersonating a human.
 Personal token issuance still requires its owner's authenticated browser session
 and the established proof and CSRF ceremony.
 
+Recovery-email changes require the account owner's own browser session.
+Administrators can edit other profile metadata and request password resets,
+but cannot change another user's recovery recipient.
+
 Range scope moves require authority in both workspaces, existing destination
 membership for the owner and destination quota capacity. The server moves the
 persisted ancestry and active reservation together. Domain-owned aggregates

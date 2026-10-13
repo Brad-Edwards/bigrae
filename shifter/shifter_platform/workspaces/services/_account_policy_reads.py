@@ -73,6 +73,26 @@ class WorkspaceAdminPage:
     results: tuple[WorkspaceAdminView, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class WorkspaceAdminFilters:
+    """Closed workspace discovery filters, applied before authorization paging."""
+
+    include_archived: bool = False
+    search: str = ""
+
+
+_DEFAULT_WORKSPACE_FILTERS = WorkspaceAdminFilters()
+
+
+def _workspace_filters(filters: WorkspaceAdminFilters) -> tuple[bool, str]:
+    """Validate query intent independently of the authorized SQL selection."""
+    if not isinstance(filters, WorkspaceAdminFilters) or not isinstance(filters.include_archived, bool):
+        raise AccountScopeError(_DENIED)
+    if not isinstance(filters.search, str) or len(filters.search) > 200:
+        raise AccountScopeError(_DENIED)
+    return filters.include_archived, filters.search.strip()
+
+
 def admin_get_account(
     actor: CredentialContext, provider: AuthorizationProvider, account_uuid: UUID
 ) -> AccountAdminView:
@@ -243,14 +263,12 @@ def admin_list_workspaces(
     *,
     offset: int = 0,
     limit: int = 50,
-    include_archived: bool = False,
-    search: str = "",
+    filters: WorkspaceAdminFilters = _DEFAULT_WORKSPACE_FILTERS,
 ) -> WorkspaceAdminPage:
-    """Page only live workspaces readable beneath the exact parent organization."""
+    """Page authorized workspaces beneath the exact parent organization."""
     _active_actor(actor)
     _valid_page(offset, limit)
-    if not isinstance(search, str) or len(search) > 200:
-        raise AccountScopeError(_DENIED)
+    include_archived, search = _workspace_filters(filters)
     scope = hierarchy_target_scope("organization", organization_uuid)
     if scope.account_uuid != account_uuid:
         raise AccountScopeError(_DENIED)
@@ -260,11 +278,7 @@ def admin_list_workspaces(
     permitted, exact_uuid = _collection_ceiling(actor, _READ_WORKSPACE, "workspace")
     if not permitted:
         return WorkspaceAdminPage(0, ())
-    if not isinstance(include_archived, bool):
-        raise AccountScopeError(_DENIED)
-    query = Workspace.objects.filter(organization=organization, name__icontains=search.strip()).prefetch_related(
-        "ownerships"
-    )
+    query = Workspace.objects.filter(organization=organization, name__icontains=search).prefetch_related("ownerships")
     if not include_archived:
         query = query.filter(archived_at__isnull=True)
     if exact_uuid is not None:
