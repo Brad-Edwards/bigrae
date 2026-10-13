@@ -1113,7 +1113,7 @@ jobs:
           # render_runtime_env.py fails closed if the Terraform outputs lack a
           # public hostname / managed TLS, so an insecure runtime is never
           # rendered or applied (ADR-008-R1/R3).
-          python3 scripts/gcp/render_runtime_env.py \
+          uv run --project scripts/gcp --frozen python scripts/gcp/render_runtime_env.py \
             --terraform-output-json /tmp/gcp-terraform-outputs.json \
             --engine-image-digest "${PROVISIONER_DIGEST}" \
             --output "${K8S_OVERLAY_DIR}/platform-runtime.generated.env"
@@ -1275,6 +1275,15 @@ jobs:
             --terraform-output /tmp/gcp-terraform-outputs.json \
             --platform-image "${PORTAL_IMAGE_ROOT}@${PORTAL_IMAGE_DIGEST}" \
             --manifest "${manifest}" --output "${platform_manifest}"
+          native_manifest="${RUNNER_TEMP}/platform-native.generated.yaml"
+          policy_migration="${RUNNER_TEMP}/openfga-migration.generated.yaml"
+          uv run --project scripts/gcp --frozen python scripts/gcp/render_native_identity.py \
+            --config "${config}" --terraform-output /tmp/gcp-terraform-outputs.json \
+            --manifest "${platform_manifest}" --output "${native_manifest}" \
+            --migration-output "${policy_migration}"
+          echo "NATIVE_POLICY_CONFIG=${config}" >> "${GITHUB_ENV}"
+          echo "NATIVE_POLICY_MIGRATION=${policy_migration}" >> "${GITHUB_ENV}"
+          platform_manifest="${native_manifest}"
           enabled="$(cat "${manifest}.enabled")"
           echo "MODEL_BROKER_ENABLED=${enabled}" >> "${GITHUB_ENV}"
           if [ "${enabled}" = false ]; then
@@ -1314,97 +1323,34 @@ jobs:
           }
           trap cleanup EXIT
           cleanup
-          cat <<YAML | kubectl apply -f -
-          apiVersion: batch/v1
-          kind: Job
-          metadata:
-            name: ${job}
-            namespace: shifter-platform
-            labels:
-              app.kubernetes.io/name: shifter
-              app.kubernetes.io/component: migrator
-              app.kubernetes.io/part-of: shifter
-          spec:
-            backoffLimit: 0
-            activeDeadlineSeconds: 900
-            template:
-              metadata:
-                labels:
-                  app.kubernetes.io/name: shifter
-                  app.kubernetes.io/component: migrator
-                  app.kubernetes.io/part-of: shifter
-              spec:
-                serviceAccountName: migrator
-                automountServiceAccountToken: true
-                restartPolicy: Never
-                securityContext:
-                  seccompProfile:
-                    type: RuntimeDefault
-                containers:
-                  - name: migrate
-                    image: ${PORTAL_IMAGE_ROOT}@${PORTAL_IMAGE_DIGEST}
-                    imagePullPolicy: IfNotPresent
-                    # entrypoint.sh runs migrations first, then registers the
-                    # immutable shipped seed and base image mappings.
-                    args: ["/bin/sh", "-c", "python manage.py bootstrap_inbox_catalog && python manage.py seed_raes_image_registry && python manage.py acquire_feature_artifacts"]
-                    envFrom:
-                      - configMapRef:
-                          name: platform-runtime
-                    env:
-                      - name: DB_SECRET_ID
-                        valueFrom:
-                          configMapKeyRef:
-                            name: platform-runtime
-                            key: DB_MIGRATION_SECRET_ID
-                      - name: SKIP_MIGRATIONS
-                        value: ""
-                      - name: GUACAMOLE_SECRET_ID
-                        value: ""
-                      - name: DC_DOMAIN_PASSWORD_SECRET_ID
-                        value: ""
-                      - name: REDIS_SECRET_ID
-                        value: ""
-                      # This Job blanks REDIS_SECRET_ID (above), so entrypoint.sh
-                      # never hydrates REDIS_PASSWORD. The runtime ConfigMap still
-                      # carries REDIS_HOST/REDIS_TLS=true for the app pods, which
-                      # would make Django settings demand the (absent) AUTH token at
-                      # import (config/_redis.py resolve_redis_connection, ADR-008-R6).
-                      # Migrations touch only the database, so blank REDIS_HOST here
-                      # too: with no host, config/_redis.py and config/_channels.py
-                      # both select the LocMem cache and in-memory channel layer
-                      # instead of a Redis connection this Job neither needs nor
-                      # carries credentials for. Not a downgrade of a real
-                      # connection (there is none) — it declares there is no Redis.
-                      - name: REDIS_HOST
-                        value: ""
-                      # This DB-only Job does not mount or serve the model catalog.
-                      - name: MODEL_ACCESS_ENABLED
-                        value: "false"
-                      - name: MODEL_ACCESS_CATALOG_PATH
-                        value: ""
-                      - name: MODEL_ACCESS_CATALOG_DIGEST
-                        value: ""
-                      - name: EMAIL_API_KEY_SECRET_ID
-                        value: ""
-                    securityContext:
-                      allowPrivilegeEscalation: false
-                      capabilities:
-                        drop: ["ALL"]
-                      readOnlyRootFilesystem: true
-                      runAsNonRoot: true
-                      runAsUser: 1000
-                    volumeMounts:
-                      - name: tmp
-                        mountPath: /tmp
-                volumes:
-                  - name: tmp
-                    emptyDir: {}
-          YAML
+          migration_manifest="${RUNNER_TEMP}/${job}.yaml"
+          uv run --project scripts/gcp --frozen python scripts/gcp/render_migration_job.py \
+            --terraform-output /tmp/gcp-terraform-outputs.json \
+            --image "${PORTAL_IMAGE_ROOT}@${PORTAL_IMAGE_DIGEST}" \
+            --job-name "${job}" --output "${migration_manifest}"
+          kubectl apply -f "${migration_manifest}"
           if ! kubectl wait --for=condition=complete "job/${job}" -n shifter-platform --timeout=15m; then
             kubectl logs "job/${job}" -n shifter-platform --all-containers=true || true
             exit 1
           fi
           kubectl logs "job/${job}" -n shifter-platform --all-containers=true
+      - name: Reconcile the private policy datastore and native credentials
+        run: |
+          set -euo pipefail
+          if [ ! -s "${NATIVE_POLICY_MIGRATION}" ]; then
+            exit 0
+          fi
+          uv run --project scripts/gcp --frozen python scripts/gcp/sync_openfga_secrets.py \
+            --config "${NATIVE_POLICY_CONFIG}"
+          kubectl delete job openfga-datastore-migrate -n shifter-platform --ignore-not-found --wait=true
+          kubectl apply -f "${NATIVE_POLICY_MIGRATION}"
+          if ! kubectl wait --for=condition=complete job/openfga-datastore-migrate -n shifter-platform --timeout=15m; then
+            kubectl logs job/openfga-datastore-migrate -n shifter-platform --all-containers=true || true
+            exit 1
+          fi
+          kubectl rollout restart deployment/openfga deployment/openfga-admin deployment/portal-web -n shifter-platform
+          kubectl rollout status deployment/openfga -n shifter-platform --timeout=10m
+          kubectl rollout status deployment/openfga-admin -n shifter-platform --timeout=10m
       - name: Sync Guacamole runtime secret
         run: |
           python3 - <<'PY'

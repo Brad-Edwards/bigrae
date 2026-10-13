@@ -8,12 +8,14 @@ RUN_ID="openfga-integration-$$"
 NETWORK_NAME="${RUN_ID}-network"
 POSTGRES_NAME="${RUN_ID}-postgres"
 SERVER_NAME="${RUN_ID}-server"
+RUNTIME_SERVER_NAME="${RUN_ID}-runtime"
 FIXTURE_DIR="$(mktemp -d)"
 TOKEN="integration-only-preshared-key-0001"
+ADMIN_TOKEN="integration-only-admin-key-0002"
 DB_PASSWORD="integration-only-postgres-password"
 
 cleanup() {
-  docker rm -f "${SERVER_NAME}" "${POSTGRES_NAME}" >/dev/null 2>&1 || true
+  docker rm -f "${RUNTIME_SERVER_NAME}" "${SERVER_NAME}" "${POSTGRES_NAME}" >/dev/null 2>&1 || true
   docker network rm "${NETWORK_NAME}" >/dev/null 2>&1 || true
   rm -rf "${FIXTURE_DIR}"
 }
@@ -44,7 +46,7 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 docker exec "${POSTGRES_NAME}" pg_isready -h 127.0.0.1 -U openfga -d openfga >/dev/null
-docker exec "${POSTGRES_NAME}" createdb -h 127.0.0.1 -U openfga shifter
+docker exec "${POSTGRES_NAME}" createdb -h 127.0.0.1 -U openfga shifter_integration
 
 DATASTORE_URI="postgres://openfga:${DB_PASSWORD}@${POSTGRES_NAME}:5432/openfga?sslmode=disable"
 docker run --rm --network "${NETWORK_NAME}" \
@@ -52,13 +54,22 @@ docker run --rm --network "${NETWORK_NAME}" \
   -e OPENFGA_DATASTORE_URI="${DATASTORE_URI}" \
   "${OPENFGA_IMAGE}" migrate
 
+# API administration and runtime get separate non-owner database duties.
+docker exec -i "${POSTGRES_NAME}" psql -h 127.0.0.1 -U openfga -d openfga -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE integration_runtime LOGIN PASSWORD 'integration-only-runtime-password';
+CREATE ROLE integration_admin LOGIN PASSWORD 'integration-only-admin-password';
+SQL
+docker exec -i "${POSTGRES_NAME}" psql -h 127.0.0.1 -U openfga -d openfga \
+  -v runtime_login=integration_runtime -v admin_login=integration_admin \
+  < ../../platform/charts/shifter/files/openfga-duties.sql
+ADMIN_DATASTORE_URI="postgres://integration_admin:integration-only-admin-password@${POSTGRES_NAME}:5432/openfga?sslmode=disable"
 docker run -d --name "${SERVER_NAME}" --network "${NETWORK_NAME}" \
   -p 127.0.0.1::8080 \
   -v "${FIXTURE_DIR}:/integration-tls:ro" \
   -e OPENFGA_DATASTORE_ENGINE=postgres \
-  -e OPENFGA_DATASTORE_URI="${DATASTORE_URI}" \
+  -e OPENFGA_DATASTORE_URI="${ADMIN_DATASTORE_URI}" \
   -e OPENFGA_AUTHN_METHOD=preshared \
-  -e OPENFGA_AUTHN_PRESHARED_KEYS="${TOKEN}" \
+  -e OPENFGA_AUTHN_PRESHARED_KEYS="${ADMIN_TOKEN}" \
   -e OPENFGA_HTTP_TLS_ENABLED=true \
   -e OPENFGA_HTTP_TLS_CERT=/integration-tls/tls.crt \
   -e OPENFGA_HTTP_TLS_KEY=/integration-tls/tls.key \
@@ -70,6 +81,7 @@ docker run -d --name "${SERVER_NAME}" --network "${NETWORK_NAME}" \
 SERVER_PORT="$(docker port "${SERVER_NAME}" 8080/tcp | sed -n 's/.*://p')"
 POSTGRES_PORT="$(docker port "${POSTGRES_NAME}" 5432/tcp | sed -n 's/.*://p')"
 API_URL="https://localhost:${SERVER_PORT}"
+ADMIN_API_URL="${API_URL}"
 for _ in $(seq 1 60); do
   if curl --silent --fail --cacert "${FIXTURE_DIR}/tls.crt" "${API_URL}/healthz" >/dev/null; then
     break
@@ -78,7 +90,7 @@ for _ in $(seq 1 60); do
 done
 
 STORE_RESPONSE="$(curl --silent --fail --cacert "${FIXTURE_DIR}/tls.crt" \
-  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"name":"shifter-integration"}' \
   "${API_URL}/stores")"
@@ -88,24 +100,53 @@ STORE_ID="$(printf '%s' "${STORE_RESPONSE}" | python3 -c 'import json,sys; print
 MODEL_DSL="$(TESTING=1 ENVIRONMENT=test uv run --no-build --no-sync python manage.py render_openfga_model)"
 MODEL_RESPONSE="$(docker run --rm "${OPENFGA_CLI_IMAGE}" model transform "${MODEL_DSL}" \
   --input-format fga --output-format json | curl --silent --fail --cacert "${FIXTURE_DIR}/tls.crt" \
-  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
   --data-binary @- \
   "${API_URL}/stores/${STORE_ID}/authorization-models")"
 MODEL_ID="$(printf '%s' "${MODEL_RESPONSE}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["authorization_model_id"])')"
 
+# The real PostgreSQL permissions, not the application SDK, deny administration.
+RUNTIME_DATASTORE_URI="postgres://integration_runtime:integration-only-runtime-password@${POSTGRES_NAME}:5432/openfga?sslmode=disable"
+docker run -d --name "${RUNTIME_SERVER_NAME}" --network "${NETWORK_NAME}" \
+  -p 127.0.0.1::8080 \
+  -v "${FIXTURE_DIR}:/integration-tls:ro" \
+  -e OPENFGA_DATASTORE_ENGINE=postgres \
+  -e OPENFGA_DATASTORE_URI="${RUNTIME_DATASTORE_URI}" \
+  -e OPENFGA_AUTHN_METHOD=preshared \
+  -e OPENFGA_AUTHN_PRESHARED_KEYS="${TOKEN}" \
+  -e OPENFGA_HTTP_TLS_ENABLED=true \
+  -e OPENFGA_HTTP_TLS_CERT=/integration-tls/tls.crt \
+  -e OPENFGA_HTTP_TLS_KEY=/integration-tls/tls.key \
+  -e OPENFGA_GRPC_ADDR=127.0.0.1:8081 \
+  -e OPENFGA_PLAYGROUND_ENABLED=false \
+  -e OPENFGA_PROFILER_ENABLED=false \
+  "${OPENFGA_IMAGE}" run >/dev/null
+RUNTIME_SERVER_PORT="$(docker port "${RUNTIME_SERVER_NAME}" 8080/tcp | sed -n 's/.*://p')"
+API_URL="https://localhost:${RUNTIME_SERVER_PORT}"
+for _ in $(seq 1 60); do
+  if curl --silent --fail --cacert "${FIXTURE_DIR}/tls.crt" "${API_URL}/healthz" >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+curl --silent --fail --cacert "${FIXTURE_DIR}/tls.crt" "${API_URL}/healthz" >/dev/null
+
 TESTING=1 \
 ENVIRONMENT=test \
 TEST_DB_BACKEND=postgres \
-DB_NAME=shifter \
+DB_NAME=shifter_integration \
 DB_USER=openfga \
 DB_PASSWORD="${DB_PASSWORD}" \
 DB_HOST=127.0.0.1 \
 DB_PORT="${POSTGRES_PORT}" \
 OPENFGA_INTEGRATION_URL="${API_URL}" \
+OPENFGA_INTEGRATION_ADMIN_URL="${ADMIN_API_URL}" \
+OPENFGA_INTEGRATION_ADMIN_TOKEN="${ADMIN_TOKEN}" \
+OPENFGA_INTEGRATION_POSTGRES_CONTAINER="${POSTGRES_NAME}" \
 OPENFGA_INTEGRATION_STORE_ID="${STORE_ID}" \
 OPENFGA_INTEGRATION_MODEL_ID="${MODEL_ID}" \
 OPENFGA_INTEGRATION_TOKEN="${TOKEN}" \
 OPENFGA_INTEGRATION_CA_CERT="${FIXTURE_DIR}/tls.crt" \
 OPENFGA_INTEGRATION_REQUIRED=1 \
-uv run --no-build --no-sync pytest -n0 -q tests/integration/authorization/test_openfga_released_server.py
+uv run --no-build --no-sync pytest -n0 -q tests/integration/authorization/test_openfga_released_server.py "$@"

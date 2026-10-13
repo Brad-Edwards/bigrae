@@ -62,6 +62,31 @@ GcpNamedResourceRef = Annotated[
 ]
 
 
+class GcpOpenFgaSettings(BaseModel):
+    """Operator references for the private released policy service; no payloads."""
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    store_id: str = Field(default="", pattern=r"^$|^[0-9A-HJKMNP-TV-Z]{26}$")
+    model_id: str = Field(default="", pattern=r"^$|^[0-9A-HJKMNP-TV-Z]{26}$")
+    runtime_secret_ref: GcpNamedResourceRef | None = None
+    admin_secret_ref: GcpNamedResourceRef | None = None
+    ca_secret_ref: GcpNamedResourceRef | None = None
+
+    @model_validator(mode="after")
+    def validate_enabled_boundary(self) -> GcpOpenFgaSettings:
+        if self.enabled and (
+            not all((self.runtime_secret_ref, self.admin_secret_ref, self.ca_secret_ref))
+            or bool(self.store_id) != bool(self.model_id)
+            or self.runtime_secret_ref == self.admin_secret_ref
+            or self.ca_secret_ref in {self.runtime_secret_ref, self.admin_secret_ref}
+        ):
+            raise ValueError(
+                "OpenFGA requires distinct runtime, admin and CA references and either both store/model IDs or neither"
+            )
+        return self
+
+
 class GcpBackendSettings(BaseModel):
     """Closed operator-intent settings for the ``gcp`` backend bundle (PLAT-2003, #729).
 
@@ -95,7 +120,7 @@ class GcpBackendSettings(BaseModel):
         max_length=30,
         description=(
             "Pre-existing deployment-scoped GCP project for provisioner-created range secrets. "
-            "It may equal project_id only during the documented migration expand phase."
+            "It may equal project_id for the supported single-project topology."
         ),
     )
     provisioner_static_resource_refs: dict[GcpProvisionerStaticSecretKey, GcpNamedResourceRef] = Field(
@@ -110,6 +135,19 @@ class GcpBackendSettings(BaseModel):
         pattern=_GCP_REGION_PATTERN,
         description="Lowercase GCP region/location token (letters, digits, and internal hyphens), e.g. 'us-central1'.",
     )
+    cloud_sql_iam_auth: bool = Field(
+        default=False,
+        description=(
+            "Use attached workload identities and the official native Cloud SQL proxy for runtime database login."
+        ),
+    )
+    openfga: GcpOpenFgaSettings = Field(default_factory=GcpOpenFgaSettings)
+
+    @model_validator(mode="after")
+    def validate_native_policy_datastore(self) -> GcpBackendSettings:
+        if self.openfga.enabled and not self.cloud_sql_iam_auth:
+            raise ValueError("The GCP OpenFGA deployment requires cloud_sql_iam_auth")
+        return self
 
     shared_service_capacity_profile: CapacityProfileId = Field(
         default="gcp-shared-v1-p10",

@@ -40,6 +40,7 @@ _GCP_PROVISIONER_ENV_KEYS = (
     "DB_PORT",
     "DB_NAME",
     "DB_USER",
+    "DB_AUTH_MODE",
     "DB_PASSWORD",
     "FIELD_ENCRYPTION_KEY",
     "STORAGE_BUCKET_NAME",
@@ -210,8 +211,13 @@ def _get_gcp_provisioner_env_overrides() -> dict[str, str] | None:
         "CLOUD_PROJECT_ID": getattr(settings, "GCP_PROJECT_ID", ""),
     }
 
+    native_database = os.environ.get("DB_AUTH_MODE", "password").strip().lower() == "cloud-sql-proxy"
+    if native_database and os.environ.get("PROVISIONER_DB_PASSWORD", ""):
+        raise ImproperlyConfigured("Native provisioner authentication must not carry PROVISIONER_DB_PASSWORD")
     provisioner_database = {
-        job_key: os.environ.get(source_key, "").strip() for job_key, source_key in _GCP_PROVISIONER_DB_ENV_MAP.items()
+        job_key: os.environ.get(source_key, "").strip()
+        for job_key, source_key in _GCP_PROVISIONER_DB_ENV_MAP.items()
+        if not (native_database and job_key == "DB_PASSWORD")
     }
     missing = [_GCP_PROVISIONER_DB_ENV_MAP[job_key] for job_key, value in provisioner_database.items() if not value]
     if missing:

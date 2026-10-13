@@ -28,6 +28,7 @@ GCP_GENERATED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "CLOUD_PROVIDER",
         "CSRF_COOKIE_SECURE",
         "DB_HOST",
+        "DB_AUTH_MODE",
         "DB_MIGRATION_SECRET_ID",
         "DB_NAME",
         "DB_PORT",
@@ -124,6 +125,11 @@ GCP_HELM_RENDERED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset({"FEATURE_ARTIFAC
 
 GCP_OPTIONAL_GENERATED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
     {
+        "CLOUD_SQL_INSTANCE_CONNECTION_NAME",
+        "GCP_DATABASE_IAM_USERS_JSON",
+        "PROVISIONER_DB_HOST",
+        "PROVISIONER_DB_PORT",
+        "PROVISIONER_DB_NAME",
         # Range audit telemetry policy (#2535): rendered from settings.range_telemetry by
         # the deploy pipeline. Absent -> the provisioner applies the default-on policy.
         "GCP_RANGE_TELEMETRY_POLICY_JSON",
@@ -193,6 +199,7 @@ GCP_SECRET_RUNTIME_ENV_KEYS: frozenset[str] = frozenset()
 # range-task for the ``GCP_RANGE_*`` guest-configuration keys among them).
 GCP_PROVISIONER_FORWARDED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
     {
+        "DB_AUTH_MODE",
         "MODEL_BROKER_GUEST_URL",
         "MODEL_BROKER_GUEST_VIP",
         "MODEL_ENROLLMENT_CONTROL_URL",

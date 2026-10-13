@@ -20,6 +20,8 @@ def _values() -> dict[str, object]:
             "storeId": "01J00000000000000000000001",
             "modelId": "01J00000000000000000000000",
             "databaseCidrs": ["10.60.0.12/32"],
+            "runtimeDatabaseUser": "synthetic_runtime",
+            "adminDatabaseUser": "synthetic_admin",
         }
     }
 
@@ -74,8 +76,8 @@ def test_aws_and_gcp_render_the_same_private_server_contract(tmp_path, provider_
 
     migration = by_identity["Job", "openfga-datastore-migrate"]
     assert migration["metadata"]["annotations"]["helm.sh/hook"] == "pre-install,pre-upgrade"
-    assert migration["spec"]["template"]["spec"]["serviceAccountName"] == "openfga-admin"
-    admin_service_account = by_identity["ServiceAccount", "openfga-admin"]
+    assert migration["spec"]["template"]["spec"]["serviceAccountName"] == "openfga-migrator"
+    admin_service_account = by_identity["ServiceAccount", "openfga-migrator"]
     assert admin_service_account["metadata"]["annotations"]["helm.sh/hook"] == "pre-install,pre-upgrade"
     assert int(admin_service_account["metadata"]["annotations"]["helm.sh/hook-weight"]) < int(
         migration["metadata"]["annotations"]["helm.sh/hook-weight"]
@@ -109,3 +111,108 @@ def test_aws_and_gcp_render_the_same_private_server_contract(tmp_path, provider_
 def test_enabled_contract_rejects_unpinned_or_incomplete_values(tmp_path, overrides) -> None:
     result = _render(tmp_path, "values-aws-dev.yaml", overrides)
     assert result.returncode != 0
+
+
+def test_policy_runtime_admin_and_schema_owner_have_separate_delivery(tmp_path) -> None:
+    result = _render(tmp_path, "values-gcp-dev.yaml")
+    assert result.returncode == 0, result.stderr
+    documents = [item for item in yaml.safe_load_all(result.stdout) if item]
+    objects = {(item["kind"], item["metadata"]["name"]): item for item in documents}
+    migration = objects["Job", "openfga-datastore-migrate"]["spec"]["template"]["spec"]
+    runtime = objects["Deployment", "openfga"]["spec"]["template"]["spec"]
+    admin = objects["Deployment", "openfga-admin"]["spec"]["template"]["spec"]
+    assert len({pod["serviceAccountName"] for pod in (migration, runtime, admin)}) == 3
+    runtime_env = {item["name"]: item for item in runtime["containers"][0]["env"]}
+    admin_env = {item["name"]: item for item in admin["containers"][0]["env"]}
+    runtime_secret = runtime_env["OPENFGA_DATASTORE_URI"]["valueFrom"]["secretKeyRef"]["name"]
+    admin_secret = admin_env["OPENFGA_DATASTORE_URI"]["valueFrom"]["secretKeyRef"]["name"]
+    migrate_env = {item["name"]: item for item in migration["initContainers"][0]["env"]}
+    migration_secret = migrate_env["OPENFGA_DATASTORE_URI"]["valueFrom"]["secretKeyRef"]["name"]
+    assert len({runtime_secret, admin_secret, migration_secret}) == 3
+    assert runtime_env["OPENFGA_AUTHN_PRESHARED_KEYS"]["valueFrom"]["secretKeyRef"]["name"] == runtime_secret
+    assert admin_env["OPENFGA_AUTHN_PRESHARED_KEYS"]["valueFrom"]["secretKeyRef"]["name"] == admin_secret
+    assert objects["Service", "openfga-admin"]["spec"]["type"] == "ClusterIP"
+    assert ("Ingress", "openfga-admin") not in objects
+    duties = migration["containers"][0]
+    assert duties["name"] == "reconcile-duties"
+    assert "-f" in duties["args"]
+    assert "runtime_login=synthetic_runtime" in duties["args"]
+    assert "admin_login=synthetic_admin" in duties["args"]
+    assert "password=" not in str(duties["args"])
+    assert "postgres://" not in str(duties["args"])
+    assert "openfga-duties.sql" in objects["ConfigMap", "openfga-duties"]["data"]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"migrationSecretName": "openfga-runtime"},
+        {"adminSecretName": "openfga-runtime"},
+        {"adminDatabaseUser": "synthetic_runtime"},
+    ],
+)
+def test_policy_delivery_rejects_collapsed_authority(tmp_path, overrides) -> None:
+    assert _render(tmp_path, "values-gcp-dev.yaml", overrides).returncode != 0
+
+
+def test_native_policy_servers_and_migration_use_their_attached_database_logins(tmp_path):
+    users = {role: f"synthetic-{role}@synthetic-project.iam" for role in (
+        "portal", "workers", "ctf-scheduler", "provisioner-launcher", "provisioner",
+        "openfga-runtime", "openfga-admin", "openfga-migrator",
+    )}
+    values = _values()
+    values["cloudSqlProxy"] = {"enabled": True, "instanceConnectionName": "synthetic-project:us-central1:platform-pg",
+                               "databaseUsers": users, "databaseCidrs": ["10.60.0.12/32"]}
+    values["openfga"].update(runtimeDatabaseUser=users["openfga-runtime"], adminDatabaseUser=users["openfga-admin"],
+                            migrationDatabaseUser=users["openfga-migrator"])
+    values["openfga"]["serviceAccountAnnotations"] = {
+        duty: {"iam.gke.io/gcp-service-account": users[f"openfga-{duty}"] + ".gserviceaccount.com"}
+        for duty in ("runtime", "admin", "migrator")
+    }
+    generated = tmp_path / "native-policy.json"
+    generated.write_text(json.dumps(values))
+    result = subprocess.run(["helm", "template", "native-test", str(CHART), "-f", str(CHART / "values-gcp-dev.yaml"),
+                             "-f", str(generated)], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    objects = {(item["kind"], item["metadata"]["name"]): item for item in yaml.safe_load_all(result.stdout) if item}
+    for duty in ("runtime", "admin", "migrator"):
+        assert objects["ServiceAccount", f"openfga-{duty}"]["metadata"]["annotations"]["iam.gke.io/gcp-service-account"] == users[f"openfga-{duty}"] + ".gserviceaccount.com"
+    for name, role in (("openfga", "openfga-runtime"), ("openfga-admin", "openfga-admin")):
+        pod = objects["Deployment", name]["spec"]["template"]["spec"]
+        assert pod["initContainers"][0]["restartPolicy"] == "Always"
+        assert "--auto-iam-authn" in pod["initContainers"][0]["args"]
+        env = {item["name"]: item for item in pod["containers"][0]["env"]}
+        assert env["OPENFGA_DATASTORE_URI"]["value"] == "postgres://" + users[role].replace("@", "%40") + "@127.0.0.1:5432/openfga?sslmode=disable"
+    migration = objects["Job", "openfga-datastore-migrate"]["spec"]["template"]["spec"]
+    assert migration["initContainers"][0]["name"] == "cloud-sql-proxy"
+    assert migration["initContainers"][1]["name"] == "migrate"
+    assert migration["volumes"][0]["configMap"]["name"] == "openfga-migration-connection"
+    service = objects["ConfigMap", "openfga-migration-connection"]["data"]["pg-service.conf"]
+    assert f'user={users["openfga-migrator"]}' in service
+    assert "password" not in service
+
+
+def test_partial_policy_binding_and_collapsed_migration_duties_are_rejected(tmp_path):
+    for overrides in ({"modelId": ""}, {"migrationDatabaseUser": "synthetic_runtime"}):
+        result = _render(tmp_path, "values-gcp-dev.yaml", overrides)
+        assert result.returncode != 0
+
+
+def test_policy_administration_network_is_separate_from_portal_and_worker_clients(tmp_path):
+    from test_model_broker import selected
+
+    result = _render(tmp_path, "values-gcp-dev.yaml")
+    assert result.returncode == 0, result.stderr
+    documents = [item for item in yaml.safe_load_all(result.stdout) if item]
+    for target, allowed in (("openfga", {"portal"}), ("openfga-admin", {"openfga-publisher"})):
+        selectors = [{"app.kubernetes.io/component": target}]
+        ingress = [rule for document in documents if document["kind"] == "NetworkPolicy"
+                   and document["metadata"]["namespace"] == "shifter-platform"
+                   and selected(document["spec"]["podSelector"], selectors[0])
+                   for rule in document["spec"].get("ingress", [])]
+        peers = [peer for rule in ingress for peer in rule.get("from", [])
+                 if any(port["port"] == 8080 for port in rule.get("ports", []))]
+        admitted = {component for component in ("portal", "workers", "worker-engine", "guacamole-client", "openfga-publisher")
+                    if any("namespaceSelector" not in peer and "podSelector" in peer
+                           and selected(peer["podSelector"], {"app.kubernetes.io/component": component}) for peer in peers)}
+        assert admitted == allowed

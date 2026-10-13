@@ -99,6 +99,8 @@ def render_tfvars(config: RootConfig) -> str:
         # aliases preserve the existing YAML and Terraform wire contract.
         gcp_settings = GcpBackendSettings.from_root_settings(config.settings)
         dynamic_project = gcp_settings.range_resource_project_id
+        rendered += f"cloud_sql_iam_auth = {str(gcp_settings.cloud_sql_iam_auth).lower()}\n"
+        rendered += f"openfga_enabled = {str(gcp_settings.openfga.enabled).lower()}\n"
         rendered += f'dynamic_secret_project_id = "{dynamic_project}"\n'
         static_refs = gcp_settings.provisioner_static_resource_refs
         rendered += _hcl_string_map(

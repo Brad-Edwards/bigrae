@@ -35,6 +35,7 @@ spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
       serviceAccountName: {{ .Values.serviceAccounts.workers.name }}
+      {{- include "shifter.cloudSqlProxyPod" (dict "root" . "autoIam" true) | nindent 6 }}
       terminationGracePeriodSeconds: 150
       {{- include "shifter.podAntiAffinity" (dict "component" "model-access-control") | nindent 6 }}
       containers:
@@ -46,6 +47,7 @@ spec:
           envFrom:
             - configMapRef: {name: platform-runtime}
           env:
+            {{- include "shifter.databaseUserEnv" (dict "root" . "role" "workers") | nindent 12 }}
             - name: MODEL_CONTROL_PROVIDER
               value: {{ .Values.provider.name | quote }}
             - name: MODEL_CONTROL_REGION

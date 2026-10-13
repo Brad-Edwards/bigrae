@@ -4,7 +4,7 @@ variable "project_id" {
 }
 
 variable "dynamic_secret_project_id" {
-  description = "Pre-existing deployment-scoped project for dynamic range secrets. May equal project_id only during staged migration."
+  description = "Pre-existing deployment-scoped project for dynamic range secrets. May equal project_id for the supported single-project topology."
   type        = string
 }
 

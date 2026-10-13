@@ -62,6 +62,69 @@ def _reconcile_observed_job(
     )
 
 
+def _matches_required_model(observed: object, expected: object) -> bool:
+    """Compare explicit model fields while tolerating API-populated defaults."""
+    if hasattr(expected, "to_dict"):
+        expected = expected.to_dict()
+    elif hasattr(expected, "__dict__"):
+        expected = vars(expected)
+    if hasattr(observed, "to_dict"):
+        observed = observed.to_dict()
+    elif hasattr(observed, "__dict__"):
+        observed = vars(observed)
+    if isinstance(expected, dict):
+        return isinstance(observed, dict) and all(
+            _matches_required_model(observed.get(name), wanted)
+            for name, wanted in expected.items()
+            if wanted is not None
+        )
+    return observed == expected
+
+
+def _matches_database_proxy(pod_spec: object, expected: object | None) -> bool:
+    proxies = getattr(pod_spec, "init_containers", None) or []
+    if expected is None:
+        return not proxies
+    if len(proxies) != 1:
+        return False
+    proxy = proxies[0]
+    forbidden = (
+        "command",
+        "env",
+        "env_from",
+        "volume_mounts",
+        "volume_devices",
+        "ports",
+        "lifecycle",
+        "liveness_probe",
+        "readiness_probe",
+        "working_dir",
+        "stdin",
+        "tty",
+        "stdin_once",
+    )
+    security = getattr(proxy, "security_context", None)
+    probe = getattr(proxy, "startup_probe", None)
+    http = getattr(probe, "http_get", None)
+    return (
+        not any(getattr(proxy, field, None) for field in forbidden)
+        and not any(
+            getattr(security, field, None)
+            for field in ("privileged", "proc_mount", "se_linux_options", "windows_options")
+        )
+        and not getattr(getattr(security, "capabilities", None), "add", None)
+        and not getattr(getattr(security, "seccomp_profile", None), "localhost_profile", None)
+        and not getattr(getattr(proxy, "resources", None), "claims", None)
+        and not any(getattr(probe, field, None) for field in ("_exec", "tcp_socket", "grpc"))
+        and getattr(probe, "initial_delay_seconds", 0) in (None, 0)
+        and getattr(probe, "success_threshold", 1) in (None, 1)
+        and not getattr(http, "host", None)
+        and not getattr(http, "http_headers", None)
+        and getattr(http, "scheme", "HTTP") in (None, "HTTP")
+        and _matches_required_model(proxy, expected)
+    )
+
+
 def _validate_observed_job(
     job: object,
     identity: _JobIdentity,
@@ -90,7 +153,7 @@ def _validate_observed_job(
         "command": identity.command,
         "secret_name": identity.secret_name,
     }
-    if observed != expected:
+    if observed != expected or not _matches_database_proxy(pod_spec, identity.database_proxy):
         raise CloudTaskError("Observed Kubernetes Job does not match the reserved provisioner launch identity")
 
 

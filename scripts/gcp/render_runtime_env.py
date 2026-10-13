@@ -27,6 +27,8 @@ import os
 import re
 from pathlib import Path
 
+from installation.gcp_native_identity import validate_native_identity
+
 
 def _value(outputs: dict[str, object], key: str):
     try:
@@ -423,6 +425,11 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
     # it from the Identity Platform project (the deploy project), falling back to
     # the project in the range VPC self-link.
     real_project = str(identity_platform_project_id).strip() or _project_from_self_link(range_network_id)
+    native = validate_native_identity(
+        outputs.get("native_identity", {}).get("value"),
+        project_id=real_project,
+        service_accounts=outputs.get("workload_service_accounts", {}).get("value"),
+    )
 
     if not public_hostname or not managed_tls_enabled:
         raise ValueError(
@@ -481,7 +488,8 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
         "DJANGO_DEBUG": "false",
         "SESSION_COOKIE_SECURE": "true",
         "CSRF_COOKIE_SECURE": "true",
-        "DB_HOST": database["private_ip"],
+        "DB_AUTH_MODE": "cloud-sql-proxy" if native.enabled else "password",
+        "DB_HOST": "127.0.0.1" if native.enabled else database["private_ip"],
         "DB_PORT": str(database["port"]),
         # DB_NAME / DB_USER are non-secret and MUST ride the runtime ConfigMap as
         # literals: the restrict-provisioner-jobs admission policy (issue #1177)
@@ -491,8 +499,10 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
         # if they are absent here the policy denies every range Job (#1742). Only
         # DB_PASSWORD is Secret-backed; name/user are plain connection metadata.
         "DB_NAME": database["database_name"],
-        "DB_USER": database["user_name"],
-        "PROVISIONER_DB_USER": database["provisioner_user_name"],
+        "DB_USER": native.database_users["portal"] if native.enabled else database["user_name"],
+        "PROVISIONER_DB_USER": native.database_users["provisioner"]
+        if native.enabled
+        else database["provisioner_user_name"],
         "AUDIT_DEPLOYMENT_SCOPE": f"gcp:{real_project}",
         "SKIP_MIGRATIONS": "1",
         # Redis host/port are non-secret and ride in the runtime ConfigMap.
@@ -610,6 +620,18 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
     # drives per-secret Terraform IAM. Apply them last so a process-local env
     # override cannot decouple runtime lookup from its exact IAM grant.
     values.update(_provisioner_static_secret_values(outputs))
+    if native.enabled:
+        values.update(
+            {
+                "CLOUD_SQL_INSTANCE_CONNECTION_NAME": native.instance_connection_name,
+                "GCP_DATABASE_IAM_USERS_JSON": json.dumps(native.database_users, separators=(",", ":"), sort_keys=True),
+                "PROVISIONER_DB_HOST": "127.0.0.1",
+                "PROVISIONER_DB_PORT": "5432",
+                "PROVISIONER_DB_NAME": database["database_name"],
+                "DB_SECRET_ID": "",
+                "PROVISIONER_DB_SECRET_ID": "",
+            }
+        )
 
     return "".join(f"{key}={value}\n" for key, value in values.items())
 

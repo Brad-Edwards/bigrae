@@ -2394,6 +2394,20 @@
           "source": "rendered from validated Terraform outputs and the normalized root config"
         },
         {
+          "description": "Public GCP runtime configuration value (DB_AUTH_MODE) emitted into the platform runtime environment.",
+          "destination": "runtime-env",
+          "kind": "runtime-env",
+          "name": "DB_AUTH_MODE",
+          "owner": "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)",
+          "process_roles": [
+            "portal",
+            "worker",
+            "provisioner"
+          ],
+          "sensitivity": "public",
+          "source": "rendered from validated Terraform outputs and the normalized root config"
+        },
+        {
           "description": "Public GCP runtime configuration value (DB_HOST) emitted into the platform runtime environment.",
           "destination": "runtime-env",
           "kind": "runtime-env",
@@ -3410,6 +3424,19 @@
           "source": "rendered from validated Terraform outputs and the normalized root config"
         },
         {
+          "description": "Public GCP runtime configuration value (CLOUD_SQL_INSTANCE_CONNECTION_NAME) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
+          "destination": "runtime-env",
+          "kind": "runtime-env",
+          "name": "CLOUD_SQL_INSTANCE_CONNECTION_NAME",
+          "owner": "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)",
+          "process_roles": [
+            "portal",
+            "worker"
+          ],
+          "sensitivity": "public",
+          "source": "rendered from validated Terraform outputs and the normalized root config"
+        },
+        {
           "description": "Public GCP runtime configuration value (DEFAULT_FROM_EMAIL) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
           "destination": "runtime-env",
           "kind": "runtime-env",
@@ -3434,6 +3461,19 @@
           ],
           "sensitivity": "secret-reference",
           "source": "a Google Secret Manager reference rendered from the Terraform runtime_secret_ids output"
+        },
+        {
+          "description": "Public GCP runtime configuration value (GCP_DATABASE_IAM_USERS_JSON) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
+          "destination": "runtime-env",
+          "kind": "runtime-env",
+          "name": "GCP_DATABASE_IAM_USERS_JSON",
+          "owner": "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)",
+          "process_roles": [
+            "portal",
+            "worker"
+          ],
+          "sensitivity": "public",
+          "source": "rendered from validated Terraform outputs and the normalized root config"
         },
         {
           "description": "Public GCP runtime configuration value (GCP_PROVISIONER_SERVICE_ACCOUNT_EMAIL) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
@@ -3961,6 +4001,45 @@
           "source": "rendered from validated Terraform outputs and the normalized root config"
         },
         {
+          "description": "Public GCP runtime configuration value (PROVISIONER_DB_HOST) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
+          "destination": "runtime-env",
+          "kind": "runtime-env",
+          "name": "PROVISIONER_DB_HOST",
+          "owner": "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)",
+          "process_roles": [
+            "portal",
+            "worker"
+          ],
+          "sensitivity": "public",
+          "source": "rendered from validated Terraform outputs and the normalized root config"
+        },
+        {
+          "description": "Public GCP runtime configuration value (PROVISIONER_DB_NAME) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
+          "destination": "runtime-env",
+          "kind": "runtime-env",
+          "name": "PROVISIONER_DB_NAME",
+          "owner": "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)",
+          "process_roles": [
+            "portal",
+            "worker"
+          ],
+          "sensitivity": "public",
+          "source": "rendered from validated Terraform outputs and the normalized root config"
+        },
+        {
+          "description": "Public GCP runtime configuration value (PROVISIONER_DB_PORT) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
+          "destination": "runtime-env",
+          "kind": "runtime-env",
+          "name": "PROVISIONER_DB_PORT",
+          "owner": "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)",
+          "process_roles": [
+            "portal",
+            "worker"
+          ],
+          "sensitivity": "public",
+          "source": "rendered from validated Terraform outputs and the normalized root config"
+        },
+        {
           "description": "Public GCP runtime configuration value (RANGE_NETWORK_ZONE) emitted into the platform runtime environment. Optional; emitted only when the deployment configures it.",
           "destination": "runtime-env",
           "kind": "runtime-env",
@@ -4288,6 +4367,73 @@
             "title": "GcpModelBrokerSettings",
             "type": "object"
           },
+          "GcpOpenFgaSettings": {
+            "additionalProperties": false,
+            "description": "Operator references for the private released policy service; no payloads.",
+            "properties": {
+              "admin_secret_ref": {
+                "anyOf": [
+                  {
+                    "description": "Full projects/<project>/secrets/<id> Secret Manager resource name without a version.",
+                    "pattern": "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/secrets/[A-Za-z0-9_-]{1,255}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Admin Secret Ref"
+              },
+              "ca_secret_ref": {
+                "anyOf": [
+                  {
+                    "description": "Full projects/<project>/secrets/<id> Secret Manager resource name without a version.",
+                    "pattern": "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/secrets/[A-Za-z0-9_-]{1,255}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Ca Secret Ref"
+              },
+              "enabled": {
+                "default": false,
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              "model_id": {
+                "default": "",
+                "pattern": "^$|^[0-9A-HJKMNP-TV-Z]{26}$",
+                "title": "Model Id",
+                "type": "string"
+              },
+              "runtime_secret_ref": {
+                "anyOf": [
+                  {
+                    "description": "Full projects/<project>/secrets/<id> Secret Manager resource name without a version.",
+                    "pattern": "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/secrets/[A-Za-z0-9_-]{1,255}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Runtime Secret Ref"
+              },
+              "store_id": {
+                "default": "",
+                "pattern": "^$|^[0-9A-HJKMNP-TV-Z]{26}$",
+                "title": "Store Id",
+                "type": "string"
+              }
+            },
+            "title": "GcpOpenFgaSettings",
+            "type": "object"
+          },
           "GcpRangeTelemetryPolicy": {
             "additionalProperties": false,
             "description": "Operator range telemetry policy for a GCP deployment.",
@@ -4528,8 +4674,14 @@
         "additionalProperties": false,
         "description": "Closed operator-intent settings for the ``gcp`` backend bundle (PLAT-2003, #729).\n\nOnly genuine operator intent lives here (projects and region). Terraform variables,\ngenerated runtime outputs, and provider SDK payloads are not settings — copying them in\nwould turn ``settings`` into a second provider schema. ``extra='forbid'`` fails unknown\nGCP settings closed. The shared cross-backend ``range_egress`` policy is deliberately not\ndeclared; the loader validates it separately for every backend (see the module docstring).",
         "properties": {
+          "cloud_sql_iam_auth": {
+            "default": false,
+            "description": "Use attached workload identities and the official native Cloud SQL proxy for runtime database login.",
+            "title": "Cloud Sql Iam Auth",
+            "type": "boolean"
+          },
           "dynamic_secret_project_id": {
-            "description": "Pre-existing deployment-scoped GCP project for provisioner-created range secrets. It may equal project_id only during the documented migration expand phase.",
+            "description": "Pre-existing deployment-scoped GCP project for provisioner-created range secrets. It may equal project_id for the supported single-project topology.",
             "maxLength": 30,
             "minLength": 6,
             "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$",
@@ -4549,6 +4701,9 @@
               }
             ],
             "default": null
+          },
+          "openfga": {
+            "$ref": "#/$defs/GcpOpenFgaSettings"
           },
           "project_id": {
             "description": "GCP project id: 6-30 characters, a lowercase letter followed by lowercase letters, digits, and hyphens, not ending in a hyphen.",
