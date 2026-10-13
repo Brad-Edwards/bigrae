@@ -621,6 +621,7 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
     # override cannot decouple runtime lookup from its exact IAM grant.
     values.update(_provisioner_static_secret_values(outputs))
     if native.enabled:
+        # Native clients clear the legacy password-secret references.
         values.update(
             {
                 "CLOUD_SQL_INSTANCE_CONNECTION_NAME": native.instance_connection_name,
@@ -628,8 +629,8 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
                 "PROVISIONER_DB_HOST": "127.0.0.1",
                 "PROVISIONER_DB_PORT": "5432",
                 "PROVISIONER_DB_NAME": database["database_name"],
-                "DB_SECRET_ID": "",
-                "PROVISIONER_DB_SECRET_ID": "",
+                "DB_SECRET_ID": "",  # nosec B105
+                "PROVISIONER_DB_SECRET_ID": "",  # nosec B105
             }
         )
 

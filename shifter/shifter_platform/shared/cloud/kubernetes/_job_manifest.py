@@ -225,6 +225,19 @@ def _build_database_proxy(client: object, proxy: NativeDatabaseProxyProfile) -> 
     )
 
 
+def _attach_database_proxy(
+    client: object,
+    profile: KubernetesTaskProfile,
+    hardening: ProvisionerHardeningProfile | None,
+    pod_spec_kwargs: dict[str, Any],
+) -> None:
+    """Attach the selected native connector only to the hardened task profile."""
+    if profile.database_proxy is not None:
+        if hardening is None:
+            raise CloudTaskError("Native database proxy requires the hardened task profile")
+        pod_spec_kwargs["init_containers"] = [_build_database_proxy(client, profile.database_proxy)]
+
+
 def _build_job(
     client: object,
     image: str,
@@ -244,10 +257,7 @@ def _build_job(
         pod_spec_kwargs["security_context"] = _build_pod_security_context(client, hardening)
         pod_spec_kwargs["volumes"] = _build_writable_volumes(client, hardening)
         pod_spec_kwargs["automount_service_account_token"] = False
-    if profile.database_proxy is not None:
-        if hardening is None:
-            raise CloudTaskError("Native database proxy requires the hardened task profile")
-        pod_spec_kwargs["init_containers"] = [_build_database_proxy(client, profile.database_proxy)]
+    _attach_database_proxy(client, profile, hardening, pod_spec_kwargs)
 
     if profile.service_account_name:
         pod_spec_kwargs["service_account_name"] = profile.service_account_name

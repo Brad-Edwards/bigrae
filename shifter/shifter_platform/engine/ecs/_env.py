@@ -182,6 +182,25 @@ def _forward_env(keys: Collection[str], fallback_values: dict[str, str]) -> dict
     return env_overrides or None
 
 
+def _gcp_provisioner_database_environment() -> dict[str, str]:
+    """Validate and project the dedicated provisioner database connection metadata."""
+    native_database = os.environ.get("DB_AUTH_MODE", "password").strip().lower() == "cloud-sql-proxy"
+    if native_database and os.environ.get("PROVISIONER_DB_PASSWORD", ""):
+        raise ImproperlyConfigured("Native provisioner authentication must not carry PROVISIONER_DB_PASSWORD")
+    provisioner_database = {
+        job_key: os.environ.get(source_key, "").strip()
+        for job_key, source_key in _GCP_PROVISIONER_DB_ENV_MAP.items()
+        if not (native_database and job_key == "DB_PASSWORD")
+    }
+    missing = [_GCP_PROVISIONER_DB_ENV_MAP[job_key] for job_key, value in provisioner_database.items() if not value]
+    if missing:
+        raise ImproperlyConfigured(
+            "GCP provisioner launcher is missing its dedicated database environment: " + ", ".join(sorted(missing))
+        )
+
+    return provisioner_database
+
+
 def _get_gcp_provisioner_env_overrides() -> dict[str, str] | None:
     """Forward the runtime env contract needed by ephemeral GKE provisioner Jobs."""
     if settings.CLOUD_PROVIDER != "gcp":
@@ -211,19 +230,7 @@ def _get_gcp_provisioner_env_overrides() -> dict[str, str] | None:
         "CLOUD_PROJECT_ID": getattr(settings, "GCP_PROJECT_ID", ""),
     }
 
-    native_database = os.environ.get("DB_AUTH_MODE", "password").strip().lower() == "cloud-sql-proxy"
-    if native_database and os.environ.get("PROVISIONER_DB_PASSWORD", ""):
-        raise ImproperlyConfigured("Native provisioner authentication must not carry PROVISIONER_DB_PASSWORD")
-    provisioner_database = {
-        job_key: os.environ.get(source_key, "").strip()
-        for job_key, source_key in _GCP_PROVISIONER_DB_ENV_MAP.items()
-        if not (native_database and job_key == "DB_PASSWORD")
-    }
-    missing = [_GCP_PROVISIONER_DB_ENV_MAP[job_key] for job_key, value in provisioner_database.items() if not value]
-    if missing:
-        raise ImproperlyConfigured(
-            "GCP provisioner launcher is missing its dedicated database environment: " + ", ".join(sorted(missing))
-        )
+    provisioner_database = _gcp_provisioner_database_environment()
 
     forwarded_keys = tuple(key for key in _GCP_PROVISIONER_ENV_KEYS if key not in _GCP_PROVISIONER_DB_ENV_MAP)
     env_overrides = _forward_env(forwarded_keys, fallback_values) or {}

@@ -82,3 +82,9 @@ name. These local results do not prove GCP credential renewal, Cloud SQL owner
 grant behavior or actual deployment IAM/network isolation. Follow the
 [operator acceptance guide](../../ops/gcp-native-identity.md) during the
 installation's live qualification session. No S8 authority activation is implied.
+
+Native driver tests require an empty password and reject stored password input.
+The provider/Kubernetes CLI adapters validate named references and execute fixed
+argv without a shell. Scanner annotations cover those specific empty-value and
+native-CLI cases. Fixed Google API/metadata addresses identify documented
+provider endpoints; egress tests reject arbitrary destinations.

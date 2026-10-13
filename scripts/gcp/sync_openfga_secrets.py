@@ -4,7 +4,7 @@
 import argparse
 import base64
 import json
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 
 from installation.loader import load_root_config
@@ -15,7 +15,8 @@ _BUNDLE_KEYS = {"server-preshared-keys", "api-token", "tls.crt", "tls.key"}
 
 def fetch_secret(reference: str) -> dict:
     _, project, _, secret = reference.split("/")
-    result = subprocess.run(
+    # Fixed operator/CI CLI; named references are validated and no shell interprets argv.
+    result = subprocess.run(  # nosec B603 B607
         ["gcloud", "secrets", "versions", "access", "latest", "--project", project, "--secret", secret],
         capture_output=True,
         text=True,
@@ -27,7 +28,8 @@ def fetch_secret(reference: str) -> dict:
 
 
 def apply_resource(document: dict) -> None:
-    result = subprocess.run(
+    # Fixed operator/CI CLI; named references are validated and no shell interprets argv.
+    result = subprocess.run(  # nosec B603 B607
         ["kubectl", "apply", "--server-side", "--field-manager=shifter-policy-secrets", "-f", "-"],
         input=json.dumps(document),
         capture_output=True,

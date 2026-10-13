@@ -128,7 +128,8 @@ def _postgres_database(*, iam_auth: bool, cloud_sql_proxy: bool = False) -> dict
     port = required_runtime_env("DB_PORT", dev_default="5432")
     if cloud_sql_proxy:
         _validate_cloud_sql_proxy(host, user, iam_auth=iam_auth)
-        password = ""
+        # Native proxy authentication deliberately carries no driver password.
+        password: str | None = ""
         # The official proxy owns remote authentication/TLS and binds only to
         # this Pod's loopback. Do not negotiate a second TLS session to it.
         options["sslmode"] = "disable"
@@ -152,6 +153,7 @@ def _postgres_database(*, iam_auth: bool, cloud_sql_proxy: bool = False) -> dict
 
 
 def _validate_cloud_sql_proxy(host: str, user: str, *, iam_auth: bool) -> None:
+    """Require local native login metadata and refuse password/RDS selectors."""
     from django.core.exceptions import ImproperlyConfigured
 
     if (

@@ -42,6 +42,35 @@ from state_helpers import (
 logger = logging.getLogger(__name__)
 
 
+def _connect_cloud_sql_proxy(
+    db_host: str | None,
+    db_port: int,
+    db_user: str | None,
+    db_name: str | None,
+    db_password: str | None,
+) -> psycopg.Connection:
+    """Use only the attached native connector and its normalized IAM login."""
+    if (
+        os.environ.get("CLOUD_PROVIDER", "").strip().lower() != "gcp"
+        or db_host != "127.0.0.1"
+        or not db_name
+        or not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam", db_user or "")
+        or db_password
+        or os.environ.get("DB_IAM_AUTH", "false").lower() == "true"
+    ):
+        raise RuntimeError("DB_AUTH_MODE cloud-sql-proxy requires GCP, loopback and its normalized IAM login")
+    # This loopback connector owns native IAM authentication; the driver supplies no password.
+    return psycopg.connect(
+        host=db_host,
+        port=db_port,
+        dbname=db_name,
+        user=db_user,
+        password="",  # nosec B106
+        sslmode="disable",
+        connect_timeout=10,
+    )
+
+
 def get_db_connection() -> psycopg.Connection:
     """Get database connection.
 
@@ -58,24 +87,7 @@ def get_db_connection() -> psycopg.Connection:
     if mode not in {"password", "cloud-sql-proxy"}:
         raise RuntimeError("Unsupported DB_AUTH_MODE")
     if mode == "cloud-sql-proxy":
-        if (
-            os.environ.get("CLOUD_PROVIDER", "").strip().lower() != "gcp"
-            or db_host != "127.0.0.1"
-            or not db_name
-            or not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam", db_user or "")
-            or db_password
-            or os.environ.get("DB_IAM_AUTH", "false").lower() == "true"
-        ):
-            raise RuntimeError("DB_AUTH_MODE cloud-sql-proxy requires GCP, loopback and its normalized IAM login")
-        return psycopg.connect(
-            host=db_host,
-            port=db_port,
-            dbname=db_name,
-            user=db_user,
-            password="",
-            sslmode="disable",
-            connect_timeout=10,
-        )
+        return _connect_cloud_sql_proxy(db_host, db_port, db_user, db_name, db_password)
 
     if db_password:
         if not all([db_host, db_user, db_name]):

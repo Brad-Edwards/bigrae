@@ -224,7 +224,10 @@ def test_deploy_job_installs_renderer_dependencies_before_use():
     assert "GITHUB_PATH" in helm[0]["run"]
 
 
-def test_migration_does_not_load_the_unmounted_runtime_catalog():
+def test_migration_does_not_load_the_unmounted_runtime_catalog(tmp_path):
+    import subprocess
+    import sys
+
     from shared.model_access.runtime import load_mounted_catalog
 
     root = Path(__file__).resolve().parents[3]
@@ -234,8 +237,35 @@ def test_migration_does_not_load_the_unmounted_runtime_catalog():
         for step in workflow["jobs"]["deploy"]["steps"]
         if step.get("name", "").startswith("Run database migrations")
     )
-    manifest = step["run"].split("cat <<YAML | kubectl apply -f -\n", 1)[1].split("\nYAML\n", 1)[0]
-    container = yaml.safe_load(manifest)["spec"]["template"]["spec"]["containers"][0]
+    assert "scripts/gcp/render_migration_job.py" in step["run"]
+    outputs = tmp_path / "outputs.json"
+    outputs.write_text(
+        json.dumps(
+            {
+                "identity_platform_project_id": {"value": "synthetic-project"},
+                "workload_service_accounts": {"value": {}},
+            }
+        )
+    )
+    manifest = tmp_path / "migration.yaml"
+    subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/gcp/render_migration_job.py"),
+            "--terraform-output",
+            str(outputs),
+            "--image",
+            "example.invalid/platform@sha256:" + "1" * 64,
+            "--job-name",
+            "platform-migration-test",
+            "--output",
+            str(manifest),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    container = yaml.safe_load(manifest.read_text())["spec"]["template"]["spec"]["containers"][0]
     effective = {
         "MODEL_ACCESS_ENABLED": "true",
         "MODEL_ACCESS_CATALOG_PATH": "/unmounted/catalog.json",

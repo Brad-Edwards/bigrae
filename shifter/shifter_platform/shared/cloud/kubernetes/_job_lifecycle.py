@@ -81,7 +81,36 @@ def _matches_required_model(observed: object, expected: object) -> bool:
     return observed == expected
 
 
+def _proxy_security_matches(proxy: object) -> bool:
+    """Reject privilege, capability, seccomp and resource-claim overrides."""
+    security = getattr(proxy, "security_context", None)
+    return (
+        not any(
+            getattr(security, field, None)
+            for field in ("privileged", "proc_mount", "se_linux_options", "windows_options")
+        )
+        and not getattr(getattr(security, "capabilities", None), "add", None)
+        and not getattr(getattr(security, "seccomp_profile", None), "localhost_profile", None)
+        and not getattr(getattr(proxy, "resources", None), "claims", None)
+    )
+
+
+def _proxy_startup_matches(proxy: object) -> bool:
+    """Permit only the canonical local HTTP startup probe and its API defaults."""
+    probe = getattr(proxy, "startup_probe", None)
+    http = getattr(probe, "http_get", None)
+    return (
+        not any(getattr(probe, field, None) for field in ("_exec", "tcp_socket", "grpc"))
+        and getattr(probe, "initial_delay_seconds", 0) in (None, 0)
+        and getattr(probe, "success_threshold", 1) in (None, 1)
+        and not getattr(http, "host", None)
+        and not getattr(http, "http_headers", None)
+        and getattr(http, "scheme", "HTTP") in (None, "HTTP")
+    )
+
+
 def _matches_database_proxy(pod_spec: object, expected: object | None) -> bool:
+    """Compare one native sidecar and reject additional executable or credential fields."""
     proxies = getattr(pod_spec, "init_containers", None) or []
     if expected is None:
         return not proxies
@@ -103,24 +132,10 @@ def _matches_database_proxy(pod_spec: object, expected: object | None) -> bool:
         "tty",
         "stdin_once",
     )
-    security = getattr(proxy, "security_context", None)
-    probe = getattr(proxy, "startup_probe", None)
-    http = getattr(probe, "http_get", None)
     return (
         not any(getattr(proxy, field, None) for field in forbidden)
-        and not any(
-            getattr(security, field, None)
-            for field in ("privileged", "proc_mount", "se_linux_options", "windows_options")
-        )
-        and not getattr(getattr(security, "capabilities", None), "add", None)
-        and not getattr(getattr(security, "seccomp_profile", None), "localhost_profile", None)
-        and not getattr(getattr(proxy, "resources", None), "claims", None)
-        and not any(getattr(probe, field, None) for field in ("_exec", "tcp_socket", "grpc"))
-        and getattr(probe, "initial_delay_seconds", 0) in (None, 0)
-        and getattr(probe, "success_threshold", 1) in (None, 1)
-        and not getattr(http, "host", None)
-        and not getattr(http, "http_headers", None)
-        and getattr(http, "scheme", "HTTP") in (None, "HTTP")
+        and _proxy_security_matches(proxy)
+        and _proxy_startup_matches(proxy)
         and _matches_required_model(proxy, expected)
     )
 

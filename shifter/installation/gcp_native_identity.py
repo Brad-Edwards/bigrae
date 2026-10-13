@@ -1,6 +1,7 @@
 """Installation projections consume the shared native identity contract."""
 
 from ipaddress import ip_address
+from typing import Any
 
 from shared.gcp_native_identity import (
     CLOUD_SQL_PROXY_IMAGE,
@@ -13,7 +14,7 @@ from .settings_gcp import GcpOpenFgaSettings
 __all__ = ["CLOUD_SQL_PROXY_IMAGE", "GcpNativeIdentityReadback", "validate_native_identity"]
 
 
-def project_native_helm(outputs: dict, *, openfga_settings: object = None) -> dict:
+def project_native_helm(outputs: dict[str, Any], *, openfga_settings: object = None) -> dict[str, Any]:
     """One projection for bootstrap and Kustomize, using only public metadata."""
     accounts = outputs["workload_service_accounts"]["value"]
     native = validate_native_identity(
@@ -25,8 +26,11 @@ def project_native_helm(outputs: dict, *, openfga_settings: object = None) -> di
     if native.openfga_enabled != policy.enabled:
         raise ValueError("native policy readback differs from the configured deployment intent")
     database = outputs["control_plane_database"]["value"]
-    address = ip_address(database["private_ip"]) if native.enabled else None
-    database_cidrs = [f"{address}/{32 if address.version == 4 else 128}"] if address else []
+    database_cidrs = []
+    if native.enabled:
+        address = ip_address(database["private_ip"])
+        prefix_length = 32 if address.version == 4 else 128
+        database_cidrs.append(f"{address}/{prefix_length}")
     result = {
         "cloudSqlProxy": {
             "enabled": native.enabled,

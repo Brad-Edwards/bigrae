@@ -29,6 +29,7 @@ from shared.gcp_native_identity import CLOUD_SQL_PROXY_IMAGE
 
 
 def _database_proxy() -> NativeDatabaseProxyProfile | None:
+    """Select the pinned connector profile only for explicit native GCP SQL."""
     if getattr(settings, "DB_AUTH_MODE", "password") != "cloud-sql-proxy":
         return None
     instance = str(getattr(settings, "CLOUD_SQL_INSTANCE_CONNECTION_NAME", ""))

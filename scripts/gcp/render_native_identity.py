@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import subprocess
+import subprocess  # nosec B404
 import tempfile
 from pathlib import Path
 
@@ -68,7 +68,8 @@ def project_manifest(
     with tempfile.TemporaryDirectory(prefix="native-identity-render-") as directory:
         path = Path(directory) / "values.json"
         path.write_text(json.dumps(values))
-        rendered = subprocess.run(
+        # Chart and CLI are fixed; public deployment values travel through the generated file.
+        rendered = subprocess.run(  # nosec B603 B607
             [
                 "helm",
                 "template",

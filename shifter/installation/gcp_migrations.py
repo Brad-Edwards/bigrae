@@ -1,15 +1,24 @@
 """One canonical GCP migration Job for bootstrap and release deployment."""
 
 from ipaddress import ip_network
+from typing import Any
 
 from shared.gcp_native_identity import cloud_sql_proxy_spec
 
+_GCP_PRIVATE_API_CIDRS = frozenset(
+    {
+        "199.36.153.4/30",  # NOSONAR - Google restricted.googleapis.com VIP.
+        "199.36.153.8/30",  # NOSONAR - Google private.googleapis.com VIP.
+    }
+)
+_GKE_METADATA_CIDR = "169.254.169.254/32"  # NOSONAR - GKE Workload Identity metadata server.
 
-def render_migration_native_sql_egress(database_cidrs: list[str], *, provider_api_cidrs: list[str]) -> dict:
+
+def render_migration_native_sql_egress(database_cidrs: list[str], *, provider_api_cidrs: list[str]) -> dict[str, Any]:
     """Bootstrap needs the instance transport before the Helm release exists."""
     if not database_cidrs or any(ip_network(cidr).num_addresses != 1 for cidr in database_cidrs):
         raise ValueError("Native migration transport requires exact database addresses")
-    if not provider_api_cidrs or set(provider_api_cidrs) - {"199.36.153.4/30", "199.36.153.8/30"}:
+    if not provider_api_cidrs or set(provider_api_cidrs) - _GCP_PRIVATE_API_CIDRS:
         raise ValueError("Native migration APIs require the installation's Google private or restricted VIPs")
     return {
         "apiVersion": "networking.k8s.io/v1",
@@ -28,7 +37,7 @@ def render_migration_native_sql_egress(database_cidrs: list[str], *, provider_ap
                     "ports": [{"protocol": "TCP", "port": 443}],
                 },
                 {
-                    "to": [{"ipBlock": {"cidr": "169.254.169.254/32"}}],
+                    "to": [{"ipBlock": {"cidr": _GKE_METADATA_CIDR}}],
                     "ports": [{"protocol": "TCP", "port": 80}, {"protocol": "TCP", "port": 988}],
                 },
                 {
