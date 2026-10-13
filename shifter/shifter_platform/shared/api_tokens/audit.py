@@ -86,7 +86,9 @@ def record_token_event(
             entity_type=AuditEntityType.APIKEY,
             entity_id=token_pk or 0,
             action=action_by_event[event],
-            actor_type=actor_type_by_event[event],
+            actor_type="principal"
+            if actor_principal_uuid is not None and actor_id is None
+            else actor_type_by_event[event],
             actor_id=actor_id,
             actor_principal_uuid=actor_principal_uuid,
             new_state=new_state,

@@ -28,7 +28,7 @@ from shared.api.permissions import IsAuthenticatedSession, IsAuthenticatedSessio
 from shared.api.principals import authenticated_credential
 from shared.api.strict_json import ClosedJSONParser
 from shared.api_tokens.models import ApiToken
-from shared.authorization import AuthorizationProviderBindingError, TargetRef
+from shared.authorization import AuthorizationProviderBindingError, TargetRef, configured_authorization_provider
 from shared.credentials import resolve_credential_scope
 from shared.principal_port import PrincipalResolutionError
 
@@ -63,6 +63,36 @@ class CredentialView(APIView):
         response = super().finalize_response(request, response, *args, **kwargs)
         response["Cache-Control"] = "no-store"
         return response
+
+
+class AdminPersonalCredentialListView(CredentialView):
+    """Prepared safe credential inspection, including for inactive owners."""
+
+    @extend_schema(parameters=[CredentialPageQuerySerializer], responses=PersonalCredentialPageSerializer)
+    def get(self, request: Request, principal_uuid: UUID) -> Response:
+        page = personal_credentials.admin_list_personal_tokens(
+            authenticated_credential(request),
+            configured_authorization_provider(),
+            principal_uuid,
+            **_page_arguments(request),
+        )
+        return Response(PersonalCredentialPageSerializer(page).data)
+
+
+class AdminPersonalCredentialRevokeView(CredentialView):
+    """Prepared administrator revocation; issuance remains a human-owner ceremony."""
+
+    @extend_schema(request=EmptyCredentialCommandSerializer, responses={204: None})
+    def post(self, request: Request, credential_uuid: UUID) -> Response:
+        command = EmptyCredentialCommandSerializer(data=request.data)
+        command.is_valid(raise_exception=True)
+        personal_credentials.admin_revoke_personal_token(
+            authenticated_credential(request),
+            configured_authorization_provider(),
+            credential_uuid,
+            request=request._request,
+        )
+        return Response(status=204)
 
 
 def _issue_arguments(request: Request) -> dict[str, Any]:

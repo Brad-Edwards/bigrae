@@ -181,6 +181,7 @@ from ._range_by_request import (
     rebind_range_workspace_by_request,
 )
 from ._range_escape import GuestProbeError, GuestProbeRequest, RangeMembership, get_range_membership, run_guest_probe
+from ._range_ownership import RangeOwnershipProjection, range_ownership_projection
 from ._receipt import (
     ReceiptBindingUnavailable,
     ReceiptRegistrationConflict,
@@ -302,6 +303,7 @@ __all__ = (
     "RangeBindings",
     "RangeCleanupOutcome",
     "RangeMembership",
+    "RangeOwnershipProjection",
     "RangeOwnershipTransferBlocked",
     "RangeProjectionIntegrityError",
     "RangeWorkspaceRebindOutcome",
@@ -433,6 +435,7 @@ __all__ = (
     "publish_membership_projection",
     "publish_sharing_binding",
     "range_owner_reassignment_available_by_request",
+    "range_ownership_projection",
     "read_preparation_worker_input",
     "read_subnet_reservation",
     "ready_generations",

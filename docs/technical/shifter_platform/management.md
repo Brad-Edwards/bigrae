@@ -42,4 +42,4 @@ retired participant magic-link authentication is not restored.
 
 | Command | Purpose |
 |---------|---------|
-| `delete_user <email>` | Hard-delete utility; refuses users protected by durable principals or other retained records. Normal offboarding uses the soft-delete lifecycle. |
+| `delete_user <email>` | Explicit test-posture-only hard-delete utility; refuses production posture before lookup and refuses users protected by durable principals or other retained records. Normal offboarding uses the soft-delete lifecycle. |

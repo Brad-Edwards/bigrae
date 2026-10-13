@@ -116,6 +116,8 @@ from ._non_user_range_launch import NonUserWorkflow, create_non_user_range
 
 # --- Public service functions ------------------------------------------------
 from ._pack_conformance import validate_registered_pack_conformance
+from ._policy_offboarding import policy_reassign_range_owner, policy_transfer_user_ownership
+from ._policy_range_scope import policy_list_range_scope_bindings, policy_rebind_range_workspace
 from ._queries import (
     find_range_instance_id_by_request,
     get_range_spec_by_id,
@@ -359,6 +361,10 @@ __all__ = (
     "model_source_alias_options",
     "pause_range",
     "pause_range_by_request_id",
+    "policy_list_range_scope_bindings",
+    "policy_reassign_range_owner",
+    "policy_rebind_range_workspace",
+    "policy_transfer_user_ownership",
     "project_ctf_receipt_binding",
     "project_range_cleanup_outcome",
     "project_scenario_images",

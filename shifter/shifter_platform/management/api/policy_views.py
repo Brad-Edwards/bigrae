@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from django.contrib.auth.models import User
 from django.db.models import QuerySet
 from drf_spectacular.utils import extend_schema
+from rest_framework import serializers
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView, RetrieveAPIView
@@ -22,19 +24,62 @@ from management.api.serializers import (
     SetActiveRequestSerializer,
 )
 from management.policy import require_principal_administration
+from shared.api.closed_serializer import ClosedSerializer
 from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
 from shared.api.principals import authenticated_credential
 from shared.api.strict_json import ClosedJSONParser
 from shared.api_tokens.authentication import ApiTokenAuthentication
 from shared.audit import request_audit
-from shared.authorization import AuthorizationProviderBindingError, configured_authorization_provider
+from shared.authorization import AuthorizationProviderBindingError, TargetRef, configured_authorization_provider
 
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+_USER_NOT_FOUND = "User not found"
 
 
-class _PolicyAdminView(APIView):
+class PolicyAdminUserDetailSerializer(AdminUserDetailSerializer):
+    """Prepared identity and valid-operation hints; endpoints still reauthorize."""
+
+    principal_uuid = serializers.SerializerMethodField()
+    first_name = serializers.CharField(read_only=True)
+    last_name = serializers.CharField(read_only=True)
+
+    def get_principal_uuid(self, user: User) -> str:
+        return str(services.principal_identity_for_user(user).uuid)
+
+    def get_available_actions(self, user: User) -> list[str]:
+        actions = super().get_available_actions(user)
+        actor = self.context.get("policy_actor")
+        if (
+            actor is not None
+            and actor.ceiling.permits("installation.manage_principals", TargetRef("installation"))
+            and services.principal_identity_for_user(user) != actor.principal
+        ):
+            actions.append("transfer_ownership")
+        return actions
+
+
+class PolicyLifecycleCommandSerializer(LifecycleTransitionRequestSerializer, ClosedSerializer):
+    """Preserve the lifecycle vocabulary with closed command parsing."""
+
+
+class PolicySetActiveCommandSerializer(SetActiveRequestSerializer, ClosedSerializer):
+    """Closed compatibility command; principal/authority never come from its body."""
+
+
+class EmptyPolicyCommandSerializer(ClosedSerializer):
+    """Explicit empty command for reset and delete operations."""
+
+
+class PolicyUserMetadataCommandSerializer(ClosedSerializer):
+    """Contact/display fields only; provider bindings and authority are immutable here."""
+
+    username = serializers.CharField(required=False, max_length=150)
+    email = serializers.EmailField(required=False, allow_blank=True, max_length=254)
+    first_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    last_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+
+
+class PolicyAdminView(APIView):
     """Shared admission and bounded policy errors for the prepared S8 views."""
 
     authentication_classes = [ApiTokenAuthentication, SessionAuthentication]
@@ -57,7 +102,7 @@ class _PolicyAdminView(APIView):
         return api_error_response(code=code, message=message, status_code=status_code, request=self.request)
 
 
-class PolicyAdminUserListView(_PolicyAdminView, ListAPIView):
+class PolicyAdminUserListView(PolicyAdminView, ListAPIView):
     """Global identity list; policy is checked before filtering and pagination."""
 
     serializer_class = AdminUserListItemSerializer
@@ -76,12 +121,12 @@ class PolicyAdminUserListView(_PolicyAdminView, ListAPIView):
         )
 
 
-class PolicyAdminUserDetailView(_PolicyAdminView, RetrieveAPIView):
+class PolicyAdminUserDetailView(PolicyAdminView, RetrieveAPIView):
     """Read one user only after the installation policy check."""
 
-    serializer_class = AdminUserDetailSerializer
+    serializer_class = PolicyAdminUserDetailSerializer
 
-    @extend_schema(responses=AdminUserDetailSerializer)
+    @extend_schema(responses=PolicyAdminUserDetailSerializer)
     def get(self, request: Request, *args: object, **kwargs: object) -> Response:
         return super().get(request, *args, **kwargs)
 
@@ -95,13 +140,34 @@ class PolicyAdminUserDetailView(_PolicyAdminView, RetrieveAPIView):
     def get_serializer_context(self) -> dict[str, Any]:
         return {**super().get_serializer_context(), "policy_actor": authenticated_credential(self.request)}
 
+    @extend_schema(request=PolicyUserMetadataCommandSerializer, responses=PolicyAdminUserDetailSerializer)
+    def patch(self, request: Request, pk: int) -> Response:
+        command = PolicyUserMetadataCommandSerializer(data=request.data)
+        command.is_valid(raise_exception=True)
+        actor = authenticated_credential(request)
+        try:
+            user = admin_services.update_policy_user_metadata(
+                actor,
+                configured_authorization_provider(),
+                pk,
+                command.validated_data,
+                audit=request_audit(request, credential=actor),
+            )
+        except User.DoesNotExist as exc:
+            raise NotFound(_USER_NOT_FOUND) from exc
+        except ValueError:
+            return api_error_response(
+                code="invalid_user_metadata", message="User metadata unavailable", status_code=400, request=request
+            )
+        return Response(self.get_serializer(user).data)
 
-class PolicyAdminUserLifecycleView(_PolicyAdminView, APIView):
+
+class PolicyAdminUserLifecycleView(PolicyAdminView, APIView):
     """Run the one locked lifecycle service for human or service administrators."""
 
-    @extend_schema(request=LifecycleTransitionRequestSerializer, responses=AdminUserDetailSerializer)
+    @extend_schema(request=PolicyLifecycleCommandSerializer, responses=PolicyAdminUserDetailSerializer)
     def post(self, request: Request, pk: int) -> Response:
-        command = LifecycleTransitionRequestSerializer(data=request.data)
+        command = PolicyLifecycleCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         return _policy_transition(request, pk, lifecycle.AccountLifecycleAction(command.validated_data["action"]))
 
@@ -113,7 +179,7 @@ def _policy_transition(request: Request, pk: int, action: lifecycle.AccountLifec
     require_principal_administration(actor, provider)
     user = services.get_admin_user(pk)
     if user is None:
-        raise NotFound("User not found")
+        raise NotFound(_USER_NOT_FOUND)
     attribution = request_audit(request, credential=actor)
     lifecycle.transition_account(
         user,
@@ -129,15 +195,15 @@ def _policy_transition(request: Request, pk: int, action: lifecycle.AccountLifec
         ),
     )
     user.refresh_from_db()
-    return Response(AdminUserDetailSerializer(user, context={"request": request, "policy_actor": actor}).data)
+    return Response(PolicyAdminUserDetailSerializer(user, context={"request": request, "policy_actor": actor}).data)
 
 
-class PolicyAdminUserSetActiveView(_PolicyAdminView, APIView):
+class PolicyAdminUserSetActiveView(PolicyAdminView, APIView):
     """Preserve the v1 set-active command through the policy lifecycle service."""
 
-    @extend_schema(request=SetActiveRequestSerializer, responses=AdminUserDetailSerializer)
+    @extend_schema(request=PolicySetActiveCommandSerializer, responses=PolicyAdminUserDetailSerializer)
     def post(self, request: Request, pk: int) -> Response:
-        command = SetActiveRequestSerializer(data=request.data)
+        command = PolicySetActiveCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         action = (
             lifecycle.AccountLifecycleAction.ACTIVATE
@@ -147,25 +213,29 @@ class PolicyAdminUserSetActiveView(_PolicyAdminView, APIView):
         return _policy_transition(request, pk, action)
 
 
-class PolicyAdminUserDeleteView(_PolicyAdminView, APIView):
+class PolicyAdminUserDeleteView(PolicyAdminView, APIView):
     """Preserve the v1 soft-delete command through the policy lifecycle service."""
 
-    @extend_schema(request=None, responses=AdminUserDetailSerializer)
+    @extend_schema(request=EmptyPolicyCommandSerializer, responses=PolicyAdminUserDetailSerializer)
     def post(self, request: Request, pk: int) -> Response:
+        command = EmptyPolicyCommandSerializer(data=request.data)
+        command.is_valid(raise_exception=True)
         return _policy_transition(request, pk, lifecycle.AccountLifecycleAction.DELETE)
 
 
-class PolicyAdminUserResetPasswordView(_PolicyAdminView, APIView):
+class PolicyAdminUserResetPasswordView(PolicyAdminView, APIView):
     """Request a local reset through the installation policy and proven delivery service."""
 
-    @extend_schema(request=None, responses=AdminUserDetailSerializer)
+    @extend_schema(request=EmptyPolicyCommandSerializer, responses=PolicyAdminUserDetailSerializer)
     def post(self, request: Request, pk: int) -> Response:
+        command = EmptyPolicyCommandSerializer(data=request.data)
+        command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
         provider = configured_authorization_provider()
         require_principal_administration(actor, provider)
         user = services.get_admin_user(pk)
         if user is None:
-            raise NotFound("User not found")
+            raise NotFound(_USER_NOT_FOUND)
         attribution = request_audit(request, credential=actor)
         password_reset.request_password_reset(
             user,
@@ -181,4 +251,4 @@ class PolicyAdminUserResetPasswordView(_PolicyAdminView, APIView):
             provider=provider,
         )
         user.refresh_from_db()
-        return Response(AdminUserDetailSerializer(user, context={"request": request, "policy_actor": actor}).data)
+        return Response(PolicyAdminUserDetailSerializer(user, context={"request": request, "policy_actor": actor}).data)
