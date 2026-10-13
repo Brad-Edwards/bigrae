@@ -2,24 +2,43 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol
 
 import psycopg
 from psycopg import sql
+from psycopg.rows import TupleRow
 
 from shared.gcp_native_identity import NATIVE_APPLICATION_WORKLOADS, NATIVE_POLICY_WORKLOADS
 
 _LEGACY_RUNTIME_LOGINS = ("portal_runtime", "provisioner_runtime", "guacamole_admin")
 
 
-def _role_exists(cursor: Any, role: str) -> bool:
+class _DutyCursor(Protocol):
+    """The SQL operations shared by Django's wrapper and a psycopg cursor."""
+
+    def execute(self, query: str | sql.SQL | sql.Composed, params: Sequence[str] | None = None, /) -> object: ...
+
+    def fetchone(self) -> TupleRow | None: ...
+
+    def fetchall(self) -> list[TupleRow]: ...
+
+
+def _required_row(cursor: _DutyCursor) -> TupleRow:
+    """Fail closed when a required role or privilege query returns no row."""
+    row = cursor.fetchone()
+    if row is None:
+        raise ValueError("Database duty query returned no result")
+    return row
+
+
+def _role_exists(cursor: _DutyCursor, role: str) -> bool:
     """Return whether the PostgreSQL instance registers this role."""
     cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [role])
     return cursor.fetchone() is not None
 
 
-def _assert_narrow_login(cursor: Any, login: str, *, provisioner: bool = False) -> None:
+def _assert_narrow_login(cursor: _DutyCursor, login: str, *, provisioner: bool = False) -> None:
     """Reject inherited administrative authority on an application runtime login."""
     cursor.execute(
         """SELECT EXISTS (
@@ -30,15 +49,15 @@ def _assert_narrow_login(cursor: Any, login: str, *, provisioner: bool = False) 
         )""",
         [login],
     )
-    if cursor.fetchone()[0]:
+    if _required_row(cursor)[0]:
         raise ValueError("Runtime SQL login has unexpected inherited or owner authority")
     if provisioner:
         cursor.execute("SELECT has_table_privilege(%s, 'django_migrations', 'INSERT,UPDATE,DELETE')", [login])
-        if cursor.fetchone()[0]:
+        if _required_row(cursor)[0]:
             raise ValueError("Provisioner SQL login has unexpected application DML authority")
 
 
-def _reconcile_legacy_runtime_duties(cursor: Any) -> None:
+def _reconcile_legacy_runtime_duties(cursor: _DutyCursor) -> None:
     """Remove documented provider defaults from the designated runtime logins."""
     for role in _LEGACY_RUNTIME_LOGINS:
         if not _role_exists(cursor, role):
@@ -49,7 +68,7 @@ def _reconcile_legacy_runtime_duties(cursor: Any) -> None:
         _assert_narrow_login(cursor, role, provisioner=role == "provisioner_runtime")
 
 
-def _grant_native_application_duties(cursor: Any, native_users: Mapping[str, str]) -> None:
+def _grant_native_application_duties(cursor: _DutyCursor, native_users: Mapping[str, str]) -> None:
     """Attach each native application identity to its existing database duty."""
     for workload in NATIVE_APPLICATION_WORKLOADS:
         if workload not in native_users:
@@ -62,17 +81,17 @@ def _grant_native_application_duties(cursor: Any, native_users: Mapping[str, str
         _assert_narrow_login(cursor, login, provisioner=workload == "provisioner")
 
 
-def _assert_policy_application_isolation(cursor: Any, native_users: Mapping[str, str]) -> None:
+def _assert_policy_application_isolation(cursor: _DutyCursor, native_users: Mapping[str, str]) -> None:
     """Deny policy identities effective application database authority."""
     for workload in NATIVE_POLICY_WORKLOADS:
         if workload in native_users:
             _assert_narrow_login(cursor, native_users[workload], provisioner=True)
             cursor.execute("SELECT has_database_privilege(%s, current_database(), 'CONNECT')", [native_users[workload]])
-            if cursor.fetchone()[0]:
+            if _required_row(cursor)[0]:
                 raise ValueError("Policy database identities must not connect to the application database")
 
 
-def reconcile_application_duties(cursor: Any, native_users: Mapping[str, str]) -> None:
+def reconcile_application_duties(cursor: _DutyCursor, native_users: Mapping[str, str]) -> None:
     """Run after application migrations, never as a runtime database login."""
     cursor.execute("""SELECT pg_has_role(current_user, relowner, 'USAGE')
                       FROM pg_class WHERE oid = 'public.django_migrations'::regclass""")
@@ -81,14 +100,14 @@ def reconcile_application_duties(cursor: Any, native_users: Mapping[str, str]) -
     cursor.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
     _reconcile_legacy_runtime_duties(cursor)
     cursor.execute("SELECT current_database()")
-    database = sql.Identifier(cursor.fetchone()[0])
+    database = sql.Identifier(_required_row(cursor)[0])
     cursor.execute(sql.SQL("REVOKE CONNECT, TEMPORARY ON DATABASE {} FROM PUBLIC").format(database))
     cursor.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO portal_runtime, provisioner_lambda").format(database))
     _grant_native_application_duties(cursor, native_users)
     _assert_policy_application_isolation(cursor, native_users)
 
 
-def _prepare_policy_owner(cursor: Any) -> str:
+def _prepare_policy_owner(cursor: _DutyCursor) -> str:
     """Create and qualify the dedicated owner without changing application ownership."""
     owner = "shifter_openfga_owner"
     if not _role_exists(cursor, owner):
@@ -115,7 +134,7 @@ def _prepare_policy_owner(cursor: Any) -> str:
     return owner
 
 
-def _assert_no_application_policy_access(cursor: Any, native_users: Mapping[str, str]) -> None:
+def _assert_no_application_policy_access(cursor: _DutyCursor, native_users: Mapping[str, str]) -> None:
     """Reject explicit or inherited application access to the policy database."""
     application_logins = (
         set(_LEGACY_RUNTIME_LOGINS)
@@ -130,7 +149,7 @@ def _assert_no_application_policy_access(cursor: Any, native_users: Mapping[str,
                 raise ValueError("Application SQL duties must not inherit access to the policy database")
 
 
-def _transfer_released_policy_tables(cursor: Any, owner: str) -> None:
+def _transfer_released_policy_tables(cursor: _DutyCursor, owner: str) -> None:
     """Transfer only released datastore tables in the dedicated policy database."""
     # Scope upgrades to released datastore tables in this database. A global
     # REASSIGN OWNED would also move other databases owned by the bootstrap
@@ -149,7 +168,7 @@ def _transfer_released_policy_tables(cursor: Any, owner: str) -> None:
         )
 
 
-def _grant_policy_migration_duties(cursor: Any, owner: str, migrator: str) -> None:
+def _grant_policy_migration_duties(cursor: _DutyCursor, owner: str, migrator: str) -> None:
     """Grant policy ownership and group administration to its migration identity."""
     cursor.execute(sql.SQL("GRANT {} TO {}").format(sql.Identifier(owner), sql.Identifier(migrator)))
     for duty in ("shifter_openfga_runtime", "shifter_openfga_admin"):

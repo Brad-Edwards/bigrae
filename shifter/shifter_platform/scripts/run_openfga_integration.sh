@@ -149,4 +149,6 @@ OPENFGA_INTEGRATION_MODEL_ID="${MODEL_ID}" \
 OPENFGA_INTEGRATION_TOKEN="${TOKEN}" \
 OPENFGA_INTEGRATION_CA_CERT="${FIXTURE_DIR}/tls.crt" \
 OPENFGA_INTEGRATION_REQUIRED=1 \
-uv run --no-build --no-sync pytest -n0 -q tests/integration/authorization/test_openfga_released_server.py "$@"
+uv run --no-build --no-sync pytest -n0 -q \
+  tests/integration/authorization/test_openfga_released_server.py \
+  tests/integration/authorization/test_gcp_native_database_duties.py "$@"

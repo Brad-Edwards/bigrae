@@ -266,6 +266,14 @@ def test_migration_does_not_load_the_unmounted_runtime_catalog(tmp_path):
         text=True,
     )
     container = yaml.safe_load(manifest.read_text())["spec"]["template"]["spec"]["containers"][0]
+    assert container["args"] == [
+        "/bin/sh",
+        "-c",
+        "python manage.py reconcile_gcp_database_duties"
+        " && python manage.py bootstrap_inbox_catalog"
+        " && python manage.py seed_raes_image_registry"
+        " && python manage.py acquire_feature_artifacts",
+    ]
     effective = {
         "MODEL_ACCESS_ENABLED": "true",
         "MODEL_ACCESS_CATALOG_PATH": "/unmounted/catalog.json",

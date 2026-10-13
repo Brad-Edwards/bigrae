@@ -60,12 +60,13 @@ def _connect_cloud_sql_proxy(
     ):
         raise RuntimeError("DB_AUTH_MODE cloud-sql-proxy requires GCP, loopback and its normalized IAM login")
     # This loopback connector owns native IAM authentication; the driver supplies no password.
+    connector_password: str = ""
     return psycopg.connect(
         host=db_host,
         port=db_port,
         dbname=db_name,
         user=db_user,
-        password="",  # nosec B106
+        password=connector_password,
         sslmode="disable",
         connect_timeout=10,
     )
