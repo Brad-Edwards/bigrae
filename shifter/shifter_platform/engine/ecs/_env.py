@@ -147,12 +147,9 @@ _GCP_PROVISIONER_ENV_KEYS = (
     "AVAILABILITY_ZONE",
 )
 
+# Job env key -> dedicated provisioner source env key.
 _GCP_PROVISIONER_DB_ENV_MAP = {
-    "DB_HOST": "PROVISIONER_DB_HOST",
-    "DB_PORT": "PROVISIONER_DB_PORT",
-    "DB_NAME": "PROVISIONER_DB_NAME",
-    "DB_USER": "PROVISIONER_DB_USER",
-    "DB_PASSWORD": "PROVISIONER_DB_PASSWORD",  # nosec B105 - environment variable name
+    job_key: f"PROVISIONER_{job_key}" for job_key in ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
 }
 
 

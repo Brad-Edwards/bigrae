@@ -1,6 +1,7 @@
 """Bootstrap the backend and independently owned GCP CI identity root."""
 
 import json
+import re
 import tempfile
 from pathlib import Path
 
@@ -9,6 +10,13 @@ from bootstrap_core import confirm, gcloud_resource_exists, get_repo_root, run_c
 # gcp-dev-destroy.yml rejects every other dispatch ref before auth; the
 # cicd-oidc purpose_contexts validation enforces the same set.
 DESTROY_PROTECTED_REFS = ("refs/heads/dev", "refs/heads/main")
+
+# GCP naming rules. The bucket rule matches the cicd-oidc
+# terraform_state_bucket_name validation. A value that starts with "-" can
+# not match, so gcloud can not parse an input as a flag.
+_PROJECT_ID_RE = re.compile(r"[a-z][a-z0-9-]{4,28}[a-z0-9]")
+_BUCKET_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
+_REGION_RE = re.compile(r"[a-z]+-[a-z]+[0-9]+")
 
 
 def _require_protected_destroy_refs(purpose_contexts: dict[str, list[dict[str, str]]]) -> None:
@@ -20,6 +28,13 @@ def _require_protected_destroy_refs(purpose_contexts: dict[str, list[dict[str, s
                 f"Destroy purpose tuple must bind {' or '.join(DESTROY_PROTECTED_REFS)} "
                 f"(gcp-dev-destroy.yml rejects other dispatch refs); got ref={ref!r}"
             )
+
+
+def _require_gcp_name(field: str, value: object, pattern: re.Pattern[str]) -> str:
+    """Return a foundation input value only when it is a valid GCP resource name."""
+    if not isinstance(value, str) or not pattern.fullmatch(value):
+        raise ValueError(f"Foundation input {field} is not a valid GCP name: {value!r}")
+    return value
 
 
 def bootstrap_gcp_foundation(inputs_path: str, *, dry_run: bool = False) -> None:
@@ -43,9 +58,9 @@ def bootstrap_gcp_foundation(inputs_path: str, *, dry_run: bool = False) -> None
     if missing:
         raise ValueError("Missing foundation inputs: " + ", ".join(missing))
     _require_protected_destroy_refs(inputs["purpose_contexts"])
-    project = inputs["project_id"]
-    bucket = inputs["terraform_state_bucket_name"]
-    region = inputs.get("region", "us-central1")
+    project = _require_gcp_name("project_id", inputs["project_id"], _PROJECT_ID_RE)
+    bucket = _require_gcp_name("terraform_state_bucket_name", inputs["terraform_state_bucket_name"], _BUCKET_NAME_RE)
+    region = _require_gcp_name("region", inputs.get("region", "us-central1"), _REGION_RE)
     root = get_repo_root() / "platform/terraform/gcp/global/cicd-oidc"
     tf = ["terraform", f"-chdir={root}"]
     if not dry_run:

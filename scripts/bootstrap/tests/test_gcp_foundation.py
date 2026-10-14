@@ -135,3 +135,24 @@ def test_destroy_refs_match_workflow_guard_and_terraform_contract():
         assert allowed in (root / inventory).read_text()
     example = json.loads((root / "scripts/bootstrap/gcp-foundation.example.tfvars.json").read_text())
     assert all(context["ref"] in DESTROY_PROTECTED_REFS for context in example["purpose_contexts"]["destroy"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("project_id", "--impersonate-service-account=attacker@example.iam.gserviceaccount.com"),
+        ("project_id", "Example-Project"),
+        ("terraform_state_bucket_name", "--billing-project=other"),
+        ("terraform_state_bucket_name", "example/state"),
+        ("region", "--flags-file=/tmp/flags.yaml"),
+        ("region", 7),
+    ],
+)
+def test_invalid_gcp_name_fails_before_commands(field, value, tmp_path, monkeypatch):
+    path = _write_inputs(tmp_path / "foundation.json", _destroy("refs/heads/dev"))
+    path.write_text(json.dumps({**json.loads(path.read_text()), field: value}))
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+    with pytest.raises(ValueError, match=f"Foundation input {field} is not a valid GCP name"):
+        bootstrap_gcp_foundation(str(path))
+    assert calls == []
