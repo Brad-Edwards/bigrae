@@ -16,7 +16,7 @@ DESTROY_PROTECTED_REFS = ("refs/heads/dev", "refs/heads/main")
 # not match, so gcloud can not parse an input as a flag.
 _PROJECT_ID_RE = re.compile(r"[a-z][a-z0-9-]{4,28}[a-z0-9]")
 _BUCKET_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
-_REGION_RE = re.compile(r"[a-z]+-[a-z]+[0-9]+")
+_REGION_RE = re.compile(r"[a-z]+-[a-z]+\d+", re.ASCII)
 
 
 def _require_protected_destroy_refs(purpose_contexts: dict[str, list[dict[str, str]]]) -> None:
