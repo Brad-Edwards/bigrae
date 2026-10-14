@@ -1,3 +1,4 @@
+{{- $policyBound := and .Values.openfga.enabled (ne .Values.openfga.storeId "") (ne .Values.openfga.modelId "") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,6 +46,7 @@ spec:
                     app.kubernetes.io/part-of: shifter
                     app.kubernetes.io/component: portal
                 topologyKey: kubernetes.io/hostname
+      {{- include "shifter.cloudSqlProxyPod" (dict "root" . "autoIam" true) | nindent 6 }}
       containers:
         - name: portal
           image: {{ include "shifter.portalImage" . }}
@@ -59,7 +61,7 @@ spec:
               mountPath: /tmp
             - name: media
               mountPath: /app/media
-            {{- if .Values.openfga.enabled }}
+            {{- if $policyBound }}
             - name: openfga-token
               mountPath: /run/secrets/openfga
               readOnly: true
@@ -70,8 +72,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: platform-runtime
-          {{- if .Values.openfga.enabled }}
+          {{- if or $policyBound .Values.cloudSqlProxy.enabled }}
           env:
+            {{- include "shifter.databaseUserEnv" (dict "root" . "role" "portal") | nindent 12 }}
+            {{- if $policyBound }}
             - name: OPENFGA_ENABLED
               value: "true"
             - name: OPENFGA_API_URL
@@ -84,6 +88,7 @@ spec:
               value: /run/secrets/openfga/token
             - name: OPENFGA_CA_CERT_PATH
               value: /run/secrets/openfga-ca/ca.crt
+            {{- end }}
           {{- end }}
           ports:
             - name: http
@@ -109,7 +114,7 @@ spec:
         - name: media
           emptyDir:
             sizeLimit: {{ .Values.mediaVolume.sizeLimit | quote }}
-        {{- if .Values.openfga.enabled }}
+        {{- if $policyBound }}
         - name: openfga-token
           secret:
             secretName: {{ .Values.openfga.runtimeSecretName }}

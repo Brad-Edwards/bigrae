@@ -31,7 +31,7 @@ spec:
         seccompProfile:
           type: {{ .Values.security.pod.seccompProfile }}
       automountServiceAccountToken: false
-      serviceAccountName: {{ .Values.serviceAccounts.workers.name }}
+      serviceAccountName: {{ .Values.serviceAccounts.guacd.name }}
       terminationGracePeriodSeconds: {{ .Values.guacd.terminationGracePeriodSeconds }}
       {{- include "shifter.accessNodePlacement" . | nindent 6 }}
       {{- include "shifter.podAntiAffinity" (dict "component" "guacd") | nindent 6 }}

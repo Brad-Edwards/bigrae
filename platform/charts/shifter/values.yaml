@@ -67,6 +67,12 @@ serviceAccounts:
   workers:
     name: workers
     annotations: {}
+  guacamoleClient:
+    name: guacamole-client
+    annotations: {}
+  guacd:
+    name: guacd
+    annotations: {}
   ctfScheduler:
     name: ctf-scheduler
     annotations: {}
@@ -94,6 +100,12 @@ guacamoleRuntimeSecret:
 # S7 OpenFGA deployment contract. Disabled for this S2 slice: enabling the
 # server does not activate the S8 application cutover. Secret values are
 # provisioned out of band and never enter Helm values or release history.
+cloudSqlProxy:
+  enabled: false
+  instanceConnectionName: ""
+  databaseUsers: {}
+  databaseCidrs: []
+
 openfga:
   enabled: false
   image: "openfga/openfga@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38"
@@ -102,6 +114,15 @@ openfga:
   storeId: ""
   modelId: ""
   runtimeSecretName: openfga-runtime
+  adminSecretName: openfga-admin
+  migrationSecretName: openfga-migrator
+  runtimeDatabaseUser: ""
+  adminDatabaseUser: ""
+  migrationDatabaseUser: ""
+  serviceAccountAnnotations:
+    runtime: {}
+    admin: {}
+    migrator: {}
   caConfigMapName: openfga-ca
   databaseCidrs: []
   databasePort: 5432

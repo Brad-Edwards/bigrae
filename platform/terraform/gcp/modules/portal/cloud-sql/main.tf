@@ -103,6 +103,14 @@ resource "google_sql_database_instance" "platform" {
       value = "on"
     }
 
+    dynamic "database_flags" {
+      for_each = var.cloud_sql_iam_auth ? [1] : []
+      content {
+        name  = "cloudsql.iam_authentication"
+        value = "on"
+      }
+    }
+
     user_labels = var.common_labels
   }
 
@@ -122,6 +130,13 @@ resource "google_sql_database" "platform" {
 
 resource "google_sql_database" "guacamole" {
   name     = "guacamole"
+  project  = var.project_id
+  instance = google_sql_database_instance.platform.name
+}
+
+resource "google_sql_database" "openfga" {
+  count    = var.openfga_enabled ? 1 : 0
+  name     = "openfga"
   project  = var.project_id
   instance = google_sql_database_instance.platform.name
 }

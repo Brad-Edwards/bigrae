@@ -115,6 +115,7 @@ def _outputs(
     identity_allowed_emails: list[str] | None = None,
     email_config: dict | None = None,
     ctf_content_bucket_name: str = "",
+    native_identity: dict | None = None,
 ) -> dict[str, object]:
     outputs = {
         "assets_bucket_name": {"value": "shifter-gcp-dev-gcp-dev-assets"},
@@ -189,6 +190,11 @@ def _outputs(
     }
     if email_config is not None:
         outputs["email_config"] = {"value": email_config}
+    if native_identity is not None:
+        outputs["native_identity"] = {"value": native_identity}
+        outputs["workload_service_accounts"] = {
+            "value": {name: user + ".gserviceaccount.com" for name, user in native_identity["database_users"].items()}
+        }
     return outputs
 
 
@@ -496,6 +502,15 @@ def test_render_env_keys_match_runtime_inventory(monkeypatch):
         identity_allowed_emails=["alice@example.com", "bob@example.com"],
         email_config=_FULL_MAILGUN_EMAIL_CONFIG,
         ctf_content_bucket_name="private-ctf-content",
+        native_identity={
+            "enabled": True,
+            "openfga_enabled": False,
+            "instance_connection_name": "shifter-gcp-dev:us-central1:platform-pg",
+            "database_users": {
+                name: f"synthetic-{name}@shifter-gcp-dev.iam"
+                for name in ("portal", "workers", "ctf-scheduler", "provisioner-launcher", "provisioner")
+            },
+        },
     )
     outputs["provisioner_static_secret_refs"] = {
         "value": {
@@ -514,6 +529,58 @@ def test_render_env_keys_match_runtime_inventory(monkeypatch):
     )
 
     assert _rendered_keys(rendered) == set(GCP_GENERATED_RUNTIME_ENV_KEYS | GCP_OPTIONAL_GENERATED_RUNTIME_ENV_KEYS)
+
+
+def test_native_database_runtime_has_no_password_secret_reference():
+    module = _load_module("render_runtime_env.py", "render_runtime_env_native")
+    users = {
+        name: f"synthetic-{name}@shifter-gcp-dev.iam"
+        for name in ("portal", "workers", "ctf-scheduler", "provisioner-launcher", "provisioner")
+    }
+    outputs = _outputs(
+        native_identity={
+            "enabled": True,
+            "openfga_enabled": False,
+            "instance_connection_name": "shifter-gcp-dev:us-central1:platform-pg",
+            "database_users": users,
+        }
+    )
+    rendered = module.render_env(outputs, engine_image=PINNED_ENGINE_DIGEST)
+    values = dict(line.split("=", 1) for line in rendered.splitlines() if line and not line.startswith("#"))
+    assert values["DB_AUTH_MODE"] == "cloud-sql-proxy"
+    assert values["DB_HOST"] == "127.0.0.1"
+    assert values["DB_USER"] == users["portal"]
+    assert values["PROVISIONER_DB_USER"] == users["provisioner"]
+    assert values["DB_SECRET_ID"] == ""
+    assert values["PROVISIONER_DB_SECRET_ID"] == ""
+    assert "DB_MIGRATION_SECRET_ID" in values
+    assert json.loads(values["GCP_DATABASE_IAM_USERS_JSON"]) == users
+    assert "DB_PASSWORD" not in values
+
+
+@pytest.mark.parametrize("fault", ["missing-user", "wrong-user-project", "wrong-instance-project", "unknown-workload"])
+def test_native_database_renderer_rejects_untrusted_login_metadata(fault):
+    module = _load_module("render_runtime_env.py", "render_runtime_env_native_invalid")
+    users = {
+        name: f"synthetic-{name}@shifter-gcp-dev.iam"
+        for name in ("portal", "workers", "ctf-scheduler", "provisioner-launcher", "provisioner")
+    }
+    native = {
+        "enabled": True,
+        "openfga_enabled": False,
+        "instance_connection_name": "shifter-gcp-dev:us-central1:platform-pg",
+        "database_users": users,
+    }
+    if fault == "missing-user":
+        users.pop("provisioner")
+    elif fault == "wrong-user-project":
+        users["portal"] = "synthetic-portal@other-project.iam"
+    elif fault == "wrong-instance-project":
+        native["instance_connection_name"] = "other-project:us-central1:platform-pg"
+    else:
+        users["operator"] = "synthetic-operator@shifter-gcp-dev.iam"
+    with pytest.raises(ValueError, match="native"):
+        module.render_env(_outputs(native_identity=native), engine_image=PINNED_ENGINE_DIGEST)
 
 
 def test_render_env_projects_ctf_content_location_without_private_references():

@@ -331,6 +331,8 @@ module "portal_cloud_sql" {
   cloud_sql_database_name       = var.cloud_sql_database_name
   cloud_sql_user_name           = var.cloud_sql_user_name
   cloud_sql_deletion_protection = var.cloud_sql_deletion_protection
+  cloud_sql_iam_auth            = var.cloud_sql_iam_auth
+  openfga_enabled               = var.openfga_enabled
 
   depends_on = [module.project_services, module.portal_vpc]
 }
@@ -383,6 +385,9 @@ module "portal_iam" {
   dynamic_secret_project_id = local.dynamic_secret_project_id
   environment               = var.environment
   name_prefix               = local.name_prefix
+  cloud_sql_iam_auth        = var.cloud_sql_iam_auth
+  cloud_sql_instance_name   = module.portal_cloud_sql.instance_name
+  openfga_enabled           = var.openfga_enabled
 
   # ADR-008-R7: resource IDs from the owning modules so workload Secret Manager /
   # Cloud Storage access is bound per named resource instead of at project scope.

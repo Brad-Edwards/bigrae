@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 
 import psycopg
@@ -41,18 +42,53 @@ from state_helpers import (
 logger = logging.getLogger(__name__)
 
 
+def _connect_cloud_sql_proxy(
+    db_host: str | None,
+    db_port: int,
+    db_user: str | None,
+    db_name: str | None,
+    db_password: str | None,
+) -> psycopg.Connection:
+    """Use only the attached native connector and its normalized IAM login."""
+    if (
+        os.environ.get("CLOUD_PROVIDER", "").strip().lower() != "gcp"
+        or db_host != "127.0.0.1"
+        or not db_name
+        or not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam", db_user or "")
+        or db_password
+        or os.environ.get("DB_IAM_AUTH", "false").lower() == "true"
+    ):
+        raise RuntimeError("DB_AUTH_MODE cloud-sql-proxy requires GCP, loopback and its normalized IAM login")
+    # This loopback connector owns native IAM authentication; the driver supplies no password.
+    connector_password: str = ""
+    return psycopg.connect(
+        host=db_host,
+        port=db_port,
+        dbname=db_name,
+        user=db_user,
+        password=connector_password,
+        sslmode="disable",
+        connect_timeout=10,
+    )
+
+
 def get_db_connection() -> psycopg.Connection:
     """Get database connection.
 
-    Supports two authentication modes:
-    - If DB_PASSWORD is set: Uses standard password authentication (local dev)
-    - Otherwise: Uses RDS IAM authentication (ECS/production)
+    Explicit GCP native mode connects through the attached local IAM proxy.
+    Otherwise, a configured password uses the stock driver and the existing
+    password-free AWS path uses RDS IAM authentication.
     """
     db_host = os.environ.get("DB_HOST")
     db_port = int(os.environ.get("DB_PORT", 5432))
     db_user = os.environ.get("DB_USER")
     db_name = os.environ.get("DB_NAME")
     db_password = os.environ.get("DB_PASSWORD")
+    mode = os.environ.get("DB_AUTH_MODE", "password").strip().lower()
+    if mode not in {"password", "cloud-sql-proxy"}:
+        raise RuntimeError("Unsupported DB_AUTH_MODE")
+    if mode == "cloud-sql-proxy":
+        return _connect_cloud_sql_proxy(db_host, db_port, db_user, db_name, db_password)
 
     if db_password:
         if not all([db_host, db_user, db_name]):
