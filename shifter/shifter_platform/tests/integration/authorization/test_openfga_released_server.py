@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -13,6 +16,8 @@ from django.contrib.auth import get_user_model
 from django.db import close_old_connections
 from django.utils import timezone
 from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
+from openfga_sdk.exceptions import ApiException
+from openfga_sdk.models import CreateStoreRequest, WriteAuthorizationModelRequest
 
 from config.openfga_authorization import OpenFgaAuthorizationProvider, OpenFgaRuntimeSettings
 from management.models import Principal
@@ -74,6 +79,102 @@ def _write_fixture_tuple(provider: OpenFgaAuthorizationProvider, tuple_: ClientT
         ClientWriteRequest(writes=[tuple_]),
         {"authorization_model_id": provider._settings.model_id},
     )
+
+
+def test_runtime_key_cannot_create_a_policy_store(provider) -> None:
+    """Exercise the released API directly, beyond the application's allowlist."""
+    with pytest.raises(ApiException):
+        provider._client.create_store(CreateStoreRequest(name="synthetic-forbidden-runtime-store"))
+
+
+def test_runtime_key_cannot_publish_models_assertions_or_delete_store(provider) -> None:
+    """The pinned server fails every administrative write without its SQL duty."""
+    model = provider._client.read_authorization_model().authorization_model
+    model_write = WriteAuthorizationModelRequest(
+        schema_version=model.schema_version,
+        type_definitions=model.type_definitions,
+        conditions=model.conditions,
+    )
+    with pytest.raises(ApiException):
+        provider._client.write_authorization_model(model_write)
+    with pytest.raises(ApiException):
+        provider._client.write_assertions([])
+    with pytest.raises(ApiException):
+        provider._client.delete_store()
+    # A denied deletion must leave the active store/model intact.
+    assert provider._client.read_authorization_model().authorization_model.id == provider._settings.model_id
+
+
+def test_distinct_admin_identity_can_publish_and_runtime_key_is_rejected(provider) -> None:
+    """Admin API authority is separate from both runtime and schema ownership."""
+    admin = OpenFgaAuthorizationProvider(
+        OpenFgaRuntimeSettings(
+            api_url=_required("OPENFGA_INTEGRATION_ADMIN_URL"),
+            store_id=provider._settings.store_id,
+            model_id=provider._settings.model_id,
+            api_token=_required("OPENFGA_INTEGRATION_ADMIN_TOKEN"),
+            ca_cert_path=provider._settings.ca_cert_path,
+        )
+    )
+    wrong_key = OpenFgaAuthorizationProvider(
+        OpenFgaRuntimeSettings(
+            api_url=_required("OPENFGA_INTEGRATION_ADMIN_URL"),
+            store_id=provider._settings.store_id,
+            model_id=provider._settings.model_id,
+            api_token=provider._settings.api_token,
+            ca_cert_path=provider._settings.ca_cert_path,
+        )
+    )
+    try:
+        with pytest.raises(ApiException) as denied:
+            wrong_key._client.read_authorization_model()
+        assert denied.value.status == 401
+        created = admin._client.create_store(CreateStoreRequest(name="synthetic-admin-store"))
+        assert created.id != provider._settings.store_id
+        model = admin._client.read_authorization_model().authorization_model
+        published = admin._client.write_authorization_model(
+            WriteAuthorizationModelRequest(
+                schema_version=model.schema_version,
+                type_definitions=model.type_definitions,
+                conditions=model.conditions,
+            )
+        )
+        assert published.authorization_model_id != provider._settings.model_id
+    finally:
+        admin._client.close()
+        wrong_key._client.close()
+
+
+def test_duty_reconciliation_rejects_a_runtime_login_with_admin_membership() -> None:
+    """A valid login must not retain administrative authority via another role."""
+    container = _required("OPENFGA_INTEGRATION_POSTGRES_CONTAINER")
+    assert re.fullmatch(r"openfga-integration-\d+-postgres", container)
+    command = ["docker", "exec", "-i", container, "psql", "-h", "127.0.0.1", "-U", "openfga", "-d", "openfga"]
+    duties = Path(__file__).resolve().parents[5] / "platform/charts/shifter/files/openfga-duties.sql"
+    subprocess.run(  # noqa: S603 -- harness-owned local PostgreSQL container, validated above
+        [*command, "-v", "ON_ERROR_STOP=1"],
+        input="GRANT shifter_openfga_admin TO integration_runtime;",
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    try:
+        result = subprocess.run(  # noqa: S603 -- harness-owned local PostgreSQL container
+            [*command, "-v", "runtime_login=integration_runtime", "-v", "admin_login=integration_admin"],
+            input=duties.read_text(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode != 0
+    finally:
+        subprocess.run(  # noqa: S603 -- harness-owned local PostgreSQL container
+            [*command, "-v", "ON_ERROR_STOP=1"],
+            input="REVOKE shifter_openfga_admin FROM integration_runtime;",
+            text=True,
+            capture_output=True,
+            check=True,
+        )
 
 
 def test_released_model_hierarchy_human_service_deny_and_transport_fail_closed(provider) -> None:

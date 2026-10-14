@@ -27,9 +27,18 @@ def test_openfga_job_is_mandatory_for_the_same_platform_changes() -> None:
     assert job["if"] == jobs["shifter-platform-tests-postgres"]["if"]
     assert job.get("continue-on-error", False) is False
     step = next(step for step in job["steps"] if step.get("name") == "Run released OpenFGA conformance")
-    assert step["run"] == "./scripts/run_openfga_integration.sh"
+    assert step["run"] == (
+        "./scripts/run_openfga_integration.sh --cov --cov-report=xml:coverage-openfga.xml --cov-fail-under=0"
+    )
     assert "if" not in step
     assert step.get("continue-on-error", False) is False
+    upload = next(step for step in job["steps"] if step.get("name") == "Upload OpenFGA and native SQL coverage")
+    assert upload["with"]["if-no-files-found"] == "error"
+    sonar = jobs["sonarcloud"]
+    assert "shifter-platform-openfga" in sonar["needs"]
+    download = next(step for step in sonar["steps"] if step.get("name") == "Download OpenFGA and native SQL coverage")
+    assert download["with"]["name"] == upload["with"]["name"]
+    assert "shifter/shifter_platform/coverage-openfga.xml" in (_ROOT / "sonar-project.properties").read_text()
 
 
 def test_openfga_harness_requires_real_postgres_and_server_configuration() -> None:

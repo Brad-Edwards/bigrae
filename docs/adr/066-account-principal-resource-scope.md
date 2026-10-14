@@ -153,6 +153,21 @@ slices that own those integrations. This ADR does not authorize a custom
 authentication protocol, policy engine, token format, secret broker, JIT/Vault
 dependency, or organizational approval workflow.
 
+S7 (#2320) preserves deliberately assigned project-admin operator service
+accounts and permits the same service full application authority through a
+separate explicit grant. Protect credential use, impersonation and execution
+boundaries; do not silently reduce chosen powers or broaden ordinary workload
+defaults. Supported single-project deployment supersedes ADR-008-R7's mandatory
+distinct dynamic-secret project and migration-only equality rule for S7. The
+explicit project seam and named/prefix-conditioned access controls remain;
+parent-scoped create-only access is not a prefix or separate-project boundary.
+[The GCP integration preflight](../architecture/gcp-native-identity-authority-preflight-2320.md)
+records the native renewal, SQL-duty, configuration/admission and OpenFGA trust
+limits. Preshared client authentication and runtime method allowlisting do not
+claim server-enforced per-client model/store privileges. Enforcement must be
+reconciled with these documented choices without blanket exemptions. This
+clarification does not approve custom source or move S8 activation.
+
 ### Administration at cutover
 
 At S8, every application administration operation, including its direct service
@@ -291,3 +306,37 @@ adapters. The layer checker permits only those named presentation symbols and
 the exact tenancy journal/placement services. Domain persistence and private
 helpers remain inaccessible to composition. No production URL or Django-admin
 registration changes in S4.
+
+## S7 native identity integration
+
+Issue #2320 adds the released Cloud SQL Auth Proxy as one digest-pinned native
+sidecar with a loopback SQL listener and automatic IAM renewal. The hardened
+provisioner Job admits exactly that sidecar only when trusted deployment
+parameters select native GCP SQL; image/argument/credential/mount/identity
+substitution remains denied. Deterministic Job recovery also verifies it.
+IAM connector/login bindings apply only to the installation instance. The
+Guacamole client and deployment owner receive connector transport only; guacd
+has its own KSA and no cloud identity. Existing WIF, operator and CI grants stay
+additive. The portal directory duty contains only `firebaseauth.users.get`.
+
+OpenFGA runtime and administration use separate private authenticated listeners,
+KSAs/GSAs and native database duties. Released PostgreSQL ACLs deny runtime
+store/model/assertion mutation, schema ownership and migration-version writes;
+the migration identity owns only the policy datastore. Runtime tuple writers
+remain trusted. Deployment-owned bootstrap removes documented Cloud SQL runtime
+role defaults, checks effective inheritance/ownership and fails closed on drift.
+It preserves the separate qualified migration owner. Native IAM and admission
+negative tests, released-server SQL tests and existing guards enforce this
+boundary. The released-server lane publishes supplemental coverage for these
+SQL duties to Sonar, alongside the platform fast-lane report. The existing
+whole-package floor and changed-code coverage gate remain enforced; supplemental
+service coverage does not replace either. Two historical permission migrations now quote the active database
+name when granting/revoking CONNECT, correcting cold-install targeting without
+changing their schema or intended duties. This does not redefine historical
+account-policy invariants.
+
+See the [operator guide](../ops/gcp-native-identity.md) and
+[implementation contract](../technical/platform_infrastructure/gcp-native-identity.md).
+Local tests do not claim live credential renewal or effective deployment IAM;
+deployment-specific qualification belongs to the operator's live testing session
+and is not a source-publication gate.

@@ -7,6 +7,32 @@ variable "project_id" {
   type = string
 }
 
+variable "cloud_sql_iam_auth" {
+  type        = bool
+  default     = false
+  description = "Register native database users and instance-scoped connector/login authority."
+}
+
+variable "cloud_sql_instance_name" {
+  type        = string
+  default     = ""
+  description = "Instance from the owning Cloud SQL module; never an independently selected target."
+  validation {
+    condition     = !var.cloud_sql_iam_auth || can(regex("^[a-z][a-z0-9-]{0,97}$", var.cloud_sql_instance_name))
+    error_message = "Native SQL authentication requires the owning instance name."
+  }
+}
+
+variable "openfga_enabled" {
+  type        = bool
+  default     = false
+  description = "Create separate native runtime, API administration and schema migration identities."
+  validation {
+    condition     = !var.openfga_enabled || var.cloud_sql_iam_auth
+    error_message = "The native policy datastore requires Cloud SQL IAM authentication."
+  }
+}
+
 variable "dynamic_secret_project_id" {
   type        = string
   description = "Deployment-scoped project that owns provisioner-created range secrets."

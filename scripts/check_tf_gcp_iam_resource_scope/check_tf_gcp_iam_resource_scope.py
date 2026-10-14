@@ -156,12 +156,12 @@ _DYNAMIC_CONDITION_LOCALS = {
     "dynamic_lifecycle_condition": """local.dynamic_secret_project_is_dedicated ? (
         "resource.name.startsWith('${local.canonical_secret_prefix}')"
     ) : (
-        "(${local.legacy_secret_name_condition})"
+        "(resource.name.startsWith('${local.canonical_secret_prefix}') || (${local.legacy_secret_name_condition}))"
     )""",
     "portal_dynamic_read_condition": """local.dynamic_secret_project_is_dedicated ? (
         "resource.name.startsWith('${local.canonical_participant_secret_prefix}')"
     ) : (
-        "(${local.legacy_participant_secret_condition})"
+        "(resource.name.startsWith('${local.canonical_participant_secret_prefix}') || (${local.legacy_participant_secret_condition}))"
     )""",
 }
 
@@ -968,6 +968,45 @@ def _check_model_broker_scope(path: Path, lines: list[str]) -> list[Violation]:
     return violations
 
 
+def _check_native_identity_scope(path: Path, lines: list[str]) -> list[Violation]:
+    """Keep native login and directory roles attached to their exact duties."""
+    text = "\n".join(lines)
+    if "native_sql_workloads" not in text:
+        return []
+    compact = re.sub(r"\s+", "", text)
+    expected = {
+        ("google_sql_user", "native"): (
+            "for_each=local.native_sql_workloads", "project=var.project_id",
+            "instance=var.cloud_sql_instance_name",
+            'name=trimsuffix(google_service_account.workload[each.key].email,".gserviceaccount.com")',
+            'type="CLOUD_IAM_SERVICE_ACCOUNT"', 'deletion_policy="ABANDON"',
+        ),
+        ("google_project_iam_member", "native_sql"): (
+            "for_each=local.native_sql_roles", "project=var.project_id", "role=each.value.role",
+            'member="serviceAccount:${google_service_account.workload[each.value.workload].email}"',
+            'expression="resource.name==\'projects/${var.project_id}/instances/${var.cloud_sql_instance_name}\'"',
+        ),
+        ("google_project_iam_custom_role", "directory_reader"): (
+            "project=var.project_id", 'permissions=["firebaseauth.users.get"]',
+        ),
+        ("google_project_iam_member", "directory_reader"): (
+            "project=var.project_id", "role=google_project_iam_custom_role.directory_reader.id",
+            'member="serviceAccount:${google_service_account.workload["portal"].email}"',
+        ),
+    }
+    violations = []
+    for (kind, name), attributes in expected.items():
+        header = re.compile(r'^\s*resource\s+"' + kind + r'"\s+"(?P<name>[^\"]+)"\s*\{')
+        blocks = {key: (line, re.sub(r"\s+", "", block)) for key, line, block in _extract_resource_blocks(lines, header)}
+        line, block = blocks.get(name, (1, ""))
+        if not all(attribute in block for attribute in attributes):
+            violations.append(Violation(path, line, f"native {kind}.{name} must retain exact instance, identity and duty scope"))
+    roles = 'forrolein["roles/cloudsql.client","roles/cloudsql.instanceUser"]'
+    if roles not in compact:
+        violations.append(Violation(path, 1, "native SQL duty map must grant only connector and IAM login roles"))
+    return violations
+
+
 def check_paths(paths: list[Path]) -> list[Violation]:
     """Return every ADR-008-R7 violation across a set of module Terraform files."""
     files = {p: p.read_text().splitlines() for p in paths if p.suffix == ".tf"}
@@ -975,6 +1014,7 @@ def check_paths(paths: list[Path]) -> list[Violation]:
     violations: list[Violation] = []
     violations.extend(_check_dynamic_resource_scope(files))
     for path, lines in files.items():
+        violations.extend(_check_native_identity_scope(path, lines))
         violations.extend(_check_model_broker_scope(path, lines))
         violations.extend(_check_literal_members(path, lines))
         violations.extend(_check_map_driven_members(path, lines, locals_text))

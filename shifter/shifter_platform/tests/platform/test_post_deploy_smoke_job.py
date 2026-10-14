@@ -65,14 +65,12 @@ def test_gcp_dev_workflow_declares_post_deploy_smoke_job() -> None:
     assert "SMOKE_TEST_USER_EMAIL" in block
 
 
-def test_gcp_migration_job_bootstraps_smoke_pack_and_image_registry() -> None:
+def test_gcp_migration_job_applies_and_waits_for_the_canonical_bootstrap_manifest() -> None:
     text = GCP_DEV_WORKFLOW.read_text(encoding="utf-8")
     migration = text[text.index("Run database migrations and bootstrap") : text.index("Sync Guacamole runtime secret")]
-    assert (
-        'args: ["/bin/sh", "-c", "python manage.py bootstrap_inbox_catalog '
-        '&& python manage.py seed_raes_image_registry && python manage.py acquire_feature_artifacts"]' in migration
-    )
-    assert 'args: ["/bin/true"]' not in migration
+    assert "scripts/gcp/render_migration_job.py" in migration
+    assert 'kubectl apply -f "${migration_manifest}"' in migration
+    assert 'kubectl wait --for=condition=complete "job/${job}"' in migration
 
 
 def test_deploy_workflow_forwards_smoke_secret_to_gcp_dev() -> None:
