@@ -1,11 +1,10 @@
 """Read-only organization scope for private content, separate from admin powers."""
 
-from collections.abc import Iterable
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser, User
 
-from workspaces.models import Organization, OrganizationMembership, Workspace, WorkspaceMembership
+from workspaces.models import Organization, OrganizationMembership, WorkspaceMembership
 
 
 def content_organization_uuids(actor: User | AnonymousUser | None) -> frozenset[UUID]:
@@ -23,16 +22,3 @@ def content_organization_uuids(actor: User | AnonymousUser | None) -> frozenset[
         "workspace__organization__uuid", flat=True
     )
     return frozenset((*organizations, *workspaces))
-
-
-def organization_scope_ids(organization_uuid: UUID, workspace_ids: Iterable[int]) -> tuple[int | None, frozenset[int]]:
-    """Return the organization's internal id and the given workspaces it contains.
-
-    Read-only ancestry for a caller that already authorized ``organization_uuid``.
-    Unknown organizations return ``(None, frozenset())``.
-    """
-    organization_id = Organization.objects.filter(uuid=organization_uuid).values_list("pk", flat=True).first()
-    if organization_id is None:
-        return None, frozenset()
-    contained = Workspace.objects.filter(organization_id=organization_id, pk__in=set(workspace_ids))
-    return organization_id, frozenset(contained.values_list("pk", flat=True))
