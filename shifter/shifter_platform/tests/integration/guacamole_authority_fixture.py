@@ -123,6 +123,7 @@ def authority_control(gateway, directory):
     metadata = ThreadingHTTPServer((gateway, 0), Metadata)
     control = ThreadingHTTPServer((gateway, 0), Control)
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.minimum_version = ssl.TLSVersion.TLSv1_2
     tls.load_cert_chain(certificate_path, key_path)
     control.socket = tls.wrap_socket(control.socket, server_side=True)
     threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (metadata, control)]

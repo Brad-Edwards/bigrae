@@ -1,5 +1,7 @@
 """Principal-native catalog branch; explicit publication never exposes sources."""
 
+from __future__ import annotations
+
 from django.db.models import Q
 
 from cms.models import RaesPackageSource, ScenarioMetadata
@@ -9,10 +11,16 @@ from shared.identity_scope import ResourceScope
 from shared.schemas.cms_projections import ScenarioProjection
 
 
-def list_scoped_scenarios(credential: CredentialContext, scope: ResourceScope, *, include_unavailable: bool):
+def list_scoped_scenarios(
+    credential: CredentialContext, scope: ResourceScope | None, *, include_unavailable: bool
+) -> list[ScenarioProjection]:
     """Filter before metadata lookup, projection, sorting, counts or cache use."""
     from .registry import _raes_launchable, _raes_source_to_dict
 
+    if scope is None:
+        from cms.exceptions import CMSError
+
+        raise CMSError("Content unavailable")
     require_content_scope(credential, scope, "read_content")
     shared = Q(
         scope_kind="installation",

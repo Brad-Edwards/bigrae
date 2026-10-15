@@ -2,6 +2,10 @@
 
 from shared.authorization.operations import OperationPolicy, scope_actions
 
+_INSTALLATION_PREPARE_CONTENT = "installation.prepare_content"
+_INSTALLATION_MANAGE_ADAPTERS = "installation.manage_adapters"
+
+
 _READ = scope_actions("read_content", installation=True)
 _WRITE = scope_actions("manage_content", installation=True)
 _PREPARE = scope_actions("prepare_content", installation=True)
@@ -49,23 +53,23 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "cms_organizations_plugins_create": OperationPolicy(_ADAPTERS, "organization", "organization"),
     "cms_organizations_plugins_actions_create": OperationPolicy(_ADAPTERS, "organization", "plugin_installation"),
     "cms_preparation_adapter_grants_list": OperationPolicy(
-        ("installation.manage_adapters",), "installation", "adapter_grants"
+        (_INSTALLATION_MANAGE_ADAPTERS,), "installation", "adapter_grants"
     ),
     "cms_preparation_adapters_list": OperationPolicy(
-        ("installation.manage_adapters",), "installation", "adapter_catalog"
+        (_INSTALLATION_MANAGE_ADAPTERS,), "installation", "adapter_catalog"
     ),
     "cms_preparation_adapters_create": OperationPolicy(
-        ("installation.manage_adapters",), "installation", "adapter_catalog"
+        (_INSTALLATION_MANAGE_ADAPTERS,), "installation", "adapter_catalog"
     ),
     "cms_preparation_adapters_state_create": OperationPolicy(
-        ("installation.manage_adapters",), "installation", "adapter"
+        (_INSTALLATION_MANAGE_ADAPTERS,), "installation", "adapter"
     ),
-    "cms_raes_image_mappings_list": OperationPolicy(("installation.prepare_content",), "installation", "image_catalog"),
+    "cms_raes_image_mappings_list": OperationPolicy((_INSTALLATION_PREPARE_CONTENT,), "installation", "image_catalog"),
     "cms_raes_image_mappings_create": OperationPolicy(
-        ("installation.prepare_content",), "installation", "image_catalog"
+        (_INSTALLATION_PREPARE_CONTENT,), "installation", "image_catalog"
     ),
     "cms_raes_image_mappings_disable_create": OperationPolicy(
-        ("installation.prepare_content",), "installation", "image_mapping"
+        (_INSTALLATION_PREPARE_CONTENT,), "installation", "image_mapping"
     ),
     "cms_ranges_model_sources_retrieve": OperationPolicy(("range.read",), "range", "range_request"),
     "cms_ranges_model_sources_update": OperationPolicy(("range.manage",), "range", "range_request"),

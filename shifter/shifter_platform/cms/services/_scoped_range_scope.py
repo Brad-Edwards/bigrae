@@ -1,5 +1,12 @@
 """CMS-owned principal scope moves fence source, destination and all projections."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cms.services._range_workspace_admin import RangeRebindResult, RangeScopeAuditContext
+
 from uuid import UUID
 
 from django.db import transaction
@@ -25,7 +32,10 @@ from ._content_authority import require_content_scope
 from ._unified_authorization import range_authorization_binding
 
 
-def rebind_scoped_range_workspace(credential: CredentialContext, *, request_id: UUID, target_workspace_uuid, audit):
+def rebind_scoped_range_workspace(
+    credential: CredentialContext, *, request_id: UUID, target_workspace_uuid: UUID | str, audit: RangeScopeAuditContext
+) -> RangeRebindResult:
+    """Authorize both parents before atomically moving runtime and quota custody."""
     from ._range_workspace_admin import RangeRebindResult
 
     try:

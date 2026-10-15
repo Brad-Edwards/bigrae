@@ -217,6 +217,8 @@ def rebind_range_workspace(
         # Authoritative pair authorization under both workspace mutexes: rechecks
         # source authority, resolves + authorizes the target, rejects an archived
         # target, and requires the unchanged owner's membership in the target.
+        if instance.user_id is None:
+            raise RangeScopeAdminError(RangeScopeAdminError.Kind.CONFLICT, _RANGE_NOT_FOUND)
         try:
             authorization = authorize_range_rebind(
                 actor,

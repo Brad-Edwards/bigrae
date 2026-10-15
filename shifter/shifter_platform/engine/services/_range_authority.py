@@ -1,5 +1,12 @@
 """Engine-owned immutable scalar projection for common range authority."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from engine.models import Range
+
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -76,7 +83,7 @@ def project_range_authority(request_uuid: UUID) -> RangeAuthorityProjection:
         raise EngineError("Range unavailable") from None
 
 
-def require_native_range_action(credential: CredentialContext, request_uuid: UUID, action: str):
+def require_native_range_action(credential: CredentialContext, request_uuid: UUID, action: str) -> Range:
     """Enforce runtime authority independently of the CMS/HTTP caller."""
     from engine.models import Range
 
@@ -109,7 +116,9 @@ def require_native_range_action(credential: CredentialContext, request_uuid: UUI
         raise PermissionError("Range unavailable") from None
 
 
-def authorized_instance_range(credential: CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None):
+def authorized_instance_range(
+    credential: CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> Range:
     """Resolve exactly one realized guest, then authorize before secrets or I/O."""
     from engine.models import Range
 

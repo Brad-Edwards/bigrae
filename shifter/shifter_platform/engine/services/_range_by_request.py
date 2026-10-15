@@ -64,14 +64,14 @@ class RangeWorkspaceRebindOutcome(enum.Enum):
     """The Engine range carried neither the expected source nor the target (drift/concurrency)."""
 
 
-def _vpn_custody_never_left(owner: User) -> bool:
+def _vpn_custody_never_left(owner: User | None) -> bool:
     """Return whether ``owner`` could never have downloaded an OpenVPN profile.
 
     Profile delivery requires the authenticated owner. An inactive account with
     an unusable password -- a platform-managed spare or warm-pool identity --
     can never authenticate, so a binding it holds was never delivered.
     """
-    return not owner.is_active and not owner.has_usable_password()
+    return owner is not None and not owner.is_active and not owner.has_usable_password()
 
 
 def range_owner_reassignment_available_by_request(request_id: UUID) -> bool:
@@ -197,42 +197,12 @@ def cancel_range_by_request(request_id: UUID, *, credential: CredentialContext |
     worker can stop the in-flight task and converge cleanup; the API returns once
     the cancellation is durably accepted, not once resources are absent.
     """
-    from django.db import transaction
-
-    from engine.launch_intents import request_provision_interrupt
-    from engine.models import Range
 
     if credential is not None:
         from ._principal_lifecycle import commit_prepared_range_lifecycle, prepare_range_lifecycle
 
         return commit_prepared_range_lifecycle(prepare_range_lifecycle(credential, request_id, "cancel"))
-    logger.debug("cancel_range_by_request: request_id=%s", request_id)
-    with transaction.atomic():
-        range_obj = Range.objects.select_for_update().filter(request__request_id=request_id).first()
-        if not range_obj:
-            logger.warning("cancel_range_by_request: no range for request_id=%s", request_id)
-            return False
-        if range_obj.owner_principal_uuid is not None:
-            raise PermissionError("Range operation authority unavailable")
-        settled = _cancellation_already_settled(range_obj, request_id)
-        if settled is not None:
-            if settled:
-                from ._receipt import _revoke_receipt_verifier_for_range
-
-                _revoke_receipt_verifier_for_range(range_obj)
-            return settled
-        range_obj.status = Range.Status.DESTROYING
-        range_obj.save(update_fields=["status"])
-        from ._receipt import _revoke_receipt_verifier_for_range
-
-        _revoke_receipt_verifier_for_range(range_obj)
-        request_provision_interrupt(range_obj)
-        logger.info(
-            "cancel_range_by_request: cancelled request_id=%s range_id=%s",
-            request_id,
-            range_obj.id,
-        )
-        return True
+    return _cancel_legacy_range_by_request(request_id)
 
 
 def _cancellation_already_settled(range_obj: Range, request_id: UUID) -> bool | None:
@@ -394,13 +364,66 @@ def reassign_range_owner_by_request(
         ``new_user``), False if no range exists for ``request_id``.
     """
     if credential is not None:
+        if not isinstance(new_user, PrincipalRef):
+            raise ValueError("A principal owner is required")
         from ._principal_range_owner import commit_range_owner_move, prepare_range_owner_move
 
         return commit_range_owner_move(prepare_range_owner_move(credential, request_id, new_user))
+    return _reassign_legacy_range_owner(
+        request_id, new_user, expected_owner_id=expected_owner_id, expected_scope=expected_scope
+    )
+
+
+def _cancel_legacy_range_by_request(request_id: UUID) -> bool:
+    """Record interruption for an incumbent human-owned range generation."""
+    from django.db import transaction
+
+    from engine.launch_intents import request_provision_interrupt
+    from engine.models import Range
+
+    logger.debug("cancel_range_by_request: request_id=%s", request_id)
+    with transaction.atomic():
+        range_obj = Range.objects.select_for_update().filter(request__request_id=request_id).first()
+        if not range_obj:
+            logger.warning("cancel_range_by_request: no range for request_id=%s", request_id)
+            return False
+        if range_obj.owner_principal_uuid is not None:
+            raise PermissionError("Range operation authority unavailable")
+        settled = _cancellation_already_settled(range_obj, request_id)
+        if settled is not None:
+            if settled:
+                from ._receipt import _revoke_receipt_verifier_for_range
+
+                _revoke_receipt_verifier_for_range(range_obj)
+            return settled
+        range_obj.status = Range.Status.DESTROYING
+        range_obj.save(update_fields=["status"])
+        from ._receipt import _revoke_receipt_verifier_for_range
+
+        _revoke_receipt_verifier_for_range(range_obj)
+        request_provision_interrupt(range_obj)
+        logger.info(
+            "cancel_range_by_request: cancelled request_id=%s range_id=%s",
+            request_id,
+            range_obj.id,
+        )
+        return True
+
+
+def _reassign_legacy_range_owner(
+    request_id: UUID,
+    new_user: User | PrincipalRef,
+    *,
+    expected_owner_id: int | None,
+    expected_scope: tuple[str, int | None, int | None, int | None] | None,
+) -> bool:
+    """Transfer an incumbent human-owned range while retaining projection and workspace fences."""
     from django.db import transaction
 
     from engine.models import Range
 
+    if isinstance(new_user, PrincipalRef):
+        raise ValueError("A legacy human owner is required")
     with transaction.atomic():
         range_obj = (
             Range.objects.select_for_update().filter(request__request_id=request_id).select_related("request").first()

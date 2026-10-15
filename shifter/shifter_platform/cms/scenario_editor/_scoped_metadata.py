@@ -20,6 +20,8 @@ def update_scoped_metadata(
         if any(value is not None and type(value) is not bool for value in (enabled, staff_only)):
             raise ValueError("Invalid metadata")
         source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
+        if source is None:
+            raise ValueError("Content unavailable")
         scope = content_scope(source)
         require_content_scope(credential, scope, "manage_content")
         _assert_publishable(scenario_id, enabled=enabled, credential=credential, scope=scope)

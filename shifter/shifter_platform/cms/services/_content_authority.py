@@ -1,5 +1,14 @@
 """CMS's SQL scope and principal-neutral content authority boundary."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cms.models import RaesPackageSource
+    from cms.models.assets import Asset
+
+from typing import Literal, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -15,13 +24,20 @@ from workspaces.services import resolve_resource_scope
 _UNAVAILABLE = "Content unavailable"
 
 
-def content_scope(row) -> ResourceScope:
+def content_scope(row: Asset | RaesPackageSource | None) -> ResourceScope:
     """Reject absent legacy ownership, invalid scope and stale directory facts."""
     try:
+        if row is None:
+            raise ValueError(_UNAVAILABLE)
         owner = row.owner_principal_uuid
         if not isinstance(owner, UUID) or not owner.int:
             raise ValueError(_UNAVAILABLE)
-        scope = ResourceScope(row.scope_kind, row.account_uuid, row.organization_uuid, row.workspace_uuid)
+        scope = ResourceScope(
+            cast(Literal["installation", "account"], row.scope_kind),
+            row.account_uuid,
+            row.organization_uuid,
+            row.workspace_uuid,
+        )
         resolve_resource_scope(scope)
         return scope
     except Exception:
@@ -35,6 +51,8 @@ def set_catalog_publication(credential: CredentialContext, scenario_id: str, *, 
     if type(published) is not bool:
         raise CMSError(_UNAVAILABLE)
     source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
+    if source is None:
+        raise CMSError("Content unavailable")
     scope = content_scope(source)
     if scope.kind != "installation":
         raise CMSError(_UNAVAILABLE)
@@ -72,9 +90,13 @@ def content_scope_fields(scope: ResourceScope) -> dict[str, object]:
     }
 
 
-def require_content_scope(credential: CredentialContext, scope: ResourceScope, operation: str) -> CredentialContext:
+def require_content_scope(
+    credential: CredentialContext, scope: ResourceScope | None, operation: str
+) -> CredentialContext:
     """Authorize the real parent before a query, mutation or storage effect."""
     try:
+        if scope is None:
+            raise ValueError(_UNAVAILABLE)
         current = resolve_current_credential(credential)
         resolve_resource_scope(scope)
         parent = scope_parent(scope)

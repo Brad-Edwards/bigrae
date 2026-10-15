@@ -19,20 +19,32 @@ def authorize_socket_resource(scope: dict[str, object]) -> bool:
     path = str(scope.get("path", ""))
     terminal = TERMINAL_TARGET_PATH_RE.fullmatch(path)
     if terminal:
-        from cms.services import authorize_range_terminal
+        allowed = _authorize_terminal_scope(scope, path, credential)
+    elif credential is None:
+        allowed = True
+    else:
+        allowed = _authorize_status_scope(credential, path)
+    return allowed
 
-        browser = scope.get("user")
-        actor = browser if isinstance(browser, User) else credential
-        if actor is None:
-            return False
-        authorize_range_terminal(
-            actor,
-            path.removeprefix("/ws/terminal/").removesuffix("/"),
-            credential=credential,
-        )
-        return True
-    if credential is None:
-        return True
+
+def _authorize_terminal_scope(scope: dict[str, object], path: str, credential: CredentialContext | None) -> bool:
+    """Authorize the actual terminal route through the owning CMS boundary."""
+    from cms.services import authorize_range_terminal
+
+    browser = scope.get("user")
+    actor = browser if isinstance(browser, User) else credential
+    if actor is None:
+        return False
+    authorize_range_terminal(
+        actor,
+        path.removeprefix("/ws/terminal/").removesuffix("/"),
+        credential=credential,
+    )
+    return True
+
+
+def _authorize_status_scope(credential: CredentialContext, path: str) -> bool:
+    """Authorize exact status resources while refusing unregistered authenticated routes."""
     status = _RANGE_STATUS.fullmatch(path)
     if status:
         from cms.services import get_range_by_request_id

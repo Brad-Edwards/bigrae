@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from hashlib import sha256
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -11,16 +11,18 @@ from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.utils import timezone
 
-# The dispatch-failure lifecycle lives in its own module (Sonar S104); re-exported
-# here so existing ``from engine.launch_intents import ...`` importers are unaffected.
 from engine.launch_intents_failure import (
     PROVISIONER_DISPATCH_FAILED,
     clear_provisioner_operation_after_failure,
     fail_current_provisioner_operation,
 )
+
+# The dispatch-failure lifecycle lives in its own module (Sonar S104); re-exported
+# here so existing ``from engine.launch_intents import ...`` importers are unaffected.
+from engine.launch_interrupt import request_provision_interrupt
+from engine.launch_payload_authority import authorize_provisioner_payload as authorize_provisioner_payload
 from engine.models import (
     Instance,
-    InterruptState,
     OperationInput,
     ProvisionerLaunchIntent,
     ProvisionerLaunchStatus,
@@ -32,6 +34,16 @@ from shared.cloud import PROVISIONER_CONTAINER_NAME
 from shared.cloud.kubernetes.naming import build_idempotent_job_name
 from shared.credentials import CredentialContext
 from shared.operation_envelope import canonical_payload_digest
+
+if TYPE_CHECKING:
+    from typing import Any
+    from uuid import UUID
+
+    from shared.credentials import CredentialContext
+
+
+_OPERATION_AUTHORITY_UNAVAILABLE = "Operation authority unavailable"
+
 
 # Public surface, including the dispatch-failure names re-exported from
 # ``launch_intents_failure`` (Sonar S104 split) so existing importers are unaffected.
@@ -55,13 +67,6 @@ _OPERATIONS = {
     "raes-range": {"provision", "destroy", "pause", "resume", "activate"},
     "ngfw": {"provision", "deprovision", "start", "stop"},
 }
-
-# Bounded convergence budget for a provision-task interrupt (#277). Safe internal
-# default; promote to a typed deployment setting only if operators need to tune it.
-_INTERRUPT_DEADLINE_SECONDS = 1800
-# Only the RAES provision generation is interruptible in this scope (#277); the
-# AWS legacy ``range`` provision path is #1894.
-_INTERRUPTIBLE_PROVISION = ("raes-range", "provision")
 
 
 def _request_payload(command: list[str]) -> dict[str, object] | None:
@@ -127,6 +132,7 @@ def validate_provisioner_command(command: list[str]) -> dict[str, object]:
     if not isinstance(command, list) or any(not isinstance(part, str) for part in command):
         raise ValueError("provisioner command must be a list of strings")
     base, operation_id = _split_operation_id(command)
+    payload: dict[str, object] | None
     if base[:1] == ["vpn-profile"]:
         from engine.services._vpn_profile_operations import validate_vpn_command
 
@@ -185,7 +191,7 @@ def _require_current_generation(row: Range | Instance, expected_operation_id: UU
 
         intent = ProvisionerLaunchIntent.objects.filter(operation_id=expected_operation_id).first()
         if intent is None:
-            raise ValueError("Operation authority unavailable")
+            raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
         assert_launch_authority_binding(intent, row)
 
 
@@ -260,51 +266,6 @@ def _authorize_request_ngfw(
         raise ValueError("NGFW state does not authorize the requested operation")
 
 
-def authorize_provisioner_payload(
-    payload: dict[str, object],
-    *,
-    target: Range | Instance | None = None,
-    expected_operation_id: UUID | str | None = None,
-) -> None:
-    """Fail closed unless current domain state authorizes the queued operation."""
-    if payload.get("resource") == "vpn-profile":
-        from engine.services._vpn_profile_operations import authorize_vpn_operation
-
-        authorize_vpn_operation(payload, expected_operation_id)
-        return
-    if expected_operation_id is not None:
-        from engine.services._launch_authority import authorize_launch_authority
-
-        row = target
-        if row is None and payload.get("resource") in {"range", "raes-range"} and "request_id" in payload:
-            row = (
-                Range.objects.select_related("request")
-                .filter(request__request_id=UUID(str(payload["request_id"])))
-                .first()
-            )
-        if row is None and payload.get("resource") == "ngfw" and "request_id" in payload:
-            row = (
-                Instance.objects.select_related("request")
-                .filter(request__request_id=payload["request_id"], role="ngfw")
-                .first()
-            )
-        principal_owned = (isinstance(row, Range) and row.owner_principal_uuid is not None) or (
-            isinstance(row, Instance) and row.request is not None and row.request.owner_principal_uuid is not None
-        )
-        if principal_owned:
-            intent = ProvisionerLaunchIntent.objects.filter(operation_id=expected_operation_id).first()
-            if intent is None or intent.payload != {
-                key: value for key, value in payload.items() if key != "operation_id"
-            }:
-                raise ValueError("Operation authority unavailable")
-            # Evaluate remote policy before acquiring the generation fence.
-            authorize_launch_authority(intent, row)
-    with transaction.atomic():
-        validate_provisioner_generation(payload, target=target, expected_operation_id=expected_operation_id)
-        if expected_operation_id is not None:
-            assert_provisioner_input_matches(payload, UUID(str(expected_operation_id)))
-
-
 def assert_provisioner_input_matches(payload: dict[str, object], operation_id: UUID) -> None:
     """Fence immutable input at effect admission, independently of failure evidence."""
     if payload.get("resource") == "vpn-profile":
@@ -371,7 +332,11 @@ def _operation_identity(payload: dict[str, object], authority: dict[str, object]
 
         assert_admitted_launch_binding(authority, row)
         authorize_provisioner_payload(payload, target=row)
-        current = ProvisionerLaunchIntent.objects.filter(operation_id=row.provisioner_operation_id).first()
+        current = (
+            ProvisionerLaunchIntent.objects.filter(operation_id=row.provisioner_operation_id).first()
+            if row.provisioner_operation_id is not None
+            else None
+        )
         cleanup_transition = (
             authority.get("authority_kind") == "cleanup"
             and current is not None
@@ -385,66 +350,6 @@ def _operation_identity(payload: dict[str, object], authority: dict[str, object]
         operation_id = row.provisioner_operation_id
         assert operation_id is not None, "operation generation must be reserved"
         return operation_id
-
-
-def request_provision_interrupt(range_obj: Range) -> bool:
-    """Record a durable interrupt against the range's current provision generation (#277).
-
-    Bound under the caller's transaction to the current ``provisioner_operation_id``
-    -- never keyed by ``request_id`` or task reference alone. Scoped to the RAES
-    provision path; the AWS legacy ``range`` path is out of scope (#1894). The
-    launcher worker converges the recorded request (suppress pending / stop running
-    / observe terminal absence / enqueue canonical destroy). Idempotent: returns
-    True without re-stamping when the generation is already marked.
-
-    Returns:
-        True when an interruptible provision generation was (or already is) marked.
-    """
-    intent = _interruptible_provision_intent(range_obj)
-    if intent is None:
-        return False
-    return _request_intent_interrupt(intent)
-
-
-def _request_intent_interrupt(intent: ProvisionerLaunchIntent) -> bool:
-    """Suppress one validated native generation before observing provider absence."""
-    if intent.interrupt_state != InterruptState.NONE:
-        return True
-    now = timezone.now()
-    intent.interrupt_state = InterruptState.REQUESTED
-    intent.interrupt_requested_at = now
-    intent.interrupt_next_attempt_at = now
-    intent.interrupt_deadline = now + timedelta(seconds=_INTERRUPT_DEADLINE_SECONDS)
-    intent.save(
-        update_fields=[
-            "interrupt_state",
-            "interrupt_requested_at",
-            "interrupt_next_attempt_at",
-            "interrupt_deadline",
-        ]
-    )
-    return True
-
-
-def _interruptible_provision_intent(range_obj: Range) -> ProvisionerLaunchIntent | None:
-    """Return the range's current launch intent when its generation can be interrupted.
-
-    ``None`` when the range has no reserved generation, no intent is recorded for
-    it, or the recorded intent is not the RAES provision operation the interrupt
-    path converges.
-    """
-    op_id = range_obj.provisioner_operation_id
-    intent = (
-        ProvisionerLaunchIntent.objects.select_for_update().filter(operation_id=op_id).first()
-        if op_id is not None
-        else None
-    )
-    if intent is None:
-        return None
-    payload = intent.payload or {}
-    if (payload.get("resource"), payload.get("operation")) != _INTERRUPTIBLE_PROVISION:
-        return None
-    return intent
 
 
 def _materialize_operation_input(payload: dict[str, object], operation_id: UUID) -> None:
@@ -468,7 +373,7 @@ def _assert_stored_intent_matches(payload: dict[str, object], operation_id: UUID
     stored = OperationInput.objects.filter(operation_id=operation_id).first()
     if stored is None:
         if intent is not None and intent.authority_kind:
-            raise ValueError("Operation authority unavailable")
+            raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
         return
     from engine.services._launch_authority import assert_input_authority_binding
 
@@ -541,7 +446,8 @@ def _enqueue_admitted_provisioner_launch(
         return str(row.intent_id)
 
 
-def _launch_workload(payload, operation_id, intent_id):
+def _launch_workload(payload: dict[str, Any], operation_id: UUID | str, intent_id: UUID) -> dict[str, object]:
+    """Bind the canonical command to its deterministic native task identity."""
     from engine.ecs._workload import provisioner_workload
 
     return provisioner_workload(command_from_payload({**payload, "operation_id": str(operation_id)}), str(intent_id))

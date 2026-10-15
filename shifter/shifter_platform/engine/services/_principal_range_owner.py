@@ -15,6 +15,8 @@ from ._range_authority import RangeAuthorityProjection, project_range_authority
 
 @dataclass(frozen=True, slots=True)
 class PreparedRangeOwnerMove:
+    """Frozen source custody, destination owner and original reassignment proof."""
+
     source: RangeAuthorityProjection
     new_owner: PrincipalRef
     status: str
@@ -25,6 +27,7 @@ class PreparedRangeOwnerMove:
 def prepare_range_owner_move(
     credential: CredentialContext, request_id: UUID, new_owner: PrincipalRef
 ) -> PreparedRangeOwnerMove:
+    """Admit reassignment and verify the destination owner current scope membership."""
     from engine.models import Range
     from workspaces.services import resolve_range_scope_binding
 
@@ -44,6 +47,7 @@ def prepare_range_owner_move(
 
 
 def commit_range_owner_move(prepared: PreparedRangeOwnerMove) -> bool:
+    """Commit reassignment only while admitted runtime custody remains unchanged."""
     from engine.models import Range, Request
     from workspaces.services import resolve_range_scope_binding
 
@@ -56,6 +60,8 @@ def commit_range_owner_move(prepared: PreparedRangeOwnerMove) -> bool:
         raise ValueError("Range owner unavailable")
     with transaction.atomic():
         row = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=prepared.source.native_id)
+        if row.request_id is None:
+            raise ValueError("Range request unavailable")
         request = Request.objects.select_for_update().get(pk=row.request_id)
         assert_admitted_launch_binding(dict(prepared.authority), row)
         if project_range_authority(prepared.source.request_uuid) != prepared.source or row.status != prepared.status:

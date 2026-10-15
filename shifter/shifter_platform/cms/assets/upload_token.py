@@ -4,13 +4,19 @@ Upload tokens are HMAC-signed tokens that authorize a user to complete
 an upload after the file has been transferred to S3 via presigned URL.
 """
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import hmac
 import json
 import logging
 import time
+from typing import TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from cms.models import AgentUpload
 
 from django.conf import settings
 
@@ -27,9 +33,6 @@ def generate_upload_token(
     os_slug: str,
     file_size: int,
     agent_type: str = "xdr",
-    *,
-    upload_id: UUID | None = None,
-    expires_at: int | None = None,
 ) -> str:
     """
     Generate a signed token for upload completion verification.
@@ -56,11 +59,32 @@ def generate_upload_token(
         "os_slug": os_slug,
         "file_size": file_size,
         "agent_type": agent_type,
-        "expires_at": expires_at if expires_at is not None else int(time.time()) + settings.AGENT_UPLOAD_URL_EXPIRES,
+        "expires_at": int(time.time()) + settings.AGENT_UPLOAD_URL_EXPIRES,
     }
-    if upload_id is not None:
-        payload["upload_id"] = str(upload_id)
+    return _sign_upload_payload(payload)
 
+
+def generate_scoped_upload_token(upload: AgentUpload) -> str:
+    """Sign the exact persisted scoped admission and its original expiry."""
+    if upload.authority_owner_uuid is None:
+        raise ValueError("Upload authority unavailable")
+    return _sign_upload_payload(
+        {
+            "user_id": str(upload.authority_owner_uuid),
+            "s3_key": upload.staging_key,
+            "name": upload.name,
+            "filename": upload.filename,
+            "os_slug": upload.os_slug,
+            "file_size": upload.file_size,
+            "agent_type": upload.agent_type,
+            "expires_at": int(upload.expires_at.timestamp()),
+            "upload_id": str(upload.id),
+        }
+    )
+
+
+def _sign_upload_payload(payload: dict[str, str | int]) -> str:
+    """Authenticate canonical upload metadata using the configured signing key."""
     payload_json = json.dumps(payload, separators=(",", ":"))
     payload_b64 = base64.urlsafe_b64encode(payload_json.encode()).decode()
 
@@ -75,7 +99,6 @@ def generate_upload_token(
         hashlib.sha256,
     ).hexdigest()
 
-    logger.debug("generate_upload_token: user_id=%s s3_key=%s", user_id, safe_log_value(s3_key))
     return f"{payload_b64}.{signature}"
 
 

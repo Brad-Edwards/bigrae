@@ -115,4 +115,6 @@ class RangeCancellationAuthority(RecordedAuthorityFields):
     accepted_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        """Declare persistence tables, indexes and custody constraints."""
+
         db_table = "engine_range_cancellation_authority"

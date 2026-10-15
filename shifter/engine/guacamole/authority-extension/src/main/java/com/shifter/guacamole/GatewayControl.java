@@ -16,6 +16,7 @@ final class GatewayControl implements GatewayRenewals.Control, AutoCloseable {
         String assertion() throws IOException;
         default void close() {}
     }
+    private static final String ALLOWED = "allowed";
     private final URI endpoint;
     private final Identity identity;
     private final ObjectMapper json = new ObjectMapper()
@@ -62,8 +63,8 @@ final class GatewayControl implements GatewayRenewals.Control, AutoCloseable {
             try { grant = json.readTree(response); }
             catch (JsonProcessingException malformed) { return false; }
             return grant != null && grant.isObject() && grant.size() == 1
-                && grant.has("allowed") && grant.get("allowed").isBoolean()
-                && grant.get("allowed").booleanValue();
+                && grant.has(ALLOWED) && grant.get(ALLOWED).isBoolean()
+                && grant.get(ALLOWED).booleanValue();
         }
         finally { request.disconnect(); }
     }

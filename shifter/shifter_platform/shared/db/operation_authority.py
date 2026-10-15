@@ -35,4 +35,6 @@ class RecordedAuthorityFields(models.Model):
     executing_principal_uuid = models.UUIDField(null=True, editable=False)
 
     class Meta:
+        """Declare persistence tables, indexes and custody constraints."""
+
         abstract = True

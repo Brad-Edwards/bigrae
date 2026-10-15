@@ -6,7 +6,8 @@ import math
 import time
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, get_user, logout
@@ -15,6 +16,12 @@ from django.contrib.sessions.backends.base import SessionBase
 from django.http import HttpRequest, HttpResponse
 
 from shared.principal_port import PrincipalResolutionError, principal_for_user
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from shared.credentials import CredentialContext
+
 
 IDENTITY_BACKEND = "config.identity_platform.IdentityPlatformBackend"
 ASSURANCE_KEY = "identity_assurance"
@@ -143,7 +150,7 @@ def validate_session(
     return valid
 
 
-def session_credential(user: User, session: SessionBase, *, provider_check: bool = True):
+def session_credential(user: User, session: SessionBase, *, provider_check: bool = True) -> CredentialContext:
     """Resolve one live Django session into a non-secret operation reference."""
     from shared.authorization import ACTION_CATALOG, CredentialCeiling
     from shared.credentials import CredentialContext, temporary_credential
@@ -160,7 +167,9 @@ def session_credential(user: User, session: SessionBase, *, provider_check: bool
         principal = principal_for_user(live_user)
         if getattr(session, "principal_uuid", None) != principal.uuid:
             raise ValueError("Session reference unavailable")
-        reference = session.credential_uuid
+        reference = getattr(session, "credential_uuid", None)
+        if not isinstance(reference, UUID):
+            raise ValueError("Session reference unavailable")
         if getattr(getattr(live_user, "profile", None), "is_ctf_account", False):
             temporary = temporary_credential(live_user)
             return CredentialContext(
@@ -177,7 +186,7 @@ def session_credential(user: User, session: SessionBase, *, provider_check: bool
         raise ValueError("Credential unavailable") from None
 
 
-def resolve_session_credential(credential_uuid, *, provider_check: bool = True):
+def resolve_session_credential(credential_uuid: UUID, *, provider_check: bool = True) -> CredentialContext:
     """Recheck logout, expiry, password, provider and principal without renewal."""
     from management.services import session_for_credential
 
@@ -192,11 +201,11 @@ def resolve_session_credential(credential_uuid, *, provider_check: bool = True):
 
 def validate_socket_session(scope: dict[str, object], *, touch: bool = False) -> bool:
     """Reload Django state so logout/password invalidation also closes sockets."""
-    from importlib import import_module
 
     from shared.credentials import CredentialContext, resolve_current_credential
 
     try:
+        current = None
         original = scope.get("credential_context")
         if original is not None:
             if not isinstance(original, CredentialContext):
@@ -205,36 +214,7 @@ def validate_socket_session(scope: dict[str, object], *, touch: bool = False) ->
             if original.kind in {"personal", "service"}:
                 scope["credential_context"] = current
                 return True
-        cached = scope.get("session")
-        if not isinstance(cached, SessionBase) or not cached.session_key:
-            raise ValueError("Socket session is unavailable")
-        session = import_module(settings.SESSION_ENGINE).SessionStore(session_key=cached.session_key)
-        request = cast(HttpRequest, SimpleNamespace(session=session))
-        user = get_user(request)
-        if not validate_session(user, session, touch=touch):
-            raise ValueError("Socket session is invalid")
-        if original is not None:
-            admitted = session_credential(user, session)
-            if admitted.credential_uuid != original.credential_uuid or admitted.principal != original.principal:
-                raise ValueError("Socket session identity changed")
-            scope["credential_context"] = current
-        else:
-            from shared.remote_access import TERMINAL_TARGET_PATH_RE
-
-            if (
-                TERMINAL_TARGET_PATH_RE.fullmatch(str(scope.get("path", "")))
-                and getattr(session, "credential_uuid", None) is not None
-            ):
-                scope["credential_context"] = session_credential(user, session)
-        if session.modified:
-            if touch:
-                session.save(must_create=False)
-            else:
-                from management.services import save_session_assurance
-
-                save_session_assurance(session)
-        scope["user"] = user
-        scope["session"] = session
+        _validate_browser_socket(scope, original, current, touch=touch)
         return True
     except Exception:
         return False
@@ -250,3 +230,54 @@ class CredentialSessionMiddleware:
         if request.user.is_authenticated and not validate_session(request.user, request.session):
             logout(request)
         return self.get_response(request)
+
+
+def _validate_browser_socket(
+    scope: dict[str, object], original: CredentialContext | None, current: CredentialContext | None, *, touch: bool
+) -> None:
+    """Reload the framework browser session without extending proof lifetime during idle checks."""
+    from importlib import import_module
+
+    cached = scope.get("session")
+    if not isinstance(cached, SessionBase) or not cached.session_key:
+        raise ValueError("Socket session is unavailable")
+    session = import_module(settings.SESSION_ENGINE).SessionStore(session_key=cached.session_key)
+    request = cast(HttpRequest, SimpleNamespace(session=session))
+    user = get_user(request)
+    if not isinstance(user, User) or not validate_session(user, session, touch=touch):
+        raise ValueError("Socket session is invalid")
+    _bind_socket_credential(scope, session, user, original, current)
+    if session.modified:
+        if touch:
+            session.save(must_create=False)
+        else:
+            from management.services import save_session_assurance
+
+            save_session_assurance(session)
+    scope["user"] = user
+    scope["session"] = session
+
+
+def _bind_socket_credential(
+    scope: dict[str, object],
+    session: SessionBase,
+    user: User,
+    original: CredentialContext | None,
+    current: CredentialContext | None,
+) -> None:
+    """Keep browser transport bound to the same original principal and framework credential reference."""
+    if original is not None:
+        if current is None:
+            raise ValueError("Socket credential is unavailable")
+        admitted = session_credential(user, session)
+        if admitted.credential_uuid != original.credential_uuid or admitted.principal != original.principal:
+            raise ValueError("Socket session identity changed")
+        scope["credential_context"] = current
+    else:
+        from shared.remote_access import TERMINAL_TARGET_PATH_RE
+
+        if (
+            TERMINAL_TARGET_PATH_RE.fullmatch(str(scope.get("path", "")))
+            and getattr(session, "credential_uuid", None) is not None
+        ):
+            scope["credential_context"] = session_credential(user, session)

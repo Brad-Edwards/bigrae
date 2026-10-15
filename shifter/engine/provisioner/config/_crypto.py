@@ -5,6 +5,8 @@ imports of ``installation``/``cloud`` to avoid import-time cost and circular
 imports back into this package.
 """
 
+from __future__ import annotations
+
 import base64
 import logging
 import os
@@ -13,6 +15,9 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from cryptography.fernet import Fernet
+
+_ENCRYPTED_VALUE_PREFIX = "enc:v1:"
+
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +128,8 @@ def decrypt_field(encrypted_value: str) -> str:
     try:
         fernet = Fernet(key.encode() if isinstance(key, str) else key)
         encrypted_bytes = (
-            encrypted_value.removeprefix("enc:v1:").encode("ascii")
-            if encrypted_value.startswith("enc:v1:")
+            encrypted_value.removeprefix(_ENCRYPTED_VALUE_PREFIX).encode("ascii")
+            if encrypted_value.startswith(_ENCRYPTED_VALUE_PREFIX)
             else base64.urlsafe_b64decode(encrypted_value.encode("ascii"))
         )
         return fernet.decrypt(encrypted_bytes).decode("utf-8")
@@ -137,7 +142,7 @@ def decrypt_field(encrypted_value: str) -> str:
         raise FieldDecryptError("failed to decrypt provisioner field") from e
 
 
-def decrypt_provisioning_spec(value):
+def decrypt_provisioning_spec(value: object) -> object:
     """Decode versioned registration secrets read without Django field converters.
 
     Historical plaintext inputs remain readable. A prefixed encrypted input
@@ -149,7 +154,9 @@ def decrypt_provisioning_spec(value):
         return value
     return {
         key: decrypt_field(item)
-        if key in {"authcode", "scm_pin_value", "otp_value"} and isinstance(item, str) and item.startswith("enc:v1:")
+        if key in {"authcode", "scm_pin_value", "otp_value"}
+        and isinstance(item, str)
+        and item.startswith(_ENCRYPTED_VALUE_PREFIX)
         else decrypt_provisioning_spec(item)
         for key, item in value.items()
     }

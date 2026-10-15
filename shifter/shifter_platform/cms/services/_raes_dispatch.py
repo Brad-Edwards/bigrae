@@ -8,12 +8,15 @@ while ``_raes_range_create._dispatch_raes_package`` routes to them by source kin
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.contrib.auth.models import User
 
 from cms.exceptions import CMSError
+from shared.credentials import CredentialContext
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -21,32 +24,46 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from cms.models import RaesPackageSource
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
     from shared.range_instantiation_policy import BackendAdmission
     from shared.runtime_plugin_binding import RuntimePluginScope
+
 
 logger = logging.getLogger(__name__)
 
 _OBJECT_SOURCE_KIND = "object"
 
 
+_RANGE_AUTHORITY_UNAVAILABLE = "Range authority unavailable"
+
+
+@dataclass(frozen=True)
+class RaesDispatchOptions:
+    """Installed backend, tenancy and admitted content context for one pack launch."""
+
+    backend_admission: BackendAdmission | None
+    workspace_id: int | None
+    egress_mode: str
+    content_authorizer: User | None = None
+    principal_scope: ResourceScope | None = None
+
+
 def dispatch_repo_raes_package(
     request_id: UUID,
-    user: User,
+    user: User | CredentialContext,
     source: RaesPackageSource,
-    backend_admission: BackendAdmission | None,
-    workspace_id: int,
-    egress_mode: str,
-    *,
-    content_authorizer: User | None = None,
-    principal_scope=None,
+    options: RaesDispatchOptions,
 ) -> None:
     """Resolve a repo pack under ``RAES_PACKAGE_ROOT``, verify its digest, launch."""
     from cms.scenarios.pack_validation import PackDigestError, verify_pack_digest
 
-    if principal_scope is not None:
+    if options.principal_scope is not None:
         from ._scoped_range_launch import revalidate_scoped_launch
 
-        revalidate_scoped_launch(user, principal_scope, source)
+        if not isinstance(user, CredentialContext):
+            raise CMSError(_RANGE_AUTHORITY_UNAVAILABLE)
+        revalidate_scoped_launch(user, options.principal_scope, source)
     from shared.raes.package_loader import RaesPackageError, resolve_pack_root
 
     try:
@@ -63,24 +80,17 @@ def dispatch_repo_raes_package(
         request_id,
         user,
         pack_root,
-        backend_admission,
-        workspace_id,
-        egress_mode,
-        _runtime_plugin_scope(user, workspace_id, source, content_authorizer, principal_scope),
-        **({"credential": user, "scope": principal_scope, "source": source} if principal_scope is not None else {}),
+        options,
+        _runtime_plugin_scope(user, options.workspace_id, source, options.content_authorizer, options.principal_scope),
+        source=source if options.principal_scope is not None else None,
     )
 
 
 def dispatch_object_raes_package(
     request_id: UUID,
-    user: User,
+    user: User | CredentialContext,
     source: RaesPackageSource,
-    backend_admission: BackendAdmission | None,
-    workspace_id: int,
-    egress_mode: str,
-    *,
-    content_authorizer: User | None = None,
-    principal_scope=None,
+    options: RaesDispatchOptions,
 ) -> None:
     """Stage an object-backed pack, bind its identity + digest, then launch.
 
@@ -103,10 +113,12 @@ def dispatch_object_raes_package(
     from shared.raes.object_source import stage_object_pack
     from shared.raes.package_loader import RaesPackageError
 
-    if principal_scope is not None:
+    if options.principal_scope is not None:
         from ._scoped_range_launch import revalidate_scoped_launch
 
-        revalidate_scoped_launch(user, principal_scope, source)
+        if not isinstance(user, CredentialContext):
+            raise CMSError(_RANGE_AUTHORITY_UNAVAILABLE)
+        revalidate_scoped_launch(user, options.principal_scope, source)
     bucket = str(getattr(settings, "RAES_PACKAGE_BUCKET", "") or "").strip()
     if not bucket:
         raise CMSError("Object-backed RAES packages are not available: no package bucket is configured")
@@ -137,15 +149,11 @@ def dispatch_object_raes_package(
                 request_id,
                 user,
                 pack_root,
-                backend_admission,
-                workspace_id,
-                egress_mode,
-                _runtime_plugin_scope(user, workspace_id, source, content_authorizer, principal_scope),
-                **(
-                    {"credential": user, "scope": principal_scope, "source": source}
-                    if principal_scope is not None
-                    else {}
+                options,
+                _runtime_plugin_scope(
+                    user, options.workspace_id, source, options.content_authorizer, options.principal_scope
                 ),
+                source=source if options.principal_scope is not None else None,
             )
     except RaesPackageError as exc:
         raise CMSError(f"RAES object package could not be resolved: {exc}") from exc
@@ -160,16 +168,12 @@ def _object_package_key(package_ref: str) -> str:
 
 def _launch_pack(
     request_id: UUID,
-    user: User,
+    user: User | CredentialContext,
     pack_root: Path,
-    backend_admission: BackendAdmission | None,
-    workspace_id: int,
-    egress_mode: str,
+    options: RaesDispatchOptions,
     plugin_scope: RuntimePluginScope | None,
     *,
-    credential=None,
-    scope=None,
-    source=None,
+    source: RaesPackageSource | None = None,
 ) -> None:
     """Select the single SDL entry, dispatch through the port, assert acceptance."""
     from cms.raes.dispatch import CmsRaesDispatchPort
@@ -180,15 +184,19 @@ def _launch_pack(
     except RaesPackageError as exc:
         raise CMSError(f"RAES package could not be resolved: {exc}") from exc
 
+    credential = user if isinstance(user, CredentialContext) else None
+    scope = options.principal_scope
     port = CmsRaesDispatchPort(
-        user_id=user.id if credential is None else None,
+        user_id=user.id if isinstance(user, User) and credential is None else None,
         request_id=str(request_id),
-        backend_admission=backend_admission,
+        backend_admission=options.backend_admission,
         pack_root=pack_root,
-        workspace_id=workspace_id,
-        egress_mode=egress_mode,
+        workspace_id=options.workspace_id,
+        egress_mode=options.egress_mode,
         runtime_plugin_scope=plugin_scope,
-        **({"credential": credential, "scope": scope, "source": source} if credential is not None else {}),
+        credential=credential,
+        scope=scope,
+        source=source,
     )
     try:
         result = launch_raes_package(
@@ -198,19 +206,21 @@ def _launch_pack(
         raise CMSError(f"RAES package could not be launched: {exc}") from exc
     if not result.accepted:
         logger.warning(
-            "create_raes_native_range: dispatch not accepted request_id=%s",
+            "create_raes_native_range: dispatch not accepted request_id=%s status=%s diagnostics=%s",
             request_id,
+            result.status,
+            result.diagnostics,
         )
         raise CMSError("RAES provisioning was not accepted")
 
 
 def _runtime_plugin_scope(
-    user: User,
-    workspace_id: int,
+    user: User | CredentialContext,
+    workspace_id: int | None,
     source: RaesPackageSource,
     content_authorizer: User | None,
-    principal_scope=None,
-) -> RuntimePluginScope:
+    principal_scope: ResourceScope | None = None,
+) -> RuntimePluginScope | None:
     """Authorize the workspace and bind the pack's tenant adapter scope."""
     from cms.scenarios.registry import check_scenario_access
     from shared.runtime_plugin_binding import RuntimePluginScope
@@ -219,6 +229,8 @@ def _runtime_plugin_scope(
     if principal_scope is not None:
         from ._scoped_range_launch import revalidate_scoped_launch
 
+        if not isinstance(user, CredentialContext):
+            raise CMSError(_RANGE_AUTHORITY_UNAVAILABLE)
         revalidate_scoped_launch(user, principal_scope, source)
         organization_uuid = principal_scope.organization_uuid
         if organization_uuid is None:
@@ -226,6 +238,8 @@ def _runtime_plugin_scope(
         return RuntimePluginScope(
             organization_uuid=organization_uuid, pack_id=source.scenario_id, pack_digest=source.package_digest
         )
+    if not isinstance(user, User):
+        raise CMSError(_RANGE_AUTHORITY_UNAVAILABLE)
     authorization = authorize_bound_workspace(user, workspace_id, WorkspaceOperation.LAUNCH_RANGE)
     organization_uuid = authorization.organization_uuid
     if source.organization_uuid is not None and content_authorizer is not None:

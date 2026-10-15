@@ -59,7 +59,10 @@ def _authorize(user: User | CredentialContext, organization_uuid: UUID) -> UUID:
     if isinstance(user, CredentialContext):
         from ._runtime_plugin_authority import admit_plugin_authority
 
-        return admit_plugin_authority(user, organization_uuid)["authority_organization_uuid"]
+        identifier = admit_plugin_authority(user, organization_uuid)["authority_organization_uuid"]
+        if not isinstance(identifier, UUID):
+            raise OrganizationAuthorizationError("Organization access denied")
+        return identifier
     if not (user and user.is_authenticated and user.is_active):
         raise OrganizationAuthorizationError("Organization access denied")
     return get_organization_profile(user, organization_uuid).uuid
@@ -113,7 +116,7 @@ def install_runtime_plugin(
                 "manifest": manifest.model_dump(mode="json"),
                 "manifest_digest": manifest.digest,
                 "registry_credentials": credentials,
-                "installed_by": None if authority else user,
+                "installed_by": None if isinstance(user, CredentialContext) else user,
                 **authority,
                 "probe_expires_at": timezone.now() + timedelta(minutes=10),
             },
@@ -186,9 +189,7 @@ def change_runtime_plugin(
     organization_uuid = _authorize(user, organization_uuid)
     if action not in {"disable", "retire", "retry", "enable"}:
         raise ValidationError("The plugin action is invalid")
-    credentials = _credentials(registry_credentials)
-    if credentials and action != "retry":
-        raise ValidationError("Registry credentials may only be changed when retrying installation")
+    credentials = _retry_registry_credentials(registry_credentials, action)
     if isinstance(user, CredentialContext):
         from ._runtime_plugin_authority import (
             admit_plugin_authority,
@@ -272,14 +273,13 @@ def _audit(
 ) -> None:
     """Record actor attribution and bounded installation state changes."""
     attribution = audit or RequestAudit()
-    actor = (
-        principal_actor_fields(user.principal)
-        if isinstance(user, CredentialContext)
-        else {
+    if isinstance(user, CredentialContext):
+        actor: dict[str, Any] = dict(principal_actor_fields(user.principal))
+    else:
+        actor = {
             "actor_type": attribution.actor_type or AuditActorType.USER,
             "actor_id": attribution.actor_id if attribution.actor_type else user.id,
         }
-    )
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.RUNTIME_PLUGIN,
@@ -299,3 +299,11 @@ def _audit(
         ),
         strict=True,
     )
+
+
+def _retry_registry_credentials(registry_credentials: object, action: str) -> str:
+    """Allow replacement registry material only during an explicit installation retry."""
+    credentials = _credentials(registry_credentials)
+    if credentials and action != "retry":
+        raise ValidationError("Registry credentials may only be changed when retrying installation")
+    return credentials

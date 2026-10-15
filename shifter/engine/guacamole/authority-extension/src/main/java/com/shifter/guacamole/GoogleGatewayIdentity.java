@@ -54,5 +54,5 @@ final class GoogleGatewayIdentity implements GatewayControl.Identity, AutoClosea
         finally { result.cancel(true); worker.purge(); }
     }
 
-    public void close() { worker.shutdownNow(); }
+    @Override public void close() { worker.shutdownNow(); }
 }

@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from cms.exceptions import CMSError
+from shared.schemas.app import NGFWOneTimeRegistration
 from tests.cms.services.test_principal_content import content_actor
 from tests.cms.test_services_ngfws import _ngfw_catalog
 
@@ -142,9 +143,8 @@ def test_service_creates_device_with_native_generation_and_revocable_authority(d
         "Synthetic device",
         actor.profile.pk,
         "otp",
-        otp_value="synthetic-otp",
-        otp_folder="synthetic-folder",
         scope=actor.scope,
+        otp=NGFWOneTimeRegistration("synthetic-otp", "synthetic-folder"),
     )
     app = App.objects.select_related("instance__request").get(pk=created.app_id)
     native = Instance.objects.select_related("request").get(request__request_id=app.instance.request.request_id)
@@ -176,9 +176,8 @@ def test_service_cannot_provision_with_another_accounts_source_credential(device
             "Foreign device",
             actor.profile.pk,
             "otp",
-            otp_value="synthetic",
-            otp_folder="synthetic",
             scope=actor.sibling,
+            otp=NGFWOneTimeRegistration("synthetic", "synthetic"),
         )
     assert not App.objects.exists()
     assert not ProvisionerLaunchIntent.objects.exists()
@@ -196,9 +195,8 @@ def provisioned_device(device_administrator):
         "Synthetic device",
         actor.profile.pk,
         "otp",
-        otp_value="synthetic-otp",
-        otp_folder="synthetic-folder",
         scope=actor.scope,
+        otp=NGFWOneTimeRegistration("synthetic-otp", "synthetic-folder"),
     )
     actor.app = App.objects.select_related("instance__request").get(pk=created.app_id)
     actor.native = Instance.objects.select_related("request").get(
@@ -305,9 +303,8 @@ def test_failed_device_can_be_destroyed_before_its_reserved_slot_is_reused(provi
             "Replacement",
             actor.profile.pk,
             "otp",
-            otp_value="synthetic",
-            otp_folder="synthetic",
             scope=actor.scope,
+            otp=NGFWOneTimeRegistration("synthetic", "synthetic"),
         )
     destroy_ngfw(actor.credential, actor.app.pk, actor.app.name)
     actor.native.refresh_from_db()
@@ -321,9 +318,8 @@ def test_failed_device_can_be_destroyed_before_its_reserved_slot_is_reused(provi
         "Replacement",
         actor.profile.pk,
         "otp",
-        otp_value="synthetic",
-        otp_folder="synthetic",
         scope=actor.scope,
+        otp=NGFWOneTimeRegistration("synthetic", "synthetic"),
     )
     assert replacement.app_id != actor.app.pk
 

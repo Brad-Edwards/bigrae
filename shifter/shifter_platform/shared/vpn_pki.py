@@ -1,36 +1,49 @@
 """Public VPN PKI fields transported through the existing operation envelope."""
 
+from __future__ import annotations
+
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+if TYPE_CHECKING:
+    from datetime import datetime
+    from typing import Any
+    from uuid import UUID
 
-def _bounded_certificate_serial(value):
+
+def _bounded_certificate_serial(value: str) -> str:
+    """Require a positive serial within the native X.509 certificate limit."""
     if value and int(value) >= 2**159:
         raise ValueError("Invalid certificate serial")
     return value
 
 
 class RevokedCertificate(BaseModel):
+    """Public serial and revocation time included in the signed CRL input."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
     serial: str = Field(pattern=r"^[1-9][0-9]{0,48}$")
     revoked_at: datetime
 
     @field_validator("serial")
     @classmethod
-    def bounded_serial(cls, value):
+    def bounded_serial(cls, value: str) -> str:
         return _bounded_certificate_serial(value)
 
     @field_validator("revoked_at")
     @classmethod
-    def aware_revocation_time(cls, value):
+    def aware_revocation_time(cls, value: datetime) -> datetime:
         if value.utcoffset() is None:
             raise ValueError("Invalid PKI time")
         return value
 
 
 class VpnPkiInput(BaseModel):
+    """Closed immutable native PKI input with original storage and issuer bindings."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
     profile_id: UUID
     generation: UUID
@@ -47,18 +60,20 @@ class VpnPkiInput(BaseModel):
 
     @field_validator("certificate_serial")
     @classmethod
-    def bounded_serial(cls, value):
+    def bounded_serial(cls, value: str) -> str:
         return _bounded_certificate_serial(value)
 
     @field_validator("expires_at", "crl_issued_at")
     @classmethod
-    def aware_time(cls, value):
+    def aware_time(cls, value: datetime) -> datetime:
         if value.utcoffset() is None:
             raise ValueError("Invalid PKI time")
         return value
 
 
 class VpnPkiReceipt(BaseModel):
+    """Public certificate and signed revocation evidence without private key material."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
     profile_id: UUID
     issuer_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -71,25 +86,27 @@ class VpnPkiReceipt(BaseModel):
 
     @field_validator("certificate_serial")
     @classmethod
-    def bounded_serial(cls, value):
+    def bounded_serial(cls, value: str) -> str:
         return _bounded_certificate_serial(value)
 
     @field_validator("issuer_certificate", "crl")
     @classmethod
-    def public_pem(cls, value):
+    def public_pem(cls, value: str) -> str:
         if "PRIVATE KEY" in value:
             raise ValueError("Invalid public PKI receipt")
         return value
 
 
-def parse_vpn_pki_input(value):
+def parse_vpn_pki_input(value: object) -> VpnPkiInput:
+    """Validate native PKI input and map foreign parser details to an opaque failure."""
     try:
         return VpnPkiInput.model_validate(value)
     except Exception:
         raise ValueError("VPN operation input unavailable") from None
 
 
-def parse_vpn_pki_receipt(value):
+def parse_vpn_pki_receipt(value: object) -> dict[str, Any]:
+    """Return the validated public PKI receipt as JSON-compatible fields."""
     try:
         return VpnPkiReceipt.model_validate(value).model_dump(mode="json")
     except Exception:

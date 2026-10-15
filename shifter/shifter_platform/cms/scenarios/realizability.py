@@ -69,6 +69,7 @@ if TYPE_CHECKING:
     from shared.identity_scope import ResourceScope
     from shared.raes.realizability import ImageDemand
 
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["get_scenario_realizability"]
@@ -107,21 +108,12 @@ def get_scenario_realizability(
         return None
     if entry.get("scenario_type") != RAES_SCENARIO_TYPE:
         return _result(scenario_id, "", RealizabilityOutcome.NOT_APPLICABLE, ())
-    if credential is not None:
-        source = _package_source(scenario_id)
-        target_id = _resolve_target_id()
-        if source is None:
-            return _result(scenario_id, "", RealizabilityOutcome.INDETERMINATE, (_gap_pack_unresolvable(),))
-        if not target_id:
-            return _result(scenario_id, "", RealizabilityOutcome.INDETERMINATE, (_gap_no_target(),))
-        with _trusted_scenario_path(source) as (scenario_path, trust_gap):
-            if scenario_path is None:
-                return _result(scenario_id, target_id, RealizabilityOutcome.INDETERMINATE, (trust_gap,))
-            return _assess_trusted_path(scenario_id, scenario_path, target_id, credential=credential, scope=scope)
-    return _assess_raes_entry(scenario_id)
+    return _assess_raes_entry(scenario_id, credential=credential, scope=scope)
 
 
-def _assess_raes_entry(scenario_id: str) -> dict[str, Any]:
+def _assess_raes_entry(
+    scenario_id: str, *, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> dict[str, Any]:
     """Assess a catalog entry already known to be RAES-backed.
 
     Resolves the registered package source and the server-selected target before
@@ -135,10 +127,17 @@ def _assess_raes_entry(scenario_id: str) -> dict[str, Any]:
     target_id = _resolve_target_id()
     if not target_id:
         return _result(scenario_id, "", RealizabilityOutcome.INDETERMINATE, (_gap_no_target(),))
-    return _assess_registered_pack(scenario_id, source, target_id)
+    return _assess_registered_pack(scenario_id, source, target_id, credential=credential, scope=scope)
 
 
-def _assess_registered_pack(scenario_id: str, source: RaesPackageSource, target_id: str) -> dict[str, Any]:
+def _assess_registered_pack(
+    scenario_id: str,
+    source: RaesPackageSource,
+    target_id: str,
+    *,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
+) -> dict[str, Any]:
     """Assess a registered RAES pack against ``target_id``.
 
     The whole assessment runs inside the pack-root context because an
@@ -148,11 +147,16 @@ def _assess_registered_pack(scenario_id: str, source: RaesPackageSource, target_
     with _trusted_scenario_path(source) as (scenario_path, trust_gap):
         if scenario_path is None:
             return _result(scenario_id, target_id, RealizabilityOutcome.INDETERMINATE, (trust_gap,))
-        return _assess_trusted_path(scenario_id, scenario_path, target_id)
+        return _assess_trusted_path(scenario_id, scenario_path, target_id, credential=credential, scope=scope)
 
 
 def _assess_trusted_path(
-    scenario_id: str, scenario_path: Path, target_id: str, *, credential=None, scope=None
+    scenario_id: str,
+    scenario_path: Path,
+    target_id: str,
+    *,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
 ) -> dict[str, Any]:
     """Combine capability and backend-supply contributors into one ordered answer."""
     capability = assess_scenario_capability(
@@ -312,7 +316,11 @@ def _verified_object_scenario_path(pack_root: Path, source: RaesPackageSource) -
 
 
 def _supply_gaps(
-    demands: Sequence[ImageDemand], *, target_id: str, credential=None, scope=None
+    demands: Sequence[ImageDemand],
+    *,
+    target_id: str,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
 ) -> tuple[RealizabilityGap, ...]:
     """Return a gap for every node the tenant image registry cannot supply.
 
@@ -370,7 +378,7 @@ def _missing_mapping_message(demand: ImageDemand, name: str, target_id: str) -> 
 
 
 def _registry_candidates(
-    names: set[str], *, target_id: str, credential=None, scope=None
+    names: set[str], *, target_id: str, credential: CredentialContext | None = None, scope: ResourceScope | None = None
 ) -> dict[str, list[dict[str, Any]]]:
     """Read the enabled registry rows once, grouped by source name.
 
@@ -402,7 +410,7 @@ def _registry_candidates(
 
 
 def _availability_provider(
-    target_id: str, *, credential=None, scope=None
+    target_id: str, *, credential: CredentialContext | None = None, scope: ResourceScope | None = None
 ) -> Callable[[Mapping[str, Any]], ArtifactSupply]:
     """Return a provider that answers artifact availability from the tenant registry.
 
@@ -420,7 +428,9 @@ def _availability_provider(
     return provider
 
 
-def _backend_inventory(target_id: str, *, credential=None, scope=None) -> list[BackendArtifact]:
+def _backend_inventory(
+    target_id: str, *, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> list[BackendArtifact]:
     """Read the backend-owned portable artifacts for ``target_id`` from the registry.
 
     Delegates to the one shared projection (``engine.services.list_backend_artifacts``)

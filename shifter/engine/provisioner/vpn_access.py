@@ -16,7 +16,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -51,6 +51,15 @@ class VpnSecretOps(Protocol):
 
     def delete_profile(self, range_id: int, generation: UUID) -> None:
         """Delete the generation's participant profile idempotently."""
+
+    def get_or_create_individual_profile(self, profile_id: UUID, factory: Callable[[], str]) -> tuple[str, str]:
+        """Store one immutable individual certificate and private key."""
+
+    def read_individual_profile(self, profile_id: UUID) -> tuple[str, str] | None:
+        """Read retained individual material for uncertain issuance cleanup."""
+
+    def delete_individual_profile(self, profile_id: UUID) -> None:
+        """Remove individual material after public revocation is confirmed."""
 
 
 @dataclass(frozen=True)

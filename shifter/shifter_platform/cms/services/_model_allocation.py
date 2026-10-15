@@ -140,6 +140,8 @@ def _authorize_preparation(
 
     assert instance.request is not None
     actor = instance.request.user
+    if actor is None or instance.user_id is None:
+        raise ContractError("allocation.authority_unavailable")
     try:
         if system is None:
             resolve_model_access_users(actor, (instance.user_id,))
@@ -182,7 +184,7 @@ def _source_authority_refs(
         )
         refs = tuple(dict.fromkeys((*refs, sponsor, sponsor_workspace, sponsor_organization)))
     elif has_sources:
-        if instance.request is None:
+        if instance.request is None or instance.request.user is None:
             raise ContractError("allocation.authority_unavailable")
         from workspaces.services import WorkspaceOperation, authorize_bound_workspace
 

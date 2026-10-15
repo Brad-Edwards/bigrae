@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
+
 import logging
 from typing import cast
 
@@ -177,32 +182,19 @@ def _validated_status(new_status: str | None, range_id: int | None) -> str | Non
     return new_status
 
 
-def _event_owns_instance(instance: RangeInstance, user_id: int | None, range_id: int | None, *, event=None) -> bool:
+def _event_owns_instance(
+    instance: RangeInstance,
+    user_id: int | None,
+    range_id: int | None,
+    *,
+    event: RangeStatusUpdatedPayload | None = None,
+) -> bool:
     """Return True when the event's ``user_id`` matches the instance owner.
 
     Logs a mismatch (the ownership trust boundary) before returning False.
     """
     if instance.owner_principal_uuid is not None:
-        from engine.services import verified_range_status_projection
-        from workspaces.services import resource_scope_from_ids
-
-        try:
-            proof = verified_range_status_projection(event)
-            scope = resource_scope_from_ids(
-                kind=instance.scope_kind,
-                account_id=instance.account_id,
-                organization_id=instance.organization_id,
-                workspace_id=instance.workspace_id,
-            )
-            return proof is not None and (
-                proof.public_uuid == instance.uuid
-                and proof.owner_principal_uuid == instance.owner_principal_uuid
-                and proof.scope == scope
-                and proof.request_uuid == instance.request.request_id
-                and (instance.range_id is None or proof.native_id == instance.range_id)
-            )
-        except Exception:
-            return False
+        return _principal_event_owns_instance(instance, event)
     if instance.user_id != user_id:
         logger.error(
             "user_id mismatch: message=%s, instance=%s (range_id=%s)",
@@ -280,3 +272,29 @@ def process_range_event(message: str | dict) -> None:
             new_status,
             event_id,
         )
+
+
+def _principal_event_owns_instance(instance: RangeInstance, event: RangeStatusUpdatedPayload | None) -> bool:
+    """Verify an accepted native callback against the unchanged CMS range projection."""
+    from engine.services import verified_range_status_projection
+    from workspaces.services import resource_scope_from_ids
+
+    try:
+        proof = verified_range_status_projection(event) if event is not None else None
+        scope = resource_scope_from_ids(
+            kind=instance.scope_kind,
+            account_id=instance.account_id,
+            organization_id=instance.organization_id,
+            workspace_id=instance.workspace_id,
+        )
+        return (
+            proof is not None
+            and instance.request is not None
+            and (
+                (proof.public_uuid, proof.owner_principal_uuid, proof.scope, proof.request_uuid)
+                == (instance.uuid, instance.owner_principal_uuid, scope, instance.request.request_id)
+                and (instance.range_id is None or proof.native_id == instance.range_id)
+            )
+        )
+    except Exception:
+        return False

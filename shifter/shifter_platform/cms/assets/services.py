@@ -192,7 +192,7 @@ def delete_agent(agent: AgentConfig) -> None:
             entity_id=agent.id,
             action=AuditAction.DELETE,
             actor_type=AuditActorType.USER,
-            actor_id=agent.user.id,
+            actor_id=agent.user_id,
             previous_state=previous_state,
         )
     )

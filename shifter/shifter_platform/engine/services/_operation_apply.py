@@ -35,14 +35,14 @@ from ._operation_apply_domain import apply_validated_result
 # engine.models is imported lazily inside functions below (app-registry load
 # order); this block is type-check-only.
 if TYPE_CHECKING:
-    from engine.models import Instance, OperationResultInbox, Range
+    from engine.models import Instance, OperationResultInbox, Range, VpnAccessProfile
 
 logger = logging.getLogger(__name__)
 
 _RANGE_RESOURCES = frozenset({"range", "raes-range"})
 
 
-def _resolve_operation_target(resource: str, operation_id: UUID | str) -> Range | Instance | None:
+def _resolve_operation_target(resource: str, operation_id: UUID | str) -> Range | Instance | VpnAccessProfile | None:
     """Return the domain row that currently owns this operation generation, or None.
 
     A row is returned only when its ``provisioner_operation_id`` still equals the
@@ -51,26 +51,29 @@ def _resolve_operation_target(resource: str, operation_id: UUID | str) -> Range 
     """
     from engine.models import Instance, Range
 
+    target: Range | Instance | VpnAccessProfile | None
     if resource in _RANGE_RESOURCES:
-        return Range.objects.filter(provisioner_operation_id=operation_id).select_related("request").first()
-    if resource == "ngfw":
-        return (
+        target = Range.objects.filter(provisioner_operation_id=operation_id).select_related("request").first()
+    elif resource == "ngfw":
+        target = (
             Instance.objects.filter(provisioner_operation_id=operation_id, role=Instance.Role.NGFW)
             .select_related("request")
             .first()
         )
-    if resource == "vpn-profile":
+    elif resource == "vpn-profile":
         from engine.models import VpnAccessProfile
 
-        return (
+        target = (
             VpnAccessProfile.objects.filter(provisioner_operation_id=operation_id)
             .select_related("range__request")
             .first()
         )
-    return None
+    else:
+        target = None
+    return target
 
 
-def _request_matches(target: Range | Instance, expected_request_id: object) -> bool:
+def _request_matches(target: Range | Instance | VpnAccessProfile, expected_request_id: object) -> bool:
     """Return True if the target row's request matches the result's request_id."""
     request = getattr(target, "request", None)
     actual_request_id = getattr(request, "request_id", None)

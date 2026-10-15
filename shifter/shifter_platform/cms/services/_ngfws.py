@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from cms.models import App, Credential, Instance, Request
     from cms.services._ngfw_hydration import NGFWRegistration
-    from shared.schemas.app import NGFWAppContext, NGFWAppRef
+    from shared.schemas.app import NGFWAppContext, NGFWAppRef, NGFWOneTimeRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -303,8 +303,7 @@ def create_ngfw(
     deployment_profile_id: int,
     registration_method: str,
     scm_credential_id: int | None = None,
-    otp_value: str | None = None,
-    otp_folder: str | None = None,
+    otp: NGFWOneTimeRegistration | None = None,
     *,
     scope: ResourceScope | None = None,
 ) -> NGFWAppRef:
@@ -319,14 +318,19 @@ def create_ngfw(
         CMSError: If credential validation fails or the user already has an
             active NGFW.
     """
+    otp_value = otp.value if otp else None
+    otp_folder = otp.folder if otp else None
+
     from cms.models import Credential
     from shared.schemas.app import NGFWAppRef
 
     if isinstance(user, CredentialContext):
         from ._scoped_device_create import create_scoped_device
 
+        if registration_method not in {"otp", "pin"}:
+            raise CMSError("Invalid registration method")
         return create_scoped_device(
-            user, scope, name, deployment_profile_id, registration_method, scm_credential_id, otp_value, otp_folder
+            user, scope, name, deployment_profile_id, registration_method, scm_credential_id, otp
         )
     if scope is not None:
         raise CMSError("Device scope unavailable")

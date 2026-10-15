@@ -1,10 +1,16 @@
 """Individual client certificate identities on the existing VPN lifecycle."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from django.db import models
 
 from shared.db import RecordedAuthorityFields
+
+if TYPE_CHECKING:
+    from engine.models import Request
 
 
 class VpnAccessProfile(RecordedAuthorityFields):
@@ -30,10 +36,12 @@ class VpnAccessProfile(RecordedAuthorityFields):
     updated_at = models.DateTimeField(auto_now=True)
 
     @property
-    def request(self):
+    def request(self) -> Request | None:
         return self.range.request
 
     class Meta:
+        """Declare persistence tables, indexes and custody constraints."""
+
         db_table = "engine_vpn_access_profile"
         constraints = [
             models.UniqueConstraint(
@@ -57,7 +65,9 @@ class VpnCrlState(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        """Declare persistence tables, indexes and custody constraints."""
+
         db_table = "engine_vpn_crl_state"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"VPN CRL {self.published_revision}"

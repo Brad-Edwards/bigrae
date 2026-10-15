@@ -1,5 +1,12 @@
 """S6 branch of the incumbent credential service, activated with S8 callers."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -12,6 +19,8 @@ from shared.schemas.credentials import CredentialRef, DeploymentProfileContext, 
 
 from ._content_authority import content_scope, content_scope_fields, require_content_scope
 from ._credential_input import validate_credential_data
+
+_CONTENT_UNAVAILABLE = "Content unavailable"
 
 
 def _projection(row: Credential) -> SCMCredentialContext | DeploymentProfileContext:
@@ -26,20 +35,23 @@ def _projection(row: Credential) -> SCMCredentialContext | DeploymentProfileCont
         "is_deleted": row.is_deleted,
     }
     if row.credential_type.slug == "scm":
-        return SCMCredentialContext(
-            **common,
-            scm_folder_name=row.data.get("scm_folder_name", ""),
-            scm_pin_id=row.data.get("scm_pin_id", ""),
-            sls_region=row.data.get("sls_region", ""),
+        return SCMCredentialContext.model_validate(
+            {
+                **common,
+                "scm_folder_name": row.data.get("scm_folder_name", ""),
+                "scm_pin_id": row.data.get("scm_pin_id", ""),
+                "sls_region": row.data.get("sls_region", ""),
+            }
         )
     if row.credential_type.slug == "deployment_profile":
         code = row.data.get("authcode", "")
         masked = f"{code[:5]}***" if len(code) >= 5 else "***"
-        return DeploymentProfileContext(**common, authcode_masked=masked)
-    raise CMSError("Content unavailable")
+        return DeploymentProfileContext.model_validate({**common, "authcode_masked": masked})
+    raise CMSError(_CONTENT_UNAVAILABLE)
 
 
 def _reference(row: Credential) -> CredentialRef:
+    """Project public credential identity without returning secret fields."""
     return CredentialRef(
         credential_id=row.pk,
         user_id=row.user_id,
@@ -49,6 +61,7 @@ def _reference(row: Credential) -> CredentialRef:
 
 
 def _record(credential: CredentialContext, row: Credential, action: str) -> None:
+    """Audit a credential operation with the admitted principal identity."""
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.CREDENTIAL,
@@ -61,12 +74,14 @@ def _record(credential: CredentialContext, row: Credential, action: str) -> None
     )
 
 
-def create_scoped_credential(credential: CredentialContext, slug: str, scope: ResourceScope, values) -> CredentialRef:
+def create_scoped_credential(
+    credential: CredentialContext, slug: str, scope: ResourceScope, values: dict[str, Any]
+) -> CredentialRef:
     """Retain encryption and model validation, with principal-owned attribution."""
     current = require_content_scope(credential, scope, "manage_credentials")
     kind = CredentialType.objects.filter(slug=slug).first()
     if kind is None:
-        raise CMSError("Content unavailable")
+        raise CMSError(_CONTENT_UNAVAILABLE)
     data = dict(values)
     name = data.pop("name", None)
     expires_at = data.pop("expires_at", None)
@@ -97,17 +112,20 @@ def create_scoped_credential(credential: CredentialContext, slug: str, scope: Re
     with transaction.atomic():
         resolve_scope = content_scope(row)
         if resolve_scope != scope:
-            raise CMSError("Content unavailable")
+            raise CMSError(_CONTENT_UNAVAILABLE)
         row.full_clean()
         row.save()
         _record(current, row, AuditAction.CREATE)
     return _reference(row)
 
 
-def _authorized_row(credential: CredentialContext, identifier: int, operation: str):
+def _authorized_row(
+    credential: CredentialContext, identifier: int, operation: str
+) -> tuple[CredentialContext, dict[str, object]]:
+    """Admit the selected credential before decrypting its private fields."""
     row = Credential.objects.defer("data").select_related("credential_type").filter(pk=identifier).first()
     if row is None:
-        raise CMSError("Content unavailable")
+        raise CMSError(_CONTENT_UNAVAILABLE)
     scope = content_scope(row)
     current = require_content_scope(credential, scope, operation)
     fence = {
@@ -119,15 +137,23 @@ def _authorized_row(credential: CredentialContext, identifier: int, operation: s
     return current, fence
 
 
-def get_scoped_credential(credential: CredentialContext, identifier: int):
+def get_scoped_credential(
+    credential: CredentialContext, identifier: int
+) -> SCMCredentialContext | DeploymentProfileContext:
+    """Return the safe display projection of an authorized credential."""
     _, fence = _authorized_row(credential, identifier, "read_content")
     row = Credential.objects.select_related("credential_type").filter(**fence).first()
     if row is None:
-        raise CMSError("Content unavailable")
+        raise CMSError(_CONTENT_UNAVAILABLE)
     return _projection(row)
 
 
-def list_scoped_credentials(credential: CredentialContext, scope: ResourceScope):
+def list_scoped_credentials(
+    credential: CredentialContext, scope: ResourceScope | None
+) -> list[SCMCredentialContext | DeploymentProfileContext]:
+    """Filter credential custody before decrypting and projecting rows."""
+    if scope is None:
+        raise CMSError(_CONTENT_UNAVAILABLE)
     require_content_scope(credential, scope, "read_content")
     # Filter before decrypting data, projecting, counting, or paginating.
     rows = Credential.objects.defer("data").filter(**content_scope_fields(scope), owner_principal_uuid__isnull=False)
@@ -139,11 +165,12 @@ def list_scoped_credentials(credential: CredentialContext, scope: ResourceScope)
 
 
 def delete_scoped_credential(credential: CredentialContext, identifier: int) -> CredentialRef:
+    """Retire a credential under its original admitted scope and owner."""
     current, fence = _authorized_row(credential, identifier, "manage_credentials")
     with transaction.atomic():
         row = Credential.objects.select_for_update().select_related("credential_type").filter(**fence).first()
         if row is None:
-            raise CMSError("Content unavailable")
+            raise CMSError(_CONTENT_UNAVAILABLE)
         row.deleted_at = timezone.now()
         row.save(update_fields=["deleted_at"])
         _record(current, row, AuditAction.DELETE)

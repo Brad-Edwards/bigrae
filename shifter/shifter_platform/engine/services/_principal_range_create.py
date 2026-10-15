@@ -12,7 +12,17 @@ from shared.credentials import resolve_current_credential, resolve_local_credent
 from shared.operation_envelope import canonical_payload_digest
 
 if TYPE_CHECKING:
+    from typing import Any
+    from uuid import UUID
+
+    from engine.models import Range
+    from engine.services._raes_range import RaesRangeRef
+    from shared.credentials import CredentialContext
+
     from ._raes_range import RangeBindings
+
+
+_RANGE_CREATION_AUTHORITY_UNAVAILABLE = "Range creation authority unavailable"
 
 
 @dataclass(frozen=True)
@@ -26,14 +36,24 @@ class PreparedRaesRangeCreation:
     fields: tuple[tuple[str, object], ...]
 
 
-def prepare_raes_range_creation(bindings, workspace_id, user_id, compiled_plan):
+def prepare_raes_range_creation(
+    bindings: RangeBindings, workspace_id: int | None, user_id: int | None, compiled_plan: dict[str, Any]
+) -> PreparedRaesRangeCreation:
+    """Freeze parent admission and the compiled plan before native creation."""
     fields = prepare_principal_range_fields(bindings, workspace_id, user_id)
     return PreparedRaesRangeCreation(
         bindings, workspace_id, user_id, canonical_payload_digest(compiled_plan), tuple(fields.items())
     )
 
 
-def prepared_creation_fields(prepared, bindings, workspace_id, user_id, compiled_plan):
+def prepared_creation_fields(
+    prepared: PreparedRaesRangeCreation | None,
+    bindings: RangeBindings,
+    workspace_id: int | None,
+    user_id: int | None,
+    compiled_plan: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate prepared custody and plan identity before replaying creation fields."""
     if (
         not isinstance(prepared, PreparedRaesRangeCreation)
         or prepared.workspace_id != workspace_id
@@ -47,7 +67,7 @@ def prepared_creation_fields(prepared, bindings, workspace_id, user_id, compiled
     return dict(prepared.fields)
 
 
-def admitted_creation_authority(prepared, runtime):
+def admitted_creation_authority(prepared: PreparedRaesRangeCreation, runtime: Range) -> dict[str, object]:
     """Fence the prepared parent before atomically queuing the new generation."""
     from shared.authorization import TargetRef
     from shared.credentials import resolve_credential_scope
@@ -56,6 +76,8 @@ def admitted_creation_authority(prepared, runtime):
     from ._range_authority import project_range_authority
 
     bindings = prepared.bindings
+    if bindings.credential is None or runtime.request is None or not isinstance(runtime.range_config, dict):
+        raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
     fields = prepared_creation_fields(prepared, bindings, runtime.workspace_id, runtime.user_id, runtime.range_config)
     assert_principal_range_creation(bindings, fields)
     if any(getattr(runtime, name) != value for name, value in fields.items()):
@@ -74,7 +96,9 @@ def admitted_creation_authority(prepared, runtime):
     )
 
 
-def prepare_principal_range_fields(bindings, workspace_id, user_id):
+def prepare_principal_range_fields(
+    bindings: RangeBindings, workspace_id: int | None, user_id: int | None
+) -> dict[str, object]:
     """Evaluate parent policy before the create transaction; never borrow a user."""
     from engine.ecs._config import _get_engine_task_config
     from management.services import human_principal_user_id
@@ -83,11 +107,13 @@ def prepare_principal_range_fields(bindings, workspace_id, user_id):
     if _get_engine_task_config() is None:
         raise ValueError("Range provisioner unavailable")
     scope = bindings.resource_scope
+    if bindings.credential is None:
+        raise ValueError("Range creation credential unavailable")
     current = resolve_current_credential(bindings.credential)
     if scope is None or scope.kind != "account" or not isinstance(bindings.cms_range_uuid, UUID):
-        raise ValueError("Range creation authority unavailable")
+        raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
     if not bindings.cms_range_uuid.int:
-        raise ValueError("Range creation authority unavailable")
+        raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
     expected_user = human_principal_user_id(current.principal) if current.principal.kind == "human" else None
     if expected_user != user_id:
         raise ValueError("Range historical attribution conflicts")
@@ -109,10 +135,12 @@ def prepare_principal_range_fields(bindings, workspace_id, user_id):
     }
 
 
-def assert_principal_range_creation(bindings, fields):
+def assert_principal_range_creation(bindings: RangeBindings, fields: dict[str, object]) -> None:
     """Only fresh scalar ancestry/membership/credential checks run under SQL locks."""
     from workspaces.services import resolve_range_scope_binding
 
+    if bindings.credential is None or bindings.resource_scope is None:
+        raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
     current = resolve_local_credential(bindings.credential)
     resolved = resolve_range_scope_binding(bindings.resource_scope, member=current.principal, for_update=True)
     if (
@@ -125,11 +153,16 @@ def assert_principal_range_creation(bindings, fields):
         raise ValueError("Range scope changed")
 
 
-def verify_principal_range_replay(existing, fields, bindings, compiled_plan):
+def verify_principal_range_replay(
+    existing: Range, fields: dict[str, object], bindings: RangeBindings, compiled_plan: dict[str, Any]
+) -> None:
+    """Refuse replay that changes immutable range custody or compiled input."""
     if existing.owner_principal_uuid is None:
         if fields:
             raise ValueError("Range ownership conflict")
         return
+    if bindings.credential is None:
+        raise ValueError("Range creation credential unavailable")
     if not fields or any(getattr(existing, name) != value for name, value in fields.items()):
         raise ValueError("Range ownership conflict")
     if existing.range_config != compiled_plan:
@@ -146,7 +179,9 @@ def verify_principal_range_replay(existing, fields, bindings, compiled_plan):
         raise ValueError("Range initiating authority conflict")
 
 
-def dispatch_principal_raes_range(runtime, credential, prepared):
+def dispatch_principal_raes_range(
+    runtime: Range, credential: CredentialContext, prepared: PreparedRaesRangeCreation | None
+) -> RaesRangeRef:
     """Admission precedes locks; native queue and strict audit commit together."""
     from django.db import transaction
 
@@ -157,6 +192,8 @@ def dispatch_principal_raes_range(runtime, credential, prepared):
     from ._launch_authority import prepare_launch_authority
     from ._raes_range import RaesRangeRef
 
+    if runtime.request is None:
+        raise ValueError("Range request unavailable")
     request_id = runtime.request.request_id
     command = ["raes-range", "provision", "--request-id", str(request_id)]
     payload = {"version": 1, "resource": "raes-range", "operation": "provision", "request_id": str(request_id)}

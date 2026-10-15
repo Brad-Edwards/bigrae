@@ -16,6 +16,8 @@ from django.db import models
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+    from management.session_backend import SessionStore
+
 
 class UserProfile(models.Model):
     """Extended user data for soft delete and anonymization."""
@@ -373,7 +375,7 @@ class PrincipalSession(AbstractBaseSession):
         db_table = "management_principal_session"
 
     @classmethod
-    def get_session_store_class(cls):
+    def get_session_store_class(cls) -> type[SessionStore]:
         """Use the incumbent Django database-session extension seam."""
         from management.session_backend import SessionStore
 

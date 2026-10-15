@@ -28,6 +28,15 @@ from ._common import (
     find_instance_by_uuid,
 )
 
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
+    from engine.models import Instance, Range
+    from engine.ssh import SSHConnection
+    from shared.remote_access import TerminalConnection, TerminalConnectionFactory
+
+_INSTANCE_UNAVAILABLE = "Instance unavailable"
+
 
 def _get_ssh_key(secret_ref: str) -> str:
     """Late-bound call to ``engine.secrets.get_ssh_key``.
@@ -41,12 +50,6 @@ def _get_ssh_key(secret_ref: str) -> str:
 
     return get_ssh_key(secret_ref)
 
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
-    from engine.ssh import SSHConnection
-    from shared.remote_access import TerminalConnection, TerminalConnectionFactory
 
 logger = logging.getLogger(__name__)
 
@@ -155,37 +158,15 @@ def get_owned_instance_request_ref(
     authorization (for example the workspace binding recorded on its own request
     row) before granting access.
     """
-    from engine.models import Instance, Range
 
     if isinstance(user, CredentialContext):
         from ._range_authority import authorized_instance_range
 
-        return str(authorized_instance_range(user, instance_uuid, range_uuid=range_uuid).request.request_id)
-    user_id = getattr(user, "id", None)
-    request_ref = None
-    if user_id is not None and instance_uuid:
-        range_obj = Range.resolve_active_for_instance(user, instance_uuid)
-        if range_obj is not None and range_obj.request is not None:
-            if range_obj.owner_principal_uuid is not None:
-                raise PrincipalCredentialRequired("Instance unavailable")
-            request_ref = str(range_obj.request.request_id)
-        else:
-            try:
-                instance = (
-                    Instance.objects.select_related("request")
-                    .filter(uuid=instance_uuid, request__user_id=user_id)
-                    .first()
-                )
-            except (DjangoValidationError, ValueError):
-                instance = None
-            # ``request`` is nullable on the model, so an instance whose request
-            # row was detached resolves to no ref rather than raising. A malformed
-            # uuid (caught above) also resolves to no ref.
-            if instance is not None and instance.request is not None:
-                if instance.request.owner_principal_uuid is not None:
-                    raise PrincipalCredentialRequired("Instance unavailable")
-                request_ref = str(instance.request.request_id)
-    return request_ref
+        runtime = authorized_instance_range(user, instance_uuid, range_uuid=range_uuid)
+        if runtime.request is None:
+            raise ValueError("Range unavailable")
+        return str(runtime.request.request_id)
+    return _owned_legacy_instance_request_ref(user, instance_uuid)
 
 
 def get_rdp_connection_info(
@@ -207,11 +188,13 @@ def get_rdp_connection_info(
         # "No active range found"; a not-yet-ready range (whose instance list may
         # be empty) -> "not ready"; otherwise the UUID is genuinely absent ->
         # "not found in range".
+        if isinstance(user, CredentialContext):
+            raise PermissionError(_INSTANCE_UNAVAILABLE)
         range_obj = Range.get_active_for_user(user)
         if range_obj is None:
             raise ValueError("No active range found")
         if range_obj.owner_principal_uuid is not None:
-            raise PrincipalCredentialRequired("Instance unavailable")
+            raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
     if range_obj.status != Range.Status.READY:
         raise ValueError(f"Range is not ready (status: {range_obj.status})")
 
@@ -269,6 +252,8 @@ def get_ssh_connection_info(
         # "No active range found"; a not-yet-ready range (whose instance list may
         # be empty) -> "not ready"; otherwise the UUID is genuinely absent ->
         # "not found in range".
+        if isinstance(user, CredentialContext):
+            raise PermissionError(_INSTANCE_UNAVAILABLE)
         range_obj = Range.get_active_for_user(user)
         if range_obj is None:
             logger.error(
@@ -372,7 +357,9 @@ def connect_terminal(
     )
 
 
-def _connection_range(user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None):
+def _connection_range(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> Range | None:
     """Keep legacy lookup until S8; principal callers have one policy decision."""
     from engine.models import Range
 
@@ -382,13 +369,12 @@ def _connection_range(user: User | CredentialContext, instance_uuid: str, *, ran
         return authorized_instance_range(user, instance_uuid, range_uuid=range_uuid)
     row = Range.resolve_active_for_instance(user, instance_uuid)
     if row is not None and row.owner_principal_uuid is not None:
-        raise PrincipalCredentialRequired("Instance unavailable")
+        raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
     return row
 
 
 def connect_ngfw_terminal(user: User | CredentialContext, ngfw_uuid: str) -> SSHConnection:
     """Get SSH connection to NGFW management interface."""
-    from engine.models import Instance
     from engine.ssh import SSHConnection
 
     if isinstance(user, CredentialContext):
@@ -402,43 +388,9 @@ def connect_ngfw_terminal(user: User | CredentialContext, ngfw_uuid: str) -> SSH
 
     logger.debug("connect_ngfw_terminal: user_id=%s ngfw_uuid=%s", user.id, safe_log_value(ngfw_uuid))
 
-    try:
-        ngfw_instance = Instance.objects.select_related("request").get(
-            uuid=ngfw_uuid,
-            role=Instance.Role.NGFW,
-        )
-    except Instance.DoesNotExist:
-        logger.error("NGFW instance not found: user_id=%s ngfw_uuid=%s", user.id, safe_log_value(ngfw_uuid))
-        raise ValueError(f"NGFW instance {ngfw_uuid} not found") from None
-
-    if ngfw_instance.request is None:
-        logger.error("NGFW instance has no associated request: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
-        raise ValueError(f"NGFW instance {ngfw_uuid} has no associated request")
-
-    if ngfw_instance.request.owner_principal_uuid is not None:
-        raise PrincipalCredentialRequired("Device unavailable")
-
-    if ngfw_instance.request.user != user:
-        logger.error(
-            "Permission denied: user_id=%s does not own ngfw_uuid=%s (owner=%s)",
-            user.id,
-            safe_log_value(ngfw_uuid),
-            ngfw_instance.request.user.id,
-        )
-        raise PermissionError(f"You do not have permission to access NGFW {ngfw_uuid}")
-
-    if ngfw_instance.status != ResourceStatus.READY.value:
-        logger.error(
-            "NGFW not accessible: ngfw_uuid=%s status=%s (expected ready)",
-            safe_log_value(ngfw_uuid),
-            ngfw_instance.status,
-        )
-        raise ValueError(f"NGFW is not accessible (status: {ngfw_instance.status}). NGFW must be in ready state.")
-
-    if not ngfw_instance.state:
-        logger.error("NGFW has no state: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
-        raise ValueError(f"NGFW {ngfw_uuid} has no infrastructure state")
-
+    ngfw_instance = _legacy_terminal_device(user, ngfw_uuid)
+    if ngfw_instance.state is None:
+        raise ValueError("Device infrastructure state unavailable")
     management_ip = _resolve_ngfw_management_ip(ngfw_instance.state)
     if not management_ip:
         logger.error("No management IP in NGFW state: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
@@ -466,3 +418,78 @@ def connect_ngfw_terminal(user: User | CredentialContext, ngfw_uuid: str) -> SSH
         # PAN-OS doesn't support tmux
         session_id=None,
     )
+
+
+def _owned_legacy_instance_request_ref(user: User, instance_uuid: str) -> str | None:
+    """Resolve incumbent range or device request custody without disclosing principal-owned resources."""
+    from engine.models import Instance, Range
+
+    user_id = getattr(user, "id", None)
+    request_ref = None
+    if user_id is not None and instance_uuid:
+        range_obj = Range.resolve_active_for_instance(user, instance_uuid)
+        if range_obj is not None and range_obj.request is not None:
+            if range_obj.owner_principal_uuid is not None:
+                raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
+            request_ref = str(range_obj.request.request_id)
+        else:
+            try:
+                instance = (
+                    Instance.objects.select_related("request")
+                    .filter(uuid=instance_uuid, request__user_id=user_id)
+                    .first()
+                )
+            except (DjangoValidationError, ValueError):
+                instance = None
+            # ``request`` is nullable on the model, so an instance whose request
+            # row was detached resolves to no ref rather than raising. A malformed
+            # uuid (caught above) also resolves to no ref.
+            if instance is not None and instance.request is not None:
+                if instance.request.owner_principal_uuid is not None:
+                    raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
+                request_ref = str(instance.request.request_id)
+    return request_ref
+
+
+def _legacy_terminal_device(user: User, ngfw_uuid: str) -> Instance:
+    """Require incumbent request ownership and live device state before loading SSH material."""
+    from engine.models import Instance
+
+    try:
+        ngfw_instance = Instance.objects.select_related("request").get(
+            uuid=ngfw_uuid,
+            role=Instance.Role.NGFW,
+        )
+    except Instance.DoesNotExist:
+        logger.error("NGFW instance not found: user_id=%s ngfw_uuid=%s", user.id, safe_log_value(ngfw_uuid))
+        raise ValueError(f"NGFW instance {ngfw_uuid} not found") from None
+
+    if ngfw_instance.request is None:
+        logger.error("NGFW instance has no associated request: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
+        raise ValueError(f"NGFW instance {ngfw_uuid} has no associated request")
+
+    if ngfw_instance.request.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired("Device unavailable")
+
+    if ngfw_instance.request.user != user:
+        logger.error(
+            "Permission denied: user_id=%s does not own ngfw_uuid=%s (owner=%s)",
+            user.id,
+            safe_log_value(ngfw_uuid),
+            ngfw_instance.request.user_id,
+        )
+        raise PermissionError(f"You do not have permission to access NGFW {ngfw_uuid}")
+
+    if ngfw_instance.status != ResourceStatus.READY.value:
+        logger.error(
+            "NGFW not accessible: ngfw_uuid=%s status=%s (expected ready)",
+            safe_log_value(ngfw_uuid),
+            ngfw_instance.status,
+        )
+        raise ValueError(f"NGFW is not accessible (status: {ngfw_instance.status}). NGFW must be in ready state.")
+
+    if not ngfw_instance.state:
+        logger.error("NGFW has no state: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
+        raise ValueError(f"NGFW {ngfw_uuid} has no infrastructure state")
+
+    return ngfw_instance

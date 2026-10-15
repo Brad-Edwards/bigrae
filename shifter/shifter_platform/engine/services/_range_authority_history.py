@@ -1,5 +1,12 @@
 """Retain an accepted transfer's original proof and current cleanup custody."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from engine.models import ProvisionerLaunchIntent, Range, RangeAuthorityChange
+
 from uuid import UUID
 
 from shared.authorization import TargetRef
@@ -12,9 +19,14 @@ from ._launch_authority import range_runtime_binding_digest
 from ._range_authority import project_range_authority
 
 
-def record_range_authority_change(row, credential: CredentialContext, operation: str, previous_digest: str) -> None:
+def record_range_authority_change(
+    row: Range, credential: CredentialContext, operation: str, previous_digest: str
+) -> None:
+    """Retain original custody as bounded cleanup evidence after an authorized move."""
     from engine.models import RangeAuthorityChange
 
+    if row.request is None:
+        raise ValueError("Range custody unavailable")
     projection = project_range_authority(row.request.request_id)
     if not isinstance(row.resource_generation, UUID) or not row.resource_generation.int:
         raise ValueError("Range generation unavailable")
@@ -45,26 +57,38 @@ def record_range_authority_change(row, credential: CredentialContext, operation:
     )
 
 
-def cleanup_origin_record(identifier: UUID):
+def cleanup_origin_record(identifier: UUID | None) -> ProvisionerLaunchIntent | RangeAuthorityChange | None:
+    """Resolve one retained native operation or authority change as cleanup evidence."""
     from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
 
+    if identifier is None:
+        return None
     return (
         ProvisionerLaunchIntent.objects.filter(operation_id=identifier).first()
         or RangeAuthorityChange.objects.filter(pk=identifier).first()
     )
 
 
-def current_range_cleanup_origin(row):
+def current_range_cleanup_origin(row: Range) -> ProvisionerLaunchIntent | RangeAuthorityChange | None:
+    """Select cleanup evidence matching the current runtime generation and custody."""
     from engine.models import ProvisionerLaunchIntent
 
-    current = ProvisionerLaunchIntent.objects.filter(operation_id=row.provisioner_operation_id).first()
+    if row.resource_generation is None:
+        return None
+    current = (
+        ProvisionerLaunchIntent.objects.filter(operation_id=row.provisioner_operation_id).first()
+        if row.provisioner_operation_id is not None
+        else None
+    )
     digest = range_runtime_binding_digest(row)
     if current is not None and current.authority_kind == "cleanup":
-        return cleanup_origin_record(current.cleanup_origin_operation_uuid)
-    if current is not None and current.authority_kind == "principal" and current.authority_binding_digest == digest:
-        return current
-    return (
-        row.authority_changes.filter(resource_generation=row.resource_generation, authority_binding_digest=digest)
-        .order_by("-accepted_at", "-id")
-        .first()
-    )
+        origin = cleanup_origin_record(current.cleanup_origin_operation_uuid)
+    elif current is not None and current.authority_kind == "principal" and current.authority_binding_digest == digest:
+        origin = current
+    else:
+        origin = (
+            row.authority_changes.filter(resource_generation=row.resource_generation, authority_binding_digest=digest)
+            .order_by("-accepted_at", "-id")
+            .first()
+        )
+    return origin

@@ -41,6 +41,8 @@ if TYPE_CHECKING:
 
     from engine.models import PreparationAttempt, PreparationOperation
 
+_THE_ARTIFACT_PREPARATION_IS_UNAVAILABLE = "The artifact preparation is unavailable"
+
 
 @dataclass(frozen=True)
 class PreparationView:
@@ -68,19 +70,8 @@ def request_artifact_preparation(
     """
     from engine.models import PreparationAdapter, PreparationOperation, PreparationScopeLock
 
-    authority = {}
-    if isinstance(user, CredentialContext):
-        from ._preparation_authority import admit_preparation_authority
-
-        authority = admit_preparation_authority(user, scope)
-    else:
-        require_preparation_permission(user, "prepare_artifacts")
-    try:
-        package = PreparationPackage.model_validate(package_input)
-    except ModelValidationError as exc:
-        raise ValidationError("The preparation package projection is invalid") from exc
-    if len(package.input_bindings) != 1:
-        raise ValidationError("The contained GCE preparation adapter requires exactly one input binding")
+    authority = _admit_preparation_request(user, scope)
+    package = _validated_preparation_package(package_input)
     if not authority and _has_admitted_availability(package):
         # Availability belongs to the tenant inventory; another operator's
         # private preparation history never becomes this requester's status URL.
@@ -122,18 +113,13 @@ def request_artifact_preparation(
         digest = canonical_payload_digest(payload)
         existing = PreparationOperation.objects.filter(input_digest=digest).first()
         if existing is not None:
-            if authority:
-                if any(getattr(existing, key) != value for key, value in authority.items()):
-                    raise ValidationError("Preparation replay authority conflicts")
-            else:
-                _authorize_operation(user, existing)
-            return _view(existing)
+            return _reuse_preparation_operation(user, existing, authority)
         if adapter.state != PreparationAdapter.State.ENABLED:
             raise ValidationError("The preparation adapter cannot start new operations")
         _ensure_capacity(grant.scope_digest, configuration.max_concurrent_operations)
         row = PreparationOperation.objects.create(
             adapter=adapter,
-            requested_by=None if authority else user,
+            requested_by=None if isinstance(user, CredentialContext) else user,
             scope_digest=grant.scope_digest,
             input_digest=digest,
             input=payload,
@@ -270,7 +256,7 @@ def cancel_artifact_preparation(
     snapshot = _mutation_snapshot(user, operation_id)
     with transaction.atomic():
         row = PreparationOperation.objects.select_for_update().filter(pk=operation_id).first()
-        _mutation_fence(user, snapshot, row)
+        row = _mutation_fence(user, snapshot, row)
         if row.state not in {"available", "failed", "cancelled"}:
             row.state = "cancelled"
             row.current_attempt_id = None
@@ -304,34 +290,41 @@ def _mutation_snapshot(user: User | CredentialContext, operation_id: UUID) -> Pr
 
 def _mutation_fence(
     user: User | CredentialContext, snapshot: PreparationOperation, row: PreparationOperation | None
-) -> None:
+) -> PreparationOperation:
     """Policy applies only to the immutable input and scope inspected before locking."""
     if row is None or row.input_digest != snapshot.input_digest or row.adapter_id != snapshot.adapter_id:
-        raise ValidationError("The artifact preparation is unavailable")
+        raise ValidationError(_THE_ARTIFACT_PREPARATION_IS_UNAVAILABLE)
     if isinstance(user, CredentialContext):
         from ._preparation_authority import verify_preparation_authority_binding
 
         verify_preparation_authority_binding(row)
         if row.input != snapshot.input:
-            raise ValidationError("The artifact preparation is unavailable")
+            raise ValidationError(_THE_ARTIFACT_PREPARATION_IS_UNAVAILABLE)
     else:
         _authorize_operation(user, row)
+    return row
 
 
 def _authorize_operation(user: User | CredentialContext, row: PreparationOperation | None) -> PreparationOperation:
     """Foreign and missing operation identities have the same bounded failure."""
+    if row is None:
+        raise ValidationError(_THE_ARTIFACT_PREPARATION_IS_UNAVAILABLE)
     if isinstance(user, CredentialContext):
         from ._preparation_authority import authorize_preparation_credential
 
         authorize_preparation_credential(user, row)
         return row
     if row is None or (row.requested_by_id != user.id and not user.has_perm("engine.manage_preparation_adapters")):
-        raise ValidationError("The artifact preparation is unavailable")
+        raise ValidationError(_THE_ARTIFACT_PREPARATION_IS_UNAVAILABLE)
     return row
 
 
 def _audit_operation(
-    row: PreparationOperation, action: str, *, user: User | None = None, audit: RequestAudit | None = None
+    row: PreparationOperation,
+    action: str,
+    *,
+    user: User | CredentialContext | None = None,
+    audit: RequestAudit | None = None,
 ) -> None:
     """Successful mutation and bounded audit commit together, or both roll back."""
     attribution = audit or RequestAudit()
@@ -375,3 +368,40 @@ def _audit_operation(
 def _view(row: PreparationOperation) -> PreparationView:
     """Keep operational evidence and ORM state behind the owning engine service."""
     return PreparationView(row.id, row.state, row.failure_code, row.cleanup_pending)
+
+
+def _admit_preparation_request(user: User | CredentialContext, scope: ResourceScope | None) -> dict[str, object]:
+    """Evaluate the existing preparation policy before reading private package input."""
+    authority = {}
+    if isinstance(user, CredentialContext):
+        from ._preparation_authority import admit_preparation_authority
+
+        if scope is None:
+            raise ValidationError("Preparation scope unavailable")
+        authority = admit_preparation_authority(user, scope)
+    else:
+        require_preparation_permission(user, "prepare_artifacts")
+    return authority
+
+
+def _reuse_preparation_operation(
+    user: User | CredentialContext, existing: PreparationOperation, authority: dict[str, object]
+) -> PreparationView:
+    """Retain immutable initiating authority when reusing existing preparation evidence."""
+    if authority:
+        if any(getattr(existing, key) != value for key, value in authority.items()):
+            raise ValidationError("Preparation replay authority conflicts")
+    else:
+        _authorize_operation(user, existing)
+    return _view(existing)
+
+
+def _validated_preparation_package(package_input: object) -> PreparationPackage:
+    """Validate the closed native package projection and its one supported input binding."""
+    try:
+        package = PreparationPackage.model_validate(package_input)
+    except ModelValidationError as exc:
+        raise ValidationError("The preparation package projection is invalid") from exc
+    if len(package.input_bindings) != 1:
+        raise ValidationError("The contained GCE preparation adapter requires exactly one input binding")
+    return package

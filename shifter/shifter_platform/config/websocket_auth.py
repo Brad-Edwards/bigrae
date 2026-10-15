@@ -50,59 +50,18 @@ class CredentialSessionWebSocketBoundary:
     async def __call__(self, scope: ASGIScope, receive: ASGIReceive, send: ASGISend) -> None:
         validation_lock = asyncio.Lock()
 
-        async def allowed(*, touch: bool = False) -> bool:
+        async def allowed(touch: bool = False) -> bool:
+            """Serialize credential and resource revalidation for this socket."""
             return await self._revalidate(scope, validation_lock, touch=touch)
 
         if not await allowed():
             await send({"type": _WEBSOCKET_CLOSE, "code": WebSocketCloseCode.NOT_AUTHENTICATED})
             return
 
-        closed = False
-        revoked = asyncio.Event()
-        scope["_authority_revoked"] = revoked
-
-        async def close_revoked() -> None:
-            """Close the socket once when its credential is no longer valid."""
-            nonlocal closed
-            if not closed:
-                closed = True
-                revoked.set()
-                await send({"type": _WEBSOCKET_CLOSE, "code": WebSocketCloseCode.NOT_AUTHENTICATED})
-
-        async def guarded_receive() -> ASGIMessage:
-            """Reject the next client message after session revocation."""
-            if closed:
-                return {"type": _WEBSOCKET_DISCONNECT, "code": WebSocketCloseCode.NOT_AUTHENTICATED}
-            message = await _receive_or_revoke(receive, revoked)
-            if message.get("type") != _WEBSOCKET_DISCONNECT and not await allowed(
-                touch=message.get("type") == "websocket.receive"
-            ):
-                await close_revoked()
-                return {"type": _WEBSOCKET_DISCONNECT, "code": WebSocketCloseCode.NOT_AUTHENTICATED}
-            return message
-
-        async def guarded_send(message: ASGIMessage) -> None:
-            """Suppress application messages after session revocation."""
-            nonlocal closed
-            if closed:
-                return
-            if message.get("type") != _WEBSOCKET_CLOSE and not await allowed():
-                await close_revoked()
-                return
-            if message.get("type") == _WEBSOCKET_CLOSE:
-                closed = True
-            await send(message)
-
-        async def monitor() -> None:
-            while not closed:
-                await asyncio.sleep(self.recheck_seconds)
-                if not closed and not await allowed():
-                    await close_revoked()
-                    return
-
-        watcher = asyncio.create_task(monitor())
+        guard = _SocketAuthorityGuard(scope, receive, send, allowed, self.recheck_seconds)
+        watcher = asyncio.create_task(guard.monitor())
         try:
-            await self.application(scope, guarded_receive, guarded_send)
+            await self.application(scope, guard.receive, guard.send)
         finally:
             watcher.cancel()
             with suppress(asyncio.CancelledError):
@@ -115,25 +74,89 @@ class CredentialSessionWebSocketBoundary:
         try:
             async with asyncio.timeout(self.timeout_seconds), lock:
                 checked_scope = dict(scope)
-                if not await database_sync_to_async(validate_socket_session)(checked_scope, touch=touch):
+                if not await database_sync_to_async(validate_socket_session)(
+                    checked_scope, touch=touch
+                ) or not await self._resource_allowed(checked_scope):
                     return False
-                if self.resource_authorizer is not None:
-                    if not await self.resource_authorizer(checked_scope):
-                        return False
-                else:
-                    from config.socket_authority import authorize_socket_resource
-
-                    if not await database_sync_to_async(authorize_socket_resource)(checked_scope):
-                        return False
                 scope.update(checked_scope)
                 return True
         except Exception:
             return False
 
+    async def _resource_allowed(self, scope: ASGIScope) -> bool:
+        """Use the configured resource check or the owning service composition."""
+        from config.socket_authority import authorize_socket_resource
+
+        if self.resource_authorizer is not None:
+            return await self.resource_authorizer(scope)
+        return await database_sync_to_async(authorize_socket_resource)(scope)
+
+
+class _SocketAuthorityGuard:
+    """One connection's revocation signal, guarded transport and periodic recheck."""
+
+    def __init__(
+        self,
+        scope: ASGIScope,
+        receive: ASGIReceive,
+        send: ASGISend,
+        allowed: Callable[[bool], Awaitable[bool]],
+        recheck_seconds: float,
+    ) -> None:
+        self._receive, self._send, self._allowed = receive, send, allowed
+        self._recheck_seconds = recheck_seconds
+        self._closed = False
+        self._revoked = asyncio.Event()
+        scope["_authority_revoked"] = self._revoked
+
+    async def close_revoked(self) -> None:
+        """Close once and wake an idle application through its disconnect handler."""
+        if not self._closed:
+            self._closed = True
+            self._revoked.set()
+            await self._send({"type": _WEBSOCKET_CLOSE, "code": WebSocketCloseCode.NOT_AUTHENTICATED})
+
+    async def receive(self) -> ASGIMessage:
+        """Reject client input after revocation and count only live input as activity."""
+        denied = {"type": _WEBSOCKET_DISCONNECT, "code": WebSocketCloseCode.NOT_AUTHENTICATED}
+        if self._closed:
+            return denied
+        message = await _receive_or_revoke(self._receive, self._revoked)
+        if message.get("type") != _WEBSOCKET_DISCONNECT and not await self._allowed(
+            message.get("type") == "websocket.receive"
+        ):
+            await self.close_revoked()
+            return denied
+        return message
+
+    async def send(self, message: ASGIMessage) -> None:
+        """Suppress application output after credential or resource access expires."""
+        if not self._closed:
+            if message.get("type") != _WEBSOCKET_CLOSE and not await self._allowed(False):
+                await self.close_revoked()
+            else:
+                if message.get("type") == _WEBSOCKET_CLOSE:
+                    self._closed = True
+                    self._revoked.set()
+                await self._send(message)
+
+    async def monitor(self) -> None:
+        """Wait on revocation and recheck idle authority at a bounded interval."""
+        while not self._closed:
+            try:
+                async with asyncio.timeout(self._recheck_seconds):
+                    await self._revoked.wait()
+                return
+            except TimeoutError:
+                pass
+            if not self._closed and not await self._allowed(False):
+                await self.close_revoked()
+                return
+
 
 async def _receive_or_revoke(receive: ASGIReceive, revoked: asyncio.Event) -> ASGIMessage:
     """Wake an idle consumer through its disconnect handler, cancelling the loser."""
-    incoming = asyncio.create_task(receive())
+    incoming = asyncio.ensure_future(receive())
     interrupted = asyncio.create_task(revoked.wait())
     try:
         done, _ = await asyncio.wait((incoming, interrupted), return_when=asyncio.FIRST_COMPLETED)

@@ -33,7 +33,10 @@ def _decrypt_value(value: str) -> str:
 
 def _transform_sensitive(data: dict[str, Any], keys: frozenset[str], *, encrypt: bool) -> dict[str, Any]:
     """Compatibility wrapper for legacy tests and migrations."""
-    return _shared_encryption._transform_sensitive(data, keys, encrypt=encrypt)
+    transformed = _shared_encryption._transform_sensitive(data, keys, encrypt=encrypt)
+    if not isinstance(transformed, dict):
+        raise TypeError("Credential data must remain an object")
+    return transformed
 
 
 class EncryptedCredentialDataField(EncryptedJSONField):

@@ -256,9 +256,13 @@ def reassign_range_owner(
             the engine has no corresponding range for that request.
     """
     if credential is not None:
+        if not isinstance(new_user, PrincipalRef):
+            raise ValueError("A principal owner is required")
         from ._scoped_range_owner import reassign_scoped_range_owner
 
         return reassign_scoped_range_owner(credential, range_instance_pk, new_user, rehome=rehome)
+    if isinstance(new_user, PrincipalRef):
+        raise ValueError("A legacy human owner is required")
     _validate_caller_user(new_user, "reassign_range_owner")
 
     instance = _reassignment_instance(range_instance_pk)

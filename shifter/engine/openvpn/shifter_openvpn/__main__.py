@@ -24,7 +24,7 @@ from collections.abc import Callable
 
 from . import gcp
 from .config import load_config
-from .controller import Controller
+from .controller import Controller, RevocationControl
 from .crl import CrlStore
 from .firewall import Firewall
 from .management import Management
@@ -115,9 +115,7 @@ def main() -> int:
         portal,
         Firewall(),
         log=_log,
-        crl=crl,
-        refresh_crl=portal.crl if crl is not None else None,
-        fatal=lambda: os._exit(1),
+        revocation=RevocationControl(crl, portal.crl if crl is not None else None, lambda: os._exit(1)),
     )
     threading.Thread(target=_heartbeat, args=(controller,), daemon=True, name="heartbeat").start()
     stopping = threading.Event()

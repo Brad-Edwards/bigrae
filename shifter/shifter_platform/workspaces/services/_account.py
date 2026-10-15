@@ -408,7 +408,7 @@ def resolve_resource_scope(scope: ResourceScope) -> ResolvedResourceScope:
 def assert_scope_principal_member(scope: ResourceScope, principal: PrincipalRef, *, for_update: bool = False) -> None:
     """Validate a business-owner membership fact; this grants no application action."""
     resolve_resource_scope(scope)
-    if scope.kind != "account" or not isinstance(principal, PrincipalRef):
+    if scope.kind != "account" or scope.account_uuid is None or not isinstance(principal, PrincipalRef):
         raise AccountScopeError(_DENIED)
     if for_update:
         _locked_account(scope.account_uuid)

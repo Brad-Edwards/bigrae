@@ -39,26 +39,31 @@ def move_workspace_range_reservation(
             target = locked.get(target_workspace_id)
             if target is None or target.archived_at is not None:
                 raise _error("quota_workspace_not_found", "Workspace unavailable")
-            resource = QUOTA_RESOURCE_CONCURRENT_RANGES
-            existing = WorkspaceQuotaReservation.objects.filter(
-                workspace_id=target_workspace_id, resource=resource, correlation_key=key
-            ).first()
-            delta = 0 if existing is not None and existing.released_at is None else 1
-            verdict = _evaluate(
-                resource,
-                _current_usage(target_workspace_id, resource),
-                _policy_for(target_workspace_id, resource),
-                delta=delta,
-            )
-            if verdict.rejected:
-                raise WorkspaceQuotaRejected(verdict, target_workspace_id)
-            if existing is None:
-                WorkspaceQuotaReservation.objects.create(
-                    workspace_id=target_workspace_id, resource=resource, correlation_key=key
-                )
-            elif existing.released_at is not None:
-                existing.released_at = None
-                existing.save(update_fields=["released_at"])
-            _record_decision(target_workspace_id, verdict, key, audit, delta=delta)
+            _reserve_destination(target_workspace_id, key, audit)
         if source_workspace_id is not None:
             release_workspace_concurrent_range(source_workspace_id, correlation)
+
+
+def _reserve_destination(target_workspace_id: int, key: str, audit: WorkspaceQuotaAuditContext) -> None:
+    """Recheck quota and acquire or restore the destination's existing slot under its mutex."""
+    resource = QUOTA_RESOURCE_CONCURRENT_RANGES
+    existing = WorkspaceQuotaReservation.objects.filter(
+        workspace_id=target_workspace_id, resource=resource, correlation_key=key
+    ).first()
+    delta = 0 if existing is not None and existing.released_at is None else 1
+    verdict = _evaluate(
+        resource,
+        _current_usage(target_workspace_id, resource),
+        _policy_for(target_workspace_id, resource),
+        delta=delta,
+    )
+    if verdict.rejected:
+        raise WorkspaceQuotaRejected(verdict, target_workspace_id)
+    if existing is None:
+        WorkspaceQuotaReservation.objects.create(
+            workspace_id=target_workspace_id, resource=resource, correlation_key=key
+        )
+    elif existing.released_at is not None:
+        existing.released_at = None
+        existing.save(update_fields=["released_at"])
+    _record_decision(target_workspace_id, verdict, key, audit, delta=delta)

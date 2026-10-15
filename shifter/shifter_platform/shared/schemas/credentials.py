@@ -10,12 +10,20 @@ Used for validation and data transfer between layers.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Discriminator, computed_field, field_validator, model_validator
 
 from .base import SpecBase
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+
+_CREDENTIAL_REQUIRES_AN_OWNER = "Credential requires an owner"
+
 
 _POSITIVE_USER_ID_ERROR = "user_id must be a positive integer"
 
@@ -50,10 +58,10 @@ class CredentialSpecBase(SpecBase):
         return v
 
     @model_validator(mode="after")
-    def require_owner(self):
+    def require_owner(self) -> Self:
         """A principal-owned credential does not require a fabricated user."""
         if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
-            raise ValueError("Credential requires an owner")
+            raise ValueError(_CREDENTIAL_REQUIRES_AN_OWNER)
         return self
 
 
@@ -142,10 +150,10 @@ class CredentialContextBase(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def require_owner(self):
+    def require_owner(self) -> Self:
         """Service ownership cannot be represented by a missing human identity."""
         if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
-            raise ValueError("Credential requires an owner")
+            raise ValueError(_CREDENTIAL_REQUIRES_AN_OWNER)
         return self
 
     @computed_field  # type: ignore[prop-decorator]
@@ -243,8 +251,8 @@ class CredentialRef(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def require_owner(self):
+    def require_owner(self) -> Self:
         """Retain a principal identity when historical human attribution is absent."""
         if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
-            raise ValueError("Credential requires an owner")
+            raise ValueError(_CREDENTIAL_REQUIRES_AN_OWNER)
         return self

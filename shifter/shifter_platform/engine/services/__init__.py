@@ -1,14 +1,4 @@
-"""Engine service interface.
-
-Infrastructure lifecycle for Shifter platform. The implementation is split
-across private submodules (``_common``, ``_range``, ``_lifecycle``,
-``_terminal``, ``_ngfw``, ``_queries``) and re-exported here so callers
-continue to use ``from engine.services import X``.
-
-The re-exports also rebind a few names that tests historically patch at
-``engine.services.<name>`` (``transaction``, ``get_rdp_password``,
-``get_ssh_key``) so existing ``unittest.mock.patch`` targets still work.
-"""
+"""Engine lifecycle facade, including stable late-bound test seams."""
 
 from __future__ import annotations
 
@@ -20,16 +10,8 @@ from engine.secrets import SecretsError, get_rdp_password, get_ssh_key
 from engine.ssh import SSHConnection
 
 from ._authorization_inventory import list_authorization_range_uuids
-from ._capacity import (
-    EventCapacitySignal,
-    latest_capacity_declaration,
-    record_capacity_declaration,
-)
-from ._capacity_admit import (
-    admit_range_capacity,
-    reconcile_capacity_budgets,
-    release_range_capacity,
-)
+from ._capacity import EventCapacitySignal, latest_capacity_declaration, record_capacity_declaration
+from ._capacity_admit import admit_range_capacity, reconcile_capacity_budgets, release_range_capacity
 from ._capacity_plan import (
     EventCapacityRequest,
     assess_declared_event_capacity,
@@ -231,11 +213,7 @@ from ._sharing import (
     resolve_model_access_range_views,
     validate_sharing_binding,
 )
-from ._subnet_coordination import (
-    read_subnet_reservation,
-    release_subnet_reservation,
-    reserve_subnet_cidrs,
-)
+from ._subnet_coordination import read_subnet_reservation, release_subnet_reservation, reserve_subnet_cidrs
 from ._terminal import (
     connect_ngfw_terminal,
     connect_terminal,

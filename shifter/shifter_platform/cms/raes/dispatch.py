@@ -133,7 +133,9 @@ class CmsRaesDispatchPort:
             request_id=ref.request_id, accepted=ref.accepted, status=ref.status, range_id=ref.range_id
         )
 
-    def _realize_principal(self, compiled_plan, participant_access):
+    def _realize_principal(
+        self, compiled_plan: dict[str, Any], participant_access: Sequence[ParticipantAccessBinding]
+    ) -> ShifterDispatchResult:
         """Stage policy before locks; native creation, source fences and queue commit together."""
         from dataclasses import replace
         from uuid import UUID
@@ -144,6 +146,8 @@ class CmsRaesDispatchPort:
         from shared.credentials import resolve_local_credential
         from workspaces.services import resolve_resource_scope
 
+        if self.credential is None or self.scope is None or self.source is None:
+            raise ValueError("Range creation authority unavailable")
         current = revalidate_scoped_launch(self.credential, self.scope, self.source)
         delivery = self._prepare_delivery(compiled_plan)
         artifacts = self._resolve_artifact_bindings(compiled_plan)

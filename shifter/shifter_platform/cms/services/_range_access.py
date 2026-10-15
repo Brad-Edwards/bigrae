@@ -18,9 +18,16 @@ from workspaces.services import WorkspaceOperation
 from ._range_workspace import authorize_range_workspace
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from django.contrib.auth.models import User
 
+    from shared.credentials import CredentialContext
     from shared.remote_access import TerminalConnectionFactory
+
+
+_RANGE_ACCESS = "range.access"
+
 
 _INSTANCE_NOT_FOUND = "Instance not found"
 
@@ -38,7 +45,7 @@ def admit_range_remote_authority(
     row = RangeInstance.objects.filter(request_id=request_id).first() if request_id is not None else None
     if row is None:
         raise ValueError(_INSTANCE_NOT_FOUND)
-    require_range_action(current, row.uuid, "range.access")
+    require_range_action(current, row.uuid, _RANGE_ACCESS)
     projection = project_range_authority(row.request.request_id)
     if projection.resource_generation is None:
         raise ValueError(_INSTANCE_NOT_FOUND)
@@ -61,7 +68,7 @@ def admit_range_remote_authority(
     return {
         **credential_reference_fields(current),
         "authority_kind": "principal",
-        "authority_action": "range.access",
+        "authority_action": _RANGE_ACCESS,
         "authority_target_type": "range",
         "authority_target_uuid": projection.public_uuid,
         "authority_parent_type": parent.type,
@@ -141,7 +148,7 @@ def _authorize_instance_access(
         row = RangeInstance.objects.filter(request_id=request_id).first()
         if row is None:
             raise ValueError(_INSTANCE_NOT_FOUND)
-        require_range_action(user, row.uuid, "range.access")
+        require_range_action(user, row.uuid, _RANGE_ACCESS)
         return
     workspace_id = Request.objects.filter(pk=request_id).values_list("workspace_id", flat=True).first()
     try:
@@ -150,7 +157,9 @@ def _authorize_instance_access(
         raise PermissionError(_INSTANCE_NOT_FOUND) from exc
 
 
-def _terminal_actor(user, instance_uuid, credential):
+def _terminal_actor(
+    user: User | CredentialContext, instance_uuid: str, credential: CredentialContext | None
+) -> User | CredentialContext:
     """Use the live browser proof on principal resources; preserve legacy admission."""
     if credential is None or isinstance(user, CredentialContext):
         return user

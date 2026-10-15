@@ -22,6 +22,9 @@ from typing import Protocol
 from .management import ClientEvent
 from .portal import Grant, PortalRefused, PortalUnavailable
 
+_VPN_TERMINATION_UNAVAILABLE = "VPN termination unavailable"
+
+
 RETRY_SECONDS = 5
 MAX_HEARTBEAT_SECONDS = 15
 TERMINATION_BATCH_SECONDS = 10
@@ -69,6 +72,15 @@ class Session:
     address: str | None = None
 
 
+@dataclass(frozen=True)
+class RevocationControl:
+    """Local CRL state and the server's fail-closed recovery hooks."""
+
+    store: CrlPort | None = None
+    refresh: Callable[[], str] | None = None
+    fatal: Callable[[], None] | None = None
+
+
 class Controller:
     """The server-side policy for every client of this OpenVPN process."""
 
@@ -81,9 +93,7 @@ class Controller:
         grace_seconds: int = 90,
         clock: Callable[[], float] = time.monotonic,
         log: Callable[[str], None] | None = None,
-        crl: CrlPort | None = None,
-        refresh_crl: Callable[[], str] | None = None,
-        fatal: Callable[[], None] | None = None,
+        revocation: RevocationControl | None = None,
     ) -> None:
         self._management = management
         self._portal = portal
@@ -91,8 +101,9 @@ class Controller:
         self._grace = grace_seconds
         self._clock = clock
         self._log = log or _LOGGER.info
-        self._crl, self._refresh_crl = crl, refresh_crl
-        self._fatal = fatal or (lambda: None)
+        revocation = revocation or RevocationControl()
+        self._crl, self._refresh_crl = revocation.store, revocation.refresh
+        self._fatal = revocation.fatal or (lambda: None)
         self._lock = threading.Lock()
         self._sessions: dict[int, Session] = {}
         self._last_heartbeat = clock()
@@ -116,14 +127,21 @@ class Controller:
             self._log(f"VPN authorization failed ({type(error).__name__}); stopping the server")
             self._fatal()
 
+    def _certificate_refusal(self, common_name: str) -> str:
+        """Require valid local revocations for individual certificate identities."""
+        individual = common_name.startswith("access-")
+        if individual and (self._crl is None or not self._crl.valid()):
+            return "vpn.crl_unavailable"
+        if self._crl is not None and not individual:
+            return "vpn.unknown_client"
+        return ""
+
     def _connect(self, event: ClientEvent) -> None:
         kid = event.kid if event.kid is not None else 0
         common_name = event.env.get("common_name", "")
-        if common_name.startswith("access-") and (self._crl is None or not self._crl.valid()):
-            self._management.deny(event.cid, kid, "vpn.crl_unavailable")
-            return
-        if self._crl is not None and not common_name.startswith("access-"):
-            self._management.deny(event.cid, kid, "vpn.unknown_client")
+        refusal = self._certificate_refusal(common_name)
+        if refusal:
+            self._management.deny(event.cid, kid, refusal)
             return
         try:
             grant = self._portal.authorize(
@@ -194,7 +212,7 @@ class Controller:
                 except Exception as error:
                     self._log(f"revoke failed cid={event.cid} ({type(error).__name__})")
                     # Stale allowances could authorize a later address occupant.
-                    raise RuntimeError("VPN termination unavailable") from None
+                    raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE) from None
         try:
             self._portal.end(session.session_id)
         except (PortalRefused, PortalUnavailable) as error:
@@ -220,9 +238,9 @@ class Controller:
             self._management.kill(cid)
         except Exception as error:
             self._log(f"kill failed cid={cid} ({type(error).__name__})")
-            raise RuntimeError("VPN termination unavailable") from None
+            raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE) from None
         if not forwarding_removed:
-            raise RuntimeError("VPN termination unavailable")
+            raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE)
 
     def heartbeat(self) -> int:
         """Renew live sessions, apply revocations, and return the seconds until the next beat."""
@@ -249,7 +267,7 @@ class Controller:
             self._kill(cid, reason)
             if self._clock() > deadline:
                 # The native pool restart ends the remaining clients together.
-                raise RuntimeError("VPN termination unavailable")
+                raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE)
 
     def _current_crl(self) -> bool:
         if self._crl is None:

@@ -18,6 +18,9 @@ else:
     GCSClient = Any
     GCSBlob = Any
 
+_CONDITIONAL_HEADER_READ_REQUIRES_AN_OBJECT_GENERATION = "conditional header read requires an object generation"
+
+
 logger = logging.getLogger(__name__)
 
 _API_EXCEPTIONS_MODULE = "google.api_core.exceptions"
@@ -286,14 +289,14 @@ class GCPObjectStorage:
         precondition = {}
         if expected_identity is not None:
             value = expected_identity.get("generation")
-            if type(value) not in (int, str):
-                raise CloudStorageError("conditional header read requires an object generation")
+            if not isinstance(value, (int, str)) or isinstance(value, bool):
+                raise CloudStorageError(_CONDITIONAL_HEADER_READ_REQUIRES_AN_OBJECT_GENERATION)
             try:
                 generation = int(value)
             except (KeyError, ValueError, TypeError):
-                raise CloudStorageError("conditional header read requires an object generation") from None
+                raise CloudStorageError(_CONDITIONAL_HEADER_READ_REQUIRES_AN_OBJECT_GENERATION) from None
             if generation <= 0:
-                raise CloudStorageError("conditional header read requires an object generation")
+                raise CloudStorageError(_CONDITIONAL_HEADER_READ_REQUIRES_AN_OBJECT_GENERATION)
             precondition["if_generation_match"] = generation
         safe_key = safe_log_value(key)
         logger.debug("read_object_header: bucket=%s key=%s max_bytes=%d", bucket, safe_key, max_bytes)

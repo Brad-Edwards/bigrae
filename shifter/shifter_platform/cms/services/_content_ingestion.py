@@ -53,7 +53,13 @@ from shared.log_sanitize import safe_log_value
 from shared.schemas.raes_package_source import RaesPackageSourceError
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from django.contrib.auth.models import User
+
+
+_PACK_REGISTRATION_IS_UNAVAILABLE = "Pack registration is unavailable"
+
 
 logger = logging.getLogger(__name__)
 
@@ -119,9 +125,11 @@ def _authorize_registration(
     if isinstance(user, CredentialContext):
         from ._content_authority import require_content_scope
 
+        if scope is None:
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         require_content_scope(user, scope, "manage_content")
         if organization_uuid is not None and organization_uuid != scope.organization_uuid:
-            raise CMSError("Pack registration is unavailable")
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         organization_uuid = scope.organization_uuid
     elif organization_uuid is None:
         validate_cms_authoring_user(user, "register_pack")
@@ -170,11 +178,13 @@ def register_pack(
     if isinstance(user, CredentialContext):
         from ._content_authority import content_scope_fields
 
+        if scope is None:
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         custody = {**content_scope_fields(scope), "owner_principal_uuid": user.principal.uuid}
     existing = RaesPackageSource.objects.filter(scenario_id=request.scenario_id).first()
     if existing is not None:
         if not _registration_scope_matches(existing, organization_uuid, scope):
-            raise CMSError("Pack registration is unavailable")
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         return _existing_registration(
             existing, user, request, request_id=request_id, idempotent=idempotent, scope=scope
         )
@@ -301,11 +311,13 @@ def _replace_existing(
     """
     _bind_scenario_id_to_pack_identity(request)
     if isinstance(user, CredentialContext):
+        if scope is None:
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         _authorize_registration(user, request, scope.organization_uuid, scope)
     with transaction.atomic():
         row = RaesPackageSource.objects.select_for_update().get(scenario_id=request.scenario_id)
         if not _registration_scope_matches(row, scope.organization_uuid if scope else row.organization_uuid, scope):
-            raise CMSError("Pack registration is unavailable")
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         if _identity(row) == _identity(request):
             return _reuse_existing(row, request, idempotent=idempotent)
         if row.package_digest != request.expected_package_digest or row.package_version == request.package_version:
@@ -447,13 +459,17 @@ def _audit_registration(row: RaesPackageSource, user: User | CredentialContext, 
         raise CMSError("pack registration audit failed") from exc
 
 
-def _registration_actor(user):
+def _registration_actor(user: User | CredentialContext) -> dict[str, Any]:
+    """Select principal attribution without fabricating a historical user."""
     if isinstance(user, CredentialContext):
-        return principal_actor_fields(user.principal)
+        return dict(principal_actor_fields(user.principal))
     return {"actor_type": AuditActorType.USER, "actor_id": getattr(user, "id", None)}
 
 
-def _registration_scope_matches(row, organization_uuid, scope):
+def _registration_scope_matches(
+    row: RaesPackageSource, organization_uuid: UUID | None, scope: ResourceScope | None
+) -> bool:
+    """Compare the registered source with its admitted content scope."""
     if scope is None:
         return not row.scope_kind and row.organization_uuid == organization_uuid
     from ._content_authority import content_scope_fields

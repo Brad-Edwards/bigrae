@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
@@ -44,7 +43,16 @@ def authenticated_credential(request: Request) -> CredentialContext:
     if reference is not None:
         if not isinstance(reference, UUID):
             raise ValueError("Credential context unavailable")
-        return resolve_current_credential(replace(candidate, credential_uuid=reference))
+        return resolve_current_credential(
+            CredentialContext(
+                candidate.principal,
+                candidate.kind,
+                reference,
+                candidate.ceiling,
+                candidate.scopes,
+                candidate.event_uuid,
+            )
+        )
     # S8 selects the reference-bearing backend. Legacy admission is never a
     # durable reference: the operation resolver cannot resolve a principal UUID.
     return candidate

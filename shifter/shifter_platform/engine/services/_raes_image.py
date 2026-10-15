@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from engine.models import RaesImageMapping
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
+
 
 __all__ = [
     "RaesImageMappingError",
@@ -168,8 +171,8 @@ def list_raes_image_mappings(
     *,
     provider: str | None = None,
     include_disabled: bool = True,
-    credential=None,
-    scope=None,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
 ) -> list[RaesImageMappingView]:
     """Return registry rows as allowlisted DTOs in stable natural-key order.
 
@@ -198,7 +201,9 @@ def list_raes_image_mappings(
     return [_to_view(row) for row in queryset]
 
 
-def list_backend_artifacts(*, provider: str, credential=None, scope=None) -> list[BackendArtifact]:
+def list_backend_artifacts(
+    *, provider: str, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> list[BackendArtifact]:
     """Return the enabled portable-identity registry rows for ``provider`` as backend artifacts.
 
     Only rows carrying a portable ``ArtifactIdentity`` (a non-blank

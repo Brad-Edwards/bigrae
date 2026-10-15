@@ -65,14 +65,7 @@ def has_openvpn_profile(user: User, request_id: UUID) -> bool:
         except Exception:
             return False
 
-    range_obj = Range.objects.filter(request__request_id=request_id, user=user).first()
-    if not range_obj or range_obj.status != Range.Status.READY:
-        return False
-    try:
-        _validate_current_binding(range_obj, user, request_id)
-    except (VpnProfileConflict, VpnProfileUnavailable):
-        return False
-    return True
+    return _has_legacy_openvpn_profile(user, request_id)
 
 
 def _validate_current_binding(range_obj: Range, user: User, request_id: UUID) -> OpenVpnBinding:
@@ -118,7 +111,9 @@ def _raes_target_is_current_member(range_obj: Range, target_ref: str) -> bool:
     )
 
 
-def get_openvpn_profile(user: User, request_id: UUID, *, participation: bool = False) -> OpenVpnProfile:
+def get_openvpn_profile(
+    user: User | CredentialContext, request_id: UUID, *, participation: bool = False
+) -> OpenVpnProfile:
     """Resolve and validate the current participant profile entirely in memory."""
     from engine.models import Range
 
@@ -140,3 +135,17 @@ def get_openvpn_profile(user: User, request_id: UUID, *, participation: bool = F
         )
     except (SecretsError, OpenVpnBindingError) as exc:
         raise VpnProfileUnavailable("VPN profile material is unavailable") from exc
+
+
+def _has_legacy_openvpn_profile(user: User, request_id: UUID) -> bool:
+    """Project readiness only for a current incumbent owner and generation."""
+    from engine.models import Range
+
+    range_obj = Range.objects.filter(request__request_id=request_id, user=user).first()
+    if not range_obj or range_obj.status != Range.Status.READY:
+        return False
+    try:
+        _validate_current_binding(range_obj, user, request_id)
+    except (VpnProfileConflict, VpnProfileUnavailable):
+        return False
+    return True

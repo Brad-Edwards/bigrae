@@ -461,7 +461,8 @@ def _parse_raes_ready(payload: dict[str, Any], spec: StepSpec) -> dict[str, Any]
     return result
 
 
-def _parse_vpn_pki(payload, spec):
+def _parse_vpn_pki(payload: dict[str, Any], spec: StepSpec) -> dict[str, Any]:
+    """Validate the closed public PKI receipt for this operation result."""
     from shared.vpn_pki import parse_vpn_pki_receipt
 
     try:

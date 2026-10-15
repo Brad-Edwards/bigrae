@@ -1,5 +1,6 @@
 """Validate credential secrets through the incumbent closed specifications."""
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -14,7 +15,7 @@ def validate_credential_data(
     data: dict[str, Any],
     *,
     name: str,
-    expires_at: Any,
+    expires_at: datetime | None,
     user_id: int | None,
     owner_principal_uuid: UUID | None = None,
 ) -> dict[str, Any]:

@@ -7,6 +7,14 @@ protocol which uses HMAC-SHA256 signing and AES-128-CBC encryption.
 See: https://guacamole.apache.org/doc/gug/json-auth.html
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from email.message import Message
+    from typing import IO
+
 import base64
 import hashlib
 import hmac
@@ -260,7 +268,9 @@ class GuacamoleClient(Protocol):
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """A gateway redirect must never forward the native session credential."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(
+        self, req: urllib.request.Request, fp: IO[bytes], code: int, msg: str, headers: Message, newurl: str
+    ) -> None:
         return None
 
 
@@ -277,7 +287,7 @@ def _native_session_absent(error: urllib.error.HTTPError) -> bool:
     try:
         body = error.read(4097)
         if len(body) > 4096:
-            return False
+            raise ValueError("Session absence response exceeds the bound")
         payload = json.loads(body)
         return isinstance(payload, dict) and (payload.get("type"), payload.get("message")) == expected[error.code]
     except (ValueError, OSError):
@@ -302,6 +312,32 @@ class JsonAuthGuacamoleClient:
         A successful DELETE or the native already-absent response confirms
         invalidation. Other failures retain the credential for reconciliation.
         """
+        api_base, timeout = self._termination_endpoint()
+        if (
+            not isinstance(token, str)
+            or not token
+            or len(token) > 1024
+            or any(ord(c) < 33 or ord(c) > 126 for c in token)
+        ):
+            raise ValueError("Invalid Guacamole session reference")
+        request = urllib.request.Request(f"{api_base}/api/session", method="DELETE")  # noqa: S310
+        request.add_header("Guacamole-Token", token)
+        opener = urllib.request.build_opener(_NoRedirect())
+        terminated = False
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                terminated = response.status == 204
+        except urllib.error.HTTPError as error:
+            with error:
+                terminated = _native_session_absent(error)
+        except OSError:
+            pass
+        if not terminated:
+            logger.warning("Guacamole native session termination deferred")
+        return terminated
+
+    def _termination_endpoint(self) -> tuple[str, float]:
+        """Validate the configured native session endpoint before sending its token."""
         api_base = (self._config.api_base_url or self._config.base_url).rstrip("/")
         parsed = urlparse(api_base)
         timeout = self._config.timeout_seconds
@@ -316,29 +352,7 @@ class JsonAuthGuacamoleClient:
             or timeout <= 0
         ):
             raise ValueError("Invalid Guacamole termination configuration")
-        if (
-            not isinstance(token, str)
-            or not token
-            or len(token) > 1024
-            or any(ord(c) < 33 or ord(c) > 126 for c in token)
-        ):
-            raise ValueError("Invalid Guacamole session reference")
-        request = urllib.request.Request(f"{api_base}/api/session", method="DELETE")  # noqa: S310
-        request.add_header("Guacamole-Token", token)
-        opener = urllib.request.build_opener(_NoRedirect())
-        try:
-            with opener.open(request, timeout=timeout) as response:  # nosec B310
-                return response.status == 204
-        except urllib.error.HTTPError as error:
-            with error:
-                absent = _native_session_absent(error)
-            if absent:
-                return True
-            logger.warning("Guacamole native session termination deferred")
-            return False
-        except (urllib.error.URLError, TimeoutError, OSError):
-            logger.warning("Guacamole native session termination deferred")
-            return False
+        return api_base, timeout
 
     def create_rdp_url(self, req: GuacRDPUrlRequest) -> str:
         """Create a signed Guacamole URL for RDP access.

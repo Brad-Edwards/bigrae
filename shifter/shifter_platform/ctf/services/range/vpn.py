@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.utils import timezone
@@ -9,18 +10,30 @@ from django.utils import timezone
 from ctf.services.range.status import _get_participant_with_range
 from shared.remote_access import OpenVpnProfile
 
+if TYPE_CHECKING:
+    from uuid import UUID
 
-def admit_assigned_range_vpn(credential, request_id, event_uuid):
+    from ctf.models import CTFParticipant
+    from shared.credentials import CredentialContext
+
+
+_PARTICIPATION_DENIED = "Participation denied"
+
+
+def admit_assigned_range_vpn(credential: CredentialContext, request_id: UUID, event_uuid: UUID | None) -> None:
+    """Require current event participation and the exact assigned range."""
     from ctf.bridges import cms_find_range_instance_id
     from ctf.services.principal_participation import participant_for_credential
 
+    if event_uuid is None:
+        raise ValueError(_PARTICIPATION_DENIED)
     participant = participant_for_credential(credential, event_uuid)
     instance_id = cms_find_range_instance_id(request_id)
     if instance_id is None or participant.range_instance_id != instance_id:
-        raise ValueError("Participation denied")
+        raise ValueError(_PARTICIPATION_DENIED)
 
 
-def vpn_participant_for_credential(credential, *, event_uuid=None):
+def vpn_participant_for_credential(credential: CredentialContext, *, event_uuid: UUID | None = None) -> CTFParticipant:
     """Resolve a live participation, requiring selection when it is ambiguous."""
     from ctf.models import CTFParticipant
     from ctf.services.participant import eligible_participant_q
@@ -41,12 +54,12 @@ def vpn_participant_for_credential(credential, *, event_uuid=None):
             ).values_list("event_id", flat=True)[:2]
         )
         if len(events) != 1:
-            raise ValueError("Participation denied")
+            raise ValueError(_PARTICIPATION_DENIED)
         event_uuid = events[0]
     return participant_for_credential(credential, event_uuid)
 
 
-def get_vpn_profile(participant_id: UUID, *, credential=None) -> OpenVpnProfile:
+def get_vpn_profile(participant_id: UUID, *, credential: CredentialContext | None = None) -> OpenVpnProfile:
     """Resolve the current participant-owned profile; accept no caller target ids."""
     from ctf.bridges import cms_get_openvpn_profile
 
@@ -59,7 +72,7 @@ def get_vpn_profile(participant_id: UUID, *, credential=None) -> OpenVpnProfile:
         target = CTFParticipant.objects.get(pk=participant_id)
         participant = participant_for_credential(current, target.event_id)
         if participant.pk != participant_id or participant.range_instance_id is None:
-            raise ValueError("Participation denied")
+            raise ValueError(_PARTICIPATION_DENIED)
         return cms_get_openvpn_profile(current, participant.range_instance_id)
 
     participant = _get_participant_with_range(participant_id)

@@ -1,10 +1,16 @@
 """Native upload admission, immutable storage identity and quota reservation."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from django.db import models
 
 from shared.db import RecordedAuthorityFields
+
+if TYPE_CHECKING:
+    pass
 
 
 class AgentUploadBudget(models.Model):
@@ -12,7 +18,7 @@ class AgentUploadBudget(models.Model):
 
     scope_digest = models.CharField(max_length=71, primary_key=True, editable=False)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.scope_digest
 
 
@@ -39,6 +45,8 @@ class AgentUpload(RecordedAuthorityFields):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        """Declare persistence tables, indexes and custody constraints."""
+
         constraints = [
             models.CheckConstraint(condition=models.Q(file_size__gt=0), name="agent_upload_positive_size"),
             models.CheckConstraint(

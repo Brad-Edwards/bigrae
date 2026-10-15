@@ -13,6 +13,9 @@ from shared.credentials import CredentialContext
 
 from ._unified_authorization import require_range_action
 
+_RANGE_OPERATION_UNAVAILABLE = "Range operation unavailable"
+
+
 _BINDING_FIELDS = (
     "request_id",
     "range_id",
@@ -24,6 +27,9 @@ _BINDING_FIELDS = (
 )
 
 
+_RANGE_UNAVAILABLE = "Range unavailable"
+
+
 def run_scoped_range_lifecycle(
     credential: CredentialContext, operation: str, *, instance_pk: int | None = None, request_id: str | None = None
 ) -> None:
@@ -31,17 +37,14 @@ def run_scoped_range_lifecycle(
     from ._range_lifecycle import PAUSE_OP, RESUME_OP, _assert_lifecycle_supported
 
     try:
-        if request_id is not None:
-            candidate = RangeInstance.all_objects.filter(request__request_id=UUID(request_id)).first()
-        else:
-            candidate = RangeInstance.all_objects.filter(pk=instance_pk).first()
-        if candidate is None:
-            raise CMSError("Range unavailable")
+        candidate = _scoped_lifecycle_candidate(instance_pk, request_id)
         snapshot = require_range_action(
             credential, candidate.uuid, "range.manage", include_terminal=operation == "destroy"
         )
         if operation in {"destroy", "cancel"}:
             return _destroy_scoped_range(credential, snapshot, operation)
+        if snapshot.request is None:
+            raise CMSError(_RANGE_UNAVAILABLE)
         op = PAUSE_OP if operation == "pause" else RESUME_OP
         _assert_lifecycle_supported(snapshot, op)
         prepared = prepare_range_lifecycle(credential, snapshot.request.request_id, operation)
@@ -53,10 +56,8 @@ def run_scoped_range_lifecycle(
                 .first()
             )
             if row is None or not commit_prepared_range_lifecycle(prepared):
-                raise CMSError("Range operation unavailable")
-            target = "paused" if operation == "pause" and prepared.status == "paused" else op.target_status
-            if operation == "resume" and prepared.status == "ready":
-                target = "ready"
+                raise CMSError(_RANGE_OPERATION_UNAVAILABLE)
+            target = _scoped_lifecycle_target(operation, prepared.status, op.target_status)
             if row.status == target:
                 return
             row.status = target
@@ -76,10 +77,13 @@ def run_scoped_range_lifecycle(
     except CMSError:
         raise
     except Exception:
-        raise CMSError("Range operation unavailable") from None
+        raise CMSError(_RANGE_OPERATION_UNAVAILABLE) from None
 
 
 def _destroy_scoped_range(credential: CredentialContext, snapshot: RangeInstance, operation: str) -> None:
+    """Commit admitted destruction against the unchanged CMS runtime binding."""
+    if snapshot.request is None:
+        raise CMSError(_RANGE_UNAVAILABLE)
     prepared = prepare_range_lifecycle(credential, snapshot.request.request_id, operation)
     fence = {field: getattr(snapshot, field) for field in _BINDING_FIELDS}
     with transaction.atomic():
@@ -89,7 +93,7 @@ def _destroy_scoped_range(credential: CredentialContext, snapshot: RangeInstance
             .first()
         )
         if row is None or not commit_prepared_range_lifecycle(prepared):
-            raise CMSError("Range operation unavailable")
+            raise CMSError(_RANGE_OPERATION_UNAVAILABLE)
         if row.status == "destroying" and (operation == "cancel" or row.deleted_at is not None):
             return
         row.status = "destroying"
@@ -120,6 +124,8 @@ def destroy_expired_scoped_range(range_uuid: UUID) -> None:
         snapshot, _, _ = _range_binding(range_uuid, include_terminal=True)
         if snapshot.expires_at is None or snapshot.expires_at > timezone.now():
             raise CMSError("Range lease has not expired")
+        if snapshot.request is None:
+            raise CMSError(_RANGE_UNAVAILABLE)
         prepared = prepare_system_range_cleanup(snapshot.request.request_id)
         fence = {field: getattr(snapshot, field) for field in _BINDING_FIELDS}
         with transaction.atomic():
@@ -153,3 +159,24 @@ def destroy_expired_scoped_range(range_uuid: UUID) -> None:
         raise
     except Exception:
         raise CMSError("Range cleanup unavailable") from None
+
+
+def _scoped_lifecycle_candidate(instance_pk: int | None, request_id: str | None) -> RangeInstance:
+    """Select the existing CMS intent before taking lifecycle locks."""
+    if request_id is not None:
+        candidate = RangeInstance.all_objects.filter(request__request_id=UUID(request_id)).first()
+    elif instance_pk is not None:
+        candidate = RangeInstance.all_objects.filter(pk=instance_pk).first()
+    else:
+        raise CMSError(_RANGE_UNAVAILABLE)
+    if candidate is None:
+        raise CMSError(_RANGE_UNAVAILABLE)
+    return candidate
+
+
+def _scoped_lifecycle_target(operation: str, status: str, default: str) -> str:
+    """Preserve an already-settled native transition in the CMS status projection."""
+    target = "paused" if operation == "pause" and status == "paused" else default
+    if operation == "resume" and status == "ready":
+        target = "ready"
+    return target

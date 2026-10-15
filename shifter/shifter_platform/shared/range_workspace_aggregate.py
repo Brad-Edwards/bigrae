@@ -25,6 +25,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import uuid
+    from collections.abc import Callable
+    from uuid import UUID
+
+    from shared.credentials import CredentialContext
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +43,7 @@ _event_resolver: RangeEventResolver | None = None
 _vpn_participation = None
 
 
-def register_range_vpn_participation(resolver) -> None:
+def register_range_vpn_participation(resolver: Callable[[CredentialContext, UUID, UUID | None], None]) -> None:
     """CTF owns admission to its live participant/range assignment."""
     global _vpn_participation
     if not callable(resolver) or (_vpn_participation is not None and _vpn_participation is not resolver):
@@ -46,7 +51,7 @@ def register_range_vpn_participation(resolver) -> None:
     _vpn_participation = resolver
 
 
-def require_range_vpn_participation(credential, request_id, event_uuid) -> None:
+def require_range_vpn_participation(credential: CredentialContext, request_id: UUID, event_uuid: UUID | None) -> None:
     """Consult the aggregate owner without importing its models or services."""
     if _vpn_participation is None:
         raise ValueError("Range participation unavailable")

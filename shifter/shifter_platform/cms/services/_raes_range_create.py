@@ -91,27 +91,25 @@ def _dispatch_raes_package(
     tenancy scope) rides the same way so the RAES path scopes ranges exactly like
     the cyberscript path (ADR-046-R3).
     """
-    from cms.services._raes_dispatch import dispatch_object_raes_package, dispatch_repo_raes_package
+    from cms.services._raes_dispatch import (
+        RaesDispatchOptions,
+        dispatch_object_raes_package,
+        dispatch_repo_raes_package,
+    )
 
     if source.source_kind == _OBJECT_SOURCE_KIND:
         dispatch_object_raes_package(
             request_id,
             user,
             source,
-            backend_admission,
-            workspace_id,
-            egress_mode,
-            content_authorizer=content_authorizer,
+            RaesDispatchOptions(backend_admission, workspace_id, egress_mode, content_authorizer=content_authorizer),
         )
     else:
         dispatch_repo_raes_package(
             request_id,
             user,
             source,
-            backend_admission,
-            workspace_id,
-            egress_mode,
-            content_authorizer=content_authorizer,
+            RaesDispatchOptions(backend_admission, workspace_id, egress_mode, content_authorizer=content_authorizer),
         )
 
 

@@ -9,7 +9,7 @@ participant secret location the portal reads at download time.
 from __future__ import annotations
 
 import os
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from cloud.gcp.base import get_project_id, import_google_module
@@ -25,6 +25,11 @@ from gcp_dynamic_secrets import (
     secret_locations,
 )
 from vpn_access import VpnSecretOps
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from uuid import UUID
+
 
 _ISSUER_LOCATOR_ENV = "RANGE_OPENVPN_ISSUER_SECRET_ID"
 
@@ -120,13 +125,13 @@ class GCPVpnSecretOps(VpnSecretOps):
             canonical_secret_id=secret_id,
         )
 
-    def get_or_create_individual_profile(self, profile_id, factory):
+    def get_or_create_individual_profile(self, profile_id: UUID, factory: Callable[[], str]) -> tuple[str, str]:
         return read_or_create(self._client, self._exceptions, self._individual_locations(profile_id), factory)
 
-    def delete_individual_profile(self, profile_id):
+    def delete_individual_profile(self, profile_id: UUID) -> None:
         delete_all(self._client, self._exceptions, self._individual_locations(profile_id))
 
-    def read_individual_profile(self, profile_id):
+    def read_individual_profile(self, profile_id: UUID) -> tuple[str, str] | None:
         return read_published_or_wait(self._client, self._exceptions, self._individual_locations(profile_id).read_refs)
 
     def put_profile(self, range_id: int, generation: UUID, payload: str) -> str:
@@ -149,7 +154,9 @@ class GCPVpnSecretOps(VpnSecretOps):
         return False
 
 
-def get_vpn_secret_ops(*, storage_project_id=None, storage_environment=None, issuer_secret=None) -> VpnSecretOps:
+def get_vpn_secret_ops(
+    *, storage_project_id: str | None = None, storage_environment: str | None = None, issuer_secret: str | None = None
+) -> VpnSecretOps:
     """Return the selected provider's OpenVPN secret adapter."""
     if resolve_cloud_provider() == "gcp":
         return GCPVpnSecretOps(

@@ -114,8 +114,10 @@ def _lease_attempt(operation_id: UUID) -> tuple[bool, PreparationAttempt | None]
             return False, None
         if not eligible:
             _fail(operation, "authorization-revoked")
-            return False, None
-        return False, _acquire_attempt_lease(operation, attempt)
+            leased = None
+        else:
+            leased = _acquire_attempt_lease(operation, attempt)
+        return False, leased
 
 
 def _eligible(attempt: PreparationAttempt) -> bool:
@@ -212,10 +214,9 @@ def _fenced(
         or current.result_digest != snapshot.result_digest
     ):
         return None
-    if not eligible:
-        _fail(operation, "authorization-revoked")
-        return None
     try:
+        if not eligible:
+            raise ValueError("Attempt authorization revoked")
         _current_attempt(current, authorize=False)
     except (ValueError, ValidationError):
         _fail(operation, "authorization-revoked")

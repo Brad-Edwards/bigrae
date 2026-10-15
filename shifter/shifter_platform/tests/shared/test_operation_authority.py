@@ -7,8 +7,12 @@ import pytest
 
 from shared.authorization import CredentialCeiling, TargetRef
 from shared.credentials import CredentialContext
-from shared.identity_scope import PrincipalRef
-from shared.operation_authority import credential_reference_fields, credential_reference_from_record
+from shared.identity_scope import PrincipalRef, ResourceScope
+from shared.operation_authority import (
+    authority_resource_scope,
+    credential_reference_fields,
+    credential_reference_from_record,
+)
 
 
 def test_session_reference_roundtrip_keeps_empty_http_scopes_and_exact_action_target():
@@ -55,3 +59,33 @@ def test_unknown_scope_or_noncanonical_record_cannot_carry_secret_material():
     fields["credential_ceiling_actions"] = "range.manage\nrange.manage"
     with pytest.raises(ValueError, match="Operation authority unavailable"):
         credential_reference_from_record(SimpleNamespace(**fields))
+
+
+def test_recorded_authority_scope_preserves_resolved_ancestry():
+    account, organization, workspace = uuid4(), uuid4(), uuid4()
+    assert authority_resource_scope(
+        {
+            "authority_scope_kind": "account",
+            "authority_account_uuid": account,
+            "authority_organization_uuid": organization,
+            "authority_workspace_uuid": workspace,
+        }
+    ) == ResourceScope("account", account, organization, workspace)
+
+
+@pytest.mark.parametrize("change", ["missing-account", "text-identity", "invalid-kind", "installation-with-account"])
+def test_recorded_authority_scope_rejects_incomplete_or_conflicting_identity(change):
+    fields = {
+        "authority_scope_kind": "account",
+        "authority_account_uuid": uuid4(),
+        "authority_organization_uuid": None,
+        "authority_workspace_uuid": None,
+    }
+    if change == "missing-account":
+        fields["authority_account_uuid"] = None
+    elif change == "text-identity":
+        fields["authority_account_uuid"] = str(uuid4())
+    else:
+        fields["authority_scope_kind"] = "installation" if change == "installation-with-account" else "unknown"
+    with pytest.raises(ValueError):
+        authority_resource_scope(fields)

@@ -1,5 +1,12 @@
 """Pin the incumbent native preparation worker independently of its initiator."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from engine.models import PreparationAttempt
+
 from typing import Any
 from uuid import UUID
 
@@ -22,7 +29,7 @@ def preparation_workload(
     return {"kind": "kubernetes", "namespace": grant.namespace, **task.expected_identity}
 
 
-def verify_preparation_workload(attempt) -> None:
+def verify_preparation_workload(attempt: PreparationAttempt) -> None:
     """Native attribution must agree with the immutable role, executable and grant."""
     if attempt.operation.authority_kind and attempt.executing_workload != preparation_workload(
         attempt.input, attempt.phase, attempt.operation_id, attempt.id

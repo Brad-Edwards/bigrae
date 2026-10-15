@@ -1,17 +1,29 @@
 """Native individual profile issuance and signed CRLs at the existing CA owner."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import NameOID
-from shared.vpn_pki import parse_vpn_pki_input, parse_vpn_pki_receipt
+from shared.vpn_pki import VpnPkiInput, parse_vpn_pki_input, parse_vpn_pki_receipt
 
-from vpn_access import build_signed_crl, load_issuer, mint_individual_profile, openvpn_pool_endpoint
+from vpn_access import OpenVpnIssuer, build_signed_crl, load_issuer, mint_individual_profile, openvpn_pool_endpoint
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from typing import Any
+    from uuid import UUID
+
+    from vpn_access import OpenVpnPoolEndpoint, VpnSecretOps
 
 
-def execute_vpn_profile_operation(payload, operation, secret_ops, endpoint):
+def execute_vpn_profile_operation(
+    payload: object, operation: str, secret_ops: VpnSecretOps, endpoint: OpenVpnPoolEndpoint | None
+) -> dict[str, Any]:
     """Return a public, deterministic receipt; private keys stay in provider secrets."""
     value = parse_vpn_pki_input(payload)
     if operation not in {"issue", "revoke", "refresh-crl", "purge"}:
@@ -23,47 +35,9 @@ def execute_vpn_profile_operation(payload, operation, secret_ops, endpoint):
     serial, fingerprint, secret_ref = "", "", ""
     revocations = [(int(item.serial), item.revoked_at) for item in value.revocations]
     if operation == "issue":
-        if endpoint is None:
-            raise ValueError("VPN endpoint unavailable")
-        secret_ref, material = secret_ops.get_or_create_individual_profile(
-            value.profile_id,
-            lambda: mint_individual_profile(
-                issuer,
-                generation=value.generation,
-                profile_id=value.profile_id,
-                not_after=value.expires_at,
-                endpoint=endpoint,
-            )[0],
-        )
-        cert = x509.load_pem_x509_certificate(material.split("<cert>\n", 1)[1].split("</cert>", 1)[0].encode())
-        if (
-            cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value != f"access-{value.profile_id}"
-            or cert.issuer != issuer.ca_certificate.subject
-            or cert.not_valid_after_utc <= datetime.now(UTC)
-            or abs((cert.not_valid_after_utc - value.expires_at).total_seconds()) >= 1
-        ):
-            raise ValueError("VPN stored certificate unavailable")
-        serial, fingerprint = str(cert.serial_number), cert.fingerprint(hashes.SHA256()).hex()
+        serial, fingerprint, secret_ref = _issue_profile(value, secret_ops, endpoint, issuer)
     elif operation == "revoke":
-        if value.certificate_serial:
-            if value.expires_at > value.crl_issued_at and value.certificate_serial not in {
-                item.serial for item in value.revocations
-            }:
-                raise ValueError("VPN certificate revocation unavailable")
-        else:
-            existing = secret_ops.read_individual_profile(value.profile_id)
-            if existing is not None:
-                secret_ref, material = existing
-                cert = x509.load_pem_x509_certificate(material.split("<cert>\n", 1)[1].split("</cert>", 1)[0].encode())
-                cert.verify_directly_issued_by(issuer.ca_certificate)
-                if (
-                    cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value != f"access-{value.profile_id}"
-                    or abs((cert.not_valid_after_utc - value.expires_at).total_seconds()) >= 1
-                ):
-                    raise ValueError("VPN uncertain certificate unavailable")
-                serial, fingerprint = str(cert.serial_number), cert.fingerprint(hashes.SHA256()).hex()
-                if cert.not_valid_after_utc > value.crl_issued_at:
-                    revocations.append((cert.serial_number, value.crl_issued_at))
+        serial, fingerprint, secret_ref = _revoke_profile(value, secret_ops, issuer, revocations)
     elif operation == "purge":
         secret_ops.delete_individual_profile(value.profile_id)
     crl = build_signed_crl(
@@ -86,7 +60,8 @@ def execute_vpn_profile_operation(payload, operation, secret_ops, endpoint):
     )
 
 
-def run_vpn_profile_operation(request_id, profile_id, operation, operation_id):
+def run_vpn_profile_operation(request_id: str, profile_id: str, operation: str, operation_id: str) -> None:
+    """Load one immutable PKI input and execute its recorded native operation."""
     from provisioner_db_appends import OperationRef, append_operation_step_result
     from provisioner_db_operation_input import get_operation_input
     from vpn_secrets import get_vpn_secret_ops
@@ -124,3 +99,58 @@ def run_vpn_profile_operation(request_id, profile_id, operation, operation_id):
         step="vpn_pki_ready",
         result_payload=receipt,
     )
+
+
+def _issue_profile(
+    value: VpnPkiInput, secret_ops: VpnSecretOps, endpoint: OpenVpnPoolEndpoint | None, issuer: OpenVpnIssuer
+) -> tuple[str, str, str]:
+    """Retain immutable provider material and verify its admitted certificate identity."""
+    if endpoint is None:
+        raise ValueError("VPN endpoint unavailable")
+    secret_ref, material = secret_ops.get_or_create_individual_profile(
+        value.profile_id,
+        lambda: mint_individual_profile(
+            issuer,
+            generation=value.generation,
+            profile_id=value.profile_id,
+            not_after=value.expires_at,
+            endpoint=endpoint,
+        )[0],
+    )
+    cert = x509.load_pem_x509_certificate(material.split("<cert>\n", 1)[1].split("</cert>", 1)[0].encode())
+    if (
+        cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value != f"access-{value.profile_id}"
+        or cert.issuer != issuer.ca_certificate.subject
+        or cert.not_valid_after_utc <= datetime.now(UTC)
+        or abs((cert.not_valid_after_utc - value.expires_at).total_seconds()) >= 1
+    ):
+        raise ValueError("VPN stored certificate unavailable")
+    serial, fingerprint = str(cert.serial_number), cert.fingerprint(hashes.SHA256()).hex()
+    return serial, fingerprint, secret_ref
+
+
+def _revoke_profile(
+    value: VpnPkiInput, secret_ops: VpnSecretOps, issuer: OpenVpnIssuer, revocations: list[tuple[int, datetime]]
+) -> tuple[str, str, str]:
+    """Recover uncertain issuance and add only its still-live verified certificate to the CRL."""
+    serial, fingerprint, secret_ref = "", "", ""
+    if value.certificate_serial:
+        if value.expires_at > value.crl_issued_at and value.certificate_serial not in {
+            item.serial for item in value.revocations
+        }:
+            raise ValueError("VPN certificate revocation unavailable")
+    else:
+        existing = secret_ops.read_individual_profile(value.profile_id)
+        if existing is not None:
+            secret_ref, material = existing
+            cert = x509.load_pem_x509_certificate(material.split("<cert>\n", 1)[1].split("</cert>", 1)[0].encode())
+            cert.verify_directly_issued_by(issuer.ca_certificate)
+            if (
+                cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value != f"access-{value.profile_id}"
+                or abs((cert.not_valid_after_utc - value.expires_at).total_seconds()) >= 1
+            ):
+                raise ValueError("VPN uncertain certificate unavailable")
+            serial, fingerprint = str(cert.serial_number), cert.fingerprint(hashes.SHA256()).hex()
+            if cert.not_valid_after_utc > value.crl_issued_at:
+                revocations.append((cert.serial_number, value.crl_issued_at))
+    return serial, fingerprint, secret_ref

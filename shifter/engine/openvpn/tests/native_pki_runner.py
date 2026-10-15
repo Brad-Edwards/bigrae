@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from shifter_openvpn.__main__ import _wait_for_socket
-from shifter_openvpn.controller import Controller
+from shifter_openvpn.controller import Controller, RevocationControl
 from shifter_openvpn.crl import CrlStore
 from shifter_openvpn.firewall import Firewall
 from shifter_openvpn.management import Management
@@ -112,7 +112,7 @@ def run():
         _wait_for_socket(str(ROOT / "management.sock"), server, timeout=10)
         management = Management(str(ROOT / "management.sock"))
         portal = Portal()
-        controller = Controller(management, portal, firewall, crl=crl)
+        controller = Controller(management, portal, firewall, revocation=RevocationControl(crl))
 
         def start_client(number):
             log = ROOT / f"client-{number}.log"

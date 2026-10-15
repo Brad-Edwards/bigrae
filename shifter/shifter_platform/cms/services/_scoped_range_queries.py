@@ -1,5 +1,12 @@
 """Filter customer range queries before returning private model projections."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from shared.schemas import RangeContext
+
 from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from shared.credentials import CredentialContext, resolve_current_credential
@@ -8,24 +15,30 @@ from workspaces.services import resolve_resource_scope
 
 from ._unified_authorization import require_range_action
 
+_RANGE_UNAVAILABLE = "Range unavailable"
+_RANGE_READ = "range.read"
+
+
 PRIVATE_RANGE_FIELDS = ("range_spec", "model_launch_scope", "model_sources", "model_source_sponsorship")
 
 
 def list_scoped_ranges(
     credential: CredentialContext,
-    scope: ResourceScope,
+    scope: ResourceScope | None,
     *,
     include_terminal: bool = False,
     range_source: str | None = None,
 ) -> list[RangeInstance]:
     """The caller's scope selects candidates; only live leaf decisions disclose rows."""
     try:
+        if scope is None:
+            raise ValueError(_RANGE_UNAVAILABLE)
         current = resolve_current_credential(credential)
         resolved = resolve_resource_scope(scope)
         if resolved.kind != "account":
             raise ValueError("Missing customer scope")
     except Exception:
-        raise CMSError("Range unavailable") from None
+        raise CMSError(_RANGE_UNAVAILABLE) from None
     filters = {"scope_kind": "account", "account_id": resolved.account_id, "owner_principal_uuid__isnull": False}
     if resolved.organization_id is not None:
         filters["organization_id"] = resolved.organization_id
@@ -38,7 +51,7 @@ def list_scoped_ranges(
     result = []
     for row in rows:
         try:
-            authorized = require_range_action(current, row.uuid, "range.read", include_terminal=include_terminal)
+            authorized = require_range_action(current, row.uuid, _RANGE_READ, include_terminal=include_terminal)
         except CMSError as exc:
             if exc.details and exc.details.get("code") == "authority-unavailable":
                 raise
@@ -47,7 +60,9 @@ def list_scoped_ranges(
     return result
 
 
-def active_scoped_range(credential: CredentialContext, scope: ResourceScope, range_source: str):
+def active_scoped_range(
+    credential: CredentialContext, scope: ResourceScope | None, range_source: str
+) -> RangeInstance | None:
     """Select the most recent visible active range in the requested customer scope."""
     from shared.enums import ResourceStatus
 
@@ -56,13 +71,16 @@ def active_scoped_range(credential: CredentialContext, scope: ResourceScope, ran
 
 
 def get_scoped_range(credential: CredentialContext, range_id: int) -> RangeInstance:
+    """Authorize the public range before returning its CMS projection."""
     row = RangeInstance.objects.defer(*PRIVATE_RANGE_FIELDS).filter(range_id=range_id).first()
     if row is None:
-        raise CMSError("Range unavailable")
-    return require_range_action(credential, row.uuid, "range.read")
+        raise CMSError(_RANGE_UNAVAILABLE)
+    return require_range_action(credential, row.uuid, _RANGE_READ)
 
 
-def get_scoped_range_by_request(credential: CredentialContext, request_id: str, *, include_terminal: bool = False):
+def get_scoped_range_by_request(
+    credential: CredentialContext, request_id: str, *, include_terminal: bool = False
+) -> RangeContext:
     """Authorize before hydrating guest addresses or content projections."""
     from uuid import UUID
 
@@ -74,12 +92,14 @@ def get_scoped_range_by_request(credential: CredentialContext, request_id: str, 
     try:
         identifier = UUID(request_id)
     except (ValueError, TypeError, AttributeError):
-        raise CMSError("Range unavailable") from None
+        raise CMSError(_RANGE_UNAVAILABLE) from None
     manager = RangeInstance.all_objects if include_terminal else RangeInstance.objects
     candidate = manager.defer(*PRIVATE_RANGE_FIELDS).filter(request__request_id=identifier).first()
     if candidate is None:
-        raise CMSError("Range unavailable")
-    admitted = require_range_action(credential, candidate.uuid, "range.read", include_terminal=include_terminal)
+        raise CMSError(_RANGE_UNAVAILABLE)
+    admitted = require_range_action(credential, candidate.uuid, _RANGE_READ, include_terminal=include_terminal)
+    if admitted.request_id is None:
+        raise CMSError(_RANGE_UNAVAILABLE)
     row = (
         manager.select_related("request", "agent")
         .filter(
@@ -94,8 +114,8 @@ def get_scoped_range_by_request(credential: CredentialContext, request_id: str, 
         )
         .first()
     )
-    if row is None:
-        raise CMSError("Range unavailable")
+    if row is None or row.request is None:
+        raise CMSError(_RANGE_UNAVAILABLE)
     ips = _resolve_runtime_ips(row.range_id)
     supported = _resolve_pause_resume_supported(row.range_id)
     return RangeContext(

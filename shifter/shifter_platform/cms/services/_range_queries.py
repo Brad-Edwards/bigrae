@@ -1,9 +1,4 @@
-"""Range query entrypoints: list_ranges / get_range / get_active_range / get_range_by_request_id.
-
-The runtime-IP overlay (``_resolve_runtime_ips``) lives in ``_common`` so
-it can be shared with destroy/pause/resume helpers if needed, and so it
-honors test patches of ``cms.services.engine_get_instance_ips_by_uuid``.
-"""
+"""Range query entrypoints; ``_common`` preserves runtime-IP overlays and late-bound CMS hooks."""
 
 from __future__ import annotations
 
@@ -280,84 +275,13 @@ def get_active_range(
         Exception: Database errors are logged and propagated
     """
     from shared.enums import RangeSource as _RangeSource
-    from shared.enums import ResourceStatus
-    from shared.schemas import InstanceContext, RangeContext
 
     if range_source is None:
         range_source = _RangeSource.MISSION_CONTROL
 
     if isinstance(user, CredentialContext):
-        from ._scoped_range_queries import active_scoped_range, get_scoped_range_by_request
-
-        instance = active_scoped_range(user, scope, range_source.value)
-        return get_scoped_range_by_request(user, str(instance.request.request_id)) if instance else None
-    if user is None:
-        logger.error("get_active_range called with None user")
-        raise TypeError(USER_CANNOT_BE_NONE)
-
-    if not hasattr(user, "id"):
-        logger.error(
-            "get_active_range called with invalid user type: %s",
-            type(user).__name__,
-        )
-        msg = f"user must be a User instance, got {type(user).__name__}"
-        raise TypeError(msg)
-
-    logger.debug("get_active_range called for user_id=%s range_source=%s", user.id, range_source.value)
-
-    try:
-        instance = (
-            RangeInstance.objects.filter(user_id=user.id, range_source=range_source.value)
-            .filter(workspace_id__in=authorized_range_workspace_ids(user, WorkspaceOperation.READ_RANGE))
-            .exclude(status=ResourceStatus.DESTROYING.value)
-            .select_related("agent", "request")
-            .order_by("-created_at")
-            .first()
-        )
-    except TypeError:
-        raise
-    except Exception:
-        logger.exception("Error in get_active_range for user_id=%s", user.id)
-        raise
-
-    if instance:
-        logger.debug(
-            "get_active_range found range_id=%s status=%s for user_id=%s",
-            instance.range_id,
-            instance.status,
-            user.id,
-        )
-
-        ip_by_uuid = _resolve_runtime_ips(instance.range_id)
-        instance_contexts = _instance_contexts_from_range_spec(instance.range_spec, InstanceContext, ip_by_uuid)
-
-        agent_name = instance.agent.name if instance.agent else None
-
-        request_id = instance.request.request_id if instance.request else None
-        if request_id is None:
-            logger.warning("get_active_range: range_id=%s has no request FK", instance.range_id)
-            from uuid import uuid4
-
-            request_id = uuid4()
-
-        supported = _resolve_pause_resume_supported(instance.range_id)
-        return RangeContext(
-            request_id=request_id,
-            range_id=instance.range_id,
-            scenario_id=instance.scenario_id,
-            user_id=instance.user_id,
-            status=ResourceStatus(instance.status),
-            instances=instance_contexts,
-            agent_name=agent_name,
-            pause_supported=supported,
-            resume_supported=supported,
-        )
-    else:
-        logger.debug(
-            "get_active_range found no active range for user_id=%s",
-            user.id,
-        )
-        return None
+        return _active_scoped_range_context(user, scope, range_source)
+    return _get_active_legacy_range_context(user, range_source)
 
 
 def has_ready_active_range(
@@ -484,3 +408,91 @@ def get_range_by_request_id(
         pause_supported=supported,
         resume_supported=supported,
     )
+
+
+def _active_scoped_range_context(
+    user: CredentialContext, scope: ResourceScope | None, range_source: RangeSource
+) -> RangeContext | None:
+    """Project the selected scoped range only when its request identity remains available."""
+    from ._scoped_range_queries import active_scoped_range, get_scoped_range_by_request
+
+    instance = active_scoped_range(user, scope, range_source.value)
+    return (
+        get_scoped_range_by_request(user, str(instance.request.request_id))
+        if instance is not None and instance.request is not None
+        else None
+    )
+
+
+def _get_active_legacy_range_context(user: User, range_source: RangeSource) -> RangeContext | None:
+    """Project the current incumbent human-owned range after its workspace decision."""
+    from shared.enums import ResourceStatus
+    from shared.schemas import InstanceContext, RangeContext
+
+    if user is None:
+        logger.error("get_active_range called with None user")
+        raise TypeError(USER_CANNOT_BE_NONE)
+
+    if not hasattr(user, "id"):
+        logger.error(
+            "get_active_range called with invalid user type: %s",
+            type(user).__name__,
+        )
+        msg = f"user must be a User instance, got {type(user).__name__}"
+        raise TypeError(msg)
+
+    logger.debug("get_active_range called for user_id=%s range_source=%s", user.id, range_source.value)
+
+    try:
+        instance = (
+            RangeInstance.objects.filter(user_id=user.id, range_source=range_source.value)
+            .filter(workspace_id__in=authorized_range_workspace_ids(user, WorkspaceOperation.READ_RANGE))
+            .exclude(status=ResourceStatus.DESTROYING.value)
+            .select_related("agent", "request")
+            .order_by("-created_at")
+            .first()
+        )
+    except TypeError:
+        raise
+    except Exception:
+        logger.exception("Error in get_active_range for user_id=%s", user.id)
+        raise
+
+    if instance:
+        logger.debug(
+            "get_active_range found range_id=%s status=%s for user_id=%s",
+            instance.range_id,
+            instance.status,
+            user.id,
+        )
+
+        ip_by_uuid = _resolve_runtime_ips(instance.range_id)
+        instance_contexts = _instance_contexts_from_range_spec(instance.range_spec, InstanceContext, ip_by_uuid)
+
+        agent_name = instance.agent.name if instance.agent else None
+
+        request_id = instance.request.request_id if instance.request else None
+        if request_id is None:
+            logger.warning("get_active_range: range_id=%s has no request FK", instance.range_id)
+            from uuid import uuid4
+
+            request_id = uuid4()
+
+        supported = _resolve_pause_resume_supported(instance.range_id)
+        return RangeContext(
+            request_id=request_id,
+            range_id=instance.range_id,
+            scenario_id=instance.scenario_id,
+            user_id=instance.user_id,
+            status=ResourceStatus(instance.status),
+            instances=instance_contexts,
+            agent_name=agent_name,
+            pause_supported=supported,
+            resume_supported=supported,
+        )
+    else:
+        logger.debug(
+            "get_active_range found no active range for user_id=%s",
+            user.id,
+        )
+        return None

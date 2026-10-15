@@ -1,9 +1,21 @@
 """CMS composition of range access and CTF's participant decision for VPN."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from shared.credentials import resolve_current_credential
 
+if TYPE_CHECKING:
+    from uuid import UUID
 
-def admit_range_vpn_authority(credential, request_id, *, participation: bool = False):
+    from shared.credentials import CredentialContext
+
+
+def admit_range_vpn_authority(
+    credential: CredentialContext, request_id: UUID, *, participation: bool = False
+) -> dict[str, object]:
+    """Authorize the exact range and any required event participation."""
     from cms.models import RangeInstance
     from engine.services import project_range_authority
 

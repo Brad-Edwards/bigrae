@@ -98,7 +98,7 @@ def install_preparation_adapter(
                 "grant": grant,
                 "manifest_digest": manifest.digest,
                 "manifest": manifest.model_dump(mode="json"),
-                "installed_by": None if current else user,
+                "installed_by": None if isinstance(user, CredentialContext) else user,
                 "installed_by_principal_uuid": current.principal.uuid if current else None,
             },
         )
@@ -210,14 +210,13 @@ def _audit_adapter(
 ) -> None:
     """Commit bounded identities, never private manifests, images or credentials."""
     attribution = audit or RequestAudit()
-    actor = (
-        principal_actor_fields(user.principal)
-        if isinstance(user, CredentialContext)
-        else {
+    if isinstance(user, CredentialContext):
+        actor: dict[str, Any] = dict(principal_actor_fields(user.principal))
+    else:
+        actor = {
             "actor_type": attribution.actor_type or AuditActorType.USER,
             "actor_id": attribution.actor_id if attribution.actor_type else user.id,
         }
-    )
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.PREPARATION_ADAPTER,

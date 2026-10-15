@@ -1,5 +1,12 @@
 """Accepted scope/owner change provenance for generation-bound native cleanup."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
 from uuid import uuid4
 
 from django.db import models
@@ -20,14 +27,16 @@ class RangeAuthorityChange(RecordedAuthorityFields):
     accepted_at = models.DateTimeField(auto_now_add=True)
 
     @property
-    def operation_id(self):
+    def operation_id(self) -> UUID:
         return self.id
 
     @property
-    def payload(self):
+    def payload(self) -> dict[str, object]:
         return {"resource": self.resource, "operation": self.operation, "request_id": str(self.request_uuid)}
 
     class Meta:
+        """Declare persistence tables, indexes and custody constraints."""
+
         db_table = "engine_range_authority_change"
         constraints = [
             models.CheckConstraint(

@@ -259,6 +259,9 @@ class SSHConsumer(AsyncWebsocketConsumer):
         # connections (or a reconnect storm) is rejected cheaply instead of
         # exhausting the portal process. SERVICE_UNAVAILABLE (4503) is retryable
         # client-side, so transient pressure self-heals as other sessions end.
+        if self._capacity_key is None:
+            await self.close(code=WebSocketCloseCode.NOT_AUTHENTICATED)
+            return
         self._session_acquired = await _session_registry.try_acquire(
             self._capacity_key,
             settings.TERMINAL_MAX_SESSIONS,
@@ -273,36 +276,34 @@ class SSHConsumer(AsyncWebsocketConsumer):
             await self.close(code=WebSocketCloseCode.SERVICE_UNAVAILABLE)
             return
 
-        if not await self._open_ssh(user, instance_uuid, client_ip):
-            return
+        if await self._open_ssh(user, instance_uuid, client_ip):
+            # Accept WebSocket and start reading SSH output.
+            await self.accept()
+            loop = asyncio.get_running_loop()
+            self._session_start = loop.time()
+            self._last_activity = self._session_start
 
-        # Accept WebSocket and start reading SSH output.
-        await self.accept()
-        loop = asyncio.get_running_loop()
-        self._session_start = loop.time()
-        self._last_activity = self._session_start
+            await self._audit_best_effort(
+                action="connect",
+                **self._audit_actor(),
+                session=SessionInfo(
+                    session_id=self.session_id,
+                    range_id=None,
+                    session_type="terminal",
+                    target_ip=instance_uuid,
+                    email=self._user_email,
+                ),
+                source_ip=client_ip,
+            )
 
-        await self._audit_best_effort(
-            action="connect",
-            **self._audit_actor(),
-            session=SessionInfo(
-                session_id=self.session_id,
-                range_id=None,
-                session_type="terminal",
-                target_ip=instance_uuid,
-                email=self._user_email,
-            ),
-            source_ip=client_ip,
-        )
+            logger.info(
+                "Terminal connected: user_id=%s uuid=%s %s",
+                self._capacity_key,
+                instance_uuid,
+                _session_registry.snapshot(),
+            )
 
-        logger.info(
-            "Terminal connected: user_id=%s uuid=%s %s",
-            self._capacity_key,
-            instance_uuid,
-            _session_registry.snapshot(),
-        )
-
-        self._read_task = asyncio.create_task(self._read_ssh_output())
+            self._read_task = asyncio.create_task(self._read_ssh_output())
 
     async def _release_session_slot(self) -> None:
         """Release this consumer's registry slot, exactly once.

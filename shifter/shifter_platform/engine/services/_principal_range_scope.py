@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class PreparedRangeScopeMove:
+    """Frozen source runtime custody and admitted destination customer scope."""
+
     source: RangeAuthorityProjection
     target: ResourceScope
     status: str
@@ -31,6 +33,7 @@ class PreparedRangeScopeMove:
 def prepare_range_scope_move(
     credential: CredentialContext, request_id: UUID, target: ResourceScope
 ) -> PreparedRangeScopeMove:
+    """Admit both parents and destination ownership before moving runtime custody."""
     from engine.models import Range
     from workspaces.services import resolve_range_scope_binding
 
@@ -52,6 +55,7 @@ def prepare_range_scope_move(
 
 
 def _assert_move_supported(row: Range) -> None:
+    """Reject scope changes for runtime states that cannot safely move."""
     if row.status not in {"ready", "paused", "failed"} or row.event_uuid is not None:
         raise ValueError("Range scope move unavailable")
     if row.vpn_access_binding is not None or row.vpn_profiles.filter(secret_removed_at__isnull=True).exists():
@@ -59,6 +63,7 @@ def _assert_move_supported(row: Range) -> None:
 
 
 def commit_range_scope_move(prepared: PreparedRangeScopeMove) -> bool:
+    """Fence original custody and commit the independently admitted scope move."""
     from engine.models import Range
     from workspaces.services import resolve_range_scope_binding
 
@@ -75,6 +80,8 @@ def commit_range_scope_move(prepared: PreparedRangeScopeMove) -> bool:
         destination = resolve_range_scope_binding(prepared.target)
         if prepared.target == prepared.source.scope:
             return False
+        if row.owner_principal_uuid is None:
+            raise ValueError("Range owner unavailable")
         resolve_range_scope_binding(
             prepared.target, member=resolve_principal_uuid(row.owner_principal_uuid), for_update=True
         )

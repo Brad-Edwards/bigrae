@@ -20,13 +20,8 @@ def renew_gateway_authority(bootstrap_id: object) -> bool:
     """Resolve an opaque gateway binding against its original recorded proof."""
     from .models import GuacamoleBootstrapRequest
 
-    if not isinstance(bootstrap_id, str):
-        return False
-    try:
-        identifier = UUID(bootstrap_id)
-    except ValueError:
-        return False
-    if str(identifier) != bootstrap_id:
+    identifier = _bootstrap_reference(bootstrap_id)
+    if identifier is None:
         return False
     row = GuacamoleBootstrapRequest.objects.filter(pk=identifier).first()
     if (
@@ -46,19 +41,19 @@ def authorize_bootstrap(row: GuacamoleBootstrapRequest, credential: CredentialCo
         return False
     try:
         original = credential_reference_from_record(row)
-        if credential is not None and (
-            credential.principal != original.principal
-            or credential.kind != original.kind
-            or credential.credential_uuid != original.credential_uuid
+        if credential is not None and (credential.principal, credential.kind, credential.credential_uuid) != (
+            original.principal,
+            original.kind,
+            original.credential_uuid,
         ):
-            return False
+            raise ValueError("Bootstrap credential changed")
         admit = admit_device_remote_authority if row.protocol == "ngfw_ssh" else admit_range_remote_authority
         context = {"range_uuid": row.authority_target_uuid} if row.protocol != "ngfw_ssh" else {}
         fields = admit(original, row.target_id, **context)
         if credential is not None:
             # Handoff also respects the current HTTP admission's exact ceiling.
             admit(credential, row.target_id, **context)
-        return all(getattr(row, name) == value for name, value in fields.items() if name.startswith("authority_"))
+        return _authority_fields_match(row, fields)
     except Exception:
         return False
 
@@ -75,13 +70,14 @@ def terminate_bootstrap(
     if only_undelivered:
         candidates = candidates.filter(delivered_at__isnull=True, expires_at__lte=timezone.now())
     claimed = candidates.update(termination_pending=True, result_url="", updated_at=timezone.now())
-    if not claimed:
-        return False
-    if not client.terminate_session(row.native_session_token):
+    if not claimed or not client.terminate_session(row.native_session_token):
         return False
     return bool(
         GuacamoleBootstrapRequest.objects.filter(pk=row.pk, native_terminated_at__isnull=True).update(
-            native_terminated_at=timezone.now(), native_session_token="", termination_pending=False, result_url=""
+            native_terminated_at=timezone.now(),
+            native_session_token="",
+            termination_pending=False,
+            result_url="",  # nosec B106
         )
     )
 
@@ -93,7 +89,7 @@ def revalidate_guacamole_sessions(*, client: GuacamoleClient | None = None, limi
 
     rows = (
         GuacamoleBootstrapRequest.objects.filter(authority_kind="principal", native_terminated_at__isnull=True)
-        .exclude(native_session_token="")
+        .exclude(native_session_token="")  # nosec B106
         .order_by("updated_at")[: min(max(limit, 1), 500)]
     )
     terminated = 0
@@ -107,3 +103,19 @@ def revalidate_guacamole_sessions(*, client: GuacamoleClient | None = None, limi
             row, gateway, only_undelivered=expired_handoff and not row.termination_pending
         )
     return terminated
+
+
+def _bootstrap_reference(bootstrap_id: object) -> UUID | None:
+    """Require the canonical public spelling of one opaque bootstrap identity."""
+    if not isinstance(bootstrap_id, str):
+        return None
+    try:
+        identifier = UUID(bootstrap_id)
+    except ValueError:
+        return None
+    return identifier if str(identifier) == bootstrap_id else None
+
+
+def _authority_fields_match(row: GuacamoleBootstrapRequest, fields: dict[str, object]) -> bool:
+    """Compare only the admitted native authority facts, retaining the original proof separately."""
+    return all(getattr(row, name) == value for name, value in fields.items() if name.startswith("authority_"))

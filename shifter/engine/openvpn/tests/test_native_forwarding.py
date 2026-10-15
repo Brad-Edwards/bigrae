@@ -109,7 +109,7 @@ def test_revocation_stops_an_established_tcp_connection():
                 "s.sendall(b'a'); assert s.recv(1)==b'a'; print('connected',flush=True); "
                 "sys.stdin.readline(); s.sendall(b'b'); "
                 "exec('try:\\n print(repr(s.recv(1)),flush=True)\\n"
-                "except TimeoutError:\\n print(\"blocked\",flush=True)')",
+                'except TimeoutError:\\n print("blocked",flush=True)\')',
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

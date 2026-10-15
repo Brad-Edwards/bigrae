@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any
+
 from uuid import UUID
 
 from django.contrib.auth import SESSION_KEY, get_user_model
@@ -18,14 +23,18 @@ class SessionStore(DatabaseSessionStore):
     """Preserve Django signing, expiry, save/cycle/delete and password checks."""
 
     @classmethod
-    def get_model_class(cls):
+    def get_model_class(cls) -> type[PrincipalSession]:
         return PrincipalSession
 
-    def create_model_instance(self, data):
+    def create_model_instance(self, data: dict[str, Any]) -> PrincipalSession:
         """Retain a reference on save; key cycling creates a distinct identity."""
         row = super().create_model_instance(data)
+        if not isinstance(row, PrincipalSession):
+            raise ValueError(_UNAVAILABLE)
         prior = (
-            self.model.objects.filter(session_key=self.session_key).values("credential_uuid", "principal_uuid").first()
+            PrincipalSession.objects.filter(session_key=self.session_key)
+            .values("credential_uuid", "principal_uuid")
+            .first()
         )
         if prior is not None:
             row.credential_uuid = prior["credential_uuid"]
@@ -43,7 +52,7 @@ class SessionStore(DatabaseSessionStore):
     def credential_uuid(self) -> UUID:
         """Expose only the non-secret reference, never the Django session key."""
         row = (
-            self.model.objects.filter(
+            PrincipalSession.objects.filter(
                 session_key=self.session_key, expire_date__gt=timezone.now(), principal_uuid__isnull=False
             )
             .values_list("credential_uuid", flat=True)
@@ -56,7 +65,11 @@ class SessionStore(DatabaseSessionStore):
     @property
     def principal_uuid(self) -> UUID:
         """Return the immutable identity pinned to this authenticated session."""
-        value = self.model.objects.filter(session_key=self.session_key).values_list("principal_uuid", flat=True).first()
+        value = (
+            PrincipalSession.objects.filter(session_key=self.session_key)
+            .values_list("principal_uuid", flat=True)
+            .first()
+        )
         if value is None:
             raise ValueError(_UNAVAILABLE)
         return value

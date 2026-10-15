@@ -72,6 +72,7 @@ def guacamole_identity(user: User | CredentialContext) -> str:
 
 
 def _actor_log_identity(user: User | CredentialContext) -> str:
+    """Return bounded actor identity without exposing credential material."""
     return str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email
 
 
@@ -196,7 +197,7 @@ def _build_rdp_url(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_ngfw_ssh(user: User, app_id: str) -> _SSHConn:
+def _resolve_ngfw_ssh(user: User | CredentialContext, app_id: str) -> _SSHConn:
     """Look up the NGFW SSH connection details or raise ``BootstrapFailure``."""
     from engine.services import connect_ngfw_terminal
 

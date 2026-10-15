@@ -52,6 +52,8 @@ def _action(
 # This is the sole application-action vocabulary. S8 maps each protected surface
 # to exactly one entry; adding a surface without extending this tuple is caught by
 # the coverage tests introduced with that cutover.
+_CONTENT_PARENTS: tuple[Literal["account", "organization", "workspace"], ...] = ("account", "organization", "workspace")
+
 ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("installation.use_personal_tokens", "installation", administrative=False),
     _action("installation.revoke_personal_tokens", "installation"),
@@ -131,7 +133,7 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("range.access", "range", delegable=False),
     *(
         _action(f"{parent}.{operation}", parent)
-        for parent in ("account", "organization", "workspace")
+        for parent in _CONTENT_PARENTS
         for operation in (
             "read_content",
             "manage_content",

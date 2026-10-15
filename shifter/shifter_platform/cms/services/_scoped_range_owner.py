@@ -16,11 +16,14 @@ from ._unified_authorization import require_range_action
 def reassign_scoped_range_owner(
     credential: CredentialContext, instance_pk: int, new_owner: PrincipalRef, *, rehome: bool
 ) -> None:
+    """Move business ownership while preserving scope and historical attribution."""
     try:
         if rehome or not isinstance(new_owner, PrincipalRef):
             raise ValueError("Use the explicit scope move command")
         candidate = RangeInstance.objects.get(pk=instance_pk)
         snapshot = require_range_action(credential, candidate.uuid, "range.manage")
+        if snapshot.request is None:
+            raise ValueError("Range request unavailable")
         if range_in_domain_aggregate(snapshot.request.request_id, snapshot.pk):
             raise ValueError("Range belongs to an immutable aggregate")
         prepared = prepare_range_owner_move(credential, snapshot.request.request_id, new_owner)

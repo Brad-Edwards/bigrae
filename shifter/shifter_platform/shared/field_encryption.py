@@ -39,7 +39,7 @@ def decrypt_value(value: str) -> str:
         raise ValueError("Encrypted field contains an invalid encrypted value") from exc
 
 
-def _transform_sensitive(data: Any, keys: frozenset[str], *, encrypt: bool) -> Any:
+def _transform_sensitive(data: object, keys: frozenset[str], *, encrypt: bool) -> object:
     """Transform declared string secrets throughout a JSON object without mutation."""
     if isinstance(data, list):
         return [_transform_sensitive(item, keys, encrypt=encrypt) for item in data]

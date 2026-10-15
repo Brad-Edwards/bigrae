@@ -403,6 +403,12 @@ ADR-001's per-symbol allowlist names this read-only seam. Engine gains no
 workspace models, control-plane mutations or human-membership fallback through
 it; CMS remains the control-plane owner.
 
+Both the ADR guard and the standalone layer checker verify the repository's
+actual per-symbol configuration in regression tests. Their Engine fixtures pin
+`resource_scope_from_ids` and `resolve_range_scope_binding` alongside the existing
+organization read seam. Keep both fixtures aligned with the documented allowlist;
+these ancestry reads grant no additional workspace mutation or policy authority.
+
 ## Supersession
 
 S3's credential integration is documented in

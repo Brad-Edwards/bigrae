@@ -44,6 +44,9 @@ from ._runtime_plugin_bindings import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
     from engine.models import Range
     from shared.credentials import CredentialContext
     from shared.identity_scope import ResourceScope
@@ -51,6 +54,7 @@ if TYPE_CHECKING:
     from shared.runtime_plugin_binding import RuntimePluginScope
 
     from ._principal_range_create import PreparedRaesRangeCreation
+
 
 __all__ = [
     "RaesRangeRef",
@@ -159,22 +163,10 @@ def create_raes_range(
 
     from ._principal_range_create import (
         assert_principal_range_creation,
-        prepare_principal_range_fields,
-        prepared_creation_fields,
         verify_principal_range_replay,
     )
 
-    principal_fields = {}
-    if bindings.credential is not None:
-        principal_fields = (
-            prepared_creation_fields(bindings.prepared_creation, bindings, workspace_id, user_id, compiled_plan)
-            if bindings.prepared_creation is not None
-            else prepare_principal_range_fields(bindings, workspace_id, user_id)
-        )
-    else:
-        if bindings.resource_scope is not None or bindings.cms_range_uuid is not None:
-            raise ValueError("Range creation authority unavailable")
-        require_workspace_binding(workspace_id)
+    principal_fields = _prepared_range_creation_fields(bindings, workspace_id, user_id, compiled_plan)
     request_uuid = request_id if isinstance(request_id, UUID) else UUID(str(request_id))
 
     existing = Range.objects.filter(request__request_id=request_uuid).first()
@@ -228,7 +220,7 @@ def create_raes_range(
             status=Range.Status.PROVISIONING,
             subnet_index=subnet_index,
             placement_zone=placement_zone,
-            resource_generation=uuid4() if principal_fields or binding_fields.get("range_backend") == "ec2" else None,
+            resource_generation=_new_resource_generation(bool(principal_fields), binding_fields.get("range_backend")),
             range_config=compiled_plan,
             workspace_id=workspace_id,
             remote_access_capability=capability,
@@ -240,11 +232,7 @@ def create_raes_range(
         persist_runtime_plugin_pin(range_obj, pin)
         _write_operation_receipt(request_uuid, range_id=str(range_obj.uuid))
 
-    if bindings.defer_dispatch:
-        return RaesRangeRef(str(request_uuid), str(range_obj.uuid), range_obj.status, True)
-    if bindings.credential is not None:
-        return dispatch_created_raes_range(request_uuid, credential=bindings.credential)
-    return dispatch_created_raes_range(request_uuid)
+    return _dispatch_range_creation(range_obj, request_uuid, bindings)
 
 
 def mint_remote_access_capability(
@@ -328,7 +316,12 @@ def _verify_existing_plugin_scope(existing: Range, scope: RuntimePluginScope | N
         raise ValueError("Range replay cannot change its runtime plugin pack identity")
 
 
-def dispatch_created_raes_range(request_uuid: UUID, *, credential=None, prepared_creation=None) -> RaesRangeRef:
+def dispatch_created_raes_range(
+    request_uuid: UUID,
+    *,
+    credential: CredentialContext | None = None,
+    prepared_creation: PreparedRaesRangeCreation | None = None,
+) -> RaesRangeRef:
     """Dispatch an already persisted range through the incumbent launch outbox."""
     from engine.models import Range
 
@@ -336,6 +329,8 @@ def dispatch_created_raes_range(request_uuid: UUID, *, credential=None, prepared
     if range_obj.owner_principal_uuid is not None or credential is not None:
         from ._principal_range_create import dispatch_principal_raes_range
 
+        if credential is None:
+            raise PermissionError("Range authority unavailable")
         return dispatch_principal_raes_range(range_obj, credential, prepared_creation)
     try:
         task_ref = start_raes_range_provisioning(request_uuid)
@@ -450,3 +445,37 @@ def _write_operation_receipt(request_id: UUID, *, range_id: str) -> None:
         payload={"operation_id": operation_id, "accepted": True, "status": "accepted"},
         range_id=range_id,
     )
+
+
+def _prepared_range_creation_fields(
+    bindings: RangeBindings, workspace_id: int | None, user_id: int | None, compiled_plan: dict[str, Any]
+) -> dict[str, object]:
+    """Choose the already-admitted principal custody or the incumbent workspace binding before creation."""
+    from ._principal_range_create import prepare_principal_range_fields, prepared_creation_fields
+
+    principal_fields: dict[str, object] = {}
+    if bindings.credential is not None:
+        principal_fields = (
+            prepared_creation_fields(bindings.prepared_creation, bindings, workspace_id, user_id, compiled_plan)
+            if bindings.prepared_creation is not None
+            else prepare_principal_range_fields(bindings, workspace_id, user_id)
+        )
+    else:
+        if bindings.resource_scope is not None or bindings.cms_range_uuid is not None:
+            raise ValueError("Range creation authority unavailable")
+        require_workspace_binding(workspace_id)
+    return principal_fields
+
+
+def _dispatch_range_creation(range_obj: Range, request_uuid: UUID, bindings: RangeBindings) -> RaesRangeRef:
+    """Honor the enclosing CMS transaction before dispatching one immutable native range generation."""
+    if bindings.defer_dispatch:
+        return RaesRangeRef(str(request_uuid), str(range_obj.uuid), range_obj.status, True)
+    if bindings.credential is not None:
+        return dispatch_created_raes_range(request_uuid, credential=bindings.credential)
+    return dispatch_created_raes_range(request_uuid)
+
+
+def _new_resource_generation(principal_owned: bool, range_backend: object) -> UUID | None:
+    """Mint native custody generations for principal ranges and EC2 execution."""
+    return uuid4() if principal_owned or range_backend == "ec2" else None

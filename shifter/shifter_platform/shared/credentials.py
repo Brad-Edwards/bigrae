@@ -153,27 +153,26 @@ def resolve_local_credential(original: CredentialContext) -> CredentialContext:
 
 
 def _resolve_credential(original: CredentialContext, resolver: CredentialReferenceResolver | None) -> CredentialContext:
+    """Revalidate the same credential reference and intersect its original ceiling."""
     try:
         if not isinstance(original, CredentialContext) or resolver is None:
             raise ValueError("Missing credential owner")
         current = resolver(original.kind, original.credential_uuid)
-        if (
-            not isinstance(current, CredentialContext)
-            or current.principal != original.principal
-            or current.kind != original.kind
-            or current.credential_uuid != original.credential_uuid
-            or current.event_uuid != original.event_uuid
-        ):
+        if not isinstance(current, CredentialContext) or (
+            current.principal,
+            current.kind,
+            current.credential_uuid,
+            current.event_uuid,
+        ) != (original.principal, original.kind, original.credential_uuid, original.event_uuid):
             raise ValueError("Credential identity changed")
         principal = resolve_principal(current.principal)
         original_target, current_target = original.ceiling.target, current.ceiling.target
-        if original_target is not None and current_target is not None and original_target != current_target:
-            raise ValueError("Credential target changed")
+        target = _intersect_targets(original_target, current_target)
         return CredentialContext(
             principal,
             current.kind,
             current.credential_uuid,
-            CredentialCeiling(original.ceiling.actions & current.ceiling.actions, original_target or current_target),
+            CredentialCeiling(original.ceiling.actions & current.ceiling.actions, target),
             original.scopes & current.scopes,
             current.event_uuid,
         )
@@ -181,3 +180,10 @@ def _resolve_credential(original: CredentialContext, resolver: CredentialReferen
         raise
     except Exception:
         raise ValueError("Credential unavailable") from None
+
+
+def _intersect_targets(original: TargetRef | None, current: TargetRef | None) -> TargetRef | None:
+    """Retain the narrower exact target and reject conflicting credential ancestry."""
+    if original is not None and current is not None and original != current:
+        raise ValueError("Credential target changed")
+    return original or current

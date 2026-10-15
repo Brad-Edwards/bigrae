@@ -32,10 +32,13 @@ from shared.raes.operation_input import (
 from shared.raes.operation_input_remote_access import parse_remote_access
 from shared.raes.participant_access import ParticipantAccessBinding
 
-__all__ = ["operation_input_payload"]
-
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from engine.models import RaesImageMapping
+
+
+__all__ = ["operation_input_payload"]
 
 
 # Durable ownership discriminants persisted on ``engine_instance.state`` (#1666).
@@ -103,6 +106,8 @@ def _raes_image_candidates(plan: dict[str, object], target: Range | None = None)
         from engine.services._inventory_scope import inventory_scope_filter
         from engine.services._range_authority import project_range_authority
 
+        if target.request is None:
+            raise ValueError("Range request unavailable")
         scope = project_range_authority(target.request.request_id).scope
         rows = rows.filter(inventory_scope_filter(scope))
     else:
@@ -278,6 +283,8 @@ def _activation_input_payload(target: Range, request: Request) -> dict[str, obje
     if gen is None:
         raise ValueError("activation requires a claimed warm generation for the request")
     claimant = target.user
+    if claimant is None:
+        raise ValueError("Warm activation requires a human claimant")
     purpose = target.instantiation_purpose or "live_fire"
     workspace_id = target.workspace_id
     if workspace_id is None:
@@ -353,7 +360,7 @@ def operation_input_payload(
     return {"role": str(target.role), "os_type": str(target.os_type)}
 
 
-def materialize_operation_input(payload: dict[str, object], operation_id, target: Range | Instance) -> None:
+def materialize_operation_input(payload: dict[str, object], operation_id: UUID | str, target: Range | Instance) -> None:
     """Persist input atomically with the incumbent intent and its authority hash."""
     from engine.services._launch_authority import authority_envelope_fields
     from engine.services._runtime_plugin_operations import queue_runtime_plugin_plans

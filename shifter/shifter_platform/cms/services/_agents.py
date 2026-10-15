@@ -285,11 +285,11 @@ def get_agent(user: User | CredentialContext, agent_id: int) -> AgentConfig:
             msg = f"Model returned {type(agent).__name__}, expected AgentConfig"
             raise TypeError(msg)
 
-        if agent.user.id != user.id:
+        if agent.user_id != user.id:
             logger.error(
                 "get_agent: access denied - agent_id=%s owned by user_id=%s, requested by user_id=%s",
                 agent_id,
-                agent.user.id,
+                agent.user_id,
                 user.id,
             )
             raise CMSError(f"Agent {agent_id} not found")

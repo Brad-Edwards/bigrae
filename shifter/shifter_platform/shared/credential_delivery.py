@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from shared.identity_scope import PrincipalRef
+
 from uuid import UUID
 
 from django.core.cache import caches
@@ -32,7 +37,7 @@ def audit_openvpn_profile_download(
     profile_version: str,
     product: str,
     participant_id: UUID | None = None,
-    principal=None,
+    principal: PrincipalRef | None = None,
 ) -> None:
     """Record profile delivery without credential, topology, or provider data."""
     state = {

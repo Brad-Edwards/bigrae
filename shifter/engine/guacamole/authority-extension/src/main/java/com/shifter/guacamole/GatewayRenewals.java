@@ -68,24 +68,25 @@ final class GatewayRenewals implements AutoCloseable {
             if (!lease.isValid()) { release(lease); return; }
             if (!registration.pending.compareAndSet(false, true)) return;
             try {
-                workers.execute(() -> {
-                    try {
-                        if (!lease.isValid()) return;
-                        if (control.authorize(registration.bootstrap)) lease.renew();
-                        else lease.deny();
-                    }
-                    catch (Exception unavailable) {
-                        // An outage retains only the existing deadline. No exception
-                        // text, identity assertion or remote response enters logs.
-                    }
-                    finally { registration.pending.set(false); }
-                });
+                workers.execute(() -> renewLease(lease, registration));
             }
             catch (RejectedExecutionException saturated) {
                 registration.pending.set(false);
                 // A full bounded queue cannot extend a lease.
             }
         });
+    }
+
+    private void renewLease(AuthorityLease lease, Registration registration) {
+        try {
+            if (!lease.isValid()) return;
+            if (control.authorize(registration.bootstrap)) lease.renew();
+            else lease.deny();
+        }
+        catch (Exception unavailable) {
+            // Failure retains the existing deadline without logging proof or response data.
+        }
+        finally { registration.pending.set(false); }
     }
 
     public synchronized void close() {

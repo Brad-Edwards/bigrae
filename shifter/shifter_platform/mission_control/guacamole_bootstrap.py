@@ -171,51 +171,10 @@ def _run_bootstrap(
         bootstrap.status = GuacamoleBootstrapRequest.Status.RUNNING
         bootstrap.save(update_fields=("status", "updated_at"))
 
-        try:
-            result_url = build_url()
-        except BootstrapFailure as exc:
-            _finish_failure(bootstrap, started, exc.user_message, exc.status_code)
+        result_url = _build_bootstrap_url(bootstrap, build_url, started)
+        if result_url is None:
             return
-        except Exception as exc:
-            # Keep the original exception text out of logs: Guacamole failures
-            # can contain credential-bearing upstream values. ``exc_info=False``
-            # preserves the sanitized fingerprint without appending that text.
-            logger.exception(
-                "Guacamole bootstrap failed: request_id=%s reason=%s",
-                safe_log_value(request_id),
-                safe_log_fingerprint(exc),
-                exc_info=False,
-            )
-            _finish_failure(bootstrap, started, _GENERIC_BOOTSTRAP_FAILURE, 500)
-            return
-
-        if bootstrap.authority_kind:
-            # Retain the native credential before checking authority again. If
-            # revoke/cancel races token creation, independent cleanup can close
-            # that session without delivering it to the browser.
-            query = urlparse(result_url).fragment.partition("?")[2]
-            tokens = parse_qs(query).get("token", [])
-            if len(tokens) != 1 or not tokens[0]:
-                _finish_failure(bootstrap, started, _GENERIC_BOOTSTRAP_FAILURE, 500)
-                return
-            bootstrap.native_session_token = tokens[0]
-            bootstrap.save(update_fields=("native_session_token", "updated_at"))
-            if bootstrap.is_expired or not authorize_bootstrap(bootstrap):
-                from .guacamole_authority import terminate_bootstrap
-
-                bootstrap.termination_pending = True
-                bootstrap.save(update_fields=("termination_pending", "updated_at"))
-                if guacamole_client is not None:
-                    terminate_bootstrap(bootstrap, guacamole_client)
-                _finish_failure(bootstrap, started, "Permission denied", 403)
-                return
-
-        if bootstrap.is_expired:
-            # A slow build finished after expiry. Never persist a token URL the
-            # status endpoint would refuse to deliver (it returns 410 for an
-            # expired row); record the expiry instead so no token is parked at
-            # rest until pruning.
-            _finish_failure(bootstrap, started, "Guacamole session request expired", 410)
+        if not _bootstrap_can_finish(bootstrap, result_url, started, guacamole_client):
             return
 
         duration_ms = _duration_ms(started)
@@ -294,35 +253,14 @@ def consume_ready_url(
     deliverable for this caller — not found, not succeeded, expired, or already
     delivered — clearing any token still parked on an expired success.
     """
-    if credential is not None:
-        from .guacamole_authority import authorize_bootstrap
-
-        snapshot = (
-            GuacamoleBootstrapRequest.objects.defer("result_url", "native_session_token").filter(pk=request_id).first()
-        )
-        if snapshot is None or not authorize_bootstrap(snapshot, credential):
-            return None
-        user_id = snapshot.user_id
-    elif user_id is None:
+    admitted, user_id = _delivery_actor(request_id, credential, user_id)
+    if not admitted:
         return None
     with transaction.atomic():
         row = GuacamoleBootstrapRequest.objects.select_for_update().filter(pk=request_id, user_id=user_id).first()
         if row is None or row.status != GuacamoleBootstrapRequest.Status.SUCCEEDED:
             return None
-        if row.authority_kind and credential is None:
-            return None
-        if row.is_expired or row.delivered_at is not None or not row.result_url:
-            # Not deliverable: clear any token still parked on an expired success
-            # before refusing, so it does not sit at rest until pruning.
-            if row.result_url:
-                row.result_url = ""
-                row.save(update_fields=("result_url", "updated_at"))
-            return None
-        url = row.result_url
-        row.result_url = ""
-        row.delivered_at = timezone.now()
-        row.save(update_fields=("result_url", "delivered_at", "updated_at"))
-        return url
+        return _consume_locked_url(row, credential)
 
 
 def prune_expired_bootstrap_requests(*, batch_size: int | None = None) -> int:
@@ -335,7 +273,7 @@ def prune_expired_bootstrap_requests(*, batch_size: int | None = None) -> int:
     """
     limit = _prune_batch_size() if batch_size is None else max(1, int(batch_size))
     ids = list(
-        GuacamoleBootstrapRequest.objects.filter(expires_at__lte=timezone.now(), native_session_token="")
+        GuacamoleBootstrapRequest.objects.filter(expires_at__lte=timezone.now(), native_session_token="")  # nosec B106
         .filter(Q(authority_kind="") | Q(status="failed") | Q(native_terminated_at__isnull=False))
         .order_by("expires_at")
         .values_list("pk", flat=True)[:limit]
@@ -344,3 +282,116 @@ def prune_expired_bootstrap_requests(*, batch_size: int | None = None) -> int:
         return 0
     deleted, _details = GuacamoleBootstrapRequest.objects.filter(pk__in=ids).delete()
     return deleted
+
+
+def _build_bootstrap_url(
+    bootstrap: GuacamoleBootstrapRequest, build_url: Callable[[], str], started: float
+) -> str | None:
+    """Record sanitized build failures without exposing upstream credential material."""
+    try:
+        result_url = build_url()
+    except BootstrapFailure as exc:
+        _finish_failure(bootstrap, started, exc.user_message, exc.status_code)
+        return None
+    except Exception as exc:
+        # Keep the original exception text out of logs: Guacamole failures
+        # can contain credential-bearing upstream values. ``exc_info=False``
+        # preserves the sanitized fingerprint without appending that text.
+        logger.exception(
+            "Guacamole bootstrap failed: request_id=%s reason=%s",
+            safe_log_value(bootstrap.pk),
+            safe_log_fingerprint(exc),
+            exc_info=False,
+        )
+        _finish_failure(bootstrap, started, _GENERIC_BOOTSTRAP_FAILURE, 500)
+        return None
+
+    return result_url
+
+
+def _bootstrap_can_finish(
+    bootstrap: GuacamoleBootstrapRequest,
+    result_url: str,
+    started: float,
+    guacamole_client: GuacamoleClient | None,
+) -> bool:
+    """Retain native cleanup custody and refuse a URL whose admitted handoff has expired."""
+    if bootstrap.authority_kind and not _retain_native_bootstrap(bootstrap, result_url, started, guacamole_client):
+        return False
+
+    if bootstrap.is_expired:
+        # A slow build finished after expiry. Never persist a token URL the
+        # status endpoint would refuse to deliver (it returns 410 for an
+        # expired row); record the expiry instead so no token is parked at
+        # rest until pruning.
+        _finish_failure(bootstrap, started, "Guacamole session request expired", 410)
+        return False
+
+    return True
+
+
+def _retain_native_bootstrap(
+    bootstrap: GuacamoleBootstrapRequest,
+    result_url: str,
+    started: float,
+    guacamole_client: GuacamoleClient | None,
+) -> bool:
+    """Persist the minted token before reauthorization so failed handoffs remain independently terminable."""
+    from .guacamole_authority import authorize_bootstrap
+
+    # Retain the native credential before checking authority again. If
+    # revoke/cancel races token creation, independent cleanup can close
+    # that session without delivering it to the browser.
+    query = urlparse(result_url).fragment.partition("?")[2]
+    tokens = parse_qs(query).get("token", [])
+    if len(tokens) != 1 or not tokens[0]:
+        _finish_failure(bootstrap, started, _GENERIC_BOOTSTRAP_FAILURE, 500)
+        return False
+    bootstrap.native_session_token = tokens[0]
+    bootstrap.save(update_fields=("native_session_token", "updated_at"))
+    if bootstrap.is_expired or not authorize_bootstrap(bootstrap):
+        from .guacamole_authority import terminate_bootstrap
+
+        bootstrap.termination_pending = True
+        bootstrap.save(update_fields=("termination_pending", "updated_at"))
+        if guacamole_client is not None:
+            terminate_bootstrap(bootstrap, guacamole_client)
+        _finish_failure(bootstrap, started, "Permission denied", 403)
+        return False
+    return True
+
+
+def _delivery_actor(
+    request_id: UUID, credential: CredentialContext | None, user_id: int | None
+) -> tuple[bool, int | None]:
+    """Reauthorize the original principal proof before entering the browser handoff transaction."""
+    if credential is not None:
+        from .guacamole_authority import authorize_bootstrap
+
+        snapshot = (
+            GuacamoleBootstrapRequest.objects.defer("result_url", "native_session_token").filter(pk=request_id).first()
+        )
+        if snapshot is None or not authorize_bootstrap(snapshot, credential):
+            return False, None
+        user_id = snapshot.user_id
+    elif user_id is None:
+        return False, None
+    return True, user_id
+
+
+def _consume_locked_url(row: GuacamoleBootstrapRequest, credential: CredentialContext | None) -> str | None:
+    """Clear a succeeded URL exactly once while preserving undelivered native cleanup evidence."""
+    if row.authority_kind and credential is None:
+        return None
+    if row.is_expired or row.delivered_at is not None or not row.result_url:
+        # Not deliverable: clear any token still parked on an expired success
+        # before refusing, so it does not sit at rest until pruning.
+        if row.result_url:
+            row.result_url = ""
+            row.save(update_fields=("result_url", "updated_at"))
+        return None
+    url = row.result_url
+    row.result_url = ""
+    row.delivered_at = timezone.now()
+    row.save(update_fields=("result_url", "delivered_at", "updated_at"))
+    return url

@@ -33,7 +33,7 @@ from shared.remote_access import (
 )
 
 if TYPE_CHECKING:
-    from engine.models import Range, VpnSession
+    from engine.models import Range, VpnAccessProfile, VpnSession
 
 VPN_SESSION_HEARTBEAT_SECONDS = 15
 VPN_SESSION_LEASE_SECONDS = 60
@@ -193,27 +193,13 @@ def authorize_vpn_session(
     """Admit one verified certificate to its own target, superseding any older session."""
     from engine.models import Range, VpnAccessProfile, VpnSession, VpnSessionEndReason, VpnSessionState
 
-    from ._vpn_profiles import assert_profile_runtime, authorize_vpn_profile
+    from ._vpn_profiles import assert_profile_runtime
 
     server_name = _require_server(server)
     cid = _require_client_id(client_id)
-    profile = None
-    match = _PROFILE_NAME.fullmatch(common_name) if isinstance(common_name, str) else None
-    if match is not None:
-        try:
-            profile = VpnAccessProfile.objects.select_related("range__request").get(pk=UUID(match.group(1)))
-            if (
-                certificate_serial != profile.certificate_serial
-                or not isinstance(certificate_fingerprint, str)
-                or certificate_fingerprint.replace(":", "").lower() != profile.certificate_fingerprint
-            ):
-                raise ValueError("Certificate mismatch")
-            admitted_destination = authorize_vpn_profile(profile)
-            generation = profile.generation
-        except Exception:
-            raise VpnSessionDenied(_ACCESS_REVOKED) from None
-    else:
-        generation = _require_generation(common_name)
+    profile, generation, admitted_destination = _admitted_certificate(
+        common_name, certificate_serial, certificate_fingerprint
+    )
     with transaction.atomic():
         range_obj = (
             Range.objects.select_for_update(of=("self",))
@@ -260,7 +246,9 @@ def _require_session_ids(session_ids: object) -> set[UUID]:
         raise VpnSessionDenied(_INVALID_REQUEST) from exc
 
 
-def _renewed(row: VpnSession, server_name: str, lease: datetime, admitted: dict) -> bool:
+def _renewed(
+    row: VpnSession, server_name: str, lease: datetime, admitted: dict[UUID, tuple[str, tuple[int, ...]]]
+) -> bool:
     """Extend one reported session's lease, or end it when access is no longer valid."""
     from engine.models import VpnSessionEndReason, VpnSessionState
 
@@ -270,13 +258,13 @@ def _renewed(row: VpnSession, server_name: str, lease: datetime, admitted: dict)
         if row.profile_id is not None:
             from ._vpn_profiles import assert_profile_runtime
 
-            if row.id not in admitted or assert_profile_runtime(row.profile) != admitted[row.id]:
+            if row.profile is None or row.id not in admitted or assert_profile_runtime(row.profile) != admitted[row.id]:
                 raise ValueError("VPN authority unavailable")
         elif row.range.owner_principal_uuid is not None:
             raise ValueError("VPN authority unavailable")
         else:
             _current_target(row.range, row.generation)
-    except (VpnSessionDenied, ValueError):
+    except ValueError:
         _end(row, VpnSessionEndReason.REVOKED)
         return False
     row.lease_expires_at = lease
@@ -308,7 +296,7 @@ def renew_vpn_sessions(*, server: object, session_ids: object) -> tuple[UUID, ..
     for session in VpnSession.objects.filter(id__in=reported, server=server_name).select_related(
         "profile__range__request"
     ):
-        if session.profile_id is not None:
+        if session.profile is not None:
             with suppress(Exception):
                 admitted[session.id] = authorize_vpn_profile(session.profile)
     with transaction.atomic():
@@ -348,3 +336,32 @@ def end_vpn_session(*, server: object, session_id: object) -> None:
         )
         if row is not None:
             _end(row, VpnSessionEndReason.DISCONNECTED)
+
+
+def _admitted_certificate(
+    common_name: object, certificate_serial: object, certificate_fingerprint: object
+) -> tuple[VpnAccessProfile | None, UUID, tuple[str, tuple[int, ...]] | None]:
+    """Match public certificate evidence and evaluate policy before locking the native range."""
+    from engine.models import VpnAccessProfile
+
+    from ._vpn_profiles import authorize_vpn_profile
+
+    admitted_destination = None
+    profile = None
+    match = _PROFILE_NAME.fullmatch(common_name) if isinstance(common_name, str) else None
+    if match is not None:
+        try:
+            profile = VpnAccessProfile.objects.select_related("range__request").get(pk=UUID(match.group(1)))
+            if (
+                certificate_serial != profile.certificate_serial
+                or not isinstance(certificate_fingerprint, str)
+                or certificate_fingerprint.replace(":", "").lower() != profile.certificate_fingerprint
+            ):
+                raise ValueError("Certificate mismatch")
+            admitted_destination = authorize_vpn_profile(profile)
+            generation = profile.generation
+        except Exception:
+            raise VpnSessionDenied(_ACCESS_REVOKED) from None
+    else:
+        generation = _require_generation(common_name)
+    return profile, generation, admitted_destination

@@ -1,5 +1,8 @@
 """Principal admission composes the incumbent RAES reservation and dispatch seams."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from django.db import IntegrityError, transaction
@@ -7,7 +10,7 @@ from django.db import IntegrityError, transaction
 from cms.exceptions import CMSError, WorkspaceLaunchQuotaExceeded
 from cms.models import RaesPackageSource, RangeInstance, Request
 from shared.credentials import resolve_local_credential
-from shared.enums import RangeSource
+from shared.enums import RangeSource, ResourceStatus
 from shared.range_instantiation_policy import InstantiationPurpose, assert_range_backend_egress_supported
 from workspaces.services import (
     WorkspaceQuotaAuditContext,
@@ -22,6 +25,16 @@ from ._content_authority import require_content_scope
 from ._range_backend_admission import assert_backend_admitted
 from ._range_lease import build_resolved_mission_control_range_lease
 from ._range_workspace import resolve_effective_egress_mode_locked
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from shared.credentials import CredentialContext
+    from shared.enums import RangeSource
+    from shared.identity_scope import ResourceScope
+    from shared.range_instantiation_policy import BackendAdmission
+    from shared.schemas.range import RangeContext
+
 
 _SOURCE_FIELDS = (
     "scenario_id",
@@ -42,12 +55,14 @@ _SOURCE_FIELDS = (
 )
 
 
-def source_launch_binding(source):
+def source_launch_binding(source: RaesPackageSource) -> dict[str, object]:
     """Immutable registered content/custody facts inspected before any staging."""
     return {name: getattr(source, name) for name in _SOURCE_FIELDS}
 
 
-def revalidate_scoped_launch(credential, scope, source):
+def revalidate_scoped_launch(
+    credential: CredentialContext, scope: ResourceScope, source: RaesPackageSource
+) -> CredentialContext:
     """Repeat original authority and source eligibility before irreversible effects."""
     from cms.scenarios.registry import check_scenario_access
 
@@ -61,7 +76,14 @@ def revalidate_scoped_launch(credential, scope, source):
     return current
 
 
-def create_scoped_range(credential, scenario, *, scope, range_source, workspace_uuid):
+def create_scoped_range(
+    credential: CredentialContext,
+    scenario: str,
+    *,
+    scope: ResourceScope | None,
+    range_source: RangeSource | None,
+    workspace_uuid: UUID | str | None,
+) -> RangeContext:
     """Explicit customer scope; no contact user or fabricated compatibility workspace."""
     from management.services import human_principal_user_id
     from shared.schemas.range import RangeContext
@@ -87,14 +109,19 @@ def create_scoped_range(credential, scenario, *, scope, range_source, workspace_
         instance, egress = _reserve(current, scope, source, request_id, user_id, backend)
         try:
             from ._model_admission import assert_launch_model_access
-            from ._raes_dispatch import dispatch_object_raes_package, dispatch_repo_raes_package
+            from ._raes_dispatch import RaesDispatchOptions, dispatch_object_raes_package, dispatch_repo_raes_package
 
             assert_launch_model_access(
                 user=current, scenario_id=scenario, egress_mode=egress, package_digest=source.package_digest
             )
             revalidate_scoped_launch(current, scope, source)
             dispatch = dispatch_object_raes_package if source.source_kind == "object" else dispatch_repo_raes_package
-            dispatch(request_id, current, source, backend, instance.workspace_id, egress, principal_scope=scope)
+            dispatch(
+                request_id,
+                current,
+                source,
+                RaesDispatchOptions(backend, instance.workspace_id, egress, principal_scope=scope),
+            )
         except Exception:
             with transaction.atomic():
                 instance.status = "failed"
@@ -108,7 +135,7 @@ def create_scoped_range(credential, scenario, *, scope, range_source, workspace_
             scenario_id=scenario,
             user_id=user_id,
             owner_principal_uuid=current.principal.uuid,
-            status="provisioning",
+            status=ResourceStatus.PROVISIONING,
             instances=[],
             agent_name="",
         )
@@ -118,7 +145,15 @@ def create_scoped_range(credential, scenario, *, scope, range_source, workspace_
         raise CMSError("Range launch unavailable") from None
 
 
-def _reserve(current, scope, source, request_id, user_id, backend):
+def _reserve(
+    current: CredentialContext,
+    scope: ResourceScope,
+    source: RaesPackageSource,
+    request_id: UUID,
+    user_id: int | None,
+    backend: BackendAdmission | None,
+) -> tuple[RangeInstance, str]:
+    """Atomically reserve the launch intent, owner slot and tenant lease."""
     from shared.audit import principal_actor_fields
 
     from ._range_launch_common import _ACTIVE_RANGE_MESSAGE, _LAUNCH_QUOTA_MESSAGE

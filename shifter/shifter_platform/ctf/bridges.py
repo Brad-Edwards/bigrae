@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
     from ctf.models import CTFEvent
     from shared.capacity import CapacityAssessmentResult
+    from shared.credentials import CredentialContext
     from shared.model_access import (
         AuthorityInvalidation,
         EventModelDemand,
@@ -366,7 +367,7 @@ def cms_get_range_spec(range_instance_id: int) -> dict | None:
     return cms_services.get_range_spec_by_id(range_instance_id)
 
 
-def cms_get_openvpn_profile(user: User, range_instance_id: int) -> OpenVpnProfile:
+def cms_get_openvpn_profile(user: User | CredentialContext, range_instance_id: int) -> OpenVpnProfile:
     """Resolve a participant profile through the public CMS service boundary."""
     import cms.services as cms_services
     from ctf.exceptions import CTFNotFoundError, CTFRangeError, CTFStateError

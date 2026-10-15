@@ -36,8 +36,8 @@ def resolve_model_access_range_reference(request_uuid: UUID) -> OwnedReference:
     return model_access_range_reference(range_uuids[0])
 
 
-def _legacy_workspace_id(workspace_id: int | None) -> int:
-    """Reject ranges whose account scope cannot use the legacy workspace projection."""
+def _legacy_identity_id(workspace_id: int | None) -> int:
+    """Require historical human and workspace identities for this legacy projection."""
     if workspace_id is None:
         raise SharingError(_RANGE_MEMBERSHIP_UNAVAILABLE)
     return workspace_id
@@ -145,8 +145,8 @@ def resolve_model_access_range_page(
                 range_ref=model_access_range_reference(row.uuid),
                 authority_ref=OwnedReference(owner="engine", reference=f"range:{row.uuid}"),
                 range_uuid=row.uuid,
-                owner_user_id=row.user_id,
-                workspace_id=_legacy_workspace_id(row.workspace_id),
+                owner_user_id=_legacy_identity_id(row.user_id),
+                workspace_id=_legacy_identity_id(row.workspace_id),
                 request_uuid=row.request.request_id if row.request is not None else None,
             )
             for row in rows

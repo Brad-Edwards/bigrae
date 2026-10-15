@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from mission_control._guacamole_session_builders import (
@@ -132,33 +132,18 @@ def _worker_build_callable(
     the same bootstrap, delivery, client, error, and logging envelopes.
     """
     protocols = GuacamoleBootstrapRequest.Protocol
+    options: dict[str, Any] = {}
     if session_identity is not None:
-        if protocol == protocols.NGFW_SSH:
-            return lambda: _build_ngfw_ssh_url(
-                user=user, app_id=target_id, guac_client=guac_client, session_identity=session_identity
-            )
-        if protocol == protocols.RDP:
-            return lambda: _build_rdp_url(
-                user=user,
-                instance_uuid=target_id,
-                guac_client=guac_client,
-                session_identity=session_identity,
-                range_uuid=range_uuid,
-            )
-        if protocol == protocols.RANGE_SSH:
-            return lambda: _build_range_ssh_url(
-                user=user,
-                instance_uuid=target_id,
-                guac_client=guac_client,
-                session_identity=session_identity,
-                range_uuid=range_uuid,
-            )
+        options["session_identity"] = session_identity
+    range_options = {**options, "range_uuid": range_uuid} if session_identity is not None else options
     if protocol == protocols.RDP:
-        return lambda: _build_rdp_url(user=user, instance_uuid=target_id, guac_client=guac_client)
+        return lambda: _build_rdp_url(user=user, instance_uuid=target_id, guac_client=guac_client, **range_options)
     if protocol == protocols.RANGE_SSH:
-        return lambda: _build_range_ssh_url(user=user, instance_uuid=target_id, guac_client=guac_client)
+        return lambda: _build_range_ssh_url(
+            user=user, instance_uuid=target_id, guac_client=guac_client, **range_options
+        )
     if protocol == protocols.NGFW_SSH:
-        return lambda: _build_ngfw_ssh_url(user=user, app_id=target_id, guac_client=guac_client)
+        return lambda: _build_ngfw_ssh_url(user=user, app_id=target_id, guac_client=guac_client, **options)
     raise ValueError(f"Unsupported Guacamole access kind: {protocol!r}")
 
 
@@ -202,17 +187,20 @@ def launch_guacamole_session(
             safe_log_fingerprint(str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email),
             safe_log_value(target_id),
         )
+    authority_range = authority.get("authority_target_uuid")
+    if authority_range is not None and not isinstance(authority_range, UUID):
+        raise BootstrapFailure("Permission denied", status_code=403)
     build_url = _worker_build_callable(
         protocol=protocol,
         user=user,
         target_id=target_id,
         guac_client=guac_client,
         session_identity="access-" + str(bootstrap_id) if bootstrap_id else None,
-        range_uuid=authority.get("authority_target_uuid") if protocol != "ngfw_ssh" else None,
+        range_uuid=authority_range if protocol != "ngfw_ssh" else None,
     )
     try:
         bootstrap = enqueue_guacamole_bootstrap(
-            user_id=None if authority else _actor_user_id(user),
+            user_id=None if isinstance(user, CredentialContext) else _actor_user_id(user),
             protocol=protocol,
             target_id=target_id,
             build_url=build_url,

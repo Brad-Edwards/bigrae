@@ -40,6 +40,15 @@ def _range_binding(
         raise ValueError(_UNAVAILABLE)
     if not isinstance(instance.owner_principal_uuid, UUID) or not instance.owner_principal_uuid.int:
         raise ValueError(_UNAVAILABLE)
+    scope, parent = _intent_scope_binding(instance)
+    _require_realized_binding(instance, scope, parent, read_only_intent=read_only_intent)
+    return instance, scope, parent
+
+
+def _intent_scope_binding(instance: RangeInstance) -> tuple[ResourceScope, TargetRef]:
+    """Resolve the intent's recorded request custody and any immutable event parent."""
+    if instance.request is None:
+        raise ValueError(_UNAVAILABLE)
     request = instance.request
     fields = ("scope_kind", "account_id", "organization_id", "workspace_id", "owner_principal_uuid")
     if any(getattr(instance, field) != getattr(request, field) for field in fields):
@@ -56,23 +65,32 @@ def _range_binding(
     if event != instance.event_uuid or (event is not None and resolve_authorization_event_scope(event) != scope):
         raise ValueError(_UNAVAILABLE)
     parent = TargetRef("event", event) if event is not None else scope_parent(scope)
+    return scope, parent
+
+
+def _require_realized_binding(
+    instance: RangeInstance, scope: ResourceScope, parent: TargetRef, *, read_only_intent: bool
+) -> None:
+    """Require matching runtime custody except for an unrealized failed-intent read."""
+    if instance.request is None:
+        raise ValueError(_UNAVAILABLE)
+    request = instance.request
     if (
         read_only_intent
         and instance.status == "failed"
         and instance.range_id is None
         and not has_range_runtime(request.request_id, instance.uuid)
     ):
-        return instance, scope, parent
+        return
     realized = project_range_authority(request.request_id)
-    if (
-        realized.public_uuid != instance.uuid
-        or realized.native_id != instance.range_id
-        or realized.scope != scope
-        or realized.owner_principal_uuid != instance.owner_principal_uuid
-        or realized.parent != parent
+    if (realized.public_uuid, realized.native_id, realized.scope, realized.owner_principal_uuid, realized.parent) != (
+        instance.uuid,
+        instance.range_id,
+        scope,
+        instance.owner_principal_uuid,
+        parent,
     ):
         raise ValueError(_UNAVAILABLE)
-    return instance, scope, parent
 
 
 def range_authorization_binding(

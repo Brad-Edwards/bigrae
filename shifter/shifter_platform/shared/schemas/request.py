@@ -7,12 +7,18 @@ Items within a request have independent lifecycles.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING, Self
 from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
 
 from .base import SpecBase
 from .range import InstanceSpec, RangeSpec
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
 
 AnyRangeSpec = RangeSpec
 
@@ -47,7 +53,7 @@ class RequestSpec(SpecBase):
         return v
 
     @model_validator(mode="after")
-    def explicit_owner(self):
+    def explicit_owner(self) -> Self:
         if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
             raise ValueError("Request requires an explicit owner")
         return self

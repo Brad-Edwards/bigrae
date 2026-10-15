@@ -109,6 +109,8 @@ def _validate_active_authority(operation: PreparationOperation, *, authorize: bo
         if authorize:
             reauthorize_preparation_initiator(operation)
     else:
+        if operation.requested_by is None:
+            raise ValidationError(_DENIED)
         require_preparation_permission(operation.requested_by, "prepare_artifacts")
     adapter = operation.adapter
     manifest = validate_pinned_adapter(adapter)
