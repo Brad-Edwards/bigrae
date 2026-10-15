@@ -49,9 +49,10 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2467 after admitting raes-range activate in the provisioner Job policy.
 # Regenerated for #2480 after admitting the OpenVPN pool env and dropping the 1195 port.
 # Regenerated for #2320: dedicated Guacamole/guacd KSAs and bounded native SQL admission.
+# Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "9373c79d9e86a4a23651243745b20fb6a286b849304ee8db066e34ab12ce7bc2",
-    "gcp-prod": "fe4da7c3b0548324baa23b7a6c0bed3f81ee20dd4de1deb10d1e9ed59c370678",
+    "gcp-dev": "a5bdd7350b75d4137c41f17cb85292b971415685736c2256d11c0c67fbd92882",
+    "gcp-prod": "14ebbe092d9d0b403a0848adb79d68c61a6dfc911e04cd732121a5c2eb4058bf",
 }
 
 

@@ -50,10 +50,10 @@ def validate_registered_pack_conformance(*, user: User, scenario_id: str, expect
         # Private parser diagnostics and storage references never leave this gate.
         raise ValidationError("The registered pack failed contract conformance") from exc
     with transaction.atomic():
-        current = RaesPackageSource.objects.select_for_update().get(pk=source.pk)
-        if current.organization_uuid is not None:
+        current = RaesPackageSource.objects.select_for_update().filter(pk=source.pk).first()
+        if current is not None and current.organization_uuid is not None:
             get_organization_profile(user, current.organization_uuid)
-        if _identity(current) != identity:
+        if current is None or _identity(current) != identity:
             raise ValidationError("The pack identity changed during conformance validation")
         current.conformance_status = "passed"
         current.conformance_report_ref = report

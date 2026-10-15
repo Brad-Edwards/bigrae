@@ -1,25 +1,30 @@
-"""Session-authenticated tenant pack installation; multipart bytes are bounded."""
+"""Session-authenticated tenant pack installation and removal; multipart bytes are bounded."""
 
 from uuid import UUID
 
 from django.conf import settings
 from django.core.files.uploadhandler import FileUploadHandler, StopUpload
 from django.http import HttpRequest
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers
 from rest_framework.parsers import MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from cms.services import PackRemovalConflict, request_tenant_pack_removal
 from cms.services._tenant_pack_upload import upload_tenant_pack
 from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSession
+from shared.api.schema import ApiErrorSerializer
 from shared.audit import get_request_id
 from shared.exceptions import ValidationError
 from workspaces.services import OrganizationAuthorizationError, get_organization_profile
 
-from .preparation_adapters import PreparationSerializer
+from .preparation_adapters import PreparationSerializer, preparation_request_audit
+
+# Pack administration is session-only: IsAuthenticatedSession rejects tokens.
+SESSION_ONLY_SCHEMA_AUTH: list[dict[str, list[str]]] = [{"cookieAuth": []}]
 
 
 class _BoundedUpload(FileUploadHandler):
@@ -74,7 +79,11 @@ class TenantPackUploadView(APIView):
         request.upload_handlers.insert(0, _BoundedUpload(request))
         return super().initialize_request(request, *args, **kwargs)
 
-    @extend_schema(request=TenantPackUploadSerializer, responses={201: TenantPackInstalledSerializer})
+    @extend_schema(
+        request=TenantPackUploadSerializer,
+        responses={201: TenantPackInstalledSerializer},
+        auth=SESSION_ONLY_SCHEMA_AUTH,  # type: ignore[arg-type]
+    )
     def post(self, request: Request, organization_uuid: UUID) -> Response:
         try:
             get_organization_profile(request.user, organization_uuid)
@@ -100,3 +109,78 @@ class TenantPackUploadView(APIView):
                 status_code=403 if denied else 400,
                 request=request,
             )
+
+
+class TenantPackRemovalRequestSerializer(PreparationSerializer):
+    """Removal pinned to the revision the administrator reviewed."""
+
+    pack_digest = serializers.RegexField(r"^sha256:[a-f0-9]{64}$")
+
+
+class TenantPackRemovalSerializer(serializers.Serializer):
+    """Removal progress; ``pending`` means archive cleanup is still retrying."""
+
+    removal_id = serializers.UUIDField()
+    pack_id = serializers.CharField()
+    state = serializers.ChoiceField(choices=("pending", "completed"))
+    remaining_archives = serializers.IntegerField()
+
+
+class TenantPackRemovalView(APIView):
+    """Remove an organization-owned pack, or resume its pending cleanup."""
+
+    permission_classes = [IsAuthenticatedSession]
+
+    @extend_schema(
+        request=TenantPackRemovalRequestSerializer,
+        responses={
+            200: OpenApiResponse(TenantPackRemovalSerializer, description="Removed; every archive is deleted."),
+            202: OpenApiResponse(TenantPackRemovalSerializer, description="Removed; archive cleanup is retrying."),
+            400: OpenApiResponse(ApiErrorSerializer, description="The pack is unavailable in this organization."),
+            403: OpenApiResponse(ApiErrorSerializer, description="Organization access denied."),
+            409: OpenApiResponse(
+                ApiErrorSerializer,
+                description=(
+                    "pack_in_use (details.blockers, details.blocker_count), pack_changed, pack_busy, "
+                    "pack_references_unavailable or pack_storage_unavailable."
+                ),
+            ),
+        },
+        auth=SESSION_ONLY_SCHEMA_AUTH,  # type: ignore[arg-type]
+    )
+    def post(self, request: Request, organization_uuid: UUID, pack_id: str) -> Response:
+        body = TenantPackRemovalRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        try:
+            result = request_tenant_pack_removal(
+                request.user,
+                organization_uuid,
+                pack_id,
+                body.validated_data["pack_digest"],
+                audit=preparation_request_audit(request),
+            )
+        except OrganizationAuthorizationError:
+            return api_error_response(
+                code="pack_access_denied", message="Organization access denied", status_code=403, request=request
+            )
+        except ValidationError as exc:
+            return api_error_response(code="pack_invalid", message=exc.message, status_code=400, request=request)
+        except PackRemovalConflict as exc:
+            details = None
+            if exc.code == "pack_in_use":
+                details = {
+                    "blockers": [{"kind": row.kind, "status": row.status, "label": row.label} for row in exc.blockers],
+                    "blocker_count": exc.total,
+                }
+            return api_error_response(
+                code=exc.code, message=exc.message, status_code=409, details=details, request=request
+            )
+        payload = TenantPackRemovalSerializer(
+            {
+                "removal_id": result.removal_id,
+                "pack_id": result.pack_id,
+                "state": result.state,
+                "remaining_archives": result.remaining_archives,
+            }
+        ).data
+        return Response(payload, status=200 if result.state == "completed" else 202)

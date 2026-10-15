@@ -428,6 +428,28 @@ def cms_range_egress_compatible_with_event(
     return cms_services.range_egress_compatible_with_event(range_instance_id, event_owner, event_workspace_id)
 
 
+def cms_fence_pack_reference(scenario_id: str) -> None:
+    """Hold the CMS pack admission fence while an event or schedule references a pack.
+
+    Call inside the transaction that commits the reference (ADR-034-R13). A
+    scenario that was never registered stays allowed, as before; a pack that
+    was removed is refused.
+
+    Raises:
+        CTFValidationError: the pack was removed or changed during admission.
+    """
+    import cms.services as cms_services
+    from ctf.exceptions import CTFValidationError
+    from shared.exceptions import CMSError
+
+    try:
+        cms_services.fence_pack_reference(scenario_id, required=False)
+    except CMSError:
+        raise CTFValidationError(
+            "Scenario is not available for CTF event creation.", code="CTF_SCENARIO_NOT_AVAILABLE"
+        ) from None
+
+
 def cms_list_scenarios(user: User) -> list[tuple[str, str]]:
     """List CTF-event-selectable scenarios as (id, name) tuples for form choices.
 

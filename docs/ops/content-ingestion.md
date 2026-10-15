@@ -47,6 +47,54 @@ storage access. Archives are bounded to 256 MiB compressed, 1 GiB expanded and
 20,000 entries by default. Interrupted uploads may leave unreferenced objects;
 previous registered revisions are retained for in-flight operations.
 
+## Tenant removal
+
+Open **Administer → Adapters → Install packs and assign adapters** and select
+**Remove** for a pack that your organization installed. Confirm the removal.
+Packs that Shifter installs for every organization are not removable here.
+
+Shifter refuses the removal while one of these still uses the pack:
+
+- a range that is not destroyed or failed;
+- a CTF event that is not ended, cancelled or archived;
+- a pending or running CTF range spin-up task;
+- an operator warm-pool bucket in an active warm-pool policy.
+
+The refusal lists each reference. A reference outside your organization shows
+only its kind and status. End or destroy the references, then retry.
+
+A successful removal does these steps:
+
+1. It removes the pack from the catalog and deletes its adapter assignment.
+2. It deletes every stored archive revision of the pack.
+3. It keeps ended events, destroyed ranges, audit records and adapter
+   installations. Acquired feature artifacts stay, because other packs share them.
+
+If storage deletion fails, the removal state is `pending`. The
+`worker-pack-removal-reconciler` deployment retries it on the portal identity.
+You can also send the removal request again to retry. The pack bucket keeps a
+deleted archive as a noncurrent version for `noncurrent_version_retention_days`
+(default 7), then deletes it.
+
+The session API is `POST /api/v1/cms/organizations/<uuid>/packs/<pack-id>/removal/`
+with the field `pack_digest` (the displayed digest). It returns `200` when
+cleanup is complete and `202` while cleanup is pending. It returns `409` with
+`pack_in_use`, `pack_changed` or `pack_busy` when it cannot proceed. Operators can
+run `python manage.py reconcile_tenant_pack_removals` once to retry cleanup.
+
+Packs installed before removal support have no recorded location for earlier
+revisions. Shifter infers the current bucket and prefix, and deletes such an
+archive only after it finds the object there. If it does not find the object,
+the removal stays `pending` with `legacy_location_unverified`. Find the archive
+in storage, then run one of these commands:
+
+- `python manage.py reconcile_tenant_pack_removals --relocate-archive <id> --bucket <bucket> --object-key <key>`
+  sets the real location; the next pass deletes the object there.
+- `python manage.py reconcile_tenant_pack_removals --confirm-archive-absent <id>`
+  records that the archive is not in any location.
+
+Both commands write an audit record.
+
 ## API
 
 `POST /api/v1/cms/catalog/packs/` with the `cms:authoring:write` scope:

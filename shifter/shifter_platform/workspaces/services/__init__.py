@@ -92,7 +92,7 @@ from ._authorization_policy import (
     apply_policy_mutation,
     reconcile_policy_mutation,
 )
-from ._content_scope import content_organization_uuids
+from ._content_scope import content_organization_uuids, organization_scope_ids
 from ._context import (
     ActorWorkspaceContext,
     OrganizationRef,
@@ -347,6 +347,7 @@ __all__ = [
     "list_workspaces",
     "lock_policy_range_rebind",
     "move_workspace_concurrent_range_reservation",
+    "organization_scope_ids",
     "policy_accept_workspace_invitation",
     "policy_leave_workspace",
     "policy_owned_workspace_candidates",

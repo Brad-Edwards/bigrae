@@ -95,11 +95,16 @@ class GCPObjectStorage:
         logger.info("upload_file: success bucket=%s key=%s", bucket, safe_key)
 
     def delete_object(self, bucket: str, key: str) -> None:
+        """Delete ``key``; an already-absent object is success, as on S3."""
         safe_key = safe_log_value(key)
         logger.debug("delete_object: bucket=%s key=%s", bucket, safe_key)
+        api_exceptions = import_google_module("google.api_core.exceptions")
         try:
             client = self._get_client()
             client.bucket(bucket).blob(key).delete()
+        except api_exceptions.NotFound:
+            logger.info("delete_object: already absent bucket=%s key=%s", bucket, safe_key)
+            return
         except Exception as e:
             logger.exception("delete_object: failed bucket=%s key=%s", bucket, safe_key)
             raise CloudStorageError(f"Failed to delete GCS object: {e}") from e

@@ -25,3 +25,6 @@ class CtfConfig(AppConfig):
         from ctf.services.authorization_inventory import register_authorization_event_inventory
 
         register_authorization_event_inventory()
+        from ctf.services.pack_references import register_ctf_pack_references
+
+        register_ctf_pack_references()

@@ -130,8 +130,14 @@ class CTFScheduledTaskAdmin(SoftDeleteAdminMixin, admin.ModelAdmin):
     list_filter = ["status", "task_type", "event"]
     search_fields = ["event__name"]
     ordering = ["scheduled_for"]
-    readonly_fields = ["id", "created_at", "updated_at", "deleted_at", "executed_at"]
+    # Event, type and status change only through the fenced scheduling services
+    # (ADR-034-R13); a spin-up task is a pack reference.
+    readonly_fields = ["id", "created_at", "updated_at", "deleted_at", "executed_at", "event", "task_type", "status"]
     date_hierarchy = "scheduled_for"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Scheduled tasks are created only by the scheduling services."""
+        return False
 
     fieldsets = [
         (
