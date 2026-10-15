@@ -12,6 +12,15 @@ are generated at release time via its release PR, not hand-edited in PRs. See
 model. The history below is preserved as-is across the towncrier to
 release-please transition (#1776).
 
+## [4.1.1](https://github.com/Brad-Edwards/shifter/compare/v4.1.0...v4.1.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **bootstrap:** use concise digit class in GCP region rule ([79be371](https://github.com/Brad-Edwards/shifter/commit/79be371f76ef83756543f09f62796227bf766855))
+* resolve SonarCloud findings from the v4.1.0 back-merge ([8ddcd88](https://github.com/Brad-Edwards/shifter/commit/8ddcd88edb073ac91fd1874a6b87fa72d22f872f))
+* resolve SonarCloud findings from the v4.1.0 back-merge ([4fdd9d7](https://github.com/Brad-Edwards/shifter/commit/4fdd9d7c3fbd041901e25f42af49a97261d2afd8))
+
 ## [4.1.0](https://github.com/Brad-Edwards/shifter/compare/v4.0.0...v4.1.0) (2026-10-13)
 
 
