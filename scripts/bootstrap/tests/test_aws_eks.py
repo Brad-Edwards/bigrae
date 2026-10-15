@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -139,25 +140,35 @@ def test_acquisition_egress_keeps_the_provider_api_posture():
     }
 
 
-def test_alb_health_checks_use_each_services_readiness_probe_path():
+def test_alb_health_checks_use_each_services_readiness_probe_path(tmp_path):
     """ALB target health must probe the same endpoint Kubernetes readiness does."""
     import yaml
 
     values = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images())
-    templates = Path(__file__).resolve().parents[3] / "platform/charts/shifter/templates"
+    chart = Path(__file__).resolve().parents[3] / "platform/charts/shifter"
+    values_file = tmp_path / "aws-values.yaml"
+    values_file.write_text(yaml.safe_dump(values), encoding="utf-8")
+    rendered = subprocess.run(
+        ["helm", "template", "readiness-contract", str(chart), "-f", str(values_file)],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    ).stdout
+    deployments = {
+        doc["metadata"]["labels"]["app.kubernetes.io/component"]: doc
+        for doc in yaml.safe_load_all(rendered)
+        if isinstance(doc, dict) and doc.get("kind") == "Deployment"
+    }
 
-    def readiness_path(template: str) -> str:
-        text = (templates / template).read_text(encoding="utf-8")
-        body = "\n".join(line for line in text.splitlines() if "{{" not in line and "}}" not in line)
-        deployment = next(doc for doc in yaml.safe_load_all(body) if isinstance(doc, dict))
+    def readiness_path(component: str) -> str:
+        deployment = deployments[component]
         return deployment["spec"]["template"]["spec"]["containers"][0]["readinessProbe"]["httpGet"]["path"]
 
     annotations = {name: service["annotations"] for name, service in values["services"].items()}
     assert annotations == {
-        "portal": {"alb.ingress.kubernetes.io/healthcheck-path": readiness_path("web-deployment.yaml")},
-        "guacamoleClient": {
-            "alb.ingress.kubernetes.io/healthcheck-path": readiness_path("guacamole-client-deployment.yaml")
-        },
+        "portal": {"alb.ingress.kubernetes.io/healthcheck-path": readiness_path("portal")},
+        "guacamoleClient": {"alb.ingress.kubernetes.io/healthcheck-path": readiness_path("guacamole-client")},
     }
 
 

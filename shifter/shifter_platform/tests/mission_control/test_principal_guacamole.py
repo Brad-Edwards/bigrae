@@ -1,6 +1,6 @@
 """Guacamole work and handoff retain the originating non-secret authority."""
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -376,10 +376,10 @@ def test_native_cleanup_survives_signing_secret_removal(remote, settings):
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("credential_uuid", uuid4()),
-        ("credential_ceiling_actions", "range.manage"),
-        ("authority_binding_digest", "sha256:" + "0" * 64),
-        ("target_id", str(uuid4())),
+        pytest.param("credential_uuid", UUID(int=1), id="credential-reference"),
+        pytest.param("credential_ceiling_actions", "range.manage", id="credential-ceiling"),
+        pytest.param("authority_binding_digest", "sha256:" + "0" * 64, id="authority-digest"),
+        pytest.param("target_id", str(UUID(int=2)), id="target-identity"),
     ],
 )
 def test_persisted_remote_authority_is_immutable(remote, field, value):
