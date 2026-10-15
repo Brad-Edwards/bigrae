@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
-from django.core.exceptions import ValidationError as DjangoValidationError
 
 from engine.secrets import SecretsError
 from shared.credentials import CredentialContext
@@ -27,6 +26,7 @@ from ._common import (
     _resolve_rdp_credentials,
     find_instance_by_uuid,
 )
+from ._queries import _owned_legacy_instance_request_ref
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -426,44 +426,6 @@ def connect_ngfw_terminal(user: User | CredentialContext, ngfw_uuid: str) -> SSH
         # PAN-OS doesn't support tmux
         session_id=None,
     )
-
-
-def _owned_legacy_instance_request_ref(user: User, instance_uuid: str) -> str | None:
-    """Resolve incumbent range or device request custody without disclosing principal-owned resources."""
-    from engine.models import Range
-
-    user_id = getattr(user, "id", None)
-    request_ref = None
-    if user_id is not None and instance_uuid:
-        range_obj = Range.resolve_active_for_instance(user, instance_uuid)
-        if range_obj is not None and range_obj.request is not None:
-            if range_obj.owner_principal_uuid is not None:
-                raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
-            request_ref = str(range_obj.request.request_id)
-        else:
-            request_ref = _legacy_instance_row_request_ref(user_id, instance_uuid)
-    return request_ref
-
-
-def _legacy_instance_row_request_ref(user_id: int, instance_uuid: str) -> str | None:
-    """Resolve only incumbent device request ownership, including detached rows."""
-    from engine.models import Instance
-
-    request_ref = None
-    try:
-        instance = (
-            Instance.objects.select_related("request").filter(uuid=instance_uuid, request__user_id=user_id).first()
-        )
-    except (DjangoValidationError, ValueError):
-        instance = None
-    # ``request`` is nullable on the model, so an instance whose request
-    # row was detached resolves to no ref rather than raising. A malformed
-    # uuid (caught above) also resolves to no ref.
-    if instance is not None and instance.request is not None:
-        if instance.request.owner_principal_uuid is not None:
-            raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
-        request_ref = str(instance.request.request_id)
-    return request_ref
 
 
 def _legacy_terminal_device(user: User, ngfw_uuid: str) -> Instance:
