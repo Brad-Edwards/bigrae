@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.db import transaction
 
@@ -50,11 +50,7 @@ def validate_registered_pack_conformance(*, user: User, scenario_id: str, expect
         # Private parser diagnostics and storage references never leave this gate.
         raise ValidationError("The registered pack failed contract conformance") from exc
     with transaction.atomic():
-        current = RaesPackageSource.objects.select_for_update().get(pk=source.pk)
-        if current.organization_uuid is not None:
-            get_organization_profile(user, current.organization_uuid)
-        if _identity(current) != identity:
-            raise ValidationError("The pack identity changed during conformance validation")
+        current = _locked_unchanged(source.pk, identity, user)
         current.conformance_status = "passed"
         current.conformance_report_ref = report
         current.save(update_fields=["conformance_status", "conformance_report_ref", "updated_at"])
@@ -93,3 +89,18 @@ def _identity(source: RaesPackageSource) -> tuple[str, ...]:
             "lock_digest",
         )
     )
+
+
+def _locked_unchanged(pk: UUID, identity: tuple[str, ...], user: User) -> RaesPackageSource:
+    """Lock the validated row, reauthorize, and require its identity unchanged (or present)."""
+    from cms.models import RaesPackageSource
+    from workspaces.services import get_organization_profile
+
+    current = RaesPackageSource.objects.select_for_update().filter(pk=pk).first()
+    if current is None:
+        raise ValidationError("The pack identity changed during conformance validation")
+    if current.organization_uuid is not None:
+        get_organization_profile(user, current.organization_uuid)
+    if _identity(current) != identity:
+        raise ValidationError("The pack identity changed during conformance validation")
+    return current

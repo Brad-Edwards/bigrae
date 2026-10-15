@@ -133,6 +133,54 @@ def list_runtime_plugin_bindings(user: User, organization_uuid: UUID) -> list[Ru
     ]
 
 
+def remove_runtime_plugin_pack_binding(
+    user: User, organization_uuid: UUID, pack_id: str, *, audit: RequestAudit | None = None
+) -> bool:
+    """Delete a pack's current selection; range pins and installations are retained.
+
+    Locks the installation before the binding, the order every binding writer
+    and launch admission uses. Returns whether a selection existed.
+    """
+    from engine.models import RuntimePluginInstallation, RuntimePluginPackBinding
+
+    organization_uuid = _authorize(user, organization_uuid)
+    with transaction.atomic():
+        candidate = (
+            RuntimePluginPackBinding.objects.filter(organization_uuid=organization_uuid, pack_id=pack_id)
+            .values_list("pk", "installation_id")
+            .first()
+        )
+        if candidate is None:
+            return False
+        RuntimePluginInstallation.objects.select_for_update().get(pk=candidate[1])
+        row = RuntimePluginPackBinding.objects.select_for_update().get(pk=candidate[0])
+        previous = {
+            "organization_uuid": str(organization_uuid),
+            "pack_digest": row.pack_digest,
+            "installation_id": str(row.installation_id),
+            "enabled": row.enabled,
+        }
+        reference = str(row.id)
+        row.delete()
+        attribution = audit or RequestAudit()
+        audit_log(
+            AuditEvent(
+                entity_type=AuditEntityType.RUNTIME_PLUGIN,
+                entity_id=0,
+                entity_ref=reference,
+                action=AuditAction.DELETE,
+                actor_type=attribution.actor_type or AuditActorType.USER,
+                actor_id=attribution.actor_id if attribution.actor_type else user.id,
+                request_id=attribution.request_id,
+                source_ip=attribution.source_ip,
+                user_agent=attribution.user_agent,
+                previous_state=previous,
+            ),
+            strict=True,
+        )
+        return True
+
+
 def has_runtime_plugin_binding(organization_uuid: UUID, pack_id: str) -> bool:
     """Whether a trusted launch scope needs cold plugin admission, even if disabled."""
     from engine.models import RuntimePluginPackBinding

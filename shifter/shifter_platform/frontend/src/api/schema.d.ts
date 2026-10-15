@@ -577,6 +577,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cms/organizations/{organization_uuid}/packs/{pack_id}/removal/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Remove an organization-owned pack, or resume its pending cleanup. */
+        post: operations["cms_organizations_packs_removal_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cms/organizations/{organization_uuid}/plugin-packs/": {
         parameters: {
             query?: never;
@@ -7177,6 +7194,24 @@ export interface components {
             conformance_status: string;
             created: boolean;
         };
+        /** @description Removal progress; ``pending`` means archive cleanup is still retrying. */
+        TenantPackRemoval: {
+            /** Format: uuid */
+            removal_id: string;
+            pack_id: string;
+            state: components["schemas"]["TenantPackRemovalStateEnum"];
+            remaining_archives: number;
+        };
+        /** @description Removal pinned to the revision the administrator reviewed. */
+        TenantPackRemovalRequest: {
+            pack_digest: string;
+        };
+        /**
+         * @description * `pending` - pending
+         *     * `completed` - completed
+         * @enum {string}
+         */
+        TenantPackRemovalStateEnum: "pending" | "completed";
         /** @description Named pack archive with an optional expected revision digest. */
         TenantPackUpload: {
             name: string;
@@ -8747,6 +8782,80 @@ export interface operations {
             };
             /** @description Permission denied. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    cms_organizations_packs_removal_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organization_uuid: string;
+                pack_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantPackRemovalRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["TenantPackRemovalRequest"];
+                "multipart/form-data": components["schemas"]["TenantPackRemovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Removed; every archive is deleted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantPackRemoval"];
+                };
+            };
+            /** @description Removed; archive cleanup is retrying. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantPackRemoval"];
+                };
+            };
+            /** @description The pack is unavailable in this organization. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Organization access denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description pack_in_use (details.blockers, details.blocker_count), pack_changed, pack_busy, pack_references_unavailable or pack_storage_unavailable. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

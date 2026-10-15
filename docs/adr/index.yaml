@@ -1958,6 +1958,11 @@
         "id": "ADR-034-R12",
         "description": "Recipe acquisition runs before ranges need it and never needs an operator step: registering or updating a pack triggers acquisition for its declared feature sources, and deploy bootstrap does the same for registered packs. A request first reuses a ready inventory row whose object is present with a matching digest and downloads nothing; otherwise the first requester claims the row and starts exactly one dedicated, isolated acquisition Job, and concurrent requesters wait on that attempt rather than downloading again. Materialization requires every declared feature to resolve to a ready artifact; a launch waits a bounded time for an in-flight attempt, and an artifact that cannot be acquired fails that range's materialization before any cloud mutation. Failure is per range and never sticky: one range failing does not fail other ranges stamped from the same scenario, and a later request starts a fresh attempt after a bounded backoff.",
         "checks": []
+      },
+      {
+        "id": "ADR-034-R13",
+        "description": "Tenant pack removal is an organization-admin CMS service over organization-owned registrations only; organization-less packs remain operator-managed. Refuse non-terminal ranges, non-terminal events, pending or running launch schedules and active operator warm-pool buckets that reference the catalog id, using owner-domain projections through a fail-closed port. Every reference writer takes the CMS admission fence (a share lock on the pack row) in the transaction that commits the reference; removal takes the row without waiting. Hard-delete the catalog row and its overlays; history keeps scalar identities, audit records and runtime plugin pins, and only current pack selections are removed through Engine. Record every uploaded archive in a pack-owned inventory, commit strict request audit and the captured exact keys before destructive I/O, keep failed cleanup retryable by a reconciler on the bucket-owning identity, and report completion only after every captured live object is absent and completion audit is durable. The pack bucket expires noncurrent generations through its lifecycle rule. Never purge an organization prefix, infer ownership from a digest, or conflate content uninstall with adapter retirement or shared artifact garbage collection; acquired artifacts are shared retained supply. Unverified cloud cleanup of a terminal range is not a pack reference, because teardown uses the immutable compiled plan and retained pin.",
+        "checks": []
       }
     ],
     "exceptions": [],
@@ -1982,7 +1987,14 @@
       "docs/adr/index.yaml",
       "shifter/shifter_platform/cms/services/_tenant_pack_upload.py",
       "shifter/shifter_platform/tests/cms/test_tenant_pack_upload.py",
-      "docs/architecture/raes-feature-artifact-acquisition-preflight-2463.md"
+      "docs/architecture/raes-feature-artifact-acquisition-preflight-2463.md",
+      "docs/architecture/tenant-pack-removal-preflight-2520.md",
+      "shifter/shifter_platform/cms/services/_tenant_pack_removal.py",
+      "shifter/shifter_platform/cms/services/_pack_fence.py",
+      "shifter/shifter_platform/cms/services/_pack_references.py",
+      "shifter/shifter_platform/shared/pack_references.py",
+      "shifter/shifter_platform/tests/cms/test_tenant_pack_removal.py",
+      "shifter/shifter_platform/tests/cms/test_tenant_pack_removal_postgres.py"
     ]
   },
   {

@@ -195,6 +195,7 @@ from ._runtime_plugin_bindings import (
     bind_runtime_plugin,
     has_runtime_plugin_binding,
     list_runtime_plugin_bindings,
+    remove_runtime_plugin_pack_binding,
 )
 from ._runtime_plugin_controller import reconcile_runtime_plugins
 from ._runtime_plugin_operations import reconcile_runtime_plugin_operations
@@ -463,6 +464,7 @@ __all__ = (
     "release_range_capacity",
     "release_subnet_reservation",
     "release_warm_generation_capacity",
+    "remove_runtime_plugin_pack_binding",
     "renew_continuation_lease",
     "renew_vpn_sessions",
     "request_acquisition",

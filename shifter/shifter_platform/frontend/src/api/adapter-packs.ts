@@ -7,6 +7,7 @@ export type AdapterPack = components["schemas"]["RuntimePluginPack"];
 export type AdapterPackDetail = components["schemas"]["RuntimePluginPackDetail"];
 export type AdapterPackUpdate = components["schemas"]["RuntimePluginPackUpdate"];
 export type AdapterTargetImageProfile = components["schemas"]["RuntimeTargetImageProfile"];
+export type PackRemoval = components["schemas"]["TenantPackRemoval"];
 const key = (organization: string) => ["adapter-packs", organization] as const;
 const base = (organization: string) => `/cms/organizations/${organization}/plugin-packs/`;
 
@@ -38,6 +39,16 @@ export function useBindAdapterPack(organization: string, pack: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: AdapterPackUpdate) => apiFetch(`${base(organization)}${encodeURIComponent(pack)}/`, { method: "POST", body }),
+    onSuccess: () => client.invalidateQueries({ queryKey: key(organization) }),
+  });
+}
+
+export function useRemovePack(organization: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pack, pack_digest }: { pack: string; pack_digest: string }) => apiFetch<PackRemoval>(
+      `/cms/organizations/${organization}/packs/${encodeURIComponent(pack)}/removal/`, { method: "POST", body: { pack_digest } },
+    ),
     onSuccess: () => client.invalidateQueries({ queryKey: key(organization) }),
   });
 }

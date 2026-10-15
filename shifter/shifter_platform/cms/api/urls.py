@@ -70,6 +70,11 @@ urlpatterns = [
         name="tenant-pack-upload",
     ),
     path(
+        "organizations/<uuid:organization_uuid>/packs/<slug:pack_id>/removal/",
+        tenant_packs.TenantPackRemovalView.as_view(),
+        name="tenant-pack-removal",
+    ),
+    path(
         "organizations/<uuid:organization_uuid>/plugin-packs/",
         runtime_plugin_packs.RuntimePluginPackListView.as_view(),
         name="runtime-plugin-packs",

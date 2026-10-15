@@ -80,6 +80,23 @@ class TestPublishedContract:
             operations.append(paths[f"/api/v1/credentials/personal/{{credential_uuid}}/{action}/"]["post"])
         assert all(operation["security"] == [{"cookieAuth": []}] for operation in operations)
 
+    def test_tenant_pack_administration_is_session_only_and_declares_removal_conflicts(self, openapi_document):
+        paths = openapi_document["paths"]
+        base = "/api/v1/cms/organizations/{organization_uuid}/"
+        removal = paths[base + "packs/{pack_id}/removal/"]["post"]
+        operations = [
+            paths[base + "packs/"]["post"],
+            paths[base + "plugin-packs/"]["get"],
+            paths[base + "plugin-packs/{pack_id}/"]["get"],
+            paths[base + "plugin-packs/{pack_id}/"]["post"],
+            removal,
+        ]
+        assert all(operation["security"] == [{"cookieAuth": []}] for operation in operations)
+        for status in ("400", "403", "409"):
+            assert removal["responses"][status]["content"]["application/json"]["schema"]["$ref"].endswith("/ApiError")
+        assert "pack_in_use" in removal["responses"]["409"]["description"]
+        assert {"200", "202"} <= set(removal["responses"])
+
     @pytest.mark.parametrize("collection", ["personal", "services"])
     def test_credential_collections_publish_bounded_pagination(self, openapi_document, collection):
         operation = openapi_document["paths"][f"/api/v1/credentials/{collection}/"]["get"]

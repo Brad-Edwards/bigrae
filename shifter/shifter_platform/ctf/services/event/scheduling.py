@@ -6,6 +6,7 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from django.db import transaction
 from django.utils import timezone
 
 from ctf.enums import ScheduledTaskType
@@ -38,12 +39,16 @@ def _schedule_event_tasks(event: CTFEvent) -> None:
 
     now = timezone.now()
 
-    # Spin up ranges before event
-    CTFScheduledTask.objects.create(
-        event=event,
-        task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
-        scheduled_for=event.get_spinup_time(),
-    )
+    # Spin up ranges before event, holding the pack admission fence (ADR-034-R13).
+    with transaction.atomic():
+        from ctf.bridges import cms_fence_pack_reference
+
+        cms_fence_pack_reference(event.scenario_id)
+        CTFScheduledTask.objects.create(
+            event=event,
+            task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
+            scheduled_for=event.get_spinup_time(),
+        )
 
     # Event start
     CTFScheduledTask.objects.create(

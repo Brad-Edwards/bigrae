@@ -4,12 +4,13 @@ import {
   useAdapterPackDetail,
   useAdapterPacks,
   useBindAdapterPack,
+  useRemovePack,
   type AdapterPack,
   type AdapterPackDetail,
   type AdapterTargetImageProfile,
 } from "@/api/adapter-packs";
 import type { Adapter } from "@/api/adapters";
-import { describeMutationError } from "@/api/errors";
+import { ApiError, describeMutationError } from "@/api/errors";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,8 @@ export function AdapterPackBindings({ organization, adapters }: Readonly<{ organ
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState("");
   const [saved, setSaved] = useState(false);
+  const [removing, setRemoving] = useState<AdapterPack | null>(null);
+  const [removed, setRemoved] = useState("");
   const packs = useAdapterPacks(organization, page);
   const detail = useAdapterPackDetail(organization, selected);
   const error = describeMutationError(packs.error ?? detail.error, "Pack details could not be loaded.");
@@ -46,13 +49,17 @@ export function AdapterPackBindings({ organization, adapters }: Readonly<{ organ
     {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
     {packs.isPending ? <output className="block">Loading packs…</output> : null}
     {saved ? <output className="block">Assignment saved. Existing ranges keep their original adapter.</output> : null}
+    {removed ? <output className="block">{removed}</output> : null}
     {packs.data ? <>
       <PackUploadForm organization={organization} packs={packs.data.results} />
       {packs.data.results.length === 0 ? <p>No accessible packs are registered.</p> : <Table>
         <TableHeader><TableRow><TableHead>Pack</TableHead><TableHead>Assignment</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
         <TableBody>{packs.data.results.map((pack) => <TableRow key={pack.id}>
           <TableCell>{pack.name}</TableCell><TableCell>{bindingStatus(pack)}</TableCell>
-          <TableCell><Button variant="outline" onClick={() => { setSelected(pack.id); setSaved(false); }}>Configure {pack.name}</Button></TableCell>
+          <TableCell className="space-x-2">
+            <Button variant="outline" onClick={() => { setSelected(pack.id); setSaved(false); }}>Configure {pack.name}</Button>
+            {pack.can_update ? <Button variant="outline" onClick={() => { setRemoving(pack); setRemoved(""); }}>Remove {pack.name}</Button> : null}
+          </TableCell>
         </TableRow>)}</TableBody>
       </Table>}
       <div className="flex gap-2">
@@ -63,7 +70,54 @@ export function AdapterPackBindings({ organization, adapters }: Readonly<{ organ
     {selected && detail.isPending ? <output className="block">Checking pack contents and guest targets…</output> : null}
     {selected && detail.data ? <PackAssignmentForm key={`${selected}:${detail.data.pack_digest}`} organization={organization}
       pack={detail.data} adapters={adapters} onSaved={() => { setSelected(""); setSaved(true); }} /> : null}
+    {removing ? <PackRemovalDialog key={removing.id} organization={organization} pack={removing}
+      onClose={() => setRemoving(null)}
+      onRemoved={(message) => {
+        if (selected === removing.id) { setSelected(""); }
+        setRemoving(null);
+        setRemoved(message);
+      }} /> : null}
   </section>;
+}
+
+const BLOCKER_KINDS: Record<string, string> = {
+  range: "Range",
+  ctf_event: "CTF event",
+  ctf_scheduled_launch: "Scheduled CTF range launch",
+  warm_pool_bucket: "Operator warm pool",
+};
+
+interface PackBlocker { kind: string; status: string; label: string | null }
+
+function packBlockers(error: unknown): { rows: PackBlocker[]; total: number } | null {
+  if (!(error instanceof ApiError) || error.code !== "pack_in_use" || !error.details) return null;
+  const rows = Array.isArray(error.details.blockers) ? error.details.blockers as PackBlocker[] : [];
+  const total = typeof error.details.blocker_count === "number" ? error.details.blocker_count : rows.length;
+  return { rows, total };
+}
+
+function PackRemovalDialog({ organization, pack, onClose, onRemoved }: Readonly<{
+  organization: string; pack: AdapterPack; onClose: () => void; onRemoved: (message: string) => void;
+}>) {
+  const remove = useRemovePack(organization);
+  const blockers = packBlockers(remove.error);
+  const hidden = blockers ? blockers.total - blockers.rows.length : 0;
+  return <ConfirmDialog open title="Remove this pack?" confirmLabel="Remove pack" destructive pending={remove.isPending}
+    error={remove.error} onOpenChange={(open) => { if (!open && !remove.isPending) onClose(); }}
+    onConfirm={() => remove.mutate({ pack: pack.id, pack_digest: pack.pack_digest }, {
+      onSuccess: (result) => onRemoved(result.state === "completed"
+        ? `${pack.name} was removed and its stored archives are deleted.`
+        : `${pack.name} was removed. Storage cleanup is pending and retries automatically.`),
+    })}
+    content={blockers ? <ul className="list-disc space-y-1 pl-6" aria-label="References that block removal">
+      {blockers.rows.map((row, index) => <li key={`${row.kind}-${index}`}>
+        {BLOCKER_KINDS[row.kind] ?? row.kind}: {row.label ?? "details not visible to you"} ({row.status})
+      </li>)}
+      {hidden > 0 ? <li>{hidden} more {hidden === 1 ? "reference" : "references"} not listed.</li> : null}
+    </ul> : null}>
+    {pack.name} leaves the catalog and its adapter assignment is deleted. Shifter deletes the stored pack archives.
+    Ended events and destroyed ranges keep their history. Removal is refused while an event, schedule or range still uses the pack.
+  </ConfirmDialog>;
 }
 
 function declaredNames(value: unknown, key: string): string[] {

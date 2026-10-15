@@ -323,6 +323,17 @@ workers:
         cpu: 500m
         memory: 512Mi
         ephemeral-storage: 256Mi
+  packRemovalReconciler:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+        ephemeral-storage: 128Mi
+      limits:
+        cpu: 250m
+        memory: 512Mi
+        ephemeral-storage: 256Mi
 
 guacd:
   replicas: 1

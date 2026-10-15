@@ -2228,9 +2228,6 @@
         },
         "security": [
           {
-            "ApiTokenAuth": []
-          },
-          {
             "cookieAuth": []
           }
         ],
@@ -2268,6 +2265,121 @@
         }
       }
     },
+    "/api/v1/cms/organizations/{organization_uuid}/packs/{pack_id}/removal/": {
+      "post": {
+        "operationId": "cms_organizations_packs_removal_create",
+        "description": "Remove an organization-owned pack, or resume its pending cleanup.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "organization_uuid",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "pack_id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "cms"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantPackRemovalRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantPackRemovalRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantPackRemovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantPackRemoval"
+                }
+              }
+            },
+            "description": "Removed; every archive is deleted."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantPackRemoval"
+                }
+              }
+            },
+            "description": "Removed; archive cleanup is retrying."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "The pack is unavailable in this organization."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Organization access denied."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "pack_in_use (details.blockers, details.blocker_count), pack_changed, pack_busy, pack_references_unavailable or pack_storage_unavailable."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          }
+        }
+      }
+    },
     "/api/v1/cms/organizations/{organization_uuid}/plugin-packs/": {
       "get": {
         "operationId": "cms_organizations_plugin_packs_list",
@@ -2296,9 +2408,6 @@
           "cms"
         ],
         "security": [
-          {
-            "ApiTokenAuth": []
-          },
           {
             "cookieAuth": []
           }
@@ -2364,9 +2473,6 @@
           "cms"
         ],
         "security": [
-          {
-            "ApiTokenAuth": []
-          },
           {
             "cookieAuth": []
           }
@@ -2450,9 +2556,6 @@
           "required": true
         },
         "security": [
-          {
-            "ApiTokenAuth": []
-          },
           {
             "cookieAuth": []
           }
@@ -27796,6 +27899,52 @@
           "scenario_id",
           "source_kind"
         ]
+      },
+      "TenantPackRemoval": {
+        "type": "object",
+        "description": "Removal progress; ``pending`` means archive cleanup is still retrying.",
+        "properties": {
+          "removal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pack_id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TenantPackRemovalStateEnum"
+          },
+          "remaining_archives": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pack_id",
+          "remaining_archives",
+          "removal_id",
+          "state"
+        ]
+      },
+      "TenantPackRemovalRequest": {
+        "type": "object",
+        "description": "Removal pinned to the revision the administrator reviewed.",
+        "properties": {
+          "pack_digest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "pack_digest"
+        ]
+      },
+      "TenantPackRemovalStateEnum": {
+        "enum": [
+          "pending",
+          "completed"
+        ],
+        "type": "string",
+        "description": "* `pending` - pending\n* `completed` - completed"
       },
       "TenantPackUpload": {
         "type": "object",

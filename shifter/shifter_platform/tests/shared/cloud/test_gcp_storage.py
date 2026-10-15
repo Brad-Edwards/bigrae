@@ -10,7 +10,7 @@ patched to return a fake client, instead of patching the first-party
 from unittest.mock import MagicMock, patch
 
 import pytest
-from google.api_core.exceptions import PreconditionFailed
+from google.api_core.exceptions import Forbidden, NotFound, PreconditionFailed
 
 from shared.cloud.exceptions import CloudStorageError, ObjectPreconditionError
 from shared.cloud.gcp.storage import GCPObjectStorage
@@ -361,3 +361,29 @@ class TestDownloadObject:
         dest = str(tmp_path / "x")
         with pytest.raises(ValueError):
             storage.download_object("b", "k", dest, max_bytes=0)
+
+
+class TestDeleteObject:
+    """Deletion is idempotent like S3: absence is success, other failures raise."""
+
+    def test_missing_object_is_already_absent(self):
+        storage = GCPObjectStorage()
+        fake_client = MagicMock()
+        fake_client.bucket.return_value.blob.return_value.delete.side_effect = NotFound("gone")
+
+        with patch("google.cloud.storage.Client", return_value=fake_client):
+            storage.delete_object("b", "k")
+
+        fake_client.bucket.return_value.blob.assert_called_once_with("k")
+
+    @pytest.mark.parametrize("failure", [Forbidden("denied"), RuntimeError("transport error")])
+    def test_permission_and_transient_failures_are_not_absence(self, failure):
+        storage = GCPObjectStorage()
+        fake_client = MagicMock()
+        fake_client.bucket.return_value.blob.return_value.delete.side_effect = failure
+
+        with (
+            patch("google.cloud.storage.Client", return_value=fake_client),
+            pytest.raises(CloudStorageError),
+        ):
+            storage.delete_object("b", "k")

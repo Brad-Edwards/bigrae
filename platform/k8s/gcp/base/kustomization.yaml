@@ -22,6 +22,7 @@ resources:
   - worker-reconciler-deployment.yaml
   - worker-operation-result-applier-deployment.yaml
   - worker-warm-pool-reconciler-deployment.yaml
+  - worker-pack-removal-reconciler-deployment.yaml
   - ctf-scheduler-deployment.yaml
   - ctf-communication-worker-deployment.yaml
   - guacamole-bootstrap-prune-deployment.yaml

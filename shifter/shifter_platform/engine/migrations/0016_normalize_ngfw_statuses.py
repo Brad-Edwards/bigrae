@@ -56,6 +56,8 @@ def revert_ngfw_statuses(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("engine", "0015_add_pausing_status_to_range"),
+        # The status updates also rewrite cms_app; order after CMS creates it.
+        ("cms", "0016_entitybase_and_ngfw_types"),
     ]
 
     operations = [
