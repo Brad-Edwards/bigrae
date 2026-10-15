@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User
 
 
 class PackReferenceUnavailable(RuntimeError):
@@ -44,7 +47,7 @@ class PackReferenceSet:
 
 # Projection contract: (scenario_id, limit, actor) -> bounded references and total
 # count, with labels disclosed only under the domain's authorization for ``actor``.
-PackReferenceProjection = Callable[[str, int, Any], PackReferenceSet]
+PackReferenceProjection = Callable[[str, int, "User"], PackReferenceSet]
 
 _projections: dict[str, PackReferenceProjection] = {}
 _REQUIRED_PROJECTIONS = frozenset({"ctf"})
@@ -60,7 +63,7 @@ def bind_pack_reference_projection(name: str, projection: PackReferenceProjectio
     _projections[name] = projection
 
 
-def project_pack_references(scenario_id: str, limit: int, actor: Any) -> PackReferenceSet:
+def project_pack_references(scenario_id: str, limit: int, actor: User) -> PackReferenceSet:
     """Return the union of every domain's bounded references, failing closed."""
     if set(_projections) != _REQUIRED_PROJECTIONS:
         raise PackReferenceUnavailable("Pack reference projection is unavailable")

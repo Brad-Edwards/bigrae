@@ -208,7 +208,7 @@ def _capture_archives(source: RaesPackageSource, removal: TenantPackRemoval) -> 
     if source.source_kind == "object" and not owned.filter(package_ref=source.package_ref).exists():
         # A pre-inventory revision with no backfilled evidence is still owned.
         TenantPackArchive.objects.create(
-            organization_uuid=source.organization_uuid, scenario_id=source.scenario_id, package_ref=source.package_ref
+            organization_uuid=removal.organization_uuid, scenario_id=source.scenario_id, package_ref=source.package_ref
         )
     count = 0
     for archive in owned:
@@ -240,7 +240,7 @@ def reconcile_tenant_pack_removal(removal_id: UUID) -> bool:
         return False
     removal, lease_id = lease
     failure = ""
-    for archive in list(removal.archives.order_by("pk")):
+    for archive in removal.archives.order_by("pk"):
         try:
             _delete_owned_object(removal, archive)
         except _LocationUnverified:
@@ -315,53 +315,55 @@ def relocate_tenant_pack_archive(archive_id: int, bucket: str, object_key: str) 
     the object there.
     """
     with transaction.atomic():
-        archive = _pending_archive(archive_id)
+        archive, removal_id = _pending_archive(archive_id)
         _require_owned_location(archive.organization_uuid, archive, bucket, object_key)
         previous = {"bucket": archive.bucket, "object_key": archive.object_key}
         archive.bucket, archive.object_key, archive.location_verified = bucket, object_key, False
         archive.save(update_fields=["bucket", "object_key", "location_verified"])
-        TenantPackRemoval.objects.filter(pk=archive.removal_id).update(next_attempt_at=timezone.now())
-        _operator_audit(archive, "archive_relocated", previous, {"bucket": bucket, "object_key": object_key})
+        TenantPackRemoval.objects.filter(pk=removal_id).update(next_attempt_at=timezone.now())
+        _operator_audit(
+            archive_id, removal_id, "archive_relocated", previous, {"bucket": bucket, "object_key": object_key}
+        )
 
 
 def confirm_tenant_pack_archive_absent(archive_id: int) -> None:
     """Operator reconciliation: record that a legacy archive is verified absent everywhere."""
     with transaction.atomic():
-        archive = _pending_archive(archive_id)
+        archive, removal_id = _pending_archive(archive_id)
         if archive.location_verified:
             raise ValueError("A verified archive location is cleaned up by the reconciler")
         previous = {"package_ref": archive.package_ref, "bucket": archive.bucket, "object_key": archive.object_key}
-        removal_id = archive.removal_id
         archive.delete()
         TenantPackRemoval.objects.filter(pk=removal_id).update(next_attempt_at=timezone.now())
-        _operator_audit(archive, "archive_confirmed_absent", previous, None)
+        _operator_audit(archive_id, removal_id, "archive_confirmed_absent", previous, None)
 
 
-def _pending_archive(archive_id: int) -> TenantPackArchive:
-    """Lock an archive captured by a pending removal, or refuse."""
+def _pending_archive(archive_id: int) -> tuple[TenantPackArchive, UUID]:
+    """Lock an archive captured by a pending removal and return it with the removal id."""
     archive = (
         TenantPackArchive.objects.select_for_update()
         .filter(pk=archive_id, removal__state=TenantPackRemoval.State.PENDING)
         .first()
     )
-    if archive is None:
+    removal_id = archive.removal_id if archive is not None else None
+    if archive is None or removal_id is None:
         raise ValueError("No pending tenant pack removal holds this archive")
-    return archive
+    return archive, removal_id
 
 
 def _operator_audit(
-    archive: TenantPackArchive, result: str, previous: dict[str, str], new: dict[str, str] | None
+    archive_id: int, removal_id: UUID, result: str, previous: dict[str, str], new: dict[str, str] | None
 ) -> None:
     """Write the strict audit record of an operator reconciliation step."""
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.SCENARIO,
             entity_id=0,
-            entity_ref=str(archive.removal_id),
+            entity_ref=str(removal_id),
             action=AuditAction.UPDATE,
             actor_type=AuditActorType.SYSTEM,
             previous_state=previous,
-            new_state={"result": result, "archive_id": archive.pk, **(new or {})},
+            new_state={"result": result, "archive_id": archive_id, **(new or {})},
             context="operator reconciliation",
         ),
         strict=True,

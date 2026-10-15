@@ -14,16 +14,19 @@ authority (owner, delegated staff or platform admin); others stay counted.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from shared.pack_references import PackReference, PackReferenceSet, bind_pack_reference_projection
 
 from ..enums import EVENT_TERMINAL_STATUSES, EventCapability, ScheduledTaskStatus, ScheduledTaskType
 
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
 _LAUNCHING_TASK_STATUSES = (ScheduledTaskStatus.PENDING.value, ScheduledTaskStatus.RUNNING.value)
 
 
-def project_ctf_pack_references(scenario_id: str, limit: int, actor: Any) -> PackReferenceSet:
+def project_ctf_pack_references(scenario_id: str, limit: int, actor: User) -> PackReferenceSet:
     """Return at most ``limit`` CTF references to ``scenario_id`` and their total."""
     from ctf.models import CTFEvent, CTFScheduledTask
 

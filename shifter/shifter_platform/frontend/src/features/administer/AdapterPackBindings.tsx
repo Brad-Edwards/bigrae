@@ -72,7 +72,11 @@ export function AdapterPackBindings({ organization, adapters }: Readonly<{ organ
       pack={detail.data} adapters={adapters} onSaved={() => { setSelected(""); setSaved(true); }} /> : null}
     {removing ? <PackRemovalDialog key={removing.id} organization={organization} pack={removing}
       onClose={() => setRemoving(null)}
-      onRemoved={(message) => { setRemoving(null); if (selected === removing.id) setSelected(""); setRemoved(message); }} /> : null}
+      onRemoved={(message) => {
+        if (selected === removing.id) { setSelected(""); }
+        setRemoving(null);
+        setRemoved(message);
+      }} /> : null}
   </section>;
 }
 

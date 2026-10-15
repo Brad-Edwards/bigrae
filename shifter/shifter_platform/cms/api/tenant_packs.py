@@ -159,22 +159,8 @@ class TenantPackRemovalView(APIView):
                 body.validated_data["pack_digest"],
                 audit=preparation_request_audit(request),
             )
-        except OrganizationAuthorizationError:
-            return api_error_response(
-                code="pack_access_denied", message="Organization access denied", status_code=403, request=request
-            )
-        except ValidationError as exc:
-            return api_error_response(code="pack_invalid", message=exc.message, status_code=400, request=request)
-        except PackRemovalConflict as exc:
-            details = None
-            if exc.code == "pack_in_use":
-                details = {
-                    "blockers": [{"kind": row.kind, "status": row.status, "label": row.label} for row in exc.blockers],
-                    "blocker_count": exc.total,
-                }
-            return api_error_response(
-                code=exc.code, message=exc.message, status_code=409, details=details, request=request
-            )
+        except (OrganizationAuthorizationError, ValidationError, PackRemovalConflict) as exc:
+            return _removal_error(request, exc)
         payload = TenantPackRemovalSerializer(
             {
                 "removal_id": result.removal_id,
@@ -184,3 +170,24 @@ class TenantPackRemovalView(APIView):
             }
         ).data
         return Response(payload, status=200 if result.state == "completed" else 202)
+
+
+def _removal_error(request: Request, exc: Exception) -> Response:
+    """Map a refused removal onto the shared error envelope."""
+    if isinstance(exc, OrganizationAuthorizationError):
+        code, message, status_code, details = "pack_access_denied", "Organization access denied", 403, None
+    elif isinstance(exc, PackRemovalConflict):
+        code, message, status_code, details = exc.code, exc.message, 409, None
+        if exc.code == "pack_in_use":
+            details = {
+                "blockers": [{"kind": row.kind, "status": row.status, "label": row.label} for row in exc.blockers],
+                "blocker_count": exc.total,
+            }
+    else:
+        code, message, status_code, details = (
+            "pack_invalid",
+            getattr(exc, "message", "The pack is unavailable"),
+            400,
+            None,
+        )
+    return api_error_response(code=code, message=message, status_code=status_code, details=details, request=request)

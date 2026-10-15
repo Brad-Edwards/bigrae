@@ -20,6 +20,8 @@ else:
 
 logger = logging.getLogger(__name__)
 
+_API_EXCEPTIONS_MODULE = "google.api_core.exceptions"
+
 
 def _authoritative_size_and_generation(blob: GCSBlob, identity: dict[str, Any]) -> tuple[int | None, int | None]:
     """Return (size, generation) for ``blob``, reloading metadata when needed.
@@ -98,7 +100,7 @@ class GCPObjectStorage:
         """Delete ``key``; an already-absent object is success, as on S3."""
         safe_key = safe_log_value(key)
         logger.debug("delete_object: bucket=%s key=%s", bucket, safe_key)
-        api_exceptions = import_google_module("google.api_core.exceptions")
+        api_exceptions = import_google_module(_API_EXCEPTIONS_MODULE)
         try:
             client = self._get_client()
             client.bucket(bucket).blob(key).delete()
@@ -152,7 +154,7 @@ class GCPObjectStorage:
         safe_src = safe_log_value(src_key)
         safe_dst = safe_log_value(dst_key)
         logger.debug("copy_object_conditional: bucket=%s src=%s dst=%s", bucket, safe_src, safe_dst)
-        api_exceptions = import_google_module("google.api_core.exceptions")
+        api_exceptions = import_google_module(_API_EXCEPTIONS_MODULE)
         try:
             client = self._get_client()
             source_bucket = client.bucket(bucket)
@@ -204,7 +206,7 @@ class GCPObjectStorage:
             raise ValueError("max_bytes must be positive")
         safe_key = safe_log_value(key)
         logger.debug("download_object: bucket=%s key=%s max_bytes=%d", bucket, safe_key, max_bytes)
-        api_exceptions = import_google_module("google.api_core.exceptions")
+        api_exceptions = import_google_module(_API_EXCEPTIONS_MODULE)
         try:
             client = self._get_client()
             blob = client.bucket(bucket).blob(key)
