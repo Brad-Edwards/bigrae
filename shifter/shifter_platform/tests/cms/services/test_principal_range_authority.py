@@ -11,7 +11,7 @@ from cms.exceptions import CMSError
 from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind, TargetRef
 from shared.credentials import CredentialContext
 
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 
 
 @pytest.fixture
@@ -257,6 +257,7 @@ def test_exact_credential_ceiling_and_revoked_principal_deny_direct_service_call
     assert not fixture.seen
 
 
+@pytest.mark.postgres
 def test_service_administrator_opens_real_terminal_service_without_owner_impersonation(principal_range, monkeypatch):
     from cms.services import connect_range_terminal
     from engine.services import get_ssh_connection_info
@@ -300,6 +301,7 @@ def test_service_administrator_opens_real_terminal_service_without_owner_imperso
     assert len(keys) == count
 
 
+@pytest.mark.postgres
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_idle_service_terminal_revalidation_closes_transport_and_releases_capacity(principal_range, monkeypatch):
@@ -372,6 +374,7 @@ async def test_idle_service_terminal_revalidation_closes_transport_and_releases_
         await communicator.disconnect()
 
 
+@pytest.mark.postgres
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_source_range_status_stream_rechecks_policy_and_discards_subscription(principal_range, monkeypatch):
@@ -409,6 +412,7 @@ async def test_source_range_status_stream_rechecks_policy_and_discards_subscript
         communicator.stop()
 
 
+@pytest.mark.postgres
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_revocation_during_terminal_connect_cancels_work_and_releases_capacity(principal_range, monkeypatch):
@@ -615,6 +619,7 @@ def test_native_enqueue_binds_original_authority_and_equal_replay(principal_rang
     assert ProvisionerLaunchIntent.objects.count() == 1
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize(
     "field,value",
     [

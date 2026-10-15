@@ -24,6 +24,9 @@ def _migrate(targets):
 
 @pytest.fixture
 def historical_schema():
+    # Remove both post-fork CMS branches before constructing the historical
+    # model state; an unmentioned sibling branch can otherwise leave columns behind.
+    _migrate([("cms", "0053_rangeinstance_uuid"), ("shared", "0029_principal_audit_attribution")])
     apps = _migrate(BEFORE)
     try:
         yield apps

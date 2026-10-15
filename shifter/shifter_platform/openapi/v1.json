@@ -26318,7 +26318,13 @@
             "type": "string"
           },
           "user_id": {
-            "type": "integer"
+            "type": "integer",
+            "nullable": true
+          },
+          "owner_principal_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           },
           "status": {
             "$ref": "#/components/schemas/ResourceStatusEnum"

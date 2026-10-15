@@ -16,6 +16,7 @@ is a no-op, while manifest or byte drift is a visible conflict.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -122,6 +123,13 @@ def register_inbox_packs(
     # silently partial in-box registration.
     with transaction.atomic():
         for request in requests:
+            # A release's previous digest fences upgrades only. A first install
+            # has no prior row to replace; the uniform service still owns admission.
+            if (
+                request.expected_package_digest
+                and not RaesPackageSource.objects.filter(scenario_id=request.scenario_id).exists()
+            ):
+                request = replace(request, expected_package_digest="")
             result = register_pack(
                 user=actor,
                 request=request,

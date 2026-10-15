@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from typing import Any
     from uuid import UUID
 
-    from engine.models import Instance, ProvisionerLaunchIntent
+    from engine.models import Instance, ProvisionerLaunchIntent, Request
     from shared.credentials import CredentialContext
     from shared.identity_scope import ResourceScope
     from shared.schemas import RequestSpec
@@ -97,13 +97,19 @@ def assert_device_creation(
     resolve_range_scope_binding(scope, member=credential.principal, for_update=True)
 
 
+def _device_request(runtime: Instance) -> Request:
+    """Require native device custody before reading request fields."""
+    request = runtime.request
+    if request is None or request.request_type != "ngfw" or request.owner_principal_uuid is None:
+        raise ValueError(_DEVICE_CUSTODY_UNAVAILABLE)
+    return request
+
+
 def device_scope(runtime: Instance) -> ResourceScope:
     """Resolve the native request customer ancestry without a creator fallback."""
     from workspaces.services import resource_scope_from_ids
 
-    request = runtime.request
-    if request is None or request.request_type != "ngfw" or request.owner_principal_uuid is None:
-        raise ValueError(_DEVICE_CUSTODY_UNAVAILABLE)
+    request = _device_request(runtime)
     return resource_scope_from_ids(
         kind=request.scope_kind,
         account_id=request.account_id,
@@ -114,14 +120,13 @@ def device_scope(runtime: Instance) -> ResourceScope:
 
 def device_binding_digest(runtime: Instance) -> str:
     """Pin native device identity, ownership and resolved customer custody."""
+    request = _device_request(runtime)
     scope = device_scope(runtime)
-    if runtime.request is None:
-        raise ValueError(_DEVICE_CUSTODY_UNAVAILABLE)
     return canonical_payload_digest(
         {
-            "request_id": str(runtime.request.request_id),
+            "request_id": str(request.request_id),
             "instance_uuid": str(runtime.uuid),
-            "owner_uuid": str(runtime.request.owner_principal_uuid),
+            "owner_uuid": str(request.owner_principal_uuid),
             "scope": str(scope),
             "spec": runtime.spec,
             "apps": [
@@ -134,9 +139,8 @@ def device_binding_digest(runtime: Instance) -> str:
 
 def admitted_device_authority(runtime: Instance, credential: CredentialContext) -> dict[str, Any]:
     """Bind a previously evaluated parent decision to native SQL custody."""
+    request = _device_request(runtime)
     scope = device_scope(runtime)
-    if runtime.request is None:
-        raise ValueError(_DEVICE_CUSTODY_UNAVAILABLE)
     parent = scope_parent(scope)
     apps = tuple(runtime.apps.filter(app_type="ngfw")[:2])
     if len(apps) != 1:
@@ -153,7 +157,7 @@ def admitted_device_authority(runtime: Instance, credential: CredentialContext) 
         "authority_account_uuid": scope.account_uuid,
         "authority_organization_uuid": scope.organization_uuid,
         "authority_workspace_uuid": scope.workspace_uuid,
-        "authority_owner_uuid": runtime.request.owner_principal_uuid,
+        "authority_owner_uuid": request.owner_principal_uuid,
         "authority_resource_uuid": apps[0].uuid,
         "authority_binding_digest": device_binding_digest(runtime),
     }
@@ -211,25 +215,30 @@ def assert_device_cleanup_origin(
     if origin_id is None or runtime.request is None:
         raise ValueError("Device cleanup origin unavailable")
     origin = ProvisionerLaunchIntent.objects.get(operation_id=origin_id)
-    if (
-        origin.authority_kind != "principal"
-        or origin.payload
-        != {"version": 1, "resource": "ngfw", "operation": "deprovision", "request_id": str(runtime.request.request_id)}
-        or origin.authority_binding_digest != device_binding_digest(runtime)
-    ):
+    if (origin.authority_kind, origin.payload) != (
+        "principal",
+        {"version": 1, "resource": "ngfw", "operation": "deprovision", "request_id": str(runtime.request.request_id)},
+    ) or origin.authority_binding_digest != device_binding_digest(runtime):
         raise ValueError("Device cleanup origin unavailable")
     if require_absence and origin.interrupt_state not in {
         InterruptState.TERMINAL_ABSENT,
         InterruptState.DESTROY_ENQUEUED,
     }:
         raise ValueError("Device cleanup task absence unverified")
+    _assert_device_cleanup_generation(runtime, origin_id)
+    return origin
+
+
+def _assert_device_cleanup_generation(runtime: Instance, origin_id: UUID) -> None:
+    """Only the original task or its recorded cleanup may own this device generation."""
+    from engine.models import ProvisionerLaunchIntent
+
     if runtime.provisioner_operation_id != origin_id:
         if runtime.provisioner_operation_id is None:
             raise ValueError("Device cleanup generation unavailable")
         current = ProvisionerLaunchIntent.objects.filter(operation_id=runtime.provisioner_operation_id).first()
-        if current is None or current.authority_kind != "cleanup" or current.cleanup_origin_operation_uuid != origin_id:
+        if current is None or (current.authority_kind, current.cleanup_origin_operation_uuid) != ("cleanup", origin_id):
             raise ValueError("Device cleanup generation changed")
-    return origin
 
 
 def prepare_device_cleanup(payload: dict[str, Any], origin_id: UUID) -> dict[str, Any]:

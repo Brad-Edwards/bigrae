@@ -21,7 +21,6 @@ from django.db import transaction
 
 from cms.exceptions import CMSError
 from cms.models import RangeInstance
-from cms.services._raes_range_dispatch import create_range_dispatch as create_range_dispatch
 from cms.services._range_backend_admission import assert_backend_admitted
 from cms.services._range_launch_common import (
     _assert_no_active_range,

@@ -17,6 +17,7 @@ from django.contrib.auth.models import User
 
 from cms.exceptions import CMSError
 from shared.credentials import CredentialContext
+from shared.log_sanitize import safe_log_fingerprint
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -206,10 +207,10 @@ def _launch_pack(
         raise CMSError(f"RAES package could not be launched: {exc}") from exc
     if not result.accepted:
         logger.warning(
-            "create_raes_native_range: dispatch not accepted request_id=%s status=%s diagnostics=%s",
+            "create_raes_native_range: dispatch not accepted request_id=%s status=%s diagnostic_fingerprints=%s",
             request_id,
             result.status,
-            result.diagnostics,
+            tuple(safe_log_fingerprint(diagnostic) for diagnostic in result.diagnostics),
         )
         raise CMSError("RAES provisioning was not accepted")
 

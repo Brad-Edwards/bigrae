@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from tests.cms.services.test_principal_range_authority import principal_range
 
-pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 __all__ = ["principal_range"]
 
 
@@ -122,6 +122,8 @@ def test_changed_runtime_generation_cannot_reuse_profile(vpn_range):
         connect(row)
 
 
+@pytest.mark.postgres
+@pytest.mark.django_db(transaction=True)
 def test_profile_authorization_runs_outside_business_transaction(vpn_range, monkeypatch):
     from django.db import connection
 
@@ -176,6 +178,7 @@ def test_queued_issuance_cannot_dispatch_after_original_credential_revocation(vp
         authorize_provisioner_payload(intent.payload, expected_operation_id=intent.operation_id)
 
 
+@pytest.mark.postgres
 def test_bulk_write_cannot_replace_original_profile_credential(vpn_range):
     from django.db import IntegrityError, transaction
 
@@ -454,7 +457,7 @@ def test_ctf_service_profile_preserves_participation_decision_and_live_assignmen
         get_vpn_profile(participant.pk, credential=credential)
     from rest_framework.test import APIRequestFactory, force_authenticate
 
-    from ctf.api.organizer.ranges import ParticipantVpnProfileView
+    from ctf.api.organizer import ParticipantVpnProfileView
 
     request = APIRequestFactory().post(f"/api/v1/ctf/range/vpn-profile/?event_id={event.pk}")
     force_authenticate(request, user=None, token=credential)
@@ -471,6 +474,7 @@ def test_ctf_service_profile_preserves_participation_decision_and_live_assignmen
         get_vpn_profile(participant.pk, credential=credential)
 
 
+@pytest.mark.postgres
 def test_vpn_session_cannot_be_rebound_to_a_new_credential_by_bulk_update(vpn_range):
     from django.db import IntegrityError, transaction
 
@@ -482,6 +486,7 @@ def test_vpn_session_cannot_be_rebound_to_a_new_credential_by_bulk_update(vpn_ra
         VpnSession.objects.filter(pk=session.session_id).update(profile=None)
 
 
+@pytest.mark.postgres
 def test_crl_publication_cannot_be_rolled_back_by_bulk_update(vpn_range):
     from django.db import IntegrityError, transaction
 

@@ -169,7 +169,11 @@ def _build_rdp_url(
     Credential resolution (the Secrets Manager fetch) happens here, inside the
     bootstrap worker, not on the request thread (#929).
     """
-    conn_info = _resolve_rdp_conn(user, instance_uuid, range_uuid=range_uuid)
+    conn_info = (
+        _resolve_rdp_conn(user, instance_uuid)
+        if range_uuid is None
+        else _resolve_rdp_conn(user, instance_uuid, range_uuid=range_uuid)
+    )
     # ``conn_info`` carries RDP credentials, so only non-secret metadata is
     # logged. ``os_type`` is read from the credential-bearing dict, so CodeQL
     # taints it regardless of naming; it goes through ``safe_log_fingerprint``
@@ -382,7 +386,11 @@ def _build_range_ssh_url(
     Credential resolution (the Secrets Manager fetch) happens here, off the
     request thread (#929).
     """
-    ssh_info = _resolve_range_ssh(user, instance_uuid, range_uuid=range_uuid)
+    ssh_info = (
+        _resolve_range_ssh(user, instance_uuid)
+        if range_uuid is None
+        else _resolve_range_ssh(user, instance_uuid, range_uuid=range_uuid)
+    )
     # ``ssh_info`` carries the SSH private key. Only non-secret metadata is
     # logged: the host IP and cloud provider name. Both are read from the
     # credential-bearing dict, so CodeQL taints them regardless of naming; they

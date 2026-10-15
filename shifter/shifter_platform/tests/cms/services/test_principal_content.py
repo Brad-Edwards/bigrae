@@ -11,7 +11,7 @@ from shared.authorization import AuthorizationDecision, CredentialCeiling, Decis
 from shared.credentials import CredentialContext
 from shared.identity_scope import ResourceScope
 
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 
 
 @pytest.fixture
@@ -65,6 +65,7 @@ def content_actor(settings, monkeypatch, django_user_model):
     )
 
 
+@pytest.mark.postgres
 def test_service_owned_credential_encrypts_secrets_and_returns_safe_projections(content_actor):
     from cms.models import Credential
     from cms.services import create_credential, delete_credential, get_credential, list_credentials
@@ -115,6 +116,7 @@ def test_credential_revoked_during_native_validation_cannot_persist_a_secret(con
     assert not Credential.objects.filter(name="Revoked before persistence").exists()
 
 
+@pytest.mark.postgres
 def test_service_credential_names_are_unique_in_their_customer_scope(content_actor):
     from django.db import IntegrityError, transaction
 

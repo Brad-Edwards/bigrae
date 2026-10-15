@@ -8,7 +8,7 @@ from cms.exceptions import CMSError
 from tests.cms.services.test_principal_content import content_actor
 from tests.cms.services.test_principal_ingestion import content_administrator
 
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 __all__ = ["content_actor", "content_administrator"]
 
 
@@ -114,6 +114,7 @@ def test_revocation_after_storage_copy_prevents_catalog_admission(content_admini
     assert upload.validated_identity["etag"] == "synthetic-etag"
 
 
+@pytest.mark.postgres
 def test_upload_proof_and_storage_identity_cannot_be_rewritten(content_administrator, storage_client):
     from uuid import uuid4
 
@@ -204,6 +205,7 @@ def test_service_deletes_completed_installer_with_scope_audit_and_cleanup(
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.postgres
 def test_cleanup_preserves_deletion_that_commits_after_its_retirement_snapshot(
     content_administrator, storage_client, windows_os, monkeypatch
 ):

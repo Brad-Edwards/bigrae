@@ -273,7 +273,11 @@ def prune_expired_bootstrap_requests(*, batch_size: int | None = None) -> int:
     """
     limit = _prune_batch_size() if batch_size is None else max(1, int(batch_size))
     ids = list(
-        GuacamoleBootstrapRequest.objects.filter(expires_at__lte=timezone.now(), native_session_token="")  # nosec B106
+        GuacamoleBootstrapRequest.objects.filter(
+            expires_at__lte=timezone.now(),
+            # nosec B106
+            native_session_token="",
+        )
         .filter(Q(authority_kind="") | Q(status="failed") | Q(native_terminated_at__isnull=False))
         .order_by("expires_at")
         .values_list("pk", flat=True)[:limit]

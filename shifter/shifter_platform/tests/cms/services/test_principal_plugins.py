@@ -7,7 +7,7 @@ import pytest
 
 from tests.cms.test_runtime_plugins import manifest, worker
 
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 __all__ = ["manifest", "worker"]
 
 
@@ -123,6 +123,7 @@ def test_revocation_during_probe_does_not_commit_compatibility_as_ready(plugin_a
     assert row.state == "failed" and row.verified_at is None
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize(
     "field,value",
     [

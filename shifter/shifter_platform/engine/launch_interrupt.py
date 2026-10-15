@@ -272,7 +272,6 @@ def _request_intent_interrupt(intent: ProvisionerLaunchIntent) -> None:
             "interrupt_deadline",
         ]
     )
-    return
 
 
 def _interruptible_provision_intent(range_obj: Range) -> ProvisionerLaunchIntent | None:

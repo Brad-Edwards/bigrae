@@ -20,6 +20,9 @@ from shared.model_access.reservation import (
 _SCENARIO_UNAVAILABLE = "allocation.scenario_unavailable"
 
 
+_AUTHORITY_UNAVAILABLE = "allocation.authority_unavailable"
+
+
 def needs_model_preparation(request_id: UUID | str) -> bool:
     """Route lifecycle through the durable snapshot, not a mutable overlay alone."""
     from engine.services import get_model_launch_preparation
@@ -141,7 +144,7 @@ def _authorize_preparation(
     assert instance.request is not None
     actor = instance.request.user
     if actor is None or instance.user_id is None:
-        raise ContractError("allocation.authority_unavailable")
+        raise ContractError(_AUTHORITY_UNAVAILABLE)
     try:
         if system is None:
             resolve_model_access_users(actor, (instance.user_id,))
@@ -157,7 +160,7 @@ def _authorize_preparation(
             resolve_model_preparation_user(instance.user_id)
         authorize_launch_workspace_locked(actor, instance.workspace_id, WorkspaceOperation.LAUNCH_RANGE)
     except Exception:
-        raise ContractError("allocation.authority_unavailable") from None
+        raise ContractError(_AUTHORITY_UNAVAILABLE) from None
 
 
 def _source_policy_scope(instance: RangeInstance, scope: ModelLaunchScope) -> ModelLaunchScope:
@@ -185,7 +188,7 @@ def _source_authority_refs(
         refs = tuple(dict.fromkeys((*refs, sponsor, sponsor_workspace, sponsor_organization)))
     elif has_sources:
         if instance.request is None or instance.request.user is None:
-            raise ContractError("allocation.authority_unavailable")
+            raise ContractError(_AUTHORITY_UNAVAILABLE)
         from workspaces.services import WorkspaceOperation, authorize_bound_workspace
 
         membership = authorize_bound_workspace(

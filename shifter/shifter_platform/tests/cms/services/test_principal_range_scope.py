@@ -10,7 +10,7 @@ from shared.authorization import AuthorizationDecision, DecisionKind, port
 from tests.cms.services.test_principal_range_authority import principal_range
 
 __all__ = ["principal_range"]
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 
 
 @pytest.fixture
@@ -134,6 +134,7 @@ def test_scope_move_cannot_bypass_destination_concurrent_range_quota(transferabl
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.postgres
 def test_concurrent_launch_quota_admission_and_scope_move_use_account_before_workspace(transferable_range):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
@@ -413,6 +414,7 @@ def test_expiry_cleanup_retains_custody_after_authorized_scope_move(transferable
     authorize_provisioner_payload(cleanup.payload, expected_operation_id=cleanup.operation_id)
 
 
+@pytest.mark.postgres
 def test_transfer_cleanup_proof_cannot_be_retargeted(transferable_range):
     from django.db import IntegrityError, transaction
 

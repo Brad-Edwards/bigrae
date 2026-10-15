@@ -6,7 +6,7 @@ from tests.cms.services.test_principal_content import content_actor
 from tests.cms.services.test_principal_range_authority import principal_range
 
 __all__ = ["content_actor", "principal_range"]
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 
 
 def test_service_owned_range_uses_current_tenant_lease_policy(principal_range):
@@ -339,6 +339,7 @@ def test_unrealized_failure_read_still_requires_current_policy_and_consistent_cu
         assert list_mission_control_range_history(actor.credential, scope=actor.scope) == []
 
 
+@pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
 def test_launch_policy_is_evaluated_outside_native_sql_transactions(launch_actor, monkeypatch):
     from django.db import connection
@@ -408,6 +409,7 @@ def test_queued_launch_cannot_change_executing_identity_before_dispatch(launch_a
     assert not calls
 
 
+@pytest.mark.postgres
 def test_bulk_write_cannot_substitute_a_queued_executing_workload(launch_actor):
     from django.db import IntegrityError, transaction
 

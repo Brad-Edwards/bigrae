@@ -182,19 +182,7 @@ def get_rdp_connection_info(
 
     range_obj = _connection_range(user, instance_uuid, range_uuid=range_uuid)
     if range_obj is None:
-        # No active range contains the instance. Fall back to the user's active
-        # range so the pre-existing error semantics are preserved now that a user
-        # may hold multiple simultaneous active ranges (#450): no range at all ->
-        # "No active range found"; a not-yet-ready range (whose instance list may
-        # be empty) -> "not ready"; otherwise the UUID is genuinely absent ->
-        # "not found in range".
-        if isinstance(user, CredentialContext):
-            raise PermissionError(_INSTANCE_UNAVAILABLE)
-        range_obj = Range.get_active_for_user(user)
-        if range_obj is None:
-            raise ValueError("No active range found")
-        if range_obj.owner_principal_uuid is not None:
-            raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
+        range_obj = _rdp_fallback_range(user)
     if range_obj.status != Range.Status.READY:
         raise ValueError(f"Range is not ready (status: {range_obj.status})")
 
@@ -227,6 +215,26 @@ def get_rdp_connection_info(
         # rather than guessing one from ``os_type``.
         "sftp_root_directory": instance.get("sftp_root_directory") or None,
     }
+
+
+def _rdp_fallback_range(user: User | CredentialContext) -> Range:
+    """Retain incumbent range error semantics without widening principal access."""
+    from engine.models import Range
+
+    # No active range contains the instance. Fall back to the user's active
+    # range so the pre-existing error semantics are preserved now that a user
+    # may hold multiple simultaneous active ranges (#450): no range at all ->
+    # "No active range found"; a not-yet-ready range (whose instance list may
+    # be empty) -> "not ready"; otherwise the UUID is genuinely absent ->
+    # "not found in range".
+    if isinstance(user, CredentialContext):
+        raise PermissionError(_INSTANCE_UNAVAILABLE)
+    range_obj = Range.get_active_for_user(user)
+    if range_obj is None:
+        raise ValueError("No active range found")
+    if range_obj.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
+    return range_obj
 
 
 def get_ssh_connection_info(
@@ -422,7 +430,7 @@ def connect_ngfw_terminal(user: User | CredentialContext, ngfw_uuid: str) -> SSH
 
 def _owned_legacy_instance_request_ref(user: User, instance_uuid: str) -> str | None:
     """Resolve incumbent range or device request custody without disclosing principal-owned resources."""
-    from engine.models import Instance, Range
+    from engine.models import Range
 
     user_id = getattr(user, "id", None)
     request_ref = None
@@ -433,21 +441,28 @@ def _owned_legacy_instance_request_ref(user: User, instance_uuid: str) -> str | 
                 raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
             request_ref = str(range_obj.request.request_id)
         else:
-            try:
-                instance = (
-                    Instance.objects.select_related("request")
-                    .filter(uuid=instance_uuid, request__user_id=user_id)
-                    .first()
-                )
-            except (DjangoValidationError, ValueError):
-                instance = None
-            # ``request`` is nullable on the model, so an instance whose request
-            # row was detached resolves to no ref rather than raising. A malformed
-            # uuid (caught above) also resolves to no ref.
-            if instance is not None and instance.request is not None:
-                if instance.request.owner_principal_uuid is not None:
-                    raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
-                request_ref = str(instance.request.request_id)
+            request_ref = _legacy_instance_row_request_ref(user_id, instance_uuid)
+    return request_ref
+
+
+def _legacy_instance_row_request_ref(user_id: int, instance_uuid: str) -> str | None:
+    """Resolve only incumbent device request ownership, including detached rows."""
+    from engine.models import Instance
+
+    request_ref = None
+    try:
+        instance = (
+            Instance.objects.select_related("request").filter(uuid=instance_uuid, request__user_id=user_id).first()
+        )
+    except (DjangoValidationError, ValueError):
+        instance = None
+    # ``request`` is nullable on the model, so an instance whose request
+    # row was detached resolves to no ref rather than raising. A malformed
+    # uuid (caught above) also resolves to no ref.
+    if instance is not None and instance.request is not None:
+        if instance.request.owner_principal_uuid is not None:
+            raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
+        request_ref = str(instance.request.request_id)
     return request_ref
 
 

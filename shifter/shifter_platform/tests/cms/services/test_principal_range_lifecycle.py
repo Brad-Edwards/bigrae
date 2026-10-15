@@ -9,7 +9,7 @@ from shared.authorization import AuthorizationDecision, DecisionKind
 from tests.cms.services.test_principal_range_authority import principal_range
 
 __all__ = ["principal_range"]
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 
 
 @pytest.mark.parametrize("failed_deleted", [False, True])
@@ -175,6 +175,7 @@ def test_source_cancellation_preserves_initiator_and_interrupts_only_reserved_ge
     assert provision.cancellation.pk == cancellation.pk
 
 
+@pytest.mark.postgres
 def test_cancellation_authority_cannot_be_rewritten(cancellable_range):
     from uuid import uuid4
 
@@ -510,6 +511,7 @@ def test_native_admission_cannot_adopt_resource_changes_made_during_policy(lifec
     assert not ProvisionerLaunchIntent.objects.exists()
 
 
+@pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
 def test_source_lifecycle_policy_is_evaluated_before_sql_critical_sections(lifecycle_range, monkeypatch):
     from django.db import connection

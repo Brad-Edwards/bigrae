@@ -295,7 +295,10 @@ def test_rejected_launch_logs_bounded_diagnostics(upload, tenant, monkeypatch, c
 
     assert str(request_id) in caplog.text
     assert "status=rejected" in caplog.text
-    assert diagnostic in caplog.text
+    from shared.log_sanitize import safe_log_fingerprint
+
+    assert diagnostic not in caplog.text
+    assert safe_log_fingerprint(diagnostic) in caplog.text
 
 
 def test_pack_revision_requires_existing_identity(upload):

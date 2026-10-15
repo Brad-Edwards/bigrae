@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from django.db import models
 
 from shared.db import RecordedAuthorityFields
-
-if TYPE_CHECKING:
-    pass
 
 
 class AgentUploadBudget(models.Model):

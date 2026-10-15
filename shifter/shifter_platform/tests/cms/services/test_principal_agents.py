@@ -5,7 +5,7 @@ import pytest
 from cms.exceptions import CMSError
 from tests.cms.services.test_principal_content import content_actor
 
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 __all__ = ["content_actor"]
 
 

@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
-    from cms.models import RaesPackageSource
+    from cms.models import RaesPackageSource, RangeInstance
     from shared.credentials import CredentialContext
     from shared.identity_scope import ResourceScope
     from shared.raes.artifact_binding import ArtifactBinding
@@ -140,11 +140,9 @@ class CmsRaesDispatchPort:
         from dataclasses import replace
         from uuid import UUID
 
-        from cms.models import RaesPackageSource, RangeInstance
-        from cms.services._scoped_range_launch import revalidate_scoped_launch, source_launch_binding
+        from cms.models import RangeInstance
+        from cms.services._scoped_range_launch import revalidate_scoped_launch
         from engine.services import dispatch_created_raes_range, prepare_raes_range_creation, project_range_authority
-        from shared.credentials import resolve_local_credential
-        from workspaces.services import resolve_resource_scope
 
         if self.credential is None or self.scope is None or self.source is None:
             raise ValueError("Range creation authority unavailable")
@@ -165,21 +163,9 @@ class CmsRaesDispatchPort:
             cms_range_uuid=instance.uuid,
         )
         prepared = prepare_raes_range_creation(bindings, self.workspace_id, instance.user_id, compiled_plan)
-        fields = ("scope_kind", "account_id", "organization_id", "workspace_id", "owner_principal_uuid")
         with transaction.atomic():
             row = RangeInstance.objects.select_for_update(of=("self",)).select_related("request").get(pk=instance.pk)
-            resolved = resolve_resource_scope(self.scope)
-            if (
-                resolve_local_credential(current) != current
-                or row.status != "provisioning"
-                or row.owner_principal_uuid != current.principal.uuid
-                or any(getattr(row, name) != getattr(row.request, name) for name in fields)
-                or any(getattr(row, name) != getattr(resolved, name.removeprefix("scope_")) for name in fields[:-1])
-                or not RaesPackageSource.objects.filter(
-                    pk=self.source.pk, **source_launch_binding(self.source)
-                ).exists()
-            ):
-                raise ValueError("Range launch changed")
+            self._assert_principal_launch_row(row, current)
             create_raes_range(
                 request_id=self.request_id,
                 user_id=row.user_id,
@@ -198,6 +184,34 @@ class CmsRaesDispatchPort:
         return ShifterDispatchResult(
             request_id=ref.request_id, accepted=ref.accepted, status=ref.status, range_id=ref.range_id
         )
+
+    def _assert_principal_launch_row(self, row: RangeInstance, current: CredentialContext) -> None:
+        """Fence locked native custody and the original source before dispatch."""
+        from cms.models import RaesPackageSource
+        from cms.services._scoped_range_launch import source_launch_binding
+        from shared.credentials import resolve_local_credential
+        from workspaces.services import resolve_resource_scope
+
+        if self.scope is None or self.source is None or row.request is None:
+            raise ValueError("Range creation authority unavailable")
+        resolved = resolve_resource_scope(self.scope)
+        if (
+            resolve_local_credential(current) != current
+            or row.status != "provisioning"
+            or row.owner_principal_uuid != current.principal.uuid
+            or (row.scope_kind, row.account_id, row.organization_id, row.workspace_id, row.owner_principal_uuid)
+            != (
+                row.request.scope_kind,
+                row.request.account_id,
+                row.request.organization_id,
+                row.request.workspace_id,
+                row.request.owner_principal_uuid,
+            )
+            or (row.scope_kind, row.account_id, row.organization_id, row.workspace_id)
+            != (resolved.kind, resolved.account_id, resolved.organization_id, resolved.workspace_id)
+            or not RaesPackageSource.objects.filter(pk=self.source.pk, **source_launch_binding(self.source)).exists()
+        ):
+            raise ValueError("Range launch changed")
 
     def _openvpn_deadline(self) -> datetime | None:
         """Return this launch's OpenVPN deadline: its persisted lease ceiling, when admitted (#2030)."""

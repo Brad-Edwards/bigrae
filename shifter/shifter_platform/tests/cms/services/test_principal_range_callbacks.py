@@ -7,7 +7,7 @@ import pytest
 from tests.cms.services.test_principal_range_authority import principal_range
 
 __all__ = ["principal_range"]
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 
 
 def event_for(fixture):

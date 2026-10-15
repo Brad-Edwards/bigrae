@@ -147,6 +147,25 @@ def _worker_build_callable(
     raise ValueError(f"Unsupported Guacamole access kind: {protocol!r}")
 
 
+def _bootstrap_authority(
+    user: User | CredentialContext, protocol: str, target_id: str, range_uuid: UUID | None
+) -> tuple[dict[str, object], UUID | None]:
+    """Authorize the exact session target before allocating its queue identity."""
+    authority = {}
+    bootstrap_id = None
+    if isinstance(user, CredentialContext):
+        from cms.services import admit_device_remote_authority, admit_range_remote_authority
+
+        if protocol == GuacamoleBootstrapRequest.Protocol.NGFW_SSH:
+            authority = admit_device_remote_authority(user, target_id)
+        elif protocol in {GuacamoleBootstrapRequest.Protocol.RDP, GuacamoleBootstrapRequest.Protocol.RANGE_SSH}:
+            authority = admit_range_remote_authority(user, target_id, range_uuid=range_uuid)
+        else:
+            raise BootstrapFailure("Permission denied", status_code=403)
+        bootstrap_id = uuid4()
+    return authority, bootstrap_id
+
+
 def launch_guacamole_session(
     *,
     user: User | CredentialContext,
@@ -169,22 +188,11 @@ def launch_guacamole_session(
     surfaced by the status endpoint, not raised here.
     """
     guac_client = guacamole_client or _bind_guacamole_client(_service_name(protocol))
-    authority = {}
-    bootstrap_id = None
-    if isinstance(user, CredentialContext):
-        from cms.services import admit_device_remote_authority, admit_range_remote_authority
-
-        if protocol == GuacamoleBootstrapRequest.Protocol.NGFW_SSH:
-            authority = admit_device_remote_authority(user, target_id)
-        elif protocol in {GuacamoleBootstrapRequest.Protocol.RDP, GuacamoleBootstrapRequest.Protocol.RANGE_SSH}:
-            authority = admit_range_remote_authority(user, target_id, range_uuid=range_uuid)
-        else:
-            raise BootstrapFailure("Permission denied", status_code=403)
-        bootstrap_id = uuid4()
+    authority, bootstrap_id = _bootstrap_authority(user, protocol, target_id, range_uuid)
     if protocol == GuacamoleBootstrapRequest.Protocol.NGFW_SSH:
         logger.info(
             "Guacamole SSH bootstrap queued for NGFW: user=%s ngfw_uuid=%s",
-            safe_log_fingerprint(str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email),
+            _bootstrap_actor_fingerprint(user),
             safe_log_value(target_id),
         )
     authority_range = authority.get("authority_target_uuid")
@@ -213,9 +221,14 @@ def launch_guacamole_session(
         # to a 503 + Retry-After). Only non-secret kind/target/user identifiers.
         logger.warning(
             "Guacamole bootstrap worker capacity exhausted: user=%s protocol=%s target_id=%s",
-            safe_log_fingerprint(str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email),
+            _bootstrap_actor_fingerprint(user),
             safe_log_value(protocol),
             safe_log_value(target_id),
         )
         raise
     return GuacamoleSessionLaunch(bootstrap_id=bootstrap.id, status=bootstrap.status)
+
+
+def _bootstrap_actor_fingerprint(user: User | CredentialContext) -> str:
+    """Keep session diagnostics bound to a nonsecret actor fingerprint."""
+    return safe_log_fingerprint(str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email)

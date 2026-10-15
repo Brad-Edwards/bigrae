@@ -9,7 +9,7 @@ from shared.schemas.app import NGFWOneTimeRegistration
 from tests.cms.services.test_principal_content import content_actor
 from tests.cms.test_services_ngfws import _ngfw_catalog
 
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 __all__ = ["_ngfw_catalog", "content_actor"]
 
 
@@ -223,6 +223,7 @@ def test_service_teardown_uses_native_outbox_and_exact_custody(provisioned_devic
     assert queued.credential_uuid == actor.credential.credential_uuid
 
 
+@pytest.mark.postgres
 def test_native_device_specs_keep_registration_secrets_encrypted(provisioned_device):
     from django.db import connection
 
@@ -239,6 +240,7 @@ def test_native_device_specs_keep_registration_secrets_encrypted(provisioned_dev
         assert "enc:v1:" in raw
 
 
+@pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
 def test_native_sql_reader_decodes_persisted_service_device_specs(provisioned_device, settings):
     import json
@@ -324,6 +326,7 @@ def test_failed_device_can_be_destroyed_before_its_reserved_slot_is_reused(provi
     assert replacement.app_id != actor.app.pk
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize("retired", [False, True])
 def test_nested_secret_migration_encrypts_retained_and_retired_cms_specs(provisioned_device, retired):
     import importlib
@@ -352,6 +355,7 @@ def test_nested_secret_migration_encrypts_retained_and_retired_cms_specs(provisi
     assert instance.data == plain
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize("retired", [False, True])
 def test_native_secret_migration_preserves_nested_specs_and_is_idempotent(provisioned_device, retired):
     import importlib
@@ -397,6 +401,7 @@ def test_native_secret_migration_preserves_nested_specs_and_is_idempotent(provis
             assert cursor.fetchone()[0] == expected
 
 
+@pytest.mark.postgres
 def test_bulk_write_cannot_rehome_native_device_custody(provisioned_device):
     from django.db import IntegrityError, transaction
 
@@ -449,6 +454,7 @@ def test_accepted_native_device_event_releases_the_same_cms_custody(provisioned_
     assert actor.app.instance.request.deleted_at is not None
 
 
+@pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
 def test_device_remote_access_retains_original_credential_and_closes_on_revocation(
     provisioned_device, settings, monkeypatch
@@ -489,6 +495,7 @@ def test_native_device_lifecycle_accepts_service_authority(provisioned_device):
     assert queued.authority_resource_uuid == actor.app.pk
 
 
+@pytest.mark.postgres
 def test_bulk_write_cannot_rehome_cms_device_custody(provisioned_device):
     from django.db import IntegrityError, transaction
 
@@ -608,6 +615,7 @@ def test_uncertain_device_cleanup_waits_for_existing_interrupt_worker(provisione
     assert ProvisionerLaunchIntent.objects.filter(authority_kind="cleanup").count() == 1
 
 
+@pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
 def test_device_bootstrap_does_not_log_private_secret_provider_errors(
     provisioned_device, settings, monkeypatch, caplog

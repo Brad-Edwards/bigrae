@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from django.conf import settings
 
 from shared.cloud import PROVISIONER_CONTAINER_NAME
 from shared.cloud.kubernetes.naming import build_idempotent_job_name
 
 from ._config import _get_engine_task_config
-
-if TYPE_CHECKING:
-    pass
 
 
 def provisioner_workload(command: list[str], task_identity: str | None) -> dict[str, object]:

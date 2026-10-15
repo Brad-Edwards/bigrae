@@ -190,10 +190,10 @@ class TestRangeInstanceModel:
         # CharField with null=False means DB enforces NOT NULL
         assert field.null is False
 
-    def test_user_id_required(self, RangeInstance):
-        """RangeInstance requires a user_id (not nullable)."""
-        field = RangeInstance._meta.get_field("user_id")
-        assert field.null is False
+    def test_historical_user_id_is_optional_for_principal_owned_ranges(self, RangeInstance):
+        """Service principals own ranges without an invented historical human user."""
+        assert RangeInstance._meta.get_field("user_id").null is True
+        assert RangeInstance._meta.get_field("owner_principal_uuid").db_index is True
 
     def test_str_representation(self, make_range_instance):
         """RangeInstance has meaningful string representation."""

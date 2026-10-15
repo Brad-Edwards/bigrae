@@ -36,7 +36,6 @@ from ctf.api.organizer._base import (
     _resolve_owned_event,
     _resolve_owned_participant,
 )
-from ctf.api.organizer.vpn import ParticipantVpnProfileView as ParticipantVpnProfileView
 from ctf.api.serializers import (
     ParticipantRangeActionResultSerializer,
     RangeAccessResponseSerializer,

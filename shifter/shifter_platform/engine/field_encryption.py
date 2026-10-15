@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from shared.field_encryption import EncryptedJSONField
-
-if TYPE_CHECKING:
-    pass
 
 
 class EncryptedProvisioningSpecField(EncryptedJSONField):

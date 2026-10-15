@@ -90,10 +90,9 @@ def assert_profile_runtime(row: VpnAccessProfile, *, pending: bool = False) -> t
         row.state not in ({"pending"} if pending else {"ready"})
         or row.revoked_at is not None
         or row.expires_at <= timezone.now()
-        or runtime.status != "ready"
+        or (runtime.status, runtime.resource_generation) != ("ready", row.resource_generation)
         or runtime.request is None
         or runtime.request.request_id != row.generation
-        or runtime.resource_generation != row.resource_generation
         or row.authority_binding_digest != range_runtime_binding_digest(runtime)
         or capability.teardown_at <= timezone.now()
     ):

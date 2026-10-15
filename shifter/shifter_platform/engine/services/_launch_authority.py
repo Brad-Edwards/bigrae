@@ -216,17 +216,7 @@ def assert_admitted_launch_binding(fields: dict[str, object], runtime: Range | I
     from engine.models import Instance
 
     if isinstance(runtime, Instance):
-        if runtime.request is None:
-            raise PermissionError("Device authority unavailable")
-        if runtime.request.owner_principal_uuid is not None and not fields:
-            raise PermissionError("Device authority unavailable")
-        if fields.get("authority_kind") == "cleanup":
-            from ._device_authority import assert_device_cleanup_origin
-
-            origin = fields["cleanup_origin_operation_uuid"]
-            if not isinstance(origin, UUID):
-                raise ValueError("Device cleanup origin unavailable")
-            assert_device_cleanup_origin(origin, runtime)
+        _assert_admitted_device_binding(fields, runtime)
         return
     if fields and fields.get("authority_kind") == "principal":
         leaf = TargetRef("range", runtime.cms_range_uuid)
@@ -235,6 +225,21 @@ def assert_admitted_launch_binding(fields: dict[str, object], runtime: Range | I
         scope = authority_resource_scope(fields)
         if resolve_credential_scope(leaf) != scope:
             raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+
+
+def _assert_admitted_device_binding(fields: dict[str, object], runtime: Instance) -> None:
+    """Require original principal proof or verified native device cleanup."""
+    if runtime.request is None:
+        raise PermissionError("Device authority unavailable")
+    if runtime.request.owner_principal_uuid is not None and not fields:
+        raise PermissionError("Device authority unavailable")
+    if fields.get("authority_kind") == "cleanup":
+        from ._device_authority import assert_device_cleanup_origin
+
+        origin = fields["cleanup_origin_operation_uuid"]
+        if not isinstance(origin, UUID):
+            raise ValueError("Device cleanup origin unavailable")
+        assert_device_cleanup_origin(origin, runtime)
 
 
 def assert_launch_authority_replay(intent: ProvisionerLaunchIntent, fields: dict[str, object]) -> None:

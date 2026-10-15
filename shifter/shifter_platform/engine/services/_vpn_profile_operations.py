@@ -184,13 +184,13 @@ def _validate_cleanup_origin(profile: VpnAccessProfile, intent: ProvisionerLaunc
     original_input = OperationInput.objects.get(operation_id=origin.operation_id)
     assert_input_authority_binding(original_input, origin)
     if (
-        origin.authority_kind != "principal"
-        or origin.payload.get("resource") != "vpn-profile"
-        or origin.payload.get("operation") != "issue"
-        or origin.payload.get("profile_id") != str(profile.pk)
-        or origin.payload.get("request_id") != str(profile.generation)
-        or intent.cleanup_origin_operation_uuid != origin.operation_id
-    ):
+        origin.authority_kind,
+        origin.payload.get("resource"),
+        origin.payload.get("operation"),
+        origin.payload.get("profile_id"),
+        origin.payload.get("request_id"),
+        intent.cleanup_origin_operation_uuid,
+    ) != ("principal", "vpn-profile", "issue", str(profile.pk), str(profile.generation), origin.operation_id):
         raise ValueError("VPN cleanup origin changed")
     if any(
         getattr(profile, field.name) != getattr(origin, field.name) for field in RecordedAuthorityFields._meta.fields

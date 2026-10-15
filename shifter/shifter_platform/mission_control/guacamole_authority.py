@@ -77,7 +77,8 @@ def terminate_bootstrap(
             native_terminated_at=timezone.now(),
             native_session_token="",
             termination_pending=False,
-            result_url="",  # nosec B106
+            # nosec B106
+            result_url="",
         )
     )
 
@@ -89,7 +90,8 @@ def revalidate_guacamole_sessions(*, client: GuacamoleClient | None = None, limi
 
     rows = (
         GuacamoleBootstrapRequest.objects.filter(authority_kind="principal", native_terminated_at__isnull=True)
-        .exclude(native_session_token="")  # nosec B106
+        # nosec B106
+        .exclude(native_session_token="")
         .order_by("updated_at")[: min(max(limit, 1), 500)]
     )
     terminated = 0

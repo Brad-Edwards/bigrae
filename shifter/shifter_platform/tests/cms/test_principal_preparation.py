@@ -9,7 +9,7 @@ from tests.cms.test_artifact_preparation import registered_pack
 from tests.engine.services.test_preparation_operations import administrator, grant, installed, operator
 from tests.engine.services.test_principal_preparation import service_preparer
 
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 __all__ = ["administrator", "content_actor", "grant", "installed", "operator", "registered_pack", "service_preparer"]
 
 

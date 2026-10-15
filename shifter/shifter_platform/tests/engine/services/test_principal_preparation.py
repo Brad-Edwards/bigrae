@@ -10,7 +10,7 @@ from shared.identity_scope import ResourceScope
 from tests.engine.services.test_preparation_controller import deployment_scope, runtime
 from tests.engine.services.test_preparation_operations import administrator, grant, installed, package_input
 
-pytestmark = [pytest.mark.django_db, pytest.mark.postgres]
+pytestmark = [pytest.mark.django_db]
 __all__ = ["administrator", "deployment_scope", "grant", "installed", "runtime"]
 
 
@@ -87,6 +87,7 @@ def test_preparation_attempt_pins_an_independent_native_workload(service_prepare
     assert operation.initiating_principal_uuid == service_preparer.principal.uuid
 
 
+@pytest.mark.postgres
 def test_preparation_attempt_native_workload_cannot_be_rebound(service_preparer, installed):
     from django.db import IntegrityError, transaction
 
@@ -155,6 +156,7 @@ def test_service_can_cancel_and_retry_without_replacing_original_authority(servi
     assert retried.current_attempt_id != original.current_attempt_id
 
 
+@pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
 def test_dispatch_and_apply_policy_checks_never_hold_database_transaction(service_preparer, installed, monkeypatch):
     from django.db import connection
@@ -214,6 +216,7 @@ def test_authentic_receipt_survives_revocation_but_cannot_advance_work(service_p
     assert not task.dispatched
 
 
+@pytest.mark.postgres
 @pytest.mark.parametrize(
     "field,value",
     [

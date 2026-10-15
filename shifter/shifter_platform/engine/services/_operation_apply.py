@@ -49,7 +49,7 @@ def _resolve_operation_target(resource: str, operation_id: UUID | str) -> Range 
     result's ``operation_id`` — i.e. the generation is current. A rotated (or
     absent) generation resolves to None, which the caller treats as stale.
     """
-    from engine.models import Instance, Range
+    from engine.models import Instance, Range, VpnAccessProfile
 
     target: Range | Instance | VpnAccessProfile | None
     if resource in _RANGE_RESOURCES:
@@ -61,8 +61,6 @@ def _resolve_operation_target(resource: str, operation_id: UUID | str) -> Range 
             .first()
         )
     elif resource == "vpn-profile":
-        from engine.models import VpnAccessProfile
-
         target = (
             VpnAccessProfile.objects.filter(provisioner_operation_id=operation_id)
             .select_related("range__request")

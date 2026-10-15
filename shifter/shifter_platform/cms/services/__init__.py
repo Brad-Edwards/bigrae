@@ -126,7 +126,8 @@ from ._queries import (
     get_range_status_by_id,
     get_range_target_instances,
 )
-from ._raes_range_create import create_raes_native_range, create_range_dispatch
+from ._raes_range_create import create_raes_native_range
+from ._raes_range_dispatch import create_range_dispatch
 from ._range_access import (
     admit_range_remote_authority as admit_range_remote_authority,
 )

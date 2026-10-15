@@ -149,6 +149,8 @@ def _load_principal_range(
     user: CredentialContext, range_source: RangeSource, range_instance_pk: int | None, request_id: UUID | None
 ) -> RangeInstance:
     """Select and authorize the exact principal-owned VPN target before delivery."""
+    from cms.models import RangeInstance
+
     from ._vpn_authority import admit_range_vpn_authority
 
     query = RangeInstance.objects.select_related("request").filter(range_source=range_source.value)

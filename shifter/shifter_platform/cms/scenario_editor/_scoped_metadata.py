@@ -17,8 +17,7 @@ def update_scoped_metadata(
     from ._metadata import _assert_publishable
 
     try:
-        if any(value is not None and type(value) is not bool for value in (enabled, staff_only)):
-            raise ValueError("Invalid metadata")
+        _validate_metadata_flags(enabled, staff_only)
         source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
         if source is None:
             raise ValueError("Content unavailable")
@@ -48,15 +47,7 @@ def update_scoped_metadata(
                 },
             )
             if not created:
-                if enabled is not None:
-                    metadata.enabled = enabled
-                if staff_only is not None:
-                    metadata.staff_only = staff_only
-                metadata.updated_by_id = None
-                metadata.updated_by_principal_uuid = current.principal.uuid
-                metadata.save(
-                    update_fields=["enabled", "staff_only", "updated_by", "updated_by_principal_uuid", "updated_at"]
-                )
+                _save_metadata_flags(metadata, enabled, staff_only, current)
             audit_log(
                 AuditEvent(
                     entity_type=AuditEntityType.SCENARIO,
@@ -73,3 +64,22 @@ def update_scoped_metadata(
         raise
     except Exception:
         raise ScenarioEditorError("Scenario metadata unavailable") from None
+
+
+def _validate_metadata_flags(enabled: bool | None, staff_only: bool | None) -> None:
+    """Reject nonboolean flags without coercing caller input."""
+    if any(value is not None and type(value) is not bool for value in (enabled, staff_only)):
+        raise ValueError("Invalid metadata")
+
+
+def _save_metadata_flags(
+    metadata: ScenarioMetadata, enabled: bool | None, staff_only: bool | None, current: CredentialContext
+) -> None:
+    """Persist optional flags with the current principal as audit attribution."""
+    if enabled is not None:
+        metadata.enabled = enabled
+    if staff_only is not None:
+        metadata.staff_only = staff_only
+    metadata.updated_by_id = None
+    metadata.updated_by_principal_uuid = current.principal.uuid
+    metadata.save(update_fields=["enabled", "staff_only", "updated_by", "updated_by_principal_uuid", "updated_at"])

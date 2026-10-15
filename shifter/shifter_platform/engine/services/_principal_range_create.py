@@ -101,7 +101,6 @@ def prepare_principal_range_fields(
 ) -> dict[str, object]:
     """Evaluate parent policy before the create transaction; never borrow a user."""
     from engine.ecs._config import _get_engine_task_config
-    from management.services import human_principal_user_id
     from workspaces.services import resolve_range_scope_binding
 
     if _get_engine_task_config() is None:
@@ -114,9 +113,7 @@ def prepare_principal_range_fields(
         raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
     if not bindings.cms_range_uuid.int:
         raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
-    expected_user = human_principal_user_id(current.principal) if current.principal.kind == "human" else None
-    if expected_user != user_id:
-        raise ValueError("Range historical attribution conflicts")
+    _assert_historical_user(current, user_id)
     resolved = resolve_range_scope_binding(scope, member=current.principal)
     if resolved.workspace_id != workspace_id:
         raise ValueError("Range scope conflicts")
@@ -133,6 +130,15 @@ def prepare_principal_range_fields(
         "account_id": resolved.account_id,
         "organization_id": resolved.organization_id,
     }
+
+
+def _assert_historical_user(current: CredentialContext, user_id: int | None) -> None:
+    """Human attribution cannot substitute for the admitted principal owner."""
+    from management.services import human_principal_user_id
+
+    expected_user = human_principal_user_id(current.principal) if current.principal.kind == "human" else None
+    if expected_user != user_id:
+        raise ValueError("Range historical attribution conflicts")
 
 
 def assert_principal_range_creation(bindings: RangeBindings, fields: dict[str, object]) -> None:
