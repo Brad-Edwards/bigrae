@@ -5,6 +5,7 @@ from typing import Any
 
 from cloud.exceptions import CloudProviderNotImplementedError
 from config import resolve_cloud_provider
+from ngfw_native_identity import native_owner_key
 
 
 def _build_provider_state(output_data: dict[str, Any]) -> dict[str, Any]:
@@ -55,14 +56,15 @@ def _build_tf_variables(
     app_spec: dict[str, Any],
 ) -> dict[str, Any]:
     """Build Terraform variables from environment and app_spec."""
-    user_id = app_spec.get("user_id", 0)
+    secrets_kms_key = os.environ["SECRETS_KMS_KEY_ARN"]
+    user_id = app_spec.get("user_id")
     return {
-        "name_prefix": f"ngfw-user-{user_id}",
+        "name_prefix": f"ngfw-{native_owner_key(user_id, instance_id)}",
         "user_id": user_id,
         "instance_uuid": instance_id,
         "request_uuid": request_id,
         "environment": os.environ.get("ENVIRONMENT", "dev"),
-        "secrets_kms_key_arn": os.environ["SECRETS_KMS_KEY_ARN"],
+        "secrets_kms_key_arn": secrets_kms_key,
         "subnet_id": os.environ.get("NGFW_SUBNET_ID", ""),
         "mgmt_security_group_id": os.environ.get("NGFW_MGMT_SECURITY_GROUP_ID", ""),
         "data_security_group_id": os.environ.get("NGFW_DATA_SECURITY_GROUP_ID", ""),

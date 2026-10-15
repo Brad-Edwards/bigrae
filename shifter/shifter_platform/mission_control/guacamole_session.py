@@ -37,7 +37,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from mission_control._guacamole_session_builders import (
     _build_ngfw_ssh_url,
@@ -46,6 +46,7 @@ from mission_control._guacamole_session_builders import (
 )
 from mission_control.guacamole_bootstrap import BootstrapFailure, BootstrapQueueFull, enqueue_guacamole_bootstrap
 from mission_control.models import GuacamoleBootstrapRequest
+from shared.credentials import CredentialContext
 from shared.log_sanitize import safe_log_fingerprint, safe_log_value
 
 if TYPE_CHECKING:
@@ -59,7 +60,7 @@ _GUAC_AUTH_NOT_CONFIGURED = "Guacamole JSON auth is not configured"
 _GUACAMOLE_BASE_PATH = "/guacamole"
 
 
-def _bind_guacamole_client(service_name: str) -> GuacamoleClient:
+def _bind_guacamole_client(service_name: str, *, require_signing_key: bool = True) -> GuacamoleClient:
     """Bind Guacamole runtime configuration into a client, or raise a 503.
 
     Runs synchronously on the request thread so a missing signing secret fails
@@ -72,7 +73,7 @@ def _bind_guacamole_client(service_name: str) -> GuacamoleClient:
     from mission_control.guacamole import GuacamoleClientConfig, get_guacamole_client
 
     signing_secret = getattr(settings, "GUACAMOLE_JSON_AUTH_SECRET", "")
-    if not signing_secret:
+    if require_signing_key and not signing_secret:
         logger.error(_GUAC_AUTH_NOT_CONFIGURED)
         raise BootstrapFailure(f"{service_name} service not configured", status_code=503)
     config = GuacamoleClientConfig(
@@ -117,9 +118,11 @@ def _actor_user_id(user: User) -> int:
 def _worker_build_callable(
     *,
     protocol: str,
-    user: User,
+    user: User | CredentialContext,
     target_id: str,
     guac_client: GuacamoleClient,
+    session_identity: str | None = None,
+    range_uuid: UUID | None = None,
 ) -> Callable[[], str]:
     """Return the closed-access-kind worker callable that builds the signed URL.
 
@@ -129,6 +132,27 @@ def _worker_build_callable(
     the same bootstrap, delivery, client, error, and logging envelopes.
     """
     protocols = GuacamoleBootstrapRequest.Protocol
+    if session_identity is not None:
+        if protocol == protocols.NGFW_SSH:
+            return lambda: _build_ngfw_ssh_url(
+                user=user, app_id=target_id, guac_client=guac_client, session_identity=session_identity
+            )
+        if protocol == protocols.RDP:
+            return lambda: _build_rdp_url(
+                user=user,
+                instance_uuid=target_id,
+                guac_client=guac_client,
+                session_identity=session_identity,
+                range_uuid=range_uuid,
+            )
+        if protocol == protocols.RANGE_SSH:
+            return lambda: _build_range_ssh_url(
+                user=user,
+                instance_uuid=target_id,
+                guac_client=guac_client,
+                session_identity=session_identity,
+                range_uuid=range_uuid,
+            )
     if protocol == protocols.RDP:
         return lambda: _build_rdp_url(user=user, instance_uuid=target_id, guac_client=guac_client)
     if protocol == protocols.RANGE_SSH:
@@ -140,10 +164,11 @@ def _worker_build_callable(
 
 def launch_guacamole_session(
     *,
-    user: User,
+    user: User | CredentialContext,
     protocol: str,
     target_id: str,
     guacamole_client: GuacamoleClient | None = None,
+    range_uuid: UUID | None = None,
 ) -> GuacamoleSessionLaunch:
     """Launch a Guacamole browser session for ``user`` against ``target_id``.
 
@@ -159,10 +184,22 @@ def launch_guacamole_session(
     surfaced by the status endpoint, not raised here.
     """
     guac_client = guacamole_client or _bind_guacamole_client(_service_name(protocol))
+    authority = {}
+    bootstrap_id = None
+    if isinstance(user, CredentialContext):
+        from cms.services import admit_device_remote_authority, admit_range_remote_authority
+
+        if protocol == GuacamoleBootstrapRequest.Protocol.NGFW_SSH:
+            authority = admit_device_remote_authority(user, target_id)
+        elif protocol in {GuacamoleBootstrapRequest.Protocol.RDP, GuacamoleBootstrapRequest.Protocol.RANGE_SSH}:
+            authority = admit_range_remote_authority(user, target_id, range_uuid=range_uuid)
+        else:
+            raise BootstrapFailure("Permission denied", status_code=403)
+        bootstrap_id = uuid4()
     if protocol == GuacamoleBootstrapRequest.Protocol.NGFW_SSH:
         logger.info(
             "Guacamole SSH bootstrap queued for NGFW: user=%s ngfw_uuid=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email),
             safe_log_value(target_id),
         )
     build_url = _worker_build_callable(
@@ -170,20 +207,25 @@ def launch_guacamole_session(
         user=user,
         target_id=target_id,
         guac_client=guac_client,
+        session_identity="access-" + str(bootstrap_id) if bootstrap_id else None,
+        range_uuid=authority.get("authority_target_uuid") if protocol != "ngfw_ssh" else None,
     )
     try:
         bootstrap = enqueue_guacamole_bootstrap(
-            user_id=_actor_user_id(user),
+            user_id=None if authority else _actor_user_id(user),
             protocol=protocol,
             target_id=target_id,
             build_url=build_url,
+            authority=authority,
+            guacamole_client=guac_client,
+            bootstrap_id=bootstrap_id,
         )
     except BootstrapQueueFull:
         # Preserve the application-level saturation signal (the adapter maps this
         # to a 503 + Retry-After). Only non-secret kind/target/user identifiers.
         logger.warning(
             "Guacamole bootstrap worker capacity exhausted: user=%s protocol=%s target_id=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email),
             safe_log_value(protocol),
             safe_log_value(target_id),
         )

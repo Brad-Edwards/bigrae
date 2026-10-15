@@ -62,7 +62,9 @@ class ObjectStorage(Protocol):
         """
         ...
 
-    def read_object_header(self, bucket: str, key: str, max_bytes: int) -> bytes: ...
+    def read_object_header(
+        self, bucket: str, key: str, max_bytes: int, *, expected_identity: dict[str, Any] | None = None
+    ) -> bytes: ...
 
     def download_object(
         self,

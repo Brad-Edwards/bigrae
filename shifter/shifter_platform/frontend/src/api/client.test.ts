@@ -95,6 +95,16 @@ describe("apiFetch", () => {
   });
 });
 
+it("keeps asynchronous profile preparation separate from a binary credential download", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    error: { code: "vpn_preparing", message: "Preparing your VPN profile." },
+  }), { status: 202, headers: { "Content-Type": "application/json" } }));
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(apiDownload("/mission-control/range/vpn-profile/", {
+    method: "POST", expectedMediaType: "application/x-openvpn-profile", maxBytes: 65536,
+  })).rejects.toMatchObject({ status: 202, code: "vpn_preparing" });
+});
+
 describe("apiDownload", () => {
   it("preserves unsafe-request protections and returns only a bounded OpenVPN blob", async () => {
     const profile = new TextEncoder().encode("client\nremote vpn.example.test 1194 udp\n");

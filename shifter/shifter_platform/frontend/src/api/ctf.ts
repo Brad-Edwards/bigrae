@@ -321,6 +321,8 @@ const VPN_PROFILE_FILENAME = "shifter-ctf-range.ovpn";
 
 export function useVpnProfileDownload() {
   return useMutation({
+    retry: (count, error) => error instanceof ApiError && error.status === 202 && error.code === "vpn_preparing" && count < 24,
+    retryDelay: 5000,
     mutationFn: async () => {
       const blob = await apiDownload(`${BASE}/range/vpn-profile/`, {
         method: "POST",

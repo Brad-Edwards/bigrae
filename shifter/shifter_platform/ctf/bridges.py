@@ -373,6 +373,10 @@ def cms_get_openvpn_profile(user: User, range_instance_id: int) -> OpenVpnProfil
 
     try:
         return cms_services.get_ctf_openvpn_profile(user, range_instance_id)
+    except cms_services.OpenVpnProfilePending as exc:
+        from ctf.exceptions import CTFVpnProfilePending
+
+        raise CTFVpnProfilePending("VPN profile preparing") from exc
     except cms_services.CtfOpenVpnProfileNotFound as exc:
         raise CTFNotFoundError("VPN profile is not available") from exc
     except cms_services.CtfOpenVpnProfileConflict as exc:

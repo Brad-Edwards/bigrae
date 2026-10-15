@@ -15,6 +15,7 @@ from __future__ import annotations
 import queue
 import socket
 import threading
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 _REPLY_TIMEOUT = 10
@@ -67,6 +68,7 @@ class Management:
         self.events: queue.Queue[ClientEvent | None] = queue.Queue()
         self._replies: queue.Queue[str] = queue.Queue()
         self._lock = threading.Lock()
+        self._closed = False
         self._reader = threading.Thread(target=self._read, name="management-reader", daemon=True)
         self._reader.start()
 
@@ -94,12 +96,20 @@ class Management:
 
     def _command(self, *lines: str) -> str:
         with self._lock:
-            for line in lines:
-                self._file.write(line + "\n")
-            self._file.flush()
+            if self._closed:
+                raise ManagementError("OpenVPN management connection closed")
             try:
+                for line in lines:
+                    self._file.write(line + "\n")
+                self._file.flush()
                 reply = self._replies.get(timeout=_REPLY_TIMEOUT)
-            except queue.Empty:
+            except (queue.Empty, OSError):
+                # Replies carry no command id. After a timeout, a late reply
+                # must never be mistaken for the next command's acknowledgment.
+                self._closed = True
+                with suppress(OSError):
+                    self._socket.shutdown(socket.SHUT_RDWR)
+                self._socket.close()
                 raise ManagementError("no reply from OpenVPN") from None
         if reply.startswith("ERROR:"):
             raise ManagementError(reply)

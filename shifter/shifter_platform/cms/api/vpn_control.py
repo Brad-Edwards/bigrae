@@ -125,6 +125,8 @@ class VpnSessionAuthorizeView(_VpnControlView):
                 server=body.get("server"),
                 client_id=body.get("client_id"),
                 client_address=body.get("client_address", ""),
+                certificate_serial=body.get("certificate_serial", ""),
+                certificate_fingerprint=body.get("certificate_fingerprint", ""),
             )
         except VpnSessionDenied as exc:
             return _denied(exc)
@@ -138,6 +140,19 @@ class VpnSessionAuthorizeView(_VpnControlView):
             },
             status=201,
         )
+
+
+class VpnCrlView(_VpnControlView):
+    """Public PKI material over the independently authenticated control channel."""
+
+    @extend_schema(exclude=True)
+    def post(self, request: Request) -> Response:
+        from engine.services import get_vpn_crl
+
+        try:
+            return Response({"crl": get_vpn_crl()})
+        except ValueError:
+            return Response({"error": "vpn.crl_unavailable"}, status=503)
 
 
 class VpnSessionHeartbeatView(_VpnControlView):

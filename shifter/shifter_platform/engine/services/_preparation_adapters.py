@@ -9,8 +9,20 @@ from uuid import UUID
 from django.db import transaction
 from pydantic import ValidationError as ModelValidationError
 
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, RequestAudit, audit_log
+from shared.audit import (
+    AuditAction,
+    AuditActorType,
+    AuditEntityType,
+    AuditEvent,
+    RequestAudit,
+    audit_log,
+    principal_actor_fields,
+)
+from shared.authorization import AuthorizationRequest, TargetRef
+from shared.authorization.policy import require_authorization
+from shared.credentials import CredentialContext, resolve_current_credential
 from shared.exceptions import ValidationError
+from shared.identity_scope import ResourceScope
 from shared.preparation_grant import PreparationGrantConfiguration
 from shared.raes.preparation_contract import AdapterManifest
 
@@ -32,14 +44,35 @@ class PreparationAdapterView:
     state: str
 
 
-def require_preparation_permission(user: User, permission: str) -> None:
+def require_preparation_permission(user: User | CredentialContext, permission: str) -> CredentialContext | None:
     """Enforce explicit application authority for CLI, API and service callers."""
+    if isinstance(user, CredentialContext):
+        actions = {
+            "manage_preparation_adapters": "installation.manage_adapters",
+            "manage_preparation_grants": "installation.manage_adapters",
+            "prepare_artifacts": "installation.prepare_content",
+        }
+        try:
+            current = resolve_current_credential(user)
+            require_authorization(
+                AuthorizationRequest(
+                    current.principal,
+                    actions[permission],
+                    TargetRef("installation"),
+                    ResourceScope("installation"),
+                    current.ceiling,
+                )
+            )
+            return current
+        except Exception:
+            raise ValidationError("Artifact preparation access is not permitted") from None
     if not (user and user.is_authenticated and user.is_active and user.has_perm(f"engine.{permission}")):
         raise ValidationError("Artifact preparation access is not permitted")
+    return None
 
 
 def install_preparation_adapter(
-    user: User, grant_id: UUID, payload: object, *, audit: RequestAudit | None = None
+    user: User | CredentialContext, grant_id: UUID, payload: object, *, audit: RequestAudit | None = None
 ) -> PreparationAdapterView:
     """Install an exact version under an existing cloud grant, with strict audit.
 
@@ -48,7 +81,7 @@ def install_preparation_adapter(
     """
     from engine.models import PreparationAdapter
 
-    require_preparation_permission(user, "manage_preparation_adapters")
+    current = require_preparation_permission(user, "manage_preparation_adapters")
     try:
         manifest = AdapterManifest.model_validate(payload)
     except ModelValidationError as exc:
@@ -65,7 +98,8 @@ def install_preparation_adapter(
                 "grant": grant,
                 "manifest_digest": manifest.digest,
                 "manifest": manifest.model_dump(mode="json"),
-                "installed_by": user,
+                "installed_by": None if current else user,
+                "installed_by_principal_uuid": current.principal.uuid if current else None,
             },
         )
         if row.manifest_digest != manifest.digest or row.grant_id != grant.id:
@@ -76,7 +110,7 @@ def install_preparation_adapter(
 
 
 def set_preparation_adapter_state(
-    user: User, adapter_id: UUID, state: str, *, audit: RequestAudit | None = None
+    user: User | CredentialContext, adapter_id: UUID, state: str, *, audit: RequestAudit | None = None
 ) -> PreparationAdapterView:
     """Fence new starts without retargeting in-flight execution or cleanup."""
     from engine.models import PreparationAdapter
@@ -102,7 +136,7 @@ def set_preparation_adapter_state(
         return _view(row)
 
 
-def list_preparation_adapters(user: User) -> list[PreparationAdapterView]:
+def list_preparation_adapters(user: User | CredentialContext) -> list[PreparationAdapterView]:
     """Return private registration detail only to executable administrators."""
     from engine.models import PreparationAdapter
 
@@ -110,7 +144,7 @@ def list_preparation_adapters(user: User) -> list[PreparationAdapterView]:
     return [_view(row) for row in PreparationAdapter.objects.order_by("adapter_id", "version")]
 
 
-def list_preparation_adapter_grants(user: User) -> list[dict[str, Any]]:
+def list_preparation_adapter_grants(user: User | CredentialContext) -> list[dict[str, Any]]:
     """List selectable grants without exposing cloud credentials or configuration."""
     from engine.models import PreparationGrant
 
@@ -167,18 +201,30 @@ def validate_pinned_adapter(row: PreparationAdapter) -> AdapterManifest:
 
 
 def _audit_adapter(
-    user: User, row: PreparationAdapter, action: str, *, previous: str = "", audit: RequestAudit | None = None
+    user: User | CredentialContext,
+    row: PreparationAdapter,
+    action: str,
+    *,
+    previous: str = "",
+    audit: RequestAudit | None = None,
 ) -> None:
     """Commit bounded identities, never private manifests, images or credentials."""
     attribution = audit or RequestAudit()
+    actor = (
+        principal_actor_fields(user.principal)
+        if isinstance(user, CredentialContext)
+        else {
+            "actor_type": attribution.actor_type or AuditActorType.USER,
+            "actor_id": attribution.actor_id if attribution.actor_type else user.id,
+        }
+    )
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.PREPARATION_ADAPTER,
             entity_id=0,
             entity_ref=str(row.id),
             action=AuditAction.CREATE if action == "install" else AuditAction.UPDATE,
-            actor_type=attribution.actor_type or AuditActorType.USER,
-            actor_id=attribution.actor_id if attribution.actor_type else user.id,
+            **actor,
             request_id=attribution.request_id,
             source_ip=attribution.source_ip,
             user_agent=attribution.user_agent,

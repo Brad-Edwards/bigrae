@@ -11,7 +11,9 @@ import enum
 import logging
 from typing import TYPE_CHECKING
 
+from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
+from shared.identity_scope import PrincipalRef
 from shared.log_sanitize import safe_log_value
 
 from ._common import EngineError, _persist_task_arn
@@ -110,7 +112,7 @@ def get_range_failure_reason_by_request(request_id: UUID) -> str:
     return ": ".join(parts)
 
 
-def destroy_range_by_request(request_id: UUID) -> bool:
+def destroy_range_by_request(request_id: UUID, *, credential: CredentialContext | None = None) -> bool:
     """Tear down range infrastructure by request_id.
 
     Selects the teardown entrypoint from the persisted, validated
@@ -125,11 +127,17 @@ def destroy_range_by_request(request_id: UUID) -> bool:
     from engine.models import Range
     from shared.raes.runtime_target import is_raes_provisioning_plan
 
+    if credential is not None:
+        from ._principal_lifecycle import commit_prepared_range_lifecycle, prepare_range_lifecycle
+
+        return commit_prepared_range_lifecycle(prepare_range_lifecycle(credential, request_id, "destroy"))
     logger.debug("destroy_range_by_request: request_id=%s", request_id)
     range_obj = Range.objects.filter(request__request_id=request_id).first()
     if not range_obj:
         logger.warning("destroy_range_by_request: no range for request_id=%s", request_id)
         return False
+    if range_obj.owner_principal_uuid is not None:
+        raise PermissionError("Range operation authority unavailable")
     teardown = start_raes_range_teardown if is_raes_provisioning_plan(range_obj.range_config) else start_range_teardown
     return _apply_destroy_by_request(range_obj, request_id, teardown)
 
@@ -181,7 +189,7 @@ def _apply_destroy_by_request(
     return True
 
 
-def cancel_range_by_request(request_id: UUID) -> bool:
+def cancel_range_by_request(request_id: UUID, *, credential: CredentialContext | None = None) -> bool:
     """Cancel in-progress range provisioning by request_id.
 
     Only works for ranges in PENDING or PROVISIONING status. Records a durable
@@ -194,12 +202,18 @@ def cancel_range_by_request(request_id: UUID) -> bool:
     from engine.launch_intents import request_provision_interrupt
     from engine.models import Range
 
+    if credential is not None:
+        from ._principal_lifecycle import commit_prepared_range_lifecycle, prepare_range_lifecycle
+
+        return commit_prepared_range_lifecycle(prepare_range_lifecycle(credential, request_id, "cancel"))
     logger.debug("cancel_range_by_request: request_id=%s", request_id)
     with transaction.atomic():
         range_obj = Range.objects.select_for_update().filter(request__request_id=request_id).first()
         if not range_obj:
             logger.warning("cancel_range_by_request: no range for request_id=%s", request_id)
             return False
+        if range_obj.owner_principal_uuid is not None:
+            raise PermissionError("Range operation authority unavailable")
         settled = _cancellation_already_settled(range_obj, request_id)
         if settled is not None:
             if settled:
@@ -299,6 +313,8 @@ def rebind_range_workspace_by_request(
     # Single outcome variable + one terminal return keeps the branch count within
     # the cognitive-return limit (Sonar S1142) while preserving each CAS result.
     range_obj = ranges[0]
+    if range_obj.owner_principal_uuid is not None:
+        raise PermissionError("Range scope authority unavailable")
     if range_obj.workspace_id == new_workspace_id:
         logger.info(
             "rebind_range_workspace_by_request: request_id=%s already at workspace_id=%s (no-op)",
@@ -327,7 +343,9 @@ def rebind_range_workspace_by_request(
     return outcome
 
 
-def reassign_range_owner_by_request(request_id: UUID, new_user: User) -> bool:
+def reassign_range_owner_by_request(
+    request_id: UUID, new_user: User | PrincipalRef, *, credential: CredentialContext | None = None
+) -> bool:
     """Reassign the ``Range``/``Request`` owner for ``request_id`` to ``new_user``.
 
     Used by CMS's cross-owner range-recovery path (``cms.services.reassign_range_owner``,
@@ -341,6 +359,10 @@ def reassign_range_owner_by_request(request_id: UUID, new_user: User) -> bool:
         True if a range was found (and reassigned or already owned by
         ``new_user``), False if no range exists for ``request_id``.
     """
+    if credential is not None:
+        from ._principal_range_owner import commit_range_owner_move, prepare_range_owner_move
+
+        return commit_range_owner_move(prepare_range_owner_move(credential, request_id, new_user))
     from django.db import transaction
 
     from engine.models import Range
@@ -352,6 +374,9 @@ def reassign_range_owner_by_request(request_id: UUID, new_user: User) -> bool:
         if not range_obj:
             logger.warning("reassign_range_owner_by_request: no range for request_id=%s", request_id)
             return False
+
+        if range_obj.owner_principal_uuid is not None:
+            raise PermissionError("Range ownership authority unavailable")
 
         if range_obj.user_id == new_user.id:
             logger.info(

@@ -46,6 +46,18 @@ def _make(
 
 
 class TestConsumeReadyUrl:
+    @pytest.mark.postgres
+    def test_native_token_url_is_encrypted_at_rest(self):
+        from django.db import connection
+
+        marker = "SYNTHETIC_GUACAMOLE_SECRET_MARKER"
+        row = _make(result_url=f"https://example.test/#/client/example?token={marker}")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT result_url FROM mission_control_guacamolebootstraprequest WHERE id = %s", [row.id])
+            assert marker not in str(cursor.fetchone())
+        row.refresh_from_db()
+        assert marker in row.result_url
+
     def test_delivers_once_and_clears(self):
         row = _make(result_url="https://guac/token")
 

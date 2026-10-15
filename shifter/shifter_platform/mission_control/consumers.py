@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, User
 
 # RangeStatusConsumer / NGFWStatusConsumer live in status_consumers.py so this
 # module stays under Sonar S104's 500-line cap; re-exported here so existing
@@ -28,7 +28,9 @@ from shared.audit import (
     audit_session_event,
     select_trusted_client_ip,
 )
+from shared.credentials import CredentialContext
 from shared.enums import WebSocketCloseCode
+from shared.identity_scope import PrincipalRef
 
 if TYPE_CHECKING:
     from shared.remote_access import TerminalConnection, TerminalConnectionFactory
@@ -65,6 +67,8 @@ class SSHConsumer(AsyncWebsocketConsumer):
         self._read_task: asyncio.Task[None] | None = None
         self.session_id: str = str(uuid.uuid4())[:8]
         self._user_id: int | None = None
+        self._principal: PrincipalRef | None = None
+        self._capacity_key: int | uuid.UUID | None = None
         self._user_email: str = ""
         self._session_acquired: bool = False
         self._session_start: float = 0.0
@@ -78,8 +82,14 @@ class SSHConsumer(AsyncWebsocketConsumer):
         """Handle WebSocket connection request."""
         try:
             await self._do_connect()
+        except asyncio.CancelledError:
+            await self._disconnect_ssh_best_effort()
+            await self._release_session_slot()
+            raise
         except Exception:
-            logger.exception("Unexpected error in WebSocket connect")
+            logger.error("Terminal connection failed unexpectedly")
+            await self._disconnect_ssh_best_effort()
+            await self._release_session_slot()
             await self.close(code=WebSocketCloseCode.SERVER_ERROR)
 
     def _client_ip(self) -> str | None:
@@ -108,13 +118,18 @@ class SSHConsumer(AsyncWebsocketConsumer):
         missing an instance UUID, so the caller can bail without branching on
         each failure mode itself.
         """
-        user = self.scope.get("user")
+        user = self.scope.get("credential_context", self.scope.get("user"))
         if not user or isinstance(user, AnonymousUser):
             logger.warning("Unauthenticated terminal connection attempt")
             await self.close(code=WebSocketCloseCode.NOT_AUTHENTICATED)
             return None
 
-        self._user_id = user.id
+        if isinstance(user, CredentialContext):
+            self._principal = user.principal
+            self._capacity_key = user.principal.uuid
+        else:
+            self._user_id = user.id
+            self._capacity_key = user.id
         self._user_email = getattr(user, "email", "") or ""
         instance_uuid = self.scope["url_route"]["kwargs"].get("instance_uuid")
         if not instance_uuid:
@@ -153,16 +168,19 @@ class SSHConsumer(AsyncWebsocketConsumer):
         from cms.services import connect_range_terminal
 
         try:
+            browser = self.scope.get("user")
+            browser_proof = isinstance(browser, User) and isinstance(user, CredentialContext)
             # Run blocking connect (DB + Secrets Manager) on the dedicated
             # terminal executor so it cannot block page renders (#929).
             ssh_conn = await run_terminal_sync(
                 connect_range_terminal,
-                user,
+                browser if browser_proof else user,
                 instance_uuid,
                 connection_factory=self._connection_factory,
+                **({"credential": user} if browser_proof else {}),
             )
             self.ssh_conn = ssh_conn
-            await ssh_conn.connect()
+            await self._connect_until_revoked(ssh_conn)
             return True
         except TerminalExecutorSaturated:
             await self._release_session_slot()
@@ -176,7 +194,7 @@ class SSHConsumer(AsyncWebsocketConsumer):
             logger.warning("Terminal connection denied - permission error: uuid=%s", instance_uuid)
             await self._audit_best_effort(
                 action="access_denied",
-                user_id=user.id,
+                **self._audit_actor(),
                 session=SessionInfo(
                     session_id=self.session_id,
                     range_id=None,
@@ -187,15 +205,40 @@ class SSHConsumer(AsyncWebsocketConsumer):
                 context=f"Permission denied for instance {instance_uuid}",
             )
             await self.close(code=WebSocketCloseCode.PERMISSION_DENIED)
-        except ValueError as e:
+        except ValueError:
+            await self._disconnect_ssh_best_effort()
             await self._release_session_slot()
-            logger.warning("Terminal connection denied: uuid=%s error=%s", instance_uuid, str(e))
+            logger.warning("Terminal connection unavailable: uuid=%s", instance_uuid)
             await self.close(code=WebSocketCloseCode.NOT_FOUND)
-        except Exception as e:
+        except Exception:
+            await self._disconnect_ssh_best_effort()
             await self._release_session_slot()
-            logger.exception("SSH connection failed: uuid=%s error=%s", instance_uuid, str(e))
+            logger.error("SSH connection failed: uuid=%s", instance_uuid)
             await self.close(code=WebSocketCloseCode.SSH_CONNECTION_FAILED)
         return False
+
+    async def _connect_until_revoked(self, connection: TerminalConnection) -> None:
+        """Cancel in-progress native connection work when its boundary revokes."""
+        revoked = self.scope.get("_authority_revoked")
+        if not isinstance(revoked, asyncio.Event):
+            await connection.connect()
+            return
+        connect = asyncio.create_task(connection.connect())
+        invalidated = asyncio.create_task(revoked.wait())
+        try:
+            done, _ = await asyncio.wait((connect, invalidated), return_when=asyncio.FIRST_COMPLETED)
+            if invalidated in done:
+                connect.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await connect
+                await self._disconnect_ssh_best_effort()
+                raise PermissionError("Terminal authority revoked")
+            await connect
+        finally:
+            for pending in (connect, invalidated):
+                pending.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pending
 
     async def _do_connect(self) -> None:
         """Authenticate, enforce the session cap, and start the SSH bridge."""
@@ -208,7 +251,7 @@ class SSHConsumer(AsyncWebsocketConsumer):
 
         logger.debug(
             "Terminal connection requested: user_id=%s instance_uuid=%s",
-            user.id,
+            self._capacity_key,
             instance_uuid,
         )
 
@@ -217,14 +260,14 @@ class SSHConsumer(AsyncWebsocketConsumer):
         # exhausting the portal process. SERVICE_UNAVAILABLE (4503) is retryable
         # client-side, so transient pressure self-heals as other sessions end.
         self._session_acquired = await _session_registry.try_acquire(
-            user.id,
+            self._capacity_key,
             settings.TERMINAL_MAX_SESSIONS,
             settings.TERMINAL_MAX_SESSIONS_PER_USER,
         )
         if not self._session_acquired:
             logger.warning(
                 "Terminal session cap reached, rejecting: user_id=%s %s",
-                user.id,
+                self._capacity_key,
                 _session_registry.snapshot(),
             )
             await self.close(code=WebSocketCloseCode.SERVICE_UNAVAILABLE)
@@ -241,7 +284,7 @@ class SSHConsumer(AsyncWebsocketConsumer):
 
         await self._audit_best_effort(
             action="connect",
-            user_id=user.id,
+            **self._audit_actor(),
             session=SessionInfo(
                 session_id=self.session_id,
                 range_id=None,
@@ -254,7 +297,7 @@ class SSHConsumer(AsyncWebsocketConsumer):
 
         logger.info(
             "Terminal connected: user_id=%s uuid=%s %s",
-            user.id,
+            self._capacity_key,
             instance_uuid,
             _session_registry.snapshot(),
         )
@@ -267,9 +310,15 @@ class SSHConsumer(AsyncWebsocketConsumer):
         Idempotent so it is safe to call on every failure path and again from
         ``disconnect`` without double-counting.
         """
-        if self._session_acquired and self._user_id is not None:
+        key = self._capacity_key if self._capacity_key is not None else self._user_id
+        if self._session_acquired and key is not None:
             self._session_acquired = False
-            await _session_registry.release(self._user_id)
+            await _session_registry.release(key)
+
+    def _audit_actor(self) -> dict[str, Any]:
+        if self._principal is not None:
+            return {"user_id": None, "principal": self._principal}
+        return {"user_id": self._user_id}
 
     async def _disconnect_ssh_best_effort(self) -> None:
         """Close the SSH transport once, tolerating transport teardown errors."""
@@ -277,7 +326,7 @@ class SSHConsumer(AsyncWebsocketConsumer):
             try:
                 await self.ssh_conn.disconnect()
             except Exception:
-                logger.exception("Error closing SSH connection: uuid=%s", self.instance_uuid)
+                logger.error("SSH connection cleanup failed: uuid=%s", self.instance_uuid)
             finally:
                 self.ssh_conn = None
 
@@ -348,7 +397,7 @@ class SSHConsumer(AsyncWebsocketConsumer):
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Error reading SSH output: uuid=%s", self.instance_uuid)
+            logger.error("SSH output failed: uuid=%s", self.instance_uuid)
             self._close_reason = "error"
         finally:
             # The client may already have disconnected by the time the read loop
@@ -380,10 +429,10 @@ class SSHConsumer(AsyncWebsocketConsumer):
         await self._release_session_slot()
 
         # Audit log disconnection if we had a valid session
-        if self._user_id:
+        if self._user_id is not None or self._principal is not None:
             await self._audit_best_effort(
                 action="disconnect",
-                user_id=self._user_id,
+                **self._audit_actor(),
                 session=SessionInfo(
                     session_id=self.session_id,
                     session_type="terminal",
@@ -416,4 +465,4 @@ class SSHConsumer(AsyncWebsocketConsumer):
         except json.JSONDecodeError:
             logger.warning("Invalid JSON from terminal: uuid=%s", self.instance_uuid)
         except Exception:
-            logger.exception("Error handling terminal input: uuid=%s", self.instance_uuid)
+            logger.error("Terminal input failed: uuid=%s", self.instance_uuid)

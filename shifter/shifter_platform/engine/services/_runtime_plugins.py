@@ -13,7 +13,16 @@ from django.db.models import Q
 from django.utils import timezone
 from shifter_adapter_sdk.runtime import PluginManifest
 
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, RequestAudit, audit_log
+from shared.audit import (
+    AuditAction,
+    AuditActorType,
+    AuditEntityType,
+    AuditEvent,
+    RequestAudit,
+    audit_log,
+    principal_actor_fields,
+)
+from shared.credentials import CredentialContext
 from shared.exceptions import ValidationError
 
 if TYPE_CHECKING:
@@ -43,10 +52,14 @@ class RuntimePluginPage:
     next_cursor: str | None
 
 
-def _authorize(user: User, organization_uuid: UUID) -> UUID:
+def _authorize(user: User | CredentialContext, organization_uuid: UUID) -> UUID:
     """Require active organization administration before reading or mutating plugins."""
     from workspaces.services import OrganizationAuthorizationError, get_organization_profile
 
+    if isinstance(user, CredentialContext):
+        from ._runtime_plugin_authority import admit_plugin_authority
+
+        return admit_plugin_authority(user, organization_uuid)["authority_organization_uuid"]
     if not (user and user.is_authenticated and user.is_active):
         raise OrganizationAuthorizationError("Organization access denied")
     return get_organization_profile(user, organization_uuid).uuid
@@ -66,7 +79,7 @@ def _credentials(payload: object) -> str:
 
 
 def install_runtime_plugin(
-    user: User,
+    user: User | CredentialContext,
     organization_uuid: UUID,
     payload: object,
     *,
@@ -81,6 +94,11 @@ def install_runtime_plugin(
     from engine.models import RuntimePluginInstallation
 
     organization_uuid = _authorize(user, organization_uuid)
+    authority = {}
+    if isinstance(user, CredentialContext):
+        from ._runtime_plugin_authority import admit_plugin_authority
+
+        authority = admit_plugin_authority(user, organization_uuid)
     try:
         manifest = PluginManifest.model_validate(payload)
     except ValueError:
@@ -95,12 +113,17 @@ def install_runtime_plugin(
                 "manifest": manifest.model_dump(mode="json"),
                 "manifest_digest": manifest.digest,
                 "registry_credentials": credentials,
-                "installed_by": user,
+                "installed_by": None if authority else user,
+                **authority,
                 "probe_expires_at": timezone.now() + timedelta(minutes=10),
             },
         )
         if row.manifest_digest != manifest.digest:
             raise ValidationError("An installed version cannot change its executable identity; use a new version")
+        if authority:
+            from ._runtime_plugin_authority import validate_plugin_scope
+
+            validate_plugin_scope(row, authority)
         if not created and credentials and credentials != row.registry_credentials:
             raise ValidationError("Use Retry installation to update registry credentials")
         if created:
@@ -108,12 +131,30 @@ def install_runtime_plugin(
         return _view(row)
 
 
-def list_runtime_plugins(user: User, organization_uuid: UUID, *, cursor: str | None = None) -> RuntimePluginPage:
+def list_runtime_plugins(
+    user: User | CredentialContext, organization_uuid: UUID, *, cursor: str | None = None
+) -> RuntimePluginPage:
     """Page through installations owned by the authorized organization."""
     from engine.models import RuntimePluginInstallation
 
     organization_uuid = _authorize(user, organization_uuid)
     query = RuntimePluginInstallation.objects.filter(organization_uuid=organization_uuid)
+    if isinstance(user, CredentialContext):
+        from ._runtime_plugin_authority import admit_plugin_authority
+
+        fields = admit_plugin_authority(user, organization_uuid)
+        query = query.filter(
+            **{
+                key: fields[key]
+                for key in (
+                    "authority_scope_kind",
+                    "authority_account_uuid",
+                    "authority_organization_uuid",
+                    "authority_workspace_uuid",
+                )
+            },
+            authority_kind="principal",
+        )
     if cursor is not None:
         try:
             after = UUID(cursor)
@@ -131,7 +172,7 @@ def list_runtime_plugins(user: User, organization_uuid: UUID, *, cursor: str | N
 
 
 def change_runtime_plugin(
-    user: User,
+    user: User | CredentialContext,
     organization_uuid: UUID,
     plugin_id: UUID,
     action: str,
@@ -148,6 +189,24 @@ def change_runtime_plugin(
     credentials = _credentials(registry_credentials)
     if credentials and action != "retry":
         raise ValidationError("Registry credentials may only be changed when retrying installation")
+    if isinstance(user, CredentialContext):
+        from ._runtime_plugin_authority import (
+            admit_plugin_authority,
+            reauthorize_plugin_initiator,
+            validate_plugin_scope,
+        )
+
+        fields = admit_plugin_authority(user, organization_uuid)
+        snapshot = (
+            RuntimePluginInstallation.objects.defer("registry_credentials")
+            .filter(pk=plugin_id, organization_uuid=organization_uuid)
+            .first()
+        )
+        if snapshot is None:
+            raise ValidationError("The plugin is unavailable")
+        validate_plugin_scope(snapshot, fields)
+        if action in {"retry", "enable"}:
+            reauthorize_plugin_initiator(snapshot)
     with transaction.atomic():
         row = (
             RuntimePluginInstallation.objects.select_for_update()
@@ -159,6 +218,8 @@ def change_runtime_plugin(
         )
         if row is None:
             raise ValidationError("The plugin is unavailable")
+        if isinstance(user, CredentialContext):
+            validate_plugin_scope(row, fields)
         if row.state == "retired":
             if action != "retire":
                 raise ValidationError("A retired plugin version cannot be reactivated")
@@ -202,7 +263,7 @@ def _view(row: RuntimePluginInstallation) -> RuntimePluginView:
 
 
 def _audit(
-    user: User,
+    user: User | CredentialContext,
     row: RuntimePluginInstallation,
     action: str,
     audit: RequestAudit | None,
@@ -211,14 +272,21 @@ def _audit(
 ) -> None:
     """Record actor attribution and bounded installation state changes."""
     attribution = audit or RequestAudit()
+    actor = (
+        principal_actor_fields(user.principal)
+        if isinstance(user, CredentialContext)
+        else {
+            "actor_type": attribution.actor_type or AuditActorType.USER,
+            "actor_id": attribution.actor_id if attribution.actor_type else user.id,
+        }
+    )
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.RUNTIME_PLUGIN,
             entity_id=0,
             entity_ref=str(row.id),
             action=action,
-            actor_type=attribution.actor_type or AuditActorType.USER,
-            actor_id=attribution.actor_id if attribution.actor_type else user.id,
+            **actor,
             request_id=attribution.request_id,
             source_ip=attribution.source_ip,
             user_agent=attribution.user_agent,

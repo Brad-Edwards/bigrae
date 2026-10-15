@@ -7,7 +7,9 @@ Participant range status/access plus the organizer range operations
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.cache import patch_vary_headers
 from drf_spectacular.types import OpenApiTypes
@@ -50,8 +52,11 @@ from ctf.api.serializers import (
     SpareProvisionResultSerializer,
 )
 from ctf.enums import EventCapability
+from shared.api.permissions import IsAuthenticatedSessionOrApiToken
+from shared.api.principals import authenticated_credential
 from shared.api.schema import ApiErrorSerializer
 from shared.api_tokens import scopes
+from shared.credentials import CredentialContext
 from shared.remote_access import OPENVPN_PROFILE_MEDIA_TYPE
 
 if TYPE_CHECKING:
@@ -194,10 +199,16 @@ class ParticipantVpnProfileView(APIView):
     permission_classes = CTF_PARTICIPANT_PERMISSIONS
     required_write_scopes = _VPN_PROFILE_READ
 
+    def get_permissions(self):
+        if isinstance(getattr(self.request, "auth", None), CredentialContext) or settings.OPENFGA_ENABLED:
+            return [IsAuthenticatedSessionOrApiToken()]
+        return super().get_permissions()
+
     @extend_schema(
         request=None,
         responses={
             (200, OPENVPN_PROFILE_MEDIA_TYPE): OpenApiTypes.BINARY,
+            202: ApiErrorSerializer,
             400: ApiErrorSerializer,
             404: ApiErrorSerializer,
             409: ApiErrorSerializer,
@@ -207,23 +218,39 @@ class ParticipantVpnProfileView(APIView):
     )
     def post(self, request: Request) -> HttpResponse | Response:
         """Return a no-store credential after role, ownership, state and rate gates."""
-        from ctf.exceptions import CTFNotFoundError, CTFRangeError, CTFStateError
+        from ctf.exceptions import CTFError, CTFNotFoundError, CTFRangeError, CTFStateError, CTFVpnProfilePending
         from ctf.services import range as range_service
         from ctf.services.audit import audit_vpn_profile_download
         from ctf.views._access import _check_credential_delivery_rate_limit
 
         try:
-            if request.body or request.query_params:
+            source = isinstance(getattr(request, "auth", None), CredentialContext) or settings.OPENFGA_ENABLED
+            credential = None
+            if request.body or (set(request.query_params) - {"event_id"} if source else request.query_params):
                 raise _CtfApiError(
                     code="invalid",
                     message="VPN profile requests must not include a body or query parameters.",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-            participant = _resolve_active_participant(request)
+            if source:
+                try:
+                    credential = (
+                        request.auth
+                        if isinstance(request.auth, CredentialContext)
+                        else authenticated_credential(request)
+                    )
+                    event_id = UUID(request.query_params["event_id"]) if "event_id" in request.query_params else None
+                    participant = range_service.vpn_participant_for_credential(credential, event_uuid=event_id)
+                except (ValueError, CTFError):
+                    _raise_not_found(_VPN_PROFILE_NOT_FOUND)
+            else:
+                participant = _resolve_active_participant(request)
             if participant is None or participant.range_instance_id is None:
                 _raise_not_found(_VPN_PROFILE_NOT_FOUND)
             try:
-                allowed = _check_credential_delivery_rate_limit(_actor(request).pk)
+                allowed = _check_credential_delivery_rate_limit(
+                    credential.principal.uuid if credential else _actor(request).pk
+                )
             except Exception as exc:
                 raise _CtfApiError(
                     code="vpn_profile_unavailable",
@@ -238,9 +265,20 @@ class ParticipantVpnProfileView(APIView):
                     headers={"Retry-After": "3600"},
                 )
             try:
-                profile = range_service.get_vpn_profile(participant.pk)
+                profile = (
+                    range_service.get_vpn_profile(participant.pk, credential=credential)
+                    if credential
+                    else range_service.get_vpn_profile(participant.pk)
+                )
             except CTFNotFoundError:
                 _raise_not_found(_VPN_PROFILE_NOT_FOUND)
+            except CTFVpnProfilePending as exc:
+                raise _CtfApiError(
+                    code="vpn_preparing",
+                    message="Preparing your VPN profile.",
+                    status_code=202,
+                    headers={"Retry-After": "5"},
+                ) from exc
             except CTFStateError as exc:
                 raise _CtfApiError(
                     code="vpn_not_ready",
@@ -254,7 +292,8 @@ class ParticipantVpnProfileView(APIView):
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 ) from exc
             audit_vpn_profile_download(
-                actor_id=_actor(request).pk,
+                actor_id=None if credential else _actor(request).pk,
+                **({"principal": credential.principal} if credential else {}),
                 participant_id=participant.pk,
                 range_instance_id=participant.range_instance_id,
                 generation=profile.generation,

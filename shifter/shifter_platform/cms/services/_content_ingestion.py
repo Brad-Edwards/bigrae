@@ -45,8 +45,10 @@ from cms.scenarios.pack_validation import (
     validate_pack,
     verify_pack_digest,
 )
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, audit_log
+from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.auth import validate_cms_authoring_user
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 from shared.schemas.raes_package_source import RaesPackageSourceError
 
@@ -108,10 +110,20 @@ class RegisteredPack:
 
 
 def _authorize_registration(
-    user: User, request: PackRegistrationRequest, organization_uuid: UUID | None
+    user: User | CredentialContext,
+    request: PackRegistrationRequest,
+    organization_uuid: UUID | None,
+    scope: ResourceScope | None = None,
 ) -> UUID | None:
     """Authorize the ingestion scope and validate caller-supplied revision identity."""
-    if organization_uuid is None:
+    if isinstance(user, CredentialContext):
+        from ._content_authority import require_content_scope
+
+        require_content_scope(user, scope, "manage_content")
+        if organization_uuid is not None and organization_uuid != scope.organization_uuid:
+            raise CMSError("Pack registration is unavailable")
+        organization_uuid = scope.organization_uuid
+    elif organization_uuid is None:
         validate_cms_authoring_user(user, "register_pack")
     else:
         from workspaces.services import get_organization_profile
@@ -126,11 +138,12 @@ def _authorize_registration(
 
 def register_pack(
     *,
-    user: User,
+    user: User | CredentialContext,
     request: PackRegistrationRequest,
     request_id: str = "",
     idempotent: bool = False,
     organization_uuid: UUID | None = None,
+    scope: ResourceScope | None = None,
 ) -> RegisteredPack:
     """Register a pack through the single uniform ingestion boundary.
 
@@ -152,21 +165,30 @@ def register_pack(
             scenario_id that does not match the pack's validated identity, or an
             invalid reference record.
     """
-    organization_uuid = _authorize_registration(user, request, organization_uuid)
+    organization_uuid = _authorize_registration(user, request, organization_uuid, scope)
+    custody = {}
+    if isinstance(user, CredentialContext):
+        from ._content_authority import content_scope_fields
+
+        custody = {**content_scope_fields(scope), "owner_principal_uuid": user.principal.uuid}
     existing = RaesPackageSource.objects.filter(scenario_id=request.scenario_id).first()
     if existing is not None:
-        if existing.organization_uuid != organization_uuid:
+        if not _registration_scope_matches(existing, organization_uuid, scope):
             raise CMSError("Pack registration is unavailable")
-        return _existing_registration(existing, user, request, request_id=request_id, idempotent=idempotent)
-    if organization_uuid is not None and request.expected_package_digest:
+        return _existing_registration(
+            existing, user, request, request_id=request_id, idempotent=idempotent, scope=scope
+        )
+    if request.expected_package_digest:
         raise CMSError("Pack revision conflicts with the current immutable identity")
     _bind_scenario_id_to_pack_identity(request)
+    if isinstance(user, CredentialContext):
+        _authorize_registration(user, request, organization_uuid, scope)
 
     try:
         with transaction.atomic():
             row = RaesPackageSource.objects.create(
                 scenario_id=request.scenario_id,
-                organization_uuid=organization_uuid,
+                **(custody or {"organization_uuid": organization_uuid}),
                 package_name=request.package_name,
                 source_kind=request.source_kind,
                 contract_kind=request.contract_kind,
@@ -184,14 +206,14 @@ def register_pack(
                 conformance_status=_REGISTRATION_CONFORMANCE_STATUS,
                 conformance_report_ref="",
                 provenance=dict(request.provenance or {}),
-                registered_by=user,
+                registered_by=None if isinstance(user, CredentialContext) else user,
             )
             _audit_registration(row, user, request_id)
     except RaesPackageSourceError as exc:
         # Reference-shape violation from the model's provenance-only validator.
         raise CMSError("Invalid pack reference") from exc
     except IntegrityError as exc:
-        return _registration_race(request, organization_uuid, idempotent, exc)
+        return _registration_race(request, organization_uuid, idempotent, exc, scope=scope)
 
     logger.info(
         "register_pack: registered scenario_id=%s source_kind=%s",
@@ -215,26 +237,29 @@ def _registration_race(
     organization_uuid: UUID | None,
     idempotent: bool,
     exc: IntegrityError,
+    *,
+    scope: ResourceScope | None = None,
 ) -> RegisteredPack:
     """Reuse only an identical concurrent winner in the same organization scope."""
     if idempotent:
         raced = RaesPackageSource.objects.filter(scenario_id=request.scenario_id).first()
-        if raced is not None and raced.organization_uuid == organization_uuid:
+        if raced is not None and _registration_scope_matches(raced, organization_uuid, scope):
             return _reuse_existing(raced, request, idempotent=True)
     raise CMSError(f"A pack with id '{request.scenario_id}' is already registered") from exc
 
 
 def _existing_registration(
     existing: RaesPackageSource,
-    user: User,
+    user: User | CredentialContext,
     request: PackRegistrationRequest,
     *,
     request_id: str,
     idempotent: bool,
+    scope: ResourceScope | None = None,
 ) -> RegisteredPack:
     """Handle existing registration."""
     if request.expected_package_digest:
-        return _replace_existing(user, request, request_id=request_id, idempotent=idempotent)
+        return _replace_existing(user, request, request_id=request_id, idempotent=idempotent, scope=scope)
     return _reuse_existing(existing, request, idempotent=idempotent)
 
 
@@ -261,11 +286,12 @@ def _identity(value: RaesPackageSource | PackRegistrationRequest) -> dict[str, o
 
 
 def _replace_existing(
-    user: User,
+    user: User | CredentialContext,
     request: PackRegistrationRequest,
     *,
     request_id: str,
     idempotent: bool,
+    scope: ResourceScope | None = None,
 ) -> RegisteredPack:
     """Admit an explicit new version while preserving prior reference evidence.
 
@@ -274,8 +300,12 @@ def _replace_existing(
     established again for the new digest through the existing trusted process.
     """
     _bind_scenario_id_to_pack_identity(request)
+    if isinstance(user, CredentialContext):
+        _authorize_registration(user, request, scope.organization_uuid, scope)
     with transaction.atomic():
         row = RaesPackageSource.objects.select_for_update().get(scenario_id=request.scenario_id)
+        if not _registration_scope_matches(row, scope.organization_uuid if scope else row.organization_uuid, scope):
+            raise CMSError("Pack registration is unavailable")
         if _identity(row) == _identity(request):
             return _reuse_existing(row, request, idempotent=idempotent)
         if row.package_digest != request.expected_package_digest or row.package_version == request.package_version:
@@ -285,7 +315,7 @@ def _replace_existing(
             setattr(row, name, value)
         row.conformance_status = _REGISTRATION_CONFORMANCE_STATUS
         row.conformance_report_ref = ""
-        row.registered_by = user
+        row.registered_by = None if isinstance(user, CredentialContext) else user
         try:
             row.save()
         except RaesPackageSourceError as exc:
@@ -297,8 +327,7 @@ def _replace_existing(
                     entity_id=0,
                     entity_ref=row.scenario_id,
                     action=AuditAction.UPDATE,
-                    actor_type=AuditActorType.USER,
-                    actor_id=user.id,
+                    **_registration_actor(user),
                     request_id=request_id,
                     previous_state={"scenario_id": row.scenario_id, **previous},
                     new_state={"scenario_id": row.scenario_id, **_identity(row), "conformance_status": "pending"},
@@ -391,7 +420,7 @@ def _resolve_repo_pack_root(package_ref: str) -> Path:
     return candidate
 
 
-def _audit_registration(row: RaesPackageSource, user: User, request_id: str) -> None:
+def _audit_registration(row: RaesPackageSource, user: User | CredentialContext, request_id: str) -> None:
     """Record the sanitized registration audit as a fail-closed safety control."""
     try:
         audit_log(
@@ -400,8 +429,7 @@ def _audit_registration(row: RaesPackageSource, user: User, request_id: str) -> 
                 entity_id=0,
                 entity_ref=row.scenario_id,
                 action=AuditAction.CREATE,
-                actor_type=AuditActorType.USER,
-                actor_id=getattr(user, "id", None),
+                **_registration_actor(user),
                 new_state={
                     "scenario_id": row.scenario_id,
                     "source_kind": row.source_kind,
@@ -417,6 +445,22 @@ def _audit_registration(row: RaesPackageSource, user: User, request_id: str) -> 
         )
     except Exception as exc:
         raise CMSError("pack registration audit failed") from exc
+
+
+def _registration_actor(user):
+    if isinstance(user, CredentialContext):
+        return principal_actor_fields(user.principal)
+    return {"actor_type": AuditActorType.USER, "actor_id": getattr(user, "id", None)}
+
+
+def _registration_scope_matches(row, organization_uuid, scope):
+    if scope is None:
+        return not row.scope_kind and row.organization_uuid == organization_uuid
+    from ._content_authority import content_scope_fields
+
+    return row.owner_principal_uuid is not None and all(
+        getattr(row, name) == value for name, value in content_scope_fields(scope).items()
+    )
 
 
 def _request_feature_artifacts(scenario_id: str) -> None:

@@ -12,9 +12,10 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urlencode, urlparse
 
@@ -156,9 +157,9 @@ def _retry_or_raise_token_exchange(
             )
             time.sleep(delay_ms / 1000.0)
             return
-        logger.exception("Guacamole token request failed: %s %s", exc.code, exc.reason)
-        raise ValueError(f"Failed to get Guacamole auth token: {exc.reason}") from exc
-    if isinstance(exc, urllib.error.URLError):
+        logger.error("Guacamole token request failed with HTTP status %s", exc.code)
+        raise ValueError("Failed to get Guacamole auth token") from None
+    if isinstance(exc, (urllib.error.URLError, OSError)):
         if attempts_left:
             logger.warning(
                 "Guacamole token request failed to connect on attempt %d/%d; retrying in %dms",
@@ -168,11 +169,11 @@ def _retry_or_raise_token_exchange(
             )
             time.sleep(delay_ms / 1000.0)
             return
-        logger.exception("Guacamole token request failed: %s", exc.reason)
-        raise ValueError(f"Failed to connect to Guacamole: {exc.reason}") from exc
+        logger.error("Guacamole token request failed to connect")
+        raise ValueError("Failed to connect to Guacamole") from None
     # KeyError or json.JSONDecodeError — always fatal, no retry.
-    logger.exception("Invalid Guacamole token response: %s", exc)
-    raise ValueError("Invalid response from Guacamole") from exc
+    logger.error("Invalid Guacamole token response")
+    raise ValueError("Invalid response from Guacamole") from None
 
 
 @dataclass(frozen=True)
@@ -187,7 +188,7 @@ class GuacamoleClientConfig:
     """
 
     base_url: str
-    secret_key: str
+    secret_key: str = field(repr=False)
     api_base_url: str | None = None
     retry_attempts: int = 3
     retry_base_delay_ms: int = 200
@@ -251,6 +252,37 @@ class GuacamoleClient(Protocol):
         """Return a signed Guacamole URL that auto-connects to SSH."""
         ...
 
+    def terminate_session(self, token: str) -> bool:
+        """Invalidate the native session and its SSH/RDP/SFTP tunnels."""
+        ...
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A gateway redirect must never forward the native session credential."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _native_session_absent(error: urllib.error.HTTPError) -> bool:
+    """Recognize only pinned Guacamole session absence, never a generic 403/404.
+
+    SessionRESTService resolves the token before DELETE. Its missing-token
+    response is distinct from proxy errors; a concurrent DELETE can instead
+    reach SessionResource's already-removed token response.
+    """
+    expected = {403: ("PERMISSION_DENIED", "Permission Denied."), 404: ("NOT_FOUND", "No such token.")}
+    if error.code not in expected or error.headers.get_content_type() != "application/json":
+        return False
+    try:
+        body = error.read(4097)
+        if len(body) > 4096:
+            return False
+        payload = json.loads(body)
+        return isinstance(payload, dict) and (payload.get("type"), payload.get("message")) == expected[error.code]
+    except (ValueError, OSError):
+        return False
+
 
 class JsonAuthGuacamoleClient:
     """Concrete :class:`GuacamoleClient` over the Guacamole JSON-auth HTTP API.
@@ -263,6 +295,50 @@ class JsonAuthGuacamoleClient:
 
     def __init__(self, config: GuacamoleClientConfig) -> None:
         self._config = config
+
+    def terminate_session(self, token: str) -> bool:
+        """Use Guacamole 1.6's provider-independent native session invalidation.
+
+        A successful DELETE or the native already-absent response confirms
+        invalidation. Other failures retain the credential for reconciliation.
+        """
+        api_base = (self._config.api_base_url or self._config.base_url).rstrip("/")
+        parsed = urlparse(api_base)
+        timeout = self._config.timeout_seconds
+        if (
+            parsed.scheme not in _ALLOWED_GUACAMOLE_SCHEMES
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ValueError("Invalid Guacamole termination configuration")
+        if (
+            not isinstance(token, str)
+            or not token
+            or len(token) > 1024
+            or any(ord(c) < 33 or ord(c) > 126 for c in token)
+        ):
+            raise ValueError("Invalid Guacamole session reference")
+        request = urllib.request.Request(f"{api_base}/api/session", method="DELETE")  # noqa: S310
+        request.add_header("Guacamole-Token", token)
+        opener = urllib.request.build_opener(_NoRedirect())
+        try:
+            with opener.open(request, timeout=timeout) as response:  # nosec B310
+                return response.status == 204
+        except urllib.error.HTTPError as error:
+            with error:
+                absent = _native_session_absent(error)
+            if absent:
+                return True
+            logger.warning("Guacamole native session termination deferred")
+            return False
+        except (urllib.error.URLError, TimeoutError, OSError):
+            logger.warning("Guacamole native session termination deferred")
+            return False
 
     def create_rdp_url(self, req: GuacRDPUrlRequest) -> str:
         """Create a signed Guacamole URL for RDP access.
@@ -375,6 +451,7 @@ class JsonAuthGuacamoleClient:
             except (
                 urllib.error.HTTPError,
                 urllib.error.URLError,
+                OSError,
                 KeyError,
                 json.JSONDecodeError,
             ) as e:

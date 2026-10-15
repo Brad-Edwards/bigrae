@@ -9,6 +9,8 @@ from cms.models import RaesPackageSource, ScenarioMetadata
 from cms.scenarios.realizability import get_scenario_realizability
 from cms.scenarios.registry import get_catalog_entry
 from shared.audit import AuditAction
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 from shared.raes.realizability import RealizabilityOutcome
 
@@ -44,7 +46,13 @@ _PUBLISHABLE_OUTCOMES = frozenset({RealizabilityOutcome.REALIZABLE, Realizabilit
 _UNASSESSED_OUTCOME = RealizabilityOutcome.INDETERMINATE
 
 
-def _assert_publishable(scenario_id: str, *, enabled: bool | None) -> None:
+def _assert_publishable(
+    scenario_id: str,
+    *,
+    enabled: bool | None,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
+) -> None:
     """Refuse to enable an RAES entry the backend cannot realize (ADR-034-R3).
 
     This is the authoritative gate. The editor's badge is advisory -- a caller
@@ -64,7 +72,11 @@ def _assert_publishable(scenario_id: str, *, enabled: bool | None) -> None:
     if enabled is not True:
         return
 
-    assessment = get_scenario_realizability(scenario_id)
+    assessment = (
+        get_scenario_realizability(scenario_id, credential=credential, scope=scope)
+        if credential is not None
+        else get_scenario_realizability(scenario_id)
+    )
     if assessment is not None and assessment["outcome"] in _PUBLISHABLE_OUTCOMES:
         return
 
@@ -90,13 +102,17 @@ def _refusal_message(outcome: str, gaps: list[dict[str, str]]) -> str:
 
 
 def update_metadata(
-    user: User,
+    user: User | CredentialContext,
     scenario_id: str,
     *,
     enabled: bool | None = None,
     staff_only: bool | None = None,
 ) -> ScenarioMetadata:
     """Update availability metadata for a RAES package source."""
+    if isinstance(user, CredentialContext):
+        from ._scoped_metadata import update_scoped_metadata
+
+        return update_scoped_metadata(user, scenario_id, enabled=enabled, staff_only=staff_only)
     source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
     if source is not None and source.organization_uuid is not None:
         from workspaces.services import get_organization_profile

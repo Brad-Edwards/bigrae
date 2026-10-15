@@ -3,6 +3,13 @@
   "docs_root": "docs",
   "features": [
     {
+      "id": "content-range-authority",
+      "title": "Content, ranges and continuing access authority",
+      "requirement": "GEN-001",
+      "user_docs": ["features/content-range-authority.md"],
+      "technical_docs": ["technical/shifter_platform/content-range-authority.md"]
+    },
+    {
       "id": "unified-access-credentials",
       "title": "Personal and native service credentials",
       "requirement": "PLAT-102",

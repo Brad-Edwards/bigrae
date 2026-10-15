@@ -100,3 +100,18 @@ class TestCanonicalPayloadDigest:
         digest = canonical_payload_digest({"a": 1})
         assert digest.startswith("sha256:")
         assert len(digest) == len("sha256:") + 64
+
+
+def test_authority_version_requires_bound_digest_without_bearer_or_cookie_fields():
+    digest = canonical_payload_digest({"credential_reference": str(uuid4())})
+    envelope = _valid(contract_version="2", authority_digest=digest)
+    assert validate_operation_envelope(envelope) == envelope
+    for invalid in (None, "secret-token", "sha256:" + "A" * 64):
+        with pytest.raises(OperationEnvelopeError):
+            validate_operation_envelope({**envelope, "authority_digest": invalid})
+    with pytest.raises(OperationEnvelopeError):
+        validate_operation_envelope(_valid(contract_version="2"))
+    with pytest.raises(OperationEnvelopeError):
+        validate_operation_envelope({**envelope, "session_key": "SECRET_MARKER"})
+    with pytest.raises(OperationEnvelopeError):
+        validate_operation_envelope(_valid(authority_digest=digest))

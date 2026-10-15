@@ -29,7 +29,7 @@ spec:
     spec:
       {{- include "shifter.podSecurityContext" . | nindent 6 }}
       automountServiceAccountToken: false
-      serviceAccountName: {{ .Values.serviceAccounts.workers.name }}
+      serviceAccountName: {{ .Values.serviceAccounts.guacamole.name }}
       terminationGracePeriodSeconds: {{ .Values.guacamoleClient.terminationGracePeriodSeconds }}
       containers:
         - name: guacamole-client
@@ -45,6 +45,14 @@ spec:
             - name: guacamole-home
               mountPath: /home/guacamole
           env:
+            {{- range $name := list "OPENFGA_ENABLED" "GUACAMOLE_CONTROL_URL" "GUACAMOLE_CONTROL_AUDIENCE" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: platform-runtime
+                  key: {{ $name }}
+                  optional: true
+            {{- end }}
             - name: GUACD_HOSTNAME
               value: guacd
             - name: GUACD_PORT

@@ -172,6 +172,7 @@ def _write_quota_audit(workspace_id: int, verdict: QuotaVerdict, audit: Workspac
             action=AuditAction.QUOTA_APPLIED,
             actor_type=audit.actor_type or "system",
             actor_id=audit.actor_id,
+            actor_principal_uuid=audit.actor_principal_uuid,
             new_state={
                 "resource": verdict.resource,
                 "outcome": verdict.outcome,
@@ -216,6 +217,7 @@ def _record_decision(
         reason_code=verdict.reason_code,
         actor_type=audit.actor_type or "",
         actor_id=audit.actor_id,
+        actor_principal_uuid=audit.actor_principal_uuid,
         correlation_key=(correlation_key or "")[:_CORRELATION_KEY_MAX],
     )
     if verdict.outcome in (QUOTA_OUTCOME_WARNED, QUOTA_OUTCOME_REJECTED):

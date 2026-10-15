@@ -25,6 +25,7 @@ from collections.abc import Callable
 from . import gcp
 from .config import load_config
 from .controller import Controller
+from .crl import CrlStore
 from .firewall import Firewall
 from .management import Management
 from .portal import PortalClient
@@ -85,7 +86,12 @@ def _watch_openvpn(process: subprocess.Popen[bytes], stopping: threading.Event) 
 def _heartbeat(controller: Controller) -> None:
     """Renew live sessions with the portal for the life of the process."""
     while True:
-        time.sleep(controller.heartbeat())
+        try:
+            interval = controller.heartbeat()
+        except Exception:
+            _log("VPN control failed; stopping the server")
+            os._exit(1)
+        time.sleep(interval)
 
 
 def main() -> int:
@@ -93,14 +99,26 @@ def main() -> int:
     logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
     config = load_config()
     write_material(config.runtime_dir, gcp.read_secret(config.server_secret))
+    portal = PortalClient(config.portal_url, config.control_audience, config.server_name, gcp.identity_token)
+    crl = None
+    if config.source_authority:
+        crl = CrlStore(os.path.join(config.runtime_dir, "ca.crt"), os.path.join(config.runtime_dir, "crl.pem"))
+        crl.install(portal.crl())
     paths = write_config(config)
     Firewall().install(config.tunnel_network)
     # Fixed argv with no shell; the only argument is the config path written above.
     process = subprocess.Popen([_OPENVPN, "--config", paths.config])  # noqa: S603
     _wait_for_socket(paths.management_socket, process)
     management = Management(paths.management_socket)
-    portal = PortalClient(config.portal_url, config.control_audience, config.server_name, gcp.identity_token)
-    controller = Controller(management, portal, Firewall(), log=_log)
+    controller = Controller(
+        management,
+        portal,
+        Firewall(),
+        log=_log,
+        crl=crl,
+        refresh_crl=portal.crl if crl is not None else None,
+        fatal=lambda: os._exit(1),
+    )
     threading.Thread(target=_heartbeat, args=(controller,), daemon=True, name="heartbeat").start()
     stopping = threading.Event()
     for stop_signal in (signal.SIGTERM, signal.SIGINT):

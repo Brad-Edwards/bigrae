@@ -12,11 +12,12 @@ from shared.audit import (
     AuditEntityType,
     AuditEvent,
     audit_log,
+    principal_actor_fields,
 )
 from shared.rate_limit import consume_fixed_window
 
 
-def credential_delivery_allowed(user_id: int, *, limit: int = 50, window: int = 3600) -> bool:
+def credential_delivery_allowed(user_id: int | UUID, *, limit: int = 50, window: int = 3600) -> bool:
     """Consume the shared cross-worker credential-delivery budget."""
     cache = caches["launch_rate_limit"]
     count = consume_fixed_window(cache, f"credential-delivery:{user_id}", window)
@@ -25,12 +26,13 @@ def credential_delivery_allowed(user_id: int, *, limit: int = 50, window: int = 
 
 def audit_openvpn_profile_download(
     *,
-    actor_id: int,
+    actor_id: int | None,
     range_instance_id: int,
     generation: UUID,
     profile_version: str,
     product: str,
     participant_id: UUID | None = None,
+    principal=None,
 ) -> None:
     """Record profile delivery without credential, topology, or provider data."""
     state = {
@@ -47,8 +49,11 @@ def audit_openvpn_profile_download(
             entity_type=AuditEntityType.CREDENTIAL,
             entity_id=range_instance_id,
             action=AuditAction.DOWNLOAD,
-            actor_type=AuditActorType.USER,
-            actor_id=actor_id,
+            **(
+                principal_actor_fields(principal)
+                if principal is not None
+                else {"actor_type": AuditActorType.USER, "actor_id": actor_id}
+            ),
             new_state=state,
             context=f"{product}_vpn_profile_download",
         )

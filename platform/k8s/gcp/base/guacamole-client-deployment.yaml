@@ -21,7 +21,7 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
-      serviceAccountName: workers
+      serviceAccountName: guacamole
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 180
       containers:
@@ -45,6 +45,24 @@ spec:
             - name: guac-home
               mountPath: /home/guacamole
           env:
+            - name: OPENFGA_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: platform-runtime
+                  key: OPENFGA_ENABLED
+                  optional: true
+            - name: GUACAMOLE_CONTROL_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: platform-runtime
+                  key: GUACAMOLE_CONTROL_URL
+                  optional: true
+            - name: GUACAMOLE_CONTROL_AUDIENCE
+              valueFrom:
+                configMapKeyRef:
+                  name: platform-runtime
+                  key: GUACAMOLE_CONTROL_AUDIENCE
+                  optional: true
             # start.sh copies from the initial GUACAMOLE_HOME as a template; the base
             # image sets it to $HOME/.guacamole, which makes the copy self-referential
             # and busy-fails. Empty it so start.sh just builds a fresh home from env.

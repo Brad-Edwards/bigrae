@@ -9,6 +9,11 @@ from uuid import UUID
 
 from shared.authorization import CredentialCeiling, TargetRef
 from shared.identity_scope import PrincipalRef, ResourceScope
+from shared.principal_port import resolve_principal
+
+
+class CredentialRevoked(ValueError):
+    """The native credential owner confirmed a terminal lifecycle state."""
 
 
 def _validate_credential_shape(context: CredentialContext) -> None:
@@ -107,3 +112,72 @@ def resolve_credential_scope(target: TargetRef) -> ResourceScope:
     if _scope_resolver is None:
         raise ValueError("Credential target scope unavailable")
     return _scope_resolver(target)
+
+
+CredentialReferenceResolver = Callable[[str, UUID], CredentialContext]
+_reference_resolver: CredentialReferenceResolver | None = None
+_local_reference_resolver: CredentialReferenceResolver | None = None
+
+
+def bind_credential_reference_resolver(
+    resolver: CredentialReferenceResolver, *, local_resolver: CredentialReferenceResolver
+) -> None:
+    """Compose credential owners for live, non-secret operation references."""
+    global _reference_resolver, _local_reference_resolver
+    if not callable(local_resolver) or (
+        _local_reference_resolver is not None and _local_reference_resolver is not local_resolver
+    ):
+        raise ValueError("Local credential reference resolver already bound")
+    if not callable(resolver) or (_reference_resolver is not None and _reference_resolver is not resolver):
+        raise ValueError("Credential reference resolver already bound")
+    _reference_resolver = resolver
+    _local_reference_resolver = local_resolver
+
+
+def resolve_current_credential(original: CredentialContext) -> CredentialContext:
+    """Revalidate a trusted recorded credential without widening its ceiling.
+
+    A reference is not authentication. Only admitted server-owned operations and
+    transport sessions may use this resolver; no HTTP path accepts a UUID as proof.
+    """
+    return _resolve_credential(original, _reference_resolver)
+
+
+def resolve_local_credential(original: CredentialContext) -> CredentialContext:
+    """Fence local lifecycle inside SQL after full live admission outside locks.
+
+    This does not check provider state and cannot admit an operation. The owning
+    service must first call resolve_current_credential and evaluate live policy.
+    """
+    return _resolve_credential(original, _local_reference_resolver)
+
+
+def _resolve_credential(original: CredentialContext, resolver: CredentialReferenceResolver | None) -> CredentialContext:
+    try:
+        if not isinstance(original, CredentialContext) or resolver is None:
+            raise ValueError("Missing credential owner")
+        current = resolver(original.kind, original.credential_uuid)
+        if (
+            not isinstance(current, CredentialContext)
+            or current.principal != original.principal
+            or current.kind != original.kind
+            or current.credential_uuid != original.credential_uuid
+            or current.event_uuid != original.event_uuid
+        ):
+            raise ValueError("Credential identity changed")
+        principal = resolve_principal(current.principal)
+        original_target, current_target = original.ceiling.target, current.ceiling.target
+        if original_target is not None and current_target is not None and original_target != current_target:
+            raise ValueError("Credential target changed")
+        return CredentialContext(
+            principal,
+            current.kind,
+            current.credential_uuid,
+            CredentialCeiling(original.ceiling.actions & current.ceiling.actions, original_target or current_target),
+            original.scopes & current.scopes,
+            current.event_uuid,
+        )
+    except CredentialRevoked:
+        raise
+    except Exception:
+        raise ValueError("Credential unavailable") from None

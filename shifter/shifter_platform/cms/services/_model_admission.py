@@ -33,6 +33,10 @@ _DENIED_MESSAGE = "Required model access could not be admitted for this launch."
 
 def _subject_for_user(user: object) -> OwnedReference:
     """The launcher's canonical sharing subject reference (matches CMS sharing)."""
+    from shared.credentials import CredentialContext
+
+    if isinstance(user, CredentialContext):
+        return OwnedReference(owner="management", reference=f"principal:{user.principal.uuid}")
     return OwnedReference(owner="management", reference=f"user:{getattr(user, 'id', 0)}")
 
 

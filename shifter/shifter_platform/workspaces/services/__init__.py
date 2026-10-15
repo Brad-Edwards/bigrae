@@ -17,12 +17,14 @@ from ._account import (
     ResolvedResourceScope,
     WorkspaceView,
     add_account_member,
+    assert_scope_principal_member,
     create_account,
     create_account_organization,
     create_account_workspace,
     ensure_default_hierarchy,
     event_placement_scope,
     hierarchy_target_scope,
+    resolve_range_scope_binding,
     resolve_resource_scope,
     resource_scope_from_ids,
 )
@@ -175,6 +177,7 @@ from ._quota_admin import (
     set_workspace_quota_policy,
     workspace_quota_usage,
 )
+from ._quota_move import move_workspace_range_reservation
 from ._range_scope_admin import RangeRebindAuthorization, authorize_range_rebind
 
 __all__ = [
@@ -257,6 +260,7 @@ __all__ = [
     "apply_native_relationship_mutation",
     "apply_policy_mutation",
     "archive_workspace",
+    "assert_scope_principal_member",
     "authorize_bound_workspace",
     "authorize_launch_workspace_locked",
     "authorize_model_source_workspace",
@@ -288,6 +292,7 @@ __all__ = [
     "list_workspace_invitations",
     "list_workspace_memberships",
     "list_workspaces",
+    "move_workspace_range_reservation",
     "policy_transfer_workspace_ownership",
     "reconcile_authorization_operation",
     "reconcile_policy_mutation",
@@ -301,6 +306,7 @@ __all__ = [
     "resolve_model_access_organization",
     "resolve_model_access_workspace",
     "resolve_personal_workspace",
+    "resolve_range_scope_binding",
     "resolve_resource_scope",
     "resource_scope_from_ids",
     "restore_workspace",

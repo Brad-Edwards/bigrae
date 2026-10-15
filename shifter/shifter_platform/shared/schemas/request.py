@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from .base import SpecBase
 from .range import InstanceSpec, RangeSpec
@@ -31,7 +31,8 @@ class RequestSpec(SpecBase):
     """
 
     request_id: UUID
-    user_id: int
+    user_id: int | None
+    owner_principal_uuid: UUID | None = None
     created_at: datetime | None = None
 
     # Items can be range specs or NGFW InstanceSpecs.
@@ -39,8 +40,14 @@ class RequestSpec(SpecBase):
 
     @field_validator("user_id")
     @classmethod
-    def user_id_positive(cls, v: int) -> int:
+    def user_id_positive(cls, v: int | None) -> int | None:
         """Validate user_id is a positive integer."""
-        if v <= 0:
+        if v is not None and v <= 0:
             raise ValueError("user_id must be a positive integer")
         return v
+
+    @model_validator(mode="after")
+    def explicit_owner(self):
+        if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
+            raise ValueError("Request requires an explicit owner")
+        return self

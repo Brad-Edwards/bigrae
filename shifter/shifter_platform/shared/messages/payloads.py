@@ -38,9 +38,13 @@ class RangeStatusUpdatedPayload(EventEnvelope):
     """``range.status.updated`` — the only range event that mutates model state."""
 
     range_id: int
-    user_id: int
+    user_id: int | None
     new_status: str
     error_message: str | None
+    owner_principal_uuid: NotRequired[str]
+    resource_generation: NotRequired[str]
+    operation_id: NotRequired[str | None]
+    authority_binding_digest: NotRequired[str]
 
 
 class RangeProvisionedPayload(EventEnvelope):

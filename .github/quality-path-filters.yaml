@@ -49,6 +49,18 @@ force_full_matrix:
   - .github/quality-path-filters.yaml
 
 quality_units:
+  - id: guacamole_authority
+    paths:
+      - shifter/engine/guacamole/authority-extension/**
+      - shifter/shifter_platform/tests/integration/test_guacamole_native*.py
+      - shifter/shifter_platform/tests/integration/guacamole_*.py
+      - shifter/shifter_platform/tests/integration/guacamole-rdp/**
+    sonar: true
+    responsibilities:
+      lint: [guacamole-authority-sast]
+      security: [guacamole-authority-sast]
+      test: [guacamole-authority-tests]
+
   - id: shifter_platform
     paths:
       - shifter/shifter_platform/**
@@ -291,7 +303,7 @@ quality_units:
     responsibilities:
       lint: []
       security: []
-      test: []
+      test: [guacamole-authority-tests]
 
   - id: charts
     paths:

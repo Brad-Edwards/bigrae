@@ -256,6 +256,7 @@
       ],
       "properties": {
         "portal": { "$ref": "#/$defs/serviceAccount" },
+        "guacamole": { "$ref": "#/$defs/serviceAccount" },
         "workers": { "$ref": "#/$defs/serviceAccount" },
         "ctfScheduler": { "$ref": "#/$defs/serviceAccount" },
         "migrator": { "$ref": "#/$defs/serviceAccount" },

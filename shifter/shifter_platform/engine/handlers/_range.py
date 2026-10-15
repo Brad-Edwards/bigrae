@@ -42,6 +42,9 @@ def _resolve_authorized_range(event: RangeStatusUpdatedPayload) -> Range | None:
         logger.warning("Range not found: range_id=%s", range_id)
         return None
 
+    if range_obj.owner_principal_uuid is not None:
+        logger.warning("Principal range state requires the native operation result boundary")
+        return None
     if range_obj.user_id != event.get("user_id"):
         logger.error(
             "user_id mismatch: message=%s, range=%s (range_id=%s)",

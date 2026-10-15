@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from engine.secrets import SecretsError, get_openvpn_profile_secret
+from shared.credentials import CredentialContext
 from shared.remote_access import (
     OpenVpnBinding,
     OpenVpnBindingError,
@@ -33,6 +34,10 @@ class VpnProfileUnavailable(ValueError):
     """The provider binding or secret is unavailable or invalid."""
 
 
+class VpnProfilePending(VpnProfileConflict):
+    """The original credential's individual profile is being prepared."""
+
+
 def _owned_range(user: User, request_id: UUID) -> Range:
     """Return the caller-owned range for this correlation id or raise."""
     from engine.models import Range
@@ -46,6 +51,19 @@ def _owned_range(user: User, request_id: UUID) -> Range:
 def has_openvpn_profile(user: User, request_id: UUID) -> bool:
     """Project only safe readiness for the current owner and READY range."""
     from engine.models import Range
+
+    if isinstance(user, CredentialContext):
+        from shared.remote_access import parse_openvpn_capability
+
+        from ._vpn_profiles import admit_vpn_profile_authority
+
+        try:
+            admit_vpn_profile_authority(user, request_id)
+            runtime = Range.objects.get(request__request_id=request_id)
+            parse_openvpn_capability(runtime.remote_access_capability)
+            return True
+        except Exception:
+            return False
 
     range_obj = Range.objects.filter(request__request_id=request_id, user=user).first()
     if not range_obj or range_obj.status != Range.Status.READY:
@@ -100,9 +118,14 @@ def _raes_target_is_current_member(range_obj: Range, target_ref: str) -> bool:
     )
 
 
-def get_openvpn_profile(user: User, request_id: UUID) -> OpenVpnProfile:
+def get_openvpn_profile(user: User, request_id: UUID, *, participation: bool = False) -> OpenVpnProfile:
     """Resolve and validate the current participant profile entirely in memory."""
     from engine.models import Range
+
+    if isinstance(user, CredentialContext):
+        from ._vpn_profile_delivery import get_individual_vpn_profile
+
+        return get_individual_vpn_profile(user, request_id, participation=participation)
 
     range_obj = _owned_range(user, request_id)
     if range_obj.status != Range.Status.READY:

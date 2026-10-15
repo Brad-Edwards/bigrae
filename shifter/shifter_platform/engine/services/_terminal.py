@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from engine.secrets import SecretsError
+from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
 from shared.log_sanitize import safe_log_value
+from shared.remote_access import PrincipalCredentialRequired
 
 from ._common import (
     _first_connection_value,
@@ -129,7 +132,9 @@ def _require_rdp_endpoint(instance: dict[str, Any], os_type: str) -> None:
         raise ValueError("RDP not available for linux instances without a declared participant endpoint")
 
 
-def get_owned_instance_request_ref(user: User, instance_uuid: str) -> str | None:
+def get_owned_instance_request_ref(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> str | None:
     """Return the provisioning request ref owning ``instance_uuid``, or ``None``.
 
     The ref is the request's ``request_id`` UUID -- the correlation key shared
@@ -152,11 +157,17 @@ def get_owned_instance_request_ref(user: User, instance_uuid: str) -> str | None
     """
     from engine.models import Instance, Range
 
+    if isinstance(user, CredentialContext):
+        from ._range_authority import authorized_instance_range
+
+        return str(authorized_instance_range(user, instance_uuid, range_uuid=range_uuid).request.request_id)
     user_id = getattr(user, "id", None)
     request_ref = None
     if user_id is not None and instance_uuid:
         range_obj = Range.resolve_active_for_instance(user, instance_uuid)
         if range_obj is not None and range_obj.request is not None:
+            if range_obj.owner_principal_uuid is not None:
+                raise PrincipalCredentialRequired("Instance unavailable")
             request_ref = str(range_obj.request.request_id)
         else:
             try:
@@ -171,11 +182,15 @@ def get_owned_instance_request_ref(user: User, instance_uuid: str) -> str | None
             # row was detached resolves to no ref rather than raising. A malformed
             # uuid (caught above) also resolves to no ref.
             if instance is not None and instance.request is not None:
+                if instance.request.owner_principal_uuid is not None:
+                    raise PrincipalCredentialRequired("Instance unavailable")
                 request_ref = str(instance.request.request_id)
     return request_ref
 
 
-def get_rdp_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
+def get_rdp_connection_info(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> dict[str, Any]:
     """Get connection info for RDP access to a range instance."""
     from engine.models import Range
 
@@ -184,9 +199,7 @@ def get_rdp_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
     if not instance_uuid:
         raise ValueError("instance_uuid is required")
 
-    logger.debug("get_rdp_connection_info: user=%s instance_uuid=%s", user.id, safe_log_value(instance_uuid))
-
-    range_obj = Range.resolve_active_for_instance(user, instance_uuid)
+    range_obj = _connection_range(user, instance_uuid, range_uuid=range_uuid)
     if range_obj is None:
         # No active range contains the instance. Fall back to the user's active
         # range so the pre-existing error semantics are preserved now that a user
@@ -197,6 +210,8 @@ def get_rdp_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
         range_obj = Range.get_active_for_user(user)
         if range_obj is None:
             raise ValueError("No active range found")
+        if range_obj.owner_principal_uuid is not None:
+            raise PrincipalCredentialRequired("Instance unavailable")
     if range_obj.status != Range.Status.READY:
         raise ValueError(f"Range is not ready (status: {range_obj.status})")
 
@@ -231,7 +246,9 @@ def get_rdp_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
     }
 
 
-def get_ssh_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
+def get_ssh_connection_info(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> dict[str, Any]:
     """Get SSH connection details for a range instance."""
     from engine.models import Range
 
@@ -240,13 +257,11 @@ def get_ssh_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
     if not instance_uuid:
         raise ValueError("instance_uuid is required")
 
-    logger.debug("connect_terminal: user_id=%s instance_uuid=%s", user.id, safe_log_value(instance_uuid))
-
     # Resolve the active range by iterating the user's active ranges and finding
     # the one that contains instance_uuid. This is portable (pure-Python, no
     # provider-specific JSON DB lookup) and correct when a user holds multiple
     # simultaneous active ranges (e.g. one Mission Control + one CTF range, #450).
-    range_obj = Range.resolve_active_for_instance(user, instance_uuid)
+    range_obj = _connection_range(user, instance_uuid, range_uuid=range_uuid)
     if range_obj is None:
         # No active range contains the instance. Fall back to the user's active
         # range so the pre-existing error semantics are preserved now that a user
@@ -318,14 +333,17 @@ def get_active_range_provisioned_instances(user: User) -> list[dict[str, Any]]:
     range_obj = Range.get_active_for_user(user)
     if range_obj is None:
         return []
+    if range_obj.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired("Range unavailable")
     return list(range_obj.provisioned_instances or [])
 
 
 def connect_terminal(
-    user: User,
+    user: User | CredentialContext,
     instance_uuid: str,
     *,
     connection_factory: TerminalConnectionFactory | None = None,
+    range_uuid: UUID | None = None,
 ) -> TerminalConnection:
     """Get a terminal connection to an instance.
 
@@ -338,8 +356,9 @@ def connect_terminal(
     """
     from engine.ssh import build_ssh_connection
 
+    logger.debug("connect_terminal: instance_uuid=%s", safe_log_value(instance_uuid))
     factory = connection_factory or build_ssh_connection
-    ssh_info = get_ssh_connection_info(user, instance_uuid)
+    ssh_info = get_ssh_connection_info(user, instance_uuid, **({"range_uuid": range_uuid} if range_uuid else {}))
     # Windows doesn't have tmux, so skip session_id for Windows
     session_id = None if ssh_info["os_type"] == "windows" else instance_uuid
 
@@ -353,11 +372,29 @@ def connect_terminal(
     )
 
 
-def connect_ngfw_terminal(user: User, ngfw_uuid: str) -> SSHConnection:
+def _connection_range(user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None):
+    """Keep legacy lookup until S8; principal callers have one policy decision."""
+    from engine.models import Range
+
+    if isinstance(user, CredentialContext):
+        from ._range_authority import authorized_instance_range
+
+        return authorized_instance_range(user, instance_uuid, range_uuid=range_uuid)
+    row = Range.resolve_active_for_instance(user, instance_uuid)
+    if row is not None and row.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired("Instance unavailable")
+    return row
+
+
+def connect_ngfw_terminal(user: User | CredentialContext, ngfw_uuid: str) -> SSHConnection:
     """Get SSH connection to NGFW management interface."""
     from engine.models import Instance
     from engine.ssh import SSHConnection
 
+    if isinstance(user, CredentialContext):
+        from ._principal_ngfw import connect_principal_device_terminal
+
+        return connect_principal_device_terminal(user, ngfw_uuid)
     if user is None:
         raise ValueError(_USER_REQUIRED_MSG)
     if not ngfw_uuid:
@@ -377,6 +414,9 @@ def connect_ngfw_terminal(user: User, ngfw_uuid: str) -> SSHConnection:
     if ngfw_instance.request is None:
         logger.error("NGFW instance has no associated request: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
         raise ValueError(f"NGFW instance {ngfw_uuid} has no associated request")
+
+    if ngfw_instance.request.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired("Device unavailable")
 
     if ngfw_instance.request.user != user:
         logger.error(

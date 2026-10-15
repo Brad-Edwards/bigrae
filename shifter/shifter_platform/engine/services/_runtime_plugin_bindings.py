@@ -9,8 +9,24 @@ from uuid import UUID
 from django.db import transaction
 from shifter_adapter_sdk.runtime import PluginManifest, canonical_digest
 
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, RequestAudit, audit_log
+from shared.audit import (
+    AuditAction,
+    AuditActorType,
+    AuditEntityType,
+    AuditEvent,
+    RequestAudit,
+    audit_log,
+    principal_actor_fields,
+)
+from shared.authorization import TargetRef
+from shared.credentials import (
+    CredentialContext,
+    resolve_credential_scope,
+    resolve_current_credential,
+    resolve_local_credential,
+)
 from shared.exceptions import ValidationError
+from shared.identity_scope import ResourceScope
 from shared.runtime_plugin_binding import PluginTargetBindings, RuntimePluginPin, RuntimePluginScope
 
 from ._runtime_plugins import _authorize
@@ -36,7 +52,7 @@ class RuntimePluginPackView:
 
 
 def bind_runtime_plugin(
-    user: User,
+    user: User | CredentialContext,
     scope: RuntimePluginScope,
     installation_id: UUID,
     bindings: object,
@@ -47,7 +63,15 @@ def bind_runtime_plugin(
     """Authorize and update a pack's selection, without changing any range pin."""
     from engine.models import RuntimePluginInstallation, RuntimePluginPackBinding
 
-    organization_uuid = _authorize(user, scope.organization_uuid)
+    authority = None
+    if isinstance(user, CredentialContext):
+        from ._runtime_plugin_authority import admit_plugin_authority
+
+        user = resolve_current_credential(user)
+        authority = admit_plugin_authority(user, scope.organization_uuid)
+        organization_uuid = authority["authority_organization_uuid"]
+    else:
+        organization_uuid = _authorize(user, scope.organization_uuid)
     pack_id, pack_digest = scope.pack_id, scope.pack_digest
     try:
         RuntimePluginScope(organization_uuid=organization_uuid, pack_id=pack_id, pack_digest=pack_digest)
@@ -67,6 +91,21 @@ def bind_runtime_plugin(
         )
         if installation is None:
             raise ValidationError("The plugin is unavailable")
+        if authority:
+            from ._runtime_plugin_authority import validate_plugin_scope
+
+            validate_plugin_scope(installation, authority)
+            admitted_scope = ResourceScope(
+                authority["authority_scope_kind"],
+                authority["authority_account_uuid"],
+                authority["authority_organization_uuid"],
+                authority["authority_workspace_uuid"],
+            )
+            if (
+                resolve_local_credential(user) != user
+                or resolve_credential_scope(TargetRef("organization", organization_uuid)) != admitted_scope
+            ):
+                raise ValidationError("Plugin authority unavailable")
         if enabled and installation.state != "ready":
             raise ValidationError("The plugin must pass compatibility checks before binding")
         try:
@@ -95,14 +134,21 @@ def bind_runtime_plugin(
             },
         )
         attribution = audit or RequestAudit()
+        actor = (
+            principal_actor_fields(user.principal)
+            if isinstance(user, CredentialContext)
+            else {
+                "actor_type": attribution.actor_type or AuditActorType.USER,
+                "actor_id": attribution.actor_id if attribution.actor_type else user.id,
+            }
+        )
         audit_log(
             AuditEvent(
                 entity_type=AuditEntityType.RUNTIME_PLUGIN,
                 entity_id=0,
                 entity_ref=str(row.id),
                 action=AuditAction.UPDATE,
-                actor_type=attribution.actor_type or AuditActorType.USER,
-                actor_id=attribution.actor_id if attribution.actor_type else user.id,
+                **actor,
                 request_id=attribution.request_id,
                 source_ip=attribution.source_ip,
                 user_agent=attribution.user_agent,
@@ -118,7 +164,9 @@ def bind_runtime_plugin(
         return _view(row)
 
 
-def list_runtime_plugin_bindings(user: User, organization_uuid: UUID) -> list[RuntimePluginPackView]:
+def list_runtime_plugin_bindings(
+    user: User | CredentialContext, organization_uuid: UUID
+) -> list[RuntimePluginPackView]:
     """List explicit selections owned by the authorized organization."""
     from engine.models import RuntimePluginPackBinding
 

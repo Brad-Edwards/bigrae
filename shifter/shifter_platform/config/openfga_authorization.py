@@ -255,14 +255,16 @@ class OpenFgaAuthorizationProvider:
 
     def _range_ancestry_matches(self, request: AuthorizationRequest) -> bool:
         """Require direct or event-derived range parents to match SQL ancestry."""
-        workspace = f"workspace:{request.scope.workspace_uuid}" if request.scope.workspace_uuid else None
-        workspaces = self._parents(_provider_object(request), "workspace")
-        if (workspace is None and workspaces) or (workspace is not None and workspaces not in {(), (workspace,)}):
+        if request.parent is None:
+            selected, expected = _event_customer_parent(request.scope)
+        else:
+            selected, expected = request.parent.type, f"{request.parent.type}:{request.parent.uuid}"
+        if not all(
+            self._parents(_provider_object(request), relation) == ((expected,) if relation == selected else ())
+            for relation in ("account", "organization", "workspace", "event")
+        ):
             return False
-        events = self._parents(_provider_object(request), "event")
-        if len(events) > 1 or not (workspaces or events):
-            return False
-        return not events or self._event_parent_matches(events[0], request.scope)
+        return selected != "event" or self._event_parent_matches(expected, request.scope)
 
     def check(self, request: AuthorizationRequest) -> AuthorizationDecision:
         try:

@@ -39,9 +39,9 @@ def _transform_sensitive(data: dict[str, Any], keys: frozenset[str], *, encrypt:
 class EncryptedCredentialDataField(EncryptedJSONField):
     """Credential.data: encrypts secret values in credential payloads.
 
-    Keys mirror the fields flagged secret on the Credential Pydantic specs
-    (``cyberscript.schemas.credentials.SCMCredentialSpec.scm_pin_value``,
-    ``DeploymentProfileSpec.authcode``). Operational fields (folder name,
+    Keys mirror the fields flagged secret on the shared credential specs
+    (``SCMCredentialSpec.scm_pin_value``, ``DeploymentProfileSpec.authcode``).
+    Operational fields (folder name,
     PIN ID, region, profile name) stay plaintext.
     """
 
@@ -53,10 +53,10 @@ class EncryptedInstanceDataField(EncryptedJSONField):
 
     For non-NGFW instances this is effectively a no-op because the spec
     contains no secret-shaped keys. For NGFW instances,
-    ``cms.services.create_ngfw`` persists the hydrated
-    ``cyberscript.schemas.app.NGFWAppSpec`` directly into ``instance.data``,
+    ``cms.services.create_ngfw`` persists the hydrated shared ``InstanceSpec``
+    with its nested ``NGFWAppSpec`` into ``instance.data``,
     which can include ``authcode``, ``scm_pin_value``, and ``otp_value``.
-    Those three keys are encrypted at rest here.
+    Those three keys are encrypted recursively at rest here.
     """
 
     sensitive_keys = frozenset({"authcode", "scm_pin_value", "otp_value"})

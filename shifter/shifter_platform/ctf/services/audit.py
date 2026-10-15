@@ -364,11 +364,12 @@ def audit_spare_provisioning(
 
 def audit_vpn_profile_download(
     *,
-    actor_id: int,
+    actor_id: int | None,
     participant_id: UUID,
     range_instance_id: int,
     generation: UUID,
     profile_version: str,
+    principal=None,
 ) -> None:
     """Record profile delivery without credential, topology, or provider data."""
     from shared.credential_delivery import audit_openvpn_profile_download
@@ -380,6 +381,7 @@ def audit_vpn_profile_download(
         generation=generation,
         profile_version=profile_version,
         product="ctf",
+        principal=principal,
     )
 
 

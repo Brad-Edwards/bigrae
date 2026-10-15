@@ -65,6 +65,16 @@ def sleeps(monkeypatch):
 class TestGuacamoleClientReadiness:
     """Bounded retry around the Guacamole /api/tokens exchange (issue #395)."""
 
+    def test_connection_reset_during_startup_is_retried(self, sleeps):
+        with patch(URLOPEN) as mock_open:
+            ok = mock_open.return_value
+            ok.__enter__.return_value = _ok_response()
+            mock_open.side_effect = [ConnectionResetError("synthetic upstream reset"), ok]
+            url = _client(retry_attempts=2, retry_base_delay_ms=10).create_ssh_url(_req())
+        assert "token=token123" in url
+        assert mock_open.call_count == 2
+        assert sleeps == [0.01]
+
     def test_first_attempt_success_does_not_sleep(self, sleeps):
         with patch(URLOPEN) as mock_open:
             mock_open.return_value.__enter__.return_value = _ok_response()

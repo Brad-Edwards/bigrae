@@ -52,6 +52,7 @@ from ._cleanup_verification import (
     record_cleanup_verification,
 )
 from ._common import EngineError
+from ._device_authority import admit_native_device_access, prepare_ngfw_creation, verified_device_status_projection
 from ._feature_artifact_launcher import default_storage_target, reconcile_feature_artifact_acquisitions
 from ._feature_artifacts import (
     ArtifactRequest,
@@ -132,6 +133,16 @@ from ._preparation_operations import (
     retry_artifact_preparation,
 )
 from ._preparation_worker import read_preparation_worker_input, record_preparation_worker_result
+from ._principal_lifecycle import commit_prepared_range_lifecycle as commit_prepared_range_lifecycle
+from ._principal_lifecycle import prepare_range_lifecycle as prepare_range_lifecycle
+from ._principal_lifecycle import prepare_system_range_cleanup as prepare_system_range_cleanup
+from ._principal_ngfw import commit_ngfw_lifecycle, prepare_ngfw_lifecycle
+from ._principal_range_create import prepare_raes_range_creation
+from ._principal_range_events import verified_range_status_projection as verified_range_status_projection
+from ._principal_range_owner import commit_range_owner_move as commit_range_owner_move
+from ._principal_range_owner import prepare_range_owner_move as prepare_range_owner_move
+from ._principal_range_scope import commit_range_scope_move as commit_range_scope_move
+from ._principal_range_scope import prepare_range_scope_move as prepare_range_scope_move
 from ._public_operations import (
     DEFAULT_RETRY_TTL_SECONDS,
     MintedOperation,
@@ -168,6 +179,9 @@ from ._range import (
     get_range_pause_resume_capability,
     get_range_status,
 )
+from ._range_authority import RangeAuthorityProjection as RangeAuthorityProjection
+from ._range_authority import has_range_runtime as has_range_runtime
+from ._range_authority import project_range_authority as project_range_authority
 from ._range_by_request import (
     RangeOwnershipTransferBlocked,
     RangeProjectionIntegrityError,
@@ -231,10 +245,12 @@ from ._terminal import (
 from ._vpn import (
     VpnProfileConflict,
     VpnProfileNotFound,
+    VpnProfilePending,
     VpnProfileUnavailable,
     get_openvpn_profile,
     has_openvpn_profile,
 )
+from ._vpn_profiles import get_vpn_crl as get_vpn_crl
 from ._vpn_sessions import (
     VPN_SESSION_HEARTBEAT_SECONDS,
     VPN_SESSION_LEASE_SECONDS,
@@ -318,12 +334,14 @@ __all__ = (
     "StorageTarget",
     "VpnProfileConflict",
     "VpnProfileNotFound",
+    "VpnProfilePending",
     "VpnProfileUnavailable",
     "VpnSessionDenied",
     "VpnSessionGrant",
     "WarmGenerationDraft",
     "activate_preparation_grant",
     "active_generation_count",
+    "admit_native_device_access",
     "admit_range_capacity",
     "admit_range_model_access",
     "admit_range_model_policy_change",
@@ -349,6 +367,7 @@ __all__ = (
     "claim_ready_generation",
     "close_expired_revocations",
     "commit_model_call",
+    "commit_ngfw_lifecycle",
     "commit_request_spend",
     "compile_authorized_model_sources",
     "confirm_receipt_verifier_binding",
@@ -421,6 +440,9 @@ __all__ = (
     "operation_id_for_request",
     "pause_range",
     "prepare_model_launch",
+    "prepare_ngfw_creation",
+    "prepare_ngfw_lifecycle",
+    "prepare_raes_range_creation",
     "preview_effective_policy",
     "project_authorized_model_sources",
     "project_model_launch_authority",
@@ -489,5 +511,6 @@ __all__ = (
     "update_model_source",
     "upsert_raes_image_mapping",
     "validate_sharing_binding",
+    "verified_device_status_projection",
     "warm_capacity_scope_ref",
 )

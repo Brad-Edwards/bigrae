@@ -76,6 +76,24 @@ def _token(
 
 
 class TestCompleteUploadSuccess:
+    def test_header_from_another_object_version_cannot_validate_the_installed_bytes(
+        self, user, windows_os, s3_complete
+    ):
+        def replaced_header(**kwargs):
+            if kwargs.get("IfMatch", "").strip('"') == "etag":
+                raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "GetObject")
+            # Unconditional GET sees a replacement with valid magic. A later
+            # conditional COPY can still see the original version again.
+            body = MagicMock()
+            body.read.return_value = _MSI_HEADER
+            return {"Body": body}
+
+        s3_complete.get_object.side_effect = replaced_header
+        with pytest.raises(CMSError):
+            services.complete_upload(user, _token(user))
+        assert not AgentConfig.objects.filter(user=user).exists()
+        s3_complete.copy_object.assert_not_called()
+
     def test_creates_and_returns_persisted_agent(self, user, windows_os, s3_complete):
         staging_key = f"agents/{user.id}/abc_agent.msi"
         agent = services.complete_upload(user, _token(user, s3_key=staging_key, name="My Agent", file_size=1000))

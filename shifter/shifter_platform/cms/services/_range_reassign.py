@@ -10,6 +10,8 @@ from django.db import IntegrityError, transaction
 from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from engine.services import RangeOwnershipTransferBlocked, RangeWorkspaceRebindOutcome
+from shared.credentials import CredentialContext
+from shared.identity_scope import PrincipalRef
 
 from ._common import _validate_caller_user
 from ._range_launch_common import _is_active_range_conflict
@@ -156,7 +158,13 @@ def _rehome_to_new_owner_workspace(instance: RangeInstance, new_user: User) -> N
     )
 
 
-def reassign_range_owner(range_instance_pk: int, new_user: User, *, rehome: bool = False) -> None:
+def reassign_range_owner(
+    range_instance_pk: int,
+    new_user: User | PrincipalRef,
+    *,
+    rehome: bool = False,
+    credential: CredentialContext | None = None,
+) -> None:
     """Reassign an existing ``RangeInstance``'s ownership to ``new_user``.
 
     Updates the CMS ``RangeInstance.user_id`` and the owning CMS ``Request.user``,
@@ -198,6 +206,10 @@ def reassign_range_owner(range_instance_pk: int, new_user: User, *, rehome: bool
         CMSError: If the range is not found, has no associated request, or
             the engine has no corresponding range for that request.
     """
+    if credential is not None:
+        from ._scoped_range_owner import reassign_scoped_range_owner
+
+        return reassign_scoped_range_owner(credential, range_instance_pk, new_user, rehome=rehome)
     _validate_caller_user(new_user, "reassign_range_owner")
 
     if range_instance_pk is None:

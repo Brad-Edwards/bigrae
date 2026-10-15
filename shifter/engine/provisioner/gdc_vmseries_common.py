@@ -15,6 +15,7 @@ import os
 from typing import TYPE_CHECKING, NamedTuple
 
 from gdc_vmruntime_assets import _sanitize_name
+from ngfw_native_identity import native_owner_key
 
 if TYPE_CHECKING:
     from config import GDCPaloAltoVMSeriesConfig
@@ -41,18 +42,19 @@ class _VMSeriesNames(NamedTuple):
     bootstrap_disk_name: str
 
 
-def _namespace_name(config: GDCPaloAltoVMSeriesConfig, user_id: int) -> str:
-    """Return the per-user GDC namespace for the VM-Series range plane."""
-    return _sanitize_name(f"{config.namespace_prefix}-user-{user_id}")
+def _namespace_name(config: GDCPaloAltoVMSeriesConfig, user_id: int | None, instance_id: str = "") -> str:
+    """Return the existing human namespace or a service device's namespace."""
+    return _sanitize_name(f"{config.namespace_prefix}-{native_owner_key(user_id, instance_id)}")
 
 
-def _resource_prefix(user_id: int, instance_id: str) -> str:
+def _resource_prefix(user_id: int | None, instance_id: str) -> str:
     """Return the shared name prefix for a user's VM-Series Kubernetes resources."""
     instance_token = _sanitize_name(str(instance_id).split("-")[0], max_length=12)
-    return _sanitize_name(f"ngfw-user-{user_id}-{instance_token}")
+    owner = native_owner_key(user_id, instance_id)
+    return _sanitize_name(f"ngfw-{owner}-{instance_token}" if user_id is not None else f"ngfw-{owner}")
 
 
-def _vm_name(user_id: int, instance_id: str) -> str:
+def _vm_name(user_id: int | None, instance_id: str) -> str:
     """Return the VirtualMachine resource name for the given user/instance."""
     return _resource_prefix(user_id, instance_id)
 
@@ -67,21 +69,22 @@ def _bootstrap_disk_name(vm_name: str) -> str:
     return _sanitize_name(f"{vm_name}-bootstrap")
 
 
-def _ssh_secret_id(user_id: int, instance_id: str) -> str:
+def _ssh_secret_id(user_id: int | None, instance_id: str) -> str:
     """Return the Secret Manager secret id holding the VM-Series SSH key."""
     environment = _sanitize_name(os.environ.get("ENVIRONMENT", "gcp-dev"), max_length=32)
     instance_token = str(instance_id).split("-")[0]
-    return _sanitize_name(f"shifter-{environment}-ngfw-user-{user_id}-{instance_token}-ssh", max_length=255)
+    owner = native_owner_key(user_id, instance_id)
+    return _sanitize_name(f"shifter-{environment}-ngfw-{owner}-{instance_token}-ssh", max_length=255)
 
 
-def _labels(*, user_id: int, request_id: str, instance_id: str) -> dict[str, str]:
+def _labels(*, user_id: int | None, request_id: str, instance_id: str) -> dict[str, str]:
     """Return the standard Kubernetes labels applied to VM-Series resources."""
     return {
         "app.kubernetes.io/managed-by": _MANAGED_BY_LABEL,
         "shifter.dev/component": "ngfw",
         "shifter.dev/product": _PRODUCT,
         "shifter.dev/range-plane": "gdc-vmruntime",
-        "shifter.dev/user-id": str(user_id),
+        **({"shifter.dev/user-id": str(user_id)} if user_id is not None else {}),
         "shifter.dev/request-id": str(request_id),
         "shifter.dev/instance-uuid": str(instance_id),
     }

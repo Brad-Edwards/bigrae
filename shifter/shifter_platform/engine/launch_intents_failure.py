@@ -54,10 +54,10 @@ def _generation_still_authorizes_failure(
     expected_operation_id: UUID | str,
 ) -> bool:
     """Return whether a provider failure still owns the current lifecycle."""
-    from engine.launch_intents import authorize_provisioner_payload
+    from engine.launch_intents import validate_provisioner_generation
 
     try:
-        authorize_provisioner_payload(
+        validate_provisioner_generation(
             payload,
             target=target,
             expected_operation_id=expected_operation_id,
@@ -70,6 +70,7 @@ def _generation_still_authorizes_failure(
 def _publish_range_dispatch_failure(payload: dict[str, object], target: Range) -> None:
     """Publish the standard failed status event for a Range dispatch."""
     from engine.models import RangeEventOutbox
+    from engine.services._principal_range_events import range_status_authority_fields
     from shared.enums import ResourceStatus
     from shared.messages.events import EVENT_TYPE_STATUS_UPDATED
 
@@ -85,6 +86,7 @@ def _publish_range_dispatch_failure(payload: dict[str, object], target: Range) -
         "user_id": target.user_id,
         "new_status": ResourceStatus.FAILED.value,
         "error_message": PROVISIONER_DISPATCH_FAILED,
+        **range_status_authority_fields(target),
     }
     RangeEventOutbox.objects.create(
         event_id=event_id,

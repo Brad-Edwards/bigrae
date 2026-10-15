@@ -151,12 +151,24 @@ def _enqueue_destroy(claimed: ProvisionerLaunchIntent) -> bool:
     from engine.launch_intents import enqueue_provisioner_launch
 
     payload = claimed.payload or {}
+    if payload.get("resource") == "vpn-profile":
+        from engine.services._vpn_profile_operations import enqueue_interrupted_vpn_cleanup
+
+        return enqueue_interrupted_vpn_cleanup(claimed)
+    if payload.get("resource") == "ngfw" and payload.get("operation") == "deprovision":
+        enqueue_provisioner_launch(
+            ["ngfw", "deprovision", "--request-id", str(payload["request_id"])], cleanup_for=claimed.operation_id
+        )
+        return True
     request_id = payload.get("request_id")
     resource = payload.get("resource")
     if not request_id or resource != "raes-range":
         logger.error("interrupt: cannot enqueue destroy (missing request/non-raes) intent_id=%s", claimed.intent_id)
         return False
-    enqueue_provisioner_launch([str(resource), "destroy", "--request-id", str(request_id)])
+    enqueue_provisioner_launch(
+        [str(resource), "destroy", "--request-id", str(request_id)],
+        **({"cleanup_for": claimed.operation_id} if claimed.authority_kind == "principal" else {}),
+    )
     return True
 
 
@@ -194,7 +206,12 @@ def _stop_and_converge(claimed: ProvisionerLaunchIntent) -> None:
 
     command = command_from_payload({**claimed.payload, "operation_id": str(claimed.operation_id)})
     try:
-        disposition = interrupt_provisioner_task(claimed.task_ref, command, str(claimed.intent_id))
+        disposition = interrupt_provisioner_task(
+            claimed.task_ref,
+            command,
+            str(claimed.intent_id),
+            **({"expected_workload": claimed.executing_workload} if claimed.authority_kind else {}),
+        )
     except CloudTaskError as exc:
         _reschedule(claimed, InterruptState.UNKNOWN, error=type(exc).__name__)
         return

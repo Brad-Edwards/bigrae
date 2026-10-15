@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Discriminator, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, computed_field, field_validator, model_validator
 
 from .base import SpecBase
 
@@ -34,16 +35,26 @@ class CredentialSpecBase(SpecBase):
         expires_at: When this credential expires (optional).
     """
 
-    user_id: int
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: int | None
+    owner_principal_uuid: UUID | None = None
     expires_at: datetime | None = None
 
     @field_validator("user_id")
     @classmethod
-    def user_id_positive(cls, v: int) -> int:
+    def user_id_positive(cls, v: int | None) -> int | None:
         """Validate user_id is a positive integer."""
-        if v <= 0:
+        if v is not None and v <= 0:
             raise ValueError(_POSITIVE_USER_ID_ERROR)
         return v
+
+    @model_validator(mode="after")
+    def require_owner(self):
+        """A principal-owned credential does not require a fabricated user."""
+        if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
+            raise ValueError("Credential requires an owner")
+        return self
 
 
 class SCMCredentialSpec(CredentialSpecBase):
@@ -108,7 +119,8 @@ class CredentialContextBase(BaseModel):
 
     credential_id: int
     name: str
-    user_id: int
+    user_id: int | None
+    owner_principal_uuid: UUID | None = None
     created_at: datetime
     expires_at: datetime | None = None
     is_deleted: bool = False
@@ -123,11 +135,18 @@ class CredentialContextBase(BaseModel):
 
     @field_validator("user_id")
     @classmethod
-    def user_id_positive(cls, v: int) -> int:
+    def user_id_positive(cls, v: int | None) -> int | None:
         """Validate user_id is a positive integer."""
-        if v <= 0:
+        if v is not None and v <= 0:
             raise ValueError(_POSITIVE_USER_ID_ERROR)
         return v
+
+    @model_validator(mode="after")
+    def require_owner(self):
+        """Service ownership cannot be represented by a missing human identity."""
+        if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
+            raise ValueError("Credential requires an owner")
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -203,7 +222,8 @@ class CredentialRef(BaseModel):
     """
 
     credential_id: int
-    user_id: int
+    user_id: int | None
+    owner_principal_uuid: UUID | None = None
     is_deleted: bool = False
 
     @field_validator("credential_id")
@@ -216,8 +236,15 @@ class CredentialRef(BaseModel):
 
     @field_validator("user_id")
     @classmethod
-    def user_id_positive(cls, v: int) -> int:
+    def user_id_positive(cls, v: int | None) -> int | None:
         """Validate user_id is a positive integer."""
-        if v <= 0:
+        if v is not None and v <= 0:
             raise ValueError(_POSITIVE_USER_ID_ERROR)
         return v
+
+    @model_validator(mode="after")
+    def require_owner(self):
+        """Retain a principal identity when historical human attribution is absent."""
+        if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
+            raise ValueError("Credential requires an owner")
+        return self

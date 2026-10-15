@@ -19,6 +19,7 @@ Detailed guides for each Shifter feature.
 ## Governance
 
 - [Access credentials](access-credentials.md) - Personal tokens and independent service identities
+- [Content, ranges and continuing access](content-range-authority.md) - Customer scope, independent service ownership and session revocation
 
 - [Workspace Membership](workspaces) - Manage workspace members and fixed roles
 - [Authorization policies and groups](authorization-policies-and-groups) - Scoped groups, policies, grants and revocations

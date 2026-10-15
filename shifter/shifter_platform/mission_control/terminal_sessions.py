@@ -11,6 +11,7 @@ consumer stays focused and under the file-length cap (issue #847).
 from __future__ import annotations
 
 import asyncio
+from uuid import UUID
 
 
 class TerminalSessionRegistry:
@@ -28,9 +29,9 @@ class TerminalSessionRegistry:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._total = 0
-        self._per_user: dict[int, int] = {}
+        self._per_user: dict[int | UUID, int] = {}
 
-    async def try_acquire(self, user_id: int, max_total: int, max_per_user: int) -> bool:
+    async def try_acquire(self, user_id: int | UUID, max_total: int, max_per_user: int) -> bool:
         """Reserve a session slot for ``user_id``; return False if a cap is hit.
 
         A ``max_*`` of <= 0 disables that individual limit.
@@ -44,7 +45,7 @@ class TerminalSessionRegistry:
             self._per_user[user_id] = self._per_user.get(user_id, 0) + 1
             return True
 
-    async def release(self, user_id: int) -> None:
+    async def release(self, user_id: int | UUID) -> None:
         """Return a previously acquired slot for ``user_id``."""
         async with self._lock:
             if self._total > 0:

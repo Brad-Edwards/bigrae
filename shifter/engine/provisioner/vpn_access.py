@@ -113,14 +113,14 @@ def load_issuer(payload: str) -> OpenVpnIssuer:
 
 
 def _client_certificate(
-    issuer: OpenVpnIssuer, generation: UUID, not_after: datetime
+    issuer: OpenVpnIssuer, generation: UUID, not_after: datetime, *, common_name: str | None = None
 ) -> tuple[x509.Certificate, ec.EllipticCurvePrivateKey]:
     """Sign one participant client certificate that expires at the access deadline."""
     key = ec.generate_private_key(ec.SECP256R1())
     now = datetime.now(UTC)
     certificate = (
         x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"participant-{generation}")]))
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name or f"participant-{generation}")]))
         .issuer_name(issuer.ca_certificate.subject)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
@@ -221,6 +221,54 @@ def mint_openvpn_profile(
 def cleanup_openvpn_access(range_id: int, request_uuid: str, secret_ops: VpnSecretOps) -> None:
     """Delete the generation's participant profile."""
     secret_ops.delete_profile(range_id, UUID(request_uuid))
+
+
+def mint_individual_profile(
+    issuer: OpenVpnIssuer,
+    *,
+    generation: UUID,
+    profile_id: UUID,
+    not_after: datetime,
+    endpoint: OpenVpnPoolEndpoint,
+) -> tuple[str, str, str]:
+    """Sign an independently identifiable profile; return public receipt fields."""
+    now = datetime.now(UTC)
+    if not generation.int or not profile_id.int or not now < not_after <= issuer.ca_certificate.not_valid_after_utc:
+        raise ValueError("VPN certificate lifetime unavailable")
+    certificate, key = _client_certificate(issuer, generation, not_after, common_name=f"access-{profile_id}")
+    profile = _render_profile(issuer, certificate, key, endpoint)
+    validate_openvpn_profile_for_endpoint(profile, endpoint.host, endpoint.port)
+    return profile, str(certificate.serial_number), certificate.fingerprint(hashes.SHA256()).hex()
+
+
+def build_signed_crl(
+    issuer: OpenVpnIssuer,
+    revoked: Collection[tuple[int, datetime]],
+    *,
+    now: datetime | None = None,
+    revision: int = 0,
+) -> str:
+    """Use the existing CA to publish a standard X.509 CRL, never a custom deny token."""
+    moment = now or datetime.now(UTC)
+    expires = min(moment + timedelta(hours=24), issuer.ca_certificate.not_valid_after_utc)
+    if expires <= moment:
+        raise ValueError("VPN issuer expired")
+    builder = (
+        x509.CertificateRevocationListBuilder()
+        .issuer_name(issuer.ca_certificate.subject)
+        .last_update(moment)
+        .next_update(expires)
+        .add_extension(x509.CRLNumber(revision), critical=False)
+    )
+    for serial, retired_at in sorted(revoked):
+        builder = builder.add_revoked_certificate(
+            x509.RevokedCertificateBuilder().serial_number(serial).revocation_date(retired_at).build()
+        )
+    return (
+        builder.sign(issuer.ca_private_key, hashes.SHA256(), ecdsa_deterministic=True)
+        .public_bytes(serialization.Encoding.PEM)
+        .decode("ascii")
+    )
 
 
 __all__ = [

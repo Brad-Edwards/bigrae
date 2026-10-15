@@ -4219,6 +4219,11 @@
         "id": "ADR-066-R7",
         "description": "At S8, HTTP admits a valid credential and the owning service enforces application administration through the shared principal, registered action, resolved target/scope, live OpenFGA decision, and credential ceiling for HTTP and direct callers alike. Human and service application administrators have the same valid application operations when credentials permit. This supersedes ADR-045-R3's staff-session-only audit read, ADR-046-R13's Django-superuser-only transfer override, ADR-046-R10's superuser-only quota authoring, and ADR-048-R2/R3's organization overrides for integrated operations; earlier production gates remain until S8. The deployment-global audit ledger is read only with installation.read_audit; customer audit access cannot be inferred from unscoped historical rows. Retained Django-admin and legacy browser writes use authorized services or lose their write path, and transfers resolve both source and destination authority without fabricating grants or changing cloud authority.",
         "checks": []
+      },
+      {
+        "id": "ADR-066-R8",
+        "description": "S6 extends existing CMS/Engine/Mission Control service, operation and channel contracts. Engine may consume exact scalar ancestry and optional owner membership through the read-only workspaces.services.resolve_range_scope_binding facade; it performs no tenancy mutation or policy grant, and CMS retains transfer orchestration. Customer content, credentials, installations and preparation carry resolved account scope; operator-shared catalog access does not expose private assets. Account-level ranges extend the canonical action/model/ancestry and descendant contracts without fabricated workspaces. Durable operations preserve initiating principal, separate executing workload, non-secret credential reference, original exact ceiling, admitted action/target/scope and generation; dispatch/retry reauthorize without widening intent or rehoming work. Required cleanup uses explicit bounded system authority, never a missing-actor fallback, and preserves existing idempotency, outbox/inbox, cancellation and cleanup evidence. Continuing access requires credential and resource checks, revocation notification/revalidation and documented tested finite data-plane termination bounds per transport, including idle connections and dependency failure. Preserve the isolated plugin worker/public SDK boundary and S8 activation; no new job framework or capability protocol without separate gap justification. Principal RAES creation stages policy before native SQL locks and commits public/runtime linkage, original authority, operation input, queue and strict audit together. NGFW request custody is scalar and immutable through bulk writes; native registration specs reuse field encryption. Device SSH uses the existing recorded Guacamole renewal/termination boundary, and callbacks mirror accepted native scope/generation evidence. Accepted device teardown permits bounded explicit system cleanup only after dispatch suppression and native task-absence verification, without borrowing a revoked credential. Launch intents separately pin immutable provisioner namespace, service account, image, command and deterministic Job identity; delivery success is not task-completion evidence.",
+        "checks": []
       }
     ],
     "exceptions": [],
@@ -4237,6 +4242,14 @@
       "docs/architecture/unified-credential-auth-preflight-2316.md",
       "docs/architecture/account-administration-preflight-2317.md",
       "docs/architecture/account-administration-coverage-2317.md",
+      "docs/architecture/content-range-authority-preflight-2319.md",
+      "docs/technical/shifter_platform/content-range-authority.md",
+      "shifter/shifter_platform/tests/cms/services/test_principal_ingestion.py",
+      "shifter/shifter_platform/tests/cms/test_principal_preparation.py",
+      "shifter/shifter_platform/tests/engine/services/test_inventory_scope.py",
+      "shifter/shifter_platform/tests/cms/services/test_principal_uploads.py",
+      "shifter/shifter_platform/tests/cms/services/test_principal_agents.py",
+      "shifter/shifter_platform/tests/cms/services/test_principal_devices.py",
       "docs/technical/shifter_platform/access-credentials.md",
       "shifter/shifter_platform/tests/shared/test_credential_db_guards.py",
       "shifter/shifter_platform/tests/shared/test_principal_audit.py",
@@ -4248,7 +4261,10 @@
       "shifter/shifter_platform/shared/verified_identity.py",
       "shifter/shifter_platform/shared/api/principals.py",
       "scripts/check_layer_imports/layer_imports.yaml",
-      "shifter/shifter_platform/management/management/commands/check_model_fks.py"
+      "shifter/shifter_platform/management/management/commands/check_model_fks.py",
+      "docs/features/content-range-authority.md",
+      "shifter/shifter_platform/tests/cms/services/test_principal_range_launch.py",
+      "shifter/shifter_platform/engine/field_encryption.py"
     ]
   },
   {

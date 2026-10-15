@@ -21,6 +21,7 @@ from gcp_dynamic_secrets import (
     delete_all,
     dynamic_secret_project_id,
     read_or_create,
+    read_published_or_wait,
     secret_locations,
 )
 from vpn_access import VpnSecretOps
@@ -77,13 +78,16 @@ class GCPVpnSecretOps(VpnSecretOps):
         *,
         project_id: str | None = None,
         issuer_secret: str | None = None,
+        storage_project_id: str | None = None,
+        storage_environment: str | None = None,
     ) -> None:
         self._client = client or import_google_module("google.cloud.secretmanager").SecretManagerServiceClient()
         self._exceptions = exceptions or import_google_module("google.api_core.exceptions")
         self._project_id = project_id or get_project_id()
         if not self._project_id:
             raise RuntimeError("GCP project ID is required for OpenVPN secrets")
-        self._storage_project_id = dynamic_secret_project_id()
+        self._storage_project_id = dynamic_secret_project_id() if storage_project_id is None else storage_project_id
+        self._storage_environment = storage_environment
         self._issuer_secret = issuer_secret if issuer_secret is not None else _issuer_secret_name()
 
     def _profile_locations(self, range_id: int, generation: UUID) -> SecretLocations:
@@ -102,6 +106,28 @@ class GCPVpnSecretOps(VpnSecretOps):
             raise RuntimeError(f"{_ISSUER_LOCATOR_ENV} must name the tenant OpenVPN issuer secret")
         response = self._client.access_secret_version(request={"name": f"{self._issuer_secret}/versions/latest"})
         return response.payload.data.decode("utf-8")
+
+    def _individual_locations(self, profile_id: UUID) -> SecretLocations:
+        secret_id = canonical_secret_id(
+            credential_class=DynamicSecretClass.VPN_PROFILE,
+            scope=f"access-{profile_id}",
+            environment=self._storage_environment,
+        )
+        return secret_locations(
+            platform_project_id=self._storage_project_id,
+            dynamic_project_id=self._storage_project_id,
+            legacy_secret_id=secret_id,
+            canonical_secret_id=secret_id,
+        )
+
+    def get_or_create_individual_profile(self, profile_id, factory):
+        return read_or_create(self._client, self._exceptions, self._individual_locations(profile_id), factory)
+
+    def delete_individual_profile(self, profile_id):
+        delete_all(self._client, self._exceptions, self._individual_locations(profile_id))
+
+    def read_individual_profile(self, profile_id):
+        return read_published_or_wait(self._client, self._exceptions, self._individual_locations(profile_id).read_refs)
 
     def put_profile(self, range_id: int, generation: UUID, payload: str) -> str:
         name, _value = read_or_create(
@@ -123,10 +149,15 @@ class GCPVpnSecretOps(VpnSecretOps):
         return False
 
 
-def get_vpn_secret_ops() -> VpnSecretOps:
+def get_vpn_secret_ops(*, storage_project_id=None, storage_environment=None, issuer_secret=None) -> VpnSecretOps:
     """Return the selected provider's OpenVPN secret adapter."""
     if resolve_cloud_provider() == "gcp":
-        return GCPVpnSecretOps()
+        return GCPVpnSecretOps(
+            project_id=storage_project_id,
+            storage_project_id=storage_project_id,
+            storage_environment=storage_environment,
+            issuer_secret=issuer_secret,
+        )
     raise RuntimeError("The selected provider does not support the shared OpenVPN pool")
 
 

@@ -36,7 +36,7 @@ from ctf.services.range.spares import (
 )
 from ctf.services.range.status import get_range_status, update_participant_range_status
 from ctf.services.range.tasks import get_provision_progress, request_event_provisioning
-from ctf.services.range.vpn import get_vpn_profile
+from ctf.services.range.vpn import get_vpn_profile, vpn_participant_for_credential
 
 __all__ = [
     "build_event_capacity_signal",
@@ -59,4 +59,5 @@ __all__ = [
     "start_participant_range",
     "stop_participant_range",
     "update_participant_range_status",
+    "vpn_participant_for_credential",
 ]

@@ -77,6 +77,7 @@ class AuthorizationRequest:
     target: TargetRef
     scope: ResourceScope
     credential: CredentialCeiling
+    parent: TargetRef | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.principal, PrincipalRef) or not isinstance(self.scope, ResourceScope):
@@ -85,6 +86,12 @@ class AuthorizationRequest:
         if definition.target_type != self.target.type:
             raise AuthorizationContractError("Action target type does not match target")
         _validate_target_scope(self.target, self.scope)
+        if self.parent is not None:
+            if self.target.type != "range" or not isinstance(self.parent, TargetRef):
+                raise AuthorizationContractError("Only a range has an explicit resource parent")
+            if self.parent.type not in {"account", "organization", "workspace", "event"}:
+                raise AuthorizationContractError("Invalid range parent")
+            _validate_target_scope(self.parent, self.scope)
         if not self.credential.permits(self.action, self.target):
             raise AuthorizationContractError("Action exceeds credential ceiling")
 

@@ -46,6 +46,7 @@ locals {
   )
 
   workload_service_accounts = toset([
+    "guacamole",
     "portal",
     "workers",
     "ctf-scheduler",
@@ -70,6 +71,7 @@ locals {
   }
 
   workload_identity_members = {
+    guacamole            = "serviceAccount:${var.workload_identity_pool}[shifter-platform/guacamole]"
     portal               = "serviceAccount:${var.workload_identity_pool}[shifter-platform/portal]"
     workers              = "serviceAccount:${var.workload_identity_pool}[shifter-platform/workers]"
     ctf-scheduler        = "serviceAccount:${var.workload_identity_pool}[shifter-platform/ctf-scheduler]"
@@ -105,6 +107,9 @@ locals {
   # check_tf_gcp_iam_resource_scope guard fails closed on any secret/storage
   # payload/admin role added here.
   workload_project_roles = {
+    # The gateway calls the portal with metadata identity only. It has no
+    # project roles and is absent from all secret/storage reader bindings.
+    guacamole = toset([])
     portal = toset([
       "roles/firebaseauth.viewer",
       "roles/pubsub.publisher",

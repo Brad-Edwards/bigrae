@@ -59,6 +59,14 @@ def _resolve_operation_target(resource: str, operation_id: UUID | str) -> Range 
             .select_related("request")
             .first()
         )
+    if resource == "vpn-profile":
+        from engine.models import VpnAccessProfile
+
+        return (
+            VpnAccessProfile.objects.filter(provisioner_operation_id=operation_id)
+            .select_related("range__request")
+            .first()
+        )
     return None
 
 

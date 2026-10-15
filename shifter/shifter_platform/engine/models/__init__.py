@@ -31,7 +31,7 @@ from ._capacity import CapacityDeclaration
 from ._capacity_assessment import CapacityAssessment, CapacityDraw, CapacityReservation
 from ._cleanup_verification import CleanupVerificationOutcome, RangeCleanupVerification
 from ._feature_artifacts import AcquiredFeatureArtifact
-from ._launch import InterruptState, ProvisionerLaunchIntent, ProvisionerLaunchStatus
+from ._launch import InterruptState, ProvisionerLaunchIntent, ProvisionerLaunchStatus, RangeCancellationAuthority
 from ._model_allocation import (
     ModelAliasAssignment,
     ModelAllocation,
@@ -75,6 +75,7 @@ from ._raes import (
     RaesParticipantAccessBinding,
 )
 from ._range import Range
+from ._range_authority_change import RangeAuthorityChange
 from ._receipt import ReceiptVerifierRegistration
 from ._request import App, Instance, Instantiation, Request
 from ._retry_binding import PublicOperationRetryBinding, RetryBindingStatus
@@ -94,6 +95,7 @@ from ._sharing import (
     SharingPoolRevision,
 )
 from ._subnet import Subnet, SubnetAllocation
+from ._vpn_profile import VpnAccessProfile, VpnCrlState
 from ._vpn_session import VpnSession, VpnSessionEndReason, VpnSessionState
 from ._warm_pool import WarmRangeGeneration
 
@@ -148,6 +150,8 @@ __all__ = [
     "RaesImageMapping",
     "RaesParticipantAccessBinding",
     "Range",
+    "RangeAuthorityChange",
+    "RangeCancellationAuthority",
     "RangeCleanupVerification",
     "RangeEventOutbox",
     "ReceiptVerifierRegistration",
@@ -164,6 +168,8 @@ __all__ = [
     "SharingPoolRevision",
     "Subnet",
     "SubnetAllocation",
+    "VpnAccessProfile",
+    "VpnCrlState",
     "VpnSession",
     "VpnSessionEndReason",
     "VpnSessionState",

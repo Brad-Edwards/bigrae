@@ -33,6 +33,39 @@ logger = logging.getLogger(__name__)
 RangeAggregateGuard = Callable[[Sequence[tuple["uuid.UUID", int]]], "Iterable[int]"]
 
 _guards: list[RangeAggregateGuard] = []
+RangeEventResolver = Callable[["uuid.UUID", int], "uuid.UUID | None"]
+_event_resolver: RangeEventResolver | None = None
+_vpn_participation = None
+
+
+def register_range_vpn_participation(resolver) -> None:
+    """CTF owns admission to its live participant/range assignment."""
+    global _vpn_participation
+    if not callable(resolver) or (_vpn_participation is not None and _vpn_participation is not resolver):
+        raise ValueError("Range participation resolver already bound")
+    _vpn_participation = resolver
+
+
+def require_range_vpn_participation(credential, request_id, event_uuid) -> None:
+    """Consult the aggregate owner without importing its models or services."""
+    if _vpn_participation is None:
+        raise ValueError("Range participation unavailable")
+    _vpn_participation(credential, request_id, event_uuid)
+
+
+def register_range_event_resolver(resolver: RangeEventResolver) -> None:
+    """Extend the incumbent aggregate seam with exact CTF parent identity."""
+    global _event_resolver
+    if not callable(resolver) or (_event_resolver is not None and _event_resolver is not resolver):
+        raise ValueError("Range event resolver already bound")
+    _event_resolver = resolver
+
+
+def range_event_parent(request_id: uuid.UUID, range_instance_id: int) -> uuid.UUID | None:
+    """Require the aggregate owner's exact SQL event, including spare ranges."""
+    if _event_resolver is None:
+        raise ValueError("Range event binding unavailable")
+    return _event_resolver(request_id, range_instance_id)
 
 
 def register_range_aggregate_guard(guard: RangeAggregateGuard) -> None:

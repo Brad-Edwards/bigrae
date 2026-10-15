@@ -20,6 +20,7 @@ Currently exposes:
                                  on each consumer model.
 """
 
+from shared.db.operation_authority import RecordedAuthorityFields
 from shared.db.soft_delete import (
     ExpiringStateMixin,
     SoftDeleteManager,
@@ -29,6 +30,7 @@ from shared.db.soft_delete import (
 
 __all__ = [
     "ExpiringStateMixin",
+    "RecordedAuthorityFields",
     "SoftDeleteManager",
     "SoftDeleteMixin",
     "SoftDeleteQuerySet",

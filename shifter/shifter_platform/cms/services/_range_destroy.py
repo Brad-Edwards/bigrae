@@ -18,6 +18,7 @@ from shared.audit import (
     AuditEntityType,
 )
 from shared.constants import USER_CANNOT_BE_NONE
+from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
 from workspaces.services import WorkspaceOperation
 
@@ -137,12 +138,16 @@ def _restore_range_instance_status(
     instance.save(update_fields=["status", "deleted_at"])
 
 
-def destroy_range(user: User, range_instance_pk: int) -> None:
+def destroy_range(user: User | CredentialContext, range_instance_pk: int) -> None:
     """Tear down an owned range by its ``RangeInstance`` primary key.
 
     The primary key is the stable identifier held by callers; the legacy
     nullable ``range_id`` engine field is not used for lookup (issue #1139).
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_lifecycle import run_scoped_range_lifecycle
+
+        return run_scoped_range_lifecycle(user, "destroy", instance_pk=range_instance_pk)
     _validate_caller_user(user, "destroy_range")
 
     if range_instance_pk is None:
@@ -231,6 +236,10 @@ def destroy_range(user: User, range_instance_pk: int) -> None:
 
 def destroy_expired_range(instance: RangeInstance) -> None:
     """Destroy a server-expired range through the canonical Engine lifecycle."""
+    if instance.owner_principal_uuid is not None:
+        from ._scoped_range_lifecycle import destroy_expired_scoped_range
+
+        return destroy_expired_scoped_range(instance.uuid)
     request_id = instance.request.request_id if instance.request else None
     if request_id is None:
         raise CMSError(_MISSING_REQUEST_MSG)
@@ -245,12 +254,16 @@ def destroy_expired_range(instance: RangeInstance) -> None:
     )
 
 
-def cancel_range(user: User, range_id: int) -> None:
+def cancel_range(user: User | CredentialContext, range_id: int) -> None:
     """Cancel provisioning range.
 
     Verifies ownership via get_range, marks the CMS row destroying, and delegates
     engine cancellation.
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_lifecycle import run_scoped_range_lifecycle
+
+        return run_scoped_range_lifecycle(user, "cancel", instance_pk=range_id)
     _validate_caller_user(user, "cancel_range")
 
     if range_id is None:
@@ -328,7 +341,7 @@ def cancel_range(user: User, range_id: int) -> None:
         raise
 
 
-def destroy_range_by_request_id(user: User, request_id: str) -> None:
+def destroy_range_by_request_id(user: User | CredentialContext, request_id: str) -> None:
     """Tear down range by request_id.
 
     Fetches RangeInstance by request_id, verifies ownership, updates CMS status
@@ -345,6 +358,10 @@ def destroy_range_by_request_id(user: User, request_id: str) -> None:
         TypeError: If user is None or invalid type
         CMSError: If range not found or not owned by user
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_lifecycle import run_scoped_range_lifecycle
+
+        return run_scoped_range_lifecycle(user, "destroy", request_id=request_id)
     if user is None:
         logger.error("destroy_range_by_request_id called with None user")
         raise TypeError(USER_CANNOT_BE_NONE)
@@ -413,7 +430,7 @@ def destroy_range_by_request_id(user: User, request_id: str) -> None:
         raise
 
 
-def cancel_range_by_request_id(user: User, request_id: str) -> None:
+def cancel_range_by_request_id(user: User | CredentialContext, request_id: str) -> None:
     """Cancel provisioning range by request_id.
 
     Fetches RangeInstance by request_id, verifies ownership, updates status,
@@ -430,6 +447,10 @@ def cancel_range_by_request_id(user: User, request_id: str) -> None:
         TypeError: If user is None or invalid type
         CMSError: If range not found or not owned by user
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_lifecycle import run_scoped_range_lifecycle
+
+        return run_scoped_range_lifecycle(user, "cancel", request_id=request_id)
     if user is None:
         logger.error("cancel_range_by_request_id called with None user")
         raise TypeError(USER_CANNOT_BE_NONE)

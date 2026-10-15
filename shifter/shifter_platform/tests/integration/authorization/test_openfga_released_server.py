@@ -340,6 +340,7 @@ def test_released_model_accepts_event_only_range_ancestry_and_denies_conflicting
         TargetRef("range", range_uuid),
         ResourceScope("account", account, organization, workspace),
         _all_actions(),
+        parent=TargetRef("event", event),
     )
     assert provider.check(request).allowed
     assert provider.batch_check((request,))[0].allowed
@@ -384,6 +385,65 @@ def test_released_model_allows_human_and_service_admin_on_account_event_and_reje
         ).allowed
     _write_fixture_tuple(provider, ClientTuple(f"workspace:{uuid4()}", "workspace", f"event:{event}"))
     assert all(not provider.check(request).allowed for request in requests)
+
+
+def test_released_model_content_and_account_range_administration_is_customer_scoped(provider) -> None:
+    account, sibling, range_uuid = uuid4(), uuid4(), uuid4()
+    for item in (
+        ClientTuple("installation:root", "installation", f"account:{account}"),
+        ClientTuple("installation:root", "installation", f"account:{sibling}"),
+        ClientTuple(f"account:{account}", "account", f"range:{range_uuid}"),
+    ):
+        _write_fixture_tuple(provider, item)
+    operations = (
+        "read_content",
+        "manage_content",
+        "manage_credentials",
+        "prepare_content",
+        "launch_range",
+        "read_devices",
+        "manage_devices",
+        "access_devices",
+        "manage_range_scope",
+    )
+    for kind in ("human", "service"):
+        principal = PrincipalRef(uuid4(), kind)
+        provider.write_relationships(
+            AdministrativeRoleChange(
+                RelationshipSubject("principal", principal.uuid),
+                "account_administrator",
+                TargetRef("account", account),
+                PolicyEffect.GRANT,
+            )
+        )
+        for operation in operations:
+            own = AuthorizationRequest(
+                principal,
+                f"account.{operation}",
+                TargetRef("account", account),
+                ResourceScope("account", account),
+                _all_actions(),
+            )
+            foreign = AuthorizationRequest(
+                principal,
+                f"account.{operation}",
+                TargetRef("account", sibling),
+                ResourceScope("account", sibling),
+                _all_actions(),
+            )
+            assert provider.check(own).allowed
+            assert not provider.check(foreign).allowed
+        for action in ("range.read", "range.manage", "range.access"):
+            own = AuthorizationRequest(
+                principal,
+                action,
+                TargetRef("range", range_uuid),
+                ResourceScope("account", account),
+                _all_actions(),
+                parent=TargetRef("account", account),
+            )
+            assert provider.check(own).allowed
+            assert provider.batch_check((own,))[0].allowed
 
 
 @dataclass

@@ -12,6 +12,7 @@ class PortalConfig(AppConfig):
 
     def ready(self) -> None:
         from cms.services import engine_invalidate_sharing_authority
+        from config.credential_reference import resolve_credential_reference, resolve_local_credential_reference
         from config.credential_scope import credential_target_scope, temporary_participant_credential
         from config.health_checks import (
             register_audit_log_degraded_health_check,
@@ -27,6 +28,7 @@ class PortalConfig(AppConfig):
         from shared.audit_adapter import audit_log_writer
         from shared.authorization import bind_authorization_provider_factory
         from shared.credentials import (
+            bind_credential_reference_resolver,
             bind_credential_scope_resolver,
             bind_service_credential_verifier,
             bind_temporary_credential_resolver,
@@ -42,6 +44,9 @@ class PortalConfig(AppConfig):
         bind_authorization_provider_factory(configured_authorization_provider)
         bind_service_credential_verifier(verify_service_credential)
         bind_credential_scope_resolver(credential_target_scope)
+        bind_credential_reference_resolver(
+            resolve_credential_reference, local_resolver=resolve_local_credential_reference
+        )
         bind_temporary_credential_resolver(temporary_participant_credential)
         register_audit_log_degraded_health_check()
         register_channel_layer_redis_health_check()

@@ -119,6 +119,11 @@ allowed_symbols:
     workspaces.services:
       - OrganizationAuthorizationError
       - get_organization_profile
+      # ADR-066-R8: read-only validation of Engine's scalar range ancestry.
+      - resource_scope_from_ids
+      # ADR-066-R8: exact scalar ancestry/owner facts for a CMS-orchestrated
+      # range move. No tenancy policy, CRUD, or role mutation crosses this seam.
+      - resolve_range_scope_binding
   config:
     workspaces.services:
       - list_administrable_organizations

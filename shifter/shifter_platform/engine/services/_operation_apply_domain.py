@@ -428,6 +428,10 @@ def apply_validated_result(row: OperationResultInbox) -> tuple[str, str]:
 
     try:
         step, payload = _admit(row)
+        if row.resource == "vpn-profile":
+            from ._vpn_pki_results import apply_vpn_pki_result
+
+            return apply_vpn_pki_result(row, payload)
         target = _lock_and_authorize(row, step)
         if target is None:
             return "", ""

@@ -555,6 +555,11 @@ def _gcp_private_service_cidrs(outputs: dict[str, dict[str, object]]) -> list[st
 def _helm_service_account_values(service_accounts: dict[str, str]) -> dict[str, object]:
     """Return workload-identity annotations for chart service accounts."""
     return {
+        "guacamole": {
+            "annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["guacamole"]}
+            if "guacamole" in service_accounts
+            else {},
+        },
         "portal": {"annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["portal"]}},
         "workers": {"annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["workers"]}},
         "ctfScheduler": {"annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["ctf-scheduler"]}},

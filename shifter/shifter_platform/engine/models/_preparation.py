@@ -5,6 +5,8 @@ from uuid import uuid4
 from django.conf import settings
 from django.db import models
 
+from shared.db import RecordedAuthorityFields
+
 
 class PreparationScopeLock(models.Model):
     """Serialize capacity admission across grant versions in one backend scope.
@@ -65,7 +67,8 @@ class PreparationAdapter(models.Model):
     manifest_digest = models.CharField(max_length=71)
     manifest = models.JSONField()
     state = models.CharField(max_length=16, choices=State.choices, default=State.ENABLED)
-    installed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    installed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True)
+    installed_by_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -87,7 +90,7 @@ class PreparationAdapter(models.Model):
         return f"Preparation adapter {self.id} ({self.state})"
 
 
-class PreparationOperation(models.Model):
+class PreparationOperation(RecordedAuthorityFields):
     """Authoritative preparation lifecycle; the range provisioner never reads it."""
 
     class State(models.TextChoices):
@@ -102,7 +105,7 @@ class PreparationOperation(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     adapter = models.ForeignKey(PreparationAdapter, on_delete=models.PROTECT)
-    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True)
     scope_digest = models.CharField(max_length=71, db_index=True)
     input_digest = models.CharField(max_length=71, unique=True)
     input = models.JSONField()
@@ -140,6 +143,7 @@ class PreparationAttempt(models.Model):
     phase = models.CharField(max_length=16)
     input = models.JSONField()
     input_digest = models.CharField(max_length=71)
+    executing_workload = models.JSONField(default=dict, blank=True, editable=False)
     expires_at = models.DateTimeField()
     dispatched_at = models.DateTimeField(null=True)
     next_dispatch_at = models.DateTimeField()

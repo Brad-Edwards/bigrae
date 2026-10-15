@@ -31,6 +31,25 @@ _ENV = {
 
 
 class TestManagement:
+    def test_a_reply_timeout_closes_the_connection_before_any_late_reply(self, monkeypatch, tmp_path):
+        from shifter_openvpn import management as module
+
+        monkeypatch.setattr(module, "_REPLY_TIMEOUT", 0.05)
+        path = str(tmp_path / "timeout.sock")
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(path)
+            server.listen(1)
+            management = Management(path)
+            peer, _ = server.accept()
+            with peer:
+                peer.settimeout(1)
+                with pytest.raises(module.ManagementError, match="no reply"):
+                    management.kill(7)
+                assert peer.recv(1024) == b"client-kill 7\n"
+                assert peer.recv(1024) == b""
+                with pytest.raises(module.ManagementError):
+                    management.kill(8)
+
     def test_event_headers(self):
         assert parse_event_header(">CLIENT:CONNECT,4,1") == ("CONNECT", 4, 1)
         assert parse_event_header(">CLIENT:ESTABLISHED,4") == ("ESTABLISHED", 4, None)

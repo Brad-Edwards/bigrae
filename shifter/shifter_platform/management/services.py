@@ -27,6 +27,8 @@ from . import model_access_authority as _model_access_authority
 from . import principals as _principals
 from .audit_context import AuditContext
 from .models import ActivityLog, UserProfile
+from .session_backend import save_session_assurance as save_session_assurance
+from .session_backend import session_for_credential as session_for_credential
 
 PrincipalConflictError = _principals.PrincipalConflictError
 bind_principal_provider_identity = _principals.bind_principal_provider_identity
@@ -36,7 +38,9 @@ ensure_human_principal = _principals.ensure_human_principal
 principal_for_user = _principals.principal_for_user
 resolve_principal = _principals.resolve_principal
 resolve_principal_uuid = _principals.resolve_principal_uuid
+human_principal_user_id = _principals.human_principal_user_id
 resolve_service_credential = _principals.resolve_service_credential
+resolve_service_credential_reference = _principals.resolve_service_credential_reference
 set_service_contact = _principals.set_service_contact
 
 ModelAccessGroupEligibilityView = _model_access_authority.ModelAccessGroupEligibilityView

@@ -136,10 +136,11 @@ class TestBuildTfVariables:
         """Should use defaults for optional env vars; mandatory KMS ARN is supplied."""
         from ngfw_terraform import _build_tf_variables
 
-        result = _build_tf_variables("req-1", "inst-1", {})
+        instance = "12345678-1234-1234-1234-123456789abc"
+        result = _build_tf_variables("req-1", instance, {})
 
-        assert result["user_id"] == 0
-        assert result["name_prefix"] == "ngfw-user-0"
+        assert result["user_id"] is None
+        assert result["name_prefix"] == "ngfw-device-" + instance
         assert result["environment"] == "dev"
         assert result["secrets_kms_key_arn"] == "arn:aws:kms:us-east-2:123456789012:key/abcd-1234"
         assert result["subnet_id"] == ""

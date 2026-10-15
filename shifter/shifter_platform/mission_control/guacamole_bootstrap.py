@@ -9,15 +9,22 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import BoundedSemaphore
-from uuid import UUID
+from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, urlparse
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from mission_control.models import GuacamoleBootstrapRequest
+from shared.credentials import CredentialContext
 from shared.errors import classify_user_message
 from shared.log_sanitize import safe_log_fingerprint, safe_log_value
+
+if TYPE_CHECKING:
+    from .guacamole import GuacamoleClient
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +107,13 @@ def _user_id_from_value(value: int | str) -> int:
 
 def enqueue_guacamole_bootstrap(
     *,
-    user_id: int | str,
+    user_id: int | str | None,
     protocol: str,
     target_id: str,
     build_url: Callable[[], str],
+    authority: dict[str, object] | None = None,
+    guacamole_client: GuacamoleClient | None = None,
+    bootstrap_id: UUID | None = None,
 ) -> GuacamoleBootstrapRequest:
     """Create a bootstrap request and run the blocking token exchange off-path."""
     slots = _get_slots()
@@ -112,23 +122,25 @@ def enqueue_guacamole_bootstrap(
 
     try:
         bootstrap = GuacamoleBootstrapRequest.objects.create(
-            user_id=_user_id_from_value(user_id),
+            id=bootstrap_id or uuid4(),
+            user_id=_user_id_from_value(user_id) if user_id is not None else None,
             protocol=protocol,
             target_id=str(target_id)[:200],
             status=GuacamoleBootstrapRequest.Status.PENDING,
             expires_at=timezone.now() + timedelta(seconds=_ttl_seconds()),
+            **(authority or {}),
         )
     except Exception:
         slots.release()
         raise
 
     if getattr(settings, "GUACAMOLE_BOOTSTRAP_INLINE", False):
-        _run_bootstrap(bootstrap.id, build_url, slots)
+        _run_bootstrap(bootstrap.id, build_url, slots, guacamole_client)
         bootstrap.refresh_from_db()
         return bootstrap
 
     try:
-        _get_executor().submit(_run_bootstrap, bootstrap.id, build_url, slots)
+        _get_executor().submit(_run_bootstrap, bootstrap.id, build_url, slots, guacamole_client)
     except Exception:
         slots.release()
         bootstrap.status = GuacamoleBootstrapRequest.Status.FAILED
@@ -139,12 +151,23 @@ def enqueue_guacamole_bootstrap(
     return bootstrap
 
 
-def _run_bootstrap(request_id: UUID, build_url: Callable[[], str], slots: BoundedSemaphore) -> None:
+def _run_bootstrap(
+    request_id: UUID,
+    build_url: Callable[[], str],
+    slots: BoundedSemaphore,
+    guacamole_client: GuacamoleClient | None = None,
+) -> None:
     """Run a single blocking Guacamole URL build and persist the result."""
     close_old_connections()
     started = time.perf_counter()
     try:
         bootstrap = GuacamoleBootstrapRequest.objects.get(pk=request_id)
+        if bootstrap.authority_kind:
+            from .guacamole_authority import authorize_bootstrap
+
+            if not authorize_bootstrap(bootstrap):
+                _finish_failure(bootstrap, started, "Permission denied", 403)
+                return
         bootstrap.status = GuacamoleBootstrapRequest.Status.RUNNING
         bootstrap.save(update_fields=("status", "updated_at"))
 
@@ -165,6 +188,27 @@ def _run_bootstrap(request_id: UUID, build_url: Callable[[], str], slots: Bounde
             )
             _finish_failure(bootstrap, started, _GENERIC_BOOTSTRAP_FAILURE, 500)
             return
+
+        if bootstrap.authority_kind:
+            # Retain the native credential before checking authority again. If
+            # revoke/cancel races token creation, independent cleanup can close
+            # that session without delivering it to the browser.
+            query = urlparse(result_url).fragment.partition("?")[2]
+            tokens = parse_qs(query).get("token", [])
+            if len(tokens) != 1 or not tokens[0]:
+                _finish_failure(bootstrap, started, _GENERIC_BOOTSTRAP_FAILURE, 500)
+                return
+            bootstrap.native_session_token = tokens[0]
+            bootstrap.save(update_fields=("native_session_token", "updated_at"))
+            if bootstrap.is_expired or not authorize_bootstrap(bootstrap):
+                from .guacamole_authority import terminate_bootstrap
+
+                bootstrap.termination_pending = True
+                bootstrap.save(update_fields=("termination_pending", "updated_at"))
+                if guacamole_client is not None:
+                    terminate_bootstrap(bootstrap, guacamole_client)
+                _finish_failure(bootstrap, started, "Permission denied", 403)
+                return
 
         if bootstrap.is_expired:
             # A slow build finished after expiry. Never persist a token URL the
@@ -237,7 +281,9 @@ def _prune_batch_size() -> int:
     return max(1, int(getattr(settings, "GUACAMOLE_BOOTSTRAP_PRUNE_BATCH_SIZE", _DEFAULT_PRUNE_BATCH_SIZE)))
 
 
-def consume_ready_url(*, request_id: UUID, user_id: int) -> str | None:
+def consume_ready_url(
+    *, request_id: UUID, user_id: int | None = None, credential: CredentialContext | None = None
+) -> str | None:
     """Atomically deliver and clear the ready Guacamole URL exactly once.
 
     The status endpoint is the delivery boundary: the first owner-scoped poll
@@ -248,9 +294,22 @@ def consume_ready_url(*, request_id: UUID, user_id: int) -> str | None:
     deliverable for this caller — not found, not succeeded, expired, or already
     delivered — clearing any token still parked on an expired success.
     """
+    if credential is not None:
+        from .guacamole_authority import authorize_bootstrap
+
+        snapshot = (
+            GuacamoleBootstrapRequest.objects.defer("result_url", "native_session_token").filter(pk=request_id).first()
+        )
+        if snapshot is None or not authorize_bootstrap(snapshot, credential):
+            return None
+        user_id = snapshot.user_id
+    elif user_id is None:
+        return None
     with transaction.atomic():
         row = GuacamoleBootstrapRequest.objects.select_for_update().filter(pk=request_id, user_id=user_id).first()
         if row is None or row.status != GuacamoleBootstrapRequest.Status.SUCCEEDED:
+            return None
+        if row.authority_kind and credential is None:
             return None
         if row.is_expired or row.delivered_at is not None or not row.result_url:
             # Not deliverable: clear any token still parked on an expired success
@@ -276,7 +335,8 @@ def prune_expired_bootstrap_requests(*, batch_size: int | None = None) -> int:
     """
     limit = _prune_batch_size() if batch_size is None else max(1, int(batch_size))
     ids = list(
-        GuacamoleBootstrapRequest.objects.filter(expires_at__lte=timezone.now())
+        GuacamoleBootstrapRequest.objects.filter(expires_at__lte=timezone.now(), native_session_token="")
+        .filter(Q(authority_kind="") | Q(status="failed") | Q(native_terminated_at__isnull=False))
         .order_by("expires_at")
         .values_list("pk", flat=True)[:limit]
     )

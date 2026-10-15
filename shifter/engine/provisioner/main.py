@@ -109,9 +109,18 @@ if __name__ == "__main__":
         help=_operation_id_help,
     )
 
+    vpn_parser = subparsers.add_parser("vpn-profile", help="Individual OpenVPN certificate lifecycle")
+    vpn_parser.add_argument("operation", choices=["issue", "revoke", "refresh-crl", "purge"])
+    vpn_parser.add_argument("--request-id", required=True)
+    vpn_parser.add_argument("--profile-id", required=True)
+    vpn_parser.add_argument("--operation-id", required=True)
     args = parser.parse_args()
 
-    if args.resource == "raes-range":
+    if args.resource == "vpn-profile":
+        from vpn_profile_ops import run_vpn_profile_operation
+
+        run_vpn_profile_operation(args.request_id, args.profile_id, args.operation, args.operation_id)
+    elif args.resource == "raes-range":
         from raes_range_ops import (
             run_raes_range_activate,
             run_raes_range_destroy,

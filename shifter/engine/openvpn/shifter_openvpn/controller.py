@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
@@ -23,6 +23,8 @@ from .management import ClientEvent
 from .portal import Grant, PortalRefused, PortalUnavailable
 
 RETRY_SECONDS = 5
+MAX_HEARTBEAT_SECONDS = 15
+TERMINATION_BATCH_SECONDS = 10
 _LOGGER = logging.getLogger("shifter_openvpn")
 
 
@@ -38,7 +40,7 @@ class ManagementPort(Protocol):
 class PortalPort(Protocol):
     """The portal's session decisions."""
 
-    def authorize(self, common_name: str, client_id: int, client_address: str) -> Grant: ...
+    def authorize(self, common_name: str, client_id: int, client_address: str, **certificate: str) -> Grant: ...
     def heartbeat(self, sessions: list[str]) -> tuple[set[str], int]: ...
     def end(self, session: str) -> None: ...
 
@@ -48,6 +50,13 @@ class FirewallPort(Protocol):
 
     def allow(self, client: str, target: str, ports: tuple[int, ...]) -> None: ...
     def revoke(self, client: str, target: str, ports: tuple[int, ...]) -> None: ...
+
+
+class CrlPort(Protocol):
+    """Local validation and installation of the issuer's signed list."""
+
+    def install(self, pem: str) -> None: ...
+    def valid(self) -> bool: ...
 
 
 @dataclass
@@ -72,6 +81,9 @@ class Controller:
         grace_seconds: int = 90,
         clock: Callable[[], float] = time.monotonic,
         log: Callable[[str], None] | None = None,
+        crl: CrlPort | None = None,
+        refresh_crl: Callable[[], str] | None = None,
+        fatal: Callable[[], None] | None = None,
     ) -> None:
         self._management = management
         self._portal = portal
@@ -79,6 +91,8 @@ class Controller:
         self._grace = grace_seconds
         self._clock = clock
         self._log = log or _LOGGER.info
+        self._crl, self._refresh_crl = crl, refresh_crl
+        self._fatal = fatal or (lambda: None)
         self._lock = threading.Lock()
         self._sessions: dict[int, Session] = {}
         self._last_heartbeat = clock()
@@ -87,7 +101,7 @@ class Controller:
     def handle(self, event: ClientEvent) -> None:
         """Dispatch one management notification; authorization runs off the event thread."""
         if event.kind == "CONNECT":
-            self._authorizers.submit(self._connect, event)
+            self._authorizers.submit(self._connect_safely, event)
         elif event.kind == "REAUTH":
             self._reauth(event)
         elif event.kind == "ESTABLISHED":
@@ -95,11 +109,29 @@ class Controller:
         elif event.kind == "DISCONNECT":
             self._disconnect(event)
 
+    def _connect_safely(self, event: ClientEvent) -> None:
+        try:
+            self._connect(event)
+        except Exception as error:
+            self._log(f"VPN authorization failed ({type(error).__name__}); stopping the server")
+            self._fatal()
+
     def _connect(self, event: ClientEvent) -> None:
         kid = event.kid if event.kid is not None else 0
+        common_name = event.env.get("common_name", "")
+        if common_name.startswith("access-") and (self._crl is None or not self._crl.valid()):
+            self._management.deny(event.cid, kid, "vpn.crl_unavailable")
+            return
+        if self._crl is not None and not common_name.startswith("access-"):
+            self._management.deny(event.cid, kid, "vpn.unknown_client")
+            return
         try:
             grant = self._portal.authorize(
-                event.env.get("common_name", ""), event.cid, event.env.get("untrusted_ip", "")
+                event.env.get("common_name", ""),
+                event.cid,
+                event.env.get("untrusted_ip", ""),
+                certificate_serial=event.env.get("tls_serial_0", ""),
+                certificate_fingerprint=event.env.get("tls_digest_sha256_0", ""),
             )
         except PortalRefused as refused:
             self._log(f"deny cid={event.cid} reason={refused.code}")
@@ -117,10 +149,21 @@ class Controller:
     def _reauth(self, event: ClientEvent) -> None:
         kid = event.kid if event.kid is not None else 0
         with self._lock:
-            known = event.cid in self._sessions
-        # A renegotiating client keeps its session; the heartbeat decides whether it may.
-        if known:
-            self._management.allow_unchanged(event.cid, kid)
+            live = {cid: session.session_id for cid, session in self._sessions.items()}
+        # Recheck the recorded session, without minting a replacement identity.
+        if event.cid in live:
+            try:
+                disconnect, _interval = self._portal.heartbeat(sorted(live.values()))
+            except (PortalRefused, PortalUnavailable):
+                self._kill(event.cid, "reauth-unconfirmed")
+                return
+            for cid, session_id in live.items():
+                if session_id in disconnect:
+                    self._kill(cid, "revoked")
+            with self._lock:
+                still_known = event.cid in self._sessions and self._sessions[event.cid].session_id == live[event.cid]
+            if still_known:
+                self._management.allow_unchanged(event.cid, kid)
         else:
             self._management.deny(event.cid, kid, "unknown session")
 
@@ -128,29 +171,30 @@ class Controller:
         address = event.env.get("ifconfig_pool_remote_ip", "")
         with self._lock:
             session = self._sessions.get(event.cid)
-        if session is None or not address:
-            self._management.kill(event.cid)
-            return
-        try:
-            self._firewall.allow(address, session.target, session.ports)
-        except Exception as error:
-            # An allowance that cannot be installed is a session that cannot work.
-            self._log(f"kill cid={event.cid} reason=firewall ({type(error).__name__})")
-            self._management.kill(event.cid)
-            return
-        with self._lock:
+            if session is None or not address:
+                self._management.kill(event.cid)
+                return
+            try:
+                self._firewall.allow(address, session.target, session.ports)
+            except Exception as error:
+                self._log(f"kill cid={event.cid} reason=firewall ({type(error).__name__})")
+                self._management.kill(event.cid)
+                return
+            # Installation and address publication are fenced with retirement.
             session.address = address
 
     def _disconnect(self, event: ClientEvent) -> None:
         with self._lock:
             session = self._sessions.pop(event.cid, None)
-        if session is None:
-            return
-        if session.address:
-            try:
-                self._firewall.revoke(session.address, session.target, session.ports)
-            except Exception as error:
-                self._log(f"revoke failed cid={event.cid} ({type(error).__name__})")
+            if session is None:
+                return
+            if session.address:
+                try:
+                    self._firewall.revoke(session.address, session.target, session.ports)
+                except Exception as error:
+                    self._log(f"revoke failed cid={event.cid} ({type(error).__name__})")
+                    # Stale allowances could authorize a later address occupant.
+                    raise RuntimeError("VPN termination unavailable") from None
         try:
             self._portal.end(session.session_id)
         except (PortalRefused, PortalUnavailable) as error:
@@ -159,29 +203,63 @@ class Controller:
 
     def _kill(self, cid: int, reason: str) -> None:
         self._log(f"kill cid={cid} reason={reason}")
+        with self._lock:
+            session = self._sessions.pop(cid, None)
+            if session is None:
+                # A fenced disconnect or prior kill already retired this client.
+                return
+            # Removal is independent of the eventual DISCONNECT notification.
+            forwarding_removed = session.address is None
+            if session.address:
+                try:
+                    self._firewall.revoke(session.address, session.target, session.ports)
+                    forwarding_removed = True
+                except Exception as error:
+                    self._log(f"revoke failed cid={cid} ({type(error).__name__})")
         try:
             self._management.kill(cid)
         except Exception as error:
             self._log(f"kill failed cid={cid} ({type(error).__name__})")
+            raise RuntimeError("VPN termination unavailable") from None
+        if not forwarding_removed:
+            raise RuntimeError("VPN termination unavailable")
 
     def heartbeat(self) -> int:
         """Renew live sessions, apply revocations, and return the seconds until the next beat."""
         with self._lock:
             live = {cid: session.session_id for cid, session in self._sessions.items()}
+        if not self._current_crl():
+            self._kill_many(live, "crl-unavailable")
+            return RETRY_SECONDS
         try:
             disconnect, interval = self._portal.heartbeat(sorted(live.values()))
         except (PortalRefused, PortalUnavailable) as error:
             silent = self._clock() - self._last_heartbeat
             self._log(f"heartbeat failed ({error}); {silent:.0f}s since the last confirmation")
             if silent > self._grace:
-                for cid in live:
-                    self._kill(cid, "revocation-unconfirmed")
+                self._kill_many(live, "revocation-unconfirmed")
             return RETRY_SECONDS
         self._last_heartbeat = self._clock()
-        for cid, session in live.items():
-            if session in disconnect:
-                self._kill(cid, "revoked")
-        return max(RETRY_SECONDS, interval)
+        self._kill_many([cid for cid, session in live.items() if session in disconnect], "revoked")
+        return min(MAX_HEARTBEAT_SECONDS, max(RETRY_SECONDS, interval))
+
+    def _kill_many(self, clients: Iterable[int], reason: str) -> None:
+        deadline = self._clock() + TERMINATION_BATCH_SECONDS
+        for cid in clients:
+            self._kill(cid, reason)
+            if self._clock() > deadline:
+                # The native pool restart ends the remaining clients together.
+                raise RuntimeError("VPN termination unavailable")
+
+    def _current_crl(self) -> bool:
+        if self._crl is None:
+            return True
+        if self._refresh_crl is not None:
+            try:
+                self._crl.install(self._refresh_crl())
+            except (ValueError, PortalRefused, PortalUnavailable):
+                self._log("CRL refresh unavailable")
+        return self._crl.valid()
 
     def session_count(self) -> int:
         with self._lock:

@@ -43,11 +43,14 @@ from cms.models.provisioning import (
 )
 from cms.models.range import ACTIVE_RANGE_UNIQUE_CONSTRAINT, RangeInstance
 from cms.models.scenarios import RaesPackageSource, ScenarioMetadata, ScenarioModelNeeds
+from cms.models.uploads import AgentUpload, AgentUploadBudget
 
 __all__ = [
     "ACTIVE_RANGE_UNIQUE_CONSTRAINT",
     "AgentConfig",
     "AgentType",
+    "AgentUpload",
+    "AgentUploadBudget",
     "App",
     "AppType",
     "Asset",

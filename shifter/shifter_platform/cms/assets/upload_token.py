@@ -10,6 +10,7 @@ import hmac
 import json
 import logging
 import time
+from uuid import UUID
 
 from django.conf import settings
 
@@ -19,13 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 def generate_upload_token(
-    user_id: int,
+    user_id: int | UUID,
     s3_key: str,
     name: str,
     filename: str,
     os_slug: str,
     file_size: int,
     agent_type: str = "xdr",
+    *,
+    upload_id: UUID | None = None,
+    expires_at: int | None = None,
 ) -> str:
     """
     Generate a signed token for upload completion verification.
@@ -45,15 +49,17 @@ def generate_upload_token(
         Base64-encoded signed token string
     """
     payload = {
-        "user_id": user_id,
+        "user_id": str(user_id) if isinstance(user_id, UUID) else user_id,
         "s3_key": s3_key,
         "name": name,
         "filename": filename,
         "os_slug": os_slug,
         "file_size": file_size,
         "agent_type": agent_type,
-        "expires_at": int(time.time()) + settings.AGENT_UPLOAD_URL_EXPIRES,
+        "expires_at": expires_at if expires_at is not None else int(time.time()) + settings.AGENT_UPLOAD_URL_EXPIRES,
     }
+    if upload_id is not None:
+        payload["upload_id"] = str(upload_id)
 
     payload_json = json.dumps(payload, separators=(",", ":"))
     payload_b64 = base64.urlsafe_b64encode(payload_json.encode()).decode()
@@ -73,7 +79,7 @@ def generate_upload_token(
     return f"{payload_b64}.{signature}"
 
 
-def verify_upload_token(token: str, user_id: int) -> dict[str, str | int]:
+def verify_upload_token(token: str, user_id: int | UUID | None, *, allow_expired: bool = False) -> dict[str, str | int]:
     """
     Verify token signature and extract payload.
 
@@ -117,7 +123,7 @@ def verify_upload_token(token: str, user_id: int) -> dict[str, str | int]:
         logger.warning("verify_upload_token: invalid payload user_id=%s", user_id)
         raise ValueError("Invalid token payload") from err
 
-    if payload.get("user_id") != user_id:
+    if user_id is not None and payload.get("user_id") != (str(user_id) if isinstance(user_id, UUID) else user_id):
         logger.warning(
             "verify_upload_token: user mismatch token_user=%s request_user=%s",
             safe_log_value(payload.get("user_id")),
@@ -125,7 +131,7 @@ def verify_upload_token(token: str, user_id: int) -> dict[str, str | int]:
         )
         raise ValueError("Token user mismatch")
 
-    if time.time() > payload.get("expires_at", 0):
+    if not allow_expired and time.time() > payload.get("expires_at", 0):
         logger.warning("verify_upload_token: expired user_id=%s", user_id)
         raise ValueError("Token expired")
 

@@ -17,12 +17,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def create_ngfw(request_spec: RequestSpec) -> UUID:
+def create_ngfw(request_spec: RequestSpec, *, credential=None, resource_scope=None, prepared_creation=None) -> UUID:
     """Provision NGFW infrastructure."""
     from engine.ecs import start_ngfw_provisioning
     from engine.interpreter import interpret
     from engine.models import Request
 
+    if credential is not None:
+        from ._principal_ngfw import create_principal_ngfw
+
+        return create_principal_ngfw(request_spec, credential, resource_scope, prepared_creation)
+    if request_spec.owner_principal_uuid is not None:
+        raise PermissionError("Device authority unavailable")
     ngfw_spec: InstanceSpec | None = None
     for item in request_spec.items:
         if isinstance(item, InstanceSpec) and item.role == "ngfw":
@@ -86,11 +92,15 @@ def _set_ngfw_materialization_status(request: Request, status: str) -> None:
             app.save(update_fields=["status", "updated_at"])
 
 
-def destroy_ngfw(request_id: UUID) -> bool:
+def destroy_ngfw(request_id: UUID, *, credential=None) -> bool:
     """Tear down NGFW infrastructure."""
     from engine.ecs import start_ngfw_teardown
     from engine.models import Instance, Range, Request
 
+    if credential is not None:
+        from ._principal_ngfw import commit_ngfw_lifecycle, prepare_ngfw_lifecycle
+
+        return commit_ngfw_lifecycle(prepare_ngfw_lifecycle(request_id, credential, "deprovision"))
     logger.debug("destroy_ngfw: request_id=%s", request_id)
 
     try:
@@ -165,10 +175,14 @@ def _validate_ngfw_instance_status(
     return ngfw_instance
 
 
-def _run_ngfw_lifecycle_op(request_id: UUID, op_name: str, allowed_statuses: tuple[str, ...]) -> bool:
+def _run_ngfw_lifecycle_op(request_id: UUID, op_name: str, allowed_statuses: tuple[str, ...], credential=None) -> bool:
     """Shared start/stop NGFW transition + ECS-dispatch helper."""
     from engine.ecs import start_ngfw_operation
 
+    if credential is not None:
+        from ._principal_ngfw import commit_ngfw_lifecycle, prepare_ngfw_lifecycle
+
+        return commit_ngfw_lifecycle(prepare_ngfw_lifecycle(request_id, credential, op_name))
     logger.debug("%s_ngfw: request_id=%s", op_name, request_id)
 
     ngfw_instance = _resolve_ngfw_instance_for_lifecycle(request_id, op_name, allowed_statuses)
@@ -181,19 +195,21 @@ def _run_ngfw_lifecycle_op(request_id: UUID, op_name: str, allowed_statuses: tup
     return task_arn is not None
 
 
-def start_ngfw(request_id: UUID) -> bool:
+def start_ngfw(request_id: UUID, *, credential=None) -> bool:
     """Start a stopped NGFW instance."""
     return _run_ngfw_lifecycle_op(
         request_id,
         "start",
         (ResourceStatus.PAUSED.value, ResourceStatus.FAILED.value),
+        credential=credential,
     )
 
 
-def stop_ngfw(request_id: UUID) -> bool:
+def stop_ngfw(request_id: UUID, *, credential=None) -> bool:
     """Stop a running NGFW instance."""
     return _run_ngfw_lifecycle_op(
         request_id,
         "stop",
         (ResourceStatus.READY.value,),
+        credential=credential,
     )

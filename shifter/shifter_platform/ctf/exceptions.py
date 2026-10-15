@@ -101,6 +101,12 @@ class CTFRateLimitError(CTFError):
     default_code: str = "CTF_RATE_LIMIT_EXCEEDED"
 
 
+class CTFVpnProfilePending(CTFStateError):
+    """The individually bound profile is preparing in the existing provisioner."""
+
+    default_code = "vpn_preparing"
+
+
 class CTFRangeError(CTFError):
     """Range provisioning/management error.
 

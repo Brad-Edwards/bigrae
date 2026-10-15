@@ -42,7 +42,8 @@ def access_token() -> str:
 def read_secret(name: str) -> str:
     """Return the latest version of a Secret Manager secret."""
     url = f"https://secretmanager.googleapis.com/v1/{name}/versions/latest:access"
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token()}"})
+    # The origin is fixed HTTPS and the opener refuses other schemes/redirects.
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token()}"})  # noqa: S310
     with transport.OPENER.open(request, timeout=10) as response:
         payload = json.loads(response.read())
     return base64.b64decode(payload["payload"]["data"]).decode("utf-8")

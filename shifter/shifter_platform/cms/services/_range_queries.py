@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from shared.constants import USER_CANNOT_BE_NONE
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 from workspaces.services import WorkspaceOperation
 
@@ -33,7 +35,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def list_ranges(user: User) -> list[RangeInstance]:
+def list_ranges(user: User | CredentialContext, *, scope: ResourceScope | None = None) -> list[RangeInstance]:
     """Get user's range instances.
 
     Args:
@@ -46,6 +48,10 @@ def list_ranges(user: User) -> list[RangeInstance]:
         TypeError: If user is None or invalid type
         ValueError: If user has no ID (unsaved)
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import list_scoped_ranges
+
+        return list_scoped_ranges(user, scope)
     _validate_caller_user(user, "list_ranges")
 
     logger.debug("list_ranges called for user_id=%s", user.id)
@@ -89,7 +95,9 @@ def list_ranges(user: User) -> list[RangeInstance]:
         raise
 
 
-def list_mission_control_range_history(user: User) -> list[RangeInstance]:
+def list_mission_control_range_history(
+    user: User | CredentialContext, *, scope: ResourceScope | None = None
+) -> list[RangeInstance]:
     """Return the user's Mission Control range history, newest first (#1370).
 
     Unlike :func:`list_ranges` (the generic, source-agnostic query through the
@@ -119,6 +127,10 @@ def list_mission_control_range_history(user: User) -> list[RangeInstance]:
     """
     from shared.enums import RangeSource
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import list_scoped_ranges
+
+        return list_scoped_ranges(user, scope, include_terminal=True, range_source=RangeSource.MISSION_CONTROL.value)
     _validate_caller_user(user, "list_mission_control_range_history")
 
     logger.debug("list_mission_control_range_history called for user_id=%s", user.id)
@@ -134,7 +146,7 @@ def list_mission_control_range_history(user: User) -> list[RangeInstance]:
     )
 
 
-def get_range(user: User, range_id: int) -> RangeInstance:
+def get_range(user: User | CredentialContext, range_id: int) -> RangeInstance:
     """Get single range instance by range ID.
 
     Args:
@@ -149,6 +161,10 @@ def get_range(user: User, range_id: int) -> RangeInstance:
         ValueError: If user has no ID (unsaved) or range_id is invalid
         CMSError: If range not found or not owned by user
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import get_scoped_range
+
+        return get_scoped_range(user, range_id)
     _validate_caller_user(user, "get_range")
 
     if range_id is None:
@@ -231,7 +247,9 @@ def get_range(user: User, range_id: int) -> RangeInstance:
         raise
 
 
-def get_active_range(user: User, range_source: RangeSource | None = None) -> RangeContext | None:
+def get_active_range(
+    user: User | CredentialContext, range_source: RangeSource | None = None, *, scope: ResourceScope | None = None
+) -> RangeContext | None:
     """Get user's active (non-deleted) range as a RangeContext projection.
 
     Returns the most recently created range that:
@@ -268,6 +286,11 @@ def get_active_range(user: User, range_source: RangeSource | None = None) -> Ran
     if range_source is None:
         range_source = _RangeSource.MISSION_CONTROL
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import active_scoped_range, get_scoped_range_by_request
+
+        instance = active_scoped_range(user, scope, range_source.value)
+        return get_scoped_range_by_request(user, str(instance.request.request_id)) if instance else None
     if user is None:
         logger.error("get_active_range called with None user")
         raise TypeError(USER_CANNOT_BE_NONE)
@@ -337,7 +360,9 @@ def get_active_range(user: User, range_source: RangeSource | None = None) -> Ran
         return None
 
 
-def has_ready_active_range(user: User, range_source: RangeSource | None = None) -> bool:
+def has_ready_active_range(
+    user: User | CredentialContext, range_source: RangeSource | None = None, *, scope: ResourceScope | None = None
+) -> bool:
     """Return whether the user's latest active range for a source is READY, cheaply.
 
     Mirrors :func:`get_active_range`'s ownership filter and ``has_active_range``
@@ -365,6 +390,11 @@ def has_ready_active_range(user: User, range_source: RangeSource | None = None) 
     if range_source is None:
         range_source = _RangeSource.MISSION_CONTROL
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import active_scoped_range
+
+        instance = active_scoped_range(user, scope, range_source.value)
+        return instance is not None and instance.status == ResourceStatus.READY.value
     _validate_caller_user(user, "has_ready_active_range")
 
     status = (
@@ -378,7 +408,9 @@ def has_ready_active_range(user: User, range_source: RangeSource | None = None) 
     return status == ResourceStatus.READY.value
 
 
-def get_range_by_request_id(user: User, request_id: str, *, include_terminal: bool = False) -> RangeContext:
+def get_range_by_request_id(
+    user: User | CredentialContext, request_id: str, *, include_terminal: bool = False
+) -> RangeContext:
     """Get range by request_id (UUID string).
 
     Used by WebSocket consumers and views to look up range by request_id.
@@ -402,6 +434,10 @@ def get_range_by_request_id(user: User, request_id: str, *, include_terminal: bo
     from shared.enums import ResourceStatus
     from shared.schemas import InstanceContext, RangeContext
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import get_scoped_range_by_request
+
+        return get_scoped_range_by_request(user, request_id, include_terminal=include_terminal)
     _validate_caller_user(user, "get_range_by_request_id")
     if not request_id:
         logger.error("get_range_by_request_id called with empty request_id")

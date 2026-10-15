@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 from cms.exceptions import CMSError
 from cms.models import AgentConfig
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 
 from ._common import (
     _agent_projection_dict,
@@ -44,7 +46,7 @@ def _assets_delete_agent_call(agent: AgentConfig) -> None:
     _cs.assets_delete_agent(agent)
 
 
-def create_agent(user: User, **kwargs: Any) -> AgentConfig:
+def create_agent(user: User | CredentialContext, **kwargs: Any) -> AgentConfig:
     """Create agent record.
 
     Delegates to cms.assets.services.create_agent() after validating user.
@@ -68,6 +70,12 @@ def create_agent(user: User, **kwargs: Any) -> AgentConfig:
         ValueError: If user has no ID (unsaved)
         AssetError: If the operating system is not found
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_uploads import complete_scoped_upload
+
+        if set(kwargs) != {"upload_token"}:
+            raise CMSError("A verified upload is required")
+        return complete_scoped_upload(user, kwargs["upload_token"])
     _validate_caller_user(user, "create_agent")
 
     logger.debug("create_agent called for user_id=%s", user.id)
@@ -108,7 +116,7 @@ def create_agent(user: User, **kwargs: Any) -> AgentConfig:
         raise
 
 
-def delete_agent(user: User, agent_id: int) -> None:
+def delete_agent(user: User | CredentialContext, agent_id: int) -> None:
     """Soft delete agent.
 
     Verifies ownership via get_agent, then delegates to
@@ -127,6 +135,10 @@ def delete_agent(user: User, agent_id: int) -> None:
         CMSError: If agent not found or not owned by user
         AssetError: If S3 delete fails
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_agents import delete_scoped_agent
+
+        return delete_scoped_agent(user, agent_id)
     _validate_caller_user(user, "delete_agent")
 
     if agent_id is None:
@@ -181,7 +193,7 @@ def delete_agent(user: User, agent_id: int) -> None:
         raise
 
 
-def list_agents(user: User) -> list[AgentListItem]:
+def list_agents(user: User | CredentialContext, *, scope: ResourceScope | None = None) -> list[AgentListItem]:
     """Get user's agents as projection dicts.
 
     Args:
@@ -195,6 +207,10 @@ def list_agents(user: User) -> list[AgentListItem]:
         TypeError: If user is None or invalid type
         ValueError: If user has no ID (unsaved)
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_agents import list_scoped_agents
+
+        return list_scoped_agents(user, scope)
     _validate_listing_user(user, "list_agents")
 
     logger.debug("list_agents called for user_id=%s", user.id)
@@ -221,7 +237,7 @@ def list_agents(user: User) -> list[AgentListItem]:
         raise
 
 
-def get_agent(user: User, agent_id: int) -> AgentConfig:
+def get_agent(user: User | CredentialContext, agent_id: int) -> AgentConfig:
     """Get single agent by ID.
 
     Args:
@@ -236,6 +252,10 @@ def get_agent(user: User, agent_id: int) -> AgentConfig:
         ValueError: If user has no ID (unsaved) or agent_id is invalid
         CMSError: If agent not found, not owned by user, or deleted
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_agents import get_scoped_agent
+
+        return get_scoped_agent(user, agent_id)
     _validate_caller_user(user, "get_agent")
     _validate_nonneg_int_id(agent_id, "agent_id", "get_agent", user.id)
 
@@ -246,7 +266,7 @@ def get_agent(user: User, agent_id: int) -> AgentConfig:
     )
 
     try:
-        agent = AgentConfig.objects.get(id=agent_id)
+        agent = AgentConfig.objects.get(id=agent_id, scope_kind="")
 
         if agent is None:
             logger.error(

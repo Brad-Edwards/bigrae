@@ -266,7 +266,9 @@ class GCPObjectStorage:
             logger.exception("head_object: failed bucket=%s key=%s", bucket, safe_key)
             raise CloudStorageError(f"Failed to head GCS object: {e}") from e
 
-    def read_object_header(self, bucket: str, key: str, max_bytes: int) -> bytes:
+    def read_object_header(
+        self, bucket: str, key: str, max_bytes: int, *, expected_identity: dict[str, Any] | None = None
+    ) -> bytes:
         """Read up to `max_bytes` from the start of the blob.
 
         GCS `download_as_bytes(start=, end=)` uses an inclusive `end`, so
@@ -274,12 +276,24 @@ class GCPObjectStorage:
         """
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
+        precondition = {}
+        if expected_identity is not None:
+            value = expected_identity.get("generation")
+            if type(value) not in (int, str):
+                raise CloudStorageError("conditional header read requires an object generation")
+            try:
+                generation = int(value)
+            except (KeyError, ValueError, TypeError):
+                raise CloudStorageError("conditional header read requires an object generation") from None
+            if generation <= 0:
+                raise CloudStorageError("conditional header read requires an object generation")
+            precondition["if_generation_match"] = generation
         safe_key = safe_log_value(key)
         logger.debug("read_object_header: bucket=%s key=%s max_bytes=%d", bucket, safe_key, max_bytes)
         try:
             client = self._get_client()
             blob = client.bucket(bucket).blob(key)
-            body = blob.download_as_bytes(start=0, end=max_bytes - 1)
+            body = blob.download_as_bytes(start=0, end=max_bytes - 1, **precondition)
         except Exception as e:
             logger.exception(
                 "read_object_header: failed bucket=%s key=%s error=%s",

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def interpret(request_spec: RequestSpec) -> Request:
+def interpret(request_spec: RequestSpec, *, principal=None, resource_scope=None) -> Request:
     """Interpret a RequestSpec into Engine models.
 
     Creates Request, Instance, and App records by walking the spec tree.
@@ -52,7 +52,28 @@ def interpret(request_spec: RequestSpec) -> Request:
     if not request_spec.items:
         raise ValueError("RequestSpec must have at least one item")
 
-    user = user_model.objects.get(id=request_spec.user_id)
+    fields = {}
+    if principal is not None:
+        from management.services import human_principal_user_id, resolve_principal
+        from workspaces.services import resolve_range_scope_binding
+
+        owner = resolve_principal(principal)
+        expected = human_principal_user_id(owner) if owner.kind == "human" else None
+        if request_spec.owner_principal_uuid != owner.uuid or request_spec.user_id != expected:
+            raise ValueError("Request ownership conflicts")
+        resolved = resolve_range_scope_binding(resource_scope, member=owner)
+        fields = {
+            "owner_principal_uuid": owner.uuid,
+            "scope_kind": resolved.kind,
+            "account_id": resolved.account_id,
+            "organization_id": resolved.organization_id,
+            "workspace_id": resolved.workspace_id,
+        }
+        user = user_model.objects.get(id=expected) if expected is not None else None
+    else:
+        if request_spec.owner_principal_uuid is not None or request_spec.user_id is None:
+            raise ValueError("Request authority unavailable")
+        user = user_model.objects.get(id=request_spec.user_id)
 
     # Determine request type from items
     request_type = _infer_request_type(request_spec)
@@ -63,6 +84,7 @@ def interpret(request_spec: RequestSpec) -> Request:
             request_id=request_spec.request_id,
             request_type=request_type,
             user=user,
+            **fields,
         )
 
         logger.info(

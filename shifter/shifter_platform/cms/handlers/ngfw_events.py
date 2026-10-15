@@ -56,6 +56,8 @@ def process_ngfw_event(message: str | dict) -> None:
     # _validate_required_fields confirms app_id is truthy; narrow str | None -> str.
     assert app_id is not None
 
+    if _principal_device_event(payload):
+        return
     try:
         previous_instance_status = _update_instance(event_id, instance_id, status)
         previous_app_status = _update_app(event_id, app_id, status, serial_number)
@@ -73,6 +75,49 @@ def process_ngfw_event(message: str | dict) -> None:
         serial_number or "N/A",
         event_id,
     )
+
+
+def _principal_device_event(payload):
+    """Mirror only an accepted native event for the same principal device custody."""
+    from django.db import transaction
+    from django.db.models import Q
+    from django.utils import timezone
+
+    from engine.services import verified_device_status_projection
+    from workspaces.services import resource_scope_from_ids
+
+    try:
+        # Either named side being principal-owned keeps mixed-identity events
+        # out of the legacy update path as well.
+        candidates = Instance.all_objects.select_related("request").filter(
+            Q(pk=payload["instance_id"]) | Q(apps__pk=payload["app_id"])
+        )
+        if not candidates.filter(request__owner_principal_uuid__isnull=False).exists():
+            return False
+        proof = verified_device_status_projection(dict(payload))
+        if proof is None:
+            return True
+        with transaction.atomic():
+            instance = candidates.select_for_update(of=("self",)).get(pk=payload["instance_id"])
+            app = App.all_objects.select_for_update().get(pk=payload["app_id"], instance=instance)
+            request = instance.request
+            scope = resource_scope_from_ids(
+                kind=request.scope_kind,
+                account_id=request.account_id,
+                organization_id=request.organization_id,
+                workspace_id=request.workspace_id,
+            )
+            if proof != (request.request_id, instance.pk, request.owner_principal_uuid, scope):
+                return True
+            instance.status = app.status = payload["status"]
+            instance.save(update_fields=["status"])
+            app.save(update_fields=["status"])
+            if payload["status"] == "destroyed":
+                request.deleted_at = timezone.now()
+                request.save(update_fields=["deleted_at"])
+        return True
+    except Exception:
+        return True
 
 
 def _validate_required_fields(event_id: str, instance_id: str | None, app_id: str | None) -> bool:

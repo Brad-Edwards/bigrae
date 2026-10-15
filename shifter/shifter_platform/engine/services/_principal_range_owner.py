@@ -1,0 +1,88 @@
+"""Principal-aware business ownership changes preserve historical attribution."""
+
+from dataclasses import dataclass
+from uuid import UUID
+
+from django.db import transaction
+
+from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
+from shared.credentials import CredentialContext
+from shared.identity_scope import PrincipalRef
+from shared.principal_port import resolve_principal
+
+from ._range_authority import RangeAuthorityProjection, project_range_authority
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedRangeOwnerMove:
+    source: RangeAuthorityProjection
+    new_owner: PrincipalRef
+    status: str
+    authority: tuple[tuple[str, object], ...]
+    credential: CredentialContext
+
+
+def prepare_range_owner_move(
+    credential: CredentialContext, request_id: UUID, new_owner: PrincipalRef
+) -> PreparedRangeOwnerMove:
+    from engine.models import Range
+    from workspaces.services import resolve_range_scope_binding
+
+    from ._launch_authority import admit_launch_authority
+    from ._principal_range_scope import _assert_move_supported
+
+    owner = resolve_principal(new_owner)
+    source = project_range_authority(request_id)
+    fields = admit_launch_authority(
+        {"version": 1, "resource": "range", "operation": "reassign", "request_id": str(request_id)}, credential
+    )
+    row = Range.objects.get(pk=source.native_id)
+    _assert_move_supported(row)
+    if owner.uuid != source.owner_principal_uuid:
+        resolve_range_scope_binding(source.scope, member=owner)
+    return PreparedRangeOwnerMove(source, owner, row.status, tuple(fields.items()), credential)
+
+
+def commit_range_owner_move(prepared: PreparedRangeOwnerMove) -> bool:
+    from engine.models import Range, Request
+    from workspaces.services import resolve_range_scope_binding
+
+    from ._launch_authority import assert_admitted_launch_binding, range_runtime_binding_digest
+    from ._principal_range_scope import _assert_move_supported
+    from ._range_authority_history import record_range_authority_change
+    from ._receipt import _revoke_receipt_verifier_for_range
+
+    if not isinstance(prepared, PreparedRangeOwnerMove):
+        raise ValueError("Range owner unavailable")
+    with transaction.atomic():
+        row = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=prepared.source.native_id)
+        request = Request.objects.select_for_update().get(pk=row.request_id)
+        assert_admitted_launch_binding(dict(prepared.authority), row)
+        if project_range_authority(prepared.source.request_uuid) != prepared.source or row.status != prepared.status:
+            raise ValueError("Range owner changed")
+        _assert_move_supported(row)
+        owner = resolve_principal(prepared.new_owner)
+        if owner.uuid == row.owner_principal_uuid:
+            return False
+        resolve_range_scope_binding(prepared.source.scope, member=owner, for_update=True)
+        _revoke_receipt_verifier_for_range(row)
+        previous_digest = range_runtime_binding_digest(row)
+        row.owner_principal_uuid = request.owner_principal_uuid = owner.uuid
+        row.save(update_fields=["owner_principal_uuid", "updated_at"])
+        request.save(update_fields=["owner_principal_uuid"])
+        record_range_authority_change(row, prepared.credential, "owner", previous_digest)
+        audit_log(
+            AuditEvent(
+                entity_type=AuditEntityType.RANGE,
+                entity_id=row.pk,
+                entity_ref=str(row.cms_range_uuid),
+                action=AuditAction.UPDATE,
+                **principal_actor_fields(prepared.credential.principal),
+                request_id=str(prepared.source.request_uuid),
+                previous_state={"owner_principal_uuid": str(prepared.source.owner_principal_uuid)},
+                new_state={"owner_principal_uuid": str(owner.uuid)},
+                context="range ownership reassignment",
+            ),
+            strict=True,
+        )
+        return True
