@@ -6689,7 +6689,7 @@ export interface components {
             request_id: string;
             range_id: number | null;
             scenario_id: string;
-            user_id: number | null;
+            user_id: number;
             /** Format: uuid */
             owner_principal_uuid?: string | null;
             status: components["schemas"]["ResourceStatusEnum"];

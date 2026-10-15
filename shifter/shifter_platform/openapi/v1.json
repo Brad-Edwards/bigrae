@@ -26318,8 +26318,7 @@
             "type": "string"
           },
           "user_id": {
-            "type": "integer",
-            "nullable": true
+            "type": "integer"
           },
           "owner_principal_uuid": {
             "type": "string",

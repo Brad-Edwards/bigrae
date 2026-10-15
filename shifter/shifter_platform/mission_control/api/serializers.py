@@ -151,7 +151,9 @@ class RangePresentationSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
     range_id = serializers.IntegerField(allow_null=True)
     scenario_id = serializers.CharField()
-    user_id = serializers.IntegerField(allow_null=True)
+    # These v1 Mission Control endpoints require an active human actor.
+    # Principal-neutral internal projections do not widen their existing wire contract.
+    user_id = serializers.IntegerField()
     owner_principal_uuid = serializers.UUIDField(allow_null=True, required=False)
     status = serializers.ChoiceField(choices=RESOURCE_STATUS_VALUES)
     instances = InstancePresentationSerializer(many=True)
