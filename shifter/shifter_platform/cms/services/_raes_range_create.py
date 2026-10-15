@@ -261,6 +261,7 @@ def _create_raes_native_range_impl(  # NOSONAR -- mirrors the stable launch serv
 
     def _persist(cms_request: Request) -> RangeInstance:
         """Build the RAES RangeInstance (range_spec=None) for the reservation."""
+        from cms.services._pack_fence import fence_pack_reference
         from cms.services._range_lease import build_range_lease, build_resolved_mission_control_range_lease
 
         lease = (
@@ -268,6 +269,9 @@ def _create_raes_native_range_impl(  # NOSONAR -- mirrors the stable launch serv
             if range_source is RangeSource.MISSION_CONTROL
             else build_range_lease(range_source, enforced_deadline=enforced_deadline)
         )
+        # Admission fence (ADR-034-R13): the pack must still be the revision this
+        # launch read, and stays so until the reservation commits.
+        fence_pack_reference(scenario, expected_digest=source.package_digest)
         return RangeInstance.objects.create(
             request=cms_request,
             scenario_id=scenario,

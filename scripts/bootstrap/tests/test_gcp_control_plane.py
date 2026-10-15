@@ -1086,13 +1086,61 @@ class TestGdcControlPlaneHelmValues:
         assert container["args"] == [
             "/bin/sh",
             "-c",
-            "python manage.py bootstrap_inbox_catalog && python manage.py seed_raes_image_registry"
+            "python manage.py reconcile_gcp_database_duties"
+            " && python manage.py bootstrap_inbox_catalog && python manage.py seed_raes_image_registry"
             " && python manage.py acquire_feature_artifacts",
         ]
         db_secret = next(item for item in container["env"] if item["name"] == "DB_SECRET_ID")
         assert db_secret["valueFrom"]["configMapKeyRef"]["key"] == "DB_MIGRATION_SECRET_ID"
         temp_dir = next(item for item in container["env"] if item["name"] == "TMPDIR")["value"]
         assert temp_dir == "/var/run/shifter-migrate"
+
+    def test_native_migration_keeps_owner_auth_and_a_managed_native_connector(self):
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
+        outputs = _sample_gcp_control_plane_outputs(config.project_id)
+        values = deploy.render_gcp_helm_values(config, outputs, image_tag=PINNED_IMAGE_TAG)
+        values["cloudSqlProxy"] = {
+            "enabled": True,
+            "instanceConnectionName": "example-gcp-project:us-central1:platform-pg",
+            "databaseCidrs": ["10.60.0.12/32"],
+        }
+        prerequisites, job = deploy.render_gcp_migration_manifests(outputs, values)
+        network = next(item for item in prerequisites["items"] if item["kind"] == "NetworkPolicy")
+        assert network["spec"]["podSelector"] == {"matchLabels": {"app.kubernetes.io/component": "migrator"}}
+        from ipaddress import ip_address, ip_network
+
+        def allowed(address, port):
+            return any(
+                any(item["port"] == port for item in rule["ports"])
+                and any(
+                    "ipBlock" in peer and ip_address(address) in ip_network(peer["ipBlock"]["cidr"])
+                    for peer in rule["to"]
+                )
+                for rule in network["spec"]["egress"]
+            )
+
+        assert allowed("10.60.0.12", 3307) and not allowed("10.60.0.13", 3307)
+        assert allowed("199.36.153.8", 443) and not allowed("203.0.113.10", 443)
+        assert allowed("169.254.169.254", 80) and allowed("169.254.169.254", 988)
+        dns = [rule for rule in network["spec"]["egress"] if any(p["port"] == 53 for p in rule["ports"])]
+        assert dns and dns[0]["to"] == [
+            {
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+                "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+            }
+        ]
+        pod = job["spec"]["template"]["spec"]
+        proxy = pod["initContainers"][0]
+        assert proxy["restartPolicy"] == "Always"
+        assert "--auto-iam-authn" not in proxy["args"]
+        assert "--address=127.0.0.1" in proxy["args"]
+        assert "--run-connection-test" in proxy["args"]
+        environment = {item["name"]: item for item in pod["containers"][0]["env"]}
+        assert environment["DB_AUTH_MODE"]["value"] == "password"
+        assert environment["DB_HOST"]["value"] == "127.0.0.1"
+        assert "reconcile_gcp_database_duties" in pod["containers"][0]["args"][-1]
+        container = pod["containers"][0]
+        temp_dir = next(item for item in container["env"] if item["name"] == "TMPDIR")["value"]
         assert container["volumeMounts"] == [{"name": "tmp", "mountPath": temp_dir}]
         # The portal image's USER is the name appuser (uid 1000); pair
         # runAsNonRoot with the numeric uid so the kubelet can verify non-root
@@ -1125,6 +1173,59 @@ class TestGdcControlPlaneHelmValues:
         assert (
             values["serviceAccounts"]["ctfScheduler"]["annotations"]["iam.gke.io/gcp-service-account"]
             == "shiftergcpdev-ctf-scheduler@example-gcp-project.iam.gserviceaccount.com"
+        )
+
+    def test_native_helm_projection_uses_one_identity_and_datastore_readback(self):
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
+        outputs = _sample_gcp_control_plane_outputs(config.project_id)
+        roles = (
+            "portal",
+            "workers",
+            "ctf-scheduler",
+            "provisioner-launcher",
+            "provisioner",
+            "openfga-runtime",
+            "openfga-admin",
+            "openfga-migrator",
+        )
+        users = {role: f"synthetic-{role}@{config.project_id}.iam" for role in roles}
+        outputs["workload_service_accounts"]["value"].update(
+            {role: user + ".gserviceaccount.com" for role, user in users.items()}
+        )
+        outputs["workload_service_accounts"]["value"]["guacamole-client"] = (
+            f"synthetic-guac@{config.project_id}.iam.gserviceaccount.com"
+        )
+        outputs["native_identity"] = {
+            "value": {
+                "enabled": True,
+                "openfga_enabled": True,
+                "instance_connection_name": f"{config.project_id}:us-central1:platform-pg",
+                "database_users": users,
+            }
+        }
+        values = deploy.render_gcp_helm_values(
+            config,
+            outputs,
+            image_tag=PINNED_IMAGE_TAG,
+            render_artifacts=gcp_control_plane.GcpRenderArtifacts(
+                openfga_settings={
+                    "enabled": True,
+                    "runtime_secret_ref": f"projects/{config.project_id}/secrets/policy-runtime",
+                    "admin_secret_ref": f"projects/{config.project_id}/secrets/policy-admin",
+                    "ca_secret_ref": f"projects/{config.project_id}/secrets/policy-ca",
+                }
+            ),
+        )
+        assert values["cloudSqlProxy"]["databaseUsers"] == users
+        assert values["cloudSqlProxy"]["databaseCidrs"] == ["10.40.0.10/32"]
+        assert values["openfga"]["runtimeDatabaseUser"] == users["openfga-runtime"]
+        assert (
+            values["openfga"]["serviceAccountAnnotations"]["migrator"]["iam.gke.io/gcp-service-account"]
+            == users["openfga-migrator"] + ".gserviceaccount.com"
+        )
+        assert "policy-runtime" not in json.dumps(values)
+        assert values["serviceAccounts"]["guacamoleClient"]["annotations"]["iam.gke.io/gcp-service-account"].startswith(
+            "synthetic-guac@"
         )
         assert values["images"]["platform"].endswith("@sha256:" + ("1" * 64))
         assert values["images"]["guacd"].endswith("@sha256:" + ("2" * 64))
@@ -2019,8 +2120,8 @@ class TestGcpPlatformCoreContracts:
         assert '"roles/pubsub.publisher"' in workers_section
         assert '"roles/pubsub.subscriber"' in workers_section
 
-    def test_portal_has_identity_platform_viewer_permissions(self):
-        """Portal auth needs read access to Identity Platform user records for token verification."""
+    def test_portal_has_only_directory_lifecycle_read_permission(self):
+        """Lifecycle rechecks use the exact native permission and only the portal GSA."""
         module_path = (
             Path(__file__).resolve().parents[3]
             / "platform"
@@ -2034,7 +2135,10 @@ class TestGcpPlatformCoreContracts:
         module_main = module_path.read_text()
 
         portal_section = module_main.split("portal = toset([", 1)[1].split("])", 1)[0]
-        assert '"roles/firebaseauth.viewer"' in portal_section
+        assert '"roles/firebaseauth.viewer"' not in portal_section
+        native = (module_path.parent / "native_identity.tf").read_text()
+        assert 'permissions = ["firebaseauth.users.get"]' in native
+        assert 'member  = "serviceAccount:${google_service_account.workload["portal"].email}"' in native
 
     def test_identity_platform_self_signup_is_allowed_and_guarded_by_before_create_trigger(self):
         """GCP corporate registration must stay open to eligible users and be gated by a blocking function."""
@@ -2455,10 +2559,10 @@ class TestProvisionerLauncherDeploymentParity:
 
     def test_guacamole_gateway_has_its_own_workload_identity(self):
         service_accounts = _sample_gcp_control_plane_outputs()["workload_service_accounts"]["value"]
-        service_accounts["guacamole"] = "gateway@synthetic.iam.gserviceaccount.com"
+        service_accounts["guacamole-client"] = "gateway@synthetic.iam.gserviceaccount.com"
         values = gcp_control_plane._helm_service_account_values(service_accounts)
-        assert values["guacamole"]["annotations"]["iam.gke.io/gcp-service-account"] == service_accounts["guacamole"]
-        assert values["guacamole"]["annotations"] != values["workers"]["annotations"]
+        assert values["guacamoleClient"]["annotations"]["iam.gke.io/gcp-service-account"] == service_accounts["guacamole-client"]
+        assert values["guacamoleClient"]["annotations"] != values["workers"]["annotations"]
 
     def test_bootstrap_renders_dedicated_launcher_without_provisioner_cloud_identity(self):
         service_accounts = _sample_gcp_control_plane_outputs()["workload_service_accounts"]["value"]

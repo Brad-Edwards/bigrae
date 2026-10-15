@@ -12,6 +12,7 @@ from shared.api_tokens.scopes import credential_ceiling, validate_scopes
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
+from shared.verified_identity import VerifiedIdentity
 
 from .models import Principal, PrincipalConflictError, ProviderBinding, ServiceCredentialAdmission, UserProfile
 
@@ -61,6 +62,14 @@ def ensure_human_principal(user: User) -> PrincipalRef:
         if created:
             _audit(AuditEntityType.PRINCIPAL, principal.pk, AuditAction.CREATE, {"kind": principal.kind})
         return _principal_ref(principal)
+
+
+def principal_identity_for_user(user: User) -> PrincipalRef:
+    """Read stable human ownership identity without authenticating that user."""
+    principal = Principal.objects.filter(user_id=user.pk, kind=Principal.Kind.HUMAN).first()
+    if principal is None:
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    return _principal_ref(principal)
 
 
 def principal_for_user(user: User) -> PrincipalRef:
@@ -123,6 +132,22 @@ def resolve_principal(principal_ref: PrincipalRef) -> PrincipalRef:
             uuid=principal_ref.uuid,
             kind=principal_ref.kind,
             is_active=True,
+        )
+        .first()
+    )
+    if principal is None:
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    return _principal_ref(principal)
+
+
+def resolve_verified_principal(identity: VerifiedIdentity) -> PrincipalRef:
+    """Match a freshly verified provider identity to one active human principal."""
+    principal = (
+        _active_principals()
+        .filter(
+            kind=Principal.Kind.HUMAN,
+            provider_bindings__issuer=identity.issuer,
+            provider_bindings__subject=identity.subject,
         )
         .first()
     )

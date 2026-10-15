@@ -83,6 +83,7 @@ class OrganizationAuditContext:
     source_ip: str | None = None
     user_agent: str = ""
     request_id: str = ""
+    actor_principal_uuid: uuid.UUID | None = None
 
 
 def _parsed_uuid(value: str | uuid.UUID) -> uuid.UUID:
@@ -207,6 +208,7 @@ def _write_audit(
             action=AuditAction.UPDATE,
             actor_type=audit.actor_type,
             actor_id=audit.actor_id,
+            actor_principal_uuid=audit.actor_principal_uuid,
             new_state={
                 "changed_fields": sorted(changed_fields),
                 "organization_id": organization.pk,

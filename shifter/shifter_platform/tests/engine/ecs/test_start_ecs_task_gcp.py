@@ -154,6 +154,36 @@ class TestGcpTaskConfig:
 
 
 class TestGcpProvisionerEnvOverrides:
+    def test_native_database_projection_has_no_password_and_uses_its_own_login(self, settings):
+        from engine.ecs import _get_gcp_provisioner_env_overrides
+
+        settings.CLOUD_PROVIDER = "gcp"
+        native = {key: value for key, value in GCP_ENV.items() if key not in {"DB_PASSWORD", "PROVISIONER_DB_PASSWORD"}}
+        native.update(
+            DB_AUTH_MODE="cloud-sql-proxy",
+            DB_HOST="127.0.0.1",
+            PROVISIONER_DB_HOST="127.0.0.1",
+            DB_USER="portal@synthetic-project.iam",
+            PROVISIONER_DB_USER="provisioner@synthetic-project.iam",
+        )
+        with patch.dict(os.environ, native, clear=True):
+            projected = _get_gcp_provisioner_env_overrides()
+        assert projected["DB_AUTH_MODE"] == "cloud-sql-proxy"
+        assert projected["DB_USER"] == "provisioner@synthetic-project.iam"
+        assert "DB_PASSWORD" not in projected
+
+    def test_native_database_projection_rejects_an_accidental_password(self, settings):
+        from django.core.exceptions import ImproperlyConfigured
+
+        from engine.ecs import _get_gcp_provisioner_env_overrides
+
+        settings.CLOUD_PROVIDER = "gcp"
+        with (
+            patch.dict(os.environ, {**GCP_ENV, "DB_AUTH_MODE": "cloud-sql-proxy"}, clear=True),
+            pytest.raises(ImproperlyConfigured, match="PROVISIONER_DB_PASSWORD"),
+        ):
+            _get_gcp_provisioner_env_overrides()
+
     def test_returns_none_for_non_gcp(self, settings):
         from engine.ecs import _get_gcp_provisioner_env_overrides
 

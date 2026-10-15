@@ -24,21 +24,25 @@ from shared.model_access import AuthorityInvalidation, AuthorityState, OwnedRefe
 from shared.model_access.authority_port import invalidate_authority, suppress_authority_invalidation_signals
 
 from . import model_access_authority as _model_access_authority
+from . import policy as _policy
 from . import principals as _principals
 from .audit_context import AuditContext
 from .models import ActivityLog, UserProfile
 from .session_backend import save_session_assurance as save_session_assurance
 from .session_backend import session_for_credential as session_for_credential
 
+require_principal_administration = _policy.require_principal_administration
 PrincipalConflictError = _principals.PrincipalConflictError
 bind_principal_provider_identity = _principals.bind_principal_provider_identity
 create_service_principal = _principals.create_service_principal
 delete_managed_pool_user = _principals.delete_managed_pool_user
 ensure_human_principal = _principals.ensure_human_principal
 principal_for_user = _principals.principal_for_user
+principal_identity_for_user = _principals.principal_identity_for_user
 resolve_principal = _principals.resolve_principal
 resolve_principal_uuid = _principals.resolve_principal_uuid
 human_principal_user_id = _principals.human_principal_user_id
+resolve_verified_principal = _principals.resolve_verified_principal
 resolve_service_credential = _principals.resolve_service_credential
 resolve_service_credential_reference = _principals.resolve_service_credential_reference
 set_service_contact = _principals.set_service_contact
@@ -63,17 +67,10 @@ logger = logging.getLogger(__name__)
 
 
 def log_activity(action: str, user: User | None, **metadata: Any) -> None:
-    """Log an activity for audit trail.
+    """Retain legacy activity metadata; new events use shared.audit.audit_log.
 
-    DEPRECATED: Use shared.audit.audit_log(); retained for compatibility.
-    Args:
-        action: Action identifier (e.g., "range_launched", "agent_uploaded")
-        user: User who performed the action, or None for system actions
-        **metadata: Additional context to store with the log entry
-
-    Raises:
-        TypeError: If action is not a string
-        ValueError: If action is empty or user is unsaved
+    Reject non-string or empty actions and unsaved users. A null user denotes
+    system activity, with any additional context supplied as metadata.
     """
     if not isinstance(action, str):
         raise TypeError("action must be a string")

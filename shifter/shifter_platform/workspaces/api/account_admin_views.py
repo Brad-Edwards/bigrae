@@ -44,6 +44,18 @@ class AccountPageQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
 
 
+class AccountSearchQuerySerializer(AccountPageQuerySerializer):
+    """Search is applied to the policy-visible account count/page."""
+
+    search = serializers.CharField(required=False, default="", allow_blank=True, max_length=200)
+
+
+class WorkspacePageQuerySerializer(AccountSearchQuerySerializer):
+    """Archived discovery is explicit, not a widening of ordinary lists."""
+
+    include_archived = serializers.BooleanField(required=False, default=False)
+
+
 class AccountViewSerializer(serializers.Serializer):
     """Public account fields; internal database IDs never cross the API."""
 
@@ -79,6 +91,9 @@ class WorkspaceViewSerializer(serializers.Serializer):
     uuid = serializers.UUIDField(read_only=True)
     name = serializers.CharField(read_only=True)
     is_default = serializers.BooleanField(read_only=True)
+    archived_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    egress_policy = serializers.CharField(read_only=True)
+    owner_principal_uuids = serializers.ListField(child=serializers.UUIDField(), read_only=True)
 
 
 class OrganizationPageSerializer(serializers.Serializer):
@@ -144,9 +159,19 @@ class _AccountAPIView(APIView):
             code, message, status_code = "account_access_denied", "Account access denied", 403
         elif isinstance(exc, AuthorizationProviderBindingError):
             code, message, status_code = "authorization_unavailable", "Authorization unavailable", 503
-        elif isinstance(exc, (services.WorkspaceQuotaError, services.WorkspaceLifecycleError)):
+        elif isinstance(
+            exc,
+            (
+                services.WorkspaceQuotaError,
+                services.WorkspaceLifecycleError,
+                services.WorkspaceMembershipError,
+                services.WorkspaceInvitationError,
+            ),
+        ):
             code, message = exc.code, exc.message
             status_code = 400 if exc.code.endswith("_invalid") else 403
+        elif isinstance(exc, services.OrganizationValidationError):
+            code, message, status_code = "invalid_profile", "Invalid organization profile", 400
         else:
             return super().handle_exception(exc)
         return api_error_response(code=code, message=message, status_code=status_code, request=self.request)
@@ -155,9 +180,13 @@ class _AccountAPIView(APIView):
 class AccountCollectionView(_AccountAPIView):
     """List authorized accounts or create one under installation authority."""
 
-    @extend_schema(parameters=[AccountPageQuerySerializer], responses=AccountPageSerializer)
+    @extend_schema(
+        parameters=[AccountSearchQuerySerializer],
+        responses=AccountPageSerializer,
+        operation_id="prepared_accounts_list",
+    )
     def get(self, request: Request) -> Response:
-        query = AccountPageQuerySerializer(data=request.query_params)
+        query = AccountSearchQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         page = services.admin_list_accounts(
             authenticated_credential(request), configured_authorization_provider(), **query.validated_data
@@ -210,7 +239,11 @@ class AccountDetailView(_AccountAPIView):
 class AccountOrganizationCollectionView(_AccountAPIView):
     """Create a real organization under an authorized business account."""
 
-    @extend_schema(parameters=[AccountPageQuerySerializer], responses=OrganizationPageSerializer)
+    @extend_schema(
+        parameters=[AccountPageQuerySerializer],
+        responses=OrganizationPageSerializer,
+        operation_id="prepared_organizations_list",
+    )
     def get(self, request: Request, account_uuid: UUID) -> Response:
         query = AccountPageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -243,16 +276,25 @@ class AccountOrganizationCollectionView(_AccountAPIView):
 class AccountWorkspaceCollectionView(_AccountAPIView):
     """Create a workspace only beneath its authorized account and organization."""
 
-    @extend_schema(parameters=[AccountPageQuerySerializer], responses=WorkspacePageSerializer)
+    @extend_schema(
+        parameters=[WorkspacePageQuerySerializer],
+        responses=WorkspacePageSerializer,
+        operation_id="prepared_workspaces_list",
+    )
     def get(self, request: Request, account_uuid: UUID, organization_uuid: UUID) -> Response:
-        query = AccountPageQuerySerializer(data=request.query_params)
+        query = WorkspacePageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         page = services.admin_list_workspaces(
             authenticated_credential(request),
             configured_authorization_provider(),
             account_uuid,
             organization_uuid,
-            **query.validated_data,
+            offset=query.validated_data["offset"],
+            limit=query.validated_data["limit"],
+            filters=services.WorkspaceAdminFilters(
+                include_archived=query.validated_data["include_archived"],
+                search=query.validated_data["search"],
+            ),
         )
         return Response(WorkspacePageSerializer(page).data)
 
@@ -271,7 +313,16 @@ class AccountWorkspaceCollectionView(_AccountAPIView):
             audit=request_audit(request, credential=actor),
         )
         return Response(
-            WorkspaceViewSerializer({"uuid": workspace.uuid, "name": name, "is_default": workspace.is_default}).data,
+            WorkspaceViewSerializer(
+                {
+                    "uuid": workspace.uuid,
+                    "name": name,
+                    "is_default": workspace.is_default,
+                    "archived_at": None,
+                    "owner_principal_uuids": [],
+                    "egress_policy": "status-quo",
+                }
+            ).data,
             status=201,
         )
 
@@ -290,14 +341,17 @@ class AccountOrganizationDetailView(_AccountAPIView):
 class AccountWorkspaceDetailView(_AccountAPIView):
     """Read an exact workspace beneath its persisted organization and account."""
 
-    @extend_schema(responses=WorkspaceViewSerializer)
+    @extend_schema(parameters=[WorkspacePageQuerySerializer], responses=WorkspaceViewSerializer)
     def get(self, request: Request, account_uuid: UUID, organization_uuid: UUID, workspace_uuid: UUID) -> Response:
+        query = WorkspacePageQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         item = services.admin_get_workspace(
             authenticated_credential(request),
             configured_authorization_provider(),
             account_uuid,
             organization_uuid,
             workspace_uuid,
+            include_archived=query.validated_data["include_archived"],
         )
         return Response(WorkspaceViewSerializer(item).data)
 

@@ -23,6 +23,7 @@ from workspaces.services import OrganizationAuthorizationError
 
 from .preparation_adapters import PreparationSerializer, preparation_request_audit
 from .runtime_plugins import _error
+from .tenant_packs import SESSION_ONLY_SCHEMA_AUTH
 
 
 class RuntimeTargetImageProfileSerializer(serializers.Serializer):
@@ -112,6 +113,7 @@ class RuntimePluginPackListView(ListAPIView):
     def get_queryset(self) -> list[dict[str, Any]]:
         return list_runtime_plugin_packs(self.request.user, self.kwargs["organization_uuid"])
 
+    @extend_schema(auth=SESSION_ONLY_SCHEMA_AUTH)  # type: ignore[arg-type]
     def get(self, request: Request, *args: object, **kwargs: object) -> Response:
         try:
             return super().get(request, *args, **kwargs)
@@ -124,14 +126,18 @@ class RuntimePluginPackDetailView(APIView):
 
     permission_classes = [IsAuthenticatedSession]
 
-    @extend_schema(responses=RuntimePluginPackDetailSerializer)
+    @extend_schema(responses=RuntimePluginPackDetailSerializer, auth=SESSION_ONLY_SCHEMA_AUTH)  # type: ignore[arg-type]
     def get(self, request: Request, organization_uuid: UUID, pack_id: str) -> Response:
         try:
             return Response(runtime_plugin_pack_detail(request.user, organization_uuid, pack_id))
         except (OrganizationAuthorizationError, ValidationError) as exc:
             return _error(request, exc)
 
-    @extend_schema(request=RuntimePluginPackUpdateSerializer, responses=RuntimePluginPackBindingSerializer)
+    @extend_schema(
+        request=RuntimePluginPackUpdateSerializer,
+        responses=RuntimePluginPackBindingSerializer,
+        auth=SESSION_ONLY_SCHEMA_AUTH,  # type: ignore[arg-type]
+    )
     def post(self, request: Request, organization_uuid: UUID, pack_id: str) -> Response:
         body = RuntimePluginPackUpdateSerializer(data=request.data)
         body.is_valid(raise_exception=True)

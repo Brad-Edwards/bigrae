@@ -545,7 +545,7 @@ class TestSymbolFacadeImports:
         ]
 
     def test_real_config_pins_sanctioned_engine_symbols(self):
-        """Pin the sanctioned tenant-administration and six data-plane facade symbols.
+        """Pin the administration composition and data-plane facade symbols.
 
         Guards the real security boundary against config drift (ADR-001-R4): a
         widened, emptied, or typo'd allowlist would silently stop enforcing the
@@ -553,7 +553,19 @@ class TestSymbolFacadeImports:
         """
         assert load_allowed_symbols(LAYER_IMPORTS_YAML) == {
             "engine": {"workspaces.services": ["OrganizationAuthorizationError", "get_organization_profile"]},
-            "config": {"workspaces.services": ["list_administrable_organizations", "hierarchy_target_scope"]},
+            "config": {
+                "workspaces.services": [
+                    "list_administrable_organizations",
+                    "hierarchy_target_scope",
+                    "AccountScopeError",
+                    "AuthorizationMutationConflict",
+                    "PolicyMutationRequest",
+                    "apply_policy_mutation",
+                    "event_placement_scope",
+                ],
+                "management.api.policy_views": ["PolicyAdminView"],
+                "workspaces.api.serializers": ["AuthorizationMutationSerializer"],
+            },
             "mission_control": {
                 "engine.services": [
                     "SSHConnection",

@@ -39,6 +39,9 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
         _MODELS, "organization", "organization_source_collection"
     ),
     "cms_organizations_packs_create": OperationPolicy(("organization.manage_content",), "organization", "organization"),
+    "cms_organizations_packs_removal_create": OperationPolicy(
+        ("organization.manage_content",), "organization", "organization_pack", selector="persisted_source_scope"
+    ),
     "cms_organizations_plugin_packs_list": OperationPolicy(_ADAPTERS, "organization", "organization_plugin_collection"),
     "cms_organizations_plugin_packs_retrieve": OperationPolicy(_ADAPTERS, "organization", "plugin_pack"),
     "cms_organizations_plugin_packs_create": OperationPolicy(_ADAPTERS, "organization", "plugin_pack"),

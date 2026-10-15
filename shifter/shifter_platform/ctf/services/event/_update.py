@@ -8,7 +8,7 @@ from uuid import UUID
 
 from django.db import transaction
 
-from ctf.exceptions import CTFNotFoundError, CTFStateError
+from ctf.exceptions import CTFNotFoundError, CTFStateError, CTFValidationError
 from ctf.models import CTFEvent
 from shared.log_sanitize import safe_log_value
 
@@ -18,7 +18,7 @@ from ._crud import (
     _reschedule_event_if_schedule_changed,
     _validate_event_time_range,
 )
-from ._validation import validate_scoring_mode
+from ._validation import validate_content_scenario_access, validate_scoring_mode
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,22 @@ def _audit_public_registration_update(
     )
 
 
+def _admit_scenario_change(event: CTFEvent, safe_data: dict[str, Any], actor_id: int | None) -> None:
+    """Apply create-time scenario authorization and the pack fence to a scenario change."""
+    from django.contrib.auth.models import User
+
+    from ctf.bridges import cms_fence_pack_reference
+
+    if "scenario_id" not in safe_data or safe_data["scenario_id"] == event.scenario_id:
+        return
+    scenario_id = str(safe_data["scenario_id"])
+    actor = User.objects.filter(pk=actor_id, is_active=True).first() if actor_id is not None else None
+    if actor is None:
+        raise CTFValidationError("Scenario is not available for CTF event creation.", code="CTF_SCENARIO_NOT_AVAILABLE")
+    validate_content_scenario_access(actor, scenario_id)
+    cms_fence_pack_reference(scenario_id)
+
+
 def update_event(event_id: UUID, event_data: dict[str, Any], *, actor_id: int | None = None) -> CTFEvent:
     """Update an existing CTF event under the event row lock."""
     logger.info("Updating CTF event %s", safe_log_value(event_id))
@@ -104,6 +120,7 @@ def update_event(event_id: UUID, event_data: dict[str, Any], *, actor_id: int | 
                 raise CTFStateError("An existing event cannot change its workspace.")
         _validate_event_update(event, event_data)
         safe_data = _safe_event_update_data(event, event_data)
+        _admit_scenario_change(event, safe_data, actor_id)
         old_event_start = event.event_start
         old_event_end = event.event_end
         cleanup_may_change = bool({"event_end", "cleanup_delay_hours"} & safe_data.keys())

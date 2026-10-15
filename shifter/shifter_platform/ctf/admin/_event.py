@@ -54,6 +54,11 @@ class CTFEventAdmin(SoftDeleteAdminMixin, admin.ModelAdmin):
         "participant_count_display",
         "challenge_count_display",
         "public_registration_enabled",
+        # The admin form bypasses scenario authorization, lifecycle rules and the
+        # pack admission fence (ADR-034-R13). Scenario and status change only
+        # through the event services.
+        "scenario_id",
+        "status",
     ]
 
     fieldsets = [

@@ -48,11 +48,12 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated after raising provisioner launcher memory for burst requests.
 # Regenerated for #2467 after admitting raes-range activate in the provisioner Job policy.
 # Regenerated for #2480 after admitting the OpenVPN pool env and dropping the 1195 port.
-# Regenerated for #2319 after isolating Guacamole identity and binding its
-# supported authority extension to the common runtime configuration.
+# Regenerated for #2320: dedicated Guacamole/guacd KSAs and bounded native SQL admission.
+# Regenerated for #2520: tenant pack removal reconciler on the portal identity.
+# Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "c3b104e4db04ba2cc6509db9eb5822beb52da67ac48e9a11aac0959ef176b649",
-    "gcp-prod": "cc968fec84f9b13c28cc95a05cc1e861b37ce0e29750efd4045ae2cd38c2c51f",
+    "gcp-dev": "fa57a30ab197ac14f0f93f03b76ee47737b5211a2c57a1b878108c01b700fe5b",
+    "gcp-prod": "996af9585bf6fb957f5fc6aab5c18d0371883b19c28d2b42461ccc075e12edeb",
 }
 
 
@@ -90,8 +91,8 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         _, documents = _render(VALUES_FILES["gcp-dev"])
         deployment = next(doc for doc in documents if _identity(doc) == ("Deployment", "guacamole-client"))
         pod = deployment["spec"]["template"]["spec"]
-        self.assertEqual(pod["serviceAccountName"], "guacamole")
-        accounts = [doc for doc in documents if _identity(doc) == ("ServiceAccount", "guacamole")]
+        self.assertEqual(pod["serviceAccountName"], "guacamole-client")
+        accounts = [doc for doc in documents if _identity(doc) == ("ServiceAccount", "guacamole-client")]
         self.assertEqual(len(accounts), 1)
         env = {value["name"]: value for value in pod["containers"][0]["env"]}
         for name in ("OPENFGA_ENABLED", "GUACAMOLE_CONTROL_URL", "GUACAMOLE_CONTROL_AUDIENCE"):

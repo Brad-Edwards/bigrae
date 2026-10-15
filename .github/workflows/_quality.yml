@@ -1619,8 +1619,9 @@ jobs:
   # stock PostgreSQL backend via config._database_settings; pytest-django owns
   # the per-worker test-database lifecycle (no manual CREATE DATABASE / migrate).
   # This runs in parallel with the SQLite job (its own service, its own cost)
-  # and is NOT a second coverage publisher — the SQLite job remains the sole
-  # coverage source. It is required through the reusable-workflow -> PR Gate
+  # and does not publish coverage — the SQLite job retains the whole-package
+  # floor, while OpenFGA publishes supplemental service coverage for Sonar.
+  # It is required through the reusable-workflow -> PR Gate
   # chain: a failure here fails `quality`, which fails the PR Gate.
   # ===========================================================================
   shifter-platform-tests-postgres:
@@ -1741,7 +1742,18 @@ jobs:
 
       - name: Run released OpenFGA conformance
         working-directory: shifter/shifter_platform
-        run: ./scripts/run_openfga_integration.sh
+        # Supplemental real-service evidence for Sonar's changed-code gate.
+        # The SQLite job retains the whole-package 87% non-regression floor;
+        # this service-only selection cannot measure that whole-package floor.
+        run: ./scripts/run_openfga_integration.sh --cov --cov-report=xml:coverage-openfga.xml --cov-fail-under=0
+
+      - name: Upload OpenFGA and native SQL coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-shifter-platform-openfga
+          path: shifter/shifter_platform/coverage-openfga.xml
+          if-no-files-found: error
+          retention-days: 1
 
   shifter-engine-tests:
     permissions:
@@ -2639,6 +2651,7 @@ jobs:
     needs:
       - paths
       - shifter-platform-tests
+      - shifter-platform-openfga
       - shifter-platform-js-tests
       - shifter-platform-spa
       - shifter-engine-tests
@@ -2668,6 +2681,14 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: coverage-shifter-platform
+          path: shifter/shifter_platform
+      - name: Download OpenFGA and native SQL coverage
+        if: >-
+          ${{ (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.shifter_platform == 'true')
+          && needs.shifter-platform-openfga.result == 'success' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-shifter-platform-openfga
           path: shifter/shifter_platform
       - name: Download shifter_platform JS coverage
         if: >-

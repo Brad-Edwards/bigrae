@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -42,24 +42,40 @@ from workspaces.api.serializers import (
 )
 
 
-def _target_ref(target_type: str, target_uuid: UUID) -> TargetRef:
+def _target_ref(target_type: str, target_uuid: UUID | None) -> TargetRef:
     """Accept only the two prepared customer authorization scopes."""
-    if target_type == "account":
-        return TargetRef("account", target_uuid)
-    if target_type == "organization":
-        return TargetRef("organization", target_uuid)
+    if target_type in {"account", "organization", "workspace"}:
+        return TargetRef(cast(Literal["account", "organization", "workspace"], target_type), target_uuid)
+    if target_type == "installation" and target_uuid is None:
+        return TargetRef("installation")
     raise AuthorizationAPIError("authorization_denied", 403)
+
+
+def _operation_context(
+    request: Request, target_type: str, target_uuid: UUID, account_uuid: UUID | None
+) -> tuple[CredentialContext, ResourceScope, AuthorizationProvider]:
+    """Standalone recovery derives the parent; operation commands reauthorize its effect."""
+    if target_type == "organization" and account_uuid is None:
+        try:
+            account_uuid = services.hierarchy_target_scope(target_type, target_uuid).account_uuid
+        except (ValueError, services.AccountScopeError):
+            raise AuthorizationAPIError("authorization_denied", 403) from None
+    return _context(request, target_type, target_uuid, account_uuid)
 
 
 def _context(
     request: Request, target_type: str, target_uuid: UUID, account_uuid: UUID | None
 ) -> tuple[CredentialContext, ResourceScope, AuthorizationProvider]:
     """Resolve exact SQL ancestry and reject a path naming a different parent."""
-    if target_type not in {"account", "organization"}:
+    if target_type not in {"installation", "account", "organization", "workspace"}:
         raise AuthorizationAPIError("authorization_denied", 403)
     try:
         credential = authenticated_credential(request)
-        scope = services.hierarchy_target_scope(target_type, target_uuid)
+        scope = (
+            ResourceScope("installation")
+            if target_type == "installation"
+            else services.hierarchy_target_scope(target_type, target_uuid)
+        )
         if account_uuid is not None and scope.account_uuid != account_uuid:
             raise AuthorizationAPIError("authorization_denied", 403)
         if target_type == "organization" and account_uuid is None:
@@ -263,7 +279,7 @@ class ScopedAuthorizationOperationView(_AuthorizationAPIView):
         operation_uuid: UUID,
         account_uuid: UUID | None = None,
     ) -> Response:
-        actor, scope, provider = _context(request, target_type, target_uuid, account_uuid)
+        actor, scope, provider = _operation_context(request, target_type, target_uuid, account_uuid)
         result = services.get_authorization_operation(actor.principal, actor.ceiling, scope, provider, operation_uuid)
         return Response(AuthorizationOperationSerializer(result).data)
 
@@ -278,7 +294,7 @@ class ScopedAuthorizationOperationView(_AuthorizationAPIView):
     ) -> Response:
         command = ClosedCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
-        actor, scope, provider = _context(request, target_type, target_uuid, account_uuid)
+        actor, scope, provider = _operation_context(request, target_type, target_uuid, account_uuid)
         result = services.reconcile_authorization_operation(
             actor.principal, actor.ceiling, scope, provider, operation_uuid
         )

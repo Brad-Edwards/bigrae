@@ -554,12 +554,7 @@ def _gcp_private_service_cidrs(outputs: dict[str, dict[str, object]]) -> list[st
 
 def _helm_service_account_values(service_accounts: dict[str, str]) -> dict[str, object]:
     """Return workload-identity annotations for chart service accounts."""
-    return {
-        "guacamole": {
-            "annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["guacamole"]}
-            if "guacamole" in service_accounts
-            else {},
-        },
+    values = {
         "portal": {"annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["portal"]}},
         "workers": {"annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["workers"]}},
         "ctfScheduler": {"annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["ctf-scheduler"]}},
@@ -573,6 +568,11 @@ def _helm_service_account_values(service_accounts: dict[str, str]) -> dict[str, 
         },
         "provisioner": {"annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["provisioner"]}},
     }
+    if service_accounts.get("guacamole-client"):
+        values["guacamoleClient"] = {
+            "annotations": {_GKE_WORKLOAD_IDENTITY_ANNOTATION: service_accounts["guacamole-client"]}
+        }
+    return values
 
 
 # The acquisition Job reaches public package registries and object storage on 443
@@ -685,6 +685,7 @@ class GcpRenderArtifacts:
     mission_control_lease_env: str = ""
     range_telemetry_env: str = ""
     model_broker_runtime: dict | None = None
+    openfga_settings: dict | None = None
     capacity_profile_id: str = "gcp-shared-v1-p10"
 
 
@@ -820,6 +821,9 @@ def render_gcp_helm_values(
         },
     }
     capacity = resolve_capacity_profile(artifacts.capacity_profile_id)
+    from installation.gcp_native_identity import project_native_helm
+
+    values.update(project_native_helm(outputs, openfga_settings=artifacts.openfga_settings))
     return _merge_capacity_values(values, capacity.helm_projection())
 
 
@@ -1593,6 +1597,7 @@ def stage_gcp_control_plane_values(
             mission_control_lease_env=render_mission_control_lease_env(root_config),
             range_telemetry_env=render_gcp_range_telemetry_env(root_config),
             model_broker_runtime=root_config.settings.get("model_broker_runtime"),
+            openfga_settings=gcp_settings.openfga.model_dump(),
             capacity_profile_id=gcp_settings.shared_service_capacity_profile,
         ),
     )
@@ -1648,10 +1653,6 @@ def sync_gcp_guacamole_runtime_secret(
         text=True,
         check=False,
     )
-    if result.stdout:
-        print(result.stdout, end="")
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
     if result.returncode != 0:
         raise RuntimeError("Failed to sync guacamole-runtime Kubernetes Secret")
     status = result.stdout.strip().lower()
@@ -2057,91 +2058,6 @@ def _gcp_migration_prerequisites(
     }
 
 
-def _gcp_migration_job(platform_image: str) -> dict[str, object]:
-    """Build the hardened one-off schema migration Job."""
-    labels = {_K8S_PART_OF_LABEL: "shifter", _K8S_COMPONENT_LABEL: "migrator"}
-    return {
-        "apiVersion": "batch/v1",
-        "kind": "Job",
-        "metadata": {
-            "name": "platform-migrate",
-            "namespace": "shifter-platform",
-            "labels": labels,
-        },
-        "spec": {
-            "backoffLimit": 0,
-            "activeDeadlineSeconds": 900,
-            "template": {
-                "metadata": {"labels": labels},
-                "spec": {
-                    "serviceAccountName": "migrator",
-                    "automountServiceAccountToken": True,
-                    "restartPolicy": "Never",
-                    "securityContext": {"seccompProfile": {"type": "RuntimeDefault"}},
-                    "containers": [
-                        {
-                            "name": "migrate",
-                            "image": platform_image,
-                            "imagePullPolicy": "IfNotPresent",
-                            "args": [
-                                "/bin/sh",
-                                "-c",
-                                "python manage.py bootstrap_inbox_catalog"
-                                " && python manage.py seed_raes_image_registry"
-                                " && python manage.py acquire_feature_artifacts",
-                            ],
-                            "envFrom": [{"configMapRef": {"name": "platform-runtime"}}],
-                            "env": [
-                                {
-                                    "name": "DB_SECRET_ID",
-                                    "valueFrom": {
-                                        "configMapKeyRef": {
-                                            "name": "platform-runtime",
-                                            "key": "DB_MIGRATION_SECRET_ID",
-                                        }
-                                    },
-                                },
-                                {"name": "TMPDIR", "value": _GCP_MIGRATION_TMP_DIR},
-                                {"name": "SKIP_MIGRATIONS", "value": ""},
-                                {"name": "GUACAMOLE_SECRET_ID", "value": ""},
-                                {"name": "DC_DOMAIN_PASSWORD_SECRET_ID", "value": ""},
-                                {"name": "REDIS_SECRET_ID", "value": ""},
-                                # This Job blanks REDIS_SECRET_ID (above), so entrypoint.sh
-                                # never hydrates REDIS_PASSWORD. The runtime ConfigMap still
-                                # carries REDIS_HOST/REDIS_TLS=true for the app pods, which
-                                # would make Django settings demand the (absent) AUTH token at
-                                # import (config/_redis.py resolve_redis_connection, ADR-008-R6).
-                                # Migrations touch only the database, so blank REDIS_HOST here
-                                # too: with no host, config/_redis.py and config/_channels.py
-                                # both select the LocMem cache and in-memory channel layer.
-                                {"name": "REDIS_HOST", "value": ""},
-                                # This DB-only Job has no mounted model catalog.
-                                {"name": "MODEL_ACCESS_ENABLED", "value": "false"},
-                                {"name": "MODEL_ACCESS_CATALOG_PATH", "value": ""},
-                                {"name": "MODEL_ACCESS_CATALOG_DIGEST", "value": ""},
-                                {"name": "EMAIL_API_KEY_SECRET_ID", "value": ""},
-                            ],
-                            "securityContext": {
-                                "allowPrivilegeEscalation": False,
-                                "capabilities": {"drop": ["ALL"]},
-                                "readOnlyRootFilesystem": True,
-                                "runAsNonRoot": True,
-                                # The portal image declares USER as the name appuser (uid 1000);
-                                # the kubelet cannot verify a non-numeric user as non-root, so
-                                # pair runAsNonRoot with the numeric uid (matches every other
-                                # workload and the CI _gcp-dev.yml migrate Job).
-                                "runAsUser": 1000,
-                            },
-                            "volumeMounts": [{"name": "tmp", "mountPath": _GCP_MIGRATION_TMP_DIR}],
-                        }
-                    ],
-                    "volumes": [{"name": "tmp", "emptyDir": {}}],
-                },
-            },
-        },
-    }
-
-
 def render_gcp_migration_manifests(
     outputs: dict[str, dict[str, object]], values: Mapping[str, object]
 ) -> tuple[dict[str, object], dict[str, object]]:
@@ -2162,7 +2078,22 @@ def render_gcp_migration_manifests(
     if isinstance(capabilities, Mapping) and capabilities.get("kubernetesJobLauncher"):
         runtime_data["ENGINE_TASK_NAMESPACE"] = "shifter-jobs"
         runtime_data["ENGINE_TASK_SERVICE_ACCOUNT_NAME"] = "provisioner"
-    return _gcp_migration_prerequisites(service_accounts["migrator"], runtime_data), _gcp_migration_job(platform_image)
+    from installation.gcp_migrations import render_migration_job, render_migration_native_sql_egress
+
+    proxy = values.get("cloudSqlProxy", {})
+    instance = str(proxy.get("instanceConnectionName", "")) if proxy.get("enabled") else ""
+    prerequisites = _gcp_migration_prerequisites(service_accounts["migrator"], runtime_data)
+    if instance:
+        prerequisites["items"].append(
+            render_migration_native_sql_egress(
+                proxy.get("databaseCidrs", []),
+                provider_api_cidrs=values.get("network", {}).get("providerApiCidrs", []),
+            )
+        )
+    return prerequisites, render_migration_job(
+        platform_image,
+        instance_connection_name=instance,
+    )
 
 
 def run_gcp_database_migrations(
@@ -2227,6 +2158,20 @@ def run_gcp_database_migrations(
         if wait.returncode != 0:
             raise RuntimeError(f"GCP database migration Job failed: {wait.stderr.strip() or _UNKNOWN_ERROR}")
     finally:
+        if values.get("cloudSqlProxy", {}).get("enabled"):
+            subprocess.run(  # nosec B603 B607 -- bounded migration-lane cleanup
+                [
+                    "kubectl",
+                    "delete",
+                    "networkpolicy/platform-migration-native-sql-egress",
+                    "--namespace",
+                    "shifter-platform",
+                    "--ignore-not-found",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
         subprocess.run(  # nosec B603 B607
             [
                 "kubectl",
@@ -2284,6 +2229,22 @@ def deploy_gcp_control_plane_with_helm(
     ensure_gcp_control_plane_namespaces(dry_run=dry_run)
     run_gcp_database_migrations(outputs, values_path, dry_run=dry_run)
     guacamole_runtime_changed = sync_gcp_guacamole_runtime_secret(config, outputs, dry_run=dry_run)
+    policy_enabled = bool(outputs.get("native_identity", {}).get("value", {}).get("openfga_enabled", False))
+    if policy_enabled:
+        if dry_run:
+            info("[DRY-RUN] Would synchronize the separately named policy credentials")
+        else:
+            from installation.loader import load_root_config
+            from installation.settings_gcp import GcpBackendSettings
+
+            policy = GcpBackendSettings.from_root_settings(
+                load_root_config(resolve_shifter_config_path(config, get_repo_root())).settings,
+            ).openfga
+            policy_sync = _load_python_script_module(
+                get_repo_root() / "scripts/gcp/sync_openfga_secrets.py",
+                "bootstrap_sync_policy_secrets",
+            )
+            policy_sync.sync(policy.model_dump())
     run_cmd(
         [
             "helm",
@@ -2309,6 +2270,16 @@ def deploy_gcp_control_plane_with_helm(
     )
     if guacamole_runtime_changed:
         restart_gcp_guacamole_client(dry_run=dry_run)
+    if policy_enabled:
+        # Released servers and the file-based client read credentials at startup.
+        for deployment in ("openfga", "openfga-admin", "portal-web"):
+            run_cmd(
+                ["kubectl", "-n", "shifter-platform", "rollout", "restart", f"deployment/{deployment}"], dry_run=dry_run
+            )
+            run_cmd(
+                ["kubectl", "-n", "shifter-platform", "rollout", "status", f"deployment/{deployment}", "--timeout=5m"],
+                dry_run=dry_run,
+            )
 
 
 def get_gcp_managed_certificate_status(

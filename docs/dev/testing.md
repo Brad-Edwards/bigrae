@@ -15,7 +15,7 @@ command (see `docs/DEVELOPMENT_WORKFLOW.md`).
 
 | Command | Lane |
 | --- | --- |
-| `make test-platform` | Platform fast lane (SQLite); the sole coverage publisher |
+| `make test-platform` | Platform fast lane (SQLite); the whole-package coverage floor |
 | `make test-platform-postgres` | PostgreSQL semantics lane (needs Postgres on `:5432`) |
 | `make test-platform-redis` | Redis channel-layer lane (needs Redis on `:6379`) |
 | `make test-provisioner` | Engine provisioner suite |
@@ -90,6 +90,15 @@ A, and new security hotspots not fully reviewed. PR analysis waits for the gate
 (`sonar.qualitygate.wait=true`). The conditions are recorded in
 `sonar-project.properties`; each owned Python package publishes its configured
 coverage report for Sonar to consume.
+
+The released OpenFGA/PostgreSQL lane also publishes `coverage-openfga.xml`,
+including the native application and policy SQL duty tests. Sonar consumes both
+platform reports so service-only behavior contributes real coverage evidence.
+This supplemental report has no whole-package floor because it exercises a
+service-specific subset; the SQLite job still enforces the unchanged 87%
+package floor, and Sonar still enforces 80% changed-code coverage. Run it locally
+from `shifter/shifter_platform` with
+`./scripts/run_openfga_integration.sh --cov --cov-report=xml:coverage-openfga.xml --cov-fail-under=0`.
 
 ## Warning policy
 

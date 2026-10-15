@@ -22,3 +22,14 @@ variable "portal_service_account_email" {
   type        = string
   description = "Existing portal identity; receives object access for reads, tenant uploads and cleanup in this bucket only."
 }
+
+variable "noncurrent_version_retention_days" {
+  type        = number
+  default     = 7
+  description = "Days a replaced or deleted pack archive generation is kept before the bucket deletes it."
+
+  validation {
+    condition     = var.noncurrent_version_retention_days >= 1 && var.noncurrent_version_retention_days <= 365
+    error_message = "noncurrent_version_retention_days must be between 1 and 365."
+  }
+}

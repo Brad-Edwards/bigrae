@@ -195,6 +195,7 @@ from ._range_by_request import (
     rebind_range_workspace_by_request,
 )
 from ._range_escape import GuestProbeError, GuestProbeRequest, RangeMembership, get_range_membership, run_guest_probe
+from ._range_ownership import RangeOwnershipProjection, range_ownership_projection
 from ._receipt import (
     ReceiptBindingUnavailable,
     ReceiptRegistrationConflict,
@@ -208,6 +209,7 @@ from ._runtime_plugin_bindings import (
     bind_runtime_plugin,
     has_runtime_plugin_binding,
     list_runtime_plugin_bindings,
+    remove_runtime_plugin_pack_binding,
 )
 from ._runtime_plugin_controller import reconcile_runtime_plugins
 from ._runtime_plugin_operations import reconcile_runtime_plugin_operations
@@ -318,6 +320,7 @@ __all__ = (
     "RangeBindings",
     "RangeCleanupOutcome",
     "RangeMembership",
+    "RangeOwnershipProjection",
     "RangeOwnershipTransferBlocked",
     "RangeProjectionIntegrityError",
     "RangeWorkspaceRebindOutcome",
@@ -455,6 +458,7 @@ __all__ = (
     "publish_membership_projection",
     "publish_sharing_binding",
     "range_owner_reassignment_available_by_request",
+    "range_ownership_projection",
     "read_preparation_worker_input",
     "read_subnet_reservation",
     "ready_generations",
@@ -482,6 +486,7 @@ __all__ = (
     "release_range_capacity",
     "release_subnet_reservation",
     "release_warm_generation_capacity",
+    "remove_runtime_plugin_pack_binding",
     "renew_continuation_lease",
     "renew_vpn_sessions",
     "request_acquisition",

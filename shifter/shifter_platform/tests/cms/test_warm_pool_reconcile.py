@@ -331,3 +331,32 @@ class TestProvisionWarmGeneration:
         gen = WarmRangeGeneration.objects.get(bucket_id="gce-example")
         assert gen.state == WarmRangeGeneration.State.RETIRING
         assert get_user_model().objects.count() == before_users
+
+    def test_removed_pack_admits_no_warm_generation(self, monkeypatch):
+        """The reservation fence refuses a pack removed after the bucket resolved it."""
+        from django.db import transaction
+
+        from cms.models import RangeInstance, Request
+        from engine.models import WarmRangeGeneration
+
+        monkeypatch.setattr(
+            "cms.services._range_backend_admission.assert_backend_admitted",
+            lambda purpose, source: SimpleNamespace(backend="gce"),
+        )
+        self._patch_dispatch_seams(monkeypatch)
+        monkeypatch.setattr(
+            "cms.services._raes_range_create._load_raes_source_or_raise",
+            lambda scenario: SimpleNamespace(package_digest="sha256:" + "a" * 64),
+        )
+
+        def reserve(user, source, persist, workspace_id, request_id):
+            with transaction.atomic():
+                request = Request.objects.create(workspace_id=workspace_id, request_id=request_id, user=user)
+                persist(request)
+            return request_id, request, None, "status-quo"
+
+        monkeypatch.setattr("cms.services._range_launch_common._reserve_active_range_slot", reserve)
+
+        assert wpr._provision_warm_generation(_ENABLED.buckets[0], _ENABLED, "digest") is False
+        assert not RangeInstance.all_objects.exists()
+        assert not WarmRangeGeneration.objects.exists()

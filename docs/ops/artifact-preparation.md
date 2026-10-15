@@ -112,12 +112,19 @@ New adapter versions using already-approved images can share an installation.
 
 Private packs can be installed after tenant setup. The optional Terraform module
 [`raes-package-storage`](../../platform/terraform/gcp/modules/raes-package-storage/)
-creates a bucket with uniform access, enforced public-access prevention,
-versioning and a bucket-specific read grant for the existing portal GSA. The
-module's `access_log_bucket_name` input must identify the tenant's terminal GCS
-audit-log bucket; the uploader's write authority is managed separately. Set
-`SHIFTER_RAES_PACKAGE_BUCKET` and optionally `SHIFTER_RAES_PACKAGE_PREFIX` in the
-tenant's managed runtime configuration, then roll the platform processes.
+creates the pack bucket:
+
+- uniform access, enforced public-access prevention and versioning;
+- a bucket-specific object grant (read, upload and delete) for the existing
+  portal GSA, which uploads, cleans up and removes tenant packs;
+- a lifecycle rule that deletes noncurrent archive generations after
+  `noncurrent_version_retention_days` (default 7), so removed packs do not stay
+  in the bucket.
+
+Set the module's `access_log_bucket_name` input to the tenant's terminal GCS
+audit-log bucket. Set `SHIFTER_RAES_PACKAGE_BUCKET` and optionally
+`SHIFTER_RAES_PACKAGE_PREFIX` in the tenant's managed runtime configuration, then
+roll the platform processes.
 This is a configuration change; subsequent uploads require no platform rebuild.
 
 Upload one immutable archive, register its object key and canonical digest,

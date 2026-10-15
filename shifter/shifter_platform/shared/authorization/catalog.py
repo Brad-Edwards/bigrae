@@ -69,6 +69,7 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("installation.manage_adapters", "installation"),
     _action("installation.manage_model_sources", "installation"),
     _action("installation.manage_cloud_authority", "installation"),
+    _action("installation.manage_lease_policy", "installation"),
     _action("account.read", "account"),
     _action("account.launch_range", "account"),
     _action("account.update", "account"),
@@ -92,6 +93,7 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
         requires_administrator=True,
     ),
     _action("workspace.read", "workspace"),
+    _action("workspace.leave", "workspace", administrative=False),
     _action("workspace.update", "workspace"),
     _action("workspace.archive", "workspace"),
     _action("workspace.restore", "workspace"),
@@ -160,6 +162,7 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
             "access_devices",
         )
     ),
+    _action("range.transfer_ownership", "range"),
 )
 
 _ACTIONS_BY_CODE = {action.code: action for action in ACTION_CATALOG}

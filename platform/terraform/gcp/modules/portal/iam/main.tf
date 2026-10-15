@@ -37,16 +37,16 @@ locals {
   dynamic_lifecycle_condition = local.dynamic_secret_project_is_dedicated ? (
     "resource.name.startsWith('${local.canonical_secret_prefix}')"
     ) : (
-    "(${local.legacy_secret_name_condition})"
+    "(resource.name.startsWith('${local.canonical_secret_prefix}') || (${local.legacy_secret_name_condition}))"
   )
   portal_dynamic_read_condition = local.dynamic_secret_project_is_dedicated ? (
     "resource.name.startsWith('${local.canonical_participant_secret_prefix}')"
     ) : (
-    "(${local.legacy_participant_secret_condition})"
+    "(resource.name.startsWith('${local.canonical_participant_secret_prefix}') || (${local.legacy_participant_secret_condition}))"
   )
 
-  workload_service_accounts = toset([
-    "guacamole",
+  workload_service_accounts = setunion(toset([
+    "guacamole-client",
     "portal",
     "workers",
     "ctf-scheduler",
@@ -55,7 +55,7 @@ locals {
     "provisioner",
     # Isolated feature-artifact acquisition Jobs (#2479).
     "artifact-acquirer",
-  ])
+  ]), var.openfga_enabled ? toset(["openfga-runtime", "openfga-admin", "openfga-migrator"]) : toset([]))
 
   # GCP service-account account_id is capped at 30 chars. The account_id is
   # "${replace(name_prefix, "-", "")}-${key}"; for name_prefix "shifter-gcp-dev"
@@ -68,10 +68,14 @@ locals {
   workload_account_id_suffix = {
     "provisioner-launcher" = "prov-launcher"
     "artifact-acquirer"    = "artifact-acq"
+    "guacamole-client"     = "guac-client"
+    "openfga-runtime"      = "fga-runtime"
+    "openfga-admin"        = "fga-admin"
+    "openfga-migrator"     = "fga-migrator"
   }
 
-  workload_identity_members = {
-    guacamole            = "serviceAccount:${var.workload_identity_pool}[shifter-platform/guacamole]"
+  workload_identity_members = merge({
+    guacamole-client     = "serviceAccount:${var.workload_identity_pool}[shifter-platform/guacamole-client]"
     portal               = "serviceAccount:${var.workload_identity_pool}[shifter-platform/portal]"
     workers              = "serviceAccount:${var.workload_identity_pool}[shifter-platform/workers]"
     ctf-scheduler        = "serviceAccount:${var.workload_identity_pool}[shifter-platform/ctf-scheduler]"
@@ -79,7 +83,11 @@ locals {
     provisioner-launcher = "serviceAccount:${var.workload_identity_pool}[shifter-platform/provisioner-launcher]"
     provisioner          = "serviceAccount:${var.workload_identity_pool}[shifter-jobs/provisioner]"
     artifact-acquirer    = "serviceAccount:${var.workload_identity_pool}[shifter-acquisition/artifact-acquirer]"
-  }
+    }, var.openfga_enabled ? {
+    openfga-runtime  = "serviceAccount:${var.workload_identity_pool}[shifter-platform/openfga-runtime]"
+    openfga-admin    = "serviceAccount:${var.workload_identity_pool}[shifter-platform/openfga-admin]"
+    openfga-migrator = "serviceAccount:${var.workload_identity_pool}[shifter-platform/openfga-migrator]"
+  } : {})
 
   # Feature-artifact delivery prefix on the assets bucket (ADR-034-R12, #2479): the
   # acquisition Job may only create objects there; the launcher (which verifies
@@ -107,11 +115,10 @@ locals {
   # check_tf_gcp_iam_resource_scope guard fails closed on any secret/storage
   # payload/admin role added here.
   workload_project_roles = {
-    # The gateway calls the portal with metadata identity only. It has no
-    # project roles and is absent from all secret/storage reader bindings.
-    guacamole = toset([])
+    # Authority renewal uses metadata identity without application cloud roles.
+    # The native SQL proxy duty is granted separately when IAM SQL is enabled.
+    guacamole-client = toset([])
     portal = toset([
-      "roles/firebaseauth.viewer",
       "roles/pubsub.publisher",
     ])
     workers = toset([
@@ -158,7 +165,7 @@ locals {
   secret_reader_workloads = toset(["portal", "workers", "ctf-scheduler", "provisioner-launcher"])
   runtime_secret_reader_keys = [
     for key in keys(var.runtime_secret_ids) : key
-    if key != "guacamole-db" && key != "db-migration" && key != "db-provisioner"
+    if key != "guacamole-db" && key != "db-migration" && key != "db-provisioner" && !(var.cloud_sql_iam_auth && key == "db")
   ]
   workload_secret_bindings = {
     for pair in setproduct(tolist(local.secret_reader_workloads), local.runtime_secret_reader_keys) :
@@ -173,7 +180,7 @@ locals {
       secret_id = var.runtime_secret_ids[key]
     }
   }
-  provisioner_database_secret_binding = {
+  provisioner_database_secret_binding = var.cloud_sql_iam_auth ? {} : {
     "provisioner-launcher:db-provisioner" = {
       workload  = "provisioner-launcher"
       secret_id = var.runtime_secret_ids["db-provisioner"]
@@ -319,7 +326,9 @@ resource "google_storage_bucket_iam_member" "feature_artifact_delivery" {
 
 # Secret creation is authorized on the parent project before a Secret resource
 # (and therefore resource.name) exists. This custom role contains only create
-# and is deliberately unconditioned inside the dedicated project boundary.
+# and is deliberately unconditioned on the selected project. In one project,
+# this permits container creation outside the prefix; it grants no payload or
+# lifecycle access there. A parent-project create check cannot restrict names.
 resource "google_project_iam_custom_role" "dynamic_secret_creator" {
   project     = var.dynamic_secret_project_id
   role_id     = "shifterDynamicSecretCreator"
@@ -335,8 +344,8 @@ resource "google_project_iam_member" "provisioner_dynamic_secret_create" {
 }
 
 # Existing-secret lifecycle permissions are separate from create and are
-# conditioned on the canonical deployment prefix (or legacy prefixes only
-# while the two project IDs intentionally remain equal during expand).
+# conditioned on the canonical deployment prefix. The same-project topology
+# also drains the explicitly bounded legacy namespaces.
 resource "google_project_iam_custom_role" "dynamic_secret_lifecycle" {
   project     = var.dynamic_secret_project_id
   role_id     = "shifterDynamicSecretLifecycle"

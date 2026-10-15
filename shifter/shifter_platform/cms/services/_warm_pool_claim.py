@@ -176,6 +176,7 @@ def _run_atomic_claim(request: WarmClaimRequest, candidates: list[tuple[str, str
     share one transaction so a transfer failure returns the generation to READY.
     """
     from cms.services import AuditEvent, audit_log
+    from cms.services._pack_fence import fence_pack_reference
     from cms.services._range_reassign import reassign_range_owner
     from engine.services import claim_ready_generation
     from shared.audit.vocabulary import AuditAction, AuditActorType, AuditEntityType
@@ -201,6 +202,9 @@ def _run_atomic_claim(request: WarmClaimRequest, candidates: list[tuple[str, str
                 # than hand over a half-modeled range.
                 logger.error("warm claim: generation %s has no CMS range instance; rolling back", generation.uuid)
                 raise _WarmClaimRollback
+            # Admission fence (ADR-034-R13): the claimed generation's pack revision
+            # must still be registered when ownership transfers.
+            fence_pack_reference(request.scenario, expected_digest=request.package_digest)
             reassign_range_owner(range_instance.pk, request.user, rehome=True)
             from cms.services._range_lease import build_range_lease, build_resolved_mission_control_range_lease
 

@@ -18,6 +18,44 @@ def _settings(**overrides: object) -> dict[str, object]:
 
 
 class TestGcpBackendSettings:
+    def test_native_sql_and_policy_settings_are_closed_operator_intent(self):
+        settings = GcpBackendSettings.model_validate(
+            _settings(
+                cloud_sql_iam_auth=True,
+                openfga={
+                    "enabled": True,
+                    "store_id": "01J00000000000000000000001",
+                    "model_id": "01J00000000000000000000000",
+                    "runtime_secret_ref": "projects/acme-shifter/secrets/policy-runtime",
+                    "admin_secret_ref": "projects/acme-shifter/secrets/policy-admin",
+                    "ca_secret_ref": "projects/acme-shifter/secrets/policy-ca",
+                },
+            )
+        )
+        assert settings.cloud_sql_iam_auth is True
+        assert settings.openfga.enabled is True
+        for bad in (
+            {"arbitrary_proxy_args": ["--impersonate-service-account=operator"]},
+            {"runtime_secret_ref": "secret-payload"},
+        ):
+            with pytest.raises(ValidationError):
+                GcpBackendSettings.model_validate(_settings(cloud_sql_iam_auth=True, openfga=bad))
+
+    def test_policy_requires_complete_native_configuration_and_separate_admin_credentials(self):
+        policy = {
+            "enabled": True,
+            "store_id": "01J00000000000000000000001",
+            "model_id": "01J00000000000000000000000",
+            "runtime_secret_ref": "projects/acme-shifter/secrets/policy-runtime",
+            "admin_secret_ref": "projects/acme-shifter/secrets/policy-runtime",
+            "ca_secret_ref": "projects/acme-shifter/secrets/policy-ca",
+        }
+        with pytest.raises(ValidationError):
+            GcpBackendSettings.model_validate(_settings(cloud_sql_iam_auth=True, openfga=policy))
+        policy["admin_secret_ref"] = "projects/acme-shifter/secrets/policy-admin"
+        with pytest.raises(ValidationError):
+            GcpBackendSettings.model_validate(_settings(cloud_sql_iam_auth=False, openfga=policy))
+
     def test_minimal_valid_settings(self):
         settings = GcpBackendSettings.model_validate(_settings())
         assert settings.project_id == "acme-shifter"

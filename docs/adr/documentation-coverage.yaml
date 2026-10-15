@@ -10,6 +10,20 @@
       "technical_docs": ["technical/shifter_platform/content-range-authority.md"]
     },
     {
+      "id": "gcp-native-identity",
+      "title": "GCP native SQL identity and private policy administration",
+      "requirement": "GEN-001",
+      "user_docs": ["ops/gcp-native-identity.md"],
+      "technical_docs": ["technical/platform_infrastructure/gcp-native-identity.md"]
+    },
+    {
+      "id": "account-administration",
+      "title": "Prepared account and principal administration",
+      "requirement": "PLAT-241",
+      "user_docs": ["features/account-administration.md"],
+      "technical_docs": ["technical/shifter_platform/account-administration.md"]
+    },
+    {
       "id": "unified-access-credentials",
       "title": "Personal and native service credentials",
       "requirement": "PLAT-102",

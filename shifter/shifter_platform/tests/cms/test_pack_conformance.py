@@ -70,3 +70,21 @@ def test_conformance_cannot_promote_changed_bytes_or_stale_identity(staff_user, 
         )
     source.refresh_from_db()
     assert source.conformance_status == "pending"
+
+
+def test_conformance_reports_a_pack_removed_during_validation(staff_user, preparation_pack, monkeypatch):
+    from cms.services import _pack_conformance
+
+    _, source = preparation_pack
+    validate = _pack_conformance.validate_pack_contract
+
+    def removed_meanwhile(path, report):
+        validate(path, report)
+        RaesPackageSource.objects.filter(pk=source.pk).delete()
+
+    monkeypatch.setattr(_pack_conformance, "validate_pack_contract", removed_meanwhile)
+    with pytest.raises(ValidationError):
+        validate_registered_pack_conformance(
+            user=staff_user, scenario_id=source.scenario_id, expected_package_digest=source.package_digest
+        )
+    assert not RaesPackageSource.objects.exists()

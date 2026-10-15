@@ -31,11 +31,14 @@ _ENABLED_GCE = load_policy_json(
 )
 
 
+_PACK_DIGEST = "sha256:" + "a" * 64
+
+
 def _request(backend: str, scenario: str, *, user=None) -> WarmClaimRequest:
     return WarmClaimRequest(
         user=user,
         scenario=scenario,
-        package_digest="sha256:aaa",
+        package_digest=_PACK_DIGEST,
         lock_digest="sha256:bbb",
         backend=backend,
         instantiation_purpose=InstantiationPurpose.LIVE_FIRE,
@@ -113,8 +116,20 @@ class TestClaimOrchestration:
     """
 
     @pytest.fixture(autouse=True)
-    def _isolate_seams(self, monkeypatch):
+    def _isolate_seams(self, monkeypatch, django_user_model):
         from django.conf import settings
+
+        from cms.models import RaesPackageSource
+
+        RaesPackageSource.objects.create(
+            scenario_id="example",
+            contract_kind="raes",
+            contract_profile="shifter",
+            package_ref="example",
+            package_version="1",
+            package_digest=_PACK_DIGEST,
+            registered_by=django_user_model.objects.create_user(username="warm-pack-owner"),
+        )
 
         monkeypatch.setattr(settings, "WARM_POOL_POLICY", _ENABLED_GCE, raising=False)
         # The isolation class is resolved through the workspaces seam elsewhere;
@@ -277,6 +292,32 @@ class TestClaimOrchestration:
         )
         result = attempt_warm_claim(_request("gce", "example", user=SimpleNamespace(id=1)))
         assert result is None
+        assert self.enqueued == []
+
+    @pytest.mark.parametrize("change", ["removed", "revised"])
+    def test_claim_is_refused_when_the_pack_was_removed_or_revised(self, monkeypatch, change):
+        from django.contrib.auth import get_user_model
+
+        from cms.exceptions import CMSError
+        from cms.models import RaesPackageSource
+
+        user = get_user_model().objects.create_user(username="warm-fenced@example.com")
+        system_row = self._unleased_system_range(user)
+        self._patch_claim(monkeypatch, SimpleNamespace(request_id=uuid4(), uuid=uuid4(), bucket_id="gce-example"))
+        monkeypatch.setattr("cms.services._warm_pool_claim._system_range_instance_for", lambda request_id: system_row)
+        rehomed: list = []
+        monkeypatch.setattr(
+            "cms.services._range_reassign.reassign_range_owner", lambda *args, **kwargs: rehomed.append(args)
+        )
+        if change == "removed":
+            RaesPackageSource.objects.filter(scenario_id="example").delete()
+        else:
+            RaesPackageSource.objects.filter(scenario_id="example").update(package_digest="sha256:" + "c" * 64)
+
+        with pytest.raises(CMSError):
+            attempt_warm_claim(_request("gce", "example", user=user))
+
+        assert rehomed == []
         assert self.enqueued == []
 
 

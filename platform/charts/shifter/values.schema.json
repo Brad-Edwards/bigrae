@@ -34,36 +34,156 @@
     "openfga": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "image", "replicas", "hostname", "storeId", "modelId", "runtimeSecretName", "caConfigMapName", "databaseCidrs", "databasePort", "pools", "resources"],
+      "required": [
+        "enabled",
+        "image",
+        "replicas",
+        "hostname",
+        "storeId",
+        "modelId",
+        "runtimeSecretName",
+        "caConfigMapName",
+        "databaseCidrs",
+        "databasePort",
+        "pools",
+        "resources",
+        "migrationSecretName",
+        "adminSecretName",
+        "runtimeDatabaseUser",
+        "adminDatabaseUser"
+      ],
       "properties": {
-        "enabled": {"type": "boolean"},
-        "image": {"type": "string", "const": "openfga/openfga@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38"},
-        "replicas": {"type": "integer", "minimum": 2, "maximum": 10},
-        "hostname": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])$"},
-        "storeId": {"type": "string", "pattern": "^$|^[0-9A-HJKMNP-TV-Z]{26}$"},
-        "modelId": {"type": "string", "pattern": "^$|^[0-9A-HJKMNP-TV-Z]{26}$"},
-        "runtimeSecretName": {"$ref": "#/$defs/dnsLabel"},
-        "caConfigMapName": {"$ref": "#/$defs/dnsLabel"},
-        "databaseCidrs": {"$ref": "#/$defs/cidrList"},
-        "databasePort": {"type": "integer", "minimum": 1024, "maximum": 65535},
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "const": "openfga/openfga@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 10
+        },
+        "hostname": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])$"
+        },
+        "storeId": {
+          "type": "string",
+          "pattern": "^$|^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "modelId": {
+          "type": "string",
+          "pattern": "^$|^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "runtimeSecretName": {
+          "$ref": "#/$defs/dnsLabel"
+        },
+        "caConfigMapName": {
+          "$ref": "#/$defs/dnsLabel"
+        },
+        "databaseCidrs": {
+          "$ref": "#/$defs/cidrList"
+        },
+        "databasePort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
         "pools": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["minOpen", "minIdle", "maxOpen"],
+          "required": [
+            "minOpen",
+            "minIdle",
+            "maxOpen"
+          ],
           "properties": {
-            "minOpen": {"type": "integer", "minimum": 1, "maximum": 100},
-            "minIdle": {"type": "integer", "minimum": 0, "maximum": 100},
-            "maxOpen": {"type": "integer", "minimum": 1, "maximum": 200}
+            "minOpen": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "minIdle": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "maxOpen": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
           }
         },
-        "resources": {"$ref": "#/$defs/resources"}
+        "resources": {
+          "$ref": "#/$defs/resources"
+        },
+        "migrationSecretName": {
+          "$ref": "#/$defs/dnsLabel"
+        },
+        "adminSecretName": {
+          "$ref": "#/$defs/dnsLabel"
+        },
+        "runtimeDatabaseUser": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-zA-Z0-9_@.-]*$"
+        },
+        "adminDatabaseUser": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-zA-Z0-9_@.-]*$"
+        },
+        "migrationDatabaseUser": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-zA-Z0-9_@.-]*$"
+        },
+        "serviceAccountAnnotations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "runtime": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "admin": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "migrator": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
       },
-      "if": {"properties": {"enabled": {"const": true}}},
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        }
+      },
       "then": {
         "properties": {
-          "storeId": {"pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"},
-          "modelId": {"pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"},
-          "databaseCidrs": {"minItems": 1}
+          "databaseCidrs": {
+            "minItems": 1
+          },
+          "runtimeDatabaseUser": {
+            "minLength": 1
+          },
+          "adminDatabaseUser": {
+            "minLength": 1
+          }
         }
       }
     },
@@ -249,19 +369,38 @@
       "required": [
         "portal",
         "workers",
+        "guacamoleClient",
         "ctfScheduler",
         "migrator",
         "provisionerLauncher",
-        "provisioner"
+        "provisioner",
+        "guacd"
       ],
       "properties": {
-        "portal": { "$ref": "#/$defs/serviceAccount" },
-        "guacamole": { "$ref": "#/$defs/serviceAccount" },
-        "workers": { "$ref": "#/$defs/serviceAccount" },
-        "ctfScheduler": { "$ref": "#/$defs/serviceAccount" },
-        "migrator": { "$ref": "#/$defs/serviceAccount" },
-        "provisionerLauncher": { "$ref": "#/$defs/serviceAccount" },
-        "provisioner": { "$ref": "#/$defs/serviceAccount" }
+        "portal": {
+          "$ref": "#/$defs/serviceAccount"
+        },
+        "workers": {
+          "$ref": "#/$defs/serviceAccount"
+        },
+        "guacamoleClient": {
+          "$ref": "#/$defs/serviceAccount"
+        },
+        "ctfScheduler": {
+          "$ref": "#/$defs/serviceAccount"
+        },
+        "migrator": {
+          "$ref": "#/$defs/serviceAccount"
+        },
+        "provisionerLauncher": {
+          "$ref": "#/$defs/serviceAccount"
+        },
+        "provisioner": {
+          "$ref": "#/$defs/serviceAccount"
+        },
+        "guacd": {
+          "$ref": "#/$defs/serviceAccount"
+        }
       }
     },
     "runtimeEnv": {
@@ -355,7 +494,8 @@
         "outboxDrainer",
         "provisionerLauncher",
         "reconciler",
-        "warmPoolReconciler"
+        "warmPoolReconciler",
+        "packRemovalReconciler"
       ],
       "properties": {
         "cms": { "$ref": "#/$defs/scaledWorkload" },
@@ -369,7 +509,8 @@
         "outboxDrainer": { "$ref": "#/$defs/scaledWorkload" },
         "provisionerLauncher": { "$ref": "#/$defs/scaledWorkload" },
         "reconciler": { "$ref": "#/$defs/scaledWorkload" },
-        "warmPoolReconciler": { "$ref": "#/$defs/scaledWorkload" }
+        "warmPoolReconciler": { "$ref": "#/$defs/scaledWorkload" },
+        "packRemovalReconciler": { "$ref": "#/$defs/scaledWorkload" }
       }
     },
     "guacd": {
@@ -561,6 +702,101 @@
                 "frontendConfigName": { "$ref": "#/$defs/dnsLabel" }
               }
             }
+          }
+        }
+      }
+    }
+  ,
+    "cloudSqlProxy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "instanceConnectionName",
+        "databaseUsers",
+        "databaseCidrs"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "instanceConnectionName": {
+          "type": "string",
+          "pattern": "^$|^[a-z][a-z0-9-]{4,28}[a-z0-9]:[a-z][a-z0-9-]+:[a-z][a-z0-9-]{0,97}$"
+        },
+        "databaseUsers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "portal": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$"
+            },
+            "workers": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$"
+            },
+            "ctf-scheduler": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$"
+            },
+            "provisioner-launcher": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$"
+            },
+            "provisioner": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$"
+            },
+            "openfga-runtime": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$"
+            },
+            "openfga-admin": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$"
+            },
+            "openfga-migrator": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$"
+            }
+          }
+        },
+        "databaseCidrs": {
+          "$ref": "#/$defs/cidrList"
+        }
+      },
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "instanceConnectionName": {
+            "minLength": 1
+          },
+          "databaseUsers": {
+            "required": [
+              "portal",
+              "workers",
+              "ctf-scheduler",
+              "provisioner-launcher",
+              "provisioner"
+            ]
+          },
+          "databaseCidrs": {
+            "minItems": 1
           }
         }
       }

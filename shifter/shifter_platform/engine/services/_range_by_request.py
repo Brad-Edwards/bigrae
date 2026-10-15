@@ -266,6 +266,8 @@ def rebind_range_workspace_by_request(
     *,
     expected_workspace_id: int,
     new_workspace_id: int,
+    expected_ancestry: tuple[str, int | None, int | None] | None = None,
+    new_ancestry: tuple[str, int | None, int | None] | None = None,
 ) -> RangeWorkspaceRebindOutcome:
     """Compare-and-set the Engine range's workspace scope for ``request_id`` (#1325, #1944).
 
@@ -315,6 +317,11 @@ def rebind_range_workspace_by_request(
     range_obj = ranges[0]
     if range_obj.owner_principal_uuid is not None:
         raise PermissionError("Range scope authority unavailable")
+    if (
+        expected_ancestry is not None
+        and (range_obj.scope_kind, range_obj.account_id, range_obj.organization_id) != expected_ancestry
+    ):
+        raise RangeProjectionIntegrityError("Range scope projections disagree")
     if range_obj.workspace_id == new_workspace_id:
         logger.info(
             "rebind_range_workspace_by_request: request_id=%s already at workspace_id=%s (no-op)",
@@ -332,7 +339,11 @@ def rebind_range_workspace_by_request(
         outcome = RangeWorkspaceRebindOutcome.SOURCE_MISMATCH
     else:
         range_obj.workspace_id = new_workspace_id
-        range_obj.save(update_fields=["workspace_id"])
+        fields = ["workspace_id"]
+        if new_ancestry is not None:
+            range_obj.scope_kind, range_obj.account_id, range_obj.organization_id = new_ancestry
+            fields.extend(("scope_kind", "account_id", "organization_id"))
+        range_obj.save(update_fields=fields)
         logger.info(
             "rebind_range_workspace_by_request: request_id=%s rebound workspace_id %s -> %s",
             logged_request_id,
@@ -343,8 +354,31 @@ def rebind_range_workspace_by_request(
     return outcome
 
 
+def _check_reassignment_projection(
+    range_obj: Range,
+    expected_owner_id: int | None,
+    expected_scope: tuple[str, int | None, int | None, int | None] | None,
+) -> None:
+    """Compare frozen ownership and ancestry under the existing Engine row lock."""
+    if expected_owner_id is not None and (
+        range_obj.user_id != expected_owner_id
+        or range_obj.cms_user_id != expected_owner_id
+        or range_obj.request is None
+        or range_obj.request.user_id != expected_owner_id
+    ):
+        raise RangeProjectionIntegrityError("Range ownership projections disagree")
+    actual_scope = (range_obj.scope_kind, range_obj.account_id, range_obj.organization_id, range_obj.workspace_id)
+    if expected_scope is not None and actual_scope != expected_scope:
+        raise RangeProjectionIntegrityError("Range scope projections disagree")
+
+
 def reassign_range_owner_by_request(
-    request_id: UUID, new_user: User | PrincipalRef, *, credential: CredentialContext | None = None
+    request_id: UUID,
+    new_user: User | PrincipalRef,
+    *,
+    credential: CredentialContext | None = None,
+    expected_owner_id: int | None = None,
+    expected_scope: tuple[str, int | None, int | None, int | None] | None = None,
 ) -> bool:
     """Reassign the ``Range``/``Request`` owner for ``request_id`` to ``new_user``.
 
@@ -378,6 +412,7 @@ def reassign_range_owner_by_request(
         if range_obj.owner_principal_uuid is not None:
             raise PermissionError("Range ownership authority unavailable")
 
+        _check_reassignment_projection(range_obj, expected_owner_id, expected_scope)
         if range_obj.user_id == new_user.id:
             logger.info(
                 "reassign_range_owner_by_request: already owned by user_id=%s request_id=%s",

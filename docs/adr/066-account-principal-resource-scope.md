@@ -153,6 +153,21 @@ slices that own those integrations. This ADR does not authorize a custom
 authentication protocol, policy engine, token format, secret broker, JIT/Vault
 dependency, or organizational approval workflow.
 
+S7 (#2320) preserves deliberately assigned project-admin operator service
+accounts and permits the same service full application authority through a
+separate explicit grant. Protect credential use, impersonation and execution
+boundaries; do not silently reduce chosen powers or broaden ordinary workload
+defaults. Supported single-project deployment supersedes ADR-008-R7's mandatory
+distinct dynamic-secret project and migration-only equality rule for S7. The
+explicit project seam and named/prefix-conditioned access controls remain;
+parent-scoped create-only access is not a prefix or separate-project boundary.
+[The GCP integration preflight](../architecture/gcp-native-identity-authority-preflight-2320.md)
+records the native renewal, SQL-duty, configuration/admission and OpenFGA trust
+limits. Preshared client authentication and runtime method allowlisting do not
+claim server-enforced per-client model/store privileges. Enforcement must be
+reconciled with these documented choices without blanket exemptions. This
+clarification does not approve custom source or move S8 activation.
+
 ### Administration at cutover
 
 At S8, every application administration operation, including its direct service
@@ -183,6 +198,29 @@ service command or are disabled once a supported canonical UI/API path exists.
 These changes do not grant a service principal a Django admin session, make
 cloud IAM an application grant, or alter historical audit evidence. Before S8,
 the established gates remain the sole production authority.
+
+The #2317 [preflight](../architecture/account-administration-preflight-2317.md)
+and [coverage inventory](../architecture/account-administration-coverage-2317.md)
+clarify the integration boundary: human-user lifecycle is not customer Account
+lifecycle, deployment-wide settings are not customer policy, and invitation
+acceptance is not identity resolution by email. Prepared adapters and catalog
+entries do not prove mounted-operation coverage. Provider failure cannot become
+an empty authorized result; transfer summaries must preserve blocked outcomes
+and must not claim atomicity across independently committed resources.
+
+Per-resource membership, ownership, policy and projection rejection must retain
+earlier committed offboarding counts. The prepared summary reports all blocked
+workspaces separately from confirmed missing-membership cases. Credential
+revocation and rotation acquire the owner mutex before the token mutex, matching
+identity lifecycle. Recovery-email changes require the owning human session;
+an installation principal-administration grant alone cannot redirect recovery.
+Standalone organization operation recovery derives its persisted account
+ancestry and retains the journal's current-effect authorization checks.
+
+The prepared OpenAPI TypeScript declaration follows the incumbent generated
+schema analysis exclusion under the exact, owned, time-bounded ADR-003-R7
+exception. DRF contract drift and TypeScript consumer checks remain mandatory;
+handwritten administration code retains the ordinary analysis gates.
 
 The OpenFGA application-policy boundary, supported SDK operations, durable
 write semantics, deployment contract, and cutover constraints are clarified by
@@ -419,3 +457,47 @@ be retained as hidden defaults.
 Shared-hosting support increases the importance of negative authorization,
 mapping, and provider-isolation evidence. Schema presence alone does not claim
 that S8 cutover or live multi-customer isolation has occurred.
+
+### Prepared composition boundaries (#2317)
+
+Dormant domain URL modules own their account administration routes. The
+composition root imports the public `PolicyAdminView` admission/error base and
+`AuthorizationMutationSerializer` operation projection for its two cross-domain
+adapters. The layer checker permits only those named presentation symbols and
+the exact tenancy journal/placement services. Domain persistence and private
+helpers remain inaccessible to composition. No production URL or Django-admin
+registration changes in S4.
+
+## S7 native identity integration
+
+Issue #2320 adds the released Cloud SQL Auth Proxy as one digest-pinned native
+sidecar with a loopback SQL listener and automatic IAM renewal. The hardened
+provisioner Job admits exactly that sidecar only when trusted deployment
+parameters select native GCP SQL; image/argument/credential/mount/identity
+substitution remains denied. Deterministic Job recovery also verifies it.
+IAM connector/login bindings apply only to the installation instance. The
+Guacamole client and deployment owner receive connector transport only; guacd
+has its own KSA and no cloud identity. Existing WIF, operator and CI grants stay
+additive. The portal directory duty contains only `firebaseauth.users.get`.
+
+OpenFGA runtime and administration use separate private authenticated listeners,
+KSAs/GSAs and native database duties. Released PostgreSQL ACLs deny runtime
+store/model/assertion mutation, schema ownership and migration-version writes;
+the migration identity owns only the policy datastore. Runtime tuple writers
+remain trusted. Deployment-owned bootstrap removes documented Cloud SQL runtime
+role defaults, checks effective inheritance/ownership and fails closed on drift.
+It preserves the separate qualified migration owner. Native IAM and admission
+negative tests, released-server SQL tests and existing guards enforce this
+boundary. The released-server lane publishes supplemental coverage for these
+SQL duties to Sonar, alongside the platform fast-lane report. The existing
+whole-package floor and changed-code coverage gate remain enforced; supplemental
+service coverage does not replace either. Two historical permission migrations now quote the active database
+name when granting/revoking CONNECT, correcting cold-install targeting without
+changing their schema or intended duties. This does not redefine historical
+account-policy invariants.
+
+See the [operator guide](../ops/gcp-native-identity.md) and
+[implementation contract](../technical/platform_infrastructure/gcp-native-identity.md).
+Local tests do not claim live credential renewal or effective deployment IAM;
+deployment-specific qualification belongs to the operator's live testing session
+and is not a source-publication gate.

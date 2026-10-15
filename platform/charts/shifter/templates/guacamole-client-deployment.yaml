@@ -29,8 +29,9 @@ spec:
     spec:
       {{- include "shifter.podSecurityContext" . | nindent 6 }}
       automountServiceAccountToken: false
-      serviceAccountName: {{ .Values.serviceAccounts.guacamole.name }}
+      serviceAccountName: {{ .Values.serviceAccounts.guacamoleClient.name }}
       terminationGracePeriodSeconds: {{ .Values.guacamoleClient.terminationGracePeriodSeconds }}
+      {{- include "shifter.cloudSqlProxyPod" (dict "root" . "autoIam" false) | nindent 6 }}
       containers:
         - name: guacamole-client
           image: {{ include "shifter.guacamoleClientImage" . }}
@@ -58,10 +59,14 @@ spec:
             - name: GUACD_PORT
               value: "4822"
             - name: POSTGRESQL_HOSTNAME
+              {{- if .Values.cloudSqlProxy.enabled }}
+              value: "127.0.0.1"
+              {{- else }}
               valueFrom:
                 configMapKeyRef:
                   name: platform-runtime
                   key: GUACAMOLE_POSTGRESQL_HOSTNAME
+              {{- end }}
             - name: POSTGRESQL_PORT
               valueFrom:
                 configMapKeyRef:

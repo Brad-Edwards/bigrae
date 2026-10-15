@@ -1,13 +1,14 @@
 output "control_plane_database" {
   description = "Control-plane database connection metadata."
   value = {
-    instance_name         = google_sql_database_instance.platform.name
-    private_ip            = google_sql_database_instance.platform.private_ip_address
-    port                  = 5432
-    database_name         = google_sql_database.platform.name
-    user_name             = google_sql_user.runtime.name
-    provisioner_user_name = google_sql_user.provisioner.name
-    migration_user_name   = google_sql_user.platform.name
+    instance_name            = google_sql_database_instance.platform.name
+    instance_connection_name = google_sql_database_instance.platform.connection_name
+    private_ip               = google_sql_database_instance.platform.private_ip_address
+    port                     = 5432
+    database_name            = google_sql_database.platform.name
+    user_name                = google_sql_user.runtime.name
+    provisioner_user_name    = google_sql_user.provisioner.name
+    migration_user_name      = google_sql_user.platform.name
   }
 }
 

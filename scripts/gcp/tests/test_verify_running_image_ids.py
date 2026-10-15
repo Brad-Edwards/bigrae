@@ -90,7 +90,7 @@ def test_every_closed_component_has_one_rollout_controller() -> None:
 
     deployments = module.release_deployments()
 
-    assert len(deployments) == len(module._RELEASE_CONTAINERS) == 15
+    assert len(deployments) == len(module._RELEASE_CONTAINERS) == 16
     assert "portal-web" in deployments
     assert "worker-warm-pool-reconciler" in deployments
 
@@ -327,7 +327,7 @@ def test_optional_broker_requires_explicit_release_enablement_and_both_component
         module.build_evidence(pods, _EXPECTED, source_sha=_SHA)
     assert (
         len(module.build_evidence(pods, _EXPECTED, source_sha=_SHA, model_broker_enabled=True)["running_containers"])
-        == 18
+        == 19
     )
     pods["items"].pop()
     with pytest.raises(ValueError, match="missing release components"):
