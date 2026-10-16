@@ -83,11 +83,17 @@ def _enqueue_provisioner_launch(command: list[str]) -> str | None:
     return task_ref_for_intent(intent_id)
 
 
-def dispatch_provisioner_command(command: list[str], *, task_identity: str | None = None) -> str | None:
+def dispatch_provisioner_command(
+    command: list[str], *, task_identity: str | None = None, expected_workload: dict[str, object] | None = None
+) -> str | None:
     """Launch one validated command directly; callable only by the launcher worker on GCP."""
     from engine.launch_intents import validate_provisioner_command
 
     validate_provisioner_command(command)
+    if expected_workload is not None:
+        from ._workload import assert_provisioner_workload
+
+        assert_provisioner_workload(expected_workload, command, task_identity)
     if _is_local_provisioner_enabled():
         return _run_local_provisioner(command)
     task_config = _get_engine_task_config()
@@ -106,7 +112,9 @@ def dispatch_provisioner_command(command: list[str], *, task_identity: str | Non
     )
 
 
-def interrupt_provisioner_task(task_ref: str, command: list[str], task_identity: str) -> str | None:
+def interrupt_provisioner_task(
+    task_ref: str, command: list[str], task_identity: str, *, expected_workload: dict[str, object] | None = None
+) -> str | None:
     """Interrupt a dispatched provisioner task; callable only by the launcher worker (#277).
 
     Resolves the provider task runner and verifies the workload against the trusted
@@ -116,6 +124,23 @@ def interrupt_provisioner_task(task_ref: str, command: list[str], task_identity:
     """
     from django.conf import settings
 
+    if expected_workload is not None:
+        namespace = expected_workload.get("namespace")
+        job_name = expected_workload.get("job_name")
+        if not isinstance(namespace, str) or not isinstance(job_name, str):
+            raise ValueError("Provisioner interrupt identity unavailable")
+        if (
+            expected_workload.get("provider") != settings.CLOUD_PROVIDER
+            or expected_workload.get("command") != command
+            or expected_workload.get("task_identity") != task_identity
+            or task_ref != namespace + "/" + job_name
+        ):
+            raise ValueError("Provisioner interrupt identity changed")
+        expected_identity = {
+            key: expected_workload[key]
+            for key in ("task_identity", "image", "command", "container_name", "service_account_name")
+        }
+        return get_task_runner().interrupt_task(namespace, task_ref, expected_identity)
     task_config = _get_engine_task_config()
     if task_config is None:
         return None

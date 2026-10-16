@@ -40,7 +40,12 @@ class Range(RangeAllocationMixin, models.Model):
         editable=False,
         help_text="Unique identifier for cross-service correlation",
     )
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="ranges")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="ranges", null=True, blank=True
+    )
+    owner_principal_uuid = models.UUIDField(null=True, blank=True, db_index=True)
+    cms_range_uuid = models.UUIDField(null=True, blank=True, unique=True)
+    event_uuid = models.UUIDField(null=True, blank=True, db_index=True)
     request = models.ForeignKey(
         Request,
         on_delete=models.CASCADE,

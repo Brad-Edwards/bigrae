@@ -11,34 +11,23 @@ incoming requests against them.
 from __future__ import annotations
 
 import uuid as uuid_module
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Self, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from ..enums import ResourceStatus
+from ._range_agents import _AgentSource
 from .base import SpecBase
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from .app import NGFWAppSpec
     from .subnet import SubnetSpec
 
+
 _POSITIVE_USER_ID_ERROR = "user_id must be a positive integer"
-
-
-class _AgentOS(Protocol):
-    """Minimum operating-system projection required during template hydration."""
-
-    slug: str
-
-
-class _AgentSource(Protocol):
-    """Minimum agent projection required during template hydration."""
-
-    os: _AgentOS
-    s3_key: str
-    original_filename: str
-    sha256_hash: str | None
 
 
 class AgentDetails(BaseModel):
@@ -398,7 +387,8 @@ class RangeContextBase(BaseModel):
     request_id: UUID
     range_id: int | None = None
     scenario_id: str
-    user_id: int
+    user_id: int | None
+    owner_principal_uuid: UUID | None = None
     status: ResourceStatus
     instances: list[InstanceContext]
     agent_name: str | None = None
@@ -423,11 +413,18 @@ class RangeContextBase(BaseModel):
 
     @field_validator("user_id")
     @classmethod
-    def user_id_positive(cls, v: int) -> int:
+    def user_id_positive(cls, v: int | None) -> int | None:
         """Validate user_id is a positive integer."""
-        if v <= 0:
+        if v is not None and v <= 0:
             raise ValueError(_POSITIVE_USER_ID_ERROR)
         return v
+
+    @model_validator(mode="after")
+    def require_owner(self) -> Self:
+        """Preserve human attribution without fabricating a service user."""
+        if self.user_id is None and (self.owner_principal_uuid is None or not self.owner_principal_uuid.int):
+            raise ValueError("Range requires an owner")
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property

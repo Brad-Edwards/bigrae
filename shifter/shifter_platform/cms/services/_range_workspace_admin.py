@@ -29,6 +29,7 @@ from engine.services import (
     rebind_range_workspace_by_request,
 )
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
+from shared.credentials import CredentialContext
 from shared.log_sanitize import safe_log_value
 from shared.range_workspace_aggregate import range_in_domain_aggregate
 from workspaces.services import (
@@ -71,7 +72,9 @@ class RangeRebindResult:
     changed: bool
 
 
-def list_range_scope_bindings(actor: User, *, workspace_uuid: str | uuid.UUID) -> QuerySet[RangeInstance]:
+def list_range_scope_bindings(
+    actor: User | CredentialContext, *, workspace_uuid: str | uuid.UUID
+) -> QuerySet[RangeInstance]:
     """Return the ranges scoped to ``workspace_uuid`` for administrative display.
 
     Authorizes ``actor`` for ``LIST_RANGE_SCOPE_BINDINGS`` in the workspace named
@@ -85,6 +88,32 @@ def list_range_scope_bindings(actor: User, *, workspace_uuid: str | uuid.UUID) -
         RangeScopeAdminError: ``Kind.NOT_FOUND`` when the workspace is unknown or
             the actor may not administer its range scope.
     """
+    if isinstance(actor, CredentialContext):
+        from workspaces.services import hierarchy_target_scope, resolve_resource_scope
+
+        from ._content_authority import require_content_scope
+
+        try:
+            scope = hierarchy_target_scope("workspace", uuid.UUID(str(workspace_uuid)))
+            require_content_scope(actor, scope, "manage_range_scope")
+            binding = resolve_resource_scope(scope)
+            return (
+                RangeInstance.objects.filter(
+                    scope_kind=binding.kind,
+                    account_id=binding.account_id,
+                    organization_id=binding.organization_id,
+                    workspace_id=binding.workspace_id,
+                    owner_principal_uuid__isnull=False,
+                    request__scope_kind=binding.kind,
+                    request__account_id=binding.account_id,
+                    request__organization_id=binding.organization_id,
+                    request__workspace_id=binding.workspace_id,
+                )
+                .select_related("request")
+                .order_by("-created_at", "-id")
+            )
+        except Exception:
+            raise RangeScopeAdminError(RangeScopeAdminError.Kind.NOT_FOUND, _RANGE_NOT_FOUND) from None
     _validate_caller_user(actor, "list_range_scope_bindings")
 
     try:
@@ -126,7 +155,7 @@ def _resolve_locked_range(request_id: uuid.UUID) -> tuple[RangeInstance, CmsRequ
 
 
 def rebind_range_workspace(
-    actor: User,
+    actor: User | CredentialContext,
     *,
     request_id: uuid.UUID,
     target_workspace_uuid: str | uuid.UUID,
@@ -155,6 +184,12 @@ def rebind_range_workspace(
             for every not-found, target-denied, conflict, and not-reassignable
             outcome.
     """
+    if isinstance(actor, CredentialContext):
+        from ._scoped_range_scope import rebind_scoped_range_workspace
+
+        return rebind_scoped_range_workspace(
+            actor, request_id=request_id, target_workspace_uuid=target_workspace_uuid, audit=audit
+        )
     _validate_caller_user(actor, "rebind_range_workspace")
 
     with transaction.atomic():
@@ -182,6 +217,8 @@ def rebind_range_workspace(
         # Authoritative pair authorization under both workspace mutexes: rechecks
         # source authority, resolves + authorizes the target, rejects an archived
         # target, and requires the unchanged owner's membership in the target.
+        if instance.user_id is None:
+            raise RangeScopeAdminError(RangeScopeAdminError.Kind.CONFLICT, _RANGE_NOT_FOUND)
         try:
             authorization = authorize_range_rebind(
                 actor,

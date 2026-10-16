@@ -80,6 +80,7 @@ jobs:
       # outputs: no blocking job consumes them yet (gaps tracked by #1698), but
       # they are declared so the contract and workflow stay in sync.
       container_images: ${{ steps.detect.outputs.container_images }}
+      guacamole_authority: ${{ steps.detect.outputs.guacamole_authority }}
       charts: ${{ steps.detect.outputs.charts }}
       cloudformation: ${{ steps.detect.outputs.cloudformation }}
       branding_assets: ${{ steps.detect.outputs.branding_assets }}
@@ -1816,6 +1817,71 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  guacamole-authority-sast:
+    permissions:
+      contents: read
+    name: SAST (Guacamole authority)
+    needs: paths
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.guacamole_authority == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: shifter/engine/guacamole/authority-extension/pom.xml
+      - name: Analyze extension bytecode with Find Security Bugs
+        working-directory: shifter/engine/guacamole/authority-extension
+        run: mvn --batch-mode --no-transfer-progress -DskipTests compile spotbugs:check
+
+  guacamole-authority-tests:
+    permissions:
+      contents: read
+    name: Tests and compilation (Guacamole authority)
+    needs: paths
+    if: ${{ !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.guacamole_authority == 'true' || needs.paths.outputs.container_images == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: shifter/engine/guacamole/authority-extension/pom.xml
+      - name: Compile and verify the supported extension
+        working-directory: shifter/engine/guacamole/authority-extension
+        run: mvn --batch-mode --no-transfer-progress verify
+      - name: Upload Java coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-guacamole-authority
+          path: shifter/engine/guacamole/authority-extension/target/site/jacoco/jacoco.xml
+          if-no-files-found: error
+          retention-days: 1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Install native qualification dependencies
+        working-directory: shifter/shifter_platform
+        run: uv sync --group dev
+      - name: Build local synthetic gateway and RDP guest
+        run: |
+          docker build -t shifter-guacamole-2319-local:latest shifter/engine/guacamole
+          docker build -t shifter-synthetic-rdp-2319:latest shifter/shifter_platform/tests/integration/guacamole-rdp
+      - name: Qualify real SSH, SFTP and RDP closure
+        working-directory: shifter/shifter_platform
+        env:
+          TESTING: "1"
+          TEST_DB_BACKEND: sqlite
+          GUACAMOLE_NATIVE_INTEGRATION: "1"
+          GUACAMOLE_EXTENSION_IMAGE: shifter-guacamole-2319-local:latest
+        run: >-
+          uv run pytest -n 2
+          tests/integration/test_guacamole_native_termination.py
+          tests/integration/test_guacamole_native_rdp.py
+          -q --tb=short
+
   openvpn-tests:
     permissions:
       contents: read
@@ -2591,6 +2657,7 @@ jobs:
       - shifter-engine-tests
       - packer-tests
       - openvpn-tests
+      - guacamole-authority-tests
       - bootstrap-tests
       - check-layer-imports-tests
       - installation-tests
@@ -2702,6 +2769,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      - name: Download Guacamole authority coverage
+        if: ${{ needs.guacamole-authority-tests.result == 'success' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-guacamole-authority
+          path: shifter/engine/guacamole/authority-extension/target/site/jacoco
+
+      - name: Compile Java sources for analysis
+        working-directory: shifter/engine/guacamole/authority-extension
+        run: mvn --batch-mode --no-transfer-progress -DskipTests compile
 
       - name: SonarQube Cloud scan
         # Gated on repository identity, NOT on the variables below being set

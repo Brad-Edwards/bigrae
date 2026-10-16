@@ -39,15 +39,19 @@ def decrypt_value(value: str) -> str:
         raise ValueError("Encrypted field contains an invalid encrypted value") from exc
 
 
-def _transform_sensitive(data: dict[str, Any], keys: frozenset[str], *, encrypt: bool) -> dict[str, Any]:
-    """Transform only declared non-empty string values."""
-    transformed = data.copy()
-    for key in keys:
-        value = transformed.get(key)
-        if not isinstance(value, str) or value == "":
-            continue
-        transformed[key] = encrypt_value(value) if encrypt else decrypt_value(value)
-    return transformed
+def _transform_sensitive(data: object, keys: frozenset[str], *, encrypt: bool) -> object:
+    """Transform declared string secrets throughout a JSON object without mutation."""
+    if isinstance(data, list):
+        return [_transform_sensitive(item, keys, encrypt=encrypt) for item in data]
+    if not isinstance(data, dict):
+        return data
+    transform = encrypt_value if encrypt else decrypt_value
+    return {
+        key: transform(value)
+        if key in keys and isinstance(value, str)
+        else _transform_sensitive(value, keys, encrypt=encrypt)
+        for key, value in data.items()
+    }
 
 
 class EncryptedStringField(models.TextField):

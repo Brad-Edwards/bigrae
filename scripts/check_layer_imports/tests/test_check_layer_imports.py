@@ -552,7 +552,14 @@ class TestSymbolFacadeImports:
         seam while every fixture-based test above kept passing.
         """
         assert load_allowed_symbols(LAYER_IMPORTS_YAML) == {
-            "engine": {"workspaces.services": ["OrganizationAuthorizationError", "get_organization_profile"]},
+            "engine": {
+                "workspaces.services": [
+                    "OrganizationAuthorizationError",
+                    "get_organization_profile",
+                    "resource_scope_from_ids",
+                    "resolve_range_scope_binding",
+                ]
+            },
             "config": {
                 "workspaces.services": [
                     "list_administrable_organizations",

@@ -2557,6 +2557,16 @@ class TestArtifactRegistryServiceIdentity:
 class TestProvisionerLauncherDeploymentParity:
     """Launcher identity must stay consistent across Terraform, bootstrap, Helm, and runtime config."""
 
+    def test_guacamole_gateway_has_its_own_workload_identity(self):
+        service_accounts = _sample_gcp_control_plane_outputs()["workload_service_accounts"]["value"]
+        service_accounts["guacamole-client"] = "gateway@synthetic.iam.gserviceaccount.com"
+        values = gcp_control_plane._helm_service_account_values(service_accounts)
+        assert (
+            values["guacamoleClient"]["annotations"]["iam.gke.io/gcp-service-account"]
+            == service_accounts["guacamole-client"]
+        )
+        assert values["guacamoleClient"]["annotations"] != values["workers"]["annotations"]
+
     def test_bootstrap_renders_dedicated_launcher_without_provisioner_cloud_identity(self):
         service_accounts = _sample_gcp_control_plane_outputs()["workload_service_accounts"]["value"]
 

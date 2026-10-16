@@ -42,7 +42,10 @@ class ScenarioMetadata(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="+",
+        null=True,
+        blank=True,
     )
+    updated_by_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -87,7 +90,13 @@ class RaesPackageSource(models.Model):
         FAILED = "failed", "Failed"
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    owner_principal_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    scope_kind = models.CharField(max_length=16, blank=True, default="", editable=False)
+    account_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
     organization_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    workspace_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    scope_generation = models.PositiveBigIntegerField(default=0, editable=False)
+    is_operator_published = models.BooleanField(default=False, editable=False)
     package_name = models.SlugField(max_length=100, blank=True, default="", editable=False)
     scenario_id = models.SlugField(
         max_length=100,
@@ -152,6 +161,8 @@ class RaesPackageSource(models.Model):
     registered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="+",
     )
     created_at = models.DateTimeField(auto_now_add=True)

@@ -9,6 +9,7 @@ App types: os, ngfw, agent, other.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -20,6 +21,14 @@ from .base import SpecBase
 # =============================================================================
 # App Specs - type-specific creation schemas
 # =============================================================================
+
+
+@dataclass(frozen=True)
+class NGFWOneTimeRegistration:
+    """The one-time registration value and its destination folder travel together."""
+
+    value: str | None = field(repr=False)
+    folder: str | None
 
 
 class AppSpecBase(SpecBase):

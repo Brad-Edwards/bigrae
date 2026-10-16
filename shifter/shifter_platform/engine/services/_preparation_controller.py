@@ -97,13 +97,36 @@ def reconcile_preparation(operation_id: UUID) -> None:
 
 def _lease_attempt(operation_id: UUID) -> tuple[bool, PreparationAttempt | None]:
     """Handle lease attempt."""
-    from engine.models import PreparationAttempt
+    from engine.models import PreparationAttempt, PreparationOperation
 
+    snapshot = PreparationOperation.objects.get(pk=operation_id)
+    if snapshot.current_attempt_id is None:
+        admitted = None
+        eligible = True
+    else:
+        admitted = PreparationAttempt.objects.get(pk=snapshot.current_attempt_id)
+        eligible = _eligible(admitted)
     with _locked(operation_id) as operation:
         if operation.current_attempt_id is None:
             return operation.cleanup_pending, None
         attempt = PreparationAttempt.objects.select_for_update().get(pk=operation.current_attempt_id)
-        return False, _acquire_attempt_lease(operation, attempt)
+        if admitted is None or attempt.id != admitted.id or attempt.input_digest != admitted.input_digest:
+            return False, None
+        if not eligible:
+            _fail(operation, "authorization-revoked")
+            leased = None
+        else:
+            leased = _acquire_attempt_lease(operation, attempt)
+        return False, leased
+
+
+def _eligible(attempt: PreparationAttempt) -> bool:
+    """Evaluate live initiating policy outside the database critical section."""
+    try:
+        _current_attempt(attempt)
+    except (ValueError, ValidationError):
+        return False
+    return True
 
 
 def _acquire_attempt_lease(operation: PreparationOperation, attempt: PreparationAttempt) -> PreparationAttempt | None:
@@ -112,7 +135,7 @@ def _acquire_attempt_lease(operation: PreparationOperation, attempt: Preparation
     if (attempt.lease_expires_at and attempt.lease_expires_at > now) or attempt.next_dispatch_at > now:
         return None
     try:
-        _current_attempt(attempt)
+        _current_attempt(attempt, authorize=False)
     except (ValueError, ValidationError):
         _fail(operation, "authorization-revoked")
         return None
@@ -144,8 +167,9 @@ def _dispatch(attempt: PreparationAttempt, task: PreparationTask) -> None:
     reference = task.dispatch(attempt_token(attempt))
     if not reference:
         return
+    eligible = _eligible(attempt)
     with _locked(attempt.operation_id) as operation:
-        current = _fenced(operation, attempt)
+        current = _fenced(operation, attempt, eligible=eligible)
         if current is None:
             return
         current.dispatched_at = timezone.now()
@@ -174,7 +198,9 @@ def _task(attempt: PreparationAttempt) -> PreparationTask:
     return get_preparation_task(grant, attempt.phase, image, attempt.operation_id, attempt.id)
 
 
-def _fenced(operation: PreparationOperation, snapshot: PreparationAttempt) -> PreparationAttempt | None:
+def _fenced(
+    operation: PreparationOperation, snapshot: PreparationAttempt, *, eligible: bool
+) -> PreparationAttempt | None:
     """Handle fenced."""
     from engine.models import PreparationAttempt
 
@@ -189,7 +215,9 @@ def _fenced(operation: PreparationOperation, snapshot: PreparationAttempt) -> Pr
     ):
         return None
     try:
-        _current_attempt(current)
+        if not eligible:
+            raise ValueError("Attempt authorization revoked")
+        _current_attempt(current, authorize=False)
     except (ValueError, ValidationError):
         _fail(operation, "authorization-revoked")
         return None
@@ -198,8 +226,9 @@ def _fenced(operation: PreparationOperation, snapshot: PreparationAttempt) -> Pr
 
 def _apply(snapshot: PreparationAttempt, facts: VerifiedMaterialization | None, failure: str) -> None:
     """Handle apply."""
+    eligible = _eligible(snapshot)
     with _locked(snapshot.operation_id) as operation:
-        current = _fenced(operation, snapshot)
+        current = _fenced(operation, snapshot, eligible=eligible)
         if current is None:
             return
         current.disposition = "rejected" if failure else "applied"

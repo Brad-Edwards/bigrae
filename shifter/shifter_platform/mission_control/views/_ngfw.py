@@ -31,6 +31,7 @@ from cms.services import (
 from shared.errors import classify_user_message
 from shared.exceptions import CMSError
 from shared.log_sanitize import safe_log_value
+from shared.schemas.app import NGFWOneTimeRegistration
 
 from ._common import (
     NGFW_NOT_FOUND,
@@ -145,8 +146,10 @@ def _extract_ngfw_create_payload(data: dict[str, Any]) -> dict[str, Any]:
         "deployment_profile_id": deployment_profile_id,
         "registration_method": data.get("registration_method"),
         "scm_credential_id": scm_credential_id,
-        "otp_value": data.get("otp_value", "").strip() if data.get("otp_value") else None,
-        "otp_folder": data.get("otp_folder", "").strip() if data.get("otp_folder") else None,
+        "otp": NGFWOneTimeRegistration(
+            data.get("otp_value", "").strip() if data.get("otp_value") else None,
+            data.get("otp_folder", "").strip() if data.get("otp_folder") else None,
+        ),
     }
 
 

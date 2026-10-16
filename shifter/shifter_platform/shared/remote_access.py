@@ -15,6 +15,7 @@ from uuid import UUID
 
 OPENVPN_CAPABILITY_VERSION = "openvpn-capability-v1"
 OPENVPN_BINDING_VERSION = "openvpn-binding-v1"
+OPENVPN_PRINCIPAL_BINDING_VERSION = "openvpn-binding-v2"
 OPENVPN_PROFILE_VERSION = "openvpn-profile-v1"
 OPENVPN_PROFILE_MEDIA_TYPE = "application/x-openvpn-profile"
 OPENVPN_PROFILE_MAX_BYTES = 64 * 1024
@@ -27,6 +28,11 @@ _RAES_MEMBER_TARGET_RE = re.compile(rf"^{RAES_MEMBER_TARGET_PATTERN}$")
 # account boundary so neither surface admits a broader path than the other.
 TERMINAL_TARGET_SEGMENT_PATTERN = rf"(?:[a-f0-9-]+|{RAES_MEMBER_TARGET_PATTERN})"
 TERMINAL_TARGET_PATH_RE = re.compile(rf"^/ws/terminal/{TERMINAL_TARGET_SEGMENT_PATTERN}/$")
+
+
+class PrincipalCredentialRequired(PermissionError):
+    """Historical human attribution cannot authorize a principal-owned guest."""
+
 
 _BINDING_KEYS = {
     "version",
@@ -134,7 +140,7 @@ class OpenVpnBinding:
     """Validated non-secret OpenVPN access metadata for one range generation."""
 
     generation: UUID
-    owner_user_id: int
+    owner_user_id: int | None
     target_ref: str
     endpoint: str
     port: int
@@ -143,6 +149,7 @@ class OpenVpnBinding:
     channel: str = "openvpn"
     version: str = OPENVPN_BINDING_VERSION
     profile_version: str = OPENVPN_PROFILE_VERSION
+    owner_principal_uuid: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -314,7 +321,7 @@ def _require_secret_ref(value: object) -> str:
 
 def _require_binding_versions(value: dict[str, object]) -> None:
     """Reject bindings whose version, channel, or profile version differ."""
-    if value["version"] != OPENVPN_BINDING_VERSION:
+    if value["version"] not in {OPENVPN_BINDING_VERSION, OPENVPN_PRINCIPAL_BINDING_VERSION}:
         raise OpenVpnBindingError("unsupported binding version")
     if value["channel"] != "openvpn":
         raise OpenVpnBindingError("channel must be openvpn")
@@ -324,11 +331,15 @@ def _require_binding_versions(value: dict[str, object]) -> None:
 
 def parse_openvpn_binding(value: object) -> OpenVpnBinding:
     """Parse the exact non-secret OpenVPN binding shape; reject extensions."""
-    value = _require_exact_keys(value, _BINDING_KEYS, "binding")
+    source = isinstance(value, dict) and value.get("version") == OPENVPN_PRINCIPAL_BINDING_VERSION
+    keys = (_BINDING_KEYS - {"owner_user_id"}) | {"owner_principal_uuid"} if source else _BINDING_KEYS
+    value = _require_exact_keys(value, keys, "binding")
     _require_binding_versions(value)
     return OpenVpnBinding(
         generation=_require_uuid(value["generation"], "generation"),
-        owner_user_id=_require_owner_user_id(value["owner_user_id"]),
+        owner_user_id=None if source else _require_owner_user_id(value["owner_user_id"]),
+        owner_principal_uuid=_require_uuid(value["owner_principal_uuid"], "owner_principal_uuid") if source else None,
+        version=OPENVPN_PRINCIPAL_BINDING_VERSION if source else OPENVPN_BINDING_VERSION,
         target_ref=_require_target_ref(value["target_ref"]),
         endpoint=_require_endpoint(value["endpoint"]),
         port=_require_port(value["port"]),
@@ -349,7 +360,9 @@ def parse_openvpn_realization(value: object) -> dict[str, object]:
     }
 
 
-def bind_openvpn_realization(realization: object, owner_user_id: int) -> dict[str, object]:
+def bind_openvpn_realization(
+    realization: object, owner_user_id: int | None = None, *, owner_principal_uuid: UUID | None = None
+) -> dict[str, object]:
     """Bind a realized gateway to the range owner and return the canonical binding."""
     realized = parse_openvpn_realization(realization)
     binding: dict[str, object] = {
@@ -360,6 +373,11 @@ def bind_openvpn_realization(realization: object, owner_user_id: int) -> dict[st
         "ready": True,
         **realized,
     }
+    if owner_principal_uuid is not None:
+        if owner_user_id is not None or not owner_principal_uuid.int:
+            raise OpenVpnBindingError("invalid principal binding")
+        binding.pop("owner_user_id")
+        binding.update(version=OPENVPN_PRINCIPAL_BINDING_VERSION, owner_principal_uuid=str(owner_principal_uuid))
     parse_openvpn_binding(binding)
     return binding
 

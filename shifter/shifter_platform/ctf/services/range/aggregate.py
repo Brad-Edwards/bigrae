@@ -52,8 +52,28 @@ def ctf_range_aggregate_guard(pairs: Sequence[tuple[uuid.UUID, int]]) -> set[int
     return bound
 
 
+def ctf_range_event_parent(request_id: uuid.UUID, range_instance_id: int) -> uuid.UUID | None:
+    """Resolve actual event membership; same-account events are not aliases."""
+    from django.db.models import Q
+
+    from ctf.models import CTFParticipant, CTFSpareRange
+
+    events = set(
+        CTFParticipant.objects.filter(range_instance_id=range_instance_id).values_list("event_id", flat=True)[:2]
+    )
+    events.update(
+        CTFSpareRange.objects.filter(Q(range_instance_id=range_instance_id) | Q(request_id=request_id)).values_list(
+            "event_id", flat=True
+        )[:2]
+    )
+    if len(events) > 1:
+        raise ValueError("Range event binding unavailable")
+    return next(iter(events), None)
+
+
 def register_ctf_range_aggregate_guard() -> None:
     """Register the CTF aggregate guard with the shared seam (idempotent)."""
-    from shared.range_workspace_aggregate import register_range_aggregate_guard
+    from shared.range_workspace_aggregate import register_range_aggregate_guard, register_range_event_resolver
 
     register_range_aggregate_guard(ctf_range_aggregate_guard)
+    register_range_event_resolver(ctf_range_event_parent)

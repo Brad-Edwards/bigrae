@@ -5,10 +5,11 @@ from uuid import uuid4
 from django.conf import settings
 from django.db import models
 
+from shared.db import RecordedAuthorityFields
 from shared.field_encryption import EncryptedStringField
 
 
-class RuntimePluginInstallation(models.Model):
+class RuntimePluginInstallation(RecordedAuthorityFields):
     """Executable identity is pinned; probes never grant readiness to a range."""
 
     class State(models.TextChoices):
@@ -32,7 +33,7 @@ class RuntimePluginInstallation(models.Model):
     probe_expires_at = models.DateTimeField()
     verified_at = models.DateTimeField(null=True)
     failure_code = models.CharField(max_length=32, blank=True, default="")
-    installed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    installed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

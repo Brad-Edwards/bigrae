@@ -235,7 +235,7 @@ def test_pack_cannot_be_launched_in_another_organization_workspace(upload, tenan
 
 
 def test_ctf_event_owner_binds_tenant_adapter_for_participant_workspace(upload, tenant, monkeypatch):
-    from cms.services._raes_dispatch import _launch_pack, _runtime_plugin_scope
+    from cms.services._raes_dispatch import RaesDispatchOptions, _launch_pack, _runtime_plugin_scope
     from workspaces.services import resolve_personal_workspace
 
     client, organization, root, _ = upload
@@ -253,13 +253,7 @@ def test_ctf_event_owner_binds_tenant_adapter_for_participant_workspace(upload, 
     monkeypatch.setattr("shared.raes.package_loader.launch_raes_package", launch)
     plugin_scope = _runtime_plugin_scope(participant, workspace.workspace_id, source, owner)
     _launch_pack(
-        uuid4(),
-        participant,
-        root,
-        None,
-        workspace.workspace_id,
-        "status-quo",
-        plugin_scope,
+        uuid4(), participant, root, RaesDispatchOptions(None, workspace.workspace_id, "status-quo"), plugin_scope
     )
 
     assert captured["scope"].organization_uuid == organization.uuid
@@ -268,7 +262,7 @@ def test_ctf_event_owner_binds_tenant_adapter_for_participant_workspace(upload, 
 
 def test_rejected_launch_logs_bounded_diagnostics(upload, tenant, monkeypatch, caplog):
     from cms.exceptions import CMSError
-    from cms.services._raes_dispatch import _launch_pack
+    from cms.services._raes_dispatch import RaesDispatchOptions, _launch_pack
     from shared.raes.package_loader import ShifterLaunchResult
     from shared.runtime_plugin_binding import RuntimePluginScope
     from workspaces.services import resolve_personal_workspace
@@ -297,11 +291,14 @@ def test_rejected_launch_logs_bounded_diagnostics(upload, tenant, monkeypatch, c
         caplog.at_level("WARNING", logger="cms.services._raes_dispatch"),
         pytest.raises(CMSError, match="RAES provisioning was not accepted"),
     ):
-        _launch_pack(request_id, owner, root, None, workspace.workspace_id, "status-quo", scope)
+        _launch_pack(request_id, owner, root, RaesDispatchOptions(None, workspace.workspace_id, "status-quo"), scope)
 
     assert str(request_id) in caplog.text
     assert "status=rejected" in caplog.text
-    assert diagnostic in caplog.text
+    from shared.log_sanitize import safe_log_fingerprint
+
+    assert diagnostic not in caplog.text
+    assert safe_log_fingerprint(diagnostic) in caplog.text
 
 
 def test_pack_revision_requires_existing_identity(upload):

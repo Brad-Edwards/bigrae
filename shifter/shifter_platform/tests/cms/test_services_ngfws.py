@@ -36,7 +36,7 @@ from shared.audit import (
 )
 from shared.enums import RequestType, ResourceStatus
 from shared.models import AuditLog
-from shared.schemas.app import NGFWAppContext, NGFWAppRef
+from shared.schemas.app import NGFWAppContext, NGFWAppRef, NGFWOneTimeRegistration
 
 # Opaque #1325 workspace scope binding (ADR-046-R3). These suites do not
 # exercise tenancy; a fixed scalar stands in for the value the CMS launch
@@ -298,8 +298,7 @@ class TestCreateNgfw:
             name="MyNGFW",
             deployment_profile_id=deployment_profile.id,
             registration_method="otp",
-            otp_value="OTP123",
-            otp_folder="folder/",
+            otp=NGFWOneTimeRegistration("OTP123", "folder/"),
         )
 
         assert isinstance(ref, NGFWAppRef)
@@ -331,8 +330,7 @@ class TestCreateNgfw:
                 name="Second",
                 deployment_profile_id=deployment_profile.id,
                 registration_method="otp",
-                otp_value="V",
-                otp_folder="F",
+                otp=NGFWOneTimeRegistration("V", "F"),
             )
 
     def test_validates_user(self):
@@ -361,8 +359,7 @@ class TestCreateNgfw:
                 name="HydrationFailNGFW",
                 deployment_profile_id=bad_profile.id,
                 registration_method="otp",
-                otp_value="OTP123",
-                otp_folder="folder/",
+                otp=NGFWOneTimeRegistration("OTP123", "folder/"),
             )
 
         cms_app = CMSApp.all_objects.get(instance__request__user=user)

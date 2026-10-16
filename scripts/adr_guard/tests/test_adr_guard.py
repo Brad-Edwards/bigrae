@@ -1034,7 +1034,10 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
             ADR_GUARD.load_allowed_symbols(cfg),
             {
                 "engine": {
-                    "workspaces.services": ["OrganizationAuthorizationError", "get_organization_profile"]
+                    "workspaces.services": [
+                        "OrganizationAuthorizationError", "get_organization_profile",
+                        "resource_scope_from_ids", "resolve_range_scope_binding",
+                    ]
                 },
                 "config": {
                     "workspaces.services": [

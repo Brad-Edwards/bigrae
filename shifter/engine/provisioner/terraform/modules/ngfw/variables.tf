@@ -4,8 +4,9 @@ variable "name_prefix" {
 }
 
 variable "user_id" {
-  description = "Owner's Django user ID"
+  description = "Historical human owner ID; null for service-owned devices"
   type        = number
+  default     = null
 }
 
 variable "instance_uuid" {

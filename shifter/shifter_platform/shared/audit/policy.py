@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from shared.audit.attribution import (
+    principal_actor_fields,
     request_audit,
 )
 from shared.audit.events import AuditEvent, AuthPrincipal, RequestAudit, SessionInfo, StateChange
@@ -25,6 +26,8 @@ from shared.log_sanitize import safe_log_fingerprint
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
+
+    from shared.identity_scope import PrincipalRef
 
 logger = logging.getLogger(__name__)
 
@@ -277,8 +280,9 @@ def audit_auth_event(
 def audit_session_event(
     action: str,
     *,
-    user_id: int,
+    user_id: int | None,
     session: SessionInfo,
+    principal: PrincipalRef | None = None,
     source_ip: str | None = None,
     context: str = "",
 ) -> bool:
@@ -294,6 +298,16 @@ def audit_session_event(
     Returns:
         True when the event was persisted; False on non-strict failure.
     """
+    if principal is None and user_id is None:
+        raise ValueError("Session audit requires an explicit actor")
+    actor = (
+        principal_actor_fields(principal)
+        if principal is not None
+        else {
+            "actor_type": AuditActorType.USER,
+            "actor_id": user_id,
+        }
+    )
     new_state: dict[str, Any] = {
         "session_id": session.session_id,
     }
@@ -313,8 +327,7 @@ def audit_session_event(
             entity_id=0,
             entity_ref=session.session_id,
             action=action,
-            actor_type=AuditActorType.USER,
-            actor_id=user_id,
+            **actor,
             new_state=new_state,
             context=context,
             source_ip=source_ip,

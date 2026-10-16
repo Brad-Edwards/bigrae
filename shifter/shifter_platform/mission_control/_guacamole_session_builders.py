@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Protocol
+from uuid import UUID
 
 from mission_control.guacamole_bootstrap import BootstrapFailure
+from shared.credentials import CredentialContext
 from shared.errors import classify_user_message
 from shared.log_sanitize import safe_log_fingerprint, safe_log_value
 
@@ -54,7 +56,7 @@ class _SSHConn(Protocol):
 # ---------------------------------------------------------------------------
 
 
-def guacamole_identity(user: User) -> str:
+def guacamole_identity(user: User | CredentialContext) -> str:
     """Return the Guacamole JSON-auth session identity for ``user``.
 
     The Guacamole session username is an identity label, not an email. Platform
@@ -64,7 +66,14 @@ def guacamole_identity(user: User) -> str:
     ``400 "The username must not be blank."``, so fall back to the account's
     unique username, which is also a correct per-user-isolated session identity.
     """
+    if isinstance(user, CredentialContext):
+        return f"principal-{user.principal.uuid}"
     return user.email or user.get_username()
+
+
+def _actor_log_identity(user: User | CredentialContext) -> str:
+    """Return bounded actor identity without exposing credential material."""
+    return str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email
 
 
 # ---------------------------------------------------------------------------
@@ -90,16 +99,18 @@ def guacamole_identity(user: User) -> str:
 _RDP_SECURITY_MODE = "any"
 
 
-def _resolve_rdp_conn(user: User, instance_uuid: str) -> dict[str, Any]:
+def _resolve_rdp_conn(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> dict[str, Any]:
     """Resolve the RDP connection info or raise ``BootstrapFailure``."""
     from cms.services import get_range_rdp_connection_info
 
     try:
-        return get_range_rdp_connection_info(user, instance_uuid)
+        return get_range_rdp_connection_info(user, instance_uuid, **({"range_uuid": range_uuid} if range_uuid else {}))
     except (PermissionError, ValueError) as e:
         logger.warning(
             "RDP connection lookup failed: user=%s instance_uuid=%s reason=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(_actor_log_identity(user)),
             safe_log_value(instance_uuid),
             safe_log_fingerprint(e),
         )
@@ -145,13 +156,24 @@ def _generate_rdp_url(
         raise BootstrapFailure("Failed to generate RDP URL", status_code=500) from e
 
 
-def _build_rdp_url(*, user: User, instance_uuid: str, guac_client: GuacamoleClient) -> str:
+def _build_rdp_url(
+    *,
+    user: User | CredentialContext,
+    instance_uuid: str,
+    guac_client: GuacamoleClient,
+    session_identity: str | None = None,
+    range_uuid: UUID | None = None,
+) -> str:
     """Resolve RDP credentials and build the signed URL — runs in the worker.
 
     Credential resolution (the Secrets Manager fetch) happens here, inside the
     bootstrap worker, not on the request thread (#929).
     """
-    conn_info = _resolve_rdp_conn(user, instance_uuid)
+    conn_info = (
+        _resolve_rdp_conn(user, instance_uuid)
+        if range_uuid is None
+        else _resolve_rdp_conn(user, instance_uuid, range_uuid=range_uuid)
+    )
     # ``conn_info`` carries RDP credentials, so only non-secret metadata is
     # logged. ``os_type`` is read from the credential-bearing dict, so CodeQL
     # taints it regardless of naming; it goes through ``safe_log_fingerprint``
@@ -162,13 +184,13 @@ def _build_rdp_url(*, user: User, instance_uuid: str, guac_client: GuacamoleClie
     file_transfer_available = "yes" if conn_info.get("sftp_enabled") is not False else "no"
     logger.info(
         "Guac RDP request: user=%s instance_uuid=%s os=%s file_transfer_available=%s",
-        safe_log_fingerprint(user.email),
+        safe_log_fingerprint(_actor_log_identity(user)),
         safe_log_value(instance_uuid),
         safe_log_fingerprint(rdp_os),
         file_transfer_available,
     )
     return _generate_rdp_url(
-        username=guacamole_identity(user),
+        username=session_identity or guacamole_identity(user),
         conn_info=conn_info,
         guac_client=guac_client,
     )
@@ -179,7 +201,7 @@ def _build_rdp_url(*, user: User, instance_uuid: str, guac_client: GuacamoleClie
 # ---------------------------------------------------------------------------
 
 
-def _resolve_ngfw_ssh(user: User, app_id: str) -> _SSHConn:
+def _resolve_ngfw_ssh(user: User | CredentialContext, app_id: str) -> _SSHConn:
     """Look up the NGFW SSH connection details or raise ``BootstrapFailure``."""
     from engine.services import connect_ngfw_terminal
 
@@ -188,7 +210,7 @@ def _resolve_ngfw_ssh(user: User, app_id: str) -> _SSHConn:
     except ValueError as e:
         logger.warning(
             "NGFW SSH access denied: user=%s ngfw_uuid=%s reason=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(_actor_log_identity(user)),
             safe_log_value(app_id),
             safe_log_fingerprint(e),
         )
@@ -196,7 +218,7 @@ def _resolve_ngfw_ssh(user: User, app_id: str) -> _SSHConn:
     except PermissionError as e:
         logger.warning(
             "NGFW SSH access denied: user=%s ngfw_uuid=%s reason=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(_actor_log_identity(user)),
             safe_log_value(app_id),
             safe_log_fingerprint(e),
         )
@@ -204,7 +226,7 @@ def _resolve_ngfw_ssh(user: User, app_id: str) -> _SSHConn:
     except Exception as e:
         logger.exception(
             "Unexpected error getting NGFW SSH connection: user=%s ngfw_uuid=%s reason=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(_actor_log_identity(user)),
             safe_log_value(app_id),
             safe_log_fingerprint(e),
             # Never append the original exception text; upstream connection
@@ -253,7 +275,9 @@ def _generate_ngfw_ssh_url(
         raise BootstrapFailure(_INTERNAL_SERVER_ERROR, status_code=500) from e
 
 
-def _build_ngfw_ssh_url(*, user: User, app_id: str, guac_client: GuacamoleClient) -> str:
+def _build_ngfw_ssh_url(
+    *, user: User | CredentialContext, app_id: str, guac_client: GuacamoleClient, session_identity: str | None = None
+) -> str:
     """Resolve NGFW SSH credentials and build the signed URL — runs in the worker.
 
     The ownership check and Secrets Manager fetch happen here, off the request
@@ -261,7 +285,7 @@ def _build_ngfw_ssh_url(*, user: User, app_id: str, guac_client: GuacamoleClient
     """
     ssh_conn = _resolve_ngfw_ssh(user, app_id)
     return _generate_ngfw_ssh_url(
-        username=guacamole_identity(user),
+        username=session_identity or guacamole_identity(user),
         app_id=app_id,
         ssh_conn=ssh_conn,
         guac_client=guac_client,
@@ -273,16 +297,18 @@ def _build_ngfw_ssh_url(*, user: User, app_id: str, guac_client: GuacamoleClient
 # ---------------------------------------------------------------------------
 
 
-def _resolve_range_ssh(user: User, instance_uuid: str) -> dict[str, Any]:
+def _resolve_range_ssh(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> dict[str, Any]:
     """Look up the range SSH connection info or raise ``BootstrapFailure``."""
     from cms.services import get_range_ssh_connection_info
 
     try:
-        return get_range_ssh_connection_info(user, instance_uuid)
+        return get_range_ssh_connection_info(user, instance_uuid, **({"range_uuid": range_uuid} if range_uuid else {}))
     except ValueError as e:
         logger.warning(
             "Range SSH access denied: user=%s instance_uuid=%s reason=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(_actor_log_identity(user)),
             safe_log_value(instance_uuid),
             safe_log_fingerprint(e),
         )
@@ -290,7 +316,7 @@ def _resolve_range_ssh(user: User, instance_uuid: str) -> dict[str, Any]:
     except PermissionError as e:
         logger.warning(
             "Range SSH access denied: user=%s instance_uuid=%s reason=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(_actor_log_identity(user)),
             safe_log_value(instance_uuid),
             safe_log_fingerprint(e),
         )
@@ -298,7 +324,7 @@ def _resolve_range_ssh(user: User, instance_uuid: str) -> dict[str, Any]:
     except Exception as e:
         logger.exception(
             "Unexpected error getting range SSH connection: user=%s instance_uuid=%s reason=%s",
-            safe_log_fingerprint(user.email),
+            safe_log_fingerprint(_actor_log_identity(user)),
             safe_log_value(instance_uuid),
             safe_log_fingerprint(e),
             # Never append the original exception text; range connection data
@@ -347,13 +373,24 @@ def _generate_range_ssh_url(
         raise BootstrapFailure(_INTERNAL_SERVER_ERROR, status_code=500) from e
 
 
-def _build_range_ssh_url(*, user: User, instance_uuid: str, guac_client: GuacamoleClient) -> str:
+def _build_range_ssh_url(
+    *,
+    user: User | CredentialContext,
+    instance_uuid: str,
+    guac_client: GuacamoleClient,
+    session_identity: str | None = None,
+    range_uuid: UUID | None = None,
+) -> str:
     """Resolve range SSH credentials and build the signed URL — runs in the worker.
 
     Credential resolution (the Secrets Manager fetch) happens here, off the
     request thread (#929).
     """
-    ssh_info = _resolve_range_ssh(user, instance_uuid)
+    ssh_info = (
+        _resolve_range_ssh(user, instance_uuid)
+        if range_uuid is None
+        else _resolve_range_ssh(user, instance_uuid, range_uuid=range_uuid)
+    )
     # ``ssh_info`` carries the SSH private key. Only non-secret metadata is
     # logged: the host IP and cloud provider name. Both are read from the
     # credential-bearing dict, so CodeQL taints them regardless of naming; they
@@ -362,13 +399,13 @@ def _build_range_ssh_url(*, user: User, instance_uuid: str, guac_client: Guacamo
     # fingerprinted; the instance correlation ID goes through ``safe_log_value``.
     logger.info(
         "Guacamole SSH bootstrap queued for range instance: user=%s instance_uuid=%s host=%s provider=%s",
-        safe_log_fingerprint(user.email),
+        safe_log_fingerprint(_actor_log_identity(user)),
         safe_log_value(instance_uuid),
         safe_log_fingerprint(ssh_info["host"]),
         safe_log_fingerprint(ssh_info.get("cloud_provider") or "unknown"),
     )
     return _generate_range_ssh_url(
-        username=guacamole_identity(user),
+        username=session_identity or guacamole_identity(user),
         instance_uuid=instance_uuid,
         ssh_info=ssh_info,
         guac_client=guac_client,

@@ -34,6 +34,7 @@ class VpnSession(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     range = models.ForeignKey("engine.Range", on_delete=models.CASCADE, related_name="vpn_sessions")
+    profile = models.ForeignKey("engine.VpnAccessProfile", null=True, on_delete=models.PROTECT, related_name="sessions")
     # The binding generation the client certificate was minted for.
     generation = models.UUIDField()
     # Pool server instance name and the OpenVPN client id on that server.

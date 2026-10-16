@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
@@ -72,7 +75,7 @@ def _get_raes_sources() -> list[RaesPackageSource]:
     """
     from cms.models import RaesPackageSource
 
-    return list(RaesPackageSource.objects.all())
+    return list(RaesPackageSource.objects.filter(scope_kind=""))
 
 
 def _raes_source_refs_valid(source: RaesPackageSource) -> bool:
@@ -192,7 +195,12 @@ def _raes_source_to_dict(
     }
 
 
-def list_all_scenarios(user: User | None = None, *, include_unavailable: bool = False) -> list[ScenarioProjection]:
+def list_all_scenarios(
+    user: User | CredentialContext | None = None,
+    *,
+    include_unavailable: bool = False,
+    scope: ResourceScope | None = None,
+) -> list[ScenarioProjection]:
     """Get all RAES package sources with metadata access overlays applied.
 
     Args:
@@ -203,6 +211,10 @@ def list_all_scenarios(user: User | None = None, *, include_unavailable: bool = 
     Returns:
         List of scenario dicts sorted by name.
     """
+    if isinstance(user, CredentialContext):
+        from .scoped_registry import list_scoped_scenarios
+
+        return list_scoped_scenarios(user, scope, include_unavailable=include_unavailable)
     metadata_map = _get_metadata_map()
 
     result = _raes_source_entries(metadata_map, user=user)
@@ -233,21 +245,25 @@ def _raes_source_entries(metadata_map: dict[str, Any], *, user: User | None = No
     return entries
 
 
-def get_catalog_entry(scenario_id: str, *, user: User | None = None) -> ScenarioProjection | None:
+def get_catalog_entry(
+    scenario_id: str, *, user: User | CredentialContext | None = None, scope: ResourceScope | None = None
+) -> ScenarioProjection | None:
     """Return the unified projection entry for a scenario id, or None if absent.
 
     Includes disabled entries for review while enforcing organization ownership
     whenever a caller is supplied. Internal callers may omit the caller.
     """
-    for entry in list_all_scenarios(user=user, include_unavailable=True):
+    for entry in list_all_scenarios(user=user, include_unavailable=True, scope=scope):
         if entry["id"] == scenario_id:
             return entry
     return None
 
 
 def list_launchable_scenarios(
-    user: User | None = None,
+    user: User | CredentialContext | None = None,
     workflow: ScenarioWorkflow = ScenarioWorkflow.RANGE_LAUNCH,
+    *,
+    scope: ResourceScope | None = None,
 ) -> list[ScenarioProjection]:
     """List scenarios a given workflow may launch.
 
@@ -255,7 +271,7 @@ def list_launchable_scenarios(
     non-launchable RAES entries for review). Every launch workflow returns only
     entries whose ``launchable`` flag is set.
     """
-    scenarios = list_all_scenarios(user=user)
+    scenarios = list_all_scenarios(user=user, scope=scope)
     if workflow == ScenarioWorkflow.STAFF_REVIEW:
         return scenarios
     return [s for s in scenarios if s.get("launchable", True)]
@@ -296,7 +312,9 @@ def get_scenario_detail(scenario_id: str) -> ScenarioProjection:
     return detail
 
 
-def check_scenario_access(scenario_id: str, user: User) -> ScenarioProjection:
+def check_scenario_access(
+    scenario_id: str, user: User | CredentialContext, *, scope: ResourceScope | None = None
+) -> ScenarioProjection:
     """Check if a user can access a scenario. Returns detail dict or raises ValueError.
 
     Organization ownership applies to staff too. Non-staff users are also
@@ -312,9 +330,11 @@ def check_scenario_access(scenario_id: str, user: User) -> ScenarioProjection:
     Raises:
         ValueError: If scenario not found or user lacks access.
     """
-    detail = get_catalog_entry(scenario_id, user=user)
+    detail = get_catalog_entry(scenario_id, user=user, scope=scope)
     if detail is None:
         raise ValueError("Scenario is not available")
+    if isinstance(user, CredentialContext):
+        return detail
     if not (user.is_staff or user.is_superuser) and (not detail["enabled"] or detail["staff_only"]):
         raise ValueError(f"Scenario '{scenario_id}' is not available")
     return detail

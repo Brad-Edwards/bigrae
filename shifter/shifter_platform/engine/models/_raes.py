@@ -1,7 +1,10 @@
 """RAES backend models: image mapping (ADR-032-R2) + content-delivery binding (#1564)."""
 
+from uuid import UUID
+
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models.functions import Coalesce
 
 #: Swappable-safe string reference to the Range model, shared by every RAES
 #: sidecar binding FK so the literal is defined once (Sonar python:S1192).
@@ -23,6 +26,13 @@ class RaesImageMapping(models.Model):
     Retire a mapping with ``enabled=False`` -- which preserves audit history and
     makes realization fail loud -- rather than deleting it.
     """
+
+    owner_principal_uuid = models.UUIDField(null=True, editable=False, db_index=True)
+    scope_kind = models.CharField(max_length=16, blank=True, default="", editable=False)
+    account_uuid = models.UUIDField(null=True, editable=False, db_index=True)
+    organization_uuid = models.UUIDField(null=True, editable=False, db_index=True)
+    workspace_uuid = models.UUIDField(null=True, editable=False, db_index=True)
+    catalog_publication_scope = models.CharField(max_length=16, blank=True, default="", editable=False)
 
     class Provider(models.TextChoices):
         """Cloud provider a mapping targets (RAES-scoped; extensible)."""
@@ -136,8 +146,14 @@ class RaesImageMapping(models.Model):
                 name="raes_image_management_port_valid",
             ),
             models.UniqueConstraint(
-                fields=["provider", "source_name", "source_version"],
-                name="unique_raes_image_mapping",
+                "provider",
+                "source_name",
+                "source_version",
+                "scope_kind",
+                Coalesce("account_uuid", models.Value(UUID(int=0))),
+                Coalesce("organization_uuid", models.Value(UUID(int=0))),
+                Coalesce("workspace_uuid", models.Value(UUID(int=0))),
+                name="unique_scoped_raes_image_mapping",
             ),
             # A mapping is either fully legacy (no portable identity) or fully
             # portable (identity + both admission evidence refs). A half-populated

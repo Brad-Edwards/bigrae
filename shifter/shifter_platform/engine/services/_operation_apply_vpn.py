@@ -36,7 +36,11 @@ def bound_vpn_access(
         raise RaesRealizedAccessError("raes realized OpenVPN access does not match the range capability")
     try:
         authorized = parse_openvpn_capability(capability)
-        binding = bind_openvpn_realization(realization, range_obj.user_id)
+        binding = (
+            bind_openvpn_realization(realization, owner_principal_uuid=range_obj.owner_principal_uuid)
+            if range_obj.owner_principal_uuid is not None
+            else bind_openvpn_realization(realization, range_obj.user_id)
+        )
     except OpenVpnBindingError:
         raise RaesRealizedAccessError("raes realized OpenVPN access is invalid") from None
     if binding["target_ref"] != authorized.target_ref or binding["generation"] != str(row.request_id):

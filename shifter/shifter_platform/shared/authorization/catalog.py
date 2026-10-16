@@ -52,6 +52,8 @@ def _action(
 # This is the sole application-action vocabulary. S8 maps each protected surface
 # to exactly one entry; adding a surface without extending this tuple is caught by
 # the coverage tests introduced with that cutover.
+_CONTENT_PARENTS: tuple[Literal["account", "organization", "workspace"], ...] = ("account", "organization", "workspace")
+
 ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("installation.use_personal_tokens", "installation", administrative=False),
     _action("installation.revoke_personal_tokens", "installation"),
@@ -71,6 +73,7 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("installation.manage_cloud_authority", "installation"),
     _action("installation.manage_lease_policy", "installation"),
     _action("account.read", "account"),
+    _action("account.launch_range", "account"),
     _action("account.update", "account"),
     _action("account.delete", "account"),
     _action("account.manage_members", "account"),
@@ -79,6 +82,7 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("account.create_event", "account"),
     _action("account.delegate_authorization", "account", delegable=False, requires_administrator=True),
     _action("organization.read", "organization"),
+    _action("organization.launch_range", "organization"),
     _action("organization.update", "organization"),
     _action("organization.manage_members", "organization"),
     _action("organization.manage_workspaces", "organization"),
@@ -104,9 +108,9 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("workspace.manage_authorization", "workspace"),
     _action("workspace.create_event", "workspace"),
     _action("workspace.delegate_authorization", "workspace", delegable=False, requires_administrator=True),
-    _action("workspace.launch_range", "workspace", administrative=False),
+    _action("workspace.launch_range", "workspace"),
     _action("workspace.publish_model_access", "workspace"),
-    _action("event.read", "event", administrative=False),
+    _action("event.read", "event"),
     _action("event.participate", "event", administrative=False, delegable=False),
     _action("event.manage", "event"),
     _action("event.manage_config", "event"),
@@ -124,10 +128,43 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("event.transfer_ownership", "event", delegable=False, requires_administrator=True),
     _action("event.manage_communications", "event"),
     _action("event.delegate_authorization", "event", delegable=False, requires_administrator=True),
-    _action("range.read", "range", administrative=False),
-    _action("range.manage", "range", administrative=False),
+    _action("range.read", "range"),
+    _action("range.manage", "range"),
+    _action("range.access", "range", delegable=False),
+    *(
+        _action(f"{parent}.{operation}", parent)
+        for parent in _CONTENT_PARENTS
+        for operation in (
+            "read_content",
+            "manage_content",
+            "manage_sources",
+            "manage_credentials",
+            "manage_model_sources",
+            "manage_adapters",
+            "prepare_content",
+            "publish_content",
+            "read_devices",
+            "manage_devices",
+            "access_devices",
+        )
+    ),
+    _action("account.manage_range_scope", "account"),
+    _action("organization.manage_range_scope", "organization"),
+    *(
+        _action(f"installation.{operation}", "installation")
+        for operation in (
+            "read_content",
+            "manage_content",
+            "manage_sources",
+            "manage_credentials",
+            "prepare_content",
+            "publish_content",
+            "read_devices",
+            "manage_devices",
+            "access_devices",
+        )
+    ),
     _action("range.transfer_ownership", "range"),
-    _action("range.access", "range", administrative=False, delegable=False),
 )
 
 _ACTIONS_BY_CODE = {action.code: action for action in ACTION_CATALOG}

@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Coalesce
 
 from cms.credential_encryption import EncryptedCredentialDataField
 from cms.models.catalogs import AgentType, CredentialType, OperatingSystem
@@ -53,6 +55,12 @@ class Asset(SoftDeleteMixin, models.Model):
     name = models.CharField(max_length=100, help_text="User-friendly name")
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    owner_principal_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    scope_kind = models.CharField(max_length=16, blank=True, default="", editable=False)
+    account_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    organization_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    workspace_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    scope_generation = models.PositiveBigIntegerField(default=0, editable=False)
 
     objects = SoftDeleteManager()
     all_objects = SoftDeleteQuerySet.as_manager()
@@ -73,7 +81,7 @@ class Asset(SoftDeleteMixin, models.Model):
         Thin wrapper around ``cls.objects.filter(user=user)`` — kept as a
         named method for callers that prefer the explicit verb.
         """
-        return cls.objects.filter(user=user)
+        return cls.objects.filter(user=user, scope_kind="")
 
 
 class FileAsset(Asset):
@@ -160,7 +168,9 @@ class Credential(CredentialBase):
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="credentials",
     )
     credential_type = models.ForeignKey(
@@ -185,6 +195,16 @@ class Credential(CredentialBase):
         base_manager_name = "all_objects"
         constraints = [
             models.UniqueConstraint(
+                models.F("owner_principal_uuid"),
+                models.F("scope_kind"),
+                Coalesce("account_uuid", models.Value(UUID(int=0))),
+                Coalesce("organization_uuid", models.Value(UUID(int=0))),
+                Coalesce("workspace_uuid", models.Value(UUID(int=0))),
+                models.F("name"),
+                condition=models.Q(owner_principal_uuid__isnull=False, deleted_at__isnull=True),
+                name="uq_credential_principal_scope_name",
+            ),
+            models.UniqueConstraint(
                 fields=["user", "name"],
                 condition=models.Q(deleted_at__isnull=True),
                 name="unique_active_credential_name_per_user",
@@ -207,7 +227,9 @@ class AgentConfig(FileAsset):
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="cms_agents",
     )
     os = models.ForeignKey(

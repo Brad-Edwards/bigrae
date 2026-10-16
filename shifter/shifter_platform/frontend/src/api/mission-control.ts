@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiDownload, apiFetch } from "./client";
+import { ApiError } from "./errors";
 import type {
   AgentListResponse,
   CredentialCreateResponse,
@@ -167,6 +168,8 @@ const VPN_PROFILE_FILENAME = "shifter-range.ovpn";
 
 export function useDownloadRangeVpnProfile() {
   return useMutation({
+    retry: (count, error) => error instanceof ApiError && error.status === 202 && error.code === "vpn_preparing" && count < 24,
+    retryDelay: 5000,
     mutationFn: async () => {
       const blob = await apiDownload("/mission-control/range/vpn-profile/", {
         method: "POST",

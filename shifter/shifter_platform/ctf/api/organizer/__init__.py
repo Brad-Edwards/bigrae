@@ -94,7 +94,6 @@ from ctf.api.organizer.ranges import (
     ParticipantRangeStartView,
     ParticipantRangeStatusView,
     ParticipantRangeStopView,
-    ParticipantVpnProfileView,
 )
 from ctf.api.organizer.registration import (
     PublicRegistrationDispositionView,
@@ -187,3 +186,5 @@ __all__ = [
     "UseHintView",
     "WebhookDetailView",
 ]
+
+from ctf.api.organizer.vpn import ParticipantVpnProfileView

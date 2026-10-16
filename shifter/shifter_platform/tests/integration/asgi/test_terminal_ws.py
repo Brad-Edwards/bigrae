@@ -94,6 +94,31 @@ class TestTerminalWebsocketRealStack:
     @pytest.mark.asyncio
     async def test_capacity_cap_rejects_when_saturated(self, asgi_application, ws_user, ws_headers, settings):
         """When the per-process session cap is full, connect → SERVICE_UNAVAILABLE."""
+        from channels.db import database_sync_to_async
+
+        def admitted_terminal_path():
+            from cms.models import Request as CmsRequest
+            from engine.models import Range, Request
+            from workspaces.services import resolve_personal_workspace
+
+            workspace_id = resolve_personal_workspace(ws_user).workspace_id
+            request_id, instance = uuid.uuid4(), uuid.uuid4().hex
+            CmsRequest.objects.create(
+                request_id=request_id, request_type="range", user=ws_user, workspace_id=workspace_id
+            )
+            request = Request.objects.create(request_id=request_id, request_type="range", user=ws_user)
+            Range.objects.create(
+                request=request,
+                user=ws_user,
+                workspace_id=workspace_id,
+                status="ready",
+                provisioned_instances=[{"uuid": instance}],
+            )
+            return TERMINAL_PATH.format(instance=instance)
+
+        # Credential and resource admission precede capacity. Use a real owned
+        # guest so this test reaches the capacity decision it intends to cover.
+        path = await database_sync_to_async(admitted_terminal_path)()
         settings.TERMINAL_MAX_SESSIONS = 1
         settings.TERMINAL_MAX_SESSIONS_PER_USER = 1
 
@@ -103,7 +128,7 @@ class TestTerminalWebsocketRealStack:
         acquired = await session_registry.try_acquire(ws_user.id, 1, 1)
         assert acquired
         try:
-            communicator = WebsocketCommunicator(asgi_application, _terminal_url(), headers=ws_headers)
+            communicator = WebsocketCommunicator(asgi_application, path, headers=ws_headers)
             connected, code = await communicator.connect()
 
             assert connected is False

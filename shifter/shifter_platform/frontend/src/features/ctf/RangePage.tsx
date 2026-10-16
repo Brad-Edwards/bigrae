@@ -105,7 +105,7 @@ function VpnProfileDownload({ status }: Readonly<{ status: CtfRangeStatus }>) {
   return (
     <div className="mt-3">
       <Button variant="secondary" onClick={() => download.mutate()} disabled={download.isPending}>
-        {download.isPending ? "Downloading…" : "Download VPN profile"}
+        {download.isPending ? "Preparing VPN profile…" : "Download VPN profile"}
       </Button>
       <p className="mt-2 text-sm text-muted-foreground">
         This file is a private credential. Import it into a standard OpenVPN client and store it securely.

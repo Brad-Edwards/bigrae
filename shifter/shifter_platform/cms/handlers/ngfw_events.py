@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from django.db.models import QuerySet
+
+    from shared.identity_scope import ResourceScope
 
 from cms.models import App, Instance
 from shared.enums import ResourceStatus
@@ -56,23 +63,34 @@ def process_ngfw_event(message: str | dict) -> None:
     # _validate_required_fields confirms app_id is truthy; narrow str | None -> str.
     assert app_id is not None
 
-    try:
-        previous_instance_status = _update_instance(event_id, instance_id, status)
-        previous_app_status = _update_app(event_id, app_id, status, serial_number)
-    except _NgfwAbort:
+    if _principal_device_event(payload):
         return
+    assert instance_id is not None
+    _process_legacy_device_event(event_id, instance_id, app_id, status, serial_number)
 
-    logger.info(
-        "CMS processed NGFW event: instance_id=%s (%s->%s) app_id=%s (%s->%s) serial=%s event_id=%s",
-        instance_id,
-        previous_instance_status,
-        status or previous_instance_status,
-        app_id,
-        previous_app_status,
-        status or previous_app_status,
-        serial_number or "N/A",
-        event_id,
-    )
+
+def _principal_device_event(payload: NGFWEventPayload) -> bool:
+    """Mirror only an accepted native event for the same principal device custody."""
+    from django.db.models import Q
+
+    from engine.services import verified_device_status_projection
+
+    try:
+        if not payload.get("instance_id") or not payload.get("app_id"):
+            raise ValueError("Device callback identity unavailable")
+        # Either named side being principal-owned keeps mixed-identity events
+        # out of the legacy update path as well.
+        candidates = Instance.all_objects.select_related("request").filter(
+            Q(pk=payload["instance_id"]) | Q(apps__pk=payload["app_id"])
+        )
+        if not candidates.filter(request__owner_principal_uuid__isnull=False).exists():
+            return False
+        proof = verified_device_status_projection(dict(payload))
+        if proof is not None:
+            _mirror_principal_device(candidates, payload, proof)
+    except Exception:
+        logger.debug("Principal device callback could not be mirrored")
+    return True
 
 
 def _validate_required_fields(event_id: str, instance_id: str | None, app_id: str | None) -> bool:
@@ -174,3 +192,59 @@ def _update_app(
         logger.exception("DB error saving CMS App: app_id=%s event_id=%s", app_id, event_id)
         raise _NgfwAbort from exc
     return previous
+
+
+def _process_legacy_device_event(
+    event_id: str,
+    instance_id: str,
+    app_id: str,
+    status: str | None,
+    serial_number: str | None,
+) -> None:
+    """Apply and log an incumbent device event after the principal callback boundary declined it."""
+    try:
+        previous_instance_status = _update_instance(event_id, instance_id, status)
+        previous_app_status = _update_app(event_id, app_id, status, serial_number)
+    except _NgfwAbort:
+        return
+
+    logger.info(
+        "CMS processed NGFW event: instance_id=%s (%s->%s) app_id=%s (%s->%s) serial=%s event_id=%s",
+        instance_id,
+        previous_instance_status,
+        status or previous_instance_status,
+        app_id,
+        previous_app_status,
+        status or previous_app_status,
+        serial_number or "N/A",
+        event_id,
+    )
+
+
+def _mirror_principal_device(
+    candidates: QuerySet[Instance], payload: NGFWEventPayload, proof: tuple[UUID, UUID, UUID, ResourceScope]
+) -> None:
+    """Mirror only the accepted native status for unchanged CMS device custody."""
+    from django.db import transaction
+    from django.utils import timezone
+
+    from workspaces.services import resource_scope_from_ids
+
+    with transaction.atomic():
+        instance = candidates.select_for_update(of=("self",)).get(pk=str(payload["instance_id"]))
+        app = App.all_objects.select_for_update().get(pk=str(payload["app_id"]), instance=instance)
+        request = instance.request
+        scope = resource_scope_from_ids(
+            kind=request.scope_kind,
+            account_id=request.account_id,
+            organization_id=request.organization_id,
+            workspace_id=request.workspace_id,
+        )
+        if proof != (request.request_id, instance.pk, request.owner_principal_uuid, scope):
+            return
+        instance.status = app.status = payload["status"]
+        instance.save(update_fields=["status"])
+        app.save(update_fields=["status"])
+        if payload["status"] == "destroyed":
+            request.deleted_at = timezone.now()
+            request.save(update_fields=["deleted_at"])

@@ -75,7 +75,9 @@ class RangeInstance(SoftDeleteMixin, models.Model):
     )
     range_id = models.IntegerField(unique=True, null=True, blank=True)
     scenario_id = models.CharField(max_length=50)
-    user_id = models.IntegerField()
+    user_id = models.IntegerField(null=True, blank=True)
+    owner_principal_uuid = models.UUIDField(null=True, blank=True, db_index=True)
+    event_uuid = models.UUIDField(null=True, blank=True, db_index=True)
     # Soft reference to workspaces.Workspace (ADR-046-R3, #1325), matching the
     # existing range_id/user_id scalar convention on this model. Non-null with no
     # default: the projection always inherits its request's authorized scope, so
@@ -177,6 +179,12 @@ class RangeInstance(SoftDeleteMixin, models.Model):
         verbose_name_plural = "Range Instances"
         base_manager_name = "all_objects"
         constraints = [
+            models.UniqueConstraint(
+                fields=["owner_principal_uuid", "range_source"],
+                condition=models.Q(owner_principal_uuid__isnull=False, deleted_at__isnull=True)
+                & ~models.Q(status=ResourceStatus.DESTROYING.value),
+                name="uq_range_active_principal_source",
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(

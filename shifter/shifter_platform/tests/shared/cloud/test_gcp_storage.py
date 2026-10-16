@@ -17,6 +17,24 @@ from shared.cloud.gcp.storage import GCPObjectStorage
 
 
 class TestReadObjectHeader:
+    def test_conditional_header_checks_the_observed_generation(self):
+        storage = GCPObjectStorage()
+        client = MagicMock()
+        blob = client.bucket.return_value.blob.return_value
+        blob.download_as_bytes.return_value = b"validated-header"
+        with patch("google.cloud.storage.Client", return_value=client):
+            assert (
+                storage.read_object_header("b", "k", 64, expected_identity={"generation": "42"}) == b"validated-header"
+            )
+        blob.download_as_bytes.assert_called_once_with(start=0, end=63, if_generation_match=42)
+
+    @pytest.mark.parametrize("generation", [True, 1.5, "1.5", "", 0, -1])
+    def test_invalid_generation_never_downloads_header(self, generation):
+        client = MagicMock()
+        with patch("google.cloud.storage.Client", return_value=client), pytest.raises(CloudStorageError):
+            GCPObjectStorage().read_object_header("b", "k", 64, expected_identity={"generation": generation})
+        client.bucket.assert_not_called()
+
     def test_calls_download_with_inclusive_range_and_returns_bytes(self):
         storage = GCPObjectStorage()
         fake_client = MagicMock()

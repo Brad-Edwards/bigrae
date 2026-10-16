@@ -1,0 +1,6 @@
+{
+  "guacamoleVersion": "1.6.0",
+  "name": "Shifter session authority",
+  "namespace": "shifter-authority",
+  "authProviders": ["com.shifter.guacamole.AuthorityProvider"]
+}

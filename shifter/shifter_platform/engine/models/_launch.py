@@ -4,6 +4,8 @@ import uuid
 
 from django.db import models
 
+from shared.db import RecordedAuthorityFields
+
 
 class ProvisionerLaunchStatus(models.TextChoices):
     """Lifecycle values for a durable provisioner launch request.
@@ -43,11 +45,12 @@ class InterruptState(models.TextChoices):
     EXHAUSTED = "EXHAUSTED", "Exhausted"
 
 
-class ProvisionerLaunchIntent(models.Model):
+class ProvisionerLaunchIntent(RecordedAuthorityFields):
     """Minimal, secret-free intent consumed only by the launcher worker."""
 
     intent_id = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
     operation_id = models.UUIDField(editable=False, unique=True)
+    cleanup_origin_operation_uuid = models.UUIDField(null=True, editable=False)
     idempotency_key = models.CharField(max_length=255)
     payload = models.JSONField()
     status = models.CharField(
@@ -61,6 +64,7 @@ class ProvisionerLaunchIntent(models.Model):
     next_attempt_at = models.DateTimeField(db_index=True)
     last_error = models.CharField(max_length=128, blank=True, default="")
     task_ref = models.CharField(max_length=512, blank=True, default="")
+    executing_workload = models.JSONField(default=dict, blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     launched_at = models.DateTimeField(null=True, blank=True)
     # Durable interrupt control (#277). Separate from launch delivery status: a
@@ -96,3 +100,21 @@ class ProvisionerLaunchIntent(models.Model):
 
     def __str__(self) -> str:
         return f"ProvisionerLaunchIntent {self.intent_id} ({self.status})"
+
+
+class RangeCancellationAuthority(RecordedAuthorityFields):
+    """Accepted caller proof for the incumbent generation-bound interrupt.
+
+    This is an admission record only; the launch intent retains its original
+    provisioning proof and owns all interrupt delivery and cleanup state.
+    """
+
+    provision_intent = models.OneToOneField(
+        ProvisionerLaunchIntent, on_delete=models.PROTECT, related_name="cancellation"
+    )
+    accepted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        """Declare persistence tables, indexes and custody constraints."""
+
+        db_table = "engine_range_cancellation_authority"

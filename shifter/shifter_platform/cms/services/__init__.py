@@ -85,6 +85,7 @@ from ._agents import (
     list_agents,
     max_agent_file_size_bytes,
 )
+from ._content_authority import set_catalog_publication
 from ._content_ingestion import PackRegistrationRequest, RegisteredPack, register_pack
 from ._credential_scope import range_credential_scope
 from ._credentials import (
@@ -125,7 +126,14 @@ from ._queries import (
     get_range_status_by_id,
     get_range_target_instances,
 )
-from ._raes_range_create import create_raes_native_range, create_range_dispatch
+from ._raes_range_create import create_raes_native_range
+from ._raes_range_dispatch import create_range_dispatch
+from ._range_access import (
+    admit_range_remote_authority as admit_range_remote_authority,
+)
+from ._range_access import (
+    authorize_range_terminal as authorize_range_terminal,
+)
 from ._range_access import (
     connect_range_terminal,
     get_range_rdp_connection_info,
@@ -191,6 +199,7 @@ from ._range_vpn import (
     has_ctf_openvpn_profile,
     has_mission_control_openvpn_profile,
 )
+from ._range_vpn import OpenVpnProfilePending as OpenVpnProfilePending
 from ._range_workspace_admin import (
     RangeRebindResult,
     RangeScopeAuditContext,
@@ -205,6 +214,7 @@ from ._scenarios import (
     list_scenarios,
     validate_scenario_requirements,
 )
+from ._scoped_devices import admit_device_remote_authority as admit_device_remote_authority
 from ._tenant_pack_removal import (
     PackRemovalConflict,
     PackRemovalView,
@@ -214,6 +224,8 @@ from ._tenant_pack_removal import (
     relocate_tenant_pack_archive,
     request_tenant_pack_removal,
 )
+from ._unified_authorization import range_authorization_binding as range_authorization_binding
+from ._unified_authorization import require_range_action as require_range_action
 from ._uploads import (
     cancel_upload,
     complete_upload,
@@ -226,6 +238,7 @@ from ._user_offboarding import (
     OwnershipTransferSummary,
     transfer_user_ownership,
 )
+from ._vpn_authority import admit_range_vpn_authority as admit_range_vpn_authority
 from ._warm_pool_claim import attempt_warm_claim
 from ._warm_pool_reconcile import reconcile_warm_pool
 
@@ -412,6 +425,7 @@ __all__ = (
     "resume_range",
     "resume_range_by_request_id",
     "revoke_range_model_sources",
+    "set_catalog_publication",
     "transfer_user_ownership",
     "validate_registered_pack_conformance",
     "validate_scenario_requirements",

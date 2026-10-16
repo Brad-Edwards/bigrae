@@ -22,6 +22,10 @@ class CtfConfig(AppConfig):
         from ctf.services.range.aggregate import register_ctf_range_aggregate_guard
 
         register_ctf_range_aggregate_guard()
+        from ctf.services.range.vpn import admit_assigned_range_vpn
+        from shared.range_workspace_aggregate import register_range_vpn_participation
+
+        register_range_vpn_participation(admit_assigned_range_vpn)
         from ctf.services.authorization_inventory import register_authorization_event_inventory
 
         register_authorization_event_inventory()

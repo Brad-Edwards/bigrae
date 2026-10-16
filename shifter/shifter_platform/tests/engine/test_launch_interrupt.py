@@ -131,6 +131,28 @@ def _range_op(rid):
     return Range.objects.get(request__request_id=rid).provisioner_operation
 
 
+@pytest.mark.parametrize("service_account", ["", _SA])
+def test_recorded_workload_interrupt_matches_the_native_job_profile(gcp_engine, service_account):
+    from engine.ecs import interrupt_provisioner_task
+    from engine.ecs._workload import provisioner_workload
+    from shared.cloud.types import TaskInterruptDisposition
+
+    gcp_engine.ENGINE_TASK_SERVICE_ACCOUNT_NAME = service_account
+    identity = str(uuid4())
+    command = ["raes-range", "provision", "--request-id", str(uuid4()), "--operation-id", str(uuid4())]
+    workload = provisioner_workload(command, identity)
+    observed = _observed_job(
+        task_identity=identity, image=_IMAGE, command=command, service_account_name=service_account
+    )
+    patcher, batch = _patch_k8s(observed=observed, pods=0)
+    with patcher:
+        disposition = interrupt_provisioner_task(
+            f"{workload['namespace']}/{workload['job_name']}", command, identity, expected_workload=workload
+        )
+    assert disposition == TaskInterruptDisposition.TERMINAL_ABSENT
+    batch.delete_namespaced_job.assert_called_once()
+
+
 class TestInterruptConvergence:
     def test_running_task_stopped_and_destroy_enqueued(self, gcp_engine):
         rid, intent = _cancelled_launch()

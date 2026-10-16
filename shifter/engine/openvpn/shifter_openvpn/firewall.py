@@ -31,7 +31,7 @@ table inet {TABLE} {{
     }}
     chain forward {{
         type filter hook forward priority filter; policy drop;
-        ct state established,related accept
+        ct state established,related ct original ip saddr . ct original ip daddr . ct original proto-dst @allowed accept
         iifname "{tunnel_device}" ct state new ip saddr . ip daddr . tcp dport @allowed accept
     }}
     chain postrouting {{

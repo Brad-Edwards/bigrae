@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.conf import settings
-from django.core.exceptions import ValidationError as DjangoValidationError
 
 from engine.secrets import SecretsError
+from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
 from shared.log_sanitize import safe_log_value
+from shared.remote_access import PrincipalCredentialRequired
 
 from ._common import (
     _first_connection_value,
@@ -24,6 +26,16 @@ from ._common import (
     _resolve_rdp_credentials,
     find_instance_by_uuid,
 )
+from ._queries import _owned_legacy_instance_request_ref
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
+    from engine.models import Instance, Range
+    from engine.ssh import SSHConnection
+    from shared.remote_access import TerminalConnection, TerminalConnectionFactory
+
+_INSTANCE_UNAVAILABLE = "Instance unavailable"
 
 
 def _get_ssh_key(secret_ref: str) -> str:
@@ -38,12 +50,6 @@ def _get_ssh_key(secret_ref: str) -> str:
 
     return get_ssh_key(secret_ref)
 
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
-    from engine.ssh import SSHConnection
-    from shared.remote_access import TerminalConnection, TerminalConnectionFactory
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +135,9 @@ def _require_rdp_endpoint(instance: dict[str, Any], os_type: str) -> None:
         raise ValueError("RDP not available for linux instances without a declared participant endpoint")
 
 
-def get_owned_instance_request_ref(user: User, instance_uuid: str) -> str | None:
+def get_owned_instance_request_ref(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> str | None:
     """Return the provisioning request ref owning ``instance_uuid``, or ``None``.
 
     The ref is the request's ``request_id`` UUID -- the correlation key shared
@@ -150,32 +158,20 @@ def get_owned_instance_request_ref(user: User, instance_uuid: str) -> str | None
     authorization (for example the workspace binding recorded on its own request
     row) before granting access.
     """
-    from engine.models import Instance, Range
 
-    user_id = getattr(user, "id", None)
-    request_ref = None
-    if user_id is not None and instance_uuid:
-        range_obj = Range.resolve_active_for_instance(user, instance_uuid)
-        if range_obj is not None and range_obj.request is not None:
-            request_ref = str(range_obj.request.request_id)
-        else:
-            try:
-                instance = (
-                    Instance.objects.select_related("request")
-                    .filter(uuid=instance_uuid, request__user_id=user_id)
-                    .first()
-                )
-            except (DjangoValidationError, ValueError):
-                instance = None
-            # ``request`` is nullable on the model, so an instance whose request
-            # row was detached resolves to no ref rather than raising. A malformed
-            # uuid (caught above) also resolves to no ref.
-            if instance is not None and instance.request is not None:
-                request_ref = str(instance.request.request_id)
-    return request_ref
+    if isinstance(user, CredentialContext):
+        from ._range_authority import authorized_instance_range
+
+        runtime = authorized_instance_range(user, instance_uuid, range_uuid=range_uuid)
+        if runtime.request is None:
+            raise ValueError("Range unavailable")
+        return str(runtime.request.request_id)
+    return _owned_legacy_instance_request_ref(user, instance_uuid)
 
 
-def get_rdp_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
+def get_rdp_connection_info(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> dict[str, Any]:
     """Get connection info for RDP access to a range instance."""
     from engine.models import Range
 
@@ -184,19 +180,9 @@ def get_rdp_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
     if not instance_uuid:
         raise ValueError("instance_uuid is required")
 
-    logger.debug("get_rdp_connection_info: user=%s instance_uuid=%s", user.id, safe_log_value(instance_uuid))
-
-    range_obj = Range.resolve_active_for_instance(user, instance_uuid)
+    range_obj = _connection_range(user, instance_uuid, range_uuid=range_uuid)
     if range_obj is None:
-        # No active range contains the instance. Fall back to the user's active
-        # range so the pre-existing error semantics are preserved now that a user
-        # may hold multiple simultaneous active ranges (#450): no range at all ->
-        # "No active range found"; a not-yet-ready range (whose instance list may
-        # be empty) -> "not ready"; otherwise the UUID is genuinely absent ->
-        # "not found in range".
-        range_obj = Range.get_active_for_user(user)
-        if range_obj is None:
-            raise ValueError("No active range found")
+        range_obj = _rdp_fallback_range(user)
     if range_obj.status != Range.Status.READY:
         raise ValueError(f"Range is not ready (status: {range_obj.status})")
 
@@ -231,7 +217,29 @@ def get_rdp_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
     }
 
 
-def get_ssh_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
+def _rdp_fallback_range(user: User | CredentialContext) -> Range:
+    """Retain incumbent range error semantics without widening principal access."""
+    from engine.models import Range
+
+    # No active range contains the instance. Fall back to the user's active
+    # range so the pre-existing error semantics are preserved now that a user
+    # may hold multiple simultaneous active ranges (#450): no range at all ->
+    # "No active range found"; a not-yet-ready range (whose instance list may
+    # be empty) -> "not ready"; otherwise the UUID is genuinely absent ->
+    # "not found in range".
+    if isinstance(user, CredentialContext):
+        raise PermissionError(_INSTANCE_UNAVAILABLE)
+    range_obj = Range.get_active_for_user(user)
+    if range_obj is None:
+        raise ValueError("No active range found")
+    if range_obj.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
+    return range_obj
+
+
+def get_ssh_connection_info(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> dict[str, Any]:
     """Get SSH connection details for a range instance."""
     from engine.models import Range
 
@@ -240,13 +248,11 @@ def get_ssh_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
     if not instance_uuid:
         raise ValueError("instance_uuid is required")
 
-    logger.debug("connect_terminal: user_id=%s instance_uuid=%s", user.id, safe_log_value(instance_uuid))
-
     # Resolve the active range by iterating the user's active ranges and finding
     # the one that contains instance_uuid. This is portable (pure-Python, no
     # provider-specific JSON DB lookup) and correct when a user holds multiple
     # simultaneous active ranges (e.g. one Mission Control + one CTF range, #450).
-    range_obj = Range.resolve_active_for_instance(user, instance_uuid)
+    range_obj = _connection_range(user, instance_uuid, range_uuid=range_uuid)
     if range_obj is None:
         # No active range contains the instance. Fall back to the user's active
         # range so the pre-existing error semantics are preserved now that a user
@@ -254,6 +260,8 @@ def get_ssh_connection_info(user: User, instance_uuid: str) -> dict[str, Any]:
         # "No active range found"; a not-yet-ready range (whose instance list may
         # be empty) -> "not ready"; otherwise the UUID is genuinely absent ->
         # "not found in range".
+        if isinstance(user, CredentialContext):
+            raise PermissionError(_INSTANCE_UNAVAILABLE)
         range_obj = Range.get_active_for_user(user)
         if range_obj is None:
             logger.error(
@@ -318,14 +326,17 @@ def get_active_range_provisioned_instances(user: User) -> list[dict[str, Any]]:
     range_obj = Range.get_active_for_user(user)
     if range_obj is None:
         return []
+    if range_obj.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired("Range unavailable")
     return list(range_obj.provisioned_instances or [])
 
 
 def connect_terminal(
-    user: User,
+    user: User | CredentialContext,
     instance_uuid: str,
     *,
     connection_factory: TerminalConnectionFactory | None = None,
+    range_uuid: UUID | None = None,
 ) -> TerminalConnection:
     """Get a terminal connection to an instance.
 
@@ -338,8 +349,9 @@ def connect_terminal(
     """
     from engine.ssh import build_ssh_connection
 
+    logger.debug("connect_terminal: instance_uuid=%s", safe_log_value(instance_uuid))
     factory = connection_factory or build_ssh_connection
-    ssh_info = get_ssh_connection_info(user, instance_uuid)
+    ssh_info = get_ssh_connection_info(user, instance_uuid, **({"range_uuid": range_uuid} if range_uuid else {}))
     # Windows doesn't have tmux, so skip session_id for Windows
     session_id = None if ssh_info["os_type"] == "windows" else instance_uuid
 
@@ -353,11 +365,30 @@ def connect_terminal(
     )
 
 
-def connect_ngfw_terminal(user: User, ngfw_uuid: str) -> SSHConnection:
+def _connection_range(
+    user: User | CredentialContext, instance_uuid: str, *, range_uuid: UUID | None = None
+) -> Range | None:
+    """Keep legacy lookup until S8; principal callers have one policy decision."""
+    from engine.models import Range
+
+    if isinstance(user, CredentialContext):
+        from ._range_authority import authorized_instance_range
+
+        return authorized_instance_range(user, instance_uuid, range_uuid=range_uuid)
+    row = Range.resolve_active_for_instance(user, instance_uuid)
+    if row is not None and row.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired(_INSTANCE_UNAVAILABLE)
+    return row
+
+
+def connect_ngfw_terminal(user: User | CredentialContext, ngfw_uuid: str) -> SSHConnection:
     """Get SSH connection to NGFW management interface."""
-    from engine.models import Instance
     from engine.ssh import SSHConnection
 
+    if isinstance(user, CredentialContext):
+        from ._principal_ngfw import connect_principal_device_terminal
+
+        return connect_principal_device_terminal(user, ngfw_uuid)
     if user is None:
         raise ValueError(_USER_REQUIRED_MSG)
     if not ngfw_uuid:
@@ -365,40 +396,9 @@ def connect_ngfw_terminal(user: User, ngfw_uuid: str) -> SSHConnection:
 
     logger.debug("connect_ngfw_terminal: user_id=%s ngfw_uuid=%s", user.id, safe_log_value(ngfw_uuid))
 
-    try:
-        ngfw_instance = Instance.objects.select_related("request").get(
-            uuid=ngfw_uuid,
-            role=Instance.Role.NGFW,
-        )
-    except Instance.DoesNotExist:
-        logger.error("NGFW instance not found: user_id=%s ngfw_uuid=%s", user.id, safe_log_value(ngfw_uuid))
-        raise ValueError(f"NGFW instance {ngfw_uuid} not found") from None
-
-    if ngfw_instance.request is None:
-        logger.error("NGFW instance has no associated request: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
-        raise ValueError(f"NGFW instance {ngfw_uuid} has no associated request")
-
-    if ngfw_instance.request.user != user:
-        logger.error(
-            "Permission denied: user_id=%s does not own ngfw_uuid=%s (owner=%s)",
-            user.id,
-            safe_log_value(ngfw_uuid),
-            ngfw_instance.request.user.id,
-        )
-        raise PermissionError(f"You do not have permission to access NGFW {ngfw_uuid}")
-
-    if ngfw_instance.status != ResourceStatus.READY.value:
-        logger.error(
-            "NGFW not accessible: ngfw_uuid=%s status=%s (expected ready)",
-            safe_log_value(ngfw_uuid),
-            ngfw_instance.status,
-        )
-        raise ValueError(f"NGFW is not accessible (status: {ngfw_instance.status}). NGFW must be in ready state.")
-
-    if not ngfw_instance.state:
-        logger.error("NGFW has no state: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
-        raise ValueError(f"NGFW {ngfw_uuid} has no infrastructure state")
-
+    ngfw_instance = _legacy_terminal_device(user, ngfw_uuid)
+    if ngfw_instance.state is None:
+        raise ValueError("Device infrastructure state unavailable")
     management_ip = _resolve_ngfw_management_ip(ngfw_instance.state)
     if not management_ip:
         logger.error("No management IP in NGFW state: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
@@ -426,3 +426,47 @@ def connect_ngfw_terminal(user: User, ngfw_uuid: str) -> SSHConnection:
         # PAN-OS doesn't support tmux
         session_id=None,
     )
+
+
+def _legacy_terminal_device(user: User, ngfw_uuid: str) -> Instance:
+    """Require incumbent request ownership and live device state before loading SSH material."""
+    from engine.models import Instance
+
+    try:
+        ngfw_instance = Instance.objects.select_related("request").get(
+            uuid=ngfw_uuid,
+            role=Instance.Role.NGFW,
+        )
+    except Instance.DoesNotExist:
+        logger.error("NGFW instance not found: user_id=%s ngfw_uuid=%s", user.id, safe_log_value(ngfw_uuid))
+        raise ValueError(f"NGFW instance {ngfw_uuid} not found") from None
+
+    if ngfw_instance.request is None:
+        logger.error("NGFW instance has no associated request: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
+        raise ValueError(f"NGFW instance {ngfw_uuid} has no associated request")
+
+    if ngfw_instance.request.owner_principal_uuid is not None:
+        raise PrincipalCredentialRequired("Device unavailable")
+
+    if ngfw_instance.request.user != user:
+        logger.error(
+            "Permission denied: user_id=%s does not own ngfw_uuid=%s (owner=%s)",
+            user.id,
+            safe_log_value(ngfw_uuid),
+            ngfw_instance.request.user_id,
+        )
+        raise PermissionError(f"You do not have permission to access NGFW {ngfw_uuid}")
+
+    if ngfw_instance.status != ResourceStatus.READY.value:
+        logger.error(
+            "NGFW not accessible: ngfw_uuid=%s status=%s (expected ready)",
+            safe_log_value(ngfw_uuid),
+            ngfw_instance.status,
+        )
+        raise ValueError(f"NGFW is not accessible (status: {ngfw_instance.status}). NGFW must be in ready state.")
+
+    if not ngfw_instance.state:
+        logger.error("NGFW has no state: ngfw_uuid=%s", safe_log_value(ngfw_uuid))
+        raise ValueError(f"NGFW {ngfw_uuid} has no infrastructure state")
+
+    return ngfw_instance

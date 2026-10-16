@@ -1,0 +1,10 @@
+<FindBugsFilter>
+  <!-- Only administrators configure this immutable HTTPS origin. User input is
+       limited to canonical UUIDs. Redirects and URL credentials are refused,
+       and GatewayControlTest covers origin validation and wire authority. -->
+  <Match>
+    <Class name="com.shifter.guacamole.GatewayControl"/>
+    <Method name="authorize"/>
+    <Bug pattern="URLCONNECTION_SSRF_FD"/>
+  </Match>
+</FindBugsFilter>

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from cms.exceptions import CMSError
 from cms.models import AgentConfig
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 
 from ._common import _validate_caller_user, _validate_nonempty_str, _validate_positive_int
@@ -147,11 +149,13 @@ def _initiate_upload_inner(
 
 
 def initiate_upload(
-    user: User,
+    user: User | CredentialContext,
     name: str,
     filename: str,
     file_size: int,
     agent_type: str = "xdr",
+    *,
+    scope: ResourceScope | None = None,
 ) -> UploadInitiation:
     """Validate and generate presigned URL for direct S3 upload.
 
@@ -179,6 +183,10 @@ def initiate_upload(
             file_size is invalid
         CMSError: If quota exceeded, invalid extension, or S3 error
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_uploads import initiate_scoped_upload
+
+        return initiate_scoped_upload(user, scope, name, filename, file_size, agent_type)
     name, filename = _validate_initiate_upload_inputs(user, name, filename, file_size)
 
     logger.debug(
@@ -197,7 +205,7 @@ def initiate_upload(
         raise
 
 
-def complete_upload(user: User, upload_token: str) -> AgentConfig:
+def complete_upload(user: User | CredentialContext, upload_token: str) -> AgentConfig:
     """Verify and finalize upload after file has been uploaded to S3.
 
     Verifies the upload token, checks the S3 object exists with correct size,
@@ -215,6 +223,10 @@ def complete_upload(user: User, upload_token: str) -> AgentConfig:
     from cms.assets.s3 import tag_s3_object
     from cms.assets.services import AgentUploadSpec, create_agent
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_uploads import complete_scoped_upload
+
+        return complete_scoped_upload(user, upload_token)
     _validate_caller_user(user, "complete_upload")
     upload_token = _validate_nonempty_str(upload_token, "upload_token", "complete_upload", user.id)
     logger.debug("complete_upload called for user_id=%s", user.id)
@@ -224,7 +236,7 @@ def complete_upload(user: User, upload_token: str) -> AgentConfig:
         s3_key = str(payload["s3_key"])
         expected_size = int(payload["file_size"])
         identity = _verify_upload_object_or_raise(s3_key, expected_size, user.id)
-        _inspect_upload_header_or_raise(payload, s3_key, user.id)
+        _inspect_upload_header_or_raise(payload, s3_key, user.id, identity=identity)
 
         install_key = _install_validated_upload_or_raise(s3_key, str(payload["filename"]), identity, user.id)
         tag_s3_object(install_key, {"status": "completed"})
@@ -250,7 +262,7 @@ def complete_upload(user: User, upload_token: str) -> AgentConfig:
         raise
 
 
-def cancel_upload(user: User, upload_token: str) -> None:
+def cancel_upload(user: User | CredentialContext, upload_token: str) -> None:
     """Cancel an upload and clean up the S3 object.
 
     Verifies the upload token and attempts to delete the S3 object.
@@ -272,6 +284,10 @@ def cancel_upload(user: User, upload_token: str) -> None:
     from cms.assets.s3 import S3Error, delete_agent
     from cms.assets.upload_token import verify_upload_token
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_uploads import cancel_scoped_upload
+
+        return cancel_scoped_upload(user, upload_token)
     _validate_caller_user(user, "cancel_upload")
 
     if upload_token is None:
@@ -327,7 +343,7 @@ def cancel_upload(user: User, upload_token: str) -> None:
         raise
 
 
-def get_storage_used(user: User) -> int:
+def get_storage_used(user: User | CredentialContext, *, scope: ResourceScope | None = None) -> int:
     """Get total bytes used by a user's active agents.
 
     Args:
@@ -342,6 +358,10 @@ def get_storage_used(user: User) -> int:
     """
     from cms.assets.services import get_storage_used as assets_get_storage_used
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_agents import scoped_storage_used
+
+        return scoped_storage_used(user, scope)
     _validate_caller_user(user, "get_storage_used")
 
     logger.debug("get_storage_used called for user_id=%s", user.id)

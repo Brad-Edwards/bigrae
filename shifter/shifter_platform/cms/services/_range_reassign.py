@@ -10,6 +10,8 @@ from django.db import IntegrityError, transaction
 from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from engine.services import RangeOwnershipTransferBlocked, RangeWorkspaceRebindOutcome
+from shared.credentials import CredentialContext
+from shared.identity_scope import PrincipalRef
 
 from ._common import _validate_caller_user
 from ._range_launch_common import _is_active_range_conflict
@@ -205,7 +207,12 @@ def _reassignment_instance(range_instance_pk: int) -> RangeInstance:
 
 
 def reassign_range_owner(
-    range_instance_pk: int, new_user: User, *, rehome: bool = False, expected_owner_id: int | None = None
+    range_instance_pk: int,
+    new_user: User | PrincipalRef,
+    *,
+    rehome: bool = False,
+    credential: CredentialContext | None = None,
+    expected_owner_id: int | None = None,
 ) -> None:
     """Reassign an existing ``RangeInstance``'s ownership to ``new_user``.
 
@@ -248,6 +255,14 @@ def reassign_range_owner(
         CMSError: If the range is not found, has no associated request, or
             the engine has no corresponding range for that request.
     """
+    if credential is not None:
+        if not isinstance(new_user, PrincipalRef):
+            raise ValueError("A principal owner is required")
+        from ._scoped_range_owner import reassign_scoped_range_owner
+
+        return reassign_scoped_range_owner(credential, range_instance_pk, new_user, rehome=rehome)
+    if isinstance(new_user, PrincipalRef):
+        raise ValueError("A legacy human owner is required")
     _validate_caller_user(new_user, "reassign_range_owner")
 
     instance = _reassignment_instance(range_instance_pk)

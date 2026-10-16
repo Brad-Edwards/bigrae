@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import GDCNetworkAccessConfig, GDCPaloAltoVMSeriesConfig
@@ -107,6 +109,7 @@ def test_build_vmseries_vm_manifest_uses_management_and_data_interfaces():
     assert manifest["spec"]["disks"][1]["virtualMachineDiskName"] == "ngfw-user-42-abcdef-bootstrap"
 
 
+@pytest.mark.parametrize("user_id", [42, None], ids=["human", "service"])
 @patch("gdc_vmseries_ngfw._wait_for_vm_ready")
 @patch("gdc_vmseries_ngfw._wait_for_disk_ready")
 @patch("gdc_vmseries_ngfw._apply_namespaced_custom_object")
@@ -128,6 +131,7 @@ def test_apply_ngfw_creates_palo_alto_vmseries_gdc_state(
     mock_apply,
     _mock_disk_ready,
     mock_vm_ready,
+    user_id,
 ):
     client_module = MagicMock()
     api_exception = type("ApiException", (Exception,), {"status": 404})
@@ -145,7 +149,7 @@ def test_apply_ngfw_creates_palo_alto_vmseries_gdc_state(
     output = apply_ngfw(
         request_id="req-123",
         instance_id="abcdef12-3456-7890-abcd-ef1234567890",
-        app_spec={"user_id": 42, "scm_pin_id": "pin-id", "authcode": "auth"},
+        app_spec={"user_id": user_id, "scm_pin_id": "pin-id", "authcode": "auth"},
     )
 
     applied_kinds = [call.kwargs["body"]["kind"] for call in mock_apply.call_args_list]
@@ -158,6 +162,12 @@ def test_apply_ngfw_creates_palo_alto_vmseries_gdc_state(
     assert output["attachment_mode"] == "gdc-vmruntime-palo-alto-vmseries"
     assert output["provider_metadata"]["gcp"]["product"] == "palo-alto-vm-series"
     assert output["provider_metadata"]["gcp"]["data_attachment_id"].endswith(":eth1")
+    if user_id is None:
+        assert "device-abcdef12-3456-7890-abcd-ef1234567890" in output["gdc_namespace"]
+        assert "user-None" not in str(output)
+        assert all(
+            "shifter.dev/user-id" not in call.kwargs["body"]["metadata"]["labels"] for call in mock_apply.call_args_list
+        )
 
 
 @patch("gdc_vmseries_ngfw.subprocess.run")

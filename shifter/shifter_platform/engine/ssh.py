@@ -10,6 +10,8 @@ from typing import NamedTuple
 import asyncssh
 
 logger = logging.getLogger(__name__)
+_CONNECT_TIMEOUT_SECONDS = 15.0
+_CLOSE_TIMEOUT_SECONDS = 5.0
 
 
 class SSHConnectionError(Exception):
@@ -90,13 +92,14 @@ class SSHConnection:
                 connect_options["known_hosts"] = asyncssh.import_known_hosts(
                     f"{known_hosts_host} {self.host_public_key}\n"
                 )
-            self._conn = await asyncssh.connect(
-                self.host,
-                port=self.port,
-                username=self.username,
-                client_keys=[key],
-                **connect_options,
-            )
+            async with asyncio.timeout(_CONNECT_TIMEOUT_SECONDS):
+                self._conn = await asyncssh.connect(
+                    self.host,
+                    port=self.port,
+                    username=self.username,
+                    client_keys=[key],
+                    **connect_options,
+                )
 
             # Build command for persistent tmux session or default shell
             command = None
@@ -111,47 +114,55 @@ class SSHConnection:
             # Start interactive shell with PTY.
             # command: None = default shell, or the tmux command built above.
             # encoding=None keeps binary mode for raw terminal data.
-            self._process = await self._conn.create_process(
-                command,
-                term_type=self.term_type,
-                term_size=self.term_size,
-                encoding=None,
-            )
+            async with asyncio.timeout(_CONNECT_TIMEOUT_SECONDS):
+                self._process = await self._conn.create_process(
+                    command,
+                    term_type=self.term_type,
+                    term_size=self.term_size,
+                    encoding=None,
+                )
 
             logger.info("SSH connection established to %s@%s:%d", self.username, self.host, self.port)
 
-        except asyncssh.PermissionDenied as e:
-            logger.exception("SSH permission denied for %s@%s", self.username, self.host)
-            raise SSHConnectionError("SSH authentication failed") from e
-        except asyncssh.DisconnectError as e:
-            logger.exception("SSH disconnect error connecting to %s", self.host)
-            raise SSHConnectionError(f"SSH connection failed: {e}") from e
-        except asyncssh.KeyImportError as e:
-            logger.exception("Invalid SSH key format for %s@%s", self.username, self.host)
-            raise SSHConnectionError("Invalid SSH key format") from e
-        except OSError as e:
-            logger.exception("Network error connecting to %s", self.host)
-            raise SSHConnectionError(f"Network error: {e}") from e
-        except Exception as e:
-            logger.exception("Unexpected error connecting to %s", self.host)
-            raise SSHConnectionError(f"Connection failed: {e}") from e
+        except asyncio.CancelledError:
+            await self.disconnect()
+            raise
+        except Exception as exc:
+            await self.disconnect()
+            if isinstance(exc, asyncssh.PermissionDenied):
+                message = "SSH authentication failed"
+            elif isinstance(exc, asyncssh.KeyImportError):
+                message = "Invalid SSH key format"
+            elif isinstance(exc, asyncssh.DisconnectError):
+                message = "SSH connection failed"
+            elif isinstance(exc, OSError):
+                message = "Network error connecting to SSH"
+            else:
+                message = "SSH connection failed"
+            logger.error("%s", message)
+            raise SSHConnectionError(message) from None
 
     async def disconnect(self) -> None:
         """Close SSH connection cleanly."""
+        process, connection = self._process, self._conn
+        # Clear before awaiting so concurrent disconnect paths release once.
+        self._process = self._conn = None
         try:
-            if self._process:
-                self._process.close()
-                self._process = None
-            if self._conn:
-                self._conn.close()
-                await self._conn.wait_closed()
-                self._conn = None
+            if process:
+                process.close()
+            if connection:
+                connection.close()
+                async with asyncio.timeout(_CLOSE_TIMEOUT_SECONDS):
+                    await connection.wait_closed()
             logger.info("SSH connection closed to %s", self.host)
+        except asyncio.CancelledError:
+            if connection:
+                connection.abort()
+            raise
         except Exception:
-            logger.exception("Error closing SSH connection to %s", self.host)
-            # Ensure we clear references even on error
-            self._process = None
-            self._conn = None
+            if connection:
+                connection.abort()
+            logger.warning("SSH transport aborted during close")
 
     async def send(self, data: bytes) -> None:
         """

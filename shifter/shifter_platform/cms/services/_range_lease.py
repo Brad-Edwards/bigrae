@@ -15,6 +15,7 @@ from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent
 from shared.enums import RangeSource, ResourceStatus
+from shared.identity_scope import PrincipalRef
 from shared.log_sanitize import safe_log_id
 from shared.mission_control_lease import DEFAULT_EXTENSION_DAYS, MissionControlLeasePolicy
 from workspaces.services import WorkspaceOperation
@@ -144,7 +145,7 @@ def build_range_lease(
 
 
 def build_resolved_mission_control_range_lease(
-    user: User,
+    user: User | PrincipalRef,
     *,
     now: datetime | None = None,
     for_update: bool = False,

@@ -270,7 +270,7 @@ def install_agent_object(src_key: str, dst_key: str, expected_identity: dict[str
     logger.info("install_agent_object: success src=%s dst=%s", safe_log_value(src_key), safe_log_value(dst_key))
 
 
-def read_agent_header(s3_key: str, max_bytes: int) -> bytes:
+def read_agent_header(s3_key: str, max_bytes: int, *, expected_identity: dict[str, Any] | None = None) -> bytes:
     """Read up to `max_bytes` from the start of an agent upload object.
 
     Used by `complete_upload` to inspect magic bytes server-side before
@@ -291,6 +291,7 @@ def read_agent_header(s3_key: str, max_bytes: int) -> bytes:
             bucket=settings.AWS_S3_BUCKET_NAME,
             key=s3_key,
             max_bytes=max_bytes,
+            expected_identity=expected_identity,
         )
     except CloudStorageError as e:
         logger.exception("read_agent_header: failed s3_key=%s error=%s", safe_log_value(s3_key), safe_log_value(e))

@@ -711,6 +711,15 @@ class QualityOwnershipCheckTests(unittest.TestCase):
 # Real repository: the shipped contract is conformant once exceptions apply
 # --------------------------------------------------------------------------- #
 class RealRepositoryTests(unittest.TestCase):
+    def test_guacamole_authority_changes_select_native_java_checks_and_sonar(self):
+        contract = C.load_contract(_REPO_ROOT / ".github" / "quality-path-filters.yaml")
+        outputs = C.compute_outputs(
+            contract,
+            ["shifter/engine/guacamole/authority-extension/src/main/java/com/shifter/guacamole/AuthorityLease.java"],
+        )
+        self.assertEqual(outputs.get("guacamole_authority"), "true")
+        self.assertEqual(outputs.get("run_sonar"), "true")
+
     def test_real_contract_estate_is_complete(self):
         contract = C.load_contract(_REPO_ROOT / ".github" / "quality-path-filters.yaml")
         tracked = ADR_GUARD._git_tracked_all(_REPO_ROOT)

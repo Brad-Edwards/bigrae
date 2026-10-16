@@ -7,6 +7,16 @@
 # still has no fix at the review date. Do NOT add entries for findings that have
 # a patched version — bump the dependency instead.
 
+# Upstream: https://github.com/twisted/twisted/security/advisories/GHSA-8pqf-f4m5-798g
+[[IgnoredVulns]]
+id = "GHSA-8pqf-f4m5-798g"
+ignoreUntil = 2026-11-15T00:00:00Z
+reason = """Twisted IMAP LIST/LSUB wildcard regular-expression denial of service. \
+Twisted 26.4.0 is the latest PyPI release and is affected; upstream lists no patched \
+release (verified 2026-10-15). The dependency serves HTTP/WebSocket through Daphne. \
+Shifter does not import twisted.mail or configure an IMAP server or mailbox; no \
+application input reaches wildcardToRegexp. Re-evaluate when upstream publishes a fix."""
+
 [[IgnoredVulns]]
 id = "GHSA-vfj7-8cjw-p6xm"
 ignoreUntil = 2026-11-03T00:00:00Z

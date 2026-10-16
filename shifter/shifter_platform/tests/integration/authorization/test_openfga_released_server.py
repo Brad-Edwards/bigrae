@@ -441,6 +441,7 @@ def test_released_model_accepts_event_only_range_ancestry_and_denies_conflicting
         TargetRef("range", range_uuid),
         ResourceScope("account", account, organization, workspace),
         _all_actions(),
+        parent=TargetRef("event", event),
     )
     assert provider.check(request).allowed
     assert provider.batch_check((request,))[0].allowed
@@ -485,6 +486,65 @@ def test_released_model_allows_human_and_service_admin_on_account_event_and_reje
         ).allowed
     _write_fixture_tuple(provider, ClientTuple(f"workspace:{uuid4()}", "workspace", f"event:{event}"))
     assert all(not provider.check(request).allowed for request in requests)
+
+
+def test_released_model_content_and_account_range_administration_is_customer_scoped(provider) -> None:
+    account, sibling, range_uuid = uuid4(), uuid4(), uuid4()
+    for item in (
+        ClientTuple("installation:root", "installation", f"account:{account}"),
+        ClientTuple("installation:root", "installation", f"account:{sibling}"),
+        ClientTuple(f"account:{account}", "account", f"range:{range_uuid}"),
+    ):
+        _write_fixture_tuple(provider, item)
+    operations = (
+        "read_content",
+        "manage_content",
+        "manage_credentials",
+        "prepare_content",
+        "launch_range",
+        "read_devices",
+        "manage_devices",
+        "access_devices",
+        "manage_range_scope",
+    )
+    for kind in ("human", "service"):
+        principal = PrincipalRef(uuid4(), kind)
+        provider.write_relationships(
+            AdministrativeRoleChange(
+                RelationshipSubject("principal", principal.uuid),
+                "account_administrator",
+                TargetRef("account", account),
+                PolicyEffect.GRANT,
+            )
+        )
+        for operation in operations:
+            own = AuthorizationRequest(
+                principal,
+                f"account.{operation}",
+                TargetRef("account", account),
+                ResourceScope("account", account),
+                _all_actions(),
+            )
+            foreign = AuthorizationRequest(
+                principal,
+                f"account.{operation}",
+                TargetRef("account", sibling),
+                ResourceScope("account", sibling),
+                _all_actions(),
+            )
+            assert provider.check(own).allowed
+            assert not provider.check(foreign).allowed
+        for action in ("range.read", "range.manage", "range.access"):
+            own = AuthorizationRequest(
+                principal,
+                action,
+                TargetRef("range", range_uuid),
+                ResourceScope("account", account),
+                _all_actions(),
+                parent=TargetRef("account", account),
+            )
+            assert provider.check(own).allowed
+            assert provider.batch_check((own,))[0].allowed
 
 
 @dataclass
@@ -731,66 +791,3 @@ def test_postgres_fence_unknown_outcome_and_concurrent_revoke(provider) -> None:
         ).kind
         == DecisionKind.DENIED
     )
-
-
-@pytest.mark.parametrize("kind", ["human", "service"])
-def test_prepared_administrator_discovers_hierarchy_and_edits_without_membership(provider, kind):
-    from management import services as identities
-    from shared.authorization.catalog import APPLICATION_ADMINISTRATOR_ACTIONS
-    from shared.credentials import CredentialContext
-    from workspaces import services as tenancy
-    from workspaces.models import Organization, Workspace
-
-    if kind == "human":
-        user = get_user_model().objects.create_user(username=f"admin-{uuid4()}")
-        principal = identities.principal_for_user(user)
-    else:
-        row = Principal.objects.create(kind="service", name="Synthetic administrator")
-        principal = PrincipalRef(row.uuid, "service")
-    actor = CredentialContext(
-        principal,
-        "session" if kind == "human" else "service",
-        uuid4(),
-        CredentialCeiling(APPLICATION_ADMINISTRATOR_ACTIONS),
-        frozenset(),
-    )
-    account = tenancy.create_account(kind="team", name="Synthetic team")
-    organization = Organization.objects.get(account_id=account.id)
-    workspace = Workspace.objects.get(organization=organization)
-    for user, relation, target in (
-        ("installation:root", "installation", f"account:{account.uuid}"),
-        (f"account:{account.uuid}", "account", f"organization:{organization.uuid}"),
-        (f"organization:{organization.uuid}", "organization", f"workspace:{workspace.uuid}"),
-    ):
-        _write_fixture_tuple(provider, ClientTuple(user, relation, target))
-    provider.write_relationships(
-        AdministrativeRoleChange(
-            RelationshipSubject("principal", principal.uuid),
-            "application_administrator",
-            TargetRef("installation"),
-            PolicyEffect.GRANT,
-        )
-    )
-    assert tenancy.admin_get_account(actor, provider, account.uuid).uuid == account.uuid
-    assert tenancy.admin_list_organizations(actor, provider, account.uuid).results[0].uuid == organization.uuid
-    assert (
-        tenancy.admin_list_workspaces(actor, provider, account.uuid, organization.uuid).results[0].uuid
-        == workspace.uuid
-    )
-    tenancy.admin_update_organization_profile(
-        actor, provider, account.uuid, organization.uuid, {"description": "Updated"}
-    )
-    assert tenancy.admin_workspace_quota_usage(actor, provider, workspace.uuid).workspace_uuid == workspace.uuid
-    assert not actor.ceiling.permits("installation.use_personal_tokens", TargetRef("installation"))
-    limited = CredentialContext(
-        principal,
-        actor.kind,
-        uuid4(),
-        CredentialCeiling(frozenset({"account.read"}), target=TargetRef("account", account.uuid)),
-        frozenset(),
-    )
-    assert tenancy.admin_get_account(limited, provider, account.uuid).uuid == account.uuid
-    with pytest.raises(tenancy.AccountScopeError):
-        tenancy.admin_update_organization_profile(
-            limited, provider, account.uuid, organization.uuid, {"description": "Denied"}
-        )

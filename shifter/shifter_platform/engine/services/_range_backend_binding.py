@@ -71,7 +71,7 @@ def backend_binding_fields(backend_admission: BackendAdmission | None) -> dict[s
 def verify_existing_workspace_binding(
     existing_range: Range,
     request_id: UUID,
-    workspace_id: int,
+    workspace_id: int | None,
 ) -> None:
     """Reject an idempotent create replay whose workspace scope differs (ADR-046-R9).
 

@@ -403,3 +403,28 @@ def resolve_resource_scope(scope: ResourceScope) -> ResolvedResourceScope:
     if account.kind == Account.Kind.INDIVIDUAL:
         return _resolve_individual_scope(account, scope)
     return _resolve_nested_scope(account, scope)
+
+
+def assert_scope_principal_member(scope: ResourceScope, principal: PrincipalRef, *, for_update: bool = False) -> None:
+    """Validate a business-owner membership fact; this grants no application action."""
+    resolve_resource_scope(scope)
+    if scope.kind != "account" or scope.account_uuid is None or not isinstance(principal, PrincipalRef):
+        raise AccountScopeError(_DENIED)
+    if for_update:
+        _locked_account(scope.account_uuid)
+    if not AccountMembership.objects.filter(account__uuid=scope.account_uuid, principal_uuid=principal.uuid).exists():
+        raise AccountScopeError(_DENIED)
+
+
+def resolve_range_scope_binding(
+    scope: ResourceScope, *, member: PrincipalRef | None = None, for_update: bool = False
+) -> ResolvedResourceScope:
+    """Read exact ancestry and optional owner membership, without policy or mutation.
+
+    Engine may consume these scalar facts to fence its own range projection.
+    CMS retains orchestration and application decisions in both parent scopes.
+    """
+    binding = resolve_resource_scope(scope)
+    if member is not None:
+        assert_scope_principal_member(scope, member, for_update=for_update)
+    return binding

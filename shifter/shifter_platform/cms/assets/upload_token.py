@@ -4,12 +4,19 @@ Upload tokens are HMAC-signed tokens that authorize a user to complete
 an upload after the file has been transferred to S3 via presigned URL.
 """
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import hmac
 import json
 import logging
 import time
+from typing import TYPE_CHECKING
+from uuid import UUID
+
+if TYPE_CHECKING:
+    from cms.models import AgentUpload
 
 from django.conf import settings
 
@@ -19,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_upload_token(
-    user_id: int,
+    user_id: int | UUID,
     s3_key: str,
     name: str,
     filename: str,
@@ -45,7 +52,7 @@ def generate_upload_token(
         Base64-encoded signed token string
     """
     payload = {
-        "user_id": user_id,
+        "user_id": str(user_id) if isinstance(user_id, UUID) else user_id,
         "s3_key": s3_key,
         "name": name,
         "filename": filename,
@@ -54,7 +61,30 @@ def generate_upload_token(
         "agent_type": agent_type,
         "expires_at": int(time.time()) + settings.AGENT_UPLOAD_URL_EXPIRES,
     }
+    return _sign_upload_payload(payload)
 
+
+def generate_scoped_upload_token(upload: AgentUpload) -> str:
+    """Sign the exact persisted scoped admission and its original expiry."""
+    if upload.authority_owner_uuid is None:
+        raise ValueError("Upload authority unavailable")
+    return _sign_upload_payload(
+        {
+            "user_id": str(upload.authority_owner_uuid),
+            "s3_key": upload.staging_key,
+            "name": upload.name,
+            "filename": upload.filename,
+            "os_slug": upload.os_slug,
+            "file_size": upload.file_size,
+            "agent_type": upload.agent_type,
+            "expires_at": int(upload.expires_at.timestamp()),
+            "upload_id": str(upload.id),
+        }
+    )
+
+
+def _sign_upload_payload(payload: dict[str, str | int]) -> str:
+    """Authenticate canonical upload metadata using the configured signing key."""
     payload_json = json.dumps(payload, separators=(",", ":"))
     payload_b64 = base64.urlsafe_b64encode(payload_json.encode()).decode()
 
@@ -69,11 +99,10 @@ def generate_upload_token(
         hashlib.sha256,
     ).hexdigest()
 
-    logger.debug("generate_upload_token: user_id=%s s3_key=%s", user_id, safe_log_value(s3_key))
     return f"{payload_b64}.{signature}"
 
 
-def verify_upload_token(token: str, user_id: int) -> dict[str, str | int]:
+def verify_upload_token(token: str, user_id: int | UUID | None, *, allow_expired: bool = False) -> dict[str, str | int]:
     """
     Verify token signature and extract payload.
 
@@ -117,7 +146,7 @@ def verify_upload_token(token: str, user_id: int) -> dict[str, str | int]:
         logger.warning("verify_upload_token: invalid payload user_id=%s", user_id)
         raise ValueError("Invalid token payload") from err
 
-    if payload.get("user_id") != user_id:
+    if user_id is not None and payload.get("user_id") != (str(user_id) if isinstance(user_id, UUID) else user_id):
         logger.warning(
             "verify_upload_token: user mismatch token_user=%s request_user=%s",
             safe_log_value(payload.get("user_id")),
@@ -125,7 +154,7 @@ def verify_upload_token(token: str, user_id: int) -> dict[str, str | int]:
         )
         raise ValueError("Token user mismatch")
 
-    if time.time() > payload.get("expires_at", 0):
+    if not allow_expired and time.time() > payload.get("expires_at", 0):
         logger.warning("verify_upload_token: expired user_id=%s", user_id)
         raise ValueError("Token expired")
 

@@ -58,6 +58,7 @@ class Shape(StrEnum):
     RAES_OPERATION = "raes_operation"
     RAES_SNAPSHOT = "raes_snapshot"
     RAES_READY = "raes_ready"
+    VPN_PKI = "vpn_pki"
 
 
 # Result kinds mirror ``engine.models.OperationResultKind`` without importing
@@ -460,7 +461,18 @@ def _parse_raes_ready(payload: dict[str, Any], spec: StepSpec) -> dict[str, Any]
     return result
 
 
+def _parse_vpn_pki(payload: dict[str, Any], spec: StepSpec) -> dict[str, Any]:
+    """Validate the closed public PKI receipt for this operation result."""
+    from shared.vpn_pki import parse_vpn_pki_receipt
+
+    try:
+        return parse_vpn_pki_receipt(payload)
+    except ValueError:
+        raise OperationResultError("VPN PKI receipt unavailable") from None
+
+
 PARSERS = {
+    Shape.VPN_PKI: _parse_vpn_pki,
     Shape.INSTANCES: _parse_instances,
     Shape.NGFW: _parse_ngfw,
     Shape.RANGE_TERMINAL: _parse_range_terminal,

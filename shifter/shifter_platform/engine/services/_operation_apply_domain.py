@@ -428,13 +428,20 @@ def apply_validated_result(row: OperationResultInbox) -> tuple[str, str]:
 
     try:
         step, payload = _admit(row)
-        target = _lock_and_authorize(row, step)
-        if target is None:
-            return "", ""
-        detail = _dispatch(row, step, payload, target)
+        if row.resource == "vpn-profile":
+            from ._vpn_pki_results import apply_vpn_pki_result
+
+            disposition = apply_vpn_pki_result(row, payload)
+        else:
+            target = _lock_and_authorize(row, step)
+            disposition = (
+                ("", "")
+                if target is None
+                else (OperationResultDisposition.APPLIED, _dispatch(row, step, payload, target)[:128])
+            )
     except (_Rejected, _NotApplicable, RaesRealizedAccessError) as refusal:
         return _refusal_disposition(refusal)
-    return OperationResultDisposition.APPLIED, detail[:128]
+    return disposition
 
 
 def _refusal_disposition(refusal: _Rejected | _NotApplicable | RaesRealizedAccessError) -> tuple[str, str]:

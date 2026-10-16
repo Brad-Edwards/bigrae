@@ -125,6 +125,17 @@ class TestRangeStatusConsumerRangeStatus:
         }
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("reference", [False, True])
+    async def test_foreign_channel_event_never_leaves_the_authorized_subscription(self, consumer, reference):
+        consumer.request_id = TEST_REQUEST_ID
+        foreign = "bbbbbbbb-e5f6-7890-abcd-ef1234567890"
+        event = {"type": "range_status", "request_id": foreign, "new_status": "ready"}
+        if reference:
+            event["range_ref"] = {"request_id": foreign, "range_id": 7, "user_id": 42, "status": "ready"}
+        await consumer.range_status(event)
+        consumer.send.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_prefers_range_ref_payload(self, consumer):
         """range_status() hydrates from RangeRef when range_ref is present."""
         consumer.request_id = TEST_REQUEST_ID

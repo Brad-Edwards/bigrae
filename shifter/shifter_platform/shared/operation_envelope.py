@@ -24,6 +24,7 @@ from shared.exceptions import ValidationError as OperationEnvelopeError
 
 __all__ = [
     "ACCEPTED_CONTRACT_VERSIONS",
+    "AUTHORITY_CONTRACT_VERSION",
     "CONTRACT_KEY",
     "CONTRACT_VERSION",
     "MAX_ENVELOPE_BYTES",
@@ -41,17 +42,33 @@ CONTRACT_KEY = "shifter.provisioner-operation"
 # accepted version requires evidence no retained input or replayable result
 # still uses it (ADR-043-R2/R7).
 CONTRACT_VERSION = "1"
-ACCEPTED_CONTRACT_VERSIONS = frozenset({"1"})
+AUTHORITY_CONTRACT_VERSION = "2"
+ACCEPTED_CONTRACT_VERSIONS = frozenset({CONTRACT_VERSION, AUTHORITY_CONTRACT_VERSION})
 
 # Closed discriminators. The specific operation legal for a resource is enforced
 # by the domain authorization (engine.launch_intents); the envelope only bounds
 # the vocabulary so an unknown discriminator fails closed at the wire.
-RESOURCES = frozenset({"range", "raes-range", "ngfw"})
+RESOURCES = frozenset({"range", "raes-range", "ngfw", "vpn-profile"})
 # ``activate`` (#28, ADR-039-R11) hands an atomically claimed warm generation to
 # its claimant with fresh, fully sanitized access. Like every other value here it
 # is only a wire discriminator; engine.launch_intents authorizes which resource
 # may carry it (raes-range only).
-OPERATIONS = frozenset({"provision", "destroy", "pause", "resume", "deprovision", "start", "stop", "activate"})
+OPERATIONS = frozenset(
+    {
+        "provision",
+        "destroy",
+        "pause",
+        "resume",
+        "deprovision",
+        "start",
+        "stop",
+        "activate",
+        "issue",
+        "revoke",
+        "refresh-crl",
+        "purge",
+    }
+)
 
 _ENVELOPE_KEYS = frozenset({"contract_version", "operation_id", "request_id", "resource", "operation", "payload"})
 _DIGEST_PREFIX = "sha256:"
@@ -69,13 +86,13 @@ def _require_dict(value: object, field: str) -> ContractDict:
     return value
 
 
-def _require_exact_keys(value: ContractDict, field: str) -> None:
+def _require_exact_keys(value: ContractDict, field: str, expected: frozenset[str]) -> None:
     """Raise a contract error unless ``value`` has exactly the envelope keys."""
     actual = frozenset(value)
-    unexpected = sorted(actual - _ENVELOPE_KEYS)
+    unexpected = sorted(actual - expected)
     if unexpected:
         raise OperationEnvelopeError(f"{field} has unexpected field(s): {', '.join(unexpected)}")
-    missing = sorted(_ENVELOPE_KEYS - actual)
+    missing = sorted(expected - actual)
     if missing:
         raise OperationEnvelopeError(f"{field} is missing field(s): {', '.join(missing)}")
 
@@ -117,13 +134,13 @@ def validate_operation_envelope(envelope: object) -> ContractDict:
     operation-specific contract it composes, not here.
     """
     obj = _require_dict(envelope, "operation envelope")
-    _require_exact_keys(obj, "operation envelope")
-
-    version = obj["contract_version"]
-    if version not in ACCEPTED_CONTRACT_VERSIONS:
+    version = obj.get("contract_version")
+    if not isinstance(version, str) or version not in ACCEPTED_CONTRACT_VERSIONS:
         raise OperationEnvelopeError(
             f"operation envelope contract_version must be one of: {', '.join(sorted(ACCEPTED_CONTRACT_VERSIONS))}"
         )
+    keys = _ENVELOPE_KEYS | {"authority_digest"} if version == AUTHORITY_CONTRACT_VERSION else _ENVELOPE_KEYS
+    _require_exact_keys(obj, "operation envelope", keys)
 
     normalized: ContractDict = {
         "contract_version": version,
@@ -133,6 +150,16 @@ def validate_operation_envelope(envelope: object) -> ContractDict:
         "operation": _require_choice(obj["operation"], OPERATIONS, "operation envelope operation"),
         "payload": _require_dict(obj["payload"], "operation envelope payload"),
     }
+    if version == AUTHORITY_CONTRACT_VERSION:
+        digest = obj["authority_digest"]
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 71
+            or not digest.startswith(_DIGEST_PREFIX)
+            or any(character not in "0123456789abcdef" for character in digest[7:])
+        ):
+            raise OperationEnvelopeError("operation envelope authority_digest must be a canonical SHA-256 digest")
+        normalized["authority_digest"] = digest
 
     serialized = json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
     if len(serialized) > MAX_ENVELOPE_BYTES:
@@ -148,15 +175,17 @@ def build_operation_envelope(
     operation: str,
     payload: ContractDict,
     contract_version: str = CONTRACT_VERSION,
+    authority_digest: str | None = None,
 ) -> ContractDict:
     """Construct and validate an operation envelope in one step."""
-    return validate_operation_envelope(
-        {
-            "contract_version": contract_version,
-            "operation_id": str(operation_id),
-            "request_id": str(request_id),
-            "resource": resource,
-            "operation": operation,
-            "payload": payload,
-        }
-    )
+    envelope = {
+        "contract_version": contract_version,
+        "operation_id": str(operation_id),
+        "request_id": str(request_id),
+        "resource": resource,
+        "operation": operation,
+        "payload": payload,
+    }
+    if authority_digest is not None:
+        envelope["authority_digest"] = authority_digest
+    return validate_operation_envelope(envelope)

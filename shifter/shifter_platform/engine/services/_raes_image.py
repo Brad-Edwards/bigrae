@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from engine.models import RaesImageMapping
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
+
 
 __all__ = [
     "RaesImageMappingError",
@@ -144,6 +147,7 @@ def upsert_raes_image_mapping(
         raise RaesImageMappingError("machine-image mappings do not support portable artifact admission")
 
     mapping, _created = RaesImageMapping.objects.update_or_create(
+        scope_kind="",
         provider=normalized_provider,
         source_name=name,
         source_version=(opts.source_version or "").strip(),
@@ -167,6 +171,8 @@ def list_raes_image_mappings(
     *,
     provider: str | None = None,
     include_disabled: bool = True,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
 ) -> list[RaesImageMappingView]:
     """Return registry rows as allowlisted DTOs in stable natural-key order.
 
@@ -178,7 +184,16 @@ def list_raes_image_mappings(
     """
     from engine.models import RaesImageMapping
 
-    queryset = RaesImageMapping.objects.all().order_by("provider", "source_name", "source_version")
+    if credential is not None:
+        from ._inventory_scope import authorize_inventory_read
+
+        if scope is None:
+            raise RaesImageMappingError("Inventory scope unavailable")
+        selection = authorize_inventory_read(credential, scope)
+        queryset = RaesImageMapping.objects.filter(selection)
+    else:
+        queryset = RaesImageMapping.objects.filter(scope_kind="")
+    queryset = queryset.order_by("provider", "source_name", "source_version")
     if provider is not None:
         queryset = queryset.filter(provider=_normalize_provider(provider))
     if not include_disabled:
@@ -186,7 +201,9 @@ def list_raes_image_mappings(
     return [_to_view(row) for row in queryset]
 
 
-def list_backend_artifacts(*, provider: str) -> list[BackendArtifact]:
+def list_backend_artifacts(
+    *, provider: str, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> list[BackendArtifact]:
     """Return the enabled portable-identity registry rows for ``provider`` as backend artifacts.
 
     Only rows carrying a portable ``ArtifactIdentity`` (a non-blank
@@ -198,7 +215,7 @@ def list_backend_artifacts(*, provider: str) -> list[BackendArtifact]:
     """
     from ._preparation_inventory import mapping_matches_admission, prepared_inventory_facts
 
-    rows = list_raes_image_mappings(provider=provider, include_disabled=False)
+    rows = list_raes_image_mappings(provider=provider, include_disabled=False, credential=credential, scope=scope)
     prepared = prepared_inventory_facts([row.id for row in rows])
     result: list[BackendArtifact] = []
     for row in rows:
@@ -246,6 +263,7 @@ def disable_raes_image_mapping(
     version = (source_version or "").strip()
     try:
         mapping = RaesImageMapping.objects.get(
+            scope_kind="",
             provider=normalized_provider,
             source_name=name,
             source_version=version,

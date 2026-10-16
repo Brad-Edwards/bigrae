@@ -6,19 +6,7 @@ live admission after the coordinated authority cutover in ADR-066.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True, slots=True)
-class OperationPolicy:
-    """One operation's registered action and SQL-owned target locator."""
-
-    actions: tuple[str, ...]
-    target: str | None
-    locator: str | None
-    exemption: str | None = None
-    selector: str | None = None
-
+from shared.authorization.operations import OperationPolicy
 
 _MANAGE_AWARDS = "event.manage_awards"
 _MANAGE_CHALLENGES = "event.manage_challenges"

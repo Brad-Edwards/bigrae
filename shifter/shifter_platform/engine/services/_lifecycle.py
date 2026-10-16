@@ -15,6 +15,7 @@ from uuid import UUID
 # (that would make the model depend upward on the service layer, which already
 # depends on the model).
 from engine._range_state import is_range_terminal, is_range_usable
+from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
 from shared.raes.runtime_target import is_raes_provisioning_plan
 
@@ -69,6 +70,8 @@ def _run_range_lifecycle_op(
         if not range_obj:
             logger.warning("%s_range: no range for request_id=%s", op_name, request_id)
             decision = False
+        elif range_obj.owner_principal_uuid is not None:
+            raise PermissionError("Range operation authority unavailable")
         elif is_raes_provisioning_plan(range_obj.range_config):
             # Native realization owns its member inventory outside engine_instance;
             # the legacy power worker cannot consume it. Refuse before state changes.
@@ -146,8 +149,12 @@ def _dispatch_lifecycle_ecs(
     return False
 
 
-def pause_range(request_id: UUID) -> bool:
+def pause_range(request_id: UUID, *, credential: CredentialContext | None = None) -> bool:
     """Pause all instances in a range. Idempotent."""
+    if credential is not None:
+        from ._principal_lifecycle import commit_prepared_range_lifecycle, prepare_range_lifecycle
+
+        return commit_prepared_range_lifecycle(prepare_range_lifecycle(credential, request_id, "pause"))
     return _run_range_lifecycle_op(
         request_id,
         "pause",
@@ -158,8 +165,16 @@ def pause_range(request_id: UUID) -> bool:
     )
 
 
-def resume_range(request_id: UUID, *, defer_dispatch: bool = False) -> bool:
+def resume_range(
+    request_id: UUID, *, defer_dispatch: bool = False, credential: CredentialContext | None = None
+) -> bool:
     """Resume all instances in a range. Idempotent."""
+    if credential is not None:
+        from ._principal_lifecycle import commit_prepared_range_lifecycle, prepare_range_lifecycle
+
+        if defer_dispatch:
+            raise ValueError("Principal lifecycle requires an atomic launch intent")
+        return commit_prepared_range_lifecycle(prepare_range_lifecycle(credential, request_id, "resume"))
     return _run_range_lifecycle_op(
         request_id,
         "resume",

@@ -47,6 +47,7 @@ dev = [
     "pytest-cov",
     "pytest-mock",
     "ruff",
+    "shifter-openvpn",
 ]
 
 [tool.pytest.ini_options]
@@ -126,3 +127,6 @@ warn_unused_ignores = true
 show_error_codes = true
 # Disable untyped library checks - stubs not worth installing for these
 disable_error_code = ["import-untyped"]
+
+[tool.uv.sources]
+shifter-openvpn = { path = "../openvpn", editable = true }

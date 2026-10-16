@@ -100,6 +100,7 @@ urlpatterns = [
         name="preparation-adapter-grants",
     ),
     path("vpn-control/sessions/", vpn_control.VpnSessionAuthorizeView.as_view(), name="vpn-control-authorize"),
+    path("vpn-control/crl/", vpn_control.VpnCrlView.as_view(), name="vpn-control-crl"),
     path("vpn-control/heartbeat/", vpn_control.VpnSessionHeartbeatView.as_view(), name="vpn-control-heartbeat"),
     path("vpn-control/sessions/end/", vpn_control.VpnSessionEndView.as_view(), name="vpn-control-end"),
     path(

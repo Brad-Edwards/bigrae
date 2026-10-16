@@ -33,7 +33,7 @@ class FakePortal:
         self.reported: list[list[str]] = []
         self.ended: list[str] = []
 
-    def authorize(self, common_name, client_id, client_address):
+    def authorize(self, common_name, client_id, client_address, **certificate):
         if isinstance(self.authorize_result, Exception):
             raise self.authorize_result
         return self.authorize_result
@@ -60,6 +60,13 @@ class FakeFirewall:
 
     def revoke(self, client, target, ports):
         self.allowed.discard((client, target, ports))
+
+
+class FakeCrl:
+    available = True
+
+    def valid(self):
+        return self.available
 
 
 class Clock:
@@ -95,6 +102,26 @@ def test_an_authorized_client_reaches_only_its_target_ports(parts):
 
     assert management.calls == [("allow", 7, 1, ('push "route 10.50.3.3 255.255.255.255"',))]
     assert firewall.allowed == {("100.96.0.2", "10.50.3.3", (22, 3389))}
+
+
+def test_stale_heartbeat_termination_does_not_kill_an_already_disconnected_client(parts):
+    controller, management, portal, firewall, _clock = parts
+    controller.handle(_connect())
+    controller.handle(_established())
+
+    def heartbeat(sessions):
+        assert sessions == ["s-1"]
+        controller.handle(ClientEvent("DISCONNECT", 7, None, {}))
+        return {"s-1"}, 15
+
+    def departed(cid):
+        raise RuntimeError("Native client has already departed")
+
+    portal.heartbeat = heartbeat
+    management.kill = departed
+    assert controller.heartbeat() == 15
+    assert controller.session_count() == 0
+    assert firewall.allowed == set()
 
 
 @pytest.mark.parametrize(
@@ -174,3 +201,178 @@ def test_unconfirmed_revocation_ends_every_session_after_the_grace_period(parts)
     clock.now = 91
     controller.heartbeat()
     assert management.calls[-1] == ("kill", 7)
+
+
+def test_revocation_removes_forwarding_even_if_native_kill_fails(parts):
+    controller, management, portal, firewall, _clock = parts
+    controller.handle(_connect())
+    controller.handle(_established())
+    portal.heartbeat_result = ({"s-1"}, 15)
+
+    def fail_kill(_cid):
+        raise RuntimeError("management socket unavailable")
+
+    management.kill = fail_kill
+    with pytest.raises(RuntimeError, match="VPN termination unavailable"):
+        controller.heartbeat()
+
+    assert firewall.allowed == set()
+
+
+@pytest.mark.parametrize("disconnect", [False, True])
+def test_failed_rule_removal_stops_the_pool_before_tunnel_address_reuse(parts, disconnect):
+    controller, _management, portal, firewall, _clock = parts
+    controller.handle(_connect())
+    controller.handle(_established())
+
+    def fail_revoke(*_args):
+        raise RuntimeError("nft unavailable")
+
+    firewall.revoke = fail_revoke
+    portal.heartbeat_result = ({"s-1"}, 15)
+    with pytest.raises(RuntimeError, match="VPN termination unavailable"):
+        if disconnect:
+            controller.handle(ClientEvent("DISCONNECT", 7))
+        else:
+            controller.heartbeat()
+
+
+def test_renegotiation_rechecks_policy_and_kills_a_revoked_session(parts):
+    controller, management, portal, firewall, _clock = parts
+    controller.handle(_connect())
+    controller.handle(_established())
+    portal.heartbeat_result = ({"s-1"}, 15)
+
+    controller.handle(ClientEvent("REAUTH", 7, 2))
+
+    assert ("allow_unchanged", 7, 2) not in management.calls
+    assert ("kill", 7) in management.calls
+    assert firewall.allowed == set()
+
+
+def test_verified_tls_certificate_identity_is_forwarded_to_policy(parts):
+    controller, _management, portal, _firewall, _clock = parts
+    observed = []
+    result = portal.authorize_result
+    controller._crl = FakeCrl()
+
+    def authorize(common_name, client_id, client_address, **certificate):
+        observed.append(certificate)
+        return result
+
+    portal.authorize = authorize
+    controller.handle(
+        ClientEvent(
+            "CONNECT",
+            7,
+            1,
+            {
+                "common_name": "access-synthetic",
+                "tls_serial_0": "1234",
+                "tls_digest_sha256_0": "AB:" * 31 + "AB",
+                "IV_CREDENTIAL_UUID": "client-controlled-and-ignored",
+            },
+        )
+    )
+    assert observed == [{"certificate_serial": "1234", "certificate_fingerprint": "AB:" * 31 + "AB"}]
+
+
+@pytest.mark.parametrize("failure", [PortalUnavailable("timeout"), PortalRefused("vpn.access_revoked")])
+def test_renegotiation_cannot_succeed_when_policy_is_unavailable(parts, failure):
+    controller, management, portal, firewall, _clock = parts
+    controller.handle(_connect())
+    controller.handle(_established())
+    portal.heartbeat_result = failure
+
+    def deny_retired_client(cid, kid, reason):
+        if ("kill", cid) in management.calls:
+            raise RuntimeError("ERROR: client no longer exists")
+        management.calls.append(("deny", cid, kid, reason))
+
+    management.deny = deny_retired_client
+    controller.handle(ClientEvent("REAUTH", 7, 2))
+    assert ("allow_unchanged", 7, 2) not in management.calls
+    assert ("kill", 7) in management.calls
+    assert firewall.allowed == set()
+
+
+def test_missing_crl_blocks_individual_profile_admission(parts):
+    controller, management, _portal, firewall, _clock = parts
+    controller.handle(ClientEvent("CONNECT", 7, 1, {"common_name": "access-synthetic"}))
+    assert controller.session_count() == 0
+    assert ("deny", 7, 1, "vpn.crl_unavailable") in management.calls
+    assert firewall.allowed == set()
+
+
+def test_deleted_or_expired_crl_removes_existing_forwarding(parts):
+    controller, management, _portal, firewall, _clock = parts
+    controller._crl = FakeCrl()
+    controller.handle(ClientEvent("CONNECT", 7, 1, {"common_name": "access-synthetic"}))
+    controller.handle(_established())
+    controller._crl.available = False
+    controller.heartbeat()
+    assert firewall.allowed == set()
+    assert ("kill", 7) in management.calls
+
+
+def test_establishment_cannot_restore_forwarding_after_concurrent_revocation(parts):
+    import threading
+
+    controller, _management, portal, firewall, _clock = parts
+    controller.handle(_connect())
+    entered, release = threading.Event(), threading.Event()
+    allow = firewall.allow
+
+    def delayed_allow(*args):
+        entered.set()
+        assert release.wait(2)
+        allow(*args)
+
+    firewall.allow = delayed_allow
+    establishing = threading.Thread(target=controller.handle, args=(_established(),))
+    establishing.start()
+    assert entered.wait(2)
+    portal.heartbeat_result = ({"s-1"}, 15)
+    revoking = threading.Thread(target=controller.heartbeat)
+    revoking.start()
+    # Let the concurrent revoker run before allowing the delayed installation.
+    revoking.join(0.05)
+    release.set()
+    establishing.join(2)
+    revoking.join(2)
+    assert not establishing.is_alive() and not revoking.is_alive()
+    assert firewall.allowed == set()
+
+
+def test_asynchronous_authorization_failure_stops_the_pool(parts):
+    controller, management, *_ = parts
+    failures = []
+    controller._fatal = lambda: failures.append("stop")
+
+    def fail_allow(*_args):
+        raise RuntimeError("management unavailable")
+
+    management.allow = fail_allow
+    controller.handle(_connect())
+    assert failures == ["stop"]
+
+
+def test_slow_batch_termination_cannot_delay_revocation_of_other_clients_without_bound(parts):
+    controller, management, portal, _firewall, clock = parts
+    controller.handle(_connect(cid=7))
+    portal.authorize_result = Grant("s-2", "10.50.3.4", (22,), 15)
+    controller.handle(_connect(cid=8))
+    portal.heartbeat_result = ({"s-1", "s-2"}, 15)
+
+    def slow_kill(_cid):
+        clock.now += 11
+
+    management.kill = slow_kill
+    with pytest.raises(RuntimeError, match="VPN termination unavailable"):
+        controller.heartbeat()
+
+
+def test_an_unbounded_portal_interval_cannot_postpone_revalidation(parts):
+    controller, _management, portal, *_ = parts
+    portal.heartbeat_result = (set(), 3600)
+    assert controller.heartbeat() == 15

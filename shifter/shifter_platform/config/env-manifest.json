@@ -394,6 +394,21 @@
     },
     {
       "default": "''",
+      "name": "GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_EMAIL",
+      "source_file": "config/_guacamole_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_ID",
+      "source_file": "config/_guacamole_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "GUACAMOLE_CONTROL_AUDIENCE",
+      "source_file": "config/_guacamole_settings.py"
+    },
+    {
+      "default": "''",
       "name": "GUACAMOLE_JSON_AUTH_SECRET",
       "source_file": "config/_guacamole_settings.py"
     },

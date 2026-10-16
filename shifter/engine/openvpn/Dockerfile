@@ -17,7 +17,7 @@ LABEL maintainer="Shifter maintainers" \
       org.opencontainers.image.authors="Shifter maintainers"
 
 # Minor-version constraints: CI rebuilds without cache pick up patch releases.
-RUN apk add --no-cache "nftables~1.1" "openvpn~2.6" "python3~3.12" "setpriv~2.41" \
+RUN apk add --no-cache "nftables~1.1" openssl "openvpn~2.6" "python3~3.12" "setpriv~2.41" \
     && addgroup -S -g 10001 shifter-vpn \
     && adduser -S -D -H -u 10001 -G shifter-vpn -s /sbin/nologin shifter-vpn
 

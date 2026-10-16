@@ -33,6 +33,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 
+from mission_control.guacamole_authority import revalidate_guacamole_sessions
 from mission_control.guacamole_bootstrap import prune_expired_bootstrap_requests
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ class Command(BaseCommand):
     def _prune_cycle(self, batch_size: int) -> int:
         """Drain expired rows in bounded batches; return the total deleted."""
         total = 0
+        revalidate_guacamole_sessions(limit=batch_size)
         while not self.shutdown:
             deleted = prune_expired_bootstrap_requests(batch_size=batch_size)
             total += deleted

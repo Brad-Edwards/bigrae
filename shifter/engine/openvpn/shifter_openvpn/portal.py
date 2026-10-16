@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from . import transport
 
-_MAX_RESPONSE_BYTES = 65_536
+_MAX_RESPONSE_BYTES = 262_144
 _TIMEOUT = 10
 
 
@@ -110,7 +110,7 @@ class PortalClient:
             raise PortalUnavailable("response is not an object")
         return status, payload
 
-    def authorize(self, common_name: str, client_id: int, client_address: str) -> Grant:
+    def authorize(self, common_name: str, client_id: int, client_address: str, **certificate: str) -> Grant:
         """Ask whether this verified client may connect; return its single grant."""
         status, payload = self._post(
             "sessions/",
@@ -119,6 +119,7 @@ class PortalClient:
                 "server": self._server,
                 "client_id": client_id,
                 "client_address": client_address,
+                **certificate,
             },
         )
         if status != 201:
@@ -135,6 +136,14 @@ class PortalClient:
         if not isinstance(disconnect, list) or not isinstance(interval, int):
             raise PortalUnavailable("heartbeat outside the contract")
         return {str(value) for value in disconnect}, interval
+
+    def crl(self) -> str:
+        """Read only public signed PKI material through the existing control identity."""
+        status, payload = self._post("crl/", {})
+        pem = payload.get("crl")
+        if status != 200 or not isinstance(pem, str):
+            raise PortalUnavailable("CRL unavailable")
+        return pem
 
     def end(self, session: str) -> None:
         """Report that a session's client disconnected."""

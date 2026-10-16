@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Coalesce
 
 from cms.credential_encryption import EncryptedInstanceDataField
 from cms.models.catalogs import AppType, InstanceType
@@ -102,7 +103,10 @@ class Request(SoftDeleteMixin, models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="requests",
+        null=True,
+        blank=True,
     )
+    owner_principal_uuid = models.UUIDField(null=True, blank=True, db_index=True)
     # Soft reference to workspaces.Workspace (ADR-046-R3, #1325). A scalar, not a
     # ForeignKey: cross-layer FKs are prohibited (ADR-001-R2), so CMS carries the
     # workspace's internal ID and resolves it through workspaces.services.
@@ -138,6 +142,14 @@ class Request(SoftDeleteMixin, models.Model):
         verbose_name_plural = "Requests"
         base_manager_name = "all_objects"
         constraints = [
+            models.UniqueConstraint(
+                "owner_principal_uuid",
+                "account_id",
+                Coalesce("organization_id", models.Value(0)),
+                Coalesce("workspace_id", models.Value(0)),
+                condition=models.Q(owner_principal_uuid__isnull=False, request_type="ngfw", deleted_at__isnull=True),
+                name="cms_active_device_per_principal",
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(

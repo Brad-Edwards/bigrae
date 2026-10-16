@@ -27,6 +27,7 @@ from shared.audit import (
     AuditEntityType,
 )
 from shared.constants import USER_CANNOT_BE_NONE
+from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
 from workspaces.services import WorkspaceOperation
 
@@ -162,7 +163,7 @@ def _attempt_transition(
     )
 
 
-def run_by_instance_pk(user: User, range_instance_pk: int, op: _LifecycleOp) -> None:
+def run_by_instance_pk(user: User | CredentialContext, range_instance_pk: int, op: _LifecycleOp) -> None:
     """Run a pause/resume operation against a range by its ``RangeInstance`` PK.
 
     The PK is the identifier callers hold: ``find_range_instance_id_by_request``
@@ -176,6 +177,10 @@ def run_by_instance_pk(user: User, range_instance_pk: int, op: _LifecycleOp) -> 
     when the engine rejects the transition.
     """
     label = op.name
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_lifecycle import run_scoped_range_lifecycle
+
+        return run_scoped_range_lifecycle(user, op.verb, instance_pk=range_instance_pk)
     _validate_caller_user(user, label)
 
     if range_instance_pk is None:
@@ -253,7 +258,7 @@ def run_by_instance_pk(user: User, range_instance_pk: int, op: _LifecycleOp) -> 
         raise
 
 
-def run_by_request_id(user: User, request_id: str, op: _LifecycleOp) -> None:
+def run_by_request_id(user: User | CredentialContext, request_id: str, op: _LifecycleOp) -> None:
     """Run a pause/resume operation against a range identified by ``request_id``.
 
     Fetches the owned RangeInstance by request_id, then delegates to the engine
@@ -261,6 +266,11 @@ def run_by_request_id(user: User, request_id: str, op: _LifecycleOp) -> None:
     the transition.
     """
     label = f"{op.name}_by_request_id"
+
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_lifecycle import run_scoped_range_lifecycle
+
+        return run_scoped_range_lifecycle(user, op.verb, request_id=request_id)
 
     if user is None:
         logger.error("%s called with None user", label)

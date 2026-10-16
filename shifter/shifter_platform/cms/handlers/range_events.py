@@ -177,11 +177,19 @@ def _validated_status(new_status: str | None, range_id: int | None) -> str | Non
     return new_status
 
 
-def _event_owns_instance(instance: RangeInstance, user_id: int | None, range_id: int | None) -> bool:
+def _event_owns_instance(
+    instance: RangeInstance,
+    user_id: int | None,
+    range_id: int | None,
+    *,
+    event: RangeStatusUpdatedPayload | None = None,
+) -> bool:
     """Return True when the event's ``user_id`` matches the instance owner.
 
     Logs a mismatch (the ownership trust boundary) before returning False.
     """
+    if instance.owner_principal_uuid is not None:
+        return _principal_event_owns_instance(instance, event)
     if instance.user_id != user_id:
         logger.error(
             "user_id mismatch: message=%s, instance=%s (range_id=%s)",
@@ -234,7 +242,7 @@ def process_range_event(message: str | dict) -> None:
 
     include_deleted = new_status == ResourceStatus.DESTROYED.value
     instance = _lookup_range_instance(request_id, range_id, include_deleted=include_deleted)
-    if instance is None or not _event_owns_instance(instance, payload.get("user_id"), range_id):
+    if instance is None or not _event_owns_instance(instance, payload.get("user_id"), range_id, event=payload):
         return
 
     previous_status = instance.status
@@ -259,3 +267,29 @@ def process_range_event(message: str | dict) -> None:
             new_status,
             event_id,
         )
+
+
+def _principal_event_owns_instance(instance: RangeInstance, event: RangeStatusUpdatedPayload | None) -> bool:
+    """Verify an accepted native callback against the unchanged CMS range projection."""
+    from engine.services import verified_range_status_projection
+    from workspaces.services import resource_scope_from_ids
+
+    try:
+        proof = verified_range_status_projection(event) if event is not None else None
+        scope = resource_scope_from_ids(
+            kind=instance.scope_kind,
+            account_id=instance.account_id,
+            organization_id=instance.organization_id,
+            workspace_id=instance.workspace_id,
+        )
+        return (
+            proof is not None
+            and instance.request is not None
+            and (
+                (proof.public_uuid, proof.owner_principal_uuid, proof.scope, proof.request_uuid)
+                == (instance.uuid, instance.owner_principal_uuid, scope, instance.request.request_id)
+                and (instance.range_id is None or proof.native_id == instance.range_id)
+            )
+        )
+    except Exception:
+        return False

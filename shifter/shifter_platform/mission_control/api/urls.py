@@ -5,10 +5,12 @@ from __future__ import annotations
 from django.urls import path
 
 from mission_control.api import views
+from mission_control.api.guacamole_control import GuacamoleAuthorityView
 
 app_name = "mission_control"
 
 urlpatterns = [
+    path("guacamole/control/authority/", GuacamoleAuthorityView.as_view(), name="guacamole-control-authority"),
     path("range/", views.CurrentRangeView.as_view(), name="range-current"),
     path("ranges/", views.RangeHistoryView.as_view(), name="ranges-list"),
     path("range/launch/", views.LaunchRangeView.as_view(), name="range-launch"),

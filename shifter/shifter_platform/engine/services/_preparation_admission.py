@@ -101,7 +101,17 @@ def save_admission(operation: PreparationOperation, facts: VerifiedMaterializati
     """Caller holds scope/grant/adapter/operation/attempt fences in one transaction."""
     from engine.models import PreparedArtifactAdmission, RaesImageMapping
 
+    scope = {}
+    if operation.authority_kind:
+        scope = {
+            "owner_principal_uuid": operation.authority_owner_uuid,
+            "scope_kind": operation.authority_scope_kind,
+            "account_uuid": operation.authority_account_uuid,
+            "organization_uuid": operation.authority_organization_uuid,
+            "workspace_uuid": operation.authority_workspace_uuid,
+        }
     mapping = RaesImageMapping.objects.create(
+        **scope,
         provider="gce",
         source_name="prepared-" + operation.id.hex,
         source_version="1",

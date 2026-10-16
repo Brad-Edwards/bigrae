@@ -9,7 +9,22 @@ from uuid import UUID
 from django.db import transaction
 from shifter_adapter_sdk.runtime import PluginManifest, canonical_digest
 
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, RequestAudit, audit_log
+from shared.audit import (
+    AuditAction,
+    AuditActorType,
+    AuditEntityType,
+    AuditEvent,
+    RequestAudit,
+    audit_log,
+    principal_actor_fields,
+)
+from shared.authorization import TargetRef
+from shared.credentials import (
+    CredentialContext,
+    resolve_credential_scope,
+    resolve_current_credential,
+    resolve_local_credential,
+)
 from shared.exceptions import ValidationError
 from shared.runtime_plugin_binding import PluginTargetBindings, RuntimePluginPin, RuntimePluginScope
 
@@ -18,7 +33,7 @@ from ._runtime_plugins import _authorize
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from engine.models import Range, RuntimePluginPackBinding
+    from engine.models import Range, RuntimePluginInstallation, RuntimePluginPackBinding
 
 
 @dataclass(frozen=True)
@@ -36,7 +51,7 @@ class RuntimePluginPackView:
 
 
 def bind_runtime_plugin(
-    user: User,
+    user: User | CredentialContext,
     scope: RuntimePluginScope,
     installation_id: UUID,
     bindings: object,
@@ -47,7 +62,15 @@ def bind_runtime_plugin(
     """Authorize and update a pack's selection, without changing any range pin."""
     from engine.models import RuntimePluginInstallation, RuntimePluginPackBinding
 
-    organization_uuid = _authorize(user, scope.organization_uuid)
+    authority = None
+    if isinstance(user, CredentialContext):
+        from ._runtime_plugin_authority import admit_plugin_authority
+
+        user = resolve_current_credential(user)
+        authority = admit_plugin_authority(user, scope.organization_uuid)
+        organization_uuid = _authorize(user, scope.organization_uuid)
+    else:
+        organization_uuid = _authorize(user, scope.organization_uuid)
     pack_id, pack_digest = scope.pack_id, scope.pack_digest
     try:
         RuntimePluginScope(organization_uuid=organization_uuid, pack_id=pack_id, pack_digest=pack_digest)
@@ -67,23 +90,10 @@ def bind_runtime_plugin(
         )
         if installation is None:
             raise ValidationError("The plugin is unavailable")
+        _validate_binding_authority(user, installation, authority, organization_uuid)
         if enabled and installation.state != "ready":
             raise ValidationError("The plugin must pass compatibility checks before binding")
-        try:
-            manifest = PluginManifest.model_validate(installation.manifest)
-            if manifest.digest != installation.manifest_digest:
-                raise ValueError("Stored plugin identity mismatch")
-            parsed.validate_manifest(manifest)
-            RuntimePluginPin(
-                installation_id=installation.id,
-                organization_uuid=organization_uuid,
-                pack_id=pack_id,
-                pack_digest=pack_digest,
-                manifest=manifest,
-                bindings=parsed,
-            )
-        except ValueError:
-            raise ValidationError("The bindings do not match the installed plugin declaration") from None
+        _validate_pack_pin(installation, parsed, organization_uuid, pack_id, pack_digest)
         row, _ = RuntimePluginPackBinding.objects.update_or_create(
             organization_uuid=organization_uuid,
             pack_id=pack_id,
@@ -95,14 +105,20 @@ def bind_runtime_plugin(
             },
         )
         attribution = audit or RequestAudit()
+        if isinstance(user, CredentialContext):
+            actor: dict[str, Any] = dict(principal_actor_fields(user.principal))
+        else:
+            actor = {
+                "actor_type": attribution.actor_type or AuditActorType.USER,
+                "actor_id": attribution.actor_id if attribution.actor_type else user.id,
+            }
         audit_log(
             AuditEvent(
                 entity_type=AuditEntityType.RUNTIME_PLUGIN,
                 entity_id=0,
                 entity_ref=str(row.id),
                 action=AuditAction.UPDATE,
-                actor_type=attribution.actor_type or AuditActorType.USER,
-                actor_id=attribution.actor_id if attribution.actor_type else user.id,
+                **actor,
                 request_id=attribution.request_id,
                 source_ip=attribution.source_ip,
                 user_agent=attribution.user_agent,
@@ -118,7 +134,9 @@ def bind_runtime_plugin(
         return _view(row)
 
 
-def list_runtime_plugin_bindings(user: User, organization_uuid: UUID) -> list[RuntimePluginPackView]:
+def list_runtime_plugin_bindings(
+    user: User | CredentialContext, organization_uuid: UUID
+) -> list[RuntimePluginPackView]:
     """List explicit selections owned by the authorized organization."""
     from engine.models import RuntimePluginPackBinding
 
@@ -290,3 +308,49 @@ def _view(row: RuntimePluginPackBinding) -> RuntimePluginPackView:
         row.enabled,
         row.installation.state,
     )
+
+
+def _validate_binding_authority(
+    user: User | CredentialContext,
+    installation: RuntimePluginInstallation,
+    authority: dict[str, object] | None,
+    organization_uuid: UUID,
+) -> None:
+    """Fence the admitted plugin installation and local credential while its binding is locked."""
+    if authority and isinstance(user, CredentialContext):
+        from shared.operation_authority import authority_resource_scope
+
+        from ._runtime_plugin_authority import validate_plugin_scope
+
+        validate_plugin_scope(installation, authority)
+        admitted_scope = authority_resource_scope(authority)
+        if (
+            resolve_local_credential(user) != user
+            or resolve_credential_scope(TargetRef("organization", organization_uuid)) != admitted_scope
+        ):
+            raise ValidationError("Plugin authority unavailable")
+
+
+def _validate_pack_pin(
+    installation: RuntimePluginInstallation,
+    parsed: PluginTargetBindings,
+    organization_uuid: UUID,
+    pack_id: str,
+    pack_digest: str,
+) -> None:
+    """Validate the stored immutable manifest and exact pack bindings before publishing a selection."""
+    try:
+        manifest = PluginManifest.model_validate(installation.manifest)
+        if manifest.digest != installation.manifest_digest:
+            raise ValueError("Stored plugin identity mismatch")
+        parsed.validate_manifest(manifest)
+        RuntimePluginPin(
+            installation_id=installation.id,
+            organization_uuid=organization_uuid,
+            pack_id=pack_id,
+            pack_digest=pack_digest,
+            manifest=manifest,
+            bindings=parsed,
+        )
+    except ValueError:
+        raise ValidationError("The bindings do not match the installed plugin declaration") from None

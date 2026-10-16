@@ -72,6 +72,8 @@ def _enqueue_range_status_event(range_obj: Range, new_status: str, error_message
     from engine.models import RangeEventOutbox
     from shared.messages.events import EVENT_TYPE_STATUS_UPDATED
 
+    from ._principal_range_events import range_status_authority_fields
+
     event_id = uuid4()
     related_request = range_obj.request
     RangeEventOutbox.objects.create(
@@ -86,6 +88,7 @@ def _enqueue_range_status_event(range_obj: Range, new_status: str, error_message
             "user_id": range_obj.user_id,
             "new_status": new_status,
             "error_message": error_message,
+            **range_status_authority_fields(range_obj),
         },
         next_attempt_at=timezone.now(),
     )
@@ -103,6 +106,8 @@ def _enqueue_ngfw_status_event(ngfw: Instance, app: App | None, new_status: str,
     from engine.models import RangeEventOutbox
     from shared.messages.events import EVENT_TYPE_NGFW
 
+    from ._device_authority import device_status_authority_fields
+
     event_id = uuid4()
     RangeEventOutbox.objects.create(
         event_id=event_id,
@@ -115,6 +120,7 @@ def _enqueue_ngfw_status_event(ngfw: Instance, app: App | None, new_status: str,
             "instance_id": str(ngfw.uuid),
             "app_id": str(app.uuid) if app is not None else None,
             "status": new_status,
+            **device_status_authority_fields(ngfw),
         },
         next_attempt_at=timezone.now(),
     )
