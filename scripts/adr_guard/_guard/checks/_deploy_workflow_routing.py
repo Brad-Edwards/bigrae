@@ -7,6 +7,9 @@ Quality skip path and an app-only diff still builds and deploys the portal image
 """
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from .._common import Violation
 from .._workflow_model import _PLATFORM_WORKFLOW_PATH
 from ._deploy_workflow_plan_scope import (
@@ -39,18 +42,28 @@ _QUALITY_GUARDRAIL_DOCS_REQUIRED_GLOBS = (
     ".github/copilot-instructions.md",
     "docs/adr/**",
     "docs/technical/dev/adr-enforcement.md",
+    # Environment-pack Markdown is digest-covered pack content (#2550), so a
+    # docs-only pack edit must still run Quality.
+    "shifter/environment-packs/**",
 )
 _PR_GATE_SKIPPED_QUALITY_GUARD = (
     '[ "$quality_result" = "skipped" ] && [ "$quality_relevant" != "false" ]'
 )
 _QUALITY_ONLY_OUTPUT = "quality_only: ${{ steps.filter.outputs.quality_only }}"
-_QUALITY_ONLY_REQUIRED_GLOBS = (
-    "scripts/stack-smoke/**",
-    "scenario-dev/**",
-)
+_QUALITY_ONLY_REQUIRED_GLOBS = ("scripts/stack-smoke/**",)
 _PORTAL_IMAGE_OUTPUT = "portal_image: ${{ steps.filter.outputs.portal_image }}"
 _PORTAL_IMAGE_DEPLOY_CONDITION = "needs.changes.outputs.portal_image == 'true'"
 _PORTAL_IMAGE_REQUIRED_GLOB = "shifter/shifter_platform/**"
+
+# Shifter-owned environment packs (#2550). The portal Dockerfile's explicit
+# `COPY environment-packs/<pack> ...` rules select the shipped packs, which must
+# route to `portal_image`. Every other pack directory in the collection is a
+# development pack, which must route to `quality_only`. Neither filter may route
+# the whole collection.
+_PORTAL_DOCKERFILE_PATH = "shifter/shifter_platform/Dockerfile"
+_ENVIRONMENT_PACKS_DIR = "shifter/environment-packs"
+_ENVIRONMENT_PACK_COLLECTION_GLOB = f"{_ENVIRONMENT_PACKS_DIR}/**"
+_PORTAL_PACK_COPY_RE = re.compile(r"^COPY\s+(?:--\S+\s+)*environment-packs/([^/\s]+)/?\s", re.MULTILINE)
 _PORTAL_IMAGE_BUILD_INPUT = "inputs.portal_image_changes"
 
 
@@ -221,6 +234,50 @@ def _check_deploy_workflow_portal_image_routing(deploy_text: str) -> list[Violat
     else:
         return []
     return [_plan_scope_violation(_DEPLOY_WORKFLOW_PATH, message)]
+
+
+def _environment_pack_globs(repo_root: Path) -> tuple[list[str], list[str]]:
+    """Return per-pack ``(shipped, development)`` globs for the pack collection."""
+    dockerfile = repo_root / _PORTAL_DOCKERFILE_PATH
+    shipped = (
+        set(_PORTAL_PACK_COPY_RE.findall(dockerfile.read_text(encoding="utf-8")))
+        if dockerfile.is_file()
+        else set()
+    )
+    packs_dir = repo_root / _ENVIRONMENT_PACKS_DIR
+    packs = {path.name for path in packs_dir.iterdir() if path.is_dir()} if packs_dir.is_dir() else set()
+    return (
+        [f"{_ENVIRONMENT_PACKS_DIR}/{name}/**" for name in sorted(shipped)],
+        [f"{_ENVIRONMENT_PACKS_DIR}/{name}/**" for name in sorted(packs - shipped)],
+    )
+
+
+def _check_deploy_workflow_environment_pack_routing(repo_root: Path, deploy_text: str) -> list[Violation]:
+    """Route shipped packs to the portal image and development packs to Quality only."""
+    shipped, development = _environment_pack_globs(repo_root)
+    portal_block = _paths_filter_block(deploy_text, "portal_image")
+    quality_only_block = _paths_filter_block(deploy_text, "quality_only")
+    problems = [
+        f"`{name}` must not include `{_ENVIRONMENT_PACK_COLLECTION_GLOB}`; route each pack individually"
+        for name, block in (("portal_image", portal_block), ("quality_only", quality_only_block))
+        if _block_contains_glob(block, _ENVIRONMENT_PACK_COLLECTION_GLOB)
+    ]
+    rules = (
+        ("`portal_image` must include shipped environment packs", shipped, portal_block, False),
+        ("`quality_only` must not include shipped environment packs", shipped, quality_only_block, True),
+        ("`quality_only` must include development environment packs", development, quality_only_block, False),
+        ("`portal_image` must not include development environment packs", development, portal_block, True),
+    )
+    for message, globs, block, forbidden in rules:
+        if offending := [glob for glob in globs if _block_contains_glob(block, glob) == forbidden]:
+            problems.append(f"{message}: {', '.join(offending)}")
+    return [
+        _plan_scope_violation(
+            _DEPLOY_WORKFLOW_PATH,
+            f"{problem} (shipped packs are the explicit `{_PORTAL_DOCKERFILE_PATH}` copies)",
+        )
+        for problem in problems
+    ]
 
 
 def _check_platform_build_portal_image_gate(platform_text: str) -> list[Violation]:

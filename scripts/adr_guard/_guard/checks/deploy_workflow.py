@@ -92,6 +92,7 @@ from ._deploy_workflow_routing import (
     _QUALITY_PREDICATE,
     _QUALITY_RELEVANT_CONDITION,
     _QUALITY_RELEVANT_OUTPUT,
+    _check_deploy_workflow_environment_pack_routing,
     _check_deploy_workflow_plan_routing,
     _check_deploy_workflow_portal_image_routing,
     _check_deploy_workflow_quality_only_routing,
@@ -164,6 +165,7 @@ def _deploy_workflow_plan_scope_violations(repo_root: Path) -> list[Violation]:
     violations.extend(_check_deploy_workflow_plan_routing(deploy_text))
     violations.extend(_check_deploy_workflow_quality_only_routing(deploy_text))
     violations.extend(_check_deploy_workflow_portal_image_routing(deploy_text))
+    violations.extend(_check_deploy_workflow_environment_pack_routing(repo_root, deploy_text))
     violations.extend(_check_deploy_workflow_skip_tests_policy(deploy_text))
     return violations
 
@@ -338,6 +340,7 @@ __all__ = [
     "_block_contains_glob",
     "_check_deploy_concurrency_queues_apply_runs",
     "_check_deploy_workflow_plan_routing",
+    "_check_deploy_workflow_environment_pack_routing",
     "_check_deploy_workflow_portal_image_routing",
     "_check_deploy_workflow_quality_only_routing",
     "_check_deploy_workflow_skip_tests_policy",

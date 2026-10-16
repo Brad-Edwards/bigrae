@@ -18,6 +18,7 @@ import pytest
 from shared.cloud.exceptions import CloudStorageError, ObjectPreconditionError
 from shared.raes.object_source import _reject_unsafe_member, stage_object_pack
 from shared.raes.package_loader import RaesPackageError
+from tests._environment_packs import ENVIRONMENT_PACKS_ROOT
 
 _MAX_ARCHIVE = 1_048_576
 _MAX_UNCOMPRESSED = 4_194_304
@@ -88,7 +89,7 @@ class TestStageObjectPackHappyPath:
         from raes_env_packs import export_pack_archive, pack_content_digest, validate_pack
 
         name = "preparation-http-smoke"
-        source = Path(__file__).resolve().parents[5] / "scenario-dev" / name
+        source = ENVIRONMENT_PACKS_ROOT / name
         archive = tmp_path / "export.tar.gz"
         export_pack_archive(source, archive)
         storage = _FakeStorage(archive.read_bytes())

@@ -127,6 +127,14 @@ COPY shifter_adapter_sdk /opt/shifter-libs/shifter_adapter_sdk
 # Copy application code (context is now shifter/, so path is shifter_platform)
 COPY --chown=appuser:appgroup shifter_platform .
 
+# Shipped environment packs (#2550). The canonical sources live under
+# shifter/environment-packs/; only the packs that the in-box bootstrap manifest
+# (cms/scenarios/inbox_packs/manifest.yaml) registers are copied, each to its
+# manifest package_ref under the RAES package root /app. Development packs in the
+# same collection are never copied. Keep this list and the manifest in agreement.
+COPY --chown=appuser:appgroup environment-packs/smoke-linux cms/scenarios/inbox_packs/smoke-linux
+COPY --chown=appuser:appgroup environment-packs/smoke-linux-aws cms/scenarios/inbox_packs/smoke-linux-aws
+
 # Bring in the built SPA bundle from the frontend stage. Kept out of the source
 # COPY above because it is generated (gitignored / dockerignored); collectstatic
 # below folds it into STATIC_ROOT and WhiteNoise fingerprints it (#1302).

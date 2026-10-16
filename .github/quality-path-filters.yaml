@@ -66,6 +66,10 @@ quality_units:
       - shifter/shifter_platform/**
       - shifter/shifter_adapter_sdk/**
       - shifter/shifter_client/**
+      # Shifter-owned environment packs (#2550). Platform pack-loading,
+      # bootstrap/conformance, object-source and backend-validation tests
+      # consume every pack in the collection.
+      - shifter/environment-packs/**
       - .importlinter
     packages:
       - engine
@@ -85,6 +89,8 @@ quality_units:
   - id: provisioner
     paths:
       - shifter/engine/provisioner/**
+      # The provisioner operating-system tests read this pack's SDL (#2550).
+      - shifter/environment-packs/shifter-raes-validation/**
     sonar: true
     responsibilities:
       lint: [provisioner-lint]
@@ -433,13 +439,6 @@ exclusions:
       - scripts/smoke-test-gcp.sh
       - scripts/sync-deploy-secrets.sh
       - scripts/update-coverage-readme.py
-
-  - type: config
-    reason: >-
-      Synthetic RAES validation scenarios and associated authoring material.
-      Private packs and their tests belong to their owning repositories.
-    paths:
-      - scenario-dev/**
 
   - type: test
     reason: >-

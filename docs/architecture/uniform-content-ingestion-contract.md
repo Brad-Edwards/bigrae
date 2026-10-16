@@ -105,6 +105,19 @@ ADR-053.
   acquisition origins differ in acquisition policy; trust and provenance remain
   orthogonal.
 
+## Source layout and shipped bootstrap references (#2550)
+
+A shared source collection does not select shipped or default-registered packs.
+The existing in-box manifest selects the bootstrap seed, and explicit image copy
+rules supply its referenced bytes. Source-checkout paths and persisted runtime
+references are distinct: relocating source can preserve runtime destinations and
+canonical digests without revising CMS registrations. If runtime references do
+change, use the existing fenced registration update and trusted conformance
+process, accounting for old pods and rollback images before removing paths.
+
+See the [environment-pack consolidation preflight](environment-pack-consolidation-preflight-2550.md)
+for the source/runtime boundary, validation layers and routing constraints.
+
 ## Tenant pack removal (ADR-034-R13, #2520)
 
 Tenant administrators can remove only packs that their organization owns.

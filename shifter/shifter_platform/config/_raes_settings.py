@@ -45,12 +45,12 @@ __all__ = [
 # roots are joined to this setting with containment enforcement; launch verifies
 # their canonical content digest before selecting the single direct SDL entry.
 # Defaults to
-# the repo root so in-repo scenario packages (e.g. scenario-dev/...) resolve out
+# the repo root so in-repo scenario packages (e.g. shifter/environment-packs/...) resolve out
 # of the box; override per environment when packages live elsewhere. Read via the
 # literal os.environ.get form so config/env-manifest.json picks it up.
 # In the source tree config/ sits at shifter/shifter_platform/config, so
-# parents[3] is the repo root (where in-repo scenario packages like scenario-dev/
-# live). In the deployed container the tree is flattened to /app, so parents[3]
+# parents[3] is the repo root (where in-repo scenario packages under
+# shifter/environment-packs/ live). In the deployed container the tree is flattened to /app, so parents[3]
 # does not exist; fall back to the app root instead of raising IndexError at
 # import (which would break every image build / settings load). The default is
 # only a starting point anyway — override SHIFTER_RAES_PACKAGE_ROOT per env.

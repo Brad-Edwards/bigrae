@@ -10,14 +10,9 @@ from raes_runtime.manager import RuntimeManager
 from shared.raes.content_delivery_prep import DeliveryTarget, pack_projects_feature, prepare_content_delivery
 from shared.raes.dispatch_port import ShifterDispatchResult
 from shared.raes.runtime_target import create_shifter_backend_target, serialize_provisioning_plan
+from tests._environment_packs import ENVIRONMENT_PACKS_ROOT
 
-_SDL_PATH = (
-    Path(__file__).resolve().parents[5]
-    / "scenario-dev"
-    / "shifter-raes-validation"
-    / "sdl"
-    / "shifter-raes-validation.sdl.yaml"
-)
+_SDL_PATH = ENVIRONMENT_PACKS_ROOT / "shifter-raes-validation" / "sdl" / "shifter-raes-validation.sdl.yaml"
 _PACK_ROOT = _SDL_PATH.parents[1]
 
 

@@ -391,9 +391,16 @@ The first slice intentionally stays small:
   replacement check must inspect that same saved plan. Non-deploy support/test
   surfaces that are not under `shifter/**` or `mcp/**` must use the
   `quality_only` filter/output rather than being hidden in a deploy bucket:
-  `scripts/stack-smoke/**` and `scenario-dev/**` are
-  required entries so the orphaned support suites run Quality without launching
-  Terraform plans, image builds, or environment deploys. On apply workflows,
+  `scripts/stack-smoke/**` is a
+  required entry so the orphaned support suites run Quality without launching
+  Terraform plans, image builds, or environment deploys. Environment packs under
+  `shifter/environment-packs/` are routed one pack at a time (#2550): each pack
+  that `shifter/shifter_platform/Dockerfile` copies explicitly must be in
+  `portal_image` and not in `quality_only`. Each other pack directory must be in
+  `quality_only` and not in `portal_image`. Neither filter may route the whole
+  collection. The `guardrail_docs` filter must include
+  `shifter/environment-packs/**`, because pack Markdown is digest-covered
+  content. On apply workflows,
   `_shifter-platform.yml` still pushes the Guacamole ECR images before the
   platform Terraform plan because the Guacamole module resolves current image
   digests with `aws_ecr_image` data sources during plan. This ordering is
@@ -728,8 +735,8 @@ The first slice intentionally stays small:
   Terraform plan outputs (`tfplan`, `tfplan.binary`, `plan.out`,
   `*.tfplan`, `*.tfplan.binary`) under
   `platform/terraform/environments/` and
-  `platform/terraform/gcp/environments/`; scenario build output
-  under `scenario-dev/<pack>/build/`; and license / authcode bootstrap
+  `platform/terraform/gcp/environments/`; environment-pack build output
+  under `shifter/environment-packs/<pack>/build/`; and license / authcode bootstrap
   material (`authcodes`, `*.authcodes`) under `temp/bootstrap/`.
   Enumeration uses `git ls-files` (tracked +
   staged + untracked-but-not-ignored) so ignored ephemeral
@@ -791,8 +798,8 @@ The first slice intentionally stays small:
   ellipsis form (`FLAG{...}`), and angle-bracket templates
   (`FLAG{<16-hex>}`). The path scope deliberately excludes tests,
   docs, the native `ctf` app (where `FLAG{...}` is a documented
-  format hint), and synthetic scenario fixtures under
-  `scenario-dev/`, where flags are legitimate challenge
+  format hint), and environment packs under
+  `shifter/environment-packs/`, where flags are legitimate challenge
   content. Failure reporting names the repo-relative path and line
   only; the matched value is never echoed. CTF flags are low-entropy
   and are not caught by gitleaks; this is the complementary
