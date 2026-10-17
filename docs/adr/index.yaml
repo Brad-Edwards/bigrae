@@ -1295,7 +1295,8 @@
       "docs/technical/handbook/scenario-contract-transition.md",
       ".github/CODEOWNERS",
       "scripts/quality_ownership/classify_paths.py",
-      "scripts/adr_guard/tests/test_quality_path_ownership.py"
+      "scripts/adr_guard/tests/test_quality_path_ownership.py",
+      "scripts/adr_guard/_guard/checks/_documentation_drift.py"
     ]
   },
   {

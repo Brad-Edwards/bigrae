@@ -38,3 +38,4 @@ As the platform grows, undocumented features become a liability for onboarding, 
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#1531` (Current-state handbook and architecture documentation drift review)
 - IMPLEMENTS → CODE_FILE `scripts/quality_ownership/classify_paths.py` (Always-run CI documentation pairing before path routing)
 - TESTS → TEST `scripts/adr_guard/tests/test_quality_path_ownership.py` (Source-only handbook enforcement and deletion-aware diff regression)
+- IMPLEMENTS → CODE_FILE `scripts/adr_guard/_guard/checks/_documentation_drift.py` (Focused handbook pairing, base associations and manifest validation helpers)

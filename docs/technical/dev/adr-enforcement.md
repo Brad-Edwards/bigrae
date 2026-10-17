@@ -1207,3 +1207,7 @@ because MkDocs currently reports some broken references as informational.
 Automated pairing checks do not evaluate architecture prose or establish live
 qualification; CODEOWNERS review supplies that judgment. Historical preflights
 carry a visible status and link to the current handbook.
+
+The documentation coverage entrypoint keeps pairing and manifest validation in
+`_guard/checks/_documentation_drift.py`. The existing guard facade preserves
+its public helper surface; Quality uses the same entrypoint.

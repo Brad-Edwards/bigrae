@@ -5982,7 +5982,7 @@ class DocumentationCoverageTests(unittest.TestCase):
             )
             with (
                 patch.dict(os.environ, {"ADR_GUARD_SNAPSHOT_ENFORCE": "1"}),
-                patch.object(ADR_GUARD.documentation, "_boundary_mock_base_reference_candidates", return_value=[]),
+                patch.object(ADR_GUARD.documentation_drift, "_boundary_mock_base_reference_candidates", return_value=[]),
             ):
                 violations = ADR_GUARD.check_documentation_coverage(root, None)
             self.assertEqual(len(violations), 1)
@@ -5993,8 +5993,8 @@ class DocumentationCoverageTests(unittest.TestCase):
             root = Path(tmp)
             self._write_repo(root, self._manifest([self._feature()]), self._good_docs())
             old = self._feature(drift_sources=["runtime/*"])
-            with patch.object(ADR_GUARD.documentation, "_git_text", return_value=json.dumps(self._manifest([old]))), patch.object(
-                ADR_GUARD.documentation, "_boundary_mock_base_reference_candidates", return_value=["base"]
+            with patch.object(ADR_GUARD.documentation_drift, "_git_text", return_value=json.dumps(self._manifest([old]))), patch.object(
+                ADR_GUARD.documentation_drift, "_boundary_mock_base_reference_candidates", return_value=["base"]
             ):
                 for changed in (["runtime/input.py"], ["docs/adr/documentation-coverage.yaml"]):
                     with self.subTest(changed=changed):
