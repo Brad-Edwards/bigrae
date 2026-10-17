@@ -1218,3 +1218,7 @@ carry a visible status and link to the current handbook.
 The documentation coverage entrypoint keeps pairing and manifest validation in
 `_guard/checks/_documentation_drift.py`. The existing guard facade preserves
 its public helper surface; Quality uses the same entrypoint.
+
+The focused helper module also owns coverage-violation construction and shared
+manifest shape checks. Coverage validation and CI path routing therefore retain
+one set of rule identifiers and diagnostics when their implementation is split.

@@ -1,4 +1,4 @@
-"""Source-to-handbook pairing for the existing documentation coverage check."""
+"""Documentation manifest validation and source-to-handbook pairing."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from .._common import Violation, _boundary_mock_base_reference_candidates, _git_text
 
 DOCS_COVERAGE_MANIFEST = "docs/adr/documentation-coverage.yaml"
+DOCS_COVERAGE_RULE_ID = "ADR-022-R1"
 _DOCS_EXCLUDED_PART = "_deprecated"
 
 
@@ -22,10 +23,12 @@ def _doc_path_is_excluded(slug: str) -> bool:
 
 
 def _drift_violation(message: str) -> Violation:
+    """Report pairing and manifest errors through the existing ADR rule."""
     return Violation("documentation-coverage", "ADR-022-R2", DOCS_COVERAGE_MANIFEST, message)
 
 
 def _association(feature: dict[str, object]) -> dict[str, object]:
+    """Project the stable fields shared by current and base mappings."""
     return {key: feature.get(key) for key in ("id", "drift_sources", "technical_docs")}
 
 
@@ -109,6 +112,7 @@ def _drift_site_exclusions(repo_root: Path) -> tuple[list[str], list[Violation]]
 
 
 def _target_is_excluded(target: str, excludes: list[str]) -> bool:
+    """Match hidden paths and the current MkDocs exclusion patterns."""
     return _doc_path_is_excluded(target) or any(
         fnmatchcase(target, pattern.strip()) or target.startswith(pattern.strip().rstrip("/") + "/")
         for pattern in excludes if pattern.strip()
@@ -137,6 +141,7 @@ def _check_drift_targets(
 def _read_documentation_diff(
     repo_root: Path, reference: str, enforce: bool
 ) -> tuple[set[str], list[Violation]]:
+    """Read NUL-delimited changed and untracked paths without a shell."""
     diff = _git_text(repo_root, ["diff", "--name-only", "-z", "--no-renames", reference, "--"])
     untracked = _git_text(repo_root, ["ls-files", "--others", "--exclude-standard", "-z"])
     if diff is None or untracked is None:
@@ -203,3 +208,8 @@ def _feature_doc_paths_error(feature: dict[str, object]) -> str | None:
             error = f"feature {feature.get('id')} {field} must be a list of paths"
             break
     return error
+
+
+def _coverage_violation(path: str, message: str) -> Violation:
+    """Build a documentation-coverage violation for ``path``."""
+    return Violation("documentation-coverage", DOCS_COVERAGE_RULE_ID, path, message)

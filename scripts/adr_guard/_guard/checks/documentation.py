@@ -17,6 +17,7 @@ from ._documentation_drift import (
     _check_drift_targets,
     _check_feature_drift,
     _coverage_manifest_shape_error,
+    _coverage_violation,
     _feature_doc_paths_error,
     _doc_path_is_excluded,
     _documentation_changed_paths,
@@ -129,7 +130,6 @@ def check_no_agent_attribution(
     return violations
 
 
-DOCS_COVERAGE_RULE_ID = "ADR-022-R1"
 LILRAE_IDENTITY_RULE_ID = "ADR-024-R6"
 ADR_INDEX_PATH = "docs/adr/index.yaml"
 _LILRAE_IDENTITY_PREFLIGHT = (
@@ -229,11 +229,6 @@ def _collect_index_link_slugs(docs_root: Path) -> set[str]:
         for target in _index_link_targets(text):
             linked.add(_normalize_doc_slug(f"{index_dir}/{target}"))
     return linked
-
-
-def _coverage_violation(path: str, message: str) -> Violation:
-    """Build a documentation-coverage violation for ``path``."""
-    return Violation("documentation-coverage", DOCS_COVERAGE_RULE_ID, path, message)
 
 
 def _load_coverage_manifest(
