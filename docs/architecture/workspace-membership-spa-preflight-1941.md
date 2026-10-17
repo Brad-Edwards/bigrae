@@ -1,5 +1,8 @@
 # Workspace membership SPA preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: #1941 (PLAT-234), "Org/workspace admin: membership & roles management surface"
 
 This note records the client boundary for the already implemented workspace

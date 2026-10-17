@@ -1,5 +1,8 @@
 # RAES Feature-Artifact Acquisition Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #2463, "Realize Claude Code as a scenario-declared feature instead
 of baking it into images."
 

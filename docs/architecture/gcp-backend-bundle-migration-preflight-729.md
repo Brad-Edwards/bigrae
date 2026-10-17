@@ -1,5 +1,8 @@
 # GCP Backend Bundle Migration Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation design constraint for issue #729
 
 Issue: <https://github.com/Brad-Edwards/shifter/issues/729>

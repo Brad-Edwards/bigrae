@@ -1,5 +1,8 @@
 # ACES Operation Sidecar Persistence Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1273, "14 - ACES migration: implement operation
 receipt/status/snapshot persistence sidecar."
 

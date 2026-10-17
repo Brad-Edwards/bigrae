@@ -1,5 +1,8 @@
 # Vertex invocation and usage adapter preflight — #2124 / M07
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Architecture guidance for PLAT-202, inspected at `26e03790266a` on
 2026-09-20. This applies [ADR-059](../../adr/059-range-model-access-broker.md),
 [ADR-060](../../adr/060-model-access-allocation-accounting.md) and

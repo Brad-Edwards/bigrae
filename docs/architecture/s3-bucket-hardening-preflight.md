@@ -1,5 +1,8 @@
 # Portal User-Uploads S3 Bucket Hardening
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: implemented controls with documented deferrals
 
 Tracking issues:

@@ -1,5 +1,8 @@
 # Packer Builder Termination Preflight (#342)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue 342 is a requirement-free maintenance fix for AWS Packer AMI builds:
 after a Kali AMI bake completed, the transient `packer-builder-kali` EC2
 instance was still running. The GitHub issue is the contract.

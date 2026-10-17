@@ -1,5 +1,8 @@
 # Range workspace scoping preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: #1327, "Range ownership scoping to workspaces"
 
 Status: pre-implementation guidance

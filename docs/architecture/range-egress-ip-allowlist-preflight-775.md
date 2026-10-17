@@ -1,5 +1,8 @@
 # Range Egress IP Allowlist Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Scope: GitHub #775 / PLAT-220. This note records repository-wide architecture
 guardrails for the upcoming implementation. It is not an implementation plan.
 

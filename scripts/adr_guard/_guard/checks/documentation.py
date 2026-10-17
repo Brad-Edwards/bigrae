@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import subprocess
-from pathlib import Path
+from fnmatch import fnmatchcase
+from pathlib import Path, PurePosixPath
 
 from .._common import (
     Violation,
+    _boundary_mock_base_reference_candidates,
+    _git_text,
     _load_json_yaml,
 )
 
@@ -257,6 +262,10 @@ def _load_coverage_manifest(
     shape_error = _coverage_manifest_shape_error(manifest)
     if shape_error is not None:
         return None, [_coverage_violation(DOCS_COVERAGE_MANIFEST, shape_error)]
+    if not _relative_drift_path(manifest["docs_root"]) or not (
+        repo_root / manifest["docs_root"]
+    ).resolve().is_relative_to(repo_root.resolve()):
+        return None, [_coverage_violation(DOCS_COVERAGE_MANIFEST, "docs_root must stay inside the repository")]
     return manifest, []
 
 
@@ -299,6 +308,9 @@ def _check_feature_coverage(
     feature_id = feature.get("id") or "<unknown>"
     user_docs = feature.get("user_docs") or []
     technical_docs = feature.get("technical_docs") or []
+    for field, paths in (("user_docs", user_docs), ("technical_docs", technical_docs)):
+        if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+            return [_coverage_violation(DOCS_COVERAGE_MANIFEST, f"feature {feature_id} {field} must be a list of paths")]
     violations: list[Violation] = []
     if not user_docs:
         violations.append(
@@ -330,11 +342,9 @@ def check_documentation_coverage(
     source of truth, so the check validates the whole manifest on every run
     regardless of ``files`` (like ``check_adr_registry``). Each feature must
     declare at least one user doc and one technical doc; every referenced doc
-    must exist as a serveable file under the in-app docs tree (not under a
+    must exist as a serveable file under the public docs tree (not under a
     ``_deprecated``/hidden path) and be reachable from an ``index.md``.
     """
-    # the manifest is the source of truth, so the check is not scoped to `files`
-    del files
     manifest, load_violations = _load_coverage_manifest(repo_root)
     if manifest is None:
         return load_violations
@@ -343,12 +353,156 @@ def check_documentation_coverage(
     docs_root = repo_root / docs_root_rel
     linked_slugs = _collect_index_link_slugs(docs_root)
 
-    violations: list[Violation] = []
+    associations, violations = _drift_associations(repo_root, manifest)
+    changed, diff_errors = _documentation_changed_paths(repo_root, files, {"features": associations})
+    violations.extend(diff_errors)
     for feature in manifest["features"]:
         violations.extend(
             _check_feature_coverage(feature, docs_root_rel, docs_root, linked_slugs)
         )
+    for association in associations:
+        target_errors = _check_drift_targets(repo_root, docs_root_rel, association)
+        violations.extend(target_errors)
+        if not target_errors:
+            violations.extend(_check_feature_drift(association, docs_root_rel, changed))
     return violations
+
+
+def _drift_violation(message: str) -> Violation:
+    """Keep handbook drift on the existing documentation check boundary."""
+    return Violation("documentation-coverage", "ADR-022-R2", DOCS_COVERAGE_MANIFEST, message)
+
+
+def _drift_associations(
+    repo_root: Path, manifest: dict[str, object]
+) -> tuple[list[dict[str, object]], list[Violation]]:
+    """Retain base mappings so a policy edit cannot erase its own obligation."""
+    associations: list[dict[str, object]] = []
+    errors: list[Violation] = []
+    seen: set[str] = set()
+    for feature in manifest["features"]:
+        if not isinstance(feature, dict) or "drift_sources" not in feature:
+            continue
+        identifier = feature.get("id")
+        if not isinstance(identifier, str) or not identifier or identifier in seen:
+            errors.append(_drift_violation("Missing or duplicate drift feature id"))
+        else:
+            seen.add(identifier)
+        associations.append({key: feature.get(key) for key in ("id", "drift_sources", "technical_docs")})
+    base, base_errors = _base_drift_associations(repo_root)
+    errors.extend(base_errors)
+    for association in base:
+        if association in associations:
+            continue
+        # A removed/narrowed association itself also needs page review.
+        if isinstance(association["drift_sources"], list):
+            association["drift_sources"] = [*association["drift_sources"], DOCS_COVERAGE_MANIFEST]
+        associations.append(association)
+    return associations, errors
+
+
+def _base_drift_associations(
+    repo_root: Path,
+) -> tuple[list[dict[str, object]], list[Violation]]:
+    """Read immutable base associations using the incumbent Git helpers."""
+    refs = _boundary_mock_base_reference_candidates(repo_root)
+    raw = _git_text(repo_root, ["show", f"{refs[0]}:{DOCS_COVERAGE_MANIFEST}"]) if refs else None
+    if refs and raw is None:
+        listing = _git_text(repo_root, ["ls-tree", "--name-only", refs[0], "--", DOCS_COVERAGE_MANIFEST])
+        if listing is None or listing.strip():
+            return [], [_drift_violation("Cannot read base documentation drift associations")]
+    if raw is None:
+        return [], []
+    try:
+        base = json.loads(raw)
+        associations = [
+            {key: feature.get(key) for key in ("id", "drift_sources", "technical_docs")}
+            for feature in base["features"]
+            if isinstance(feature, dict) and "drift_sources" in feature
+        ]
+    except (ValueError, KeyError, TypeError):
+        return [], [_drift_violation("Cannot parse base documentation drift associations")]
+    return associations, []
+
+
+def _relative_drift_path(value: object) -> bool:
+    """Accept repository-relative paths/globs without traversal or controls."""
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        return False
+    return not (
+        value.startswith("/") or ".." in PurePosixPath(value).parts or "\\" in value
+        or any(ord(char) < 32 for char in value)
+    )
+
+
+def _check_drift_targets(
+    repo_root: Path, docs_root: str, feature: dict[str, object]
+) -> list[Violation]:
+    """Require contained public pages, using this site's exclusion patterns."""
+    targets = feature.get("technical_docs")
+    if not isinstance(targets, list) or not targets or not all(isinstance(target, str) for target in targets):
+        return [_drift_violation("Drift associations require technical_docs")]
+    import yaml
+
+    config_path = repo_root / "mkdocs.yml"
+    try:
+        config = yaml.load(config_path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) if config_path.is_file() else {}
+    except (OSError, yaml.YAMLError):
+        return [_drift_violation("Cannot read MkDocs configuration for drift targets")]
+    if not isinstance(config, dict) or not isinstance(config.get("exclude_docs", ""), str):
+        return [_drift_violation("Cannot validate MkDocs exclusions for drift targets")]
+    excludes = (config.get("exclude_docs") or "").splitlines()
+    root = (repo_root / docs_root).resolve()
+    for target in targets:
+        if not _relative_drift_path(target) or not (root / target).resolve().is_relative_to(root):
+            return [_drift_violation("Drift technical_docs must be repository-contained paths")]
+        excluded = _doc_path_is_excluded(target) or any(
+            fnmatchcase(target, pattern.strip()) or target.startswith(pattern.strip().rstrip("/") + "/")
+            for pattern in excludes if pattern.strip()
+        )
+        if excluded:
+            return [_drift_violation(f"Drift technical_docs target is excluded from MkDocs: {target}")]
+    return []
+
+
+def _documentation_changed_paths(
+    repo_root: Path, files: list[str] | None, manifest: dict[str, object]
+) -> tuple[set[str], list[Violation]]:
+    """Use supplied local paths or the complete PR diff, including deletions."""
+    if files is not None:
+        return set(files), []
+    # Reuse the same base resolution and CI enforcement flag as the existing
+    # accessibility/published-contract ratchets. No shell or provider calls.
+    refs = _boundary_mock_base_reference_candidates(repo_root)
+    enforce = os.environ.get("ADR_GUARD_SNAPSHOT_ENFORCE", "").lower() in {"1", "true", "yes"}
+    if not refs and enforce:
+        return set(), [_drift_violation("Cannot resolve the base for handbook drift; fetch base history")]
+    if not any(isinstance(f, dict) and "drift_sources" in f for f in manifest["features"]):
+        return set(), []
+    diff = _git_text(repo_root, ["diff", "--name-only", "-z", "--no-renames", refs[0] if refs else "HEAD", "--"])
+    untracked = _git_text(repo_root, ["ls-files", "--others", "--exclude-standard", "-z"])
+    if diff is None or untracked is None:
+        errors = [_drift_violation("Cannot read the base diff for handbook drift")] if enforce else []
+        return set(), errors
+    return set(filter(None, diff.split("\0"))) | set(filter(None, untracked.split("\0"))), []
+
+
+def _check_feature_drift(
+    feature: dict[str, object], docs_root: str, changed: set[str]
+) -> list[Violation]:
+    """Require review of the mapped technical page when its boundary changes."""
+    if "drift_sources" not in feature:
+        return []
+    sources = feature["drift_sources"]
+    if not isinstance(sources, list) or not sources or not all(_relative_drift_path(source) for source in sources):
+        return [_drift_violation(f"feature {feature.get('id')} drift_sources must be nonempty repo-relative globs")]
+    affected = any(fnmatchcase(path, source) for path in changed for source in sources)
+    targets = {f"{docs_root}/{rel}" for rel in (feature.get("technical_docs") or [])}
+    if affected and not targets.intersection(changed):
+        return [_drift_violation(
+            f"feature {feature.get('id')} boundary drift requires review/update of: {', '.join(sorted(targets))}"
+        )]
+    return []
 
 
 def _lilrae_violation(path: str, message: str) -> Violation:

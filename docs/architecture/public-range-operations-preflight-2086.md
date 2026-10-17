@@ -1,5 +1,8 @@
 # Retry-safe public range operations: architecture preflight #2086
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue #2086 is the contract; no Ground Control requirement is attached. This is
 design guidance, not an implementation plan or evidence of implemented behavior.
 Inspection baseline: `ba536832543c01491b61618d71c649e780dbcc40`.

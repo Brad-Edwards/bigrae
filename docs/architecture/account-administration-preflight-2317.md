@@ -1,5 +1,8 @@
 # Account hierarchy and platform administration preflight (#2317)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: S4 architecture guidance; source work remains subject to #2308's
 authorization gate and production authority changes only at S8
 

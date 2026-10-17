@@ -1,5 +1,8 @@
 # ACES Snapshot Retention, Redaction, And Audit Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1277, "18 - ACES migration: implement snapshot retention,
 redaction, and audit rules."
 

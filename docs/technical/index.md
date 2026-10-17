@@ -4,7 +4,9 @@ Platform architecture, infrastructure, and development documentation.
 
 ## Architecture
 
-- [Architecture Overview](architecture) - Platform structure and design decisions
+- [Current-state architecture handbook](architecture.md) - System, authority, lifecycle and package ownership
+- [GCP installation and first exercise](handbook/gcp-first-run.md) - Bootstrap and a synthetic smoke range
+- [Scenario contract transition](handbook/scenario-contract-transition.md) - CyberScript, ACES and current RAES
 - [Per-range model-access design](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md) - Proposed architecture, security, operations, ADRs, and implementation backlog for #681
 - [Model-access contracts](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/architecture.md) - Proposed ownership, allocation, accounting, protocol, and lifecycle contracts
 

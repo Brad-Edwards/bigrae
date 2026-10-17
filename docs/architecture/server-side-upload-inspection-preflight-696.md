@@ -1,5 +1,8 @@
 # Server-Side Upload Inspection Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue #696 closes the upload validation gap for direct-to-S3 uploads by making
 backend finalization verify object content, not just client-side checks or S3
 metadata. This is a validation-boundary change, not a new upload workflow.

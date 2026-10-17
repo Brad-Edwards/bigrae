@@ -1,5 +1,8 @@
 # Core Runtime Decomposition Preflight (#561)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 **Status:** architecture guidance
 **Date:** 2026-07-19
 **Contract:** GitHub issue #561 (requirement-free maintenance)

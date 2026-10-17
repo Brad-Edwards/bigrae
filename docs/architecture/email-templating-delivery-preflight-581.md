@@ -1,5 +1,8 @@
 # Email Templating And Delivery Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #581 / PLAT-103, shared email templating and delivery service.
 
 This note records the architecture boundary for platform email. It is not an

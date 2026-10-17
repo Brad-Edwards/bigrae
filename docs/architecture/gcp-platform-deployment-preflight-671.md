@@ -1,5 +1,8 @@
 # GCP Platform Deployment Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #671, PLAT-002 "GCP Platform Deployment."
 
 This note records the repository-wide architecture guardrails for continuing

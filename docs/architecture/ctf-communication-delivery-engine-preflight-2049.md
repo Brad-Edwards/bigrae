@@ -1,5 +1,8 @@
 # CTF Durable Communication Delivery Engine Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Date: 2026-09-12. Repository baseline: `613f365ac`.
 
 Scope: issue #2049; CTF-008, CTF-010, CTF-012. This is architecture guidance,

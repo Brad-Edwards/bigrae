@@ -1,5 +1,8 @@
 # BigRAE Dedicated-Customer Authority Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 > Historical preflight. ADR-066 supersedes the one-customer-per-deployment and
 > personal-workspace mapping decisions. Its distinct-authority,
 > least-privilege, fail-closed, and real-boundary controls remain applicable as

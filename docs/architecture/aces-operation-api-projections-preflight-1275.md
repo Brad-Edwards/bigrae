@@ -1,5 +1,8 @@
 # ACES Operation API Projections Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1275, "16 - ACES migration: expose read-only operation
 status and snapshot APIs."
 

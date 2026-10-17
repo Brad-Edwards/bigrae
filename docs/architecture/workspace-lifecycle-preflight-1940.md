@@ -1,5 +1,8 @@
 # Workspace lifecycle preflight (PLAT-233, #1940)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation guidance reconciled with ADR-066 and #2314;
 production authority cutover remains the coordinated S8 change
 

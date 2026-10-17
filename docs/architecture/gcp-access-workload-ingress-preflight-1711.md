@@ -1,5 +1,8 @@
 # GCP Access-Workload Ingress Preflight (#1711)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1711, "Dedicated access-workload identity + cell-targeted
 range ingress (GCP range access hardening)."
 

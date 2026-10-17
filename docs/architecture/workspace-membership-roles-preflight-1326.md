@@ -1,5 +1,8 @@
 # Workspace membership and roles preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: #1326, "Workspace membership and roles"
 
 This note fixes the architecture boundary for membership lifecycle and

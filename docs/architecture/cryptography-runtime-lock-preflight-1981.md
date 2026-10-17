@@ -1,5 +1,8 @@
 # Cryptography Runtime Lock Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: binding implementation guidance for issue
 [#1981](https://github.com/Brad-Edwards/shifter/issues/1981)
 

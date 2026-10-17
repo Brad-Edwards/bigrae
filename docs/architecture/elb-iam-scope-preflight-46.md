@@ -1,5 +1,8 @@
 # ELB IAM Scope Preflight (#46)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: implemented (see `aws_iam_role_policy.gwlb` in
 `platform/terraform/modules/engine-provisioner/iam.tf` and the regression
 checker at `scripts/check_tf_iam_elb_scope/`).

@@ -1,5 +1,8 @@
 # Request accounting and dispatch lease preflight — #2121 / M04
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Inspected baseline: `78deb0f911c1a2199a2124835a1dd2a9d75fa55e`.
 Requirement: PLAT-202. This note applies
 [ADR-060](../../adr/060-model-access-allocation-accounting.md) and

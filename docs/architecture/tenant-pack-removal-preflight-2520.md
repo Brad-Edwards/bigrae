@@ -1,5 +1,8 @@
 # Tenant pack removal architecture preflight (#2520)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation guidance, 2026-10-15. The issue is the delivery
 contract; no formal requirement is attached. This note clarifies ADR-034-R13
 without implementing removal or prescribing an implementation sequence.

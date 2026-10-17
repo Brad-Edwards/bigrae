@@ -1,5 +1,8 @@
 # Destroyed Participant Range Recovery Preflight (#1018)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 > **Superseded:** the disposition/forensics-retention concept described below
 > was dropped by the issue owner. The revised plan replaces it with spare-pool
 > provisioning (an event-owned pool of prewarmed ranges, each held by a

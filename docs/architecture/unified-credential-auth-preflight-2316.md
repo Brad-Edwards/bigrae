@@ -1,5 +1,8 @@
 # Unified credential authentication preflight (#2316)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: architecture guidance for the S3 authentication integration; production
 authority cutover remains S8
 

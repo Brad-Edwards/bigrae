@@ -1,5 +1,8 @@
 # GCP Range-Cell Zone-Pool Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #2029, "backport(gcp): multi-region zone pool for GCP range
 cells (`RANGE_NETWORK_ZONES`) from `gcp-dev` to `dev`."
 

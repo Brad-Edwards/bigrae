@@ -1,182 +1,90 @@
 # Shifter
 
-Self-service agentic cyber range platform. Users provision isolated attack
-environments to run purple, red, and blue team scenarios with telemetry from
-targets, including XDR/XSIAM integrations.
+Self-service agentic cyber-range platform for authorized purple, red and blue
+team exercises, with isolated guest workloads and operator-selected telemetry.
+Canonical repository: [Brad-Edwards/shifter](https://github.com/Brad-Edwards/shifter).
 
-## Summary
+Start with the [current-state architecture handbook](docs/technical/architecture.md)
+for system context, deployment components, authority, lifecycle, data ownership,
+package boundaries and supported extensions. Documentation is authored under
+`docs/` and published through the single
+[MkDocs site](https://brad-edwards.github.io/shifter/) (ADR-038).
 
-- [Summary](#summary)
-- [CyberScript](#cyberscript)
-- [Getting Started](#getting-started)
-- [Prerequisites](#prerequisites)
-- [Installing](#installing)
-- [Usage](#usage)
-- [Support](#support)
-- [Deployment](#deployment)
-- [Running the tests](#running-the-tests)
-- [Built With](#built-with)
-- [Contributing](#contributing)
-- [Versioning](#versioning)
-- [Ethics](#ethics)
-- [Safety](#safety)
-- [Maintainers](#maintainers)
-- [Acknowledgments](#acknowledgments)
+## Get started
 
-## CyberScript
+- [GCP installation and first exercise](docs/technical/handbook/gcp-first-run.md):
+  configuration, bootstrap, health checks and the shipped synthetic smoke pack.
+- [Full installation setup](docs/technical/dev/setup.md): prerequisites, cloud
+  identity, Terraform inputs, DNS, operator bootstrap and deployment flow.
+- [Deployment secrets and variables](docs/dev/deploy-secrets.md): the authoritative
+  checklist of references and environment-specific configuration.
+- [Scenario contracts](docs/technical/handbook/scenario-contract-transition.md):
+  CyberScript and ACES history, the current RAES hard cut and rollback constraints.
 
-Shifter is powered by CyberScript, a language for defining cyber ranges. Write
-what you want in CyberScript, then Shifter builds it.
+CyberScript is retired. Current scenario authoring uses the pinned RAES and
+RAES environment-pack releases. Install dependencies from each maintained
+package's manifest; do not install a local CyberScript package.
 
-```yaml
-instances:
-  - name: Domain Controller
-    role: dc
-    os_type: windows
-    domain_controller: true
-    xdr_agent: false
+## Develop
 
-  - name: Workstation 1
-    role: victim
-    os_type: windows
-    xdr_agent: true
-    join_domain: true
-
-subnets:
-  - name: dc_network
-    instances: [Domain Controller]
-    connected_to: [workstation_network]
-```
-
-You describe attack scenarios, network topology, and victim configurations
-without dealing with cloud primitives or infrastructure complexity.
-
-See
-[`ad_attack_lab_ngfw.yaml`](shifter/shifter_platform/cms/scenarios/templates/ad_attack_lab_ngfw.yaml)
-for a complete example.
-
-## Getting Started
-
-These instructions get a copy of the project up and running on your local
-machine. See [Deployment](#deployment) for notes on deploying to a live cloud
-account.
-
-## Prerequisites
-
-- Python 3.12 with [uv](https://github.com/astral-sh/uv)
-- Node 20+ and npm
-- Terraform 1.7+, kubectl, helm 3.15+
-- [pre-commit](https://pre-commit.com/)
-
-## Installing
-
-Each package root manages its own dependencies (uv per pyproject.toml,
-npm per package.json):
+Use Python 3.12+, [uv](https://github.com/astral-sh/uv), the frontend's declared
+Node version and npm, and [pre-commit](https://pre-commit.com/).
+From the repository root:
 
 ```shell
-# Per-package Python envs
-cd shifter/shifter_platform && uv sync
-cd ../installation && uv sync
-cd ../cyberscript && uv sync
-# ...repeat for any package root you'll touch
-
-# Per-package MCP servers
-cd mcp/ops && npm ci
-# ...repeat for each mcp/* root
-
-# Install pre-commit hooks once per clone
+uv sync --project shifter/shifter_platform
+uv sync --project shifter/installation
+npm ci --prefix shifter/shifter_platform/frontend
 pre-commit install
 ```
 
-Full setup with database, secrets, and bootstrap flow:
-[`shifter/shifter_platform/documentation/docs/technical/dev/setup.md`](shifter/shifter_platform/documentation/docs/technical/dev/setup.md).
+Use [local development setup](docs/technical/dev/local-setup.md) and
+[contribution guidance](CONTRIBUTING.md) for the development workflow.
+Production control planes use the shared Helm chart on GKE or EKS. Runtime,
+cloud and image prerequisites depend on the selected installation bundle.
 
-## Usage
+## Test and document
 
-Local dev runs the Django platform service against a local Postgres + Redis;
-provisioner, MCP servers, and the GCP/AWS terraform paths are documented under
-[`shifter/shifter_platform/documentation/docs/`](shifter/shifter_platform/documentation/docs/).
-
-## Support
-
-Please read [SUPPORT.md](SUPPORT.md) for details on how to get support for
-this project.
-
-## Deployment
-
-Production deploys flow through `.github/workflows/deploy.yml` (a single
-entry point that dispatches per-cloud child workflows). Deployment-specific
-identifiers (DNS names, alarm emails, GCP project IDs, allow-list domains,
-SSH keys, etc.) are supplied via gitignored `local.auto.tfvars` files for
-local runs and via GitHub repository secrets/variables for CI. The complete
-required surface is documented in
-[`docs/dev/deploy-secrets.md`](docs/dev/deploy-secrets.md).
-
-## Running the tests
-
-Tests run per-package. Common invocations:
+Run tests for the packages you change, for example:
 
 ```shell
-cd shifter/shifter_platform && uv run pytest
-cd scripts/bootstrap && uv run pytest
-cd scripts/gcp && uv run pytest
-cd shifter/engine/provisioner && uv run pytest
-cd mcp/<name> && npm test
-```
-
-The aggregate gate every PR must pass:
-
-```shell
-pre-commit run --all-files
+make test-platform
+make test-provisioner
 python3 scripts/adr_guard/adr_guard.py --all --level ci
+uv run --with-requirements docs/requirements.txt mkdocs build --strict
 ```
 
-## Built With
+See [testing](docs/dev/testing.md) and [ADR enforcement](docs/technical/dev/adr-enforcement.md).
+CI owns the full quality matrix; local hooks also enforce architecture and
+secret hygiene. Architecture-boundary changes include handbook review.
 
-- [Django](https://www.djangoproject.com/): platform service (portal, CMS,
-  Mission Control)
-- [Terraform](https://www.terraform.io/): AWS and GCP infrastructure
-- [Kustomize](https://kustomize.io/) + [Helm](https://helm.sh/): Kubernetes
-  workload deployment on GKE
-- [Apache Guacamole](https://guacamole.apache.org/): clientless remote access
-  into provisioned range hosts
-- [Packer](https://www.packer.io/): golden VM image build
+## Support and security
 
-## Contributing
+Shifter is maintained on a community, best-effort basis without a response SLA.
+Use [SUPPORT.md](SUPPORT.md) for assistance and support limits and
+[SECURITY.md](SECURITY.md) for private vulnerability reporting. Run exercises
+only in environments you are authorized to control, with human oversight.
 
-We value your contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
-for details on how to contribute, and the process for submitting pull
-requests.
+The maintainer is [Brad Edwards](https://github.com/Brad-Edwards). The repository
+is MIT licensed; [LICENSE](LICENSE) retains the copyright holders' notices.
 
-## Versioning
+## Contributing and releases
 
-We use [SemVer](http://semver.org/) for versioning and
-[conventional commits](https://www.conventionalcommits.org/) for commit and
-pull request titles. Versioning and `CHANGELOG.md` are automated by
-[release-please](https://github.com/googleapis/release-please) from the
-Conventional Commit history on `main`; see
-[`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md).
-
-## Safety
-
-- Human oversight required for all scenarios.
-
-## Maintainers
-
-- Brad Edwards: [Brad-Edwards-SecOps](https://github.com/Brad-Edwards-SecOps),
-  [Brad-Edwards](https://github.com/Brad-Edwards)
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Feature PRs target `dev` and use
+Conventional Commit titles. Release Please owns the version and `CHANGELOG.md`
+from the history promoted to `main`; see
+[the release workflow](docs/DEVELOPMENT_WORKFLOW.md).
 
 ## Citation
-
-If you use Shifter in academic work or publications, please cite it:
 
 ```bibtex
 @software{shifter,
   author       = {Edwards, Brad},
   title        = {Shifter: Self-Service Agentic Cyber Range Platform},
   year         = {2026},
-  organization = {Palo Alto Networks},
   license      = {MIT},
-  url          = {https://github.com/PaloAltoNetworks/shifter}
+  url          = {https://github.com/Brad-Edwards/shifter}
 }
 ```
+
+Include the exact release or commit you used in your publication.

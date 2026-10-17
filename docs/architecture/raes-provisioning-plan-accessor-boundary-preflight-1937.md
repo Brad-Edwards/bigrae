@@ -1,5 +1,8 @@
 # RAES ProvisioningPlan accessor boundary decision (#1937)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: accepted architecture decision. This record changes no provisioning
 behavior, dependency, schema, deployment, or workflow.
 

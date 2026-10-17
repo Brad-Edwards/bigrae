@@ -1,5 +1,8 @@
 # Capacity-Aware Provisioning Preflight — Issue 680
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 **Requirement:** PLAT-201
 **Status:** pre-implementation guidance
 **Scope:** capacity admission for event-driven range provisioning; this is not an implementation plan.
