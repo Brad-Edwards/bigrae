@@ -6035,6 +6035,148 @@ class DocumentationCoverageTests(unittest.TestCase):
 
             self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")
 
+    def test_boundary_change_requires_its_technical_doc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            feature = self._feature(drift_sources=["runtime/contracts/*.py"])
+            self._write_repo(root, self._manifest([feature]), self._good_docs())
+            for changed in (
+                ["runtime/contracts/input.py"],
+                ["runtime/contracts/input.py", "docs/features/demo.md"],
+                ["runtime/contracts/input.py", "docs/technical/unrelated.md"],
+            ):
+                with self.subTest(changed=changed):
+                    violations = ADR_GUARD.check_documentation_coverage(root, changed)
+                    self.assertEqual(len(violations), 1)
+                    self.assertIn("drift", violations[0].message)
+                    self.assertIn("docs/technical/demo.md", violations[0].message)
+
+    def test_boundary_review_and_unrelated_edits_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            feature = self._feature(drift_sources=["runtime/contracts/*.py"])
+            self._write_repo(root, self._manifest([feature]), self._good_docs())
+            for changed in (
+                ["runtime/contracts/input.py", "docs/technical/demo.md"],
+                ["runtime/internal.py"],
+                ["docs/features/demo.md"],
+                [],
+            ):
+                with self.subTest(changed=changed):
+                    self.assertEqual(ADR_GUARD.check_documentation_coverage(root, changed), [])
+
+    def test_drift_associations_reject_malformed_source_paths(self) -> None:
+        for sources in ([], "runtime/*.py", [""], [3], ["/runtime/*"], ["../runtime/*"]):
+            with self.subTest(sources=sources), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._write_repo(
+                    root, self._manifest([self._feature(drift_sources=sources)]), self._good_docs()
+                )
+                violations = ADR_GUARD.check_documentation_coverage(root, [])
+                self.assertEqual(len(violations), 1)
+                self.assertIn("drift_sources", violations[0].message)
+
+    def test_drift_does_not_hide_missing_or_renamed_handbook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = self._good_docs()
+            del docs["technical/demo.md"]
+            docs["technical/renamed.md"] = "# Renamed\n"
+            self._write_repo(
+                root, self._manifest([self._feature(drift_sources=["runtime/*"])]), docs
+            )
+            violations = ADR_GUARD.check_documentation_coverage(
+                root, ["runtime/input.py", "docs/technical/demo.md", "docs/technical/renamed.md"]
+            )
+            self.assertEqual(len(violations), 1)
+            self.assertIn("missing", violations[0].message)
+
+    def test_full_check_detects_committed_deletion_and_handbook_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_repo(
+                root, self._manifest([self._feature(drift_sources=["runtime/*"])]), self._good_docs()
+            )
+            (root / "runtime").mkdir()
+            source = root / "runtime/input.py"
+            source.write_text("VERSION = 1\n", encoding="utf-8")
+
+            def git(*args: str) -> None:
+                subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
+            git("init", "-b", "dev")
+            git("add", ".")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "fixture")
+            git("checkout", "-b", "feature")
+            source.unlink()
+            git("add", "-A")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "remove contract")
+            with patch.dict(os.environ, {"ADR_GUARD_BASE_REF": "dev", "GITHUB_BASE_REF": "dev"}):
+                violations = ADR_GUARD.check_documentation_coverage(root, None)
+                self.assertEqual(len(violations), 1)
+                self.assertIn("drift", violations[0].message)
+                (root / "docs/technical/demo.md").write_text("# Reviewed\n", encoding="utf-8")
+                self.assertEqual(ADR_GUARD.check_documentation_coverage(root, None), [])
+
+    def test_drift_full_ci_check_fails_when_base_cannot_be_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_repo(
+                root, self._manifest([self._feature(drift_sources=["runtime/*"])]), self._good_docs()
+            )
+            with (
+                patch.dict(os.environ, {"ADR_GUARD_SNAPSHOT_ENFORCE": "1"}),
+                patch.object(ADR_GUARD.documentation_drift, "_boundary_mock_base_reference_candidates", return_value=[]),
+            ):
+                violations = ADR_GUARD.check_documentation_coverage(root, None)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("base", violations[0].message)
+
+    def test_base_association_survives_removal_or_narrowing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_repo(root, self._manifest([self._feature()]), self._good_docs())
+            old = self._feature(drift_sources=["runtime/*"])
+            with patch.object(ADR_GUARD.documentation_drift, "_git_text", return_value=json.dumps(self._manifest([old]))), patch.object(
+                ADR_GUARD.documentation_drift, "_boundary_mock_base_reference_candidates", return_value=["base"]
+            ):
+                for changed in (["runtime/input.py"], ["docs/adr/documentation-coverage.yaml"]):
+                    with self.subTest(changed=changed):
+                        violations = ADR_GUARD.check_documentation_coverage(root, changed)
+                        self.assertEqual(len(violations), 1)
+                        self.assertIn("drift", violations[0].message)
+
+    def test_drift_targets_must_be_contained_and_published(self) -> None:
+        for target in ("../outside.md", "/outside.md", "architecture/old.md"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._write_repo(
+                    root,
+                    self._manifest([self._feature(drift_sources=["runtime/*"], technical_docs=[target])]),
+                    self._good_docs(),
+                )
+                (root / "mkdocs.yml").write_text("docs_dir: docs\nexclude_docs: |\n  architecture/\n", encoding="utf-8")
+                violations = ADR_GUARD.check_documentation_coverage(root, [])
+                self.assertTrue(any(v.rule_id == "ADR-022-R2" for v in violations))
+
+    def test_duplicate_drift_feature_ids_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            feature = self._feature(drift_sources=["runtime/*"])
+            self._write_repo(root, self._manifest([feature, feature]), self._good_docs())
+            violations = ADR_GUARD.check_documentation_coverage(root, [])
+            self.assertTrue(any("duplicate" in v.message for v in violations))
+
+    def test_malformed_drift_target_reports_violation_instead_of_crashing(self) -> None:
+        for targets in (3, [3], "technical/demo.md"):
+            with self.subTest(targets=targets), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._write_repo(
+                    root, self._manifest([self._feature(drift_sources=["runtime/*"], technical_docs=targets)]),
+                    self._good_docs(),
+                )
+                self.assertTrue(ADR_GUARD.check_documentation_coverage(root, ["runtime/input.py"]))
+
     def test_real_repo_manifest_passes(self) -> None:
         violations = ADR_GUARD.check_documentation_coverage(ADR_GUARD.REPO_ROOT, None)
         self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")

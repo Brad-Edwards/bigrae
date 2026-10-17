@@ -1,5 +1,8 @@
 # ACES GCE Network Address-Family Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1568, "fix: ACES range cells reject IPv6 subnets (IPv4-only
 limitation)."
 

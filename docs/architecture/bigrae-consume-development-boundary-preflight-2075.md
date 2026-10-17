@@ -1,5 +1,8 @@
 # BigRAE Consume And Development Boundary Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #2075, "Supersede ADR-033 distribution-plane model; align
 Shifter/BigRAE ADRs to OpenRAE ownership (hub#3)."
 

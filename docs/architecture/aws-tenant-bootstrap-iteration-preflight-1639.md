@@ -1,5 +1,8 @@
 # AWS Tenant Bootstrap And Iteration Preflight (#1639)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation guidance
 
 Date: 2026-07-13

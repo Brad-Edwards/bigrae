@@ -1,5 +1,8 @@
 # Scoped model-access management preflight — #2126
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Architecture guidance for M09 / PLAT-202, inspected at `26e03790266a` on
 2026-09-20. This is neither an implementation plan nor authorization to claim a
 provider, deployment or workflow as qualified. Apply

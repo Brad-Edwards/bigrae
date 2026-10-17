@@ -1,5 +1,8 @@
 # ACES Domain-Topology Expressivity Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1606, "feat: ACES domain-topology expressivity (DC role /
 domain-join) to enable domain-backed account realization."
 

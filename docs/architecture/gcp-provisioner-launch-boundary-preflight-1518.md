@@ -1,5 +1,8 @@
 # GCP Provisioner Launch Boundary Preflight (#1518)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: implemented by the dedicated launch-intent worker and matching Kubernetes identity boundary
 
 Date: 2026-07-12

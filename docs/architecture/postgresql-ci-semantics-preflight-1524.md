@@ -1,5 +1,8 @@
 # PostgreSQL CI Semantics Preflight (#1524)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation guidance
 
 Issue #1524 is the authoritative contract. This note fixes the architecture

@@ -26,7 +26,7 @@ during your first contribution to open source can be applied in so many ways,
 you'll wonder what you ever did before you had this knowledge. It's worth
 learning.
 
-[Learn how to make a pull request](https://github.com/PaloAltoNetworks/.github/blob/master/Learn-GitHub.md#learn-how-to-make-a-pull-request)
+[Learn how to make a pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request)
 
 ## Fixing a typo, or a one or two line fix
 
@@ -70,7 +70,7 @@ merging.
 ## Shifter project specifics
 
 Local dev loop, quality gates, and per-package test commands are documented in
-[`shifter/shifter_platform/documentation/docs/technical/dev/setup.md`](shifter/shifter_platform/documentation/docs/technical/dev/setup.md).
+[`docs/technical/dev/setup.md`](docs/technical/dev/setup.md).
 A summary of what every PR needs to pass:
 
 - `pre-commit run --all-files`
@@ -93,3 +93,5 @@ Deployment-specific configuration (domain names, alarm emails, GCP project IDs,
 SSH keys, etc.) is supplied via gitignored `local.auto.tfvars` files or GitHub
 secrets/repository variables, never hardcoded in the committed tree. The full
 inventory is in [`docs/dev/deploy-secrets.md`](docs/dev/deploy-secrets.md).
+
+Architecture interface changes include review of the [current-state handbook](docs/technical/architecture.md). The documentation coverage manifest maps the affected source paths to their technical pages.

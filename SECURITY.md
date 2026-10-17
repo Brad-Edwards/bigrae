@@ -1,30 +1,23 @@
-<!-- BEGIN PANW SECURITY.MD V0.0.1 BLOCK -->
+# Security
 
-## Security
+Report suspected Shifter vulnerabilities privately to the repository maintainer,
+Brad Edwards, at [j.bradley.edwards@gmail.com](mailto:j.bradley.edwards@gmail.com).
+This is the contact published on the
+[maintainer's GitHub profile](https://github.com/Brad-Edwards).
 
-Palo Alto Networks takes the security of our software products and services seriously, which includes all source code repositories managed through our GitHub organizations.
+Do not report vulnerability details through public issues or pull requests.
+GitHub private vulnerability reporting is currently disabled for this repository;
+this policy does not assume that an advisory form is available. Shifter security
+response is maintainer managed and best effort, with no guaranteed response or
+remediation deadline.
 
-If you believe you have found a security vulnerability in any Palo Alto Networks-owned repository, please report it to us as described below.
+In the initial message, include the affected release/commit, a concise impact
+summary and a synthetic reproduction when possible. Omit credentials, customer
+or private scenario data, signed URLs and operational logs. Arrange an appropriate
+private channel with the maintainer before sending sensitive supporting material.
 
-## Reporting Security Issues
-
-**Please do not report security vulnerabilities through public GitHub issues.**
-
-Instead, please report them to Palo Alto Networks PSIRT at [https://security.paloaltonetworks.com/report](https://security.paloaltonetworks.com/report).
-
-If you prefer to submit via email, send your report to [psirt@paloaltonetworks.com](mailto:psirt@paloaltonetworks.com). If possible, encrypt your message with our PGP key; please download it from the [security.paloaltonetworks.com](https://security.paloaltonetworks.com/psirt-pgp-key.txt).
-
-Please include the requested information listed below (as much as you can provide) to help us better understand the nature and scope of the possible issue:
-
- * Description: Provide a detailed description of the vulnerability, including the affected repository or package and its version, if applicable.
- * Reproduction Steps: Clearly outline the steps required to reproduce the vulnerability. This will assist us in understanding and validating the issue effectively.
- * Impact: Explain the potential impact and risks associated with the vulnerability, including any potential data exposure, system compromise, or other adverse consequences.
- * Supporting Material: Whenever possible, please provide any additional material that helps demonstrate or clarify the vulnerability. This can include proof-of-concept code, network captures, screenshots, or any other relevant information.
-
-This information will help us triage your report more quickly.
-
-## Policy
-
-Palo Alto Networks follows the principle of [Responsible Vulnerability Disclosure](https://www.paloaltonetworks.com/product-security-assurance).
-
-<!-- END PANW SECURITY.MD BLOCK -->
+Use the current integration branch and review release-specific limitations in
+[the handbook](docs/technical/architecture.md). No supported-version matrix or
+independent security certification is claimed. Coordinate disclosure with the
+maintainer after triage. Vulnerabilities in third-party products should also
+follow the affected vendor's reporting policy.

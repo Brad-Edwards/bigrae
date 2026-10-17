@@ -1188,3 +1188,37 @@ They exercise exact invocation IAM, private endpoint/routing readback, deploymen
 intent mismatch rejection and the combined NetworkPolicy permissions. Run native
 Terraform tests, installer tests and chart tests when these boundaries change.
 Live AWS and GCP qualification remains a separate release obligation.
+
+## Architecture handbook drift (ADR-022-R2)
+
+The current-state handbook is owned through CODEOWNERS. Architecture features in
+`docs/adr/documentation-coverage.yaml` declare optional `drift_sources` globs
+alongside their existing user/technical pages. A mapped source change requires
+review/update of that feature's technical page in the same diff; an unrelated
+Markdown edit does not satisfy the rule. Record the reviewed date/revision when
+the explanation stays accurate. New interfaces extend the existing manifest.
+
+`documentation-coverage` validates all feature pages and index links on every
+run. Local changed-path checks enforce pairing for their supplied scope. The always-run Quality path classifier also executes the same coverage and
+drift check against the complete diff before emitting job selections, including
+deleted sources. A source-only change cannot skip enforcement through the ADR
+job filter; production ownership classification still excludes deleted files. The
+full CI check compares the working tree/PR against the fetched base, including
+deleted and renamed sources, and keeps base-revision associations binding when
+mappings change. CI's existing `ADR_GUARD_SNAPSHOT_ENFORCE=1` refuses unavailable
+comparison history. Local full checks use available integration history and
+fall back to working-tree changes when history is absent.
+
+Run the existing guard and strict MkDocs build. Verify links and rendered views
+because MkDocs currently reports some broken references as informational.
+Automated pairing checks do not evaluate architecture prose or establish live
+qualification; CODEOWNERS review supplies that judgment. Historical preflights
+carry a visible status and link to the current handbook.
+
+The documentation coverage entrypoint keeps pairing and manifest validation in
+`_guard/checks/_documentation_drift.py`. The existing guard facade preserves
+its public helper surface; Quality uses the same entrypoint.
+
+The focused helper module also owns coverage-violation construction and shared
+manifest shape checks. Coverage validation and CI path routing therefore retain
+one set of rule identifiers and diagnostics when their implementation is split.

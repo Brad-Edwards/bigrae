@@ -1,5 +1,8 @@
 # Scenario Editor Backend Realizability Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1581, "Surface backend realizability in the Scenario Editor."
 
 Status: pre-implementation architecture guidance. This note does not implement

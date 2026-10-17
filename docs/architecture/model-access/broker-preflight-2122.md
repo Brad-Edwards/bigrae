@@ -1,5 +1,8 @@
 # Private broker and Engine control preflight — #2122
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Architecture guidance for M05 / PLAT-202, inspected at `37f0b11bec2c` on
 2026-09-19. This is neither an implementation plan nor runtime qualification.
 Apply [ADR-059](../../adr/059-range-model-access-broker.md),

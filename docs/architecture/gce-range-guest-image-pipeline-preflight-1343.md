@@ -1,5 +1,8 @@
 # GCE Range Guest Image Pipeline Preflight (#1343)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 This historical implementation plan is retired. It is not a current source of
 pack content, runtime configuration, or acceptance instructions.
 

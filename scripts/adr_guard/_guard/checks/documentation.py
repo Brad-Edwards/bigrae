@@ -11,6 +11,20 @@ from .._common import (
     _load_json_yaml,
 )
 
+from ._documentation_drift import (
+    DOCS_COVERAGE_MANIFEST,
+    _DOCS_EXCLUDED_PART,
+    _check_drift_targets,
+    _check_feature_drift,
+    _coverage_manifest_shape_error,
+    _coverage_violation,
+    _feature_doc_paths_error,
+    _doc_path_is_excluded,
+    _documentation_changed_paths,
+    _drift_associations,
+    _relative_drift_path,
+)
+
 
 GUARDRAIL_PREFIXES = (
     ".github/workflows/",
@@ -116,8 +130,6 @@ def check_no_agent_attribution(
     return violations
 
 
-DOCS_COVERAGE_MANIFEST = "docs/adr/documentation-coverage.yaml"
-DOCS_COVERAGE_RULE_ID = "ADR-022-R1"
 LILRAE_IDENTITY_RULE_ID = "ADR-024-R6"
 ADR_INDEX_PATH = "docs/adr/index.yaml"
 _LILRAE_IDENTITY_PREFLIGHT = (
@@ -168,7 +180,6 @@ _AGENT_ATTRIBUTION_SCAN_SKIP = {
     "scripts/adr_guard/block_agent_attribution_commit_msg.py",
     "scripts/adr_guard/tests/test_agent_attribution.py",
 }
-_DOCS_EXCLUDED_PART = "_deprecated"
 _MARKDOWN_LINK_PATTERN = re.compile(r"\]\(([^)\s]+)")
 
 
@@ -184,15 +195,6 @@ def _normalize_doc_slug(value: str) -> str:
             continue
         segments.append(segment)
     return "/".join(segments)
-
-
-def _doc_path_is_excluded(slug: str) -> bool:
-    """A doc under a ``_deprecated`` or hidden path part is not serveable."""
-    return any(
-        part == _DOCS_EXCLUDED_PART or part.startswith(".")
-        for part in slug.split("/")
-        if part
-    )
 
 
 def _index_link_targets(text: str) -> list[str]:
@@ -229,22 +231,6 @@ def _collect_index_link_slugs(docs_root: Path) -> set[str]:
     return linked
 
 
-def _coverage_violation(path: str, message: str) -> Violation:
-    """Build a documentation-coverage violation for ``path``."""
-    return Violation("documentation-coverage", DOCS_COVERAGE_RULE_ID, path, message)
-
-
-def _coverage_manifest_shape_error(manifest: object) -> str | None:
-    """Return the shape error for a loaded coverage manifest, or None when valid."""
-    if not isinstance(manifest, dict):
-        return "documentation coverage manifest must be a JSON object"
-    if not isinstance(manifest.get("docs_root"), str) or not isinstance(
-        manifest.get("features"), list
-    ):
-        return "manifest must define a string 'docs_root' and a list of 'features'"
-    return None
-
-
 def _load_coverage_manifest(
     repo_root: Path,
 ) -> tuple[dict[str, object] | None, list[Violation]]:
@@ -255,6 +241,11 @@ def _load_coverage_manifest(
         return None, [_coverage_violation(DOCS_COVERAGE_MANIFEST, str(err))]
 
     shape_error = _coverage_manifest_shape_error(manifest)
+    if shape_error is None and (
+        not _relative_drift_path(manifest["docs_root"])
+        or not (repo_root / manifest["docs_root"]).resolve().is_relative_to(repo_root.resolve())
+    ):
+        shape_error = "docs_root must stay inside the repository"
     if shape_error is not None:
         return None, [_coverage_violation(DOCS_COVERAGE_MANIFEST, shape_error)]
     return manifest, []
@@ -299,6 +290,9 @@ def _check_feature_coverage(
     feature_id = feature.get("id") or "<unknown>"
     user_docs = feature.get("user_docs") or []
     technical_docs = feature.get("technical_docs") or []
+    shape_error = _feature_doc_paths_error(feature)
+    if shape_error is not None:
+        return [_coverage_violation(DOCS_COVERAGE_MANIFEST, shape_error)]
     violations: list[Violation] = []
     if not user_docs:
         violations.append(
@@ -330,11 +324,9 @@ def check_documentation_coverage(
     source of truth, so the check validates the whole manifest on every run
     regardless of ``files`` (like ``check_adr_registry``). Each feature must
     declare at least one user doc and one technical doc; every referenced doc
-    must exist as a serveable file under the in-app docs tree (not under a
+    must exist as a serveable file under the public docs tree (not under a
     ``_deprecated``/hidden path) and be reachable from an ``index.md``.
     """
-    # the manifest is the source of truth, so the check is not scoped to `files`
-    del files
     manifest, load_violations = _load_coverage_manifest(repo_root)
     if manifest is None:
         return load_violations
@@ -343,11 +335,18 @@ def check_documentation_coverage(
     docs_root = repo_root / docs_root_rel
     linked_slugs = _collect_index_link_slugs(docs_root)
 
-    violations: list[Violation] = []
+    associations, violations = _drift_associations(repo_root, manifest)
+    changed, diff_errors = _documentation_changed_paths(repo_root, files, {"features": associations})
+    violations.extend(diff_errors)
     for feature in manifest["features"]:
         violations.extend(
             _check_feature_coverage(feature, docs_root_rel, docs_root, linked_slugs)
         )
+    for association in associations:
+        target_errors = _check_drift_targets(repo_root, docs_root_rel, association)
+        violations.extend(target_errors)
+        if not target_errors:
+            violations.extend(_check_feature_drift(association, docs_root_rel, changed))
     return violations
 
 

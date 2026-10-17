@@ -1,5 +1,8 @@
 # RAES GCE shared-VPC subnet allocation: architecture preflight #2219
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue #2219 is the authoritative contract; no Ground Control requirement is
 attached. This note is design guidance, not an implementation plan or evidence
 that the behavior is implemented. Inspection baseline:

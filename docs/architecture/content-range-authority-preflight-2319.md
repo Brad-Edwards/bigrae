@@ -1,5 +1,8 @@
 # Content, range, background and streaming authority preflight (#2319)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: S6 architecture guidance under ADR-066; custom source work remains
 subject to #2308's authorization gate. Production authority changes at S8.
 

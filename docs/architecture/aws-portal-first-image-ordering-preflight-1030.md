@@ -1,5 +1,8 @@
 # AWS Portal First-Image Ordering (#1030)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: decision record — documented, not fixed (retained rollback path)
 
 Date: 2026-07-31

@@ -1,5 +1,8 @@
 # MCP Ops Modularization Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #690, "Refactor MCP ops server monolith"
 
 This is a requirement-free maintenance preflight. The GitHub issue is the

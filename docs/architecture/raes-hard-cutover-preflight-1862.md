@@ -1,5 +1,8 @@
 # RAES hard-cutover architecture preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Date: 2026-07-28
 Issue: #1862
 Requirement: none; the issue and its clarified hard-cut policy are the contract.

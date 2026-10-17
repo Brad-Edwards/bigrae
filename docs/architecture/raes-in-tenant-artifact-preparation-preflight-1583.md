@@ -1,5 +1,8 @@
 # RAES In-Tenant Artifact Preparation Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1583, "In-tenant artifact preparation (optional BigRAE backend capability)."
 
 Status: implementation architecture and validation record. The supplied

@@ -1,5 +1,8 @@
 # Script Context Sanitization Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue #700 centralizes experiment script variable sanitization into one
 Pydantic-validated context object. The change is a security boundary change, not
 a new experiment orchestration abstraction.

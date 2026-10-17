@@ -5,138 +5,31 @@ Django application architecture for the Shifter cyber range platform.
 - [Unified access credentials](access-credentials.md)—admission, lifecycle and renewable client setup.
 - [Content, range and continuing access authority](content-range-authority.md)—scoped service operations, durable authority and native session termination.
 
-## Domains
+## Ownership and lifecycle
 
-Five bounded contexts, each a Django app with distinct responsibilities.
+The [current-state handbook](../architecture.md) owns the package/dependency,
+trust, deployment and command/result/event views. The canonical layer
+classification and per-symbol service allowances live in
+[layer_imports.yaml](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/check_layer_imports/layer_imports.yaml).
 
-```mermaid
-graph TB
-    subgraph Presentation
-        MC[Mission Control]
-    end
+CMS owns content and desired lifecycle; Engine owns realized state and operation
+application; CTF owns event/participant behavior; Management owns identity;
+Workspaces owns customer ancestry; shared owns contracts and durable audit.
+Mission Control is presentation and config is the composition root. Public
+service facades carry validated scalar identities across domain boundaries.
 
-    subgraph Services
-        MC --> CMS_SVC[cms.services]
-        MC --> ENG_SVC[engine]
-        MC --> MGT_SVC[management.services]
-    end
+Provisioner Jobs read immutable inputs and append results. Engine validates and
+applies declared operation families, commits audit and outbox events, and workers
+update projections. Redis/WebSocket notifications do not own business truth.
+See the handbook for compatibility-family limits and staged identity activation.
 
-    subgraph Domains
-        CMS_SVC --> CMS[CMS]
-        ENG_SVC --> ENG[Engine]
-        MGT_SVC --> MGT[Management]
-        ENG --> Redis[(Redis Channels)]
-    end
-```
-
-| Domain | App | Responsibility |
-|--------|-----|----------------|
-| **Mission Control** | `mission_control` | Presentation layer. DRF API, Django views, WebSocket consumers. |
-| **Shifter Engine** | `engine` | Infrastructure lifecycle. Range provisioning, NGFW operations. |
-| **Shifter CMS** | `cms` | User content. Assets, credentials, scenario catalog. |
-| **Shifter Management** | `management` | Platform administration. Audit logging, user management. |
-| **[Workspaces](workspaces)** | `workspaces` | Organization/workspace tenancy above range ownership. |
-| **[Authorization](authorization)** | `shared.authorization` / `workspaces` | Closed OpenFGA contracts, scoped policy administration, durable writes. |
-
-## Model Ownership
-
-| Domain | Models |
-|--------|--------|
-| **CMS** | `Credential`, `CredentialType`, `AgentConfig`, `OperatingSystem`, `Instance`, `App`, `Subnet`, `InstanceType`, `AppType`, `Request`, `RangeInstance` |
-| **Engine** | `Request`, `Range`, `Instance`, `App`, `Subnet` |
-| **Management** | `UserProfile`, `ActivityLog` |
-| **Workspaces** | `Organization`, `Workspace`, `WorkspaceMembership` |
-
-Both CMS and Engine have Instance/App/Subnet models serving different purposes:
-- **CMS**: Asset definitions (types, catalog entries) and user content tracking
-- **Engine**: Infrastructure instantiations with Pulumi/Terraform state
-
-## Service Layer
-
-Domains expose Python service interfaces. No HTTP between apps.
-
-```mermaid
-graph LR
-    Views[MC Views/API] --> CMS[cms.services]
-    Views --> ENG[engine]
-    CMS --> CMS_Models[(CMS Models)]
-    ENG --> ENG_Models[(Engine Models)]
-```
-
-Mission Control imports and calls domain services:
-
-```python
-from cms.services import create_agent, get_storage_used
-from engine import launch_range, destroy_range
-```
-
-Services own business logic. Views handle HTTP concerns only.
-
-## Status Updates
-
-Provisioner publishes status events to a message topic. Events fan out to per-domain queues where domain handlers process them. On AWS this is SNS → SQS; on GCP this is Pub/Sub topic → subscriptions.
-
-```mermaid
-sequenceDiagram
-    participant P as Provisioner
-    participant T as Event Topic
-    participant Q as Domain Queues
-    participant ENG as engine.handlers
-    participant CMS as cms.handlers
-    participant MC as mc.handlers
-    participant R as Redis Channels
-    participant B as Browser
-
-    P->>T: publish event
-    T->>Q: fanout
-    Q->>ENG: process_event()
-    Q->>CMS: process_event()
-    Q->>MC: process_event()
-    ENG->>ENG: update Range model
-    CMS->>CMS: update RangeInstance/App/Instance
-    MC->>R: group_send()
-    R->>B: WebSocket message
-```
-
-Each domain's handler (in `{app}/handlers.py`) processes the same event differently:
-- **Engine**: Updates `Range` status, timestamps (`ready_at`, `destroyed_at`)
-- **CMS**: Updates `RangeInstance`, `Instance`, `App` status
-- **Mission Control**: Broadcasts to WebSocket groups for real-time UI
-
-Channel groups:
-- `range_events_{request_id}` - range lifecycle updates
-- `ngfw_events_{app_id}` - NGFW lifecycle updates
-
-## Domain Relationships
-
-CMS defines *what* users can build. Engine defines *how* it runs.
-
-```
-CMS::AgentConfig ──referenced by──▶ Engine::Range
-CMS::SCMCredential ──referenced by──▶ Engine::UserNGFW
-CMS::NGFWDeploymentProfile ──referenced by──▶ Engine::UserNGFW
-```
-
-Foreign keys across domain-owned models are prohibited. Domains exchange
-validated scalar identifiers and call public service facades, which preserves
-model ownership without duplicating persistence.
-
-## Design Decisions
-
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Inter-domain communication | Python service calls | Same process, no serialization overhead. HTTP only at edge. |
-| Cross-domain foreign keys | Prohibited | Domain models stay private; scalar bindings cross service boundaries. |
-| Status delivery | Redis pub/sub | Eliminates DB polling. Real-time updates to browser. |
-| API location | Canonical `/api/v1/` router | Domain API modules mount through one versioned HTTP surface. |
-
-## Capture-the-Flag
-
-The `ctf` app layers capture-the-flag events on top of the range system, provisioning
-one range per participant through the CMS range services rather than a second
-provisioning path.
-
-- [CTF technical documentation](ctf): models, services, scheduling, and per-participant range provisioning.
+- [CMS](cms.md)
+- [Engine](engine.md)
+- [Mission Control](mission_control.md)
+- [Management](management.md)
+- [Workspaces](workspaces.md)
+- [Authorization](authorization.md)
+- [CTF](ctf.md)
 
 ## Scenario Verification
 
@@ -177,7 +70,7 @@ new authority model or feature flag.
 
 ## Artifact preparation
 
-The [artifact preparation design](../../architecture/raes-in-tenant-artifact-preparation-design-1583.md)
+The [artifact preparation design](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/raes-in-tenant-artifact-preparation-design-1583.md)
 defines adapter ownership, private registration, worker isolation, independent
 verification and inventory admission before ordinary range launch.
 
@@ -187,7 +80,7 @@ The shared platform layer owns the durable audit store and writer. Audit rows
 are visible through Django admin and the staff-session-only `/api/v1/audit/`
 read API.
 
-- [Audit system architecture](../../architecture/audit-system-architecture.md)
+- [Audit system architecture](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/audit-system-architecture.md)
 - [Administrator audit and activity history](admin-audit-activity.md): the
   hardened `/api/v1/audit/` read API, its typed filters, and the staff-facing
   `/administer/audit` SPA surface.

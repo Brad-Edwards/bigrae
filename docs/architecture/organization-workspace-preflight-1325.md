@@ -1,5 +1,8 @@
 # Organization/workspace layer preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: #1325, "ADR + data model: organization/workspace layer above user-owned ranges"
 
 This note records architecture guardrails for the implementation. It is not an

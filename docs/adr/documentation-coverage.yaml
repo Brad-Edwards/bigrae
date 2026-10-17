@@ -3,6 +3,67 @@
   "docs_root": "docs",
   "features": [
     {
+      "id": "architecture-handbook",
+      "title": "Current-state architecture handbook",
+      "requirement": "GEN-001",
+      "user_docs": [
+        "technical/handbook/gcp-first-run.md"
+      ],
+      "technical_docs": [
+        "technical/architecture.md"
+      ],
+      "drift_sources": [
+        ".importlinter",
+        "scripts/check_layer_imports/layer_imports.yaml",
+        "shifter/shifter_platform/config/api_urls.py",
+        "shifter/shifter_platform/config/_raes_settings.py",
+        "shifter/shifter_platform/cms/scenarios/inbox_packs/manifest.yaml",
+        "shifter/environment-packs/README.md",
+        "shifter/shifter_platform/config/_drf_settings.py",
+        "shifter/shifter_platform/config/_credential_settings.py",
+        "shifter/shifter_platform/shared/operation_*.py",
+        "shifter/shifter_platform/shared/authorization/contracts.py",
+        "shifter/shifter_platform/shared/credentials.py",
+        "shifter/shifter_platform/engine/models/_operation_io.py",
+        "shifter/shifter_platform/engine/migrations/*grant*",
+        "shifter/shifter_platform/workspaces/services/__init__.py",
+        "shifter/shifter_platform/management/services.py",
+        "shifter/installation/schema.py",
+        "shifter/installation/bundle_*.py",
+        "shifter/installation/runtime_inventory*.py",
+        "shifter/shifter_adapter_sdk/pyproject.toml",
+        "shifter/shifter_adapter_sdk/runtime.py",
+        "shifter/shifter_adapter_sdk/preparation.py",
+        "platform/charts/shifter/values.schema.json",
+        "platform/charts/shifter/templates/*deployment*",
+        "platform/k8s/gcp/base/*deployment.yaml",
+        "platform/terraform/gcp/modules/platform-core/main.tf",
+        "platform/terraform/environments/dev/eks/main.tf",
+        "shifter/shifter_platform/config/_oidc_settings.py",
+        "shifter/shifter_platform/config/_api_token_settings.py",
+        "shifter/shifter_platform/config/_openfga_settings.py",
+        "shifter/shifter_platform/shared/principal_port.py",
+        "platform/charts/shifter/templates/*.yaml"
+      ]
+    },
+    {
+      "id": "scenario-contract-handbook",
+      "title": "Scenario contract current, transition and target states",
+      "requirement": "GEN-001",
+      "user_docs": [
+        "technical/handbook/gcp-first-run.md"
+      ],
+      "technical_docs": [
+        "technical/handbook/scenario-contract-transition.md"
+      ],
+      "drift_sources": [
+        "shifter/shifter_platform/pyproject.toml",
+        "shifter/shifter_platform/shared/raes/backend-manifest.json",
+        "shifter/engine/provisioner/raes_plan_contract.py",
+        "shifter/shifter_platform/cms/scenarios/pack_validation.py"
+      ]
+    },
+    {
       "id": "content-range-authority",
       "title": "Content, ranges and continuing access authority",
       "requirement": "GEN-001",

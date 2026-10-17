@@ -1263,11 +1263,18 @@
     "title": "Major platform features carry user and technical documentation",
     "status": "accepted",
     "scope": "repository",
-    "decision": "GEN-001 is enforced by a repo-native documentation coverage manifest plus an adr_guard check. Each major platform feature is enumerated in docs/adr/documentation-coverage.yaml with at least one user doc and one technical doc; the documentation-coverage check validates that every referenced doc exists under the in-app docs tree, is not under a _deprecated/hidden path, and is reachable from an index.md. 'Major platform feature' is an issue/PR classification recorded in the manifest, not a runtime model; the check enforces documentation existence and discoverability, not prose depth (that stays a review concern).",
+    "decision": "GEN-001 is enforced by a repo-native documentation coverage manifest plus an adr_guard check. Each major platform feature is enumerated in docs/adr/documentation-coverage.yaml with at least one user doc and one technical doc; the documentation-coverage check validates that every referenced doc exists under the public docs tree, is not under a _deprecated/hidden path, and is reachable from an index.md. 'Major platform feature' is an issue/PR classification recorded in the manifest, not a runtime model; the check enforces documentation existence and discoverability, not prose depth (that stays a review concern). Current architecture is maintained at docs/technical/architecture.md. Optional drift_sources associations in the existing coverage manifest bind architecture interfaces to their technical handbook pages; changed boundaries require a paired page review.",
     "rules": [
       {
         "id": "ADR-022-R1",
         "description": "Every feature in docs/adr/documentation-coverage.yaml must declare at least one user doc and at least one technical doc. Each referenced doc must exist under the manifest's docs_root, must not live under a _deprecated or hidden path, and must be linked from an index.md so it is discoverable. The check validates the whole manifest on every run regardless of the changed-file set.",
+        "checks": [
+          "documentation-coverage"
+        ]
+      },
+      {
+        "id": "ADR-022-R2",
+        "description": "Architecture features may declare nonempty repository-relative drift_sources globs. Changes to a mapped interface, or removal/narrowing of its association, require review/update of its corresponding published technical page in the same change. Full CI compares the complete PR diff including deletions against fetched base history and refuses an unverifiable comparison; the base mappings remain binding during mapping changes. Structure and pairing are automated; maintainers review accuracy. Quality path classification executes the same documentation check before emitting job-selection outputs, using the full changed set including deletions, so filtered ADR-conformance routing cannot bypass handbook review.",
         "checks": [
           "documentation-coverage"
         ]
@@ -1283,7 +1290,13 @@
       "docs/adr/documentation-coverage.yaml",
       "scripts/adr_guard/adr_guard.py",
       "scripts/adr_guard/tests/test_adr_guard.py",
-      "docs/technical/dev/adr-enforcement.md"
+      "docs/technical/dev/adr-enforcement.md",
+      "docs/technical/architecture.md",
+      "docs/technical/handbook/scenario-contract-transition.md",
+      ".github/CODEOWNERS",
+      "scripts/quality_ownership/classify_paths.py",
+      "scripts/adr_guard/tests/test_quality_path_ownership.py",
+      "scripts/adr_guard/_guard/checks/_documentation_drift.py"
     ]
   },
   {

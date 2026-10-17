@@ -5,6 +5,9 @@ on AWS and GCP. This site is the single home for using, deploying, operating,
 and developing it. See the [product overview](product-overview.md) for what
 Shifter does.
 
+Start with the [current-state architecture handbook](technical/architecture.md) and
+[GCP installation and first exercise](technical/handbook/gcp-first-run.md).
+
 ## Use Shifter
 
 | Section | Read this when |

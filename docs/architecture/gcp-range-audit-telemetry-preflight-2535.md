@@ -1,5 +1,8 @@
 # GCP range audit telemetry preflight (#2535)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Architecture guidance for [#2535](https://github.com/Brad-Edwards/shifter/issues/2535).
 The supplied issue is the delivery contract; no Ground Control requirement is
 attached. This note records intended behavior, not implemented defaults or an

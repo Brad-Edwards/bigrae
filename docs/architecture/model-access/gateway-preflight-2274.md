@@ -1,5 +1,8 @@
 # AI gateway replacement preflight — #2274
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Architecture guidance, 2026-10-12; inspected baseline `4f2272731`. The maintainer's
 [replacement-evaluation clarification](https://github.com/Brad-Edwards/shifter/issues/2274#issuecomment-6131352734)
 supersedes #2274's conditional deferral and broker-improvement outcome. This run

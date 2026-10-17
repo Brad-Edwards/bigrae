@@ -1,5 +1,8 @@
 # AWS Portal Redis Channel-Layer Preflight (#849)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: implemented (ADR-018). See the landed decision and operating reference
 in [`portal-channel-layer-backend.md`](portal-channel-layer-backend.md).
 

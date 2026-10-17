@@ -1,5 +1,8 @@
 # Signed-receipt participant/range binding (#1906)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: source implementation and design policy, 2026-09-13. ADR-062 records
 these decisions and the #1906 implementation supplies the Shifter contracts,
 provider-facing seam, lifecycle fences, and automated evidence. Fresh deployed

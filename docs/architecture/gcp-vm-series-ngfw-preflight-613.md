@@ -1,5 +1,8 @@
 # GCP VM-Series NGFW Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #613, "Implement GCP VM-Series / NGFW support".
 
 This note records architecture guardrails for the upcoming implementation. It

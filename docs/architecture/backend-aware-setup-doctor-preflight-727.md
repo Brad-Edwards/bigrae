@@ -1,5 +1,8 @@
 # Backend-Aware Setup And Doctor Preflight (#727)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation architecture guidance
 
 Date: 2026-07-14

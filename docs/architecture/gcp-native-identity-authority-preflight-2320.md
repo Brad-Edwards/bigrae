@@ -1,5 +1,8 @@
 # GCP native identity and operator authority preflight (#2320)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: S7 source integration authorized. This preflight records the assessed
 baseline; the approved implementation and SQL-enforced administration split are
 recorded in [the final design](../design/gcp-native-identity-integration-2320.md).

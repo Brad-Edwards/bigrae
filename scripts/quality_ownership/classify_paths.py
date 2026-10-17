@@ -27,11 +27,17 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from quality_ownership import contract as C  # noqa: E402
 
+_ADR_GUARD_DIR = _SCRIPTS_DIR / "adr_guard"
+if str(_ADR_GUARD_DIR) not in sys.path:
+    sys.path.insert(0, str(_ADR_GUARD_DIR))
+
+from _guard.checks.documentation import check_documentation_coverage  # noqa: E402
+
 _CONTRACT_PATH = ".github/quality-path-filters.yaml"
 _NULL_SHA = "0" * 40
 
 
-def _changed_files(repo_root: Path) -> list[str] | None:
+def _changed_files(repo_root: Path, *, include_deleted: bool = False) -> list[str] | None:
     """Return the changed paths, or ``None`` to signal a full-matrix run.
 
     Deletions are excluded (``--diff-filter=d``): a path removed by the diff no
@@ -42,15 +48,20 @@ def _changed_files(repo_root: Path) -> list[str] | None:
     PR that deletes a narrowly-classified file (its exclusion glob is either
     kept, failing staleness, or removed, failing this classifier). Renames keep
     their new (post-rename) path, which still exists and is classified normally.
+
+    Handbook validation uses include_deleted=True: removed contracts and both
+    sides of a rename still require documentation review, independently of
+    which production quality jobs own the remaining files.
     """
     if os.environ.get("RUN_FULL_MATRIX", "false").lower() == "true":
         return None
     head = os.environ.get("DIFF_HEAD_SHA") or os.environ.get("GITHUB_SHA", "")
     base = os.environ.get("DIFF_BASE_SHA", "")
+    filters = ["--no-renames"] if include_deleted else ["--diff-filter=d"]
     if base and base != _NULL_SHA:
-        cmd = ["git", "-C", str(repo_root), "diff", "-z", "--name-only", "--diff-filter=d", f"{base}...{head}"]
+        cmd = ["git", "-C", str(repo_root), "diff", "-z", "--name-only", *filters, f"{base}...{head}"]
     else:
-        cmd = ["git", "-C", str(repo_root), "diff", "-z", "--name-only", "--diff-filter=d", "HEAD~1", "HEAD"]
+        cmd = ["git", "-C", str(repo_root), "diff", "-z", "--name-only", *filters, "HEAD~1", "HEAD"]
     out = subprocess.check_output(cmd, text=True)
     return [line for line in out.split("\0") if line]
 
@@ -84,6 +95,14 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    # This always-run boundary validates handbook pairing BEFORE emitting job
+    # selections. A source-only or deletion-only change cannot skip the check
+    # through the narrower ADR-conformance job's path filter.
+    violations = check_documentation_coverage(repo_root, _changed_files(repo_root, include_deleted=True))
+    if violations:
+        for violation in violations[:5]:
+            print(f"{violation.rule_id}: {violation.message}", file=sys.stderr)
+        return 1
     _write_outputs(outputs)
     return 0
 

@@ -1,5 +1,8 @@
 # GDC VM Runtime Live-Fire Gate Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1348, "Gate GDC VM Runtime range backend for live-fire
 scenarios."
 

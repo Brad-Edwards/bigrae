@@ -107,7 +107,10 @@ jobs:
           # validates the .github/quality-path-filters.yaml quality-ownership
           # contract and REJECTS an unclassified changed path before emitting
           # any job-selection output, so an unowned path can no longer slip
-          # through with an empty matrix. It emits the same GITHUB_OUTPUT keys
+          # through with an empty matrix. It also runs documentation coverage
+          # and handbook drift against the complete diff, including deletions,
+          # before job routing so source-only changes cannot skip enforcement.
+          # It emits the same GITHUB_OUTPUT keys
           # the downstream jobs consume. Ownership completeness and routing
           # reachability of this contract are enforced by the
           # `quality-path-ownership` adr_guard check.

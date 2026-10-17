@@ -1,5 +1,8 @@
 # CMS God-Module Refactor Disposition Preflight (#682)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: current-tree architecture disposition
 
 Date: 2026-07-20

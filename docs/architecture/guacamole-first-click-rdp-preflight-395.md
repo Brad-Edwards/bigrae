@@ -1,5 +1,8 @@
 # Guacamole First-Click RDP Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #395, "RDP connection fails on first attempt, redirects to
 Guacamole login".
 

@@ -1,5 +1,8 @@
 # Workspace Network Egress Policy Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1945. Requirement: PLAT-238.
 
 This note records architecture constraints for the workspace-level zero-egress

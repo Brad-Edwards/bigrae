@@ -1,5 +1,8 @@
 # ACES Composition Realization Verification Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1569, "verify ACES composition realization in-guest."
 
 Status: pre-implementation architecture guidance. This note does not add a

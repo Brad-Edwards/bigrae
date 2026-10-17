@@ -1,5 +1,8 @@
 # REV1 Build And Deployment Provenance Preflight (#1519)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 > **Historical boundary (issue #2062, 2026-08-19):** TechVault is a
 > scenario pack. APTL is the former name of LilRAE. The bespoke implementation
 > was retired by the RAES hard cut. This note retains that identity boundary.

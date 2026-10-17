@@ -1,5 +1,8 @@
 # SPA Verification Gates Preflight (#1526)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation guidance; coverage/LCOV and authenticated functional
 E2E enforcement are already present, the browser accessibility gate is not,
 and two acceptance-criteria conflicts require issue clarification before the

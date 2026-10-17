@@ -396,7 +396,7 @@ class ClassifyPathsCliTests(unittest.TestCase):
         saved_changed = classify_paths._changed_files
         try:
             os.environ.update(env)
-            classify_paths._changed_files = lambda repo_root: changed
+            classify_paths._changed_files = lambda repo_root, **kwargs: changed
             return classify_paths.main()
         finally:
             classify_paths._changed_files = saved_changed
@@ -420,6 +420,9 @@ class ClassifyPathsCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_repo(root)
+            coverage = root / "docs/adr/documentation-coverage.yaml"
+            coverage.parent.mkdir(parents=True, exist_ok=True)
+            coverage.write_text('{"docs_root":"docs","features":[]}', encoding="utf-8")
             out_file = root / "gh_output"
             out_file.write_text("", encoding="utf-8")
             rc = self._run_main(
@@ -430,6 +433,28 @@ class ClassifyPathsCliTests(unittest.TestCase):
             written = out_file.read_text(encoding="utf-8")
             self.assertIn("alpha=true", written)
             self.assertIn("run_all=false", written)
+
+    def test_source_only_change_cannot_bypass_handbook_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_repo(root)
+            docs = root / "docs"
+            (docs / "adr").mkdir()
+            (docs / "technical").mkdir()
+            (docs / "index.md").write_text("[Handbook](technical/handbook.md)\n", encoding="utf-8")
+            (docs / "technical/handbook.md").write_text("# Handbook\n", encoding="utf-8")
+            (docs / "adr/documentation-coverage.yaml").write_text(json.dumps({
+                "docs_root": "docs", "features": [{
+                    "id": "architecture", "user_docs": ["technical/handbook.md"],
+                    "technical_docs": ["technical/handbook.md"], "drift_sources": ["src/alpha/*"],
+                }],
+            }), encoding="utf-8")
+            out_file = root / "gh_output"
+            out_file.write_text("", encoding="utf-8")
+            env = {"GITHUB_WORKSPACE": str(root), "GITHUB_OUTPUT": str(out_file)}
+            self.assertEqual(self._run_main(env, ["src/alpha/mod.py"]), 1)
+            self.assertEqual(out_file.read_text(encoding="utf-8"), "")
+            self.assertEqual(self._run_main(env, ["src/alpha/mod.py", "docs/technical/handbook.md"]), 0)
 
     def test_contradiction_exits_nonzero_without_output(self):
         data = json.loads(json.dumps(DEFAULT_CONTRACT))
@@ -487,11 +512,13 @@ class ChangedFilesDiffTests(unittest.TestCase):
                 os.environ["DIFF_BASE_SHA"] = base
                 os.environ["DIFF_HEAD_SHA"] = head
                 changed = classify_paths._changed_files(root)
+                including_deleted = classify_paths._changed_files(root, include_deleted=True)
             finally:
                 os.environ.clear()
                 os.environ.update(original)
             self.assertIn("keep.py", changed)
             self.assertNotIn("gone.toml", changed)
+            self.assertIn("gone.toml", including_deleted)
 
 
 # --------------------------------------------------------------------------- #
