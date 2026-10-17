@@ -105,7 +105,7 @@ Both commands write an audit record.
   "source_kind": "repo",
   "contract_kind": "raes",
   "contract_profile": "shifter",
-  "package_ref": "scenario-dev/example-pack",
+  "package_ref": "shifter/environment-packs/example-pack",
   "package_version": "0.1.0",
   "package_digest": "sha256:<64 hex>",
   "provenance": {"repo": "acme/catalog"}
@@ -131,7 +131,7 @@ operation inputs remain unchanged.
 python manage.py register_pack \
   --scenario-id example-pack \
   --source-kind repo \
-  --package-ref scenario-dev/example-pack \
+  --package-ref shifter/environment-packs/example-pack \
   --package-version 0.1.0 \
   --package-digest "sha256:<64 hex>" \
   --actor <username>
@@ -149,6 +149,14 @@ to run after each deploy. It validates the complete declaration before writing
 and registers the batch atomically: a missing/malformed manifest or any invalid
 or drifted entry fails visibly and leaves no partially installed batch. The
 manifest declares the in-box bootstrap seed.
+
+The pack sources live in the canonical
+[`shifter/environment-packs/`](../../shifter/environment-packs/README.md)
+collection. The portal image ships only the packs that the manifest declares.
+The portal Dockerfile copies each one to its manifest `package_ref` under the
+image app root. Development packs in the same collection are not shipped or
+registered automatically. In a checkout, register one manually with the
+`shifter/environment-packs/<pack>` reference.
 
 A shipped revision declares its expected predecessor explicitly. The RAES 3.5
 smoke pack is version `0.2.0`; bootstrap upgrades the known `0.1.0` digest through

@@ -17,7 +17,10 @@
 #     stack (AllowedHostsOriginValidator + AuthMiddlewareStack + a routed
 #     consumer);
 #   * the SQS worker and CTF scheduler boot from the same image and produce
-#     their /tmp heartbeat files.
+#     their /tmp heartbeat files;
+#   * the in-box bootstrap registers and release-conforms the shipped
+#     environment packs from the image's own bytes, and the image carries no
+#     pack that the bootstrap manifest does not declare (#2550).
 #
 # Reverting the June-7 /home/appuser fix (or an equivalent entrypoint
 # regression) fails this script because every assertion exercises the real
@@ -68,6 +71,7 @@ PG=shifter-smoke-postgres
 REDIS=shifter-smoke-redis
 ELASTICMQ=shifter-smoke-elasticmq
 MIGRATE=shifter-smoke-migrate
+BOOTSTRAP=shifter-smoke-inbox-bootstrap
 IDP=shifter-smoke-idp
 
 # --- Local Cognito-shaped OIDC provider double (#988) -----------------------
@@ -119,7 +123,7 @@ cleanup() {
   if [[ $rc -ne 0 ]]; then
     log "FAILURE (exit ${rc}) - bounded container diagnostics"
     local c
-    for c in "$MIGRATE" "$WEB" "$IDP" ${WORKER_CONTAINERS[@]+"${WORKER_CONTAINERS[@]}"}; do
+    for c in "$MIGRATE" "$BOOTSTRAP" "$WEB" "$IDP" ${WORKER_CONTAINERS[@]+"${WORKER_CONTAINERS[@]}"}; do
       # Redact OIDC authorization-code-flow secrets that can surface in gunicorn
       # request lines / IdP logs (auth code, state, nonce, tokens, session key,
       # client secret) before emitting the bounded log tail (#988).
@@ -129,7 +133,7 @@ cleanup() {
     done
   fi
   docker rm -f \
-    "$WEB" "$MIGRATE" "$PG" "$REDIS" "$ELASTICMQ" "$IDP" \
+    "$WEB" "$MIGRATE" "$BOOTSTRAP" "$PG" "$REDIS" "$ELASTICMQ" "$IDP" \
     ${WORKER_CONTAINERS[@]+"${WORKER_CONTAINERS[@]}"} >/dev/null 2>&1 || true
   docker network rm "$SMOKE_NETWORK" >/dev/null 2>&1 || true
   rm -f ${SESSION_FILES[@]+"${SESSION_FILES[@]}"} >/dev/null 2>&1 || true
@@ -191,6 +195,36 @@ assert_home_writable() {
   local container="$1"
   if ! docker exec "$container" sh -c 'test -w "$HOME" && test -w "$HOME/.terraform.d/plugin-cache" && test -w "$HOME/.pulumi"'; then
     fail "${container}: HOME is not writable by the image user (home-directory regression)"
+  fi
+}
+
+assert_shipped_packs_match_manifest() {
+  # The image must carry exactly the environment packs that the in-box
+  # bootstrap manifest declares, at their manifest package_refs (#2550).
+  # Development packs share the source collection but must never ship.
+  local container="$1"
+  if ! docker exec "$container" python manage.py shell -c '
+import sys
+from pathlib import Path
+from django.conf import settings
+from cms.models import RaesPackageSource
+from cms.scenarios.inbox import load_inbox_manifest
+root = Path(settings.RAES_PACKAGE_ROOT).resolve()
+shipped = {str(path.parent.relative_to(root)) for path in root.rglob("pack.yaml")}
+declared = {request.package_ref for request in load_inbox_manifest()}
+if shipped != declared:
+    print(f"image packs {sorted(shipped)} != manifest packs {sorted(declared)}", file=sys.stderr)
+    sys.exit(1)
+conformed = set(
+    RaesPackageSource.objects.filter(
+        package_ref__in=declared, conformance_status=RaesPackageSource.ConformanceStatus.PASSED
+    ).values_list("package_ref", flat=True)
+)
+if conformed != declared:
+    print(f"release-conformed packs {sorted(conformed)} != manifest packs {sorted(declared)}", file=sys.stderr)
+    sys.exit(1)
+'; then
+    fail "${container}: shipped environment packs do not match the in-box manifest"
   fi
 }
 
@@ -330,6 +364,15 @@ docker run --rm --name "$MIGRATE" --network "$SMOKE_NETWORK" \
   "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
   "$SMOKE_IMAGE" python manage.py migrate --noinput
 
+# Register the in-box seed once, as the AWS and GCP deploy jobs do after
+# migrations. The shipped packs reach the image only through the explicit
+# Dockerfile copies from shifter/environment-packs/, so this proves that the
+# built image registers and release-conforms them from its own bytes (#2550).
+log "Registering the in-box environment packs from the image (one-shot)"
+docker run --rm --name "$BOOTSTRAP" --network "$SMOKE_NETWORK" \
+  "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
+  "$SMOKE_IMAGE" python manage.py bootstrap_inbox_catalog
+
 log "Booting web container through the real entrypoint"
 docker run -d --name "$WEB" --network "$SMOKE_NETWORK" \
   -p "127.0.0.1:${SMOKE_WEB_PORT}:8000" \
@@ -342,6 +385,8 @@ note "Readiness 200 OK"
 assert_skipped_migrations "$WEB"
 assert_home_writable "$WEB"
 note "HOME writable as the image's non-root user"
+assert_shipped_packs_match_manifest "$WEB"
+note "Image ships exactly the release-conformed in-box manifest packs"
 
 log "Establishing an authenticated session via the real OIDC login flow"
 # Replaces the #922 direct-session mint with the real authorization-code flow

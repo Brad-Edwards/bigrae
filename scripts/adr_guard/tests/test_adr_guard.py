@@ -1087,6 +1087,19 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
 class DeployWorkflowPlanScopeTests(unittest.TestCase):
     """Tests for the AWS platform plan trigger and lock-timeout guardrail."""
 
+    def _write_environment_packs(self, repo_root: Path) -> None:
+        """Two packs shipped through explicit portal Dockerfile copies, two development packs."""
+        dockerfile = repo_root / "shifter" / "shifter_platform" / "Dockerfile"
+        dockerfile.parent.mkdir(parents=True)
+        dockerfile.write_text(
+            "COPY --chown=appuser:appgroup shifter_platform .\n"
+            "COPY --chown=appuser:appgroup environment-packs/smoke-linux cms/scenarios/inbox_packs/smoke-linux\n"
+            "COPY --chown=appuser:appgroup environment-packs/smoke-linux-aws cms/scenarios/inbox_packs/smoke-linux-aws\n",
+            encoding="utf-8",
+        )
+        for name in ("smoke-linux", "smoke-linux-aws", "preparation-http-smoke", "shifter-raes-validation"):
+            (repo_root / "shifter" / "environment-packs" / name).mkdir(parents=True)
+
     def _write_workflows(
         self,
         repo_root: Path,
@@ -1144,11 +1157,17 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             ".github/copilot-instructions.md",
             "docs/adr/**",
             "docs/technical/dev/adr-enforcement.md",
+            "shifter/environment-packs/**",
         ]
-        portal_image_globs = portal_image_globs or ["shifter/shifter_platform/**"]
+        portal_image_globs = portal_image_globs or [
+            "shifter/shifter_platform/**",
+            "shifter/environment-packs/smoke-linux/**",
+            "shifter/environment-packs/smoke-linux-aws/**",
+        ]
         quality_only_globs = quality_only_globs or [
             "scripts/stack-smoke/**",
-            "scenario-dev/**",
+            "shifter/environment-packs/preparation-http-smoke/**",
+            "shifter/environment-packs/shifter-raes-validation/**",
         ]
         platform_lines = "".join(f"              - '{glob}'\n" for glob in platform_globs)
         quality_non_docs_filter = ""
@@ -1441,9 +1460,12 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "              - 'platform/terraform/modules/portal/**'\n"
                 "            portal_image:\n"
                 "              - 'shifter/shifter_platform/**'\n"
+                "              - 'shifter/environment-packs/smoke-linux/**'\n"
+                "              - 'shifter/environment-packs/smoke-linux-aws/**'\n"
                 "            quality_only:\n"
                 "              - 'scripts/stack-smoke/**'\n"
-                "              - 'scenario-dev/**'\n"
+                "              - 'shifter/environment-packs/preparation-http-smoke/**'\n"
+                "              - 'shifter/environment-packs/shifter-raes-validation/**'\n"
                 "  pr-gate:\n"
                 "    steps:\n"
                 "      - run: |\n"
@@ -1569,7 +1591,12 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             repo_root = Path(tmp)
             self._write_workflows(
                 repo_root,
-                self._deploy_text(quality_only_globs=["scenario-dev/**"]),
+                self._deploy_text(
+                    quality_only_globs=[
+                        "shifter/environment-packs/preparation-http-smoke/**",
+                        "shifter/environment-packs/shifter-raes-validation/**",
+                    ]
+                ),
                 self._platform_text(),
             )
 
@@ -1578,19 +1605,108 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             self.assertEqual(len(violations), 1)
             self.assertIn("scripts/stack-smoke/**", violations[0].message)
 
-    def test_flags_quality_only_filter_without_scenario_glob(self) -> None:
+    def test_flags_quality_only_filter_without_development_pack_glob(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
+            self._write_environment_packs(repo_root)
             self._write_workflows(
                 repo_root,
-                self._deploy_text(quality_only_globs=["scripts/stack-smoke/**"]),
+                self._deploy_text(
+                    quality_only_globs=[
+                        "scripts/stack-smoke/**",
+                        "shifter/environment-packs/shifter-raes-validation/**",
+                    ]
+                ),
                 self._platform_text(),
             )
 
             violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
 
             self.assertEqual(len(violations), 1)
-            self.assertIn("scenario-dev/**", violations[0].message)
+            self.assertIn("shifter/environment-packs/preparation-http-smoke/**", violations[0].message)
+
+    def test_flags_whole_environment_pack_collection_routing(self) -> None:
+        collection = "shifter/environment-packs/**"
+        cases = {
+            "quality_only": {
+                "quality_only_globs": [
+                    "scripts/stack-smoke/**",
+                    "shifter/environment-packs/preparation-http-smoke/**",
+                    "shifter/environment-packs/shifter-raes-validation/**",
+                    collection,
+                ]
+            },
+            "portal_image": {
+                "portal_image_globs": [
+                    "shifter/shifter_platform/**",
+                    "shifter/environment-packs/smoke-linux/**",
+                    "shifter/environment-packs/smoke-linux-aws/**",
+                    collection,
+                ]
+            },
+        }
+        for filter_name, overrides in cases.items():
+            with self.subTest(filter_name), tempfile.TemporaryDirectory() as tmp:
+                repo_root = Path(tmp)
+                self._write_environment_packs(repo_root)
+                self._write_workflows(repo_root, self._deploy_text(**overrides), self._platform_text())
+
+                violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
+
+                self.assertEqual(len(violations), 1)
+                self.assertIn(filter_name, violations[0].message)
+                self.assertIn(collection, violations[0].message)
+
+    def test_environment_pack_routing_follows_the_dockerfile_copies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write_environment_packs(repo_root)
+            self._write_workflows(repo_root, self._deploy_text(), self._platform_text())
+            self.assertEqual(ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None), [])
+
+            # Shipping a development pack without moving its routing is flagged,
+            # including in targeted mode when only the Dockerfile changed.
+            dockerfile = repo_root / "shifter" / "shifter_platform" / "Dockerfile"
+            dockerfile.write_text(
+                dockerfile.read_text(encoding="utf-8")
+                + "COPY --chown=appuser:appgroup environment-packs/preparation-http-smoke "
+                "cms/scenarios/inbox_packs/preparation-http-smoke\n",
+                encoding="utf-8",
+            )
+
+            violations = ADR_GUARD.check_deploy_workflow_plan_scope(
+                repo_root, ["shifter/shifter_platform/Dockerfile"]
+            )
+
+            self.assertEqual(
+                sorted(violation.message.split(":")[0] for violation in violations),
+                [
+                    "`portal_image` must include shipped environment packs",
+                    "`quality_only` must not include shipped environment packs",
+                ],
+            )
+            self.assertTrue(all("preparation-http-smoke" in v.message for v in violations))
+
+    def test_flags_guardrail_docs_filter_without_environment_pack_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write_workflows(
+                repo_root,
+                self._deploy_text(
+                    guardrail_doc_globs=[
+                        ".github/pull_request_template.md",
+                        ".github/copilot-instructions.md",
+                        "docs/adr/**",
+                        "docs/technical/dev/adr-enforcement.md",
+                    ]
+                ),
+                self._platform_text(),
+            )
+
+            violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
+
+            self.assertEqual(len(violations), 1)
+            self.assertIn("shifter/environment-packs/**", violations[0].message)
 
     def test_flags_missing_portal_image_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1620,6 +1736,26 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
 
             self.assertEqual(len(violations), 1)
             self.assertIn("shifter/shifter_platform/**", violations[0].message)
+
+    def test_flags_portal_image_filter_without_shipped_pack_glob(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write_environment_packs(repo_root)
+            self._write_workflows(
+                repo_root,
+                self._deploy_text(
+                    portal_image_globs=[
+                        "shifter/shifter_platform/**",
+                        "shifter/environment-packs/smoke-linux/**",
+                    ]
+                ),
+                self._platform_text(),
+            )
+
+            violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
+
+            self.assertEqual(len(violations), 1)
+            self.assertIn("shifter/environment-packs/smoke-linux-aws/**", violations[0].message)
 
     def test_flags_missing_portal_image_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1712,9 +1848,12 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "              - 'platform/terraform/modules/portal/**'\n"
                 "            portal_image:\n"
                 "              - 'shifter/shifter_platform/**'\n"
+                "              - 'shifter/environment-packs/smoke-linux/**'\n"
+                "              - 'shifter/environment-packs/smoke-linux-aws/**'\n"
                 "            quality_only:\n"
                 "              - 'scripts/stack-smoke/**'\n"
-                "              - 'scenario-dev/**'\n"
+                "              - 'shifter/environment-packs/preparation-http-smoke/**'\n"
+                "              - 'shifter/environment-packs/shifter-raes-validation/**'\n"
                 "      - id: quality_non_docs\n"
                 "        with:\n"
                 "          predicate-quantifier: every\n"
@@ -1731,6 +1870,7 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "              - '.github/copilot-instructions.md'\n"
                 "              - 'docs/adr/**'\n"
                 "              - 'docs/technical/dev/adr-enforcement.md'\n"
+                "              - 'shifter/environment-packs/**'\n"
                 "  quality:\n"
                 "    if: |\n"
                 "      # needs.changes.outputs.quality_relevant == 'true'\n"
@@ -4936,15 +5076,19 @@ class NoTrackedGeneratedArtifactsTests(unittest.TestCase):
     def test_flags_scenario_build_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            build_dir = repo_root / "scenario-dev" / "example" / "build" / "guest"
+            build_dir = repo_root / "shifter" / "environment-packs" / "example" / "build" / "guest"
             build_dir.mkdir(parents=True)
             (build_dir / "runtime-token").write_text("challenge-local-token", encoding="utf-8")
+            # Pack source content is not build output, even under a nested build/ name.
+            source_dir = repo_root / "shifter" / "environment-packs" / "example" / "assets" / "build"
+            source_dir.mkdir(parents=True)
+            (source_dir / "notes.txt").write_text("authored", encoding="utf-8")
 
             violations = ADR_GUARD.check_no_tracked_generated_artifacts(repo_root, None)
 
             self.assertEqual(
                 {v.path for v in violations},
-                {"scenario-dev/example/build/guest/runtime-token"},
+                {"shifter/environment-packs/example/build/guest/runtime-token"},
             )
             self.assertEqual({v.rule_id for v in violations}, {"ADR-004-R8"})
             self.assertNotIn("challenge-local-token", violations[0].message)
@@ -6193,7 +6337,7 @@ class MissionControlFlagLiteralsTests(unittest.TestCase):
             self._write(repo_root, "shifter/shifter_platform/ctf/models/challenge.py", f'F = "{self.CONCRETE}"\n')
             self._write(repo_root, "shifter/shifter_platform/templates/ctf/board.html", f"<i>{self.CONCRETE}</i>\n")
             self._write(repo_root, "docs/example.md", f"Example flag: {self.CONCRETE}\n")
-            self._write(repo_root, "scenario-dev/example/board/challenge.json", f'{{"flag": "{self.CONCRETE}"}}\n')
+            self._write(repo_root, "shifter/environment-packs/example/board/challenge.json", f'{{"flag": "{self.CONCRETE}"}}\n')
             violations = ADR_GUARD.check_mission_control_no_flag_literals(repo_root, None)
             self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")
 

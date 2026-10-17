@@ -1,7 +1,6 @@
 """A private registered pack passes real contract validation before preparation."""
 
 import shutil
-from pathlib import Path
 
 import pytest
 from django.core.exceptions import PermissionDenied
@@ -11,6 +10,7 @@ from cms.scenarios.pack_validation import pack_digest
 from cms.services import PackRegistrationRequest, register_pack
 from cms.services._pack_conformance import validate_registered_pack_conformance
 from shared.exceptions import ValidationError
+from tests._environment_packs import ENVIRONMENT_PACKS_ROOT
 from tests.cms.test_content_ingestion import staff_user
 
 pytestmark = pytest.mark.django_db
@@ -20,7 +20,7 @@ __all__ = ["staff_user"]
 @pytest.fixture
 def preparation_pack(tmp_path, settings, staff_user):
     name = "preparation-http-smoke"
-    source = Path(__file__).resolve().parents[4] / "scenario-dev" / name
+    source = ENVIRONMENT_PACKS_ROOT / name
     root = tmp_path / name
     shutil.copytree(source, root)
     settings.RAES_PACKAGE_ROOT = str(tmp_path)

@@ -5,7 +5,6 @@ from __future__ import annotations
 from io import StringIO
 
 import pytest
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 
@@ -24,10 +23,7 @@ class _Storage:
         return False
 
 
-def _register_inbox(monkeypatch) -> None:
-    # The shipped packs resolve under the image app root; in a checkout that is
-    # the platform source root.
-    monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", str(SHIPPED_INBOX_MANIFEST.parents[3]))
+def _register_inbox() -> None:
     actor = get_user_model().objects.create_user(
         username="feature-artifacts@example.com", email="feature-artifacts@example.com", is_staff=True
     )
@@ -35,9 +31,10 @@ def _register_inbox(monkeypatch) -> None:
 
 
 @pytest.fixture
-def registered_inbox(monkeypatch):
+def registered_inbox(monkeypatch, shipped_pack_root):
+    # The shipped packs resolve under the image-shaped app root (#2550).
     monkeypatch.delenv("FEATURE_ARTIFACT_JOB_IMAGE", raising=False)
-    _register_inbox(monkeypatch)
+    _register_inbox()
 
 
 def test_registration_without_an_acquisition_image_requests_nothing(registered_inbox):
@@ -82,12 +79,12 @@ def test_bootstrap_command_requests_every_registered_packs_artifacts(registered_
 
 
 def test_registering_a_pack_claims_its_artifacts_when_acquisition_is_enabled(
-    monkeypatch, django_capture_on_commit_callbacks
+    monkeypatch, shipped_pack_root, django_capture_on_commit_callbacks
 ):
     monkeypatch.setenv("FEATURE_ARTIFACT_JOB_IMAGE", IMAGE)
 
     with django_capture_on_commit_callbacks(execute=True):
-        _register_inbox(monkeypatch)
+        _register_inbox()
 
     row = AcquiredFeatureArtifact.objects.get()
     assert (row.source_name, row.state) == ("claude-code", AcquiredFeatureArtifact.State.ACQUIRING)
