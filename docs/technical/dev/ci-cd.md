@@ -98,7 +98,7 @@ The orchestrator uses path filters to run only relevant jobs:
 | `portal_image` | Portal image build inputs (`shifter/shifter_platform/**`, `cyberscript`, `installation`, `.dockerignore`); triggers the portal image build/deploy on a deploy dispatch without running Terraform |
 | `gcp` | GCP Terraform, GCP Kubernetes assets, GCP scripts, GCP cloud adapters |
 | `mcp` | MCP package changes, routed to Quality only |
-| `quality_only` | Non-deploy test-support and guardrail surfaces (`scripts/stack-smoke/**`, `scenario-dev/**`, `_quality.yml`, ADR/guardrail checker paths), routed to Quality only |
+| `quality_only` | Non-deploy test-support and guardrail surfaces (`scripts/stack-smoke/**`, each development pack under `shifter/environment-packs/`, `_quality.yml`, ADR/guardrail checker paths), routed to Quality only. Shipped environment packs route to `portal_image` |
 
 ## Quality Gate
 

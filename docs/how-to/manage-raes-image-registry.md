@@ -95,7 +95,7 @@ again with the same natural key.
 
 ## Validation Package Mapping
 
-The in-repo validation pack (`scenario-dev/shifter-raes-validation/`) authors a
+The in-repo validation pack (`shifter/environment-packs/shifter-raes-validation/`) authors a
 single image with `source: {name: alpine, version: "3.19"}`. Before running the
 RAES backend validation, register a `gce` mapping for `source_name=alpine`,
 `source_version=3.19` pointing at a concrete Alpine-compatible GCE image or

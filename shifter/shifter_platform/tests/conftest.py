@@ -152,3 +152,13 @@ def authenticated_client(db):
         return client, user
 
     return _make_client
+
+
+@pytest.fixture
+def shipped_pack_root(tmp_path, settings):
+    """Stage the shipped packs at their image destinations and resolve refs there."""
+    from tests._environment_packs import stage_shipped_packs
+
+    root = stage_shipped_packs(tmp_path / "app")
+    settings.RAES_PACKAGE_ROOT = str(root)
+    return root

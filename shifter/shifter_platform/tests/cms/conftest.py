@@ -173,7 +173,7 @@ def make_credential(credential_type_obj, pk=1, **overrides):
 # -----------------------------------------------------------------------------
 
 # A minimal RAES SDL start state that parses through raes (mirrors
-# scenario-dev/shifter-raes-validation/sdl/shifter-raes-validation.sdl.yaml).
+# shifter/environment-packs/shifter-raes-validation/sdl/shifter-raes-validation.sdl.yaml).
 CONFORMANT_PACK_SDL = """\
 name: __PACK_NAME__
 description: Minimal provisioning-only RAES start state for ingestion tests.

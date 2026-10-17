@@ -73,19 +73,15 @@ class TestShippedManifest:
         # portable-addressing variant for the AWS EC2 range backend (#1826).
         assert [pack.scenario_id for pack in packs] == ["smoke-linux", "smoke-linux-aws"]
 
-    def test_shipped_packs_register_and_pass_release_conformance(self, admin_actor, monkeypatch):
+    def test_shipped_packs_register_and_pass_release_conformance(self, admin_actor, shipped_pack_root):
         """Every shipped in-box pack has a valid byte-bound digest and conforms.
 
-        Registering the real shipped manifest under the repo package root exercises
-        each pack's digest verification and the trusted release-conformance gate
-        (RAES load + plan + Shifter target + apply-contract) that the deploy's
-        bootstrap_inbox_catalog runs -- so a bad pack fails here, not at deploy.
+        Registering the real shipped manifest under an image-shaped package root
+        exercises each pack's digest verification and the trusted
+        release-conformance gate (RAES load + plan + Shifter target +
+        apply-contract) that the deploy's bootstrap_inbox_catalog runs -- so a
+        bad pack fails here, not at deploy.
         """
-        from django.conf import settings
-
-        platform_root = Path(__file__).resolve().parents[2]
-        monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", str(platform_root))
-
         register_inbox_packs(actor=admin_actor, manifest_path=SHIPPED_INBOX_MANIFEST)
 
         assert RaesPackageSource.objects.filter(scenario_id="smoke-linux").exists()
@@ -191,11 +187,8 @@ class TestRegisterInboxPacks:
 
 
 class TestBootstrapCommand:
-    def test_command_uses_bounded_non_login_system_actor_when_omitted(self, monkeypatch):
-        from django.conf import settings
+    def test_command_uses_bounded_non_login_system_actor_when_omitted(self, shipped_pack_root):
         from django.core.management import call_command
-
-        monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", str(SHIPPED_INBOX_MANIFEST.parents[3]))
 
         call_command("bootstrap_inbox_catalog")
 
@@ -215,11 +208,9 @@ class TestBootstrapCommand:
         with pytest.raises(CommandError, match="system actor conflicts"):
             call_command("bootstrap_inbox_catalog")
 
-    def test_shipped_upgrade_replaces_only_the_declared_previous_digest(self, admin_actor, monkeypatch):
-        from django.conf import settings
+    def test_shipped_upgrade_replaces_only_the_declared_previous_digest(self, admin_actor, shipped_pack_root):
         from django.core.management import CommandError, call_command
 
-        monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", str(SHIPPED_INBOX_MANIFEST.parents[3]))
         request = load_inbox_manifest()[0]
         source = RaesPackageSource.objects.create(
             scenario_id=request.scenario_id,
@@ -247,15 +238,45 @@ class TestBootstrapCommand:
         with pytest.raises(CommandError, match="conflicts"):
             call_command("bootstrap_inbox_catalog", "--actor", admin_actor.username)
 
-    def test_command_registers_and_promotes_the_shipped_smoke_linux_pack(self, admin_actor, monkeypatch):
-        from django.conf import settings
+    def test_source_relocation_keeps_existing_release_registrations(self, admin_actor, shipped_pack_root):
+        """Rows persisted before the #2550 source move stay valid on the next deploy.
+
+        The prior release stored image-relative refs under
+        ``cms/scenarios/inbox_packs/``. The source move keeps those runtime
+        destinations and the pack bytes, so bootstrap is an exact idempotent
+        retry instead of a conflicting catalog revision.
+        """
         from django.core.management import call_command
 
-        # The shipped pack lives under shifter_platform/ so it bakes into the
-        # container image at /app, where RAES_PACKAGE_ROOT defaults. In a source
-        # checkout RAES_PACKAGE_ROOT defaults to the repo root, so point it at the
-        # shifter_platform root (manifest parents[3]) where the pack resolves.
-        monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", str(SHIPPED_INBOX_MANIFEST.parents[3]))
+        seeded = {}
+        for request in load_inbox_manifest():
+            row = RaesPackageSource.objects.create(
+                scenario_id=request.scenario_id,
+                source_kind=request.source_kind,
+                contract_kind=request.contract_kind,
+                contract_profile=request.contract_profile,
+                package_ref=f"cms/scenarios/inbox_packs/{request.scenario_id}",
+                package_version=request.package_version,
+                package_digest=request.package_digest,
+                provenance=request.provenance,
+                conformance_status="passed",
+                conformance_report_ref=f"release://cms/scenarios/inbox_packs/{request.scenario_id}@"
+                f"{request.package_version}",
+                registered_by=admin_actor,
+            )
+            seeded[row.scenario_id] = (row.id, row.package_ref, row.package_digest)
+
+        assert call_command("bootstrap_inbox_catalog", "--actor", admin_actor.username) is None
+        assert {
+            row.scenario_id: (row.id, row.package_ref, row.package_digest) for row in RaesPackageSource.objects.all()
+        } == seeded
+
+    def test_command_registers_and_promotes_the_shipped_smoke_linux_pack(self, admin_actor, shipped_pack_root):
+        from django.core.management import call_command
+
+        # The portal image copies each shipped pack from shifter/environment-packs/
+        # to its manifest package_ref under /app, where RAES_PACKAGE_ROOT
+        # defaults. The fixture stages that same image layout (#2550).
         call_command("bootstrap_inbox_catalog", "--actor", admin_actor.username)
         source = RaesPackageSource.objects.get(scenario_id="smoke-linux")
         shipped = next(r for r in load_inbox_manifest(SHIPPED_INBOX_MANIFEST) if r.scenario_id == "smoke-linux")

@@ -54,7 +54,7 @@ def test_every_migrated_page_is_owned_by_the_spa_without_rollout_settings(settin
         assert b'id="root"' in response.content, path
 
 
-def test_shipped_raes_packs_are_digest_bound_and_valid():
+def test_shipped_raes_packs_are_digest_bound_and_valid(shipped_pack_root):
     packs = load_inbox_manifest(SHIPPED_INBOX_MANIFEST)
     # smoke-linux (GCP-authored) plus its portable smoke-linux-aws variant for the
     # AWS EC2 range backend; converging them is tracked in #2415.
@@ -62,10 +62,10 @@ def test_shipped_raes_packs_are_digest_bound_and_valid():
     for source in packs:
         assert source.contract_kind == "raes"
         assert source.contract_profile == "shifter"
-        # package_ref is relative to RAES_PACKAGE_ROOT, the shifter_platform dir
-        # (the manifest's parents[3]) baked to /app in the container. Resolve
-        # against that root, not the repo root.
-        pack_root = SHIPPED_INBOX_MANIFEST.parents[3] / source.package_ref
+        # package_ref names the runtime destination under RAES_PACKAGE_ROOT
+        # (/app in the container). The Dockerfile copies it there from the one
+        # canonical source under shifter/environment-packs/ (#2550).
+        pack_root = shipped_pack_root / source.package_ref
         assert validate_pack(pack_root) == source.scenario_id
         assert pack_digest(pack_root) == source.package_digest
 

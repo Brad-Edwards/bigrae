@@ -7,7 +7,7 @@ Ordinary launch resolves admitted inventory and never waits for a builder.
 
 Shifter maintains the [contained GCE profile](../../shifter/packer/preparation/PROFILE.md),
 its worker, build contexts and independent verification code. The maintained
-[HTTP specimen](../../scenario-dev/preparation-http-smoke/) demonstrates a pack
+[HTTP specimen](../../shifter/environment-packs/preparation-http-smoke/) demonstrates a pack
 that selects that profile. The [qualification record](../../shifter/packer/preparation/QUALIFICATION.md)
 distinguishes physical image checks from tenant workflow evidence.
 

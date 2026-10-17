@@ -107,8 +107,8 @@ def test_standard_linux_versions_and_namespaced_rolling_channel_keep_their_seman
 @pytest.mark.parametrize("version, accepted", [("3.19", True), ("3.19.9", True), ("3.20.1", False)])
 def test_shipped_alpine_release_accepts_its_patch_versions_only(version, accepted):
     source = (
-        Path(__file__).resolve().parents[4]
-        / "scenario-dev/shifter-raes-validation/sdl/shifter-raes-validation.sdl.yaml"
+        Path(__file__).resolve().parents[3]
+        / "environment-packs/shifter-raes-validation/sdl/shifter-raes-validation.sdl.yaml"
     )
     declared = yaml.safe_load(source.read_text())["nodes"]["web"]
     plan = _plan()

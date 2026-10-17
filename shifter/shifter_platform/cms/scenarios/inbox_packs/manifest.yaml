@@ -10,11 +10,14 @@
 #
 # Only packs whose bytes ship inside the portal image belong here, because the
 # bootstrap resolves each `package_ref` under `RAES_PACKAGE_ROOT` (the app root
-# `/app` in the deployed container). Packs live under `shifter_platform/` so the
-# Dockerfile `COPY shifter_platform .` bakes them in; their `package_ref` is
-# therefore relative to that root. Private scenario packs whose bytes are not in
-# the public image (for example proprietary customer content) are registered
-# out-of-band where their bytes exist, not from this shipped seed.
+# `/app` in the deployed container). Each `package_ref` names a runtime
+# destination, not a source path. The canonical pack sources live under
+# `shifter/environment-packs/` (#2550), and the portal Dockerfile copies each
+# pack declared here from that collection to its `package_ref`. Keep this list
+# and those explicit copies in agreement; a pack in the collection is not
+# shipped or registered unless it has both. Private scenario packs whose bytes
+# are not in the public image (for example proprietary customer content) are
+# registered out-of-band where their bytes exist, not from this shipped seed.
 #
 packs:
   - scenario_id: smoke-linux

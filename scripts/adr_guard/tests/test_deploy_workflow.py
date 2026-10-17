@@ -406,8 +406,8 @@ class TestScenarioVerificationQualityRouting(unittest.TestCase):
     def test_quality_jobs_do_not_execute_pack_owned_scenario_tests(self):
         for job in self.jobs.values():
             run_steps = "\n".join(str(step.get("run", "")) for step in job.get("steps", []))
-            self.assertNotIn("find scenario-dev/", run_steps)
-            self.assertNotIn("compileall -q scenario-dev/", run_steps)
+            self.assertNotIn("find shifter/environment-packs/", run_steps)
+            self.assertNotIn("compileall -q shifter/environment-packs/", run_steps)
 
     def test_adapter_specific_quality_route_is_removed(self):
         self.assertNotIn("scenario_smoketest", self.filters)

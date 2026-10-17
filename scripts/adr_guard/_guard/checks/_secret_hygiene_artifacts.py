@@ -38,8 +38,8 @@ from ._secret_hygiene_git import _git_ls_files_stdout
 _GENERATED_ARTIFACT_ROOTS: tuple[str, ...] = (
     "platform/terraform/environments/",
     "platform/terraform/gcp/environments/",
-    "scenario-dev/",
     "scripts/",
+    "shifter/environment-packs/",
     "temp/bootstrap/",
 )
 
@@ -90,7 +90,7 @@ def _generated_artifact_match(rel_path: str) -> bool:
     if not any(rel_path.startswith(root) for root in _GENERATED_ARTIFACT_ROOTS):
         return False
     parts = rel_path.split("/")
-    if len(parts) >= 4 and parts[0] == "scenario-dev" and parts[2] == "build":
+    if len(parts) >= 5 and parts[:2] == ["shifter", "environment-packs"] and parts[3] == "build":
         return True
     basename = parts[-1]
     return any(
@@ -174,7 +174,8 @@ def check_no_tracked_generated_artifacts(
     - License / authcode bootstrap material (`authcodes`,
       `*.authcodes`) under `temp/bootstrap/`. These pre-staging
       outputs must not be tracked.
-    - Scenario build output under `scenario-dev/<pack>/build/`, and operator
+    - Environment-pack build output under
+      `shifter/environment-packs/<pack>/build/`, and operator
       run state or reports under `scripts/`.
       This is generated/runtime material, not source.
 
