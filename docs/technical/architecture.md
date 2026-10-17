@@ -6,7 +6,7 @@ architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/shifter/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-17 against integration revision `a2372dc60`.
+**Reviewed:** 2026-10-17 against integration revision `6b1c88082`.
 This describes source behavior, not a certificate of a live deployment.
 
 ## System context and trust boundaries
@@ -170,6 +170,7 @@ backed by `.importlinter` and model-boundary checks. The following is its reader
 | `shared` | Neutral contracts, auth primitives, audit, cloud interfaces | Public contracts; no domain/model imports. Only `shared.raes` imports RAES. |
 | `config` | Settings, provider adapters, root routing, composition | Explicit public composition seams; no domain model imports. |
 | `shifter/engine/provisioner` | Independent provider/guest executor | Versioned immutable inputs/results and standalone plain-data RAES reader; no Django/domain ORM dependency. |
+| `shifter/environment-packs` | Shifter-owned bootstrap and validation content | Current RAES packs registered through the same CMS validation boundary as external content. |
 | `shifter/installation` | Root config, backend bundles, runtime inventories | Typed bundle validation/rendering; backend selection before mutation. |
 | `shifter/shifter_client` | Native Google service transport | Renewable provider credentials and relative authenticated API calls; no application internals. |
 | `shifter/shifter_adapter_sdk` | Independent adapter ABI | Public verification, runtime and preparation contracts; no application imports. |

@@ -60,7 +60,7 @@ an unknown cleanup state by deleting application records.
 ## Run a useful scenario
 
 The shipped synthetic
-[smoke-linux pack](https://github.com/Brad-Edwards/shifter/tree/dev/shifter/shifter_platform/cms/scenarios/inbox_packs/smoke-linux)
+[smoke-linux pack](https://github.com/Brad-Edwards/shifter/tree/dev/shifter/environment-packs/smoke-linux)
 is the initial GCP RAES path. The
 [in-box manifest](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/cms/scenarios/inbox_packs/manifest.yaml)
 registers it through the normal CMS validator during catalog bootstrap. It is a

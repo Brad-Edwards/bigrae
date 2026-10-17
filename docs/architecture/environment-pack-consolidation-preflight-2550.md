@@ -1,5 +1,8 @@
 # Shifter-owned environment pack consolidation: architecture preflight (#2550)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: guidance for implementation; no packs or runtime behavior changed here.
 The supplied issue is the contract; there is no attached requirement.
 This applies ADR-003, ADR-004, ADR-024, ADR-031, ADR-032, ADR-034 and ADR-053.
