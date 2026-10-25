@@ -17,3 +17,6 @@ RUN mkdir -p /var/lib/guacamole/drive && \
     chown guacd:guacd /var/lib/guacamole/drive && \
     chmod 750 /var/lib/guacamole/drive
 USER guacd
+
+# Same probe as the upstream image: guacd accepts TCP connections on 4822.
+HEALTHCHECK --interval=5m --timeout=5s CMD nc -z 127.0.0.1 4822 || exit 1

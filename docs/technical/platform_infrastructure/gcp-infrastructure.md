@@ -1,6 +1,6 @@
 # GCP Infrastructure
 
-GKE-based deployment of the Shifter platform on Google Cloud.
+GKE-based deployment of the BigRAE platform on Google Cloud.
 
 ## Directory Structure
 
@@ -13,7 +13,7 @@ platform/
 └── k8s/gcp/                      # Base manifests and generated deployment assets
 ```
 
-Terraform provisions GCP resources. The Shifter control plane is packaged as a Helm chart, and bootstrap renders generated values from Terraform outputs plus Secret Manager payloads before installing the chart.
+Terraform provisions GCP resources. The BigRAE control plane is packaged as a Helm chart, and bootstrap renders generated values from Terraform outputs plus Secret Manager payloads before installing the chart.
 
 ## Terraform Module: platform-core
 
@@ -112,7 +112,7 @@ The GCP deploy flow executed by CI:
 3. builds and pushes control-plane images
 4. renders secure runtime env values from Terraform outputs and Secret Manager
 5. renders generated Helm values
-6. installs or upgrades the Shifter chart
+6. installs or upgrades the BigRAE chart
 7. waits for rollout and managed-certificate convergence
 
 `gcp-dev` intentionally skips the repo-wide quality workflow on branch pushes so GCP break/fix work can iterate quickly. The provider-local validation in `_gcp-dev.yml` remains mandatory before deploy, while the full lint/test/security matrix still runs on PRs and on `dev`; production deploys are manual dispatches from `main`.

@@ -1,6 +1,6 @@
 # Get Started
 
-Shifter provides isolated cyber range environments for XDR/XSIAM demos. You bring an agent installer, Shifter provisions the infrastructure.
+BigRAE provides isolated cyber range environments for XDR/XSIAM demos. You bring an agent installer, BigRAE provisions the infrastructure.
 
 ## First Time?
 

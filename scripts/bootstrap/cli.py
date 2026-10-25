@@ -477,11 +477,13 @@ def _add_gdc_bootstrap_subparser(subparsers: argparse._SubParsersAction) -> None
     gdc_parser.add_argument("--zone", default="us-central1-a", help="Compute Engine zone")
     gdc_parser.add_argument("--google-account-email", help="Optional Google identity to grant cluster-admin")
     gdc_parser.add_argument(
+        "--bigrae-config",
         "--shifter-config",
+        dest="shifter_config",
         help=(
-            "Path to the deployment's shifter.yaml; its settings.range_egress is rendered into "
+            "Path to the deployment's bigrae.yaml; its settings.range_egress is rendered into "
             "range_egress.auto.tfvars before the control-plane apply (#1015). Defaults to "
-            "$SHIFTER_CONFIG or ./shifter.yaml; a missing config fails the deploy."
+            "$BIGRAE_CONFIG or ./bigrae.yaml (legacy names remain accepted); a missing config fails the deploy."
         ),
     )
     gdc_parser.add_argument(

@@ -4,6 +4,7 @@ The constrained ``if:`` expression evaluator lives in ``_workflow_model_expr``
 (split out to keep each module under the file-length limit) and is re-exported
 here, so this module remains the single import site for the whole model.
 """
+
 from __future__ import annotations
 
 import os
@@ -17,10 +18,6 @@ from ._workflow_model_expr import (
     _DW_EXPR_TOKEN,
     _DW_EXPR_WRAPPER,
     _DW_RESULT_REF,
-    _DwExprError,
-    _DwParser,
-    _DwScenario,
-    _DwShapeError,
     _dw_call_function,
     _dw_evaluate_if,
     _dw_evaluate_scenario,
@@ -37,8 +34,11 @@ from ._workflow_model_expr import (
     _dw_tokenize,
     _dw_truthy,
     _dw_unwrap_expr,
+    _DwExprError,
+    _DwParser,
+    _DwScenario,
+    _DwShapeError,
 )
-
 
 _CORE_WORKFLOW_PATH = ".github/workflows/_core.yml"
 _RANGE_WORKFLOW_PATH = ".github/workflows/_range.yml"
@@ -127,9 +127,7 @@ def _dw_runs_on(job: dict[str, object]) -> str | list[str] | None:
 # the exposure check would skip those jobs and leave a pull_request-reachability
 # blind spot. New dynamic self-hosted selectors MUST be added here so the gate
 # cannot be bypassed.
-_SELF_HOSTED_CLASS_LABELS = frozenset(
-    {"self-hosted", "gcp-dev", "${{ inputs.environment }}"}
-)
+_SELF_HOSTED_CLASS_LABELS = frozenset({"self-hosted", "gcp-dev", "${{ inputs.environment }}"})
 
 
 def _dw_is_self_hosted(job: dict[str, object]) -> bool:
@@ -142,9 +140,7 @@ def _dw_is_self_hosted(job: dict[str, object]) -> bool:
     return False
 
 
-def _dw_upstream_gating_violations(
-    wf: dict[str, object], deploy_job_ids: Iterable[str]
-) -> list[tuple[str, str, str]]:
+def _dw_upstream_gating_violations(wf: dict[str, object], deploy_job_ids: Iterable[str]) -> list[tuple[str, str, str]]:
     """Return ``[(job_id, upstream, result), ...]`` for deploy jobs that still
     RUN when a result-gated upstream is ``failure`` or ``cancelled`` (fail-open,
     the #781 class). Empty list means every deploy job fails closed."""
@@ -225,9 +221,7 @@ def _dw_path_matches_any(path: str, patterns: Iterable[str]) -> bool:
 
 
 # --- branch/event routing (#892) ------------------------------------------- #
-def _dw_extract_set_environment_script(
-    wf: dict[str, object], name: str = _DW_DEPLOY_WORKFLOW_NAME
-) -> str:
+def _dw_extract_set_environment_script(wf: dict[str, object], name: str = _DW_DEPLOY_WORKFLOW_NAME) -> str:
     """Return the ``run`` body of the ``changes`` job's ``Set environment`` step."""
     job = _dw_get_job(wf, "changes", name)
     for step in job.get("steps", []) or []:
@@ -275,9 +269,7 @@ def _dw_evaluate_env(
             check=False,
         )
         if proc.returncode != 0:
-            raise _DwShapeError(
-                f"Set environment script exited {proc.returncode}: {proc.stderr.strip()}"
-            )
+            raise _DwShapeError(f"Set environment script exited {proc.returncode}: {proc.stderr.strip()}")
         outputs = {}
         for line in Path(out_path).read_text().splitlines():
             line = line.strip()
@@ -297,15 +289,15 @@ __all__ = [
     "_DW_EXPR_WRAPPER",
     "_DW_RESULT_REF",
     "_DW_REUSABLE_WORKFLOW_PATHS",
-    "_DwExprError",
-    "_DwParser",
-    "_DwScenario",
-    "_DwShapeError",
     "_ENGINE_WORKFLOW_PATH",
     "_GCP_DEV_WORKFLOW_PATH",
     "_PLATFORM_WORKFLOW_PATH",
     "_RANGE_WORKFLOW_PATH",
     "_SELF_HOSTED_CLASS_LABELS",
+    "_DwExprError",
+    "_DwParser",
+    "_DwScenario",
+    "_DwShapeError",
     "_dw_call_function",
     "_dw_evaluate_env",
     "_dw_evaluate_if",

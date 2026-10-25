@@ -12,7 +12,6 @@ from uuid import UUID, uuid5
 
 from pydantic import Field, model_validator
 from shifter_adapter_sdk.runtime import (
-    PROTOCOL,
     ClosedModel,
     Digest,
     GuestTarget,
@@ -302,7 +301,7 @@ def runtime_plugin_requests(
     phases: tuple[Phase, ...] = ("validate", "configure", "verify")
     return tuple(
         RuntimeInput(
-            protocol=PROTOCOL,
+            protocol=pin.manifest.protocol,
             invocation_id=uuid5(operation_id, f"runtime-plugin:{phase}"),
             operation_id=operation_id,
             pack_digest=pin.pack_digest,

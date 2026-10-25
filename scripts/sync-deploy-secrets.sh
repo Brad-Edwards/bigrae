@@ -34,9 +34,10 @@ Options:
   --stack STACK        Stack to sync. Repeatable. One of:
                        portal, range, core, config, or `all`.
                        Default: portal range core (the tfvars overlays).
-                       `config` syncs SHIFTER_CONFIG_* from --shifter-config.
-  --shifter-config P   Path to the deployment shifter.yaml. Required when a
+                       `config` syncs SHIFTER_CONFIG_* from --bigrae-config.
+  --bigrae-config P    Path to the deployment bigrae.yaml. Required when a
                        `config` stack is selected. Falls back to $SHIFTER_CONFIG.
+  --shifter-config P   Legacy alias for --bigrae-config.
   --repo OWNER/NAME    Target repository. Default: current repo (`gh repo view`).
   --dry-run            Print what would be set (name, source, size) and exit 0
                        without writing any secret.
@@ -46,8 +47,8 @@ Source mapping (relative to the repo root):
   TF_VARS_<ENV>_PORTAL       platform/terraform/environments/<env>/portal/local.auto.tfvars
   TF_VARS_<ENV>_RANGE        platform/terraform/environments/<env>/range/local.auto.tfvars
   TF_VARS_<ENV>_CORE         platform/terraform/environments/<env>/local.auto.tfvars
-  SHIFTER_CONFIG_<ENV>_RANGE --shifter-config (the deployment shifter.yaml)
-  SHIFTER_CONFIG_GCP_DEV     --shifter-config (the deployment shifter.yaml)
+  SHIFTER_CONFIG_<ENV>_RANGE --bigrae-config (the deployment bigrae.yaml)
+  SHIFTER_CONFIG_GCP_DEV     --bigrae-config (the deployment bigrae.yaml)
 
 A required source file that is missing is a hard error (fail loud), so a
 partial overlay never silently skips a secret.
@@ -55,8 +56,8 @@ partial overlay never silently skips a secret.
 Examples:
   scripts/sync-deploy-secrets.sh --env dev --dry-run
   scripts/sync-deploy-secrets.sh --env dev
-  scripts/sync-deploy-secrets.sh --env dev --stack config --shifter-config ./shifter.yaml
-  scripts/sync-deploy-secrets.sh --env all --stack all --shifter-config ./shifter.yaml
+  scripts/sync-deploy-secrets.sh --env dev --stack config --bigrae-config ./bigrae.yaml
+  scripts/sync-deploy-secrets.sh --env all --stack all --bigrae-config ./bigrae.yaml
 EOF
 }
 
@@ -90,6 +91,7 @@ STACKS=()
 REPO=""
 DRY_RUN=0
 SHIFTER_CONFIG="${SHIFTER_CONFIG:-}"
+CONFIG_ARGUMENT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -101,8 +103,13 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "error: --stack needs a value" >&2; exit 2; }
       if [[ "$2" == "all" ]]; then STACKS+=(portal range core config); else STACKS+=("$2"); fi
       shift 2 ;;
-    --shifter-config)
-      [[ $# -ge 2 ]] || { echo "error: --shifter-config needs a value" >&2; exit 2; }
+    --bigrae-config|--shifter-config)
+      [[ $# -ge 2 ]] || { echo "error: config option needs a value" >&2; exit 2; }
+      if [[ -n "$CONFIG_ARGUMENT" && "$CONFIG_ARGUMENT" != "$2" ]]; then
+        echo "error: conflicting config options" >&2
+        exit 2
+      fi
+      CONFIG_ARGUMENT="$2"
       SHIFTER_CONFIG="$2"; shift 2 ;;
     --repo)
       [[ $# -ge 2 ]] || { echo "error: --repo needs a value" >&2; exit 2; }
@@ -149,7 +156,7 @@ source_for() {
       esac ;;
     shifter)
       if [[ -z "$SHIFTER_CONFIG" ]]; then
-        echo "error: --shifter-config (or \$SHIFTER_CONFIG) is required to sync $stack secrets" >&2
+        echo "error: --bigrae-config (or \$SHIFTER_CONFIG) is required to sync $stack secrets" >&2
         return 1
       fi
       echo "$SHIFTER_CONFIG" ;;

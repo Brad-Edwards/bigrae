@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 # export can no longer verify anything: the discriminator is advanced (rather
 # than silently redefining v2) and earlier exports are rejected outright.
 SHIFTER_FORMAT = "shifter-challenges/v3"
+BIGRAE_FORMAT = "bigrae-challenges/v1"
 _LEGACY_SHIFTER_FORMATS = ("shifter-challenges/v1", "shifter-challenges/v2")
 
 _CHALLENGE_SCALARS = (
@@ -107,7 +108,7 @@ def export_challenges(
         }
 
     return {
-        "format": SHIFTER_FORMAT,
+        "format": BIGRAE_FORMAT if fmt == "bigrae" else SHIFTER_FORMAT,
         "event": {"id": str(event.pk), "name": event.name},
         "challenges": [
             {
@@ -144,10 +145,10 @@ def import_challenges(event_id: UUID, payload: dict[str, Any], *, actor_id: int)
     if fmt in _LEGACY_SHIFTER_FORMATS:
         raise CTFValidationError(
             f"{fmt} exports are no longer importable: flags are now stored and exported as plaintext "
-            f"values ({SHIFTER_FORMAT}). Re-export the event from a current Shifter instance.",
+            f"values ({SHIFTER_FORMAT}). Re-export the event from a current BigRAE instance.",
             code="CTF_UNSUPPORTED_FORMAT",
         )
-    is_ctfd = fmt != SHIFTER_FORMAT
+    is_ctfd = fmt not in {SHIFTER_FORMAT, BIGRAE_FORMAT}
 
     existing_names = set(
         CTFChallenge.objects.filter(event=event, deleted_at__isnull=True).values_list("name", flat=True)
@@ -285,7 +286,7 @@ def _create_from_shifter(event: CTFEvent, entry: dict[str, Any], *, actor_id: in
     scalars = {field: entry[field] for field in _CHALLENGE_SCALARS if field in entry and entry[field] is not None}
     valid_flags = [f for f in (entry.get("flags") or []) if isinstance(f, dict) and f.get("value")]
     if not valid_flags:
-        raise CTFValidationError("Shifter entry has no flags", code="CTF_INVALID_IMPORT")
+        raise CTFValidationError("BigRAE entry has no flags", code="CTF_INVALID_IMPORT")
     from ctf.services.content_hydration import mark_content_hydration_drift
 
     mark_content_hydration_drift(

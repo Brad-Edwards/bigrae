@@ -1288,12 +1288,19 @@ def resolve_shifter_config_path(config: GDCBootstrapConfig, repo_root: Path) -> 
     ``status-quo`` (the drift #1015 closes). Fails loud naming only the resolved path and
     the docs reference, never the config contents.
     """
-    candidate = config.shifter_config_path or os.environ.get("SHIFTER_CONFIG")
-    config_path = Path(candidate) if candidate else (repo_root / "shifter.yaml")
+    from installation.loader import default_root_config_path
+
+    candidate = config.shifter_config_path
+    if not candidate:
+        canonical, legacy = os.environ.get("BIGRAE_CONFIG"), os.environ.get("SHIFTER_CONFIG")
+        if canonical is not None and legacy is not None and canonical != legacy:
+            raise ValueError("conflicting BIGRAE_CONFIG and SHIFTER_CONFIG paths")
+        candidate = canonical if canonical is not None else legacy
+    config_path = Path(candidate) if candidate else default_root_config_path(repo_root)
     if not config_path.exists():
         error(
-            "Range egress render requires a root installation config (shifter.yaml). "
-            f"Looked for: {config_path}. Provide --shifter-config or set SHIFTER_CONFIG. "
+            "Range egress render requires a root installation config (bigrae.yaml; legacy shifter.yaml). "
+            f"Looked for: {config_path}. Provide --bigrae-config or set BIGRAE_CONFIG. "
             "See docs/dev/deploy-secrets.md."
         )
         sys.exit(1)

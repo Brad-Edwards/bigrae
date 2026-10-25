@@ -113,12 +113,12 @@ fixed, closed set: **owner**, **admin**, and **member**.
 
 **Administer → Organization → Workspaces → (a workspace) → Invitations** lets a
 staff user who is also a workspace owner or admin invite a person who does not
-yet have a Shifter account.
+yet have a BigRAE account.
 
 - Enter the recipient's email and choose the closed workspace role. Only a
   workspace owner can issue an owner invitation.
 - The recipient gets a time-limited link. They must authenticate through the
-  configured identity provider with that verified email address; Shifter then
+  configured identity provider with that verified email address; BigRAE then
   creates the membership atomically. An invitation never creates a placeholder
   account and never changes an existing member's role.
 - Pending invitations can be resent, which invalidates every earlier link, or

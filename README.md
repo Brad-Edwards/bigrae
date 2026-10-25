@@ -1,4 +1,4 @@
-# Shifter
+# BigRAE
 
 Self-service agentic cyber-range platform for authorized purple, red and blue
 team exercises, with isolated guest workloads and operator-selected telemetry.
@@ -60,7 +60,7 @@ secret hygiene. Architecture-boundary changes include handbook review.
 
 ## Support and security
 
-Shifter is maintained on a community, best-effort basis without a response SLA.
+BigRAE is maintained on a community, best-effort basis without a response SLA.
 Use [SUPPORT.md](SUPPORT.md) for assistance and support limits and
 [SECURITY.md](SECURITY.md) for private vulnerability reporting. Run exercises
 only in environments you are authorized to control, with human oversight.

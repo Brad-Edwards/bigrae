@@ -1,4 +1,4 @@
-# Shifter CMS
+# BigRAE CMS
 
 Content and asset management.
 

@@ -1,6 +1,6 @@
 # AWS self-hosted runner provisioning
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 Every AWS deploy job (`_core.yml`, `_range.yml`, `_shifter-engine.yml`,
 `_shifter-platform.yml`, `packer.yml`) runs on `runs-on: self-hosted`. A fresh

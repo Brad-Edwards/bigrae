@@ -15,6 +15,7 @@ this module's namespace (and therefore the ``adr_guard`` facade surface and the
 What remains here is the ADR-003-R2 plan-scope entry point, which spans several
 of those families, and the ADR-004-R15 OIDC role check.
 """
+
 from __future__ import annotations
 
 import re
@@ -26,9 +27,8 @@ from .._common import (
 )
 from .._workflow_model import (
     _CORE_WORKFLOW_PATH,
-    _ENGINE_WORKFLOW_PATH,
     _DW_REUSABLE_WORKFLOW_PATHS,
-    _DwShapeError,
+    _ENGINE_WORKFLOW_PATH,
     _PLATFORM_WORKFLOW_PATH,
     _RANGE_WORKFLOW_PATH,
     _dw_is_self_hosted,
@@ -36,6 +36,7 @@ from .._workflow_model import (
     _dw_job_if,
     _dw_jobs,
     _dw_load_workflow,
+    _DwShapeError,
 )
 from ._deploy_workflow_action_pin import (
     _ACTION_PIN_CHECK,
@@ -59,6 +60,15 @@ from ._deploy_workflow_action_pin import (
     _dw_workflow_is_cloud_credentialed,
     _workflow_action_pin_relevant,
     check_workflow_action_sha_pinning,
+)
+from ._deploy_workflow_iam_drift import (
+    _GLOBAL_IAM_DIR,
+    _IAM_DRIFT_CHECK,
+    _IAM_DRIFT_RULE,
+    _IAM_DRIFT_WORKFLOW_PATH,
+    _iam_drift_relevant,
+    _iam_drift_violation,
+    check_global_iam_drift_check,
 )
 from ._deploy_workflow_plan_scope import (
     _DEPLOY_WORKFLOW_PATH,
@@ -98,15 +108,6 @@ from ._deploy_workflow_routing import (
     _check_deploy_workflow_quality_only_routing,
     _check_platform_build_portal_image_gate,
     _platform_app_source_globs,
-)
-from ._deploy_workflow_iam_drift import (
-    _GLOBAL_IAM_DIR,
-    _IAM_DRIFT_CHECK,
-    _IAM_DRIFT_RULE,
-    _IAM_DRIFT_WORKFLOW_PATH,
-    _iam_drift_relevant,
-    _iam_drift_violation,
-    check_global_iam_drift_check,
 )
 from ._deploy_workflow_runner_exposure import (
     _RUNNER_EXPOSURE_CHECK,
@@ -170,9 +171,7 @@ def _deploy_workflow_plan_scope_violations(repo_root: Path) -> list[Violation]:
     return violations
 
 
-def _quality_workflow_plan_scope_violations(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def _quality_workflow_plan_scope_violations(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """ADR-003-R2 violations for the reusable Quality workflow."""
     if not _should_check_plan_scope_file(files, _QUALITY_WORKFLOW_PATH):
         return []
@@ -185,14 +184,10 @@ def _quality_workflow_plan_scope_violations(
                 "architecture/security independence from skip_tests",
             )
         ]
-    return _check_quality_workflow_skip_tests_contract(
-        quality_path.read_text(encoding="utf-8")
-    )
+    return _check_quality_workflow_skip_tests_contract(quality_path.read_text(encoding="utf-8"))
 
 
-def _terraform_workflow_plan_scope_violations(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def _terraform_workflow_plan_scope_violations(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """ADR-003-R2 Terraform integrity violations for the core and range workflows."""
     violations: list[Violation] = []
     for path in (_CORE_WORKFLOW_PATH, _RANGE_WORKFLOW_PATH):
@@ -208,9 +203,7 @@ def _terraform_workflow_plan_scope_violations(
                 )
             )
             continue
-        violations.extend(
-            _check_terraform_workflow_integrity(workflow_path.read_text(encoding="utf-8"), path)
-        )
+        violations.extend(_check_terraform_workflow_integrity(workflow_path.read_text(encoding="utf-8"), path))
     return violations
 
 
@@ -221,8 +214,7 @@ def _platform_workflow_plan_scope_violations(repo_root: Path) -> list[Violation]
         return [
             _plan_scope_violation(
                 _PLATFORM_WORKFLOW_PATH,
-                "Required workflow is missing; ADR-003-R2 cannot verify platform "
-                "Terraform plan commands",
+                "Required workflow is missing; ADR-003-R2 cannot verify platform Terraform plan commands",
             )
         ]
     platform_text = platform_path.read_text(encoding="utf-8")
@@ -249,18 +241,14 @@ def check_deploy_workflow_plan_scope(repo_root: Path, files: list[str] | None) -
 
 
 _GITHUB_OIDC_TF_PATH = "platform/terraform/global/iam/github-oidc.tf"
-_GITHUB_OIDC_ADMIN_POLICY_RE = re.compile(
-    r'policy_arn\s*=\s*"arn:aws:iam::aws:policy/AdministratorAccess"'
-)
+_GITHUB_OIDC_ADMIN_POLICY_RE = re.compile(r'policy_arn\s*=\s*"arn:aws:iam::aws:policy/AdministratorAccess"')
 
 
 def _github_oidc_check_relevant(files: list[str] | None) -> bool:
     """True when the OIDC Terraform file or the guard facade itself changed."""
     if files is None:
         return True
-    return _GITHUB_OIDC_TF_PATH in files or any(
-        path.endswith("adr_guard.py") for path in files
-    )
+    return _GITHUB_OIDC_TF_PATH in files or any(path.endswith("adr_guard.py") for path in files)
 
 
 def check_github_oidc_no_admin_access(repo_root: Path, files: list[str] | None) -> list[Violation]:
@@ -269,9 +257,7 @@ def check_github_oidc_no_admin_access(repo_root: Path, files: list[str] | None) 
         return []
 
     path = repo_root / _GITHUB_OIDC_TF_PATH
-    if not path.is_file() or not _GITHUB_OIDC_ADMIN_POLICY_RE.search(
-        path.read_text(encoding="utf-8")
-    ):
+    if not path.is_file() or not _GITHUB_OIDC_ADMIN_POLICY_RE.search(path.read_text(encoding="utf-8")):
         return []
 
     return [
@@ -298,7 +284,6 @@ __all__ = [
     "_DEPLOY_WORKFLOW_PATH",
     "_DW_NAMED_SECRET_RE",
     "_DW_REUSABLE_WORKFLOW_PATHS",
-    "_DwShapeError",
     "_ENGINE_WORKFLOW_PATH",
     "_GITHUB_OIDC_TF_PATH",
     "_GLOBAL_IAM_DIR",
@@ -335,12 +320,13 @@ __all__ = [
     "_TFVARS_RENDER_RULE",
     "_TF_CONSUMING_SUBCOMMANDS",
     "Violation",
+    "_DwShapeError",
     "_action_pin_violation",
     "_active_line_contains",
     "_block_contains_glob",
     "_check_deploy_concurrency_queues_apply_runs",
-    "_check_deploy_workflow_plan_routing",
     "_check_deploy_workflow_environment_pack_routing",
+    "_check_deploy_workflow_plan_routing",
     "_check_deploy_workflow_portal_image_routing",
     "_check_deploy_workflow_quality_only_routing",
     "_check_deploy_workflow_skip_tests_policy",

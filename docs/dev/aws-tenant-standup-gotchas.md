@@ -1,9 +1,9 @@
 # AWS tenant standup gotchas
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 A running log of operator gotchas hit while standing up or re-pointing an AWS
-Shifter tenant that are **not** fixed in code, only in operator procedure. Fixes
+BigRAE tenant that are **not** fixed in code, only in operator procedure. Fixes
 that belong in the scripts, workflows, or Terraform go into the code, not here.
 Use this alongside the authoritative runbooks:
 [`deploy-secrets.md`](deploy-secrets.md),
@@ -32,7 +32,7 @@ account:
   account-suffixed bucket names, domains, alarm email, `vm_series_ami_id`, etc.
   Regenerate from local `local.auto.tfvars` overlays with
   `scripts/sync-deploy-secrets.sh --env <env>`.
-- `SHIFTER_CONFIG_<ENV>_RANGE`: the deployment `shifter.yaml`.
+- `SHIFTER_CONFIG_<ENV>_RANGE`: the deployment `bigrae.yaml`.
 - `AWS_IMAGE_ROLE_ARN_<ENV>`: from the new account's
   `platform/terraform/global/iam` output `github_actions_image_role_arn`.
 - Repository **variables** `PACKER_BUILD_{VPC,SUBNET}_ID_<ENV>` and

@@ -1,6 +1,6 @@
 # AWS Terraform apply order
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 This is the authoritative order for applying the AWS Terraform stacks on a fresh
 account, the backend state key each stack uses, and the values you must override
@@ -84,8 +84,8 @@ into `local.auto.tfvars` (see [`deploy-secrets.md`](deploy-secrets.md)).
 - `vm_series_ami_id`: the regional PAN-OS VM-Series Marketplace AMI (baseline
   placeholder `REPLACE_VM_SERIES_AMI_ID`).
 - `victim_allowed_cidrs`: not set here. It is rendered into
-  `victim_allowed_cidrs.auto.tfvars` from the deployment's `shifter.yaml`
-  (`settings.range_egress`) by `shifter-config render`. Keep it out of the
+  `victim_allowed_cidrs.auto.tfvars` from the deployment's `bigrae.yaml`
+  (`settings.range_egress`) by `bigrae-config render`. Keep it out of the
   whole-file range secret. See
   [`../architecture/range-egress-ip-allowlist.md`](../architecture/range-egress-ip-allowlist.md).
 

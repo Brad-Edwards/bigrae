@@ -1,7 +1,7 @@
 # Development and release workflow
 
 This document describes the branch model, the pull-request flow, and the
-release model for Shifter. It is the reference cited by `CONTRIBUTING.md`,
+release model for BigRAE. It is the reference cited by `CONTRIBUTING.md`,
 `CHANGELOG.md`, and `.gc/plan-rules.md`.
 
 ## Branch model
@@ -55,7 +55,7 @@ title; the maintainer carries the merge method.
 
 Releases are coordinated by [release-please](https://github.com/googleapis/release-please)
 on `main`, configured by `release-please-config.json` and
-`.release-please-manifest.json` at the repository root (ADR-042). Shifter uses a
+`.release-please-manifest.json` at the repository root (ADR-042). BigRAE uses a
 single umbrella version: one root package (`release-type: simple`), one
 `vX.Y.Z` tag, and one `CHANGELOG.md`. The root `version.txt` is the committed
 mirror of the current version; it is repository metadata, not an application

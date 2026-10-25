@@ -1,6 +1,6 @@
 # AWS range AMI seeding
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 The Portal Terraform stack reads the range base AMIs from SSM as data sources
 (`/shifter/ami/kali`, `/shifter/ami/ubuntu`, `/shifter/ami/windows`,

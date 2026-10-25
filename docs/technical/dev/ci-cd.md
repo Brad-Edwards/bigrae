@@ -1,6 +1,6 @@
 # CI/CD Pipeline
 
-How GitHub Actions validates and deploys Shifter.
+How GitHub Actions validates and deploys BigRAE.
 
 ## Overview
 
@@ -10,8 +10,8 @@ which coordinates:
 1. **Quality** - Linting, tests, security scanning
 2. **Core** - ECR repositories (foundation)
 3. **Range** - Range VPC infrastructure
-4. **Shifter Engine** - Container build
-5. **Shifter Platform** - Application infrastructure, containers, deployment
+4. **BigRAE Engine** - Container build
+5. **BigRAE Platform** - Application infrastructure, containers, deployment
 
 ## Trigger Rules
 
@@ -81,8 +81,8 @@ Quality (must pass first)
 
 Downstream AWS jobs use explicit `needs.<job>.result` gates. A skipped upstream
 is acceptable when its path filter did not select it, but a failed or cancelled
-upstream must stop dependent infrastructure work. In particular, Shifter Platform
-must not plan or apply on top of a failed Shifter Engine deploy.
+upstream must stop dependent infrastructure work. In particular, BigRAE Platform
+must not plan or apply on top of a failed BigRAE Engine deploy.
 
 ## Change Detection
 
@@ -92,7 +92,7 @@ The orchestrator uses path filters to run only relevant jobs:
 |--------|--------------|
 | `core` | ECR module, environment root, deploy workflow |
 | `range` | Range Terraform, engine state module |
-| `shifter_engine` | Shifter Engine code, ECR module |
+| `shifter_engine` | BigRAE Engine code, ECR module |
 | `shifter_platform` | Portal/Guacamole Terraform and platform deploy workflow |
 | `quality_relevant` | Any non-docs change, plus guardrail docs; controls whether Quality runs without launching deploy or Terraform plan jobs |
 | `portal_image` | Portal image build inputs (`shifter/shifter_platform/**`, `cyberscript`, `installation`, `.dockerignore`); triggers the portal image build/deploy on a deploy dispatch without running Terraform |
@@ -122,7 +122,7 @@ every production path to its blocking lint, security, and test jobs; the
 See `docs/technical/dev/adr-enforcement.md` for how to add a quality unit or
 record a gap.
 
-The Shifter Engine reusable workflow has an additional blocking provisioner
+The BigRAE Engine reusable workflow has an additional blocking provisioner
 pytest gate before local Docker validation, credentialed image build, and ECS
 deploy. This keeps a deploy dispatch from building or deploying the provisioner
 image when the top-level Quality job is legitimately skipped.

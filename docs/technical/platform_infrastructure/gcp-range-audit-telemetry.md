@@ -18,13 +18,13 @@ in `(0, 1]`. The installation package ships it through the
 | --- | --- | --- |
 | Validate `settings.range_telemetry` | `installation.settings_gcp.GcpBackendSettings` | Normalized policy, or `InstallationConfigError` |
 | Terraform projection | `installation.render.render_tfvars` | `range_telemetry = {...}` in the GCP bridge tfvars |
-| Runtime projection | `installation.render.render_gcp_range_telemetry_env` (`shifter-config render-gcp-range-telemetry-env`) | `GCP_RANGE_TELEMETRY_POLICY_JSON=...` |
+| Runtime projection | `installation.render.render_gcp_range_telemetry_env` (`bigrae-config render-gcp-range-telemetry-env`) | `GCP_RANGE_TELEMETRY_POLICY_JSON=...` |
 | Runtime env file | `scripts/gcp/render_runtime_env.py` | Canonical JSON in the `platform-runtime` ConfigMap |
 | Provisioner Job | `engine.ecs._env`, both provisioner-Job admission policies | Forwarded literal env value |
 | Provisioner config | `config._gce.GCERangeCellConfig.range_telemetry` | Parsed policy. Unset means default-on. Blank or invalid fails before any Compute call. |
 
 The bootstrap deploy and `_gcp-dev.yml` run both projections from the same
-`shifter.yaml`. Terraform therefore cannot apply one policy while the provisioner
+`bigrae.yaml`. Terraform therefore cannot apply one policy while the provisioner
 applies another.
 
 ## Resource ownership

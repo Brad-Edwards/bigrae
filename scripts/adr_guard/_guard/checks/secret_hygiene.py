@@ -1,4 +1,5 @@
 """Secret/artifact hygiene: tfvars secrets, secret env files, tracked generated artifacts."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -48,7 +49,6 @@ from ._secret_hygiene_tfvars import (
     check_no_plaintext_secrets_in_tfvars,
 )
 
-
 # Centralized scope for the `no-populated-secret-env-files` check
 # (ADR-004-R9). Each entry is a repo-relative path prefix under which
 # `*-secrets.env` files are scanned. Adding a future overlay (e.g.
@@ -60,7 +60,7 @@ _SECRET_ENV_ROOTS: tuple[str, ...] = ("platform/k8s/",)
 # Basename suffix that selects "secret env" files. Matched on the
 # basename only so unrelated `*.env` files (config-bearing, not
 # secret-bearing) are not scanned by this check.
-_SECRET_ENV_SUFFIX = "-secrets.env"
+_SECRET_ENV_SUFFIX = "-secrets.env"  # noqa: S105 - a file suffix, not a credential
 
 # Fail-loud synthetic values that may appear as the RHS of an
 # assignment in a tracked secret env file. The intent is that
@@ -102,6 +102,7 @@ _SECRET_ENV_PLACEHOLDERS: frozenset[str] = frozenset(
         "<EXAMPLE>",
     }
 )
+
 
 def _is_secret_env_in_scope(rel_path: str) -> bool:
     """Return True for a repo-relative path that the secret-env check scans."""
@@ -231,7 +232,7 @@ def _scan_secret_env_file(abs_path: Path, rel_path: str) -> list[Violation]:
                 rule_id="ADR-004-R9",
                 path=rel_path,
                 message=(
-                    f"Tracked secret-env assignment `{var_name}` "
+                    f"Tracked secret-env assignment `{var_name}` "  # noqa: S608 - a message string, not SQL
                     f"(line {lineno}) has a non-placeholder value. "
                     "Replace with an allowed synthetic placeholder "
                     "(REPLACE_AT_DEPLOY, CHANGE_ME, PLACEHOLDER, "
@@ -244,9 +245,7 @@ def _scan_secret_env_file(abs_path: Path, rel_path: str) -> list[Violation]:
     return violations
 
 
-def check_no_populated_secret_env_files(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def check_no_populated_secret_env_files(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Forbid populated assignments in tracked `*-secrets.env` files (ADR-004-R9).
 
     Scans tracked `*-secrets.env` files under `_SECRET_ENV_ROOTS` (currently

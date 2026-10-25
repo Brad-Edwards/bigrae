@@ -355,7 +355,8 @@ class ClassificationTests(unittest.TestCase):
 class EstateReconciliationTests(unittest.TestCase):
     def test_complete_estate_has_no_violations(self):
         contract = C.build_contract(DEFAULT_CONTRACT)
-        tracked = DEFAULT_ESTATE + [
+        tracked = [
+            *DEFAULT_ESTATE,
             ".github/workflows/_quality.yml",
             ".github/quality-path-filters.yaml",
             "scripts/quality_ownership/contract.py",
@@ -443,12 +444,22 @@ class ClassifyPathsCliTests(unittest.TestCase):
             (docs / "technical").mkdir()
             (docs / "index.md").write_text("[Handbook](technical/handbook.md)\n", encoding="utf-8")
             (docs / "technical/handbook.md").write_text("# Handbook\n", encoding="utf-8")
-            (docs / "adr/documentation-coverage.yaml").write_text(json.dumps({
-                "docs_root": "docs", "features": [{
-                    "id": "architecture", "user_docs": ["technical/handbook.md"],
-                    "technical_docs": ["technical/handbook.md"], "drift_sources": ["src/alpha/*"],
-                }],
-            }), encoding="utf-8")
+            (docs / "adr/documentation-coverage.yaml").write_text(
+                json.dumps(
+                    {
+                        "docs_root": "docs",
+                        "features": [
+                            {
+                                "id": "architecture",
+                                "user_docs": ["technical/handbook.md"],
+                                "technical_docs": ["technical/handbook.md"],
+                                "drift_sources": ["src/alpha/*"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
             out_file = root / "gh_output"
             out_file.write_text("", encoding="utf-8")
             env = {"GITHUB_WORKSPACE": str(root), "GITHUB_OUTPUT": str(out_file)}
@@ -534,7 +545,7 @@ class QualityOwnershipCheckTests(unittest.TestCase):
     def test_unclassified_estate_path_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            write_repo(root, estate=DEFAULT_ESTATE + ["weird/orphan.txt"])
+            write_repo(root, estate=[*DEFAULT_ESTATE, "weird/orphan.txt"])
             self.assertTrue(any("weird/orphan.txt" in v.message for v in run_check(root)))
 
     def test_ownership_gap_flagged(self):

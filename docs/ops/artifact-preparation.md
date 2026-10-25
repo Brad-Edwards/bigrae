@@ -5,7 +5,7 @@ artifact only when the pack author permits the exact installed materialization
 profile, specification and fixed inputs. A missing image does not start a build.
 Ordinary launch resolves admitted inventory and never waits for a builder.
 
-Shifter maintains the [contained GCE profile](../../shifter/packer/preparation/PROFILE.md),
+BigRAE maintains the [contained GCE profile](../../shifter/packer/preparation/PROFILE.md),
 its worker, build contexts and independent verification code. The maintained
 [HTTP specimen](../../shifter/environment-packs/preparation-http-smoke/) demonstrates a pack
 that selects that profile. The [qualification record](../../shifter/packer/preparation/QUALIFICATION.md)

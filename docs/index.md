@@ -1,14 +1,14 @@
-# Shifter documentation
+# BigRAE documentation
 
-Shifter is a cyber-range platform for running XDR and NGFW demos and CTF events
+BigRAE is a cyber-range platform for running XDR and NGFW demos and CTF events
 on AWS and GCP. This site is the single home for using, deploying, operating,
 and developing it. See the [product overview](product-overview.md) for what
-Shifter does.
+BigRAE does.
 
 Start with the [current-state architecture handbook](technical/architecture.md) and
 [GCP installation and first exercise](technical/handbook/gcp-first-run.md).
 
-## Use Shifter
+## Use BigRAE
 
 | Section | Read this when |
 |---|---|

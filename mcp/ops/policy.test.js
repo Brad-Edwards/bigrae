@@ -1238,6 +1238,7 @@ describe("registerTool gates (Phase 2): audit append", () => {
   }
 
   function readAuditLines() {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     return readFileSync(auditPath, "utf-8").trim().split("\n");
   }
 
@@ -1251,6 +1252,7 @@ describe("registerTool gates (Phase 2): audit append", () => {
     await callRegisteredTool(server, "list_things", { env: "dev", password: "leaked" });
     await callRegisteredTool(server, "list_things", { env: "dev" });
 
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     assert.ok(existsSync(auditPath));
     const lines = readAuditLines();
     assert.equal(lines.length, 2);
@@ -1298,6 +1300,7 @@ describe("registerTool gates (Phase 2): audit append", () => {
       },
     });
     await assert.rejects(callRegisteredTool(server, "list_things", { env: "dev" }));
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const line = JSON.parse(readFileSync(auditPath, "utf-8").trim());
     assert.equal(line.result_class, "error");
     assert.equal(line.error_class, "Error");
@@ -2221,6 +2224,7 @@ describe("review cycle 1 fix: apex lifecycle is audited", () => {
     } finally {
       process.stderr.write = realWrite;
     }
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const lines = readFileSync(auditPath, "utf-8").trim().split("\n");
     const events = lines.map((l) => JSON.parse(l));
     const planned = events.find((e) => e.result_class === "planned");
@@ -2349,6 +2353,7 @@ describe("review cycle 2 fix: handler isError=true audits as error", () => {
       }),
     });
     await callRegisteredTool(server, "list_logs", { env: "dev" });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const line = JSON.parse(readFileSync(auditPath, "utf-8").trim());
     assert.equal(line.result_class, "error");
     assert.equal(line.error_class, "HandlerReturnedError");
@@ -2371,6 +2376,7 @@ describe("review cycle 2 fix: handler isError=true audits as error", () => {
     });
     const { plan_id } = JSON.parse(planRes.content[0].text);
     await callRegisteredTool(server, "execute_terminate_ec2_instance", { plan_id });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const lines = readFileSync(auditPath, "utf-8").trim().split("\n");
     const execRecord = lines.map((l) => JSON.parse(l)).find((e) => e.tool === "execute_terminate_ec2_instance");
     assert.ok(execRecord);
@@ -2397,6 +2403,7 @@ describe("review cycle 2 fix: execute-side audit includes plan_id and uses store
     });
     const { plan_id } = JSON.parse(planRes.content[0].text);
     await callRegisteredTool(server, "execute_terminate_ec2_instance", { plan_id });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const lines = readFileSync(auditPath, "utf-8").trim().split("\n");
     const execRecord = lines.map((l) => JSON.parse(l)).find((e) => e.tool === "execute_terminate_ec2_instance");
     assert.ok(execRecord);
@@ -2422,6 +2429,7 @@ describe("review cycle 2 fix: execute-side audit includes plan_id and uses store
     await assert.rejects(
       callRegisteredTool(server, "execute_terminate_ec2_instance", { plan_id }),
     );
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const lines = readFileSync(auditPath, "utf-8").trim().split("\n");
     const errorRecord = lines
       .map((l) => JSON.parse(l))
@@ -2540,6 +2548,7 @@ describe("review cycle 2 fix: approve token is never written to audit", () => {
     assert.equal(res.isError, true);
     assert.equal(res.content[0].text, "Error: secret not found");
     // Audit must record this as an error, not a success.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const line = JSON.parse(readFileSync(auditPath, "utf-8").trim());
     assert.equal(line.result_class, "error");
     assert.equal(line.error_class, "HandlerReturnedError");
@@ -2638,6 +2647,7 @@ describe("review cycle 2 fix: approve token is never written to audit", () => {
     // shape (32 hex chars) is preserved for the wrapper's regex.
     const testToken = "1234567890abcdef".repeat(2);
     await callRegisteredTool(server, "approve", { token: testToken });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const line = JSON.parse(readFileSync(auditPath, "utf-8").trim());
     assert.equal(line.tool, "approve");
     assert.equal(line.sanitized_args.token, "<redacted>");

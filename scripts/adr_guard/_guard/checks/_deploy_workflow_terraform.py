@@ -4,6 +4,7 @@ Every Terraform-running reusable workflow must wait for the state lock rather
 than failing, and its `apply` job must apply a saved plan it created itself
 instead of running a fresh `terraform apply -auto-approve`.
 """
+
 from __future__ import annotations
 
 import shlex
@@ -11,7 +12,6 @@ import shlex
 from .._common import Violation
 from ._deploy_workflow_plan_scope import _plan_scope_violation
 from ._deploy_workflow_text import _workflow_job_block
-
 
 _TERRAFORM_PLAN_FILE = "tfplan"
 _RUN_STEP_PREFIX = "- run:"
@@ -24,10 +24,7 @@ _NON_COMMAND_LINE_PREFIXES = ("#", "echo ")
 
 def _command_tokens(stripped_line: str) -> list[str]:
     """Shell tokens of a workflow line, unwrapping a `- run:` step prefix."""
-    if stripped_line.startswith(_RUN_STEP_PREFIX):
-        command = stripped_line.split(":", 1)[1].strip()
-    else:
-        command = stripped_line
+    command = stripped_line.split(":", 1)[1].strip() if stripped_line.startswith(_RUN_STEP_PREFIX) else stripped_line
     try:
         return shlex.split(command, comments=True)
     except ValueError:
@@ -38,7 +35,7 @@ def _terraform_plan_arguments(stripped_line: str) -> list[str] | None:
     """Arguments of the line's first `terraform plan`, or None when it has none."""
     tokens = _command_tokens(stripped_line)
     for index, token in enumerate(tokens[:-1]):
-        if token != "terraform" or tokens[index + 1] != "plan":
+        if token != "terraform" or tokens[index + 1] != "plan":  # noqa: S105 - a shell word, not a credential
             continue
         plan_tokens: list[str] = []
         for plan_token in tokens[index + 2 :]:
@@ -63,7 +60,7 @@ def _terraform_plan_writes_saved_plan(stripped_line: str) -> bool:
     if f"-out={_TERRAFORM_PLAN_FILE}" in plan_tokens:
         return True
     return any(
-        plan_token == "-out"
+        plan_token == "-out"  # noqa: S105 - a shell word, not a credential
         and next_index + 1 < len(plan_tokens)
         and plan_tokens[next_index + 1] == _TERRAFORM_PLAN_FILE
         for next_index, plan_token in enumerate(plan_tokens)
@@ -74,7 +71,7 @@ def _terraform_apply_uses_saved_plan(stripped_line: str) -> bool:
     """True when the line applies the saved `tfplan` under a lock timeout."""
     tokens = _command_tokens(stripped_line)
     for index, token in enumerate(tokens[:-1]):
-        if token != "terraform" or tokens[index + 1] != "apply":
+        if token != "terraform" or tokens[index + 1] != "apply":  # noqa: S105 - a shell word, not a credential
             continue
         apply_tokens = tokens[index + 2 :]
         return (
@@ -129,9 +126,7 @@ def _saved_plan_apply_indices(apply_block: list[str]) -> tuple[int | None, int |
     return plan_idx, command_idx
 
 
-def _saved_plan_creation_violations(
-    path: str, apply_block: list[str], plan_idx: int | None
-) -> list[Violation]:
+def _saved_plan_creation_violations(path: str, apply_block: list[str], plan_idx: int | None) -> list[Violation]:
     """Violations about how the `apply` job creates its saved plan."""
     if plan_idx is None:
         return [
@@ -154,9 +149,7 @@ def _saved_plan_creation_violations(
     return []
 
 
-def _saved_plan_apply_command_violations(
-    path: str, plan_idx: int | None, command_idx: int | None
-) -> list[Violation]:
+def _saved_plan_apply_command_violations(path: str, plan_idx: int | None, command_idx: int | None) -> list[Violation]:
     """Violations about the presence and ordering of the `terraform apply` command."""
     if command_idx is None:
         return [
@@ -170,16 +163,13 @@ def _saved_plan_apply_command_violations(
         return [
             _plan_scope_violation(
                 path,
-                "The Terraform `apply` job must create the saved `tfplan` before "
-                "running `terraform apply`",
+                "The Terraform `apply` job must create the saved `tfplan` before running `terraform apply`",
             )
         ]
     return []
 
 
-def _removes_tfplan_before_apply(
-    stripped: str, index: int, plan_idx: int | None, command_idx: int | None
-) -> bool:
+def _removes_tfplan_before_apply(stripped: str, index: int, plan_idx: int | None, command_idx: int | None) -> bool:
     """True when a line between plan creation and apply deletes the saved plan."""
     if plan_idx is None or command_idx is None:
         return False
@@ -229,8 +219,7 @@ def _check_saved_plan_apply_contract(workflow_text: str, path: str) -> list[Viol
         return [
             _plan_scope_violation(
                 path,
-                "Terraform workflow is missing an `apply` job; ADR-003-R2 cannot verify "
-                "saved-plan apply integrity",
+                "Terraform workflow is missing an `apply` job; ADR-003-R2 cannot verify saved-plan apply integrity",
             )
         ]
 
@@ -238,9 +227,7 @@ def _check_saved_plan_apply_contract(workflow_text: str, path: str) -> list[Viol
     violations: list[Violation] = []
     violations.extend(_saved_plan_creation_violations(path, apply_block, plan_idx))
     violations.extend(_saved_plan_apply_command_violations(path, plan_idx, command_idx))
-    violations.extend(
-        _saved_plan_apply_line_violations(path, apply_block, plan_idx, command_idx)
-    )
+    violations.extend(_saved_plan_apply_line_violations(path, apply_block, plan_idx, command_idx))
     return violations
 
 

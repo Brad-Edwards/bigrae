@@ -12,6 +12,38 @@ wheels = [
 ]
 
 [[package]]
+name = "bigrae-adapter-sdk"
+version = "0.1.0"
+source = { editable = "." }
+
+[package.optional-dependencies]
+preparation = [
+    { name = "pydantic" },
+]
+runtime = [
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", marker = "extra == 'preparation'", specifier = ">=2.13.4,<3" },
+    { name = "pydantic", marker = "extra == 'runtime'", specifier = ">=2.13.4,<3" },
+]
+provides-extras = ["preparation", "runtime"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9" },
+    { name = "ruff", specifier = ">=0.15" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -185,38 +217,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/02/7f10ef4700bc223c30a3fdd10631a29830c45524b810a3c7ed947af64591/ruff-0.16.8-py3-none-win32.whl", hash = "sha256:55793ba85c69921e89be061426d91a78652d6e50317c962240922747a4eb713f", size = 10093472, upload-time = "2026-09-16T15:54:37.47Z" },
     { url = "https://files.pythonhosted.org/packages/1e/5d/a509c07d714b6da88f2c518b4637cf6f1d46b074be8f0f1e5fb9ff5126fe/ruff-0.16.8-py3-none-win_amd64.whl", hash = "sha256:a6b85621fd3c81e31fc5f5add09c9c078b430db3595ca632efafdec9e64ebfaa", size = 10586899, upload-time = "2026-09-16T15:54:40.488Z" },
     { url = "https://files.pythonhosted.org/packages/fe/a0/50787329e4f20bf9dc9f6230015d46ec69c51a97ace5bc202dae4755365d/ruff-0.16.8-py3-none-win_arm64.whl", hash = "sha256:d075e820af612102ce217f07cc93e69f9490b10ec13ea85fa87bd03d996cef8a", size = 10386316, upload-time = "2026-09-16T15:54:43.332Z" },
-]
-
-[[package]]
-name = "shifter-adapter-sdk"
-version = "0.1.0"
-source = { editable = "." }
-
-[package.optional-dependencies]
-preparation = [
-    { name = "pydantic" },
-]
-runtime = [
-    { name = "pydantic" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", marker = "extra == 'preparation'", specifier = ">=2.13.4,<3" },
-    { name = "pydantic", marker = "extra == 'runtime'", specifier = ">=2.13.4,<3" },
-]
-provides-extras = ["preparation", "runtime"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9" },
-    { name = "ruff", specifier = ">=0.15" },
 ]
 
 [[package]]

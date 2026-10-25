@@ -11,7 +11,7 @@ GitHub Actions does not provide native fallback from `ubuntu-latest` to
 self-hosted runners or a priority order across those runner classes.
 Workflow jobs must choose a concrete scheduling target.
 
-Shifter splits workflow capacity by job type. Portable quality jobs run
+BigRAE splits workflow capacity by job type. Portable quality jobs run
 on `ubuntu-latest` to use the GitHub-hosted runner allotment, while
 deployment, image build, Packer, and environment-mutating jobs remain on
 `self-hosted` custom runners.

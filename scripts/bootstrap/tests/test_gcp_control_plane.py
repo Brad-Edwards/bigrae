@@ -149,6 +149,73 @@ def _completed(*, returncode: int = 0, stdout: str = "", stderr: str = "") -> su
     return subprocess.CompletedProcess(["cmd"], returncode, stdout=stdout, stderr=stderr)
 
 
+class _StopAtControlPlane(RuntimeError):
+    """Test sentinel raised at the first control-plane cloud boundary."""
+
+
+_WORKSTATION_KEY_ID = "workstation-key-1"
+_WORKSTATION_FILES = {
+    "sudo cat /root/.ssh/id_rsa": "test-private-key\n",
+    "sudo cat /root/.ssh/id_rsa.pub": "ssh-rsa AAAAtest root@workstation\n",
+    "sudo cat /root/bm-gcr.json": json.dumps({"private_key_id": _WORKSTATION_KEY_ID}),
+}
+
+
+class _GcpBootstrapProcess:
+    """Simulate the gcloud, ssh, and terraform process boundaries of gdc-bootstrap.
+
+    The fake records each command. Describe probes report that the resource exists.
+    The admin workstation returns bootstrap material that can be used again.
+    """
+
+    def __init__(
+        self,
+        *,
+        terraform_outputs: dict[str, dict[str, object]] | None = None,
+        stop_at_control_plane: bool = False,
+    ):
+        self.calls: list[list[str]] = []
+        self.terraform_init_env: dict[str, str] = {}
+        self.terraform_outputs = terraform_outputs or {}
+        self.stop_at_control_plane = stop_at_control_plane
+
+    def __call__(self, cmd, **_kwargs):
+        cmd = [str(token) for token in cmd]
+        self.calls.append(cmd)
+        if cmd[:4] == ["gcloud", "storage", "buckets", "describe"] and cmd[4].endswith("-terraform-state"):
+            if self.stop_at_control_plane:
+                raise _StopAtControlPlane("control-plane boundary reached")
+            return _completed(returncode=1, stderr="bucket not found")
+        if cmd[:3] == ["gcloud", "auth", "print-access-token"]:
+            return _completed(stdout="test-access-token\n")
+        if cmd[:2] == ["terraform", "init"]:
+            self.terraform_init_env = dict(os.environ)
+            return _completed()
+        if cmd[:3] == ["terraform", "output", "-json"]:
+            return _completed(stdout=json.dumps(self.terraform_outputs))
+        if cmd[:3] == ["gcloud", "compute", "images"]:
+            return _completed(stdout=f"{cmd[4]}\n")
+        if cmd[:3] == ["gcloud", "compute", "ssh"]:
+            return self._workstation_command(cmd[cmd.index("--command") + 1])
+        if cmd[:5] == ["gcloud", "iam", "service-accounts", "keys", "list"]:
+            return _completed(stdout=f"projects/p/serviceAccounts/sa/keys/{_WORKSTATION_KEY_ID}\n")
+        if cmd[:4] == ["gcloud", "secrets", "versions", "access"]:
+            return _completed(stdout="previous-payload")
+        return _completed()
+
+    @staticmethod
+    def _workstation_command(command: str) -> subprocess.CompletedProcess[str]:
+        if command in _WORKSTATION_FILES:
+            return _completed(stdout=_WORKSTATION_FILES[command])
+        if command.startswith("cat ") and command.endswith("-kubeconfig"):
+            return _completed(stdout="apiVersion: v1\nkind: Config\n")
+        return _completed(stdout="ready")
+
+    def index_of(self, prefix: list[str]) -> int:
+        """Return the index of the first recorded command that starts with prefix."""
+        return next(index for index, call in enumerate(self.calls) if call[: len(prefix)] == prefix)
+
+
 @pytest.fixture
 def mock_stdin_tty():
     """Mock sys.stdin.isatty() to return True (interactive terminal)."""
@@ -201,6 +268,14 @@ def prevent_real_subprocess_calls():
 def bootstrap_config():
     """Return a valid BootstrapConfig for testing."""
     return deploy.BootstrapConfig(env="dev")
+
+
+@pytest.fixture
+def assume_yes():
+    """Make confirmation prompts proceed (the --yes flag), then restore the default."""
+    deploy.set_assume_yes(True)
+    yield
+    deploy.set_assume_yes(False)
 
 
 @pytest.fixture
@@ -342,21 +417,18 @@ gke_master_authorized_cidrs = []
         assert mock_apply.call_args.args[0] is config
         assert outputs["gke_cluster_name"]["value"] == "shifter-gcp-dev-platform"
 
-    def test_operator_adc_identity_skips_tf_bootstrap_service_account(self, mock_repo_root):
+    def test_operator_adc_identity_skips_tf_bootstrap_service_account(self, tmp_path):
         """operator-adc runs terraform under ADC and never provisions the privileged tf-bootstrap SA (#1718)."""
+        # The committed gcp-dev Terraform root supplies the security inputs. The
+        # root config comes from --shifter-config.
+        shifter_config = tmp_path / "shifter.yaml"
+        shifter_config.write_text("version: 1\nbackend: gcp\n")
         config = deploy.GDCBootstrapConfig(
-            project_id="example-gcp-project", cluster_id="cluster1", terraform_identity="operator-adc"
+            project_id="example-gcp-project",
+            cluster_id="cluster1",
+            terraform_identity="operator-adc",
+            shifter_config_path=str(shifter_config),
         )
-        tf_dir = mock_repo_root / "platform" / "terraform" / "gcp" / "environments" / "gcp-dev"
-        tf_dir.mkdir(parents=True)
-        (tf_dir / "terraform.tfvars").write_text(
-            'project_id = "shifter-gcp-dev"\n'
-            'region = "us-central1"\n'
-            'public_hostname = "portal.example.test"\n'
-            "enable_managed_tls = true\n"
-            "gke_master_authorized_cidrs = []\n"
-        )
-        (mock_repo_root / "shifter.yaml").write_text("version: 1\nbackend: gcp\n")
 
         class _FakeResponse:
             def __enter__(self):
@@ -368,36 +440,40 @@ gke_master_authorized_cidrs = []
             def read(self) -> bytes:
                 return b'{"name":"operations/artifactregistry-service-identity"}'
 
-        terraform_output = json.dumps(_sample_gcp_control_plane_outputs(config.project_id))
+        process = _GcpBootstrapProcess(terraform_outputs=_sample_gcp_control_plane_outputs(config.project_id))
 
         with (
             patch.dict("os.environ", {}, clear=False),
-            patch("deploy.get_repo_root", return_value=mock_repo_root),
-            patch("deploy.gcloud_resource_exists", return_value=False),
-            patch("deploy.gcp_terraform_bootstrap_credentials") as mock_creds,
-            patch("deploy.run_gcp_terraform_init_with_retry") as mock_init,
-            patch("deploy.wait_for_gcp_terraform_bootstrap_access") as mock_wait,
-            patch("deploy.run_gcp_terraform_apply_with_retry") as mock_apply,
-            patch("deploy.run_cmd"),
-            patch("deploy._gcp_identity_access_token", return_value="test-access-token"),
-            patch("deploy.urllib_request.urlopen", return_value=_FakeResponse()),
+            patch("urllib.request.urlopen", return_value=_FakeResponse()) as mock_urlopen,
             patch("os.chdir"),
-            patch(
-                "subprocess.run",
-                return_value=subprocess.CompletedProcess(["terraform"], 0, stdout=terraform_output),
-            ),
+            patch("subprocess.run", side_effect=process),
         ):
             outputs = deploy.apply_gcp_control_plane_terraform(config)
 
-            # Under the caller's user ADC, identitytoolkit / Identity Platform need
-            # a quota project or they 403; the operator-adc path sets it (#1738).
-            assert os.environ["USER_PROJECT_OVERRIDE"] == "true"
-            assert os.environ["GOOGLE_BILLING_PROJECT"] == config.project_id
-
-        mock_creds.assert_not_called()
-        mock_wait.assert_not_called()
-        mock_init.assert_called_once_with(config, config.terraform_state_bucket_name, None)
-        mock_apply.assert_called_once_with(config)
+        state_bucket = config.terraform_state_bucket_name
+        terraform_calls = [call for call in process.calls if call[0] == "terraform"]
+        assert terraform_calls == [
+            [
+                "terraform",
+                "init",
+                "-reconfigure",
+                f"-backend-config=bucket={state_bucket}",
+                f"-backend-config=prefix=shifter/{config.environment}/platform-core",
+            ],
+            ["terraform", "apply", "-auto-approve", f"-var=project_id={config.project_id}"],
+            ["terraform", "output", "-json"],
+        ]
+        # Under the caller's user ADC, identitytoolkit / Identity Platform need
+        # a quota project or they 403; the operator-adc path sets it (#1738).
+        assert process.terraform_init_env["USER_PROJECT_OVERRIDE"] == "true"
+        assert process.terraform_init_env["GOOGLE_BILLING_PROJECT"] == config.project_id
+        # No tf-bootstrap service account, key, or IAM grant, and no access-wait probes.
+        assert not any(config.terraform_bootstrap_service_account_name in " ".join(call) for call in process.calls)
+        assert not any(call[:4] == ["gcloud", "artifacts", "repositories", "list"] for call in process.calls)
+        assert ["gcloud", "storage", "buckets", "create", f"gs://{state_bucket}"] in [
+            call[:5] for call in process.calls
+        ]
+        assert mock_urlopen.call_args.args[0].get_header("Authorization") == "Bearer test-access-token"
         assert outputs["gke_cluster_name"]["value"] == "shifter-gcp-dev-platform"
 
 
@@ -441,6 +517,23 @@ class TestRenderRangeEgressTfvars:
 
 class TestResolveShifterConfigPath:
     """resolve_shifter_config_path is single-source; a missing root config fails the deploy loud (#1015)."""
+
+    def test_canonical_environment_alias(self, tmp_path, monkeypatch):
+        expected = tmp_path / "selected.yaml"
+        expected.write_text("backend: gcp\n")
+        monkeypatch.setenv("BIGRAE_CONFIG", str(expected))
+        monkeypatch.delenv("SHIFTER_CONFIG", raising=False)
+        config = deploy.GDCBootstrapConfig(project_id="example")
+        assert deploy.resolve_shifter_config_path(config, tmp_path) == expected
+
+    def test_conflicting_environment_aliases_fail_without_values(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("BIGRAE_CONFIG", "private-one")
+        monkeypatch.setenv("SHIFTER_CONFIG", "private-two")
+        config = deploy.GDCBootstrapConfig(project_id="example")
+        with pytest.raises(ValueError, match="conflicting") as caught:
+            deploy.resolve_shifter_config_path(config, tmp_path)
+        assert "private-one" not in str(caught.value)
+        assert "private-two" not in str(caught.value)
 
     def test_prefers_explicit_path(self, tmp_path, monkeypatch):
         """An explicit --shifter-config path wins over the SHIFTER_CONFIG env and the repo-root default."""
@@ -2706,76 +2799,77 @@ class TestGcpBootstrapDnsTlsFlow:
 
 
 class TestGdcBootstrapRangeBackend:
-    """gdc_bootstrap_cluster gates the ABM/GDC substrate on the range backend (#1716)."""
+    """gdc_bootstrap_cluster gates the ABM/GDC substrate on the range backend (#1716).
 
-    def test_gce_backend_skips_substrate_and_deploys_control_plane(self):
+    The real bootstrap runs behind the process boundary. It stops at the first
+    control-plane cloud call, the Terraform state bucket probe.
+    """
+
+    @staticmethod
+    def _config(tmp_path: Path, range_backend: str) -> deploy.GDCBootstrapConfig:
+        shifter_config = tmp_path / "shifter.yaml"
+        shifter_config.write_text("version: 1\nbackend: gcp\n")
+        return deploy.GDCBootstrapConfig(
+            project_id="example-gcp-project",
+            cluster_id="cluster1",
+            range_backend=range_backend,
+            shifter_config_path=str(shifter_config),
+        )
+
+    def test_gce_backend_skips_substrate_and_deploys_control_plane(self, tmp_path, assume_yes):
         """The gce backend never touches the substrate (no SA-key creation) and deploys the control plane."""
-        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1", range_backend="gce")
+        config = self._config(tmp_path, "gce")
         # The gce path gates on the range preconditions before any mutation (#1509).
-        # Satisfy them for real -- required range vars set and the gcloud image
-        # probe returns success -- by patching only the process boundary, rather
-        # than mocking the first-party check_gce_range_preconditions (ADR-019-R1).
+        # The required range vars are set and the gcloud image probe succeeds.
         range_env = {
             "RANGE_NETWORK_ZONE": "us-central1-a",
             "GCP_RANGE_LINUX_IMAGE": "projects/example-gcp-project/global/images/family/shifter-ubuntu",
             "GCP_RANGE_DC_IMAGE": "projects/example-gcp-project/global/images/family/shifter-dc",
             "GCP_RANGE_HOST_SERVICE_ACCOUNT_EMAIL": "range-host@example-gcp-project.iam.gserviceaccount.com",
         }
-        image_probe_ok = subprocess.CompletedProcess(["gcloud"], 0, stdout="an-image\n", stderr="")
+        process = _GcpBootstrapProcess(stop_at_control_plane=True)
         with (
             patch.dict(os.environ, range_env, clear=True),
-            patch("gcp_control_plane.confirm", return_value=True),
-            patch("gcp_control_plane.subprocess.run", return_value=image_probe_ok) as mock_image_lookup,
-            patch("gcp_control_plane.ensure_gdc_apis") as mock_apis,
-            patch("gcp_control_plane.ensure_gdc_service_account") as mock_sa,
-            patch("gcp_control_plane.stage_gdc_bootstrap_assets") as mock_stage,
-            patch("gcp_control_plane.sync_gdc_vm_image_secret") as mock_vm_image,
-            patch(
-                "gcp_control_plane.bootstrap_gcp_control_plane",
-                return_value={"gke_cluster_name": {"value": "shifter-gcp-dev-platform"}},
-            ) as mock_platform,
+            patch("subprocess.run", side_effect=process),
+            pytest.raises(_StopAtControlPlane),
         ):
-            result = gcp_control_plane.gdc_bootstrap_cluster(config, dry_run=False)
+            gcp_control_plane.gdc_bootstrap_cluster(config, dry_run=False)
 
-        image_commands = [invocation.args[0] for invocation in mock_image_lookup.call_args_list]
+        image_commands = [call for call in process.calls if call[:3] == ["gcloud", "compute", "images"]]
         assert [command[4] for command in image_commands] == ["shifter-ubuntu", "shifter-dc"]
         assert all(command[-3:-1] == ["--project", config.project_id] for command in image_commands)
-        mock_apis.assert_not_called()
-        mock_sa.assert_not_called()
-        mock_stage.assert_not_called()
-        mock_vm_image.assert_not_called()
-        mock_platform.assert_called_once_with(config, dry_run=False)
+        assert process.calls[-1][:5] == [
+            "gcloud",
+            "storage",
+            "buckets",
+            "describe",
+            f"gs://{config.terraform_state_bucket_name}",
+        ]
+        assert process.calls[:-1] == image_commands
+        result = gcp_control_plane._gdc_bootstrap_result(
+            config, {"gke_cluster_name": {"value": "shifter-gcp-dev-platform"}}, config.builds_gdc_substrate
+        )
         assert result["gke_cluster_name"] == "shifter-gcp-dev-platform"
         assert result["workstation"] == ""
         assert result["gdc_vm_image_gcs_secret_id"] == ""
 
-    def test_gdc_backend_builds_substrate_before_control_plane(self, tmp_path):
+    def test_gdc_backend_builds_substrate_before_control_plane(self, tmp_path, assume_yes):
         """The gdc backend still builds the substrate (including the vm-image secret) before the control plane."""
-        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1", range_backend="gdc")
-        staged = {
-            "ssh_metadata": tmp_path / "ssh-metadata",
-            "assets_dir": tmp_path / "assets",
-            "service_account_key": tmp_path / "bm-gcr.json",
-        }
-        with (
-            patch("gcp_control_plane.confirm", return_value=True),
-            patch("gcp_control_plane.ensure_gdc_apis") as mock_apis,
-            patch("gcp_control_plane.ensure_gdc_service_account"),
-            patch("gcp_control_plane.stage_gdc_bootstrap_assets", return_value=staged),
-            patch("gcp_control_plane.ensure_gdc_network"),
-            patch("gcp_control_plane.ensure_gdc_instances"),
-            patch("gcp_control_plane.sync_gdc_instance_ssh_metadata"),
-            patch("gcp_control_plane.wait_for_gdc_ssh"),
-            patch("gcp_control_plane.upload_gdc_assets"),
-            patch("gcp_control_plane.run_gdc_workstation_script"),
-            patch("gcp_control_plane.sync_gdc_access_secret"),
-            patch("gcp_control_plane.sync_gdc_vm_image_secret") as mock_vm_image,
-            patch("gcp_control_plane.bootstrap_gcp_control_plane", return_value={}),
-        ):
-            result = gcp_control_plane.gdc_bootstrap_cluster(config, dry_run=False)
+        config = self._config(tmp_path, "gdc")
+        process = _GcpBootstrapProcess(stop_at_control_plane=True)
+        with patch("subprocess.run", side_effect=process), pytest.raises(_StopAtControlPlane):
+            gcp_control_plane.gdc_bootstrap_cluster(config, dry_run=False)
 
-        mock_apis.assert_called_once()
-        mock_vm_image.assert_called_once()
+        apis = process.index_of(["gcloud", "services", "enable"])
+        vm_image_secret = process.index_of(["gcloud", "secrets", "versions", "add", config.gdc_vm_image_gcs_secret_id])
+        control_plane = process.index_of(
+            ["gcloud", "storage", "buckets", "describe", f"gs://{config.terraform_state_bucket_name}"]
+        )
+        assert apis < vm_image_secret < control_plane == len(process.calls) - 1
+        assert f"root@{config.workstation.name}" in process.calls[process.index_of(["gcloud", "compute", "scp"])][-1]
+        # The gdc substrate path skips the gce range-image preconditions.
+        assert not any(call[:3] == ["gcloud", "compute", "images"] for call in process.calls)
+        result = gcp_control_plane._gdc_bootstrap_result(config, {}, config.builds_gdc_substrate)
         assert result["workstation"] == config.workstation.name
 
 

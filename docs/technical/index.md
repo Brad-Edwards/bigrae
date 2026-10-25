@@ -4,6 +4,9 @@ Platform architecture, infrastructure, and development documentation.
 
 ## Architecture
 
+- [BigRAE identifier inventory](../architecture/bigrae-rename-inventory.md)
+- [BigRAE rename cutover and rollback](../how-to/bigrae-rename-cutover.md)
+
 - [Current-state architecture handbook](architecture.md) - System, authority, lifecycle and package ownership
 - [GCP installation and first exercise](handbook/gcp-first-run.md) - Bootstrap and a synthetic smoke range
 - [Scenario contract transition](handbook/scenario-contract-transition.md) - CyberScript, ACES and current RAES

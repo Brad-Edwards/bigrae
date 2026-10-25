@@ -2,7 +2,7 @@
 
 ## Agent
 
-Your XDR or XSIAM installer. Download it from your console, upload it to Shifter. Gets deployed to victim machines when you launch a range.
+Your XDR or XSIAM installer. Download it from your console, upload it to BigRAE. Gets deployed to victim machines when you launch a range.
 
 ## Range
 

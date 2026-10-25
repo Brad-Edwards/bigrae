@@ -1,6 +1,6 @@
 # Setup
 
-Deploy Shifter from a cloud account to a running environment.
+Deploy BigRAE from a cloud account to a running environment.
 
 ## Before You Start
 
@@ -67,16 +67,16 @@ for the authoritative order.
 
 ## Root Installation Config
 
-Scaffold, edit, then validate `shifter.yaml` before deployment. `init` copies the
-checked example for your backend to `./shifter.yaml` (local-only: it writes no
+Scaffold, edit, then validate `bigrae.yaml` before deployment. `init` copies the
+checked example for your backend to `./bigrae.yaml` (local-only: it writes no
 secrets and calls no cloud API):
 
 ```bash
-# Scaffold ./shifter.yaml (run `init` with no --backend to list the available backends).
-uv run --project shifter/installation shifter-config init --backend aws
+# Scaffold ./bigrae.yaml (run `init` with no --backend to list the available backends).
+uv run --project shifter/installation bigrae-config init --backend aws
 
-# Edit shifter.yaml for your deployment, then validate its shape.
-uv run --project shifter/installation shifter-config validate shifter.yaml
+# Edit bigrae.yaml for your deployment, then validate its shape.
+uv run --project shifter/installation bigrae-config validate bigrae.yaml
 ```
 
 Use `--backend gcp` for GCP. See [Installation Config](installation-config) for the
@@ -84,7 +84,7 @@ field reference.
 
 ## Doctor
 
-Once `shifter.yaml` is filled in, run `doctor` to validate the *selected backend* (not
+Once `bigrae.yaml` is filled in, run `doctor` to validate the *selected backend* (not
 just the config shape) before applying infrastructure. It runs the checks the backend
 bundle declares (required tools on PATH, secret references, generated outputs, owned
 repository paths, and the bundle's credential-free validation checks) and labels each
@@ -94,10 +94,10 @@ workflow's branch logic to understand a failure.
 
 ```bash
 # Local-only checks (default): config, tools, secret references, non-mutating validation.
-uv run --project shifter/installation shifter-config doctor shifter.yaml
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml
 
 # Additionally run read-only health probes of the deployment endpoint (post-deploy).
-uv run --project shifter/installation shifter-config doctor shifter.yaml --checks cloud
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml --checks cloud
 ```
 
 `doctor` exits `1` when any blocking check fails. It is a pre-mutation readiness signal;
@@ -135,7 +135,7 @@ silent.
 
 ## Environments and Terraform Layout
 
-Shifter currently uses one Terraform directory set and one deploy branch per
+BigRAE currently uses one Terraform directory set and one deploy branch per
 environment. Standing up a new tenant means adding both. This is the current
 model, not a target architecture; it duplicates stack wiring across
 environments, so treat an existing environment's directory set as the unit you
@@ -474,7 +474,7 @@ GCP provisions with Terraform (`platform/terraform/gcp/`, rooted at `environment
 ### 1. GCP Project Setup
 
 Create a GCP project. Before starting bootstrap, enable every Google Cloud API
-required by the selected Shifter configuration. If the configuration uses AI
+required by the selected BigRAE configuration. If the configuration uses AI
 models, also enable every configured model in Vertex AI Model Garden: an
 authorized project administrator must open each model, accept any provider or
 Marketplace terms, and confirm that it is available in the configured region.
@@ -531,7 +531,7 @@ Treat an existing `local.auto.tfvars` as deployment state, not as a reusable
 sample. Before bootstrap, replace every tenant-bound value left by an earlier
 project, especially `project_id`, `dynamic_secret_project_id`, and
 `public_hostname`. Terraform auto-loads this file and its values drive the
-ingress and managed certificate; selecting a different `shifter.yaml` does not
+ingress and managed certificate; selecting a different `bigrae.yaml` does not
 override a stale hostname here. Confirm the hostname in both inputs agrees
 before applying so bootstrap does not stop at DNS/TLS for the previous tenant.
 
@@ -573,7 +573,7 @@ pods to another project's identities.
 
 The ADR-059 model access broker is off by default. Without it, range guests use
 the keyless Vertex identity (ADR-064). Turning it on needs three
-`shifter.yaml` settings blocks that must agree with each other, plus prerequisites
+`bigrae.yaml` settings blocks that must agree with each other, plus prerequisites
 outside the repository. Validation rejects a partial broker configuration before
 any cloud change.
 
@@ -607,7 +607,7 @@ Supply the blocks one of two ways:
    reference shape is
    `scripts/gcp/tests/fixtures/model-broker-overlay.template.json`.
 2. The `SHIFTER_CONFIG_OVERLAY_JSON` variable, or the blocks written directly into
-   `shifter.yaml`. Neither path creates the trust objects or computes the catalog
+   `bigrae.yaml`. Neither path creates the trust objects or computes the catalog
    digest: create the Kubernetes Secrets and ConfigMap first, and set the digest
    and CA yourself. The local `gdc-bootstrap` path supports only this form. The
    chart mounts the trust objects by name, so a missing object makes the Helm
@@ -700,7 +700,7 @@ Then run:
 ./scripts/bootstrap/deploy.py gdc-bootstrap \
   --project-id <your-gcp-project-id> --environment <environment> \
   --region <region> --zone <zone> \
-  --shifter-config /path/to/shifter.yaml \
+  --bigrae-config /path/to/bigrae.yaml \
   --import-public-base-images --yes
 ```
 
@@ -726,7 +726,7 @@ Credentials, creating no service account or key. The flow:
 5. seeds the first Identity Platform operator
 6. builds and pushes control-plane images
 7. renders secure Helm values from Terraform outputs and Secret Manager
-8. installs or upgrades the Shifter Helm release
+8. installs or upgrades the BigRAE Helm release
 
 For an existing platform, refresh only the public base set with
 `./scripts/bootstrap/deploy.py gcp-images --project-id <project> --environment

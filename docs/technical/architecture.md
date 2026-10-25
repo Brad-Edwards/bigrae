@@ -1,19 +1,32 @@
 # Current-state architecture handbook
 
-Shifter runs authorized cyber-range exercises through one application control
+BigRAE runs authorized cyber-range exercises through one application control
 plane and separately isolated guest workloads. Start here for the current
 architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/shifter/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-17 against integration revision `6b1c88082`.
+**Reviewed:** 2026-10-23 against integration revision `a80fbc061` and the
+prepared product-name compatibility changes in #2555.
 This describes source behavior, not a certificate of a live deployment.
+
+BigRAE is the current product name. Public BigRAE config, SDK, client and plugin
+names converge on their existing validation and execution owners; legacy names
+remain compatible. Conflicting old/new configuration fails before use. The
+[identifier ledger](../architecture/bigrae-rename-inventory.md) distinguishes
+branding from persisted, wire and infrastructure identity, and the
+[cutover procedure](../how-to/bigrae-rename-cutover.md) verifies GitHub repository
+configuration and future-deployment templates. The user directs that no
+deployments exist, so no live cloud trust or workload migration is required. Plugin jobs
+remain isolated and receive one Secret-backed invocation input under either
+exact supported name. The source preparation does not change deployed resource
+names, authorization, internal imports, historical provenance or metric identity.
 
 ## System context and trust boundaries
 
 ```mermaid
 flowchart LR
-    Human[Operator or participant browser] -->|HTTPS session and CSRF| App[Shifter application]
+    Human[Operator or participant browser] -->|HTTPS session and CSRF| App[BigRAE application]
     Client[External API client] -->|HTTPS authenticated API| App
     IdP[Identity provider] -->|Verified identity| App
     App -->|Authorized domain services| Workers[Application workers]
@@ -55,7 +68,7 @@ it is not the current target for all installations.
 | Schedulers and reconcilers | CTF scheduling, leases, launch delivery, result application and event-outbox delivery run as separate worker commands. |
 | Provisioner Jobs | Independently packaged `shifter/engine/provisioner`; exact image, service account and namespace binding; provider effects and guest readback. |
 | Plugin/preparation Jobs | Explicitly installed, isolated executable images; separate administrator grants and pinned worker/verifier identities. |
-| Guacamole and guacd | Remote-access services; Shifter authorizes the exact target/session and continuing access. Guacamole has separate database credentials. |
+| Guacamole and guacd | Remote-access services; BigRAE authorizes the exact target/session and continuing access. Guacamole has separate database credentials. |
 | Optional access services | Deployment-selected VPN and other integrations have their own identities and support conditions. |
 
 The canonical control-plane package is the shared Helm chart, hosted on GKE for
@@ -170,7 +183,7 @@ backed by `.importlinter` and model-boundary checks. The following is its reader
 | `shared` | Neutral contracts, auth primitives, audit, cloud interfaces | Public contracts; no domain/model imports. Only `shared.raes` imports RAES. |
 | `config` | Settings, provider adapters, root routing, composition | Explicit public composition seams; no domain model imports. |
 | `shifter/engine/provisioner` | Independent provider/guest executor | Versioned immutable inputs/results and standalone plain-data RAES reader; no Django/domain ORM dependency. |
-| `shifter/environment-packs` | Shifter-owned bootstrap and validation content | Current RAES packs registered through the same CMS validation boundary as external content. |
+| `shifter/environment-packs` | BigRAE-owned bootstrap and validation content | Current RAES packs registered through the same CMS validation boundary as external content. |
 | `shifter/installation` | Root config, backend bundles, runtime inventories | Typed bundle validation/rendering; backend selection before mutation. |
 | `shifter/shifter_client` | Native Google service transport | Renewable provider credentials and relative authenticated API calls; no application internals. |
 | `shifter/shifter_adapter_sdk` | Independent adapter ABI | Public verification, runtime and preparation contracts; no application imports. |

@@ -4,6 +4,7 @@ Split out of ``secret_hygiene.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -14,7 +15,6 @@ from .._common import (
     _repo_relative,
 )
 from ._secret_hygiene_git import _git_ls_files_stdout
-
 
 # Centralized blocked-path / blocked-name set for the
 # `no-tracked-generated-artifacts` check (ADR-004-R8). Each entry is a
@@ -75,7 +75,6 @@ def _is_operator_run_artifact(basename: str) -> bool:
     )
 
 
-
 # Blocked-path prefix -> basename predicate. The prefixes are disjoint, so a
 # repo-relative path is matched by at most one entry.
 _GENERATED_ARTIFACT_PREDICATES: tuple[tuple[str, Callable[[str], bool]], ...] = (
@@ -94,8 +93,7 @@ def _generated_artifact_match(rel_path: str) -> bool:
         return True
     basename = parts[-1]
     return any(
-        rel_path.startswith(prefix) and predicate(basename)
-        for prefix, predicate in _GENERATED_ARTIFACT_PREDICATES
+        rel_path.startswith(prefix) and predicate(basename) for prefix, predicate in _GENERATED_ARTIFACT_PREDICATES
     )
 
 
@@ -158,9 +156,7 @@ def _git_tracked_under_roots(repo_root: Path) -> list[str] | None:
     return [entry for entry in output.split("\0") if entry]
 
 
-def check_no_tracked_generated_artifacts(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def check_no_tracked_generated_artifacts(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Forbid tracked generated/sensitive artifacts (ADR-004-R8).
 
     Three artifact families are blocked, each scoped narrowly:

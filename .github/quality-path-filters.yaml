@@ -148,7 +148,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [check-rds-pending-modifications-lint]
-      security: []
+      security: [check-rds-pending-modifications-lint]
       test: [check-rds-pending-modifications-tests]
 
   - id: handle_sd_replacement
@@ -157,7 +157,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [handle-sd-replacement-lint]
-      security: []
+      security: [handle-sd-replacement-lint]
       test: [handle-sd-replacement-tests]
 
   - id: assert_portal_inspection
@@ -166,7 +166,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [assert-portal-inspection-lint]
-      security: []
+      security: [assert-portal-inspection-lint]
       test: [assert-portal-inspection-tests]
 
   - id: installation
@@ -222,7 +222,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [k8s-lint]
-      security: []
+      security: [k8s-lint]
       test: [k8s-schema]
 
   - id: mcp_ngfw
@@ -233,7 +233,7 @@ quality_units:
       package: ngfw
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ngfw}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: ngfw}}]
       test: [{job: mcp-tests, matrix: {package: ngfw}}]
 
   - id: mcp_ops
@@ -244,7 +244,7 @@ quality_units:
       package: ops
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ops}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: ops}}]
       test: [{job: mcp-tests, matrix: {package: ops}}]
 
   - id: mcp_planner
@@ -255,7 +255,7 @@ quality_units:
       package: planner
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: planner}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: planner}}]
       test: [{job: mcp-tests, matrix: {package: planner}}]
 
   - id: mcp_shared
@@ -267,8 +267,8 @@ quality_units:
       fanout_all_on_change: true
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: shared}}]
-      security: []
-      test: []
+      security: [{job: mcp-lint, matrix: {package: shared}}]
+      test: [{job: mcp-tests, matrix: {package: shared}}]
 
   - id: adr_guard
     paths:
@@ -282,8 +282,8 @@ quality_units:
       - .shifter.yaml
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      lint: [adr-guard-lint]
+      security: [adr-guard-lint]
       test: [adr-guard-tests]
 
   - id: stack_smoke
@@ -291,15 +291,12 @@ quality_units:
       - scripts/stack-smoke/**
     sonar: false
     responsibilities:
-      lint: []
-      security: []
-      test: [stack-smoke]
+      lint: [stack-smoke-lint]
+      security: [stack-smoke-lint]
+      test: [stack-smoke-lint, stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
-  # exclusions (ADR-004-R23 forbids exempting shipped build/runtime material via
-  # exclusions). They have no dedicated blocking quality job yet, so every
-  # responsibility is a visible, dated ADR-004-R23 gap tracked by #1698 rather
-  # than a hidden config exclusion.
+  # exclusions (ADR-004-R24). Native checks and behavior tests own these inputs.
   - id: container_images
     paths:
       - shifter/engine/guacamole/**
@@ -307,36 +304,18 @@ quality_units:
       - shifter/.dockerignore
     sonar: false
     responsibilities:
-      lint: []
-      security: []
-      test: [guacamole-authority-tests]
+      lint: [container-images-lint]
+      security: [container-images-lint, container-images-security]
+      test: [guacamole-authority-tests, guacd-image-tests]
 
   - id: charts
     paths:
       - platform/charts/**
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      lint: [chart-tests]
+      security: [chart-tests]
       test: [chart-tests]
-
-  - id: cloudformation
-    paths:
-      - platform/cloudformation/**
-    sonar: false
-    responsibilities:
-      lint: []
-      security: []
-      test: []
-
-  - id: branding_assets
-    paths:
-      - assets/**
-    sonar: false
-    responsibilities:
-      lint: []
-      security: []
-      test: []
 
 exclusions:
   - type: docs

@@ -15,10 +15,10 @@ operator credential as described in [setup](../dev/setup.md#gcp-deployment) and
 commands, source control or examples. Configuration stores secret references.
 
 ```bash
-uv run --project shifter/installation shifter-config init --backend gcp
-# Edit the generated shifter.yaml for the selected deployment.
-uv run --project shifter/installation shifter-config validate shifter.yaml
-uv run --project shifter/installation shifter-config doctor shifter.yaml
+uv run --project shifter/installation bigrae-config init --backend gcp
+# Edit the generated bigrae.yaml for the selected deployment.
+uv run --project shifter/installation bigrae-config validate bigrae.yaml
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml
 ```
 
 `init` scaffolds local configuration; it does not create a cloud account,
@@ -35,7 +35,7 @@ operator bootstrap command is:
 ./scripts/bootstrap/deploy.py gdc-bootstrap \
   --project-id YOUR_PROJECT --environment YOUR_ENVIRONMENT \
   --region YOUR_REGION --zone YOUR_ZONE \
-  --shifter-config ./shifter.yaml --import-public-base-images --yes
+  --bigrae-config ./bigrae.yaml --import-public-base-images --yes
 ```
 
 Replace the uppercase placeholders. Despite its name, the default range backend
@@ -49,7 +49,7 @@ not an independent hosting path.
 After rollout and DNS/TLS convergence, run:
 
 ```bash
-uv run --project shifter/installation shifter-config doctor shifter.yaml --checks cloud
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml --checks cloud
 ```
 
 This checks configured health probes, not scenario acceptance. For failed

@@ -1,9 +1,9 @@
 # GCP tenant standup gotchas
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 A running log of operator gotchas hit while standing up or re-pointing a GCP
-Shifter tenant that are **not** fixed in code, only in operator procedure. Fixes
+BigRAE tenant that are **not** fixed in code, only in operator procedure. Fixes
 that belong in the scripts, workflows, or Terraform go into the code, not here.
 Use this alongside the authoritative runbooks:
 [`deploy-secrets.md`](deploy-secrets.md),

@@ -1,13 +1,13 @@
 # Run Your First Demo
 
-Complete walkthrough: download agent, upload to Shifter, launch range, run an attack, see alert.
+Complete walkthrough: download agent, upload to BigRAE, launch range, run an attack, see alert.
 
 ## Before You Start
 
 You need:
 
 - Access to your XDR or XSIAM console
-- A Shifter account (you're logged in if you're reading this)
+- A BigRAE account (you're logged in if you're reading this)
 
 Time: ~10 minutes total
 
@@ -22,9 +22,9 @@ Time: ~10 minutes total
 
 Save it somewhere you can find it.
 
-## Step 2: Upload Agent to Shifter
+## Step 2: Upload Agent to BigRAE
 
-1. In Shifter, go to **Assets > Agents**
+1. In BigRAE, go to **Assets > Agents**
 2. Enter a name: something like "My XDR Agent" or "Customer Demo"
 3. Click the file input and select your downloaded installer
 4. Click **Upload Agent**
@@ -86,7 +86,7 @@ Alerts typically appear within seconds to a few minutes.
 
 When done:
 
-1. Go to **Ranges** in Shifter
+1. Go to **Ranges** in BigRAE
 2. Click **Destroy** on your range
 3. Confirm destruction
 

@@ -1,4 +1,4 @@
-# Shifter Workspaces
+# BigRAE Workspaces
 
 Account hierarchy and legacy organization/workspace tenancy above user-owned ranges.
 
@@ -36,7 +36,7 @@ and [administration-console preflight](../../architecture/organization-workspace
 
 ## What this domain is for
 
-A university, research lab, or hosting operator runs one Shifter deployment as
+A university, research lab, or hosting operator runs one BigRAE deployment as
 shared infrastructure. An organization owns workspaces, a workspace has members
 with roles, and a range is scoped to a workspace in addition to its individual
 owner. Multi-organization deployments use the same model, so no single-tenant

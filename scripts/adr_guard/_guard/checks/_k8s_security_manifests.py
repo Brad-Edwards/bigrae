@@ -4,17 +4,17 @@ Split out of ``k8s_security.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
 
 from .._common import (
-    Violation,
     _ADR_GUARD_PATH,
+    Violation,
     _repo_relative,
 )
-
 
 K8S_BASE_DEPLOYMENT_DIR = "platform/k8s/gcp/base"
 HELM_CHART_DIR = "platform/charts/shifter"
@@ -30,7 +30,7 @@ HELM_VALUES_FILES = (
 
 def _is_real_int(value: object) -> bool:
     """True when value is an int but not a bool (bool subclasses int in Python)."""
-    return type(value) is int  # noqa: E721 - intentional exact type check
+    return type(value) is int
 
 
 def _check_k8s_pod_security(pod_sc: dict[str, object], rel: str) -> list[Violation]:
@@ -125,9 +125,7 @@ def _check_container_seccomp(sc: dict[str, object], label: str) -> list[str]:
         return [f"{label} securityContext.seccompProfile must be a mapping if set"]
     seccomp_type = (block or {}).get("type")
     if seccomp_type is not None and seccomp_type != "RuntimeDefault":
-        return [
-            f"{label} container-level seccompProfile.type must be 'RuntimeDefault' if set (got {seccomp_type!r})"
-        ]
+        return [f"{label} container-level seccompProfile.type must be 'RuntimeDefault' if set (got {seccomp_type!r})"]
     return []
 
 

@@ -4,6 +4,7 @@ Evaluates each reusable deploy workflow's self-hosted job ``if:`` semantically
 through the workflow-as-data model rather than by substring matching, so a guard
 broadened with ``|| always()`` is still caught.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,15 +15,14 @@ from .._common import (
 )
 from .._workflow_model import (
     _DW_REUSABLE_WORKFLOW_PATHS,
-    _DwShapeError,
     _dw_is_self_hosted,
     _dw_job_denied_on_pull_request,
     _dw_job_if,
     _dw_jobs,
     _dw_load_workflow,
+    _DwShapeError,
 )
 from ._deploy_workflow_plan_scope import _DEPLOY_WORKFLOW_PATH
-
 
 _RUNNER_EXPOSURE_CHECK = "deploy-workflow-runner-exposure"
 _RUNNER_EXPOSURE_RULE = "ADR-003-R5"
@@ -43,9 +43,7 @@ def _deploy_runner_exposure_relevant(files: list[str] | None) -> bool:
     return any(path in relevant or is_guard_source_path(path) for path in files)
 
 
-def _self_hosted_job_exposure_violations(
-    rel: str, jid: str, job: dict[str, object]
-) -> list[Violation]:
+def _self_hosted_job_exposure_violations(rel: str, jid: str, job: dict[str, object]) -> list[Violation]:
     """ADR-003-R5 violations for one self-hosted job of a reusable workflow."""
     try:
         denied = _dw_job_denied_on_pull_request(_dw_job_if(job))
@@ -53,8 +51,7 @@ def _self_hosted_job_exposure_violations(
         return [
             _runner_exposure_violation(
                 rel,
-                f"self-hosted job '{jid}' has an if-expression "
-                f"ADR-003-R5 cannot evaluate: {exc}",
+                f"self-hosted job '{jid}' has an if-expression ADR-003-R5 cannot evaluate: {exc}",
             )
         ]
     if denied:
@@ -75,19 +72,14 @@ def _runner_exposure_violations_for_workflow(repo_root: Path, rel: str) -> list[
         return [
             _runner_exposure_violation(
                 rel,
-                "Required reusable deploy workflow is missing; ADR-003-R5 "
-                "cannot verify self-hosted runner exposure",
+                "Required reusable deploy workflow is missing; ADR-003-R5 cannot verify self-hosted runner exposure",
             )
         ]
     try:
         wf = _dw_load_workflow(repo_root, rel)
         job_map = _dw_jobs(wf, rel)
     except _DwShapeError as exc:
-        return [
-            _runner_exposure_violation(
-                rel, f"workflow could not be parsed for ADR-003-R5: {exc}"
-            )
-        ]
+        return [_runner_exposure_violation(rel, f"workflow could not be parsed for ADR-003-R5: {exc}")]
     violations: list[Violation] = []
     for jid, job in job_map.items():
         if _dw_is_self_hosted(job):

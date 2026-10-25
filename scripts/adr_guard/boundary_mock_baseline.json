@@ -16,12 +16,12 @@
       "target": "deploy.get_repo_root"
     },
     {
-      "count": 3,
+      "count": 2,
       "path": "scripts/bootstrap/tests/test_cli.py",
       "target": "deploy.bootstrap_account"
     },
     {
-      "count": 14,
+      "count": 6,
       "path": "scripts/bootstrap/tests/test_cli.py",
       "target": "deploy.check_dependencies"
     },
@@ -31,19 +31,14 @@
       "target": "deploy.full_deployment"
     },
     {
-      "count": 8,
+      "count": 1,
       "path": "scripts/bootstrap/tests/test_cli.py",
       "target": "deploy.gdc_bootstrap_cluster"
     },
     {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_cli.py",
-      "target": "deploy.get_repo_root"
-    },
-    {
       "count": 1,
       "path": "scripts/bootstrap/tests/test_cli.py",
-      "target": "deploy.set_assume_yes"
+      "target": "deploy.get_repo_root"
     },
     {
       "count": 2,
@@ -56,7 +51,7 @@
       "target": "deploy.walkthrough_acm_validation"
     },
     {
-      "count": 3,
+      "count": 2,
       "path": "scripts/bootstrap/tests/test_cli.py",
       "target": "deploy.walkthrough_backend_config"
     },
@@ -76,7 +71,7 @@
       "target": "deploy.walkthrough_final_steps"
     },
     {
-      "count": 3,
+      "count": 2,
       "path": "scripts/bootstrap/tests/test_cli.py",
       "target": "deploy.walkthrough_github_secrets"
     },
@@ -86,7 +81,7 @@
       "target": "deploy.Path.home"
     },
     {
-      "count": 4,
+      "count": 3,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy._gcp_identity_access_token"
     },
@@ -106,12 +101,12 @@
       "target": "deploy.error"
     },
     {
-      "count": 3,
+      "count": 2,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.gcloud_resource_exists"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.gcp_terraform_bootstrap_credentials"
     },
@@ -121,7 +116,7 @@
       "target": "deploy.get_gcp_managed_certificate_status"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.get_repo_root"
     },
@@ -139,11 +134,6 @@
       "count": 2,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.list_gcp_helm_cutover_resources"
-    },
-    {
-      "count": 4,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.load_bootstrap_env_values"
     },
     {
       "count": 3,
@@ -166,17 +156,17 @@
       "target": "deploy.resolve_gcp_bootstrap_operator_credentials"
     },
     {
-      "count": 9,
+      "count": 8,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.run_cmd"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.run_gcp_terraform_apply_with_retry"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.run_gcp_terraform_init_with_retry"
     },
@@ -196,7 +186,7 @@
       "target": "deploy.time.sleep"
     },
     {
-      "count": 5,
+      "count": 4,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.urllib_request.urlopen"
     },
@@ -211,7 +201,7 @@
       "target": "deploy.wait_for_gcp_managed_certificate_active"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.wait_for_gcp_terraform_bootstrap_access"
     },
@@ -219,71 +209,6 @@
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.wait_for_user"
-    },
-    {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.bootstrap_gcp_control_plane"
-    },
-    {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.confirm"
-    },
-    {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.ensure_gdc_apis"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.ensure_gdc_instances"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.ensure_gdc_network"
-    },
-    {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.ensure_gdc_service_account"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.run_gdc_workstation_script"
-    },
-    {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.stage_gdc_bootstrap_assets"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.sync_gdc_access_secret"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.sync_gdc_instance_ssh_metadata"
-    },
-    {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.sync_gdc_vm_image_secret"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.upload_gdc_assets"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "gcp_control_plane.wait_for_gdc_ssh"
     },
     {
       "count": 2,

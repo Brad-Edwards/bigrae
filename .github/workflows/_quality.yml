@@ -76,14 +76,10 @@ jobs:
       # change so it cannot self-bypass (#1530, ADR-004-R24).
       guard_selfcheck: ${{ steps.selfcheck.outputs.guard_selfcheck }}
       stack_smoke: ${{ steps.detect.outputs.stack_smoke }}
-      # Build / deployment / runtime image owners (#1530). Reserved routing
-      # outputs: no blocking job consumes them yet (gaps tracked by #1698), but
-      # they are declared so the contract and workflow stay in sync.
+      # Build and deployment inputs use the same contract-driven routing.
       container_images: ${{ steps.detect.outputs.container_images }}
       guacamole_authority: ${{ steps.detect.outputs.guacamole_authority }}
       charts: ${{ steps.detect.outputs.charts }}
-      cloudformation: ${{ steps.detect.outputs.cloudformation }}
-      branding_assets: ${{ steps.detect.outputs.branding_assets }}
       mcp_lint_any: ${{ steps.detect.outputs.mcp_lint_any }}
       mcp_test_any: ${{ steps.detect.outputs.mcp_test_any }}
       mcp_lint_packages: ${{ steps.detect.outputs.mcp_lint_packages }}
@@ -2017,9 +2013,10 @@ jobs:
   chart-tests:
     permissions:
       contents: read
-    name: Tests (charts)
+    name: Charts (lint, security and contracts)
     needs: [paths]
-    if: ${{ !inputs.skip_tests && ((needs.paths.outputs.run_all == 'true' || needs.paths.outputs.charts == 'true')) }}
+    # These contracts enforce security policy and must also run when optional tests are skipped.
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.charts == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -2046,6 +2043,13 @@ jobs:
           mv "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm-bin/helm"
           echo "${RUNNER_TEMP}/helm-bin" >> "${GITHUB_PATH}"
           "${RUNNER_TEMP}/helm-bin/helm" version --short
+
+      - name: Lint neutral and provider profiles
+        run: |
+          helm lint --strict platform/charts/shifter
+          for profile in platform/charts/shifter/values-*.yaml; do
+            helm lint --strict platform/charts/shifter -f "$profile"
+          done
 
       # No --cov: the suite validates rendered Helm YAML (schema, ALB edge,
       # GCP byte contract), not owned production Python, so a coverage number
@@ -2238,6 +2242,105 @@ jobs:
       - name: Run migration proof
         working-directory: shifter/shifter_platform
         run: uv run pytest engine/tests/test_subnet_allocation_migrations_postgres.py
+
+  adr-guard-lint:
+    permissions:
+      contents: read
+    name: Lint and security (architecture tooling)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.adr_guard == 'true' || needs.paths.outputs.guard_selfcheck == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Run committed Ruff lint and security rules
+        run: uvx --from ruff==0.15.13 ruff check scripts/adr_guard scripts/quality_ownership
+
+  stack-smoke-lint:
+    permissions:
+      contents: read
+    name: Lint and security (stack smoke)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Lint Python and shell inputs
+        run: |
+          uvx --from ruff==0.15.13 ruff check scripts/stack-smoke
+          uvx --from shellcheck-py==0.11.0.1 shellcheck scripts/stack-smoke/*.sh
+      - name: Test HTTP transport restrictions
+        run: python3 -m unittest discover -s scripts/stack-smoke -p 'test_*.py'
+
+  container-images-lint:
+    permissions:
+      contents: read
+    name: Lint and security (container build inputs)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Install pinned Hadolint
+        env:
+          HADOLINT_SHA256: 6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47
+        run: |
+          curl -fsSL -o "${RUNNER_TEMP}/hadolint" \
+            https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-Linux-x86_64
+          echo "${HADOLINT_SHA256}  ${RUNNER_TEMP}/hadolint" | sha256sum -c -
+          chmod +x "${RUNNER_TEMP}/hadolint"
+      - name: Lint Dockerfiles and entrypoint shell scripts
+        run: |
+          "${RUNNER_TEMP}/hadolint" shifter/engine/guacamole/Dockerfile shifter/engine/guacd/Dockerfile
+          uvx --from shellcheck-py==0.11.0.1 shellcheck shifter/engine/guacamole/*.sh
+
+  container-images-security:
+    permissions:
+      contents: read
+    name: Security (container build inputs)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Scan Dockerfile policy
+        env:
+          CKV_DISABLE_CVE_CHECK: 'true'
+        run: |
+          uvx --from checkov==3.2.501 checkov --framework dockerfile \
+            -d shifter/engine/guacamole -d shifter/engine/guacd --quiet --compact
+
+  guacd-image-tests:
+    permissions:
+      contents: read
+    name: Tests (guacd image)
+    needs: [paths]
+    if: ${{ !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Build and test runtime permissions and health
+        run: |
+          set -euo pipefail
+          docker build --pull --tag guacd-quality shifter/engine/guacd
+          docker run --rm --network none --entrypoint /bin/sh guacd-quality -ec \
+            'test "$(id -u)" -ne 0; test -w /var/lib/guacamole/drive; test "$(stat -c %a /var/lib/guacamole/drive)" = 750'
+          trap 'docker rm -f guacd-quality >/dev/null 2>&1 || true' EXIT
+          docker run --detach --network none --name guacd-quality guacd-quality
+          for _attempt in $(seq 1 30); do
+            if docker exec guacd-quality nc -z 127.0.0.1 4822; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'guacd did not become ready' >&2
+          exit 1
+
+      - name: Test database initialization failure
+        run: bash shifter/engine/guacamole/test-entrypoint.sh
 
   adr-guard-tests:
     permissions:
@@ -2806,7 +2909,9 @@ jobs:
         # every canonical-repo PR (#1310). `push` events (dev branch runs) carry
         # no pull_request payload and always scan.
         if: >-
-          ${{ github.repository == 'Brad-Edwards/shifter'
+          ${{ (github.repository == 'Brad-Edwards/shifter' || github.repository == 'Brad-Edwards/bigrae')
+          && github.repository_id == '1241599684'
+          && github.repository_owner_id == '56809295'
           && (github.event_name != 'pull_request'
           || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0

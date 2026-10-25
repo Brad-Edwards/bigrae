@@ -1,11 +1,12 @@
 """Kubernetes deployment security-context and network-policy coverage checks."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 from .._common import (
-    Violation,
     _ADR_GUARD_PATH,
+    Violation,
     _repo_relative,
 )
 from ._k8s_security_manifests import (

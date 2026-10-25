@@ -90,9 +90,7 @@ class InstalledAppsClassifiedTests(unittest.TestCase):
         apps = {"engine", "cms", "management", "ctf", "mission_control", "shared", "config"}
         body = (
             "INSTALLED_APPS = [\n"
-            "    'django.contrib.admin',\n"
-            + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps))
-            + "]\n"
+            "    'django.contrib.admin',\n" + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps)) + "]\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -123,9 +121,7 @@ class InstalledAppsClassifiedTests(unittest.TestCase):
     def test_dynamic_installed_apps_entry_fails_closed(self) -> None:
         apps = {"engine", "cms", "management", "ctf", "mission_control", "shared", "config"}
         body = (
-            "INSTALLED_APPS = [\n"
-            + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps))
-            + "]\n"
+            "INSTALLED_APPS = [\n" + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps)) + "]\n"
             "if something:\n"
             "    INSTALLED_APPS.append(dynamic_value)\n"
         )
@@ -138,9 +134,7 @@ class InstalledAppsClassifiedTests(unittest.TestCase):
     def test_augassign_dynamic_list_fails_closed(self) -> None:
         apps = {"engine", "cms", "management", "ctf", "mission_control", "shared", "config"}
         body = (
-            "INSTALLED_APPS = [\n"
-            + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps))
-            + "]\n"
+            "INSTALLED_APPS = [\n" + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps)) + "]\n"
             "INSTALLED_APPS += EXTRA_APPS\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -152,9 +146,7 @@ class InstalledAppsClassifiedTests(unittest.TestCase):
     def test_augassign_literal_unclassified_app_fails_closed(self) -> None:
         apps = {"engine", "cms", "management", "ctf", "mission_control", "shared", "config", "newapp"}
         body = (
-            "INSTALLED_APPS = [\n"
-            + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps - {'newapp'}))
-            + "]\n"
+            "INSTALLED_APPS = [\n" + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps - {"newapp"})) + "]\n"
             "INSTALLED_APPS += ['newapp.apps.Config']\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -167,9 +159,7 @@ class InstalledAppsClassifiedTests(unittest.TestCase):
     def test_conditional_string_append_is_resolved(self) -> None:
         apps = {"engine", "cms", "management", "ctf", "mission_control", "shared", "config"}
         body = (
-            "INSTALLED_APPS = [\n"
-            + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps))
-            + "]\n"
+            "INSTALLED_APPS = [\n" + "".join(f"    '{p}.apps.Config',\n" for p in sorted(apps)) + "]\n"
             "if flag:\n"
             "    INSTALLED_APPS.append('mozilla_django_oidc')\n"
         )

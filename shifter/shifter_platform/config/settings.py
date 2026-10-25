@@ -17,6 +17,8 @@ from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
+from config._product_env import product_env
+
 load_dotenv()
 
 # Sub-module re-exports. Each sub-module declares ``__all__`` so the
@@ -47,22 +49,22 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Stable cloud/account deployment identity for the tamper-evident audit chain.
 # Cloud renderers set this explicitly; local development may leave it blank.
-AUDIT_DEPLOYMENT_SCOPE = os.environ.get("AUDIT_DEPLOYMENT_SCOPE", "").strip()
+AUDIT_DEPLOYMENT_SCOPE = product_env("AUDIT_DEPLOYMENT_SCOPE", "").strip()
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
     """Parse boolean environment variables using explicit true/false strings."""
-    return os.environ.get(name, str(default)).lower() == "true"
+    return product_env(name, str(default)).lower() == "true"
 
 
 def _env_csv(name: str) -> list[str]:
     """Parse comma-separated environment variables into normalized lists."""
-    return [item.strip().lower() for item in os.environ.get(name, "").split(",") if item.strip()]
+    return [item.strip().lower() for item in product_env(name, "").split(",") if item.strip()]
 
 
 def _env_list(name: str) -> list[str]:
     """Parse comma-separated environment variables into stripped string lists."""
-    return [item.strip() for item in os.environ.get(name, "").split(",") if item.strip()]
+    return [item.strip() for item in product_env(name, "").split(",") if item.strip()]
 
 
 def _env_int(name: str, default: int) -> int:
@@ -71,7 +73,7 @@ def _env_int(name: str, default: int) -> int:
     An empty/unset value uses the default; a non-integer value is a
     configuration error and fails loud rather than silently degrading.
     """
-    raw = os.environ.get(name, "").strip()
+    raw = product_env(name, "").strip()
     if not raw:
         return default
     try:
@@ -83,7 +85,7 @@ def _env_int(name: str, default: int) -> int:
 # Security
 _test_secret_key_default = "django-tests-secret-key" if IS_TEST_RUN else None
 
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _test_secret_key_default)
+SECRET_KEY = product_env("DJANGO_SECRET_KEY", _test_secret_key_default)
 if not SECRET_KEY:
     raise ValueError("DJANGO_SECRET_KEY environment variable is required")
 # SECRET_KEY_FALLBACKS (zero-downtime rotation) lives in config._database_settings.
@@ -112,18 +114,18 @@ FIELD_ENCRYPTION_KEY = required_runtime_env(
     "FIELD_ENCRYPTION_KEY",
     dev_default="YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=",  # NOSONAR - dev/test/build synthetic key
 )
-_csrf_origins = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
+_csrf_origins = product_env("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(",") if o.strip()]
 
 # Site URL for internal callbacks (e.g., provisioner callback)
 # Required in all environments - no default fallback
-SITE_URL = os.environ.get("SITE_URL")
+SITE_URL = product_env("SITE_URL")
 
 # Public documentation site (ADR-038). Templates link out to the hosted mkdocs
 # site rather than the retired in-app docs reader; kept here (config, not
 # hardcoded in templates) and exposed via mission_control.context_processors.
 # docs_site_url. Trailing slash so template paths append directly.
-DOCS_SITE_URL = os.environ.get("DOCS_SITE_URL", "https://brad-edwards.github.io/shifter/")
+DOCS_SITE_URL = product_env("DOCS_SITE_URL", "https://brad-edwards.github.io/shifter/")
 
 # Application definition
 INSTALLED_APPS = [
@@ -220,8 +222,8 @@ ASGI_APPLICATION = "config.asgi.application"
 # Channel-layer construction lives in ``config._channels`` so this module
 # stays under the 500-line cap. See that module's docstring for the
 # AWS/GCP TLS posture matrix.
-REDIS_HOST = os.environ.get("REDIS_HOST", "")
-REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+REDIS_HOST = product_env("REDIS_HOST", "")
+REDIS_PORT = int(product_env("REDIS_PORT", "6379"))
 CHANNEL_LAYERS = _build_channel_layers(os.environ)
 
 # Shared WebSocket notification subsystem enablement (issue #941). The shared
@@ -315,7 +317,7 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_ROOT = BASE_DIR / "media"
 
 # Use simple static storage for tests (no manifest required)
-if os.environ.get("TESTING") == "1":
+if product_env("TESTING") == "1":
     STORAGES = {
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
@@ -352,7 +354,7 @@ if not DEBUG:
     # is opt-in because submission to the browser-baked preload list is
     # near-irreversible (chromium docs: weeks-to-months to remove); only
     # enable once you actually intend to submit chrome://net-internals.
-    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_SECONDS = int(product_env("SECURE_HSTS_SECONDS", "31536000"))
     SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", True)
     SECURE_HSTS_PRELOAD = _env_bool("SECURE_HSTS_PRELOAD", False)
 
@@ -373,7 +375,7 @@ from config._oidc_settings import *  # noqa: E402  # NOSONAR
 # Shifter Configuration
 # ------------------------------------------------------------------------------
 
-SHIFTER_SUPPORT_EMAIL = os.environ.get("SHIFTER_SUPPORT_EMAIL", "noreply@shifter.local")  # NOSONAR
+SHIFTER_SUPPORT_EMAIL = product_env("SHIFTER_SUPPORT_EMAIL", "noreply@shifter.local")  # NOSONAR
 
 # Provisioning timeout - how long dashboard waits before showing timeout error
 # UI fallback is 60 min if not provided (avoids long range standup issues during testing)
@@ -398,7 +400,7 @@ AGENT_UPLOAD_URL_EXPIRES = 600
 # remain inspectable.
 _UPLOAD_INSPECTION_FLOOR = 512
 try:
-    _UPLOAD_INSPECTION_RAW = int(os.environ.get("UPLOAD_INSPECTION_MAX_HEADER_BYTES", str(_UPLOAD_INSPECTION_FLOOR)))
+    _UPLOAD_INSPECTION_RAW = int(product_env("UPLOAD_INSPECTION_MAX_HEADER_BYTES", str(_UPLOAD_INSPECTION_FLOOR)))
 except ValueError:
     _UPLOAD_INSPECTION_RAW = _UPLOAD_INSPECTION_FLOOR
 UPLOAD_INSPECTION_MAX_HEADER_BYTES = max(_UPLOAD_INSPECTION_RAW, _UPLOAD_INSPECTION_FLOOR)
@@ -430,8 +432,8 @@ SECRET_CACHE_MAX_ENTRIES = _env_int("SECRET_CACHE_MAX_ENTRIES", 256)
 # Bounded exponential backoff inside mission_control.guacamole guards against the
 # token-readiness race that surfaces as a redirect to the Guacamole login page on
 # the user's first click.
-GUACAMOLE_TOKEN_RETRY_ATTEMPTS = int(os.environ.get("GUACAMOLE_TOKEN_RETRY_ATTEMPTS", "3"))
-GUACAMOLE_TOKEN_RETRY_BASE_DELAY_MS = int(os.environ.get("GUACAMOLE_TOKEN_RETRY_BASE_DELAY_MS", "200"))
+GUACAMOLE_TOKEN_RETRY_ATTEMPTS = int(product_env("GUACAMOLE_TOKEN_RETRY_ATTEMPTS", "3"))
+GUACAMOLE_TOKEN_RETRY_BASE_DELAY_MS = int(product_env("GUACAMOLE_TOKEN_RETRY_BASE_DELAY_MS", "200"))
 
 # ------------------------------------------------------------------------------
 # Range event reconciliation (Phase 3, #476)
@@ -439,10 +441,10 @@ GUACAMOLE_TOKEN_RETRY_BASE_DELAY_MS = int(os.environ.get("GUACAMOLE_TOKEN_RETRY_
 
 # Seconds a RangeInstance must remain in a non-terminal status without being
 # updated before the reconciler considers it stale and re-drives the projection.
-RANGE_RECONCILE_STALE_SECONDS: int = int(os.environ.get("RANGE_RECONCILE_STALE_SECONDS", "300"))
+RANGE_RECONCILE_STALE_SECONDS: int = int(product_env("RANGE_RECONCILE_STALE_SECONDS", "300"))
 
 # Maximum RangeInstance rows the reconciler processes per run (bounded batch).
-RANGE_RECONCILE_BATCH_SIZE: int = int(os.environ.get("RANGE_RECONCILE_BATCH_SIZE", "100"))
+RANGE_RECONCILE_BATCH_SIZE: int = int(product_env("RANGE_RECONCILE_BATCH_SIZE", "100"))
 
 # ADR-039-R10: deployment opt-in for participant OpenVPN access (#2030, #2480).
 # When true, a GCE RAES launch whose scenario declares exactly one
@@ -454,18 +456,18 @@ RANGE_OPENVPN_ENABLED: bool = _env_bool("RANGE_OPENVPN_ENABLED", False)
 # Google-signed identity token for this audience. The token email and immutable
 # numeric subject must match the pool service account (#2480). Unset values
 # refuse every controller request.
-VPN_CONTROL_AUDIENCE: str = os.environ.get("VPN_CONTROL_AUDIENCE", "")
-VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL: str = os.environ.get("VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL", "")
-VPN_CONTROLLER_SERVICE_ACCOUNT_ID: str = os.environ.get("VPN_CONTROLLER_SERVICE_ACCOUNT_ID", "")
+VPN_CONTROL_AUDIENCE: str = product_env("VPN_CONTROL_AUDIENCE", "")
+VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL: str = product_env("VPN_CONTROLLER_SERVICE_ACCOUNT_EMAIL", "")
+VPN_CONTROLLER_SERVICE_ACCOUNT_ID: str = product_env("VPN_CONTROLLER_SERVICE_ACCOUNT_ID", "")
 
 # ------------------------------------------------------------------------------
 # CTF Configuration
 # ------------------------------------------------------------------------------
 
-CTF_FROM_EMAIL = os.environ.get("CTF_FROM_EMAIL", "ctf@example.com")
-CTF_DEFAULT_RANGE_SPINUP_MINUTES = int(os.environ.get("CTF_DEFAULT_RANGE_SPINUP_MINUTES", "30"))
-CTF_DEFAULT_CLEANUP_DELAY_HOURS = int(os.environ.get("CTF_DEFAULT_CLEANUP_DELAY_HOURS", "24"))
-CTFD_PLATFORM_URL = os.environ.get("CTFD_PLATFORM_URL", "https://ctf.shifter.example.com/login")
+CTF_FROM_EMAIL = product_env("CTF_FROM_EMAIL", "ctf@example.com")
+CTF_DEFAULT_RANGE_SPINUP_MINUTES = int(product_env("CTF_DEFAULT_RANGE_SPINUP_MINUTES", "30"))
+CTF_DEFAULT_CLEANUP_DELAY_HOURS = int(product_env("CTF_DEFAULT_CLEANUP_DELAY_HOURS", "24"))
+CTFD_PLATFORM_URL = product_env("CTFD_PLATFORM_URL", "https://ctf.shifter.example.com/login")
 
 # ------------------------------------------------------------------------------
 # Environment

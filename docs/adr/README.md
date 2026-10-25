@@ -43,6 +43,15 @@ no SDK publication.
 
 The files use JSON syntax with a `.yaml` extension so they stay human-readable while remaining parseable by the standard library.
 
+The [#2555 rename preflight](../architecture/bigrae-product-repository-rename-preflight-2555.md)
+applies GEN-002 to repository identity, compatibility and future-deployment
+templates under the recorded no-deployments premise. It distinguishes registry
+validity from live enforcement, preserves fail-closed quality routing and names
+the existing config, secret-admission and provenance owners. It adds no ADR,
+check, exception or runtime support claim. Renaming cannot waive expired
+exceptions or missing blocking quality owners; Ground Control project and
+requirement identities remain independent of the GitHub slug.
+
 ADR-058 records the [participant-control realization design](../architecture/raes-participant-control-realization-envelope-1967.md)
 under GEN-2005. It is design policy, not a new executable interface contract.
 Existing registry, guardrail and import checks validate structure; they do not

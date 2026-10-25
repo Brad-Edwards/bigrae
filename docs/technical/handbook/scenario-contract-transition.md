@@ -16,7 +16,7 @@ Only `shared.raes` imports the released RAES module family. It validates and
 compiles authored intent into the RAES ProvisioningPlan. The independent
 provisioner validates and reads plain serialized data, not a second authored
 schema. New realization accepts `raes-provisioning-plan-v2` with producer `3.5.0`.
-Images, cloud resources, secrets and backend realization remain Shifter-owned.
+Images, cloud resources, secrets and backend realization remain BigRAE-owned.
 
 ## Transition history
 
