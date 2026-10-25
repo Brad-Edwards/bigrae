@@ -8,6 +8,8 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from urllib.parse import quote
 
+from installation.loader import default_root_config_path
+
 from account_recovery import account_recovery
 from aws_bootstrap import AWS_ENVIRONMENTS, BootstrapConfig, bootstrap_account
 from aws_eks import deploy_eks, teardown_eks
@@ -69,7 +71,7 @@ def full_deployment(env: str, profile: str, dry_run: bool = False) -> None:
     header(f"Full {env.upper()} Deployment")
 
     print("""
-This will guide you through a complete Shifter deployment:
+This will guide you through a complete BigRAE deployment:
 
   1. Bootstrap AWS account (S3 state bucket with native locking, GitHub OIDC, IAM)
   2. Configure GitHub secrets (automated with gh CLI or manual)
@@ -558,7 +560,7 @@ def _add_eks_subparsers(subparsers: argparse._SubParsersAction) -> None:
         "eks-deploy",
         help="Explicitly deploy backend: aws to EKS through the shared Helm chart",
     )
-    deploy_parser.add_argument("--config", default="shifter.yaml", help="Validated root installation config")
+    deploy_parser.add_argument("--config", help="Root installation config (default bigrae.yaml; legacy shifter.yaml)")
     deploy_parser.add_argument(
         "--images",
         default=".shifter/images.json",
@@ -581,7 +583,7 @@ def _add_eks_subparsers(subparsers: argparse._SubParsersAction) -> None:
         "eks-teardown",
         help="Explicitly tear down only the root-configured AWS EKS bundle",
     )
-    teardown_parser.add_argument("--config", default="shifter.yaml", help="Validated root installation config")
+    teardown_parser.add_argument("--config", help="Root installation config (default bigrae.yaml; legacy shifter.yaml)")
     teardown_parser.add_argument(
         "--backend-config",
         default=os.environ.get("SHIFTER_BACKEND_CONFIG_PATH", ""),
@@ -757,7 +759,7 @@ def _handle_account_recovery(args: argparse.Namespace) -> None:
 def _handle_eks_deploy(args: argparse.Namespace) -> None:
     """Deploy the root-configured AWS EKS bundle."""
     deploy_eks(
-        args.config,
+        str(args.config or default_root_config_path()),
         args.images,
         backend_config_path=args.backend_config,
         terraform_inputs_path=args.terraform_inputs,
@@ -769,7 +771,7 @@ def _handle_eks_deploy(args: argparse.Namespace) -> None:
 def _handle_eks_teardown(args: argparse.Namespace) -> None:
     """Tear down only the root-configured AWS EKS bundle."""
     teardown_eks(
-        args.config,
+        str(args.config or default_root_config_path()),
         backend_config_path=args.backend_config,
         terraform_inputs_path=args.terraform_inputs,
         aws_profile=args.profile,

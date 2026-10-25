@@ -403,7 +403,7 @@
       "source_file": "config/_database_settings.py"
     },
     {
-      "default": "'https://brad-edwards.github.io/shifter/'",
+      "default": "'https://brad-edwards.github.io/bigrae/'",
       "name": "DOCS_SITE_URL",
       "source_file": "config/settings.py"
     },

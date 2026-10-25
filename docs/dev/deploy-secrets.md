@@ -252,7 +252,7 @@ not the whole cutover - the live activation is a **fail-closed operator step wit
 readback**:
 
 1. **Verify the OIDC subject format first.** `gh api
-   repos/Brad-Edwards/shifter/actions/oidc/customization/sub` must return
+   repos/Brad-Edwards/bigrae/actions/oidc/customization/sub` must return
    `use_default: true`, `use_immutable_subject: false`. A different result means
    the subjects in `local.federated_subjects` and the provider condition must be
    redesigned before applying - do not change the customization to fit the code.

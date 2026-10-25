@@ -4,7 +4,7 @@ Architecture rules in this repo are enforced by tooling, not just prose.
 
 ## What Exists
 
-The [model-access design for #681](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md)
+The [model-access design for #681](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/index.md)
 adds proposed ADR-059 through ADR-061 and documentation coverage for the
 planned feature. Registry/import validation applies now. Runtime enforcement
 of broker authorization, atomic budgets, revocation and provider isolation
@@ -12,7 +12,7 @@ must land with the owning implementation issues and their behavioral/cloud
 tests; a passing documentation check is not evidence of those guarantees.
 ADR-060-R3 also requires independently configurable sharing, explicit overlap
 and membership rules, deduplicated pool accounting and separately revocable
-range grants. The [sharing contract](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/sharing.md)
+range grants. The [sharing contract](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/sharing.md)
 is consumed by #2139/#2140 and the downstream implementation/evidence issues;
 it adds no waiver or claim of existing runtime enforcement.
 
@@ -99,10 +99,10 @@ Bootstrap regression tests use process boundaries for the affected CLI and GDC
 flows. Their legacy mock allowance decreases from 256 to 175. No new allowance
 or exception renewal is part of this repair.
 
-The BigRAE rename (#2555) preserves the existing gates. During the same-owner
-repository rehearsal, the Sonar condition permits the two exact slugs only with
-the same immutable repository and owner IDs; its expression-model tests deny a
-recreated slug, another owner and fork-origin PRs. Future GCP deployments use
+The BigRAE rename (#2555) preserves the existing gates. After the same-owner
+repository cutover, the Sonar condition permits only `Brad-Edwards/bigrae` with
+the same immutable repository and owner IDs. Its expression-model tests deny the
+old slug, a recreated slug, another owner and fork-origin PRs. Future GCP deployments use
 one exact configured repository identity with the same purpose, Environment,
 ref and workflow restrictions. Under the user's no-deployments decision,
 no cloud-trust overlap or live migration is required. No cloud resource name

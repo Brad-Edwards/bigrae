@@ -21,7 +21,7 @@ Start with the [current-state architecture handbook](technical/architecture.md) 
 ## Deploy and operate
 
 Read these when you stand up or run an environment. The
-[deploy preflight](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/bootstrap/preflight.py)
+[deploy preflight](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/bootstrap/preflight.py)
 enforces the prerequisites documented here before any Terraform apply.
 
 | Doc | Read this when |

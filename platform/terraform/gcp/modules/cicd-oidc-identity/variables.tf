@@ -31,7 +31,7 @@ variable "github_org" {
 variable "github_repo" {
   description = "GitHub repository allowed to federate into the purpose identities."
   type        = string
-  default     = "shifter"
+  default     = "bigrae"
 }
 
 variable "build_roles" {

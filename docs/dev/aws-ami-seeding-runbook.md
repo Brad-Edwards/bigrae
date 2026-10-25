@@ -12,7 +12,7 @@ guest AMIs from the same `/shifter/ami/*` parameters.
 Packer sources live in `shifter/packer/` (`kali.pkr.hcl`, `ubuntu.pkr.hcl`,
 `windows.pkr.hcl`, `dc.pkr.hcl`, shared `variables.pkr.hcl`, per-env
 `dev.pkrvars.hcl` / `proof.pkrvars.hcl`). The deep reference is
-[`shifter/packer/README.md`](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/packer/README.md).
+[`shifter/packer/README.md`](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/packer/README.md).
 
 ## Ordering: no circular dependency with the portal VPC
 
@@ -80,14 +80,14 @@ not apply IAM or set secrets. Complete the cutover once per AWS account (`dev`,
 
    ```bash
    ROLE_ARN=$(terraform -chdir=platform/terraform/global/iam output -raw github_actions_image_role_arn)
-   gh secret set AWS_IMAGE_ROLE_ARN_DEV --repo Brad-Edwards/shifter --body "$ROLE_ARN"
+   gh secret set AWS_IMAGE_ROLE_ARN_DEV --repo Brad-Edwards/bigrae --body "$ROLE_ARN"
    ```
 
 3. Confirm the repository still uses the default OIDC subject format so the pinned
    trust matches (a non-default subject would need the Terraform trust updated):
 
    ```bash
-   gh api repos/Brad-Edwards/shifter/actions/oidc/customization/sub
+   gh api repos/Brad-Edwards/bigrae/actions/oidc/customization/sub
    # expect use_default: true, use_immutable_subject: false
    ```
 

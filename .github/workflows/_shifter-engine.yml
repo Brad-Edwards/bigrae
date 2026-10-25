@@ -236,7 +236,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # ADR-037-R6: verify the GitHub OIDC-signed provenance attestation for
-          # the exact image@digest and the fixed Brad-Edwards/shifter identity of
+          # the exact image@digest and the fixed Brad-Edwards/bigrae identity of
           # the provisioner image the EKS Job will pull. No bypass mode.
           if [[ -z "$IMAGE_DIGEST" || ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "::error::Build did not produce a valid ECR image digest to verify"
@@ -245,4 +245,4 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           IMAGE_REF="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@${IMAGE_DIGEST}"
           echo "Verifying provenance for ${ECR_REPOSITORY}@${IMAGE_DIGEST}"
-          gh attestation verify "oci://${IMAGE_REF}" --repo Brad-Edwards/shifter
+          gh attestation verify "oci://${IMAGE_REF}" --repo Brad-Edwards/bigrae

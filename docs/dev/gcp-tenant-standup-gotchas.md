@@ -10,7 +10,7 @@ Use this alongside the authoritative runbooks:
 [`gcp-range-cell-deploy.md`](gcp-range-cell-deploy.md),
 [`setup.md`](../technical/dev/setup.md),
 [`gcp-guest-images.md`](../architecture/gcp-guest-images.md), and
-[`scripts/bootstrap/README.md`](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/bootstrap/README.md).
+[`scripts/bootstrap/README.md`](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/bootstrap/README.md).
 
 The local `gdc-bootstrap` path (`--environment <tenant>`) is the fresh-tenant
 bring-up. It runs Terraform under operator Application Default Credentials, so a

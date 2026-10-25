@@ -117,7 +117,7 @@ regardless of test order or xdist worker.
   `ignore` filter matched by exact message, with an adjacent owner and removal
   condition. The current set is the `django-health-check` (`<5.0`) class-based
   check deprecations, tracked for migration + removal in
-  [#1601](https://github.com/Brad-Edwards/shifter/issues/1601).
+  [#1601](https://github.com/Brad-Edwards/bigrae/issues/1601).
 - Tests that intentionally assert a warning use `pytest.warns` at the behavior
   boundary; that is an assertion, not a baseline exception.
 
@@ -166,7 +166,7 @@ per R4/R6). The matrix reconciles fail-closed against the SPA route table
 (`src/test/a11y-surface-reconcile.test.ts`); a new route group with no coverage
 or exclusion fails. Nightly multi-browser runs, deployed-target scans, the
 WCAG-EM manual audit, and the release-evidence gate are the remaining ADR-055
-tail tracked in [#2117](https://github.com/Brad-Edwards/shifter/issues/2117).
+tail tracked in [#2117](https://github.com/Brad-Edwards/bigrae/issues/2117).
 
 ## External tool integration tests
 

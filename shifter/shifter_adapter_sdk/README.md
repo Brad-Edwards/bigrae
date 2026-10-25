@@ -80,7 +80,7 @@ that a package release has been published.
 Local wheel builds are sufficient for independent adapter development and runtime
 qualification. SDK publication is not a prerequisite. The release and distribution
 model, its implementation and author documentation belong to
-[issue #2241](https://github.com/Brad-Edwards/shifter/issues/2241).
+[issue #2241](https://github.com/Brad-Edwards/bigrae/issues/2241).
 
 Pull-request CI retains the tested wheel, source distribution and `SHA256SUMS`
 in the `adapter-sdk-candidate-<revision>` artifact. Pack authors can build and test
@@ -102,7 +102,7 @@ built wheel in a fresh environment. Its publishing job downloads the exact build
 artifact by ID; it does not check out or rebuild source.
 
 If the agreed model retains this scaffold, configure `bigrae-adapter-sdk` with
-the GitHub trusted publisher for `Brad-Edwards/shifter`, workflow
+the GitHub trusted publisher for `Brad-Edwards/bigrae`, workflow
 `adapter-sdk-release.yml`, environment `adapter-sdk-pypi`. Configure that GitHub
 environment's release reviewers and restrict it to `main`. The workflow uses
 short-lived OIDC authorization and has no package-index token fallback.

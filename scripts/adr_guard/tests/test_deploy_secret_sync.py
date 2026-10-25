@@ -24,7 +24,7 @@ class DeploySecretConfigTests(unittest.TestCase):
         return subprocess.run(
             [
                 "bash", str(SCRIPT), "--env", "gcp-dev", "--stack", "config",
-                "--repo", "Brad-Edwards/shifter", "--dry-run", *options,
+                "--repo", "Brad-Edwards/bigrae", "--dry-run", *options,
             ],
             cwd=REPO_ROOT,
             env={"PATH": f"{self.root}:/usr/local/bin:/usr/bin:/bin"},

@@ -2973,7 +2973,7 @@ jobs:
         # every canonical-repo PR (#1310). `push` events (dev branch runs) carry
         # no pull_request payload and always scan.
         if: >-
-          ${{ (github.repository == 'Brad-Edwards/shifter' || github.repository == 'Brad-Edwards/bigrae')
+          ${{ github.repository == 'Brad-Edwards/bigrae'
           && github.repository_id == '1241599684'
           && github.repository_owner_id == '56809295'
           && (github.event_name != 'pull_request'

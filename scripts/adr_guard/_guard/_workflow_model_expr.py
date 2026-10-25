@@ -25,7 +25,7 @@ _DW_EXPR_WRAPPER = re.compile(r"^\$\{\{(?P<body>.*)\}\}$", re.DOTALL)
 # The one repository whose runs are the canonical CI. Steps that must not
 # silently no-op compare `github.repository` against this literal rather than
 # testing whether their configuration variables happen to be set (ADR-003-R7).
-_DW_CANONICAL_REPOSITORY = "Brad-Edwards/shifter"
+_DW_CANONICAL_REPOSITORY = "Brad-Edwards/bigrae"
 
 
 class _DwShapeError(Exception):

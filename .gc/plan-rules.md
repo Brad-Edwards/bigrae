@@ -10,7 +10,7 @@ architectural defaults, and Kubernetes-specific validators previously in
 - Plans MUST use `.ground-control.yaml`'s `github_repo` as the canonical
   GitHub repository for all `gh`, GitHub API, PR, issue, CI, Ground
   Control, and traceability operations. In this repo that is
-  `Brad-Edwards/shifter`; extra remotes, fork history, or user-level
+  `Brad-Edwards/bigrae`; extra remotes, fork history, or user-level
   skills do not override it. Target `PaloAltoNetworks/shifter` only when
   the user explicitly requests that repository in the current turn.
 - Plans MUST respect the ADR index at `docs/adr/index.yaml` and
@@ -22,7 +22,7 @@ architectural defaults, and Kubernetes-specific validators previously in
   `SONAR_ORGANIZATION` from non-secret repository variables, while shared
   analysis configuration stays committed. The scan attempt MUST be gated on
   the canonical `github.repository`, never on either variable being non-empty,
-  so a missing or renamed variable fails loudly on `Brad-Edwards/shifter` and
+  so a missing or renamed variable fails loudly on `Brad-Edwards/bigrae` and
   forks skip deliberately. Preserve the `SONAR_TOKEN` secret boundary, PR
   `sonar.qualitygate.wait=true`, action SHA pinning, and same-delivery
   repository-variable activation/readback.

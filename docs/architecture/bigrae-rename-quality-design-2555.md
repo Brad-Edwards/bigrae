@@ -26,10 +26,16 @@ Supported CTF formats keep their version checks.
 Database names, resource names, metric identities, and historical records keep their existing identities.
 
 The repository rename keeps the GitHub repository ID and owner ID.
-Repository-name checks also require those IDs.
+The canonical repository is `Brad-Edwards/bigrae`.
+The Sonar repository-name check also requires both immutable IDs.
+It rejects the old slug after the cutover.
 Future cloud templates use one exact configured repository.
 The [cutover procedure](../how-to/bigrae-rename-cutover.md) defines source and repository verification.
 No live cloud trust overlap is necessary.
+Existing resource names and state locations remain explicit inputs.
+Current source labels and attestation checks use the new repository name.
+Published artifact provenance and pinned pack records keep their original names.
+Bootstrap defaults use the new name and the existing config-path resolver.
 
 ## CI components and interfaces
 
@@ -177,6 +183,10 @@ The required CI-level ADR check must pass before readiness is claimed.
 | [ESLint CLI](https://eslint.org/docs/latest/use/command-line-interface) | Repository dependency: 10.3 or later. Handle warnings; exit codes. | Make security warnings fail the existing lint job. |
 | [Checkov CLI](https://www.checkov.io/2.Basics/CLI%20Command%20Reference.html) | Existing pinned Checkov action. Hard and soft fail. | Require blocking policy results for the covered inputs. |
 | [ASD-STE100](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf) | Issue 9. Part 1 sections 1, 3, 4, 5, 6, and 9; Part 2. | Review words, sentence length, technical terms, and document purpose. |
+| [kube-linter checks](https://github.com/stackrox/kube-linter/blob/main/docs/generated/checks.md) | CI version 0.7.2. Container security checks. | Keep blocking native Kubernetes security policy. |
+| [Bandit CLI](https://bandit.readthedocs.io/en/latest/man/bandit.html) | CI version 1.9.4. Severity level. | Preserve blocking medium and higher Python security checks. |
+| [Trivy misconfiguration](https://trivy.dev/latest/docs/scanner/misconfiguration/) | CI version 0.76.1. Misconfiguration scanning. | Reuse blocking Dockerfile security checks. |
+| [GitHub repository rename](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository) | Read 2026-10-25. Redirects, Pages and local remotes. | Rename within the same owner. Verify repository redirects and Pages separately. |
 
 The prose review uses the official standard and its dictionary.
 Project names, paths, scanner names, and CI terms are technical nouns.

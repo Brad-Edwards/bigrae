@@ -138,7 +138,7 @@ class TestExpressionOperandCoverage(unittest.TestCase):
         self.assertFalse(ADR_GUARD._dw_evaluate_if("${{ github.event_name == 'pull_request' }}", event_name="push"))
 
     def test_repository_identity_is_resolvable(self):
-        expr = "github.repository == 'Brad-Edwards/shifter'"
+        expr = "github.repository == 'Brad-Edwards/bigrae'"
         # The permissive default is the canonical repository, so only the
         # scenario under test flips the outcome.
         self.assertTrue(ADR_GUARD._dw_evaluate_if(expr))
@@ -453,7 +453,7 @@ class TestSonarScannerIdentity(unittest.TestCase):
     has not crept back in.
     """
 
-    CANONICAL_REPOSITORY = "Brad-Edwards/shifter"
+    CANONICAL_REPOSITORY = "Brad-Edwards/bigrae"
     IDENTITY_PROPERTIES = (
         "sonar.projectKey",
         "sonar.organization",
@@ -515,10 +515,10 @@ class TestSonarScannerIdentity(unittest.TestCase):
             "the canonical repository must always attempt the Sonar scan",
         )
 
-    def test_renamed_repository_with_same_identity_attempts_scan(self):
-        self.assertTrue(ADR_GUARD._dw_evaluate_if(self.scan_if, repository="Brad-Edwards/bigrae"))
+    def test_legacy_slug_is_not_trusted_after_cutover(self):
+        self.assertFalse(ADR_GUARD._dw_evaluate_if(self.scan_if, repository="Brad-Edwards/shifter"))
 
-    def test_recreated_legacy_slug_is_not_trusted(self):
+    def test_recreated_canonical_slug_is_not_trusted(self):
         self.assertFalse(
             ADR_GUARD._dw_evaluate_if(self.scan_if, repository=self.CANONICAL_REPOSITORY, repository_id="999")
         )

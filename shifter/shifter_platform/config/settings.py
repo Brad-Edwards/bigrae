@@ -125,7 +125,7 @@ SITE_URL = product_env("SITE_URL")
 # site rather than the retired in-app docs reader; kept here (config, not
 # hardcoded in templates) and exposed via mission_control.context_processors.
 # docs_site_url. Trailing slash so template paths append directly.
-DOCS_SITE_URL = product_env("DOCS_SITE_URL", "https://brad-edwards.github.io/shifter/")
+DOCS_SITE_URL = product_env("DOCS_SITE_URL", "https://brad-edwards.github.io/bigrae/")
 
 # Application definition
 INSTALLED_APPS = [

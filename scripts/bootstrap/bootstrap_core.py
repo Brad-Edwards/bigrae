@@ -491,7 +491,7 @@ class BootstrapConfig:
     region: str = "us-east-2"
     # Default GitHub target; forked deployments can override the config object.
     github_org: str = "Brad-Edwards"
-    github_repo: str = "shifter"
+    github_repo: str = "bigrae"
 
     @property
     def bucket_prefix(self) -> str:

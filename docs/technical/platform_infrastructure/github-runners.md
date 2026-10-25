@@ -47,7 +47,7 @@ After Terraform creates the instance, connect via SSM and complete these steps:
 ```bash
 sudo -u ec2-user bash
 cd /home/ec2-user/actions-runner
-./config.sh --url https://github.com/Brad-Edwards/shifter --token <TOKEN>
+./config.sh --url https://github.com/Brad-Edwards/bigrae --token <TOKEN>
 ```
 
 Generate the registration token at: Settings > Actions > Runners > New self-hosted runner.

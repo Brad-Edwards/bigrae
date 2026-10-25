@@ -395,7 +395,7 @@ double-quoted shell string does not trigger backtick command substitution.
 ```bash
 # Deregister each runner from GitHub first (from the EC2 via SSM):
 #   cd /home/ec2-user/actions-runner
-#   TOKEN=$(gh api -X POST /repos/Brad-Edwards/shifter/actions/runners/remove-token --jq .token)
+#   TOKEN=$(gh api -X POST /repos/Brad-Edwards/bigrae/actions/runners/remove-token --jq .token)
 #   sudo ./svc.sh stop && sudo ./svc.sh uninstall
 #   sudo -u ec2-user ./config.sh remove --token "$TOKEN"
 ./scripts/runner-deploy.sh --destroy

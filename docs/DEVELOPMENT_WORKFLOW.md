@@ -28,7 +28,7 @@ owns both the changelog and the version (see below).
 ## Promoting dev to main
 
 Open the promotion PR with `make devmain`. The target runs one `gh pr create`
-against `Brad-Edwards/shifter` with `dev` as the head branch, `main` as the
+against `Brad-Edwards/bigrae` with `dev` as the head branch, `main` as the
 base, a Conventional Commit title, and a body that restates the merge strategy.
 It pins the repository explicitly because this checkout is a fork of
 `PaloAltoNetworks/shifter`: an unpinned `gh pr create` resolves the base

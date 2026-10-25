@@ -1,6 +1,6 @@
 # Disaster Recovery Runbook — AWS Portal Stack
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/160>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/160>
 Design note: [`docs/architecture/aws-disaster-recovery-preflight-160.md`](../architecture/aws-disaster-recovery-preflight-160.md)
 Region: `us-east-2` (all portal resources)
 

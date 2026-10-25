@@ -58,8 +58,8 @@ groups and protocols, config conflict rejection, webhook signatures, CTF format
 round trips, Secret-backed plugin admission, repository identity guards,
 OpenAPI compatibility, frontend tests/build and native infrastructure checks.
 
-The repository has not been renamed. The earlier foundation-input blocker was
-based on an unsupported deployment assumption and is superseded by the user's
+The earlier foundation-input blocker was based on an unsupported deployment
+assumption and is superseded by the user's
 2026-10-25 no-deployments decision. The required full ADR check separately
 reported five expired exceptions and their quality-ownership gaps. The user
 expanded #2555 on 2026-10-25 to repair those failures under GEN-002.
@@ -80,5 +80,26 @@ Guacd runtime checks and a real PostgreSQL initialization-failure test pass.
 The review's config-option and guide mismatches are repaired.
 The export API helper accepts BigRAE and both supported legacy formats.
 Config-sync regression tests and the frontend production build pass.
-No release, repository cutover, readiness or completion is claimed from this
-prepared source.
+No release, readiness or completion is claimed from source checks alone.
+
+### Repository cutover, 2026-10-25
+
+The same-owner rename to `Brad-Edwards/bigrae` is applied. GitHub returned the
+same repository ID, `1241599684`, and owner ID, `56809295`.
+PR #2560 targets `dev`. Current source, repository tooling, new image source
+labels, attestation checks and future-deployment examples use the new slug.
+The Sonar gate accepts only the new slug with both immutable IDs.
+The Ground Control project key and Sonar project key retain their existing
+independent identities. Historical issue links, published artifact provenance
+and pinned pack source records retain their original coordinates.
+
+GitHub readback confirms unchanged branch protections for `dev` and `main`,
+rulesets, Environments, Actions permissions and hooks. The four runner records
+and 22 repository secret names remain present. The existing Sonar project key
+and organization variables remain set. Old repository, issue, release and Git
+URLs resolve to the renamed repository. Pages reports the new `/bigrae/` URL,
+which returns HTTP 200; the old `/shifter/` site returns HTTP 404. Current site
+links use the new path. No second hosting destination has been created.
+
+Hosted checks must pass on the final PR head before delivery readiness.
+The cutover does not publish packages or transfer the repository to another owner.

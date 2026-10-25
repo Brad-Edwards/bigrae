@@ -2,13 +2,17 @@
 
 Self-service agentic cyber-range platform for authorized purple, red and blue
 team exercises, with isolated guest workloads and operator-selected telemetry.
-Canonical repository: [Brad-Edwards/shifter](https://github.com/Brad-Edwards/shifter).
+Canonical repository: [Brad-Edwards/bigrae](https://github.com/Brad-Edwards/bigrae).
 
 Start with the [current-state architecture handbook](docs/technical/architecture.md)
 for system context, deployment components, authority, lifecycle, data ownership,
 package boundaries and supported extensions. Documentation is authored under
 `docs/` and published through the single
-[MkDocs site](https://brad-edwards.github.io/shifter/) (ADR-038).
+[MkDocs site](https://brad-edwards.github.io/bigrae/) (ADR-038).
+
+The repository was renamed on 2026-10-25. Old repository URLs redirect to
+BigRAE. The documentation site moved to `/bigrae/` on that date; update bookmarks
+that use `/shifter/`, because GitHub Pages does not redirect the old site path.
 
 ## Get started
 
@@ -83,7 +87,7 @@ from the history promoted to `main`; see
   title        = {Shifter: Self-Service Agentic Cyber Range Platform},
   year         = {2026},
   license      = {MIT},
-  url          = {https://github.com/Brad-Edwards/shifter}
+  url          = {https://github.com/Brad-Edwards/bigrae}
 }
 ```
 

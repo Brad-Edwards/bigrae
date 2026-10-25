@@ -12,7 +12,7 @@ FROM alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8
 LABEL maintainer="Shifter maintainers" \
       org.opencontainers.image.title="shifter-openvpn" \
       org.opencontainers.image.description="Shifter shared participant OpenVPN pool server" \
-      org.opencontainers.image.source="https://github.com/Brad-Edwards/shifter" \
+      org.opencontainers.image.source="https://github.com/Brad-Edwards/bigrae" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.authors="Shifter maintainers"
 
