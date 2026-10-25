@@ -64,7 +64,7 @@ def main() -> int:
     args = _parse_args()
     try:
         asyncio.run(asyncio.wait_for(_handshake(args), timeout=args.timeout * 2))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure is a smoke failure
         print(f"ws-handshake: FAILED {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     return 0

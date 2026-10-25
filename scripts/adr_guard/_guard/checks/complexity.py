@@ -1,5 +1,4 @@
 """Python complexity gate (ADR-012)."""
-
 from __future__ import annotations
 
 import re
@@ -49,14 +48,14 @@ _RUFF_HOOK_ID_PATTERN = re.compile(r"^\s*-\s+id:\s+ruff\b(?!-)")
 _HOOK_ID_PATTERN = re.compile(r"^\s*-\s+id:")
 # `files: ^<path>/` line of a hook.
 _HOOK_FILES_LINE_PATTERN = re.compile(r"^\s*files:\s*\^(\S+?)/\s*$")
-# A line carrying a `# noqa: ...` exemption that includes C901 anywhere in
-# the rules list (e.g. `# noqa: C901`, `# noqa: E501, C901`, `# noqa:C901`).
+# A line carrying a coded noqa exemption that includes C901 anywhere in
+# the rules list (for example, a directive containing E501 and C901).
 _NOQA_C901_PATTERN = re.compile(r"#\s*noqa\s*:\s*([A-Z0-9, ]+)")
-# A bare `# noqa` with no code list. Ruff treats this as line-level
+# A bare noqa directive with no code list. Ruff treats this as line-level
 # suppression of ALL rules, which silently covers C901 on a def line — the
 # scanner must detect this even though there is no explicit C901 code.
 _NOQA_BARE_PATTERN = re.compile(r"#\s*noqa\b(?!\s*:)")
-# `def NAME(` on the same line as a `# noqa: C901` is the repo convention
+# `def NAME(` on the same line as a C901 noqa directive is the repo convention
 # (see docs/adr/complexity-backlog.md). Methods (`    def NAME(`) match too.
 _DEF_NAME_PATTERN = re.compile(r"\bdef\s+(\w+)\s*\(")
 # Source-file directories we never scan for noqa sites.
@@ -120,7 +119,8 @@ def _scan_file_for_noqa(path: Path, relpath: str, sites: dict[tuple[str, str], t
         if classification == "c901":
             # def_match is guaranteed by the "c901" branch in _classify_noqa_line.
             def_match = _DEF_NAME_PATTERN.search(line)
-            assert def_match is not None
+            if def_match is None:
+                continue
             sites[(relpath, def_match.group(1))] = (line.strip(), lineno)
         else:
             sites[(relpath, classification)] = (line.strip(), lineno)

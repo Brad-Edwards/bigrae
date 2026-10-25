@@ -1,5 +1,4 @@
 """Published-contract snapshot immutability (ADR-011-R8)."""
-
 from __future__ import annotations
 
 import os

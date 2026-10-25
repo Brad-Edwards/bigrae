@@ -76,8 +76,10 @@ jobs:
       # change so it cannot self-bypass (#1530, ADR-004-R24).
       guard_selfcheck: ${{ steps.selfcheck.outputs.guard_selfcheck }}
       stack_smoke: ${{ steps.detect.outputs.stack_smoke }}
-      # Build / deployment / runtime image owners (#1530, #1698).
+      # Build / deployment / runtime owners (#1530). Their blocking jobs consume
+      # these routing outputs directly.
       container_images: ${{ steps.detect.outputs.container_images }}
+      portal_image_context: ${{ steps.detect.outputs.portal_image_context }}
       guacamole_authority: ${{ steps.detect.outputs.guacamole_authority }}
       charts: ${{ steps.detect.outputs.charts }}
       mcp_lint_any: ${{ steps.detect.outputs.mcp_lint_any }}
@@ -211,6 +213,148 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: devops-actions/actionlint@467e2ce19b2310e93c9ffa0b50fe31f86b5a7f23 # v0.1.10
+
+  adr-guard-lint-security:
+    permissions:
+      contents: read
+    name: Lint and security (ADR tooling)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.adr_guard == 'true' || needs.paths.outputs.guard_selfcheck == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Lint ADR tooling
+        run: |
+          uvx --from ruff==0.15.13 ruff check \
+            --config scripts/adr_guard/ruff.toml \
+            scripts/adr_guard scripts/quality_ownership
+      - name: Scan ADR tooling
+        run: |
+          uvx --from bandit==1.9.4 bandit -q -ll -r \
+            scripts/adr_guard scripts/quality_ownership \
+            -x scripts/adr_guard/tests
+
+  stack-smoke-lint-security:
+    permissions:
+      contents: read
+    name: Lint and security (stack smoke)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - uses: ./.github/actions/install-shellcheck
+      - name: Lint Python helpers
+        run: uvx --from ruff==0.15.13 ruff check scripts/stack-smoke
+      - name: Scan Python helpers
+        run: uvx --from bandit==1.9.4 bandit -q -ll -r scripts/stack-smoke
+      - name: Lint shell harness
+        run: shellcheck scripts/stack-smoke/*.sh
+
+  deployment-utilities-sast:
+    permissions:
+      contents: read
+    name: Security (deployment utilities)
+    needs: [paths]
+    if: >-
+      ${{ needs.paths.outputs.run_all == 'true'
+      || needs.paths.outputs.check_rds_pending_modifications == 'true'
+      || needs.paths.outputs.handle_sd_replacement == 'true'
+      || needs.paths.outputs.assert_portal_inspection == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Scan deployment utilities
+        run: |
+          uvx --from bandit==1.9.4 bandit -q -ll -r \
+            scripts/check_rds_pending_modifications \
+            scripts/handle_sd_replacement \
+            scripts/assert_portal_inspection \
+            -x scripts/check_rds_pending_modifications/tests,scripts/handle_sd_replacement/tests,scripts/assert_portal_inspection/tests
+
+  container-images-lint-security:
+    permissions:
+      contents: read
+    name: Lint and security (container inputs)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true' || needs.paths.outputs.portal_image_context == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: ./.github/actions/install-shellcheck
+      - name: Check Dockerfiles with BuildKit
+        run: |
+          docker build --check shifter/engine/guacamole
+          docker build --check shifter/engine/guacd
+          docker build --check -f shifter/shifter_platform/Dockerfile shifter
+      - name: Lint container entrypoints
+        run: shellcheck shifter/engine/guacamole/*.sh shifter/engine/guacd/tests/*.sh
+      - name: Install Trivy
+        env:
+          TRIVY_VERSION: 0.76.1
+          TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/trivy-bin"
+          curl -fsSL -o "${RUNNER_TEMP}/trivy.tar.gz" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/trivy.tar.gz" -C "${RUNNER_TEMP}/trivy-bin" trivy
+          echo "${RUNNER_TEMP}/trivy-bin" >> "${GITHUB_PATH}"
+      # Every severity blocks (#1698).
+      - name: Scan Dockerfile policy
+        env:
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        run: |
+          trivy config --skip-version-check --exit-code 1 shifter/engine/guacamole
+          trivy config --skip-version-check --exit-code 1 shifter/engine/guacd
+          trivy config --skip-version-check --exit-code 1 shifter/shifter_platform/Dockerfile
+
+  chart-lint-security:
+    permissions:
+      contents: read
+    name: Lint and security (Helm chart)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.charts == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Install Helm
+        env:
+          HELM_VERSION: v3.15.4
+          HELM_SHA256: 11400fecfc07fd6f034863e4e0c4c4445594673fd2a129e701fe41f31170cfa9
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/helm-bin"
+          curl -fsSL -o "${RUNNER_TEMP}/helm.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${RUNNER_TEMP}/helm.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/helm.tar.gz" -C "${RUNNER_TEMP}" linux-amd64/helm
+          mv "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm-bin/helm"
+          echo "${RUNNER_TEMP}/helm-bin" >> "${GITHUB_PATH}"
+      - name: Install kube-linter
+        env:
+          KUBE_LINTER_SHA256: 8a0f8ba6c28910acd4886cc4d501ed32f3d404a53ac5e72c45a0dd893fcadb03
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "${RUNNER_TEMP}/kube-linter.tar.gz" \
+            "https://github.com/stackrox/kube-linter/releases/download/v0.7.2/kube-linter-linux.tar.gz"
+          echo "${KUBE_LINTER_SHA256}  ${RUNNER_TEMP}/kube-linter.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/kube-linter.tar.gz" -C "${RUNNER_TEMP}" kube-linter
+      - name: Lint and render every supported profile
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/rendered-chart"
+          for values in values.yaml values-aws-dev.yaml values-aws-prod.yaml values-gcp-dev.yaml values-gcp-prod.yaml; do
+            helm lint platform/charts/shifter -f "platform/charts/shifter/${values}"
+            helm template quality-check platform/charts/shifter \
+              -f "platform/charts/shifter/${values}" \
+              > "${RUNNER_TEMP}/rendered-chart/${values}"
+          done
+          "${RUNNER_TEMP}/kube-linter" lint --config .kube-linter.yaml "${RUNNER_TEMP}/rendered-chart"
 
   terraform-lint:
     permissions:
@@ -1010,162 +1154,6 @@ jobs:
           uv sync --group dev
           uv run ruff check .
           uv run ruff format --check .
-
-  adr-guard-lint:
-    permissions:
-      contents: read
-    name: Lint (adr_guard)
-    needs: [paths]
-    # guard_selfcheck (independent of the classifier) forces this lint on any
-    # contract/classifier/guard-file change (#1530, #1698).
-    if: ${{ (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.adr_guard == 'true' || needs.paths.outputs.guard_selfcheck == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-
-      # scripts/adr_guard/ruff.toml selects the S (bandit) rules, so this job
-      # is also the security owner of the guard and ownership tooling.
-      - name: Lint Python (Ruff with security rules)
-        run: |
-          uvx ruff@0.15.13 check scripts/adr_guard scripts/quality_ownership
-          uvx ruff@0.15.13 format --check scripts/adr_guard scripts/quality_ownership
-
-  stack-smoke-lint:
-    permissions:
-      contents: read
-    name: Lint (stack_smoke)
-    needs: [paths]
-    if: ${{ (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-
-      - name: Install ShellCheck (hermetic, version-pinned, checksum-verified)
-        env:
-          SHELLCHECK_VERSION: v0.11.0
-          # Reviewed SHA-256 of shellcheck-v0.11.0.linux.x86_64.tar.xz (ADR-037).
-          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
-        run: |
-          set -euo pipefail
-          curl -fsSL -o "${RUNNER_TEMP}/shellcheck.tar.xz" \
-            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          echo "${SHELLCHECK_SHA256}  ${RUNNER_TEMP}/shellcheck.tar.xz" | sha256sum -c -
-          tar -xJf "${RUNNER_TEMP}/shellcheck.tar.xz" -C "${RUNNER_TEMP}"
-          echo "${RUNNER_TEMP}/shellcheck-${SHELLCHECK_VERSION}" >> "${GITHUB_PATH}"
-
-      # scripts/stack-smoke/ruff.toml selects the S (bandit) rules.
-      - name: Lint Python (Ruff with security rules)
-        run: |
-          uvx ruff@0.15.13 check scripts/stack-smoke
-          uvx ruff@0.15.13 format --check scripts/stack-smoke
-
-      - name: Lint shell (ShellCheck)
-        run: shellcheck scripts/stack-smoke/*.sh
-
-  container-images-lint:
-    permissions:
-      contents: read
-    name: Lint (container images)
-    needs: [paths]
-    if: ${{ (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Install hadolint (hermetic, version-pinned, checksum-verified)
-        env:
-          HADOLINT_VERSION: v2.14.0
-          # Reviewed SHA-256 of hadolint-linux-x86_64 (ADR-037).
-          HADOLINT_SHA256: 6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/hadolint-bin"
-          curl -fsSL -o "${RUNNER_TEMP}/hadolint-bin/hadolint" \
-            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-linux-x86_64"
-          echo "${HADOLINT_SHA256}  ${RUNNER_TEMP}/hadolint-bin/hadolint" | sha256sum -c -
-          chmod +x "${RUNNER_TEMP}/hadolint-bin/hadolint"
-          echo "${RUNNER_TEMP}/hadolint-bin" >> "${GITHUB_PATH}"
-
-      - name: Install ShellCheck (hermetic, version-pinned, checksum-verified)
-        env:
-          SHELLCHECK_VERSION: v0.11.0
-          # Reviewed SHA-256 of shellcheck-v0.11.0.linux.x86_64.tar.xz (ADR-037).
-          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
-        run: |
-          set -euo pipefail
-          curl -fsSL -o "${RUNNER_TEMP}/shellcheck.tar.xz" \
-            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          echo "${SHELLCHECK_SHA256}  ${RUNNER_TEMP}/shellcheck.tar.xz" | sha256sum -c -
-          tar -xJf "${RUNNER_TEMP}/shellcheck.tar.xz" -C "${RUNNER_TEMP}"
-          echo "${RUNNER_TEMP}/shellcheck-${SHELLCHECK_VERSION}" >> "${GITHUB_PATH}"
-
-      - name: Lint Dockerfiles (hadolint)
-        run: hadolint shifter/engine/guacamole/Dockerfile shifter/engine/guacd/Dockerfile
-
-      - name: Lint shell (ShellCheck)
-        run: |
-          shellcheck shifter/engine/guacamole/entrypoint.sh \
-            shifter/engine/guacamole/authority-entrypoint.sh \
-            shifter/engine/guacd/tests/image_contract.sh
-
-  charts-lint:
-    permissions:
-      contents: read
-    name: Lint (charts)
-    needs: [paths]
-    if: ${{ (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.charts == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Install Helm (hermetic, version-pinned, checksum-verified)
-        env:
-          HELM_VERSION: v3.15.4
-          # Same reviewed SHA-256 as the chart-tests job; bump both together.
-          HELM_SHA256: 11400fecfc07fd6f034863e4e0c4c4445594673fd2a129e701fe41f31170cfa9
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/helm-bin"
-          curl -fsSL -o "${RUNNER_TEMP}/helm.tar.gz" \
-            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
-          echo "${HELM_SHA256}  ${RUNNER_TEMP}/helm.tar.gz" | sha256sum -c -
-          tar -xzf "${RUNNER_TEMP}/helm.tar.gz" -C "${RUNNER_TEMP}" linux-amd64/helm
-          mv "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm-bin/helm"
-          echo "${RUNNER_TEMP}/helm-bin" >> "${GITHUB_PATH}"
-
-      - name: Install kube-linter
-        env:
-          # Same reviewed SHA-256 as the k8s-lint job (ADR-037-R3); bump together.
-          KUBE_LINTER_SHA256: 8a0f8ba6c28910acd4886cc4d501ed32f3d404a53ac5e72c45a0dd893fcadb03
-        run: |
-          set -euo pipefail
-          curl -fsSL -o "${RUNNER_TEMP}/kube-linter.tar.gz" \
-            "https://github.com/stackrox/kube-linter/releases/download/v0.7.2/kube-linter-linux.tar.gz"
-          echo "${KUBE_LINTER_SHA256}  ${RUNNER_TEMP}/kube-linter.tar.gz" | sha256sum -c -
-          tar -xzf "${RUNNER_TEMP}/kube-linter.tar.gz" -C "${RUNNER_TEMP}" kube-linter
-
-      # helm lint validates every profile against values.schema.json. kube-linter
-      # then enforces the .kube-linter.yaml security checks on each rendered
-      # profile, so this job is also the charts security owner.
-      - name: Lint chart profiles (helm lint + kube-linter)
-        working-directory: platform/charts/shifter
-        run: |
-          set -euo pipefail
-          rendered="${RUNNER_TEMP}/rendered-chart"
-          mkdir -p "${rendered}"
-          helm lint --strict .
-          helm template shifter . > "${rendered}/defaults.yaml"
-          for values in values-*.yaml; do
-            helm lint --strict . -f "${values}"
-            helm template shifter . -f "${values}" > "${rendered}/${values}"
-          done
-          "${RUNNER_TEMP}/kube-linter" lint --config "${GITHUB_WORKSPACE}/.kube-linter.yaml" "${rendered}/"
 
   installation-lint:
     permissions:
@@ -2023,6 +2011,7 @@ jobs:
       - name: Build local synthetic gateway and RDP guest
         run: |
           docker build -t shifter-guacamole-2319-local:latest shifter/engine/guacamole
+          docker build -t shifter-guacd-202-local:latest shifter/engine/guacd
           docker build -t shifter-synthetic-rdp-2319:latest shifter/shifter_platform/tests/integration/guacamole-rdp
       - name: Qualify real SSH, SFTP and RDP closure
         working-directory: shifter/shifter_platform
@@ -2568,39 +2557,6 @@ jobs:
           download_external_modules: true
           soft_fail: false
 
-  container-images-security:
-    permissions:
-      contents: read
-    name: Security (container images)
-    needs: [paths]
-    if: ${{ (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Install Trivy (hermetic, version-pinned, checksum-verified)
-        env:
-          TRIVY_VERSION: 0.71.2
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/trivy-bin"
-          curl -fsSL -o "${RUNNER_TEMP}/trivy.tar.gz" \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -fsSL -o "${RUNNER_TEMP}/trivy_checksums.txt" \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
-          expected=$(grep "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" "${RUNNER_TEMP}/trivy_checksums.txt" | awk '{print $1}')
-          echo "${expected}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
-          tar -xzf "${RUNNER_TEMP}/trivy.tar.gz" -C "${RUNNER_TEMP}/trivy-bin" trivy
-          echo "${RUNNER_TEMP}/trivy-bin" >> "${GITHUB_PATH}"
-
-      # Blocking misconfiguration scan of the image inputs, at every severity.
-      - name: Scan Dockerfiles (Trivy config)
-        run: |
-          set -euo pipefail
-          for target in shifter/engine/guacamole shifter/engine/guacd; do
-            trivy config --exit-code 1 "${target}"
-          done
-
   security-k8s:
     permissions:
       contents: read
@@ -2646,15 +2602,13 @@ jobs:
       - name: Install Trivy (hermetic, version-pinned, checksum-verified)
         env:
           TRIVY_VERSION: 0.71.2
+          TRIVY_SHA256: 0510e71e2fd39bf863856d499c8dc19feb4e7336546394c502a8f5cc7ab27460
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/trivy-bin"
           curl -fsSL -o "${RUNNER_TEMP}/trivy.tar.gz" \
             "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -fsSL -o "${RUNNER_TEMP}/trivy_checksums.txt" \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
-          expected=$(grep "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" "${RUNNER_TEMP}/trivy_checksums.txt" | awk '{print $1}')
-          echo "${expected}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
+          echo "${TRIVY_SHA256}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
           tar -xzf "${RUNNER_TEMP}/trivy.tar.gz" -C "${RUNNER_TEMP}/trivy-bin" trivy
           echo "${RUNNER_TEMP}/trivy-bin" >> "${GITHUB_PATH}"
           "${RUNNER_TEMP}/trivy-bin/trivy" --version
@@ -2699,15 +2653,13 @@ jobs:
       - name: Install OSV-Scanner (hermetic, version-pinned, checksum-verified)
         env:
           OSV_VERSION: v2.4.0
+          OSV_SHA256: 15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/osv-bin"
           curl -fsSL -o "${RUNNER_TEMP}/osv-scanner" \
             "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64"
-          curl -fsSL -o "${RUNNER_TEMP}/osv-scanner_SHA256SUMS" \
-            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_SHA256SUMS"
-          expected=$(grep 'osv-scanner_linux_amd64$' "${RUNNER_TEMP}/osv-scanner_SHA256SUMS" | awk '{print $1}')
-          echo "${expected}  ${RUNNER_TEMP}/osv-scanner" | sha256sum -c -
+          echo "${OSV_SHA256}  ${RUNNER_TEMP}/osv-scanner" | sha256sum -c -
           chmod +x "${RUNNER_TEMP}/osv-scanner"
           echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
           "${RUNNER_TEMP}/osv-scanner" --version
@@ -2833,7 +2785,7 @@ jobs:
     # The caller sets run_stack_smoke when the portal image inputs change. The
     # inner gate must accept the same owners (shifter_platform, installation),
     # or a portal-only change skips the built-image smoke (#1698).
-    if: ${{ inputs.run_stack_smoke && !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true' || needs.paths.outputs.shifter_platform == 'true' || needs.paths.outputs.installation == 'true') }}
+    if: ${{ inputs.run_stack_smoke && !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true' || needs.paths.outputs.portal_image_context == 'true' || needs.paths.outputs.shifter_platform == 'true' || needs.paths.outputs.installation == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3

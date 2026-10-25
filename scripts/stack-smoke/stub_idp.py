@@ -123,7 +123,7 @@ class _Handler(BaseHTTPRequestHandler):
     # http.server logs the full request line (with query string) to stderr by
     # default; that would leak code/state/nonce. Emit only method + path (no
     # query) + status, never bodies, headers, or query values.
-    def log_message(self, format: str, *args: Any) -> None:
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - base signature
         # Method + path only. Never the query string (carries code/state/nonce).
         path = urlparse(self.path).path
         sys.stderr.write(f"[stub-idp] {self.command} {path}\n")
@@ -148,7 +148,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     # --- routing ------------------------------------------------------------
-    def do_GET(self) -> None:
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlparse(self.path).path
         if path == self.cfg.jwks_path:
             self._json(200, self.keys.jwks)
@@ -159,7 +159,7 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._error(404, "not_found")
 
-    def do_POST(self) -> None:
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         if urlparse(self.path).path == self.cfg.token_path:
             self._handle_token()
         else:
@@ -275,7 +275,7 @@ def _build_handler(cfg: _Config, keys: _Keys, state: _State) -> type[_Handler]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - private smoke network
+    parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--issuer", required=True, help="OIDC_ISSUER_URL (iss + JWKS base)")
     parser.add_argument("--auth-domain", required=True, help="OIDC_AUTH_DOMAIN (oauth2 endpoints base)")

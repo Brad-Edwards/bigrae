@@ -61,7 +61,6 @@ before(() => {
   TMP_POLICY_PATH = path.join(TMP_DIR, "shifter.yaml");
   const doc = yaml.parse(readFileSync(LIVE_POLICY_PATH, "utf-8"));
   doc.mcp_ops.audit.path = TMP_AUDIT_PATH;
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
   writeFileSync(TMP_POLICY_PATH, yaml.stringify(doc));
 });
 
@@ -793,7 +792,6 @@ describe("apex out-of-band confirmation surface", () => {
     // pending-apex map by way of the audit/handler path.
     assert.equal(consumeApexToken(SYNTHETIC_TOKEN), false);
 
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const auditContent = readFileSync(TMP_AUDIT_PATH, "utf-8");
     assert.ok(
       auditContent.includes('"tool":"approve"'),

@@ -1,5 +1,4 @@
 """Shared kernels: Violation, repo paths/inventory, read-only git helpers, exception filtering."""
-
 from __future__ import annotations
 
 import json
@@ -65,7 +64,11 @@ def is_guard_source_path(path: str) -> bool:
     deploy-plan-scope, action-pinning). Test files are excluded; they never
     carry check configuration.
     """
-    return path.startswith("scripts/adr_guard/") and path.endswith(".py") and "/tests/" not in path
+    return (
+        path.startswith("scripts/adr_guard/")
+        and path.endswith(".py")
+        and "/tests/" not in path
+    )
 
 
 def _normalize_files(files: list[str] | None, repo_root: Path) -> list[str] | None:
@@ -204,8 +207,6 @@ def get_changed_files(repo_root: Path) -> list[str]:
                 return sorted(set(files))
 
     return []
-
-
 _BOUNDARY_MOCK_BASE_REF_ENVS = ("ADR_GUARD_BASE_REF", "GITHUB_BASE_REF")
 
 
@@ -270,8 +271,6 @@ def _boundary_mock_fallback_reference_candidates(repo_root: Path) -> list[str]:
             seen.add(commit)
 
     return refs
-
-
 _ADR_GUARD_PATH = "scripts/adr_guard/adr_guard.py"
 
 
@@ -292,14 +291,8 @@ def _git_tracked_all(repo_root: Path) -> list[str] | None:
     if not (repo_root / ".git").exists():
         return None
     cmd = [
-        "git",
-        "-C",
-        str(repo_root),
-        "ls-files",
-        "-z",
-        "--cached",
-        "--others",
-        "--exclude-standard",
+        "git", "-C", str(repo_root), "ls-files", "-z",
+        "--cached", "--others", "--exclude-standard",
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, check=False, timeout=60)

@@ -6,7 +6,7 @@ import {
   readdirSync,
   unlinkSync,
 } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 
@@ -15,52 +15,12 @@ import { randomUUID } from "node:crypto";
 // ---------------------------------------------------------------------------
 
 function plansDir() {
-  return resolve(process.env.PLANNER_DIR || join(homedir(), ".claude", "plans"));
-}
-
-// Return the absolute path if it is plansDir() or a path inside it.
-// Throw for all other paths. All file access below uses this check.
-function confine(p) {
-  const base = plansDir();
-  const target = resolve(p);
-  const rel = relative(base, target);
-  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-    throw new Error("Path is outside the plans directory");
-  }
-  return target;
-}
-
-// The fs calls below get a path only from confine(). The rule cannot see
-// that check, so each call has a scoped disable with the reason.
-
-function fileExists(p) {
-  const safe = confine(p);
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- confine() limits the path to plansDir()
-  return existsSync(safe);
-}
-
-function readText(p) {
-  const safe = confine(p);
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- confine() limits the path to plansDir()
-  return readFileSync(safe, "utf-8");
-}
-
-function writeText(p, text) {
-  const safe = confine(p);
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- confine() limits the path to plansDir()
-  writeFileSync(safe, text, "utf-8");
-}
-
-function removeFile(p) {
-  const safe = confine(p);
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- confine() limits the path to plansDir()
-  unlinkSync(safe);
+  return process.env.PLANNER_DIR || join(homedir(), ".claude", "plans");
 }
 
 function ensureDir() {
-  const dir = confine(plansDir());
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- confine() limits the path to plansDir()
-  mkdirSync(dir, { recursive: true });
+  const dir = plansDir();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
 function shortId() {
@@ -72,7 +32,6 @@ function now() {
 }
 
 const PLAN_ID_PATTERN = /^[a-f0-9]{8}$/;
-const PLAN_FILE_PATTERN = /^([a-f0-9]{8})\.json$/;
 const PLAN_ID_ERROR = "Invalid plan ID format: must be 8 lowercase hexadecimal characters";
 
 function validatePlanId(id) {
@@ -83,30 +42,26 @@ function validatePlanId(id) {
 }
 
 function planPath(id) {
-  return confine(join(plansDir(), `${validatePlanId(id)}.json`));
-}
-
-// Return the IDs of all plan files. Ignore files that are not plan files.
-function listPlanIds() {
-  const dir = confine(plansDir());
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- confine() limits the path to plansDir()
-  const names = readdirSync(dir);
-  return names
-    .map((name) => PLAN_FILE_PATTERN.exec(name))
-    .filter(Boolean)
-    .map((match) => match[1]);
+  const validId = validatePlanId(id);
+  const base = resolve(plansDir());
+  const target = resolve(base, `${validId}.json`);
+  const rel = relative(base, target);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(PLAN_ID_ERROR);
+  }
+  return target;
 }
 
 function loadPlan(id) {
   const p = planPath(id);
-  if (!fileExists(p)) throw new Error(`Plan not found: ${id}`);
-  return JSON.parse(readText(p));
+  if (!existsSync(p)) throw new Error(`Plan not found: ${id}`);
+  return JSON.parse(readFileSync(p, "utf-8"));
 }
 
 function savePlan(plan) {
   ensureDir();
   plan.updated = now();
-  writeText(planPath(plan.id), JSON.stringify(plan, null, 2));
+  writeFileSync(planPath(plan.id), JSON.stringify(plan, null, 2), "utf-8");
   return plan;
 }
 
@@ -115,24 +70,24 @@ function savePlan(plan) {
 // ---------------------------------------------------------------------------
 
 function currentFile() {
-  return confine(join(plansDir(), ".current"));
+  return join(plansDir(), ".current");
 }
 
 function getCurrentPlanId() {
   const f = currentFile();
-  if (!fileExists(f)) return null;
-  const id = readText(f).trim();
+  if (!existsSync(f)) return null;
+  const id = readFileSync(f, "utf-8").trim();
   return id || null;
 }
 
 function setCurrentPlanId(id) {
   ensureDir();
-  writeText(currentFile(), validatePlanId(id));
+  writeFileSync(currentFile(), validatePlanId(id), "utf-8");
 }
 
 function clearCurrentPlanId() {
   const f = currentFile();
-  if (fileExists(f)) removeFile(f);
+  if (existsSync(f)) unlinkSync(f);
 }
 
 function resolvePlanId(id) {
@@ -163,9 +118,10 @@ function createPlan(name, description = "") {
 
 function listPlans() {
   ensureDir();
+  const files = readdirSync(plansDir()).filter((f) => f.endsWith(".json"));
   const currentId = getCurrentPlanId();
-  return listPlanIds().map((planId) => {
-    const plan = loadPlan(planId);
+  return files.map((f) => {
+    const plan = JSON.parse(readFileSync(join(plansDir(), f), "utf-8"));
     const total = plan.phases.reduce((s, p) => s + p.steps.length, 0);
     const done = plan.phases.reduce(
       (s, p) => s + p.steps.filter((st) => st.status === "completed").length,
@@ -211,8 +167,8 @@ function getPlan(planId) {
 function deletePlan(planId) {
   const id = resolvePlanId(planId);
   const p = planPath(id);
-  if (!fileExists(p)) throw new Error(`Plan not found: ${id}`);
-  removeFile(p);
+  if (!existsSync(p)) throw new Error(`Plan not found: ${id}`);
+  unlinkSync(p);
   if (getCurrentPlanId() === id) clearCurrentPlanId();
   return { deleted: id };
 }
@@ -411,10 +367,11 @@ function nextStep(planId) {
 function searchPlans(query) {
   ensureDir();
   const q = query.toLowerCase();
+  const files = readdirSync(plansDir()).filter((f) => f.endsWith(".json"));
   const results = [];
 
-  for (const planId of listPlanIds()) {
-    const plan = loadPlan(planId);
+  for (const f of files) {
+    const plan = JSON.parse(readFileSync(join(plansDir(), f), "utf-8"));
     const planText = [plan.name, plan.description].join(" ").toLowerCase();
 
     if (planText.includes(q)) {

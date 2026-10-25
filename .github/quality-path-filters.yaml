@@ -148,8 +148,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [check-rds-pending-modifications-lint]
-      # Ruff runs the S (bandit) security rules in the same blocking job.
-      security: [check-rds-pending-modifications-lint]
+      security: [deployment-utilities-sast]
       test: [check-rds-pending-modifications-tests]
 
   - id: handle_sd_replacement
@@ -158,8 +157,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [handle-sd-replacement-lint]
-      # Ruff runs the S (bandit) security rules in the same blocking job.
-      security: [handle-sd-replacement-lint]
+      security: [deployment-utilities-sast]
       test: [handle-sd-replacement-tests]
 
   - id: assert_portal_inspection
@@ -168,8 +166,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [assert-portal-inspection-lint]
-      # Ruff runs the S (bandit) security rules in the same blocking job.
-      security: [assert-portal-inspection-lint]
+      security: [deployment-utilities-sast]
       test: [assert-portal-inspection-tests]
 
   - id: installation
@@ -225,9 +222,6 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [k8s-lint]
-      # kube-linter enforces the security checks in .kube-linter.yaml on every
-      # rendered kustomize root (non-root, read-only root, no privilege
-      # escalation, no writable host mounts, safe sysctls).
       security: [k8s-lint]
       test: [k8s-schema]
 
@@ -239,7 +233,6 @@ quality_units:
       package: ngfw
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ngfw}}]
-      # eslint-plugin-security runs with --max-warnings 0, so a finding fails.
       security: [{job: mcp-lint, matrix: {package: ngfw}}]
       test: [{job: mcp-tests, matrix: {package: ngfw}}]
 
@@ -251,7 +244,6 @@ quality_units:
       package: ops
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ops}}]
-      # eslint-plugin-security runs with --max-warnings 0, so a finding fails.
       security: [{job: mcp-lint, matrix: {package: ops}}]
       test: [{job: mcp-tests, matrix: {package: ops}}]
 
@@ -263,7 +255,6 @@ quality_units:
       package: planner
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: planner}}]
-      # eslint-plugin-security runs with --max-warnings 0, so a finding fails.
       security: [{job: mcp-lint, matrix: {package: planner}}]
       test: [{job: mcp-tests, matrix: {package: planner}}]
 
@@ -276,7 +267,6 @@ quality_units:
       fanout_all_on_change: true
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: shared}}]
-      # eslint-plugin-security runs with --max-warnings 0, so a finding fails.
       security: [{job: mcp-lint, matrix: {package: shared}}]
       test: [{job: mcp-tests, matrix: {package: shared}}]
 
@@ -292,50 +282,50 @@ quality_units:
       - .shifter.yaml
     sonar: false
     responsibilities:
-      # adr-guard-lint runs Ruff with the S (bandit) rules on the guard and
-      # ownership Python. adr-conformance validates the policy files.
-      lint: [adr-guard-lint, adr-conformance]
-      security: [adr-guard-lint, adr-conformance]
+      lint: [adr-guard-lint-security]
+      security: [adr-guard-lint-security]
       test: [adr-guard-tests]
 
   - id: stack_smoke
     paths:
       - scripts/stack-smoke/**
-      # The portal image build context. The stack-smoke job builds that image,
-      # so it is the test that consumes this file (#1698).
-      - shifter/.dockerignore
     sonar: false
     responsibilities:
-      # Ruff with the S (bandit) rules for the Python helpers, and ShellCheck.
-      lint: [stack-smoke-lint]
-      security: [stack-smoke-lint]
+      lint: [stack-smoke-lint-security]
+      security: [stack-smoke-lint-security]
       test: [stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
-  # exclusions (ADR-004-R24 forbids exempting shipped build/runtime material).
+  # exclusions (ADR-004-R23 forbids exempting shipped build/runtime material via
+  # exclusions). Each responsibility resolves to a blocking job below.
   - id: container_images
     paths:
       - shifter/engine/guacamole/**
       - shifter/engine/guacd/**
+    sonar: false
+    responsibilities:
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      # guacamole-authority-tests builds the client image; container-images-tests
+      # builds the guacd image and checks its contract (#1698).
+      test: [guacamole-authority-tests, container-images-tests]
+
+  - id: portal_image_context
+    paths:
       - shifter/.dockerignore
     sonar: false
     responsibilities:
-      # hadolint for the Dockerfiles, ShellCheck for the entrypoints.
-      lint: [container-images-lint]
-      # Trivy config with --exit-code 1 on the Dockerfiles.
-      security: [container-images-security]
-      # guacamole-authority-tests builds the client image; container-images-tests
-      # builds the guacd image and checks its contract.
-      test: [guacamole-authority-tests, container-images-tests]
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [stack-smoke]
 
   - id: charts
     paths:
       - platform/charts/**
     sonar: false
     responsibilities:
-      # helm lint and kube-linter on the defaults and every provider profile.
-      lint: [charts-lint]
-      security: [charts-lint]
+      lint: [chart-lint-security]
+      security: [chart-lint-security]
       test: [chart-tests]
 
 exclusions:
@@ -395,8 +385,9 @@ exclusions:
       # Exact-release Trivy exposure-management policy consumed by the
       # release-scan gate in .github/workflows/_gcp-dev.yml (--ignorefile).
       - .trivyignore.yaml
-      # OSV-Scanner suppressions (time-boxed, no-upstream-fix) consumed by the
-      # Security (osv-scanner) quality job via --config.
+      # OSV-Scanner policy consumed by the Security (osv-scanner) quality job
+      # via --config. Any future suppression must be time-boxed and limited to
+      # an advisory with no upstream fix.
       - osv-scanner.toml
       - tools/install-vale.sh
 

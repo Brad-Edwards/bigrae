@@ -35,7 +35,7 @@ export const Ec2Id = z
 export const SsmCommandId = z
   .string()
   .regex(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i,
     "Must be a valid SSM command ID (UUID)"
   );
 export const SafePath = z
@@ -53,7 +53,7 @@ export const GceImageTypeSchema = z
 export const GceImageNameSchema = z
   .string()
   .regex(
-    /^[a-z]$|^[a-z][-a-z0-9]{0,61}[a-z0-9]$/,
+    /^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$/,
     "Must be an exact GCE image name",
   );
 export const SecretIdSchema = z

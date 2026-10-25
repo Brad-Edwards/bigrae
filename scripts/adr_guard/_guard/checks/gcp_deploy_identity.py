@@ -1,5 +1,4 @@
 """GCP deploy-identity hygiene in the committed Kustomize overlays (ADR-004-R14, ADR-011)."""
-
 from __future__ import annotations
 
 import re
@@ -35,15 +34,19 @@ _GCP_SHARED_PLACEHOLDER_PROJECT = "placeholder-project"
 # trailing hyphen) embedded in a container-registry root or a service-account
 # email. `docker.pkg.dev` matches as a substring of `<region>-docker.pkg.dev`.
 _GCP_PROJECT = r"[a-z][a-z0-9-]{4,28}[a-z0-9]"
-_GCP_REGISTRY_PROJECT_RE = re.compile(r"(?:docker\.pkg\.dev|gcr\.io)/(?P<project>" + _GCP_PROJECT + r")/")
-_GCP_SA_PROJECT_RE = re.compile(r"@(?P<project>" + _GCP_PROJECT + r")\.iam\.gserviceaccount\.com")
+_GCP_REGISTRY_PROJECT_RE = re.compile(
+    r"(?:docker\.pkg\.dev|gcr\.io)/(?P<project>" + _GCP_PROJECT + r")/"
+)
+_GCP_SA_PROJECT_RE = re.compile(
+    r"@(?P<project>" + _GCP_PROJECT + r")\.iam\.gserviceaccount\.com"
+)
 
 
 def _gcp_overlay_environment(rel: str) -> str | None:
     """Return the overlay environment name for a path under the overlay root, else None."""
     if not rel.startswith(_GCP_OVERLAY_ROOT):
         return None
-    environment = rel[len(_GCP_OVERLAY_ROOT) :].split("/", 1)[0]
+    environment = rel[len(_GCP_OVERLAY_ROOT):].split("/", 1)[0]
     return environment or None
 
 

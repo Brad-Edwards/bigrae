@@ -15,7 +15,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -460,47 +460,63 @@ class TestGdcBootstrapCluster:
             "service_account_key": tmp_path / "cluster1" / "bm-gcr.json",
         }
 
-        with (
-            patch("deploy.confirm", return_value=True),
-            patch("deploy.ensure_gdc_apis") as mock_apis,
-            patch("deploy.ensure_gdc_service_account") as mock_sa,
-            patch("deploy.stage_gdc_bootstrap_assets", return_value=staged_assets) as mock_stage,
-            patch("deploy.ensure_gdc_network") as mock_network,
-            patch("deploy.ensure_gdc_instances") as mock_instances,
-            patch("deploy.sync_gdc_instance_ssh_metadata") as mock_sync,
-            patch("deploy.wait_for_gdc_ssh") as mock_wait,
-            patch("deploy.upload_gdc_assets") as mock_upload,
-            patch("deploy.run_gdc_workstation_script") as mock_remote,
-            patch("deploy.sync_gdc_access_secret") as mock_access_secret,
-            patch("deploy.sync_gdc_vm_image_secret") as mock_vm_image_secret,
-            patch(
-                "deploy.bootstrap_gcp_control_plane",
-                return_value=_sample_gcp_control_plane_outputs(),
-            ) as mock_platform,
-        ):
-            result = deploy.gdc_bootstrap_cluster(config)
+        mock_apis = Mock()
+        mock_sa = Mock()
+        mock_stage = Mock(return_value=staged_assets)
+        mock_network = Mock()
+        mock_instances = Mock()
+        mock_sync = Mock()
+        mock_wait = Mock()
+        mock_upload = Mock()
+        mock_remote = Mock()
+        mock_access_secret = Mock()
+        mock_vm_image_secret = Mock()
+        operations = deploy._GDCSubstrateOperations(
+            ensure_apis=mock_apis,
+            ensure_service_account=mock_sa,
+            stage_assets=mock_stage,
+            ensure_network=mock_network,
+            ensure_instances=mock_instances,
+            sync_ssh_metadata=mock_sync,
+            wait_for_ssh=mock_wait,
+            upload_assets=mock_upload,
+            run_workstation_script=mock_remote,
+            sync_access_secret=mock_access_secret,
+            sync_vm_image_secret=mock_vm_image_secret,
+        )
+        mock_platform = Mock(return_value=_sample_gcp_control_plane_outputs())
 
-            assert result["cluster_id"] == "cluster1"
-            mock_apis.assert_called_once_with(config, dry_run=False)
-            mock_sa.assert_called_once_with(config, dry_run=False)
-            mock_stage.assert_called_once()
-            mock_network.assert_called_once_with(config, dry_run=False)
-            mock_instances.assert_called_once_with(config, staged_assets["ssh_metadata"], dry_run=False)
-            mock_sync.assert_called_once_with(config, staged_assets["ssh_metadata"], dry_run=False)
-            assert mock_wait.call_count == len(config.all_hosts)
-            mock_upload.assert_called_once_with(config, staged_assets["assets_dir"], dry_run=False)
-            assert [call.args[1] for call in mock_remote.call_args_list] == [
-                "prepare-workstation.sh",
-                "prepare-hosts.sh",
-                "create-cluster.sh",
-                "install-helper.sh",
-            ]
-            mock_access_secret.assert_called_once_with(config, dry_run=False)
-            mock_vm_image_secret.assert_called_once_with(config, staged_assets["service_account_key"], dry_run=False)
-            mock_platform.assert_called_once_with(config, dry_run=False)
-            assert result["gdc_access_secret_id"] == "shifter-gcp-dev-gdc-access"
-            assert result["gdc_vm_image_gcs_secret_id"] == "shifter-gcp-dev-gdc-vm-image-gcs"
-            assert result["gke_cluster_name"] == "shifter-gcp-dev-platform"
+        def build_substrate(active_config, *, dry_run):
+            deploy._build_gdc_substrate(active_config, dry_run=dry_run, operations=operations)
+
+        result = deploy.gdc_bootstrap_cluster(
+            config,
+            confirmation=lambda _prompt: True,
+            substrate_builder=build_substrate,
+            control_plane_bootstrapper=mock_platform,
+        )
+
+        assert result["cluster_id"] == "cluster1"
+        mock_apis.assert_called_once_with(config, dry_run=False)
+        mock_sa.assert_called_once_with(config, dry_run=False)
+        mock_stage.assert_called_once()
+        mock_network.assert_called_once_with(config, dry_run=False)
+        mock_instances.assert_called_once_with(config, staged_assets["ssh_metadata"], dry_run=False)
+        mock_sync.assert_called_once_with(config, staged_assets["ssh_metadata"], dry_run=False)
+        assert mock_wait.call_count == len(config.all_hosts)
+        mock_upload.assert_called_once_with(config, staged_assets["assets_dir"], dry_run=False)
+        assert [call.args[1] for call in mock_remote.call_args_list] == [
+            "prepare-workstation.sh",
+            "prepare-hosts.sh",
+            "create-cluster.sh",
+            "install-helper.sh",
+        ]
+        mock_access_secret.assert_called_once_with(config, dry_run=False)
+        mock_vm_image_secret.assert_called_once_with(config, staged_assets["service_account_key"], dry_run=False)
+        mock_platform.assert_called_once_with(config, dry_run=False)
+        assert result["gdc_access_secret_id"] == "shifter-gcp-dev-gdc-access"
+        assert result["gdc_vm_image_gcs_secret_id"] == "shifter-gcp-dev-gdc-vm-image-gcs"
+        assert result["gke_cluster_name"] == "shifter-gcp-dev-platform"
 
 
 class TestGdcClusterAccessHardening:

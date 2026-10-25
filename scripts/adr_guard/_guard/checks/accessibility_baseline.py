@@ -1,5 +1,4 @@
 """Accessibility exact-finding baseline non-growth ratchet (ADR-055-R4/R6)."""
-
 from __future__ import annotations
 
 import json

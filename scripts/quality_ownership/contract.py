@@ -352,7 +352,7 @@ def _validate_mcp(raw: object, where: str, errors: list[str]) -> McpMatrix | Non
 
 
 def _validate_responsibilities(raw: object, where: str, errors: list[str]) -> dict[str, tuple[JobRef, ...]]:
-    result: dict[str, tuple[JobRef, ...]] = dict.fromkeys(RESPONSIBILITIES, ())
+    result: dict[str, tuple[JobRef, ...]] = {name: () for name in RESPONSIBILITIES}
     if not isinstance(raw, dict):
         errors.append(f"{where}: 'responsibilities' must be a mapping")
         return result
@@ -421,20 +421,6 @@ def _validate_unique(contract: Contract, errors: list[str]) -> None:
         seen_ids.add(unit.id)
 
 
-def _validate_force_full_matrix(data: dict, errors: list[str]) -> list[object]:
-    """Validate the force_full_matrix globs; return the raw list for the contract."""
-    force_full = data.get("force_full_matrix", [])
-    if not isinstance(force_full, list) or not force_full:
-        errors.append("'force_full_matrix' must be a non-empty list")
-        return []
-    for pattern in force_full:
-        if not isinstance(pattern, str) or not is_contained_relative(pattern):
-            errors.append(f"force_full_matrix: invalid path pattern {pattern!r}")
-        elif not is_bounded_pattern(pattern):
-            errors.append(f"force_full_matrix: unbounded/catch-all path pattern {pattern!r}")
-    return force_full
-
-
 def validate_schema(data: object) -> list[str]:
     """Validate the raw contract mapping. Returns a list of human-readable
     error strings (empty when valid)."""
@@ -450,7 +436,15 @@ def validate_schema(data: object) -> list[str]:
     if version != SCHEMA_VERSION:
         errors.append(f"schema_version must be {SCHEMA_VERSION}, got {version!r}")
 
-    force_full = _validate_force_full_matrix(data, errors)
+    force_full = data.get("force_full_matrix", [])
+    if not isinstance(force_full, list) or not force_full:
+        errors.append("'force_full_matrix' must be a non-empty list")
+        force_full = []
+    for pattern in force_full:
+        if not isinstance(pattern, str) or not is_contained_relative(pattern):
+            errors.append(f"force_full_matrix: invalid path pattern {pattern!r}")
+        elif not is_bounded_pattern(pattern):
+            errors.append(f"force_full_matrix: unbounded/catch-all path pattern {pattern!r}")
 
     units_raw = data.get("quality_units")
     if not isinstance(units_raw, list) or not units_raw:
@@ -523,12 +517,8 @@ def estate_violations(contract: Contract, tracked_paths: list[str]) -> list[str]
       specificity (surfaced via :func:`classify_path`).
     """
     tracked = set(tracked_paths)
-    return _unclassified_path_errors(contract, tracked) + _stale_glob_errors(contract, tracked)
-
-
-def _unclassified_path_errors(contract: Contract, tracked: set[str]) -> list[str]:
-    """Fail closed on every tracked path that no owner or exclusion classifies."""
     errors: list[str] = []
+
     for path in sorted(tracked):
         try:
             if not is_covered(contract, path):
@@ -538,12 +528,7 @@ def _unclassified_path_errors(contract: Contract, tracked: set[str]) -> list[str
                 )
         except ContractError as exc:
             errors.append(str(exc))
-    return errors
 
-
-def _stale_glob_errors(contract: Contract, tracked: set[str]) -> list[str]:
-    """Report every contract glob that matches no tracked file."""
-    errors: list[str] = []
     for unit in contract.units:
         for pattern in unit.paths:
             if not any(_matches(path, pattern) for path in tracked):
@@ -558,6 +543,7 @@ def _stale_glob_errors(contract: Contract, tracked: set[str]) -> list[str]:
     for pattern in contract.force_full_matrix:
         if not any(_matches(path, pattern) for path in tracked):
             errors.append(f"stale glob {pattern!r} in force_full_matrix matches no tracked file")
+
     return errors
 
 

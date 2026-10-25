@@ -19,7 +19,9 @@ from .adr_registry_special_contracts import (
 )
 
 
-def validate_raes_plan_accessor_boundary_contract(contract: dict[str, object], adr_id: str) -> list[str]:
+def validate_raes_plan_accessor_boundary_contract(
+    contract: dict[str, object], adr_id: str
+) -> list[str]:
     """Validate ADR-032's cross-process plan-accessor boundary."""
     expected_keys = {
         "kind",
@@ -117,7 +119,9 @@ def validate_raes_plan_accessor_boundary_contract(contract: dict[str, object], a
     return errors
 
 
-def _validate_range_substrate_contract(contract: dict[str, object], adr_id: str) -> list[str]:
+def _validate_range_substrate_contract(
+    contract: dict[str, object], adr_id: str
+) -> list[str]:
     """Validate the generic range-substrate interface contract."""
     errors = validate_exact_string_members(
         contract.get("operations"),
@@ -152,5 +156,7 @@ def validate_interface_contract(contract: object, adr_id: str) -> list[str]:
     }
     validator = typed_validators.get(contract["kind"])
     return (
-        validator(contract, adr_id) if validator is not None else _validate_range_substrate_contract(contract, adr_id)
+        validator(contract, adr_id)
+        if validator is not None
+        else _validate_range_substrate_contract(contract, adr_id)
     )

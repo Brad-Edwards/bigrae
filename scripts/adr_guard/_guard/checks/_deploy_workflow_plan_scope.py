@@ -5,7 +5,6 @@ workflows the check reads, how a violation is built, when the check is relevant
 to a changed-file set, the concurrency policy for apply-capable runs, and the
 rule that unit tests may never be skipped through commit-message flags.
 """
-
 from __future__ import annotations
 
 import re
@@ -87,7 +86,8 @@ def _deploy_plan_scope_relevant(files: list[str] | None) -> bool:
         _QUALITY_WORKFLOW_PATH,
     }
     return any(
-        path in relevant or is_guard_source_path(path) or _is_environment_pack_routing_input(path) for path in files
+        path in relevant or is_guard_source_path(path) or _is_environment_pack_routing_input(path)
+        for path in files
     )
 
 

@@ -33,7 +33,6 @@ after(() => {
 });
 
 function cleanDir() {
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- testDir is a temp dir that this file makes
   for (const f of readdirSync(testDir)) {
     rmSync(join(testDir, f), { force: true });
   }
@@ -95,7 +94,6 @@ describe("Plan CRUD", () => {
   it("rejects traversal in getPlan plan_id", () => {
     const outsideId = `outside-${randomUUID()}`;
     const outsidePath = join(testDir, "..", `${outsideId}.json`);
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test path from testDir and a random UUID
     writeFileSync(outsidePath, JSON.stringify({ secret: true }), "utf-8");
     try {
       assert.throws(() => getPlan(`../${outsideId}`), /Invalid plan ID/);
@@ -107,11 +105,9 @@ describe("Plan CRUD", () => {
   it("rejects traversal in deletePlan plan_id without deleting external file", () => {
     const outsideId = `outside-${randomUUID()}`;
     const outsidePath = join(testDir, "..", `${outsideId}.json`);
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test path from testDir and a random UUID
     writeFileSync(outsidePath, JSON.stringify({ keep: true }), "utf-8");
     try {
       assert.throws(() => deletePlan(`../${outsideId}`), /Invalid plan ID/);
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- test path from testDir and a random UUID
       assert.equal(existsSync(outsidePath), true);
     } finally {
       rmSync(outsidePath, { force: true });

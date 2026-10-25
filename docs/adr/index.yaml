@@ -335,7 +335,10 @@
       ".gitleaks.toml",
       ".kube-linter.yaml",
       ".pre-commit-config.yaml",
+      ".github/quality-path-filters.yaml",
+      ".github/actions/install-shellcheck/action.yml",
       ".github/workflows/_quality.yml",
+      "scripts/adr_guard/ruff.toml",
       "scripts/adr_guard/adr_guard.py",
       "scripts/check_tf_kms_secrets_grant/check_tf_kms_secrets_grant.py",
       "scripts/check_tf_rds_security/check_tf_rds_security.py",
@@ -1171,7 +1174,7 @@
     "rules": [
       {
         "id": "ADR-019-R1",
-        "description": "Python tests must not introduce new first-party internal `patch()` or statically resolvable `patch.object()` targets. The `boundary-mock-policy` ADR guard check compares current internal patch counts against `scripts/adr_guard/boundary_mock_baseline.json` and rejects baseline allowance growth against the branch reference; process/network/cloud boundary patches remain allowed.",
+        "description": "Python tests must not introduce new first-party internal `patch()` or statically resolvable `patch.object()` targets. The `boundary-mock-policy` ADR guard check compares current internal patch counts against `scripts/adr_guard/boundary_mock_baseline.json` and rejects baseline allowance growth against the branch reference; process/network/cloud boundary patches remain allowed. Orchestrators expose explicit high-level operation ports for tests instead of requiring first-party monkeypatches. Issue #202 applied this pattern to bootstrap CLI dispatch, GCP Terraform, and the GDC substrate and reduced the ratchet from 618 to 465 without a replacement exception.",
         "checks": [
           "boundary-mock-policy"
         ]
@@ -1187,6 +1190,10 @@
       "scripts/adr_guard/adr_guard.py",
       "scripts/adr_guard/boundary_mock_baseline.json",
       "scripts/adr_guard/tests/test_adr_guard.py",
+      "scripts/bootstrap/cli.py",
+      "scripts/bootstrap/gcp_control_plane.py",
+      "scripts/bootstrap/tests/test_cli.py",
+      "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "docs/adr/README.md",
       "docs/technical/dev/adr-enforcement.md"
     ]
@@ -1263,7 +1270,7 @@
     "title": "Major platform features carry user and technical documentation",
     "status": "accepted",
     "scope": "repository",
-    "decision": "GEN-001 is enforced by a repo-native documentation coverage manifest plus an adr_guard check. Each major platform feature is enumerated in docs/adr/documentation-coverage.yaml with at least one user doc and one technical doc; the documentation-coverage check validates that every referenced doc exists under the public docs tree, is not under a _deprecated/hidden path, and is reachable from an index.md. 'Major platform feature' is an issue/PR classification recorded in the manifest, not a runtime model; the check enforces documentation existence and discoverability, not prose depth (that stays a review concern). Current architecture is maintained at docs/technical/architecture.md. Optional drift_sources associations in the existing coverage manifest bind architecture interfaces to their technical handbook pages; changed boundaries require a paired page review.",
+    "decision": "GEN-001 is enforced by a repo-native documentation coverage manifest plus an adr_guard check. Each major platform feature is enumerated in docs/adr/documentation-coverage.yaml with at least one user doc and one technical doc; the documentation-coverage check validates that every referenced doc exists under the public docs tree, is not under a _deprecated/hidden path, and is reachable from an index.md. 'Major platform feature' is an issue/PR classification recorded in the manifest, not a runtime model; the check enforces documentation existence and discoverability, not prose depth (that stays a review concern). Current architecture is maintained at docs/technical/architecture.md. Optional drift_sources associations in the existing coverage manifest bind architecture interfaces to their technical handbook pages; changed boundaries require a paired page review. The stable operations handoff catalog uses the existing ADR-guard unittest estate to enforce its fixed RB001-RB022 inventory, required section structure, index reachability, escalation boundary, and read-only shell-example policy without introducing a second documentation manifest or runtime check.",
     "rules": [
       {
         "id": "ADR-022-R1",
@@ -1296,7 +1303,9 @@
       ".github/CODEOWNERS",
       "scripts/quality_ownership/classify_paths.py",
       "scripts/adr_guard/tests/test_quality_path_ownership.py",
-      "scripts/adr_guard/_guard/checks/_documentation_drift.py"
+      "scripts/adr_guard/_guard/checks/_documentation_drift.py",
+      "docs/runbooks/index.md",
+      "scripts/adr_guard/tests/test_operations_runbooks.py"
     ]
   },
   {

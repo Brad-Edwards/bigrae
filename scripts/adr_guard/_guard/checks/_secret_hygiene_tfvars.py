@@ -4,7 +4,6 @@ Split out of ``secret_hygiene.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
-
 from __future__ import annotations
 
 import re
@@ -20,7 +19,7 @@ _TFVARS_SCOPE = (
     "platform/terraform/global",
 )
 _SECRET_NAME_GROUP = (
-    r"((?:[A-Za-z_][A-Za-z0-9_]*"  # noqa: S105 - a name pattern, not a credential
+    r"((?:[A-Za-z_][A-Za-z0-9_]*"
     r"(?:_passwords?|_secrets?|_tokens?|_keys?|_credentials?|_authcodes?|_pin_values?))"
     r"|(?:authcodes?|pin_values?))"
 )
@@ -122,7 +121,9 @@ def _strip_trailing_line_comment(line: str) -> str:
         else:
             if ch == '"':
                 in_string = True
-            elif ch == "#" or (ch == "/" and i + 1 < len(line) and line[i + 1] == "/"):
+            elif ch == "#":
+                return line[:i]
+            elif ch == "/" and i + 1 < len(line) and line[i + 1] == "/":
                 return line[:i]
         i += 1
     return line

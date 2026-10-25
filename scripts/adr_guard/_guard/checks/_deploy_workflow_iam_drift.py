@@ -22,7 +22,6 @@ privileged plan job:
 The check reads the workflow as data through the shared ``_dw_*`` model; it does
 not evaluate the plan, only its declared shape.
 """
-
 from __future__ import annotations
 
 import re
@@ -64,7 +63,9 @@ def _iam_drift_relevant(files: list[str] | None) -> bool:
     if files is None:
         return True
     return any(
-        path == _IAM_DRIFT_WORKFLOW_PATH or path.startswith(_GLOBAL_IAM_DIR) or is_guard_source_path(path)
+        path == _IAM_DRIFT_WORKFLOW_PATH
+        or path.startswith(_GLOBAL_IAM_DIR)
+        or is_guard_source_path(path)
         for path in files
     )
 
@@ -91,7 +92,11 @@ def _trigger_violations(wf: dict[str, object]) -> list[Violation]:
     events = _trigger_events(on)
     violations: list[Violation] = []
     if "push" not in events:
-        violations.append(_iam_drift_violation("the global/iam drift-check must trigger on push to a protected branch"))
+        violations.append(
+            _iam_drift_violation(
+                "the global/iam drift-check must trigger on push to a protected branch"
+            )
+        )
     extra = events - _ALLOWED_EVENTS
     if extra:
         violations.append(
@@ -111,12 +116,22 @@ def _trigger_violations(wf: dict[str, object]) -> list[Violation]:
         )
         return violations
     branches = push_cfg.get("branches")
-    if not isinstance(branches, list) or not branches or any(str(b) not in _PROTECTED_BRANCHES for b in branches):
-        violations.append(_iam_drift_violation("the push trigger branches must be a non-empty subset of {dev, main}"))
+    if (
+        not isinstance(branches, list)
+        or not branches
+        or any(str(b) not in _PROTECTED_BRANCHES for b in branches)
+    ):
+        violations.append(
+            _iam_drift_violation(
+                "the push trigger branches must be a non-empty subset of {dev, main}"
+            )
+        )
     paths = push_cfg.get("paths")
     if not isinstance(paths, list) or not any(_GLOBAL_IAM_DIR in str(p) for p in paths):
         violations.append(
-            _iam_drift_violation("the push trigger paths must be scoped to platform/terraform/global/iam")
+            _iam_drift_violation(
+                "the push trigger paths must be scoped to platform/terraform/global/iam"
+            )
         )
     return violations
 
@@ -127,7 +142,9 @@ def _line_is_real_plan(line: str) -> bool:
     if not stripped or stripped.startswith("#"):
         return False
     return (
-        bool(_PLAN_RE.search(line)) and "-detailed-exitcode" in line and not any(tok in line for tok in _SWALLOW_TOKENS)
+        bool(_PLAN_RE.search(line))
+        and "-detailed-exitcode" in line
+        and not any(tok in line for tok in _SWALLOW_TOKENS)
     )
 
 
@@ -160,7 +177,9 @@ def _step_is_designated_drift_plan(step: dict[str, object], job_wd: str) -> bool
         return False
     step_wd = step.get("working-directory")
     effective_wd = step_wd if isinstance(step_wd, str) else job_wd
-    return _GLOBAL_IAM_DIR in effective_wd or any(_GLOBAL_IAM_DIR in line for line in plan_lines)
+    return _GLOBAL_IAM_DIR in effective_wd or any(
+        _GLOBAL_IAM_DIR in line for line in plan_lines
+    )
 
 
 def _has_designated_drift_plan(jobs: dict[str, dict[str, object]]) -> bool:

@@ -1,2 +1,0 @@
-# The quality-ownership tooling uses the ADR guard Ruff policy (#1698).
-extend = "../adr_guard/ruff.toml"

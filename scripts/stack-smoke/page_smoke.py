@@ -43,16 +43,32 @@ _SOURCEMAP = re.compile(rb"//[#@]\s*sourceMappingURL=([^\s'\")]+)")
 _LANG_ATTR = re.compile(r"<html[^>]*\blang=", re.IGNORECASE)
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Fail closed instead of forwarding an authenticated request."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201, ARG002
+        return None
+
+
+_LOOPBACK_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
 def _fetch(url: str, session: str, cookie_name: str) -> tuple[int, bytes]:
-    # Only HTTP(S) URLs may reach urllib. This blocks file: and custom schemes.
-    if urlsplit(url).scheme not in ("http", "https"):
-        raise ValueError("page-smoke fetches only http and https URLs")
-    req = urllib.request.Request(url)  # noqa: S310 - the scheme check above allows only http and https
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }:
+        raise ValueError("stack-smoke HTTP targets must use HTTP(S) on loopback")
+    req = urllib.request.Request(url)
     req.add_header("Cookie", f"{cookie_name}={session}")
     # Mirror the ALB's forwarded proto so SECURE_PROXY_SSL_HEADER marks the
     # request secure and the production image serves instead of 301-redirecting.
     req.add_header("X-Forwarded-Proto", "https")
-    with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 - the scheme check above allows only http and https
+    # The allowlist excludes file/custom schemes and non-loopback hosts. Redirects
+    # are rejected so urllib cannot forward the session cookie to another origin.
+    with _LOOPBACK_OPENER.open(req, timeout=15) as resp:  # nosec B310
         return resp.status, resp.read()
 
 
@@ -62,47 +78,13 @@ def _check_asset(url: str, label: str, session: str, cookie_name: str, failures:
     except urllib.error.HTTPError as exc:
         failures.append(f"{label} -> HTTP {exc.code}")
         return b""
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any transport failure is a smoke failure
         failures.append(f"{label} -> {type(exc).__name__}")
         return b""
     if status != 200:
         failures.append(f"{label} -> HTTP {status}")
         return b""
     return data
-
-
-def _check_sourcemap(
-    base: str, path: str, asset_url: str, data: bytes, session: str, cookie_name: str, failures: list[str]
-) -> int:
-    """Resolve a local sourceMappingURL of a JS asset; return the count of maps fetched."""
-    match = _SOURCEMAP.search(data)
-    if not match:
-        return 0
-    ref = match.group(1).decode("ascii", "replace")
-    map_url = urljoin(asset_url, ref)
-    if not map_url.startswith(base):
-        return 0  # external sourcemap - out of scope
-    _check_asset(map_url, f"{path} sourcemap {ref}", session, cookie_name, failures)
-    return 1
-
-
-def _check_page(base: str, path: str, session: str, cookie_name: str, failures: list[str]) -> tuple[bool, int]:
-    """Render one page and its local assets; return (saw a lang tag, assets fetched)."""
-    html_bytes = _check_asset(urljoin(base, path), f"page {path}", session, cookie_name, failures)
-    if not html_bytes:
-        return False, 0
-    html = html_bytes.decode("utf-8", "replace")
-    if not html.strip():
-        failures.append(f"page {path} -> empty body")
-        return False, 0
-    asset_count = 0
-    for ref in dict.fromkeys(_STATIC_REF.findall(html)):
-        asset_url = urljoin(base, ref)
-        data = _check_asset(asset_url, f"{path} asset {ref}", session, cookie_name, failures)
-        asset_count += 1
-        if data and ref.endswith(".js"):
-            asset_count += _check_sourcemap(base, path, asset_url, data, session, cookie_name, failures)
-    return bool(_LANG_ATTR.search(html)), asset_count
 
 
 def main() -> int:
@@ -124,10 +106,34 @@ def main() -> int:
     failures: list[str] = []
     saw_lang = False
     asset_count = 0
+
     for path in args.paths.split():
-        page_lang, page_assets = _check_page(args.base, path, session, args.cookie_name, failures)
-        saw_lang = saw_lang or page_lang
-        asset_count += page_assets
+        page_url = urljoin(args.base, path)
+        html_bytes = _check_asset(page_url, f"page {path}", session, args.cookie_name, failures)
+        if not html_bytes:
+            continue
+        html = html_bytes.decode("utf-8", "replace")
+        if not html.strip():
+            failures.append(f"page {path} -> empty body")
+            continue
+        if _LANG_ATTR.search(html):
+            saw_lang = True
+
+        for ref in dict.fromkeys(_STATIC_REF.findall(html)):
+            asset_url = urljoin(args.base, ref)
+            data = _check_asset(asset_url, f"{path} asset {ref}", session, args.cookie_name, failures)
+            asset_count += 1
+            if not data or not ref.endswith(".js"):
+                continue
+            match = _SOURCEMAP.search(data)
+            if not match:
+                continue
+            map_url = urljoin(asset_url, match.group(1).decode("ascii", "replace"))
+            if not map_url.startswith(args.base):
+                continue  # external sourcemap - out of scope
+            _check_asset(map_url, f"{path} sourcemap {match.group(1).decode('ascii', 'replace')}",
+                         session, args.cookie_name, failures)
+            asset_count += 1
 
     if not saw_lang:
         failures.append("no <html lang=...> on any page (locale-aware template chain not exercised)")

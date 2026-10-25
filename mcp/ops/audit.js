@@ -174,8 +174,6 @@ export function appendAuditRecord(policy, record) {
   delete emit.args;
 
   try {
-    // The audit path comes from audit.path in .shifter.yaml, not from tool input.
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is operator config
     mkdirSync(dirname(path), { recursive: true, mode: AUDIT_DIR_MODE });
     // Open first, then operate only on the file descriptor — never re-resolve
     // the path between a check and a use, which would be a TOCTOU race
@@ -185,7 +183,6 @@ export function appendAuditRecord(policy, record) {
     // previous process left a looser mode, tighten it through the fd
     // (fchmodSync) — which refers to the actual opened file, not a re-resolved
     // path.
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is operator config
     const fd = openSync(path, "a", AUDIT_FILE_MODE);
     try {
       const mode = fstatSync(fd).mode & 0o777;

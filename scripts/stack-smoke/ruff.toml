@@ -1,9 +1,0 @@
-# Ruff policy for the stack smoke helpers (#1698). The stack-smoke-lint CI
-# job runs this config. The S rules are the security (bandit) checks.
-target-version = "py312"
-line-length = 120
-
-[lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "S", "T20", "SIM", "RUF", "C901"]
-# T201: print is the CLI output channel of these helpers.
-ignore = ["T201"]

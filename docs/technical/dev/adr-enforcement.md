@@ -38,6 +38,10 @@ The current enforcement stack has six parts:
    filtering) and `_guard/_workflow_model.py` (the `_dw_*` workflow-as-data
    model), with `_guard/_registry.py` holding the deterministic `CHECKS` /
    `CHECK_LEVELS` registry and `_guard/_cli.py` the argument parsing. The
+   deploy-environment evaluator does not execute workflow shell. It removes
+   comments, requires the exact reviewed router program, and models its outputs
+   as data. Its branch-reference inputs remain compatibility-only parameters.
+   The
    `_guard` package uses package-relative imports internally, so it is importable
    on its own; the facade re-exports its full public surface, so
    `python3 scripts/adr_guard/adr_guard.py` and tests that load it by path keep
@@ -277,7 +281,10 @@ The first slice intentionally stays small:
   has a dated ADR exception. Prefer behavioral assertions, in-memory fakes
   at service boundaries, or real framework test clients over patching
   first-party service functions, views, render/logging/transaction aliases,
-  or model helpers.
+  or model helpers. Issue #202 removed the expired bootstrap exception by
+  adding explicit CLI, Terraform, and GDC operation ports and reducing the
+  repository baseline from 618 to 465 internal patches; no replacement
+  exception was recorded.
 
 - `documentation-coverage`
   Enforces ADR-022-R1 (GEN-001): every major platform feature listed in
@@ -1024,24 +1031,16 @@ reconciles the contract against the whole repository for estate completeness,
 per-path ownership completeness across lint, security, and test, and routing
 reachability against the real workflow.
 
-For issue #1698 gap closure, see the
-[production quality preflight](../../architecture/production-quality-gap-closure-preflight-1698.md).
-It distinguishes missing ownership wiring from missing enforcement and records
-command-scope and caller-gating risks. The current rule is ADR-004-R24; old R23
-quality-gap references do not refer to the current credentialed-workflow rule.
-
-Issue #1698 closed every recorded R24 gap without an exception:
-
-| Unit | Gap closed by |
-| --- | --- |
-| `assert_portal_inspection`, `check_rds_pending_modifications`, `handle_sd_replacement` | The existing `*-lint` jobs own security. Their Ruff config selects the `S` (bandit) rules. |
-| `mcp_ngfw`, `mcp_ops`, `mcp_planner`, `mcp_shared` | `mcp-lint` owns security. Each package runs `eslint . --max-warnings 0`, so an `eslint-plugin-security` finding fails the job. `mcp-tests` now runs the `mcp/shared` tests. |
-| `k8s` | `k8s-lint` owns security through the `.kube-linter.yaml` security checks on every rendered kustomize root. `security-k8s` (Checkov) stays advisory and cannot own a responsibility; #2558 makes it blocking. |
-| `adr_guard` | `adr-guard-lint` runs Ruff with `scripts/adr_guard/ruff.toml` (which selects the `S` rules) on the guard and ownership tooling. `adr-conformance` validates the policy files. |
-| `stack_smoke` | `stack-smoke-lint` runs Ruff with the `S` rules and ShellCheck. The unit also owns `shifter/.dockerignore`, because the `stack-smoke` job builds the portal image from that context. The job gate accepts the `shifter_platform` and `installation` outputs, so a portal-only change runs the smoke. |
-| `container_images` | `container-images-lint` (hadolint and ShellCheck), `container-images-security` (blocking Trivy config), and `container-images-tests` (builds the guacd image and checks its contract). |
-| `charts` | `charts-lint` runs `helm lint --strict` and kube-linter on the defaults and every provider profile. |
-| `cloudformation`, `branding_assets` | Removed. The vendor connector templates and the unreferenced design assets are no longer in the repository. |
+The repository-wide closure in #202 assigns blocking owners to the prior gap
+set: ADR tooling and stack-smoke helpers have Ruff/Bandit lanes (plus
+ShellCheck for shell harnesses), the three standalone deployment utilities
+share a blocking Bandit lane, MCP security rules are errors and the shared
+package has its own test matrix member, and Kubernetes and Helm inputs use
+kube-linter. Container inputs use BuildKit checks/ShellCheck/Trivy; the root
+Docker context is separately routed through the portal build and stack smoke.
+Issue #1698 removed the hand-deployed vendor CloudFormation templates and the
+unreferenced root `assets/**` from the repository. The expired ADR-004-R24
+exceptions were removed rather than extended.
 
 To add a production path:
 
@@ -1118,7 +1117,6 @@ the rendered CEL against actual neutral-runner manifests and privilege overrides
 API tests cover tenant denial, immutable versions, encrypted registry credentials,
 retry and stale probe completion. These tests do not replace live isolation or
 range-lifecycle qualification.
-
 
 ### External image and pack ownership (ADR-041-R10)
 
@@ -1241,3 +1239,15 @@ its public helper surface; Quality uses the same entrypoint.
 The focused helper module also owns coverage-violation construction and shared
 manifest shape checks. Coverage validation and CI path routing therefore retain
 one set of rule identifiers and diagnostics when their implementation is split.
+
+### Operations runbook catalog
+
+The public operations handoff under `docs/runbooks/` retains the stable
+`RB001` through `RB022` incident identifiers. The existing ADR-guard unittest
+discovery runs `test_operations_runbooks.py`, which checks that all 22 pages are
+present and indexed, carry the required Symptom, Investigation, Resolution and
+Prevention sections in order, state an escalation boundary, and mark fenced
+shell examples as read-only. The same test rejects command examples that read
+secret values or directly mutate Kubernetes, cloud resources, Terraform, or
+Helm. This is focused GEN-001 evidence within the existing test estate, not a
+new documentation schema, manifest, or adr_guard runtime check.
