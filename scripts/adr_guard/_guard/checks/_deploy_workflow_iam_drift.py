@@ -28,7 +28,7 @@ import re
 from pathlib import Path
 
 from .._common import Violation, is_guard_source_path
-from .._workflow_model import _DwShapeError, _dw_jobs, _dw_load_workflow
+from .._workflow_model import _dw_jobs, _dw_load_workflow, _DwShapeError
 
 _IAM_DRIFT_CHECK = "global-iam-drift-check"
 _IAM_DRIFT_RULE = "ADR-004-R26"

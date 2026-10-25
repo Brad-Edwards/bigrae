@@ -112,11 +112,6 @@ Resources:
       Tags:
         - Key: managed_by
           Value: paloaltonetworks
-    DependsOn:
-      - CortexADSPolicy
-      - CortexDISCOVERYPolicy
-      - CortexAutomationPolicy
-      - CortexDSPMPolicy
   CortexTemplateCustomLambdaExecutionRole:
     Type: AWS::IAM::Role
     DependsOn:
@@ -150,6 +145,13 @@ Resources:
           Value: paloaltonetworks
   CortexTemplateCustomLambdaFunction:
     Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: This installer callback needs only public AWS and vendor HTTPS endpoints; no tenant VPC is part of this template contract.
+          - id: CKV_AWS_116
+            comment: CloudFormation invokes this callback synchronously and receives its failure through cfnresponse, so an asynchronous DLQ would not handle failures.
     DependsOn:
       - CortexPlatformRole
       - CloudTrailKMSKey
@@ -189,6 +191,7 @@ Resources:
           Success\": False, \"error\": error})\n    print({\"Success\": False, \"error\": error})\n    return {'Status': 'Failed to send'}\n"
       Runtime: python3.12
       Timeout: 75
+      ReservedConcurrentExecutions: 1
       Tags:
         - Key: managed_by
           Value: paloaltonetworks
@@ -239,6 +242,7 @@ Resources:
     Type: AWS::KMS::Key
     Properties:
       Description: KMS key for CloudTrail logs encryption
+      EnableKeyRotation: true
       KeyPolicy:
         Version: '2012-10-17'
         Statement:
@@ -271,6 +275,11 @@ Resources:
           Value: paloaltonetworks
   CloudTrailLogsBucket:
     Type: AWS::S3::Bucket
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_18
+            comment: The multi-region trail records S3 object data events for this audit-log bucket; a second server-access-log sink would duplicate that audit path.
     Properties:
       BucketName: !Sub 'cortex-ct-logs-${AWS::AccountId}-m-a-1101513494371'
       BucketEncryption:
@@ -278,11 +287,20 @@ Resources:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: aws:kms
               KMSMasterKeyID: !Ref 'CloudTrailKMSKey'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       LifecycleConfiguration:
         Rules:
           - Id: DeleteOldLogs
             Status: Enabled
             ExpirationInDays: 7
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
             Prefix: ''
       Tags:
         - Key: managed_by
@@ -311,8 +329,42 @@ Resources:
             Resource: !Sub 'arn:aws:s3:::${CloudTrailLogsBucket}'
   CloudTrailLogsQueue:
     Type: AWS::SQS::Queue
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_27
+            comment: SqsManagedSseEnabled provides SQS-owned server-side encryption; this pinned Checkov release recognizes only KMSMasterKeyId.
     Properties:
       QueueName: !Sub 'cortex-ct-logs-queue-${AWS::AccountId}-m-a-1101513494371'
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: managed_by
+          Value: paloaltonetworks
+  CloudTrailSNSTopicKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for CloudTrail SNS notifications
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableAccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowCloudTrailNotificationEncryption
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+              - kms:Decrypt
+            Resource: '*'
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/cortex-trail-${AWS::AccountId}-m-a-1101513494371'
       Tags:
         - Key: managed_by
           Value: paloaltonetworks
@@ -320,6 +372,7 @@ Resources:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub 'cortex-ct-logs-notification-${AWS::AccountId}-m-a-1101513494371'
+      KmsMasterKeyId: !Ref 'CloudTrailSNSTopicKMSKey'
       Tags:
         - Key: managed_by
           Value: paloaltonetworks
@@ -336,6 +389,9 @@ Resources:
               Service: cloudtrail.amazonaws.com
             Action: sns:Publish
             Resource: !Ref 'CloudTrailSNSTopic'
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/cortex-trail-${AWS::AccountId}-m-a-1101513494371'
   CloudTrailSNSTopicSubscription:
     Type: AWS::SNS::Subscription
     Properties:
@@ -361,7 +417,7 @@ Resources:
   CloudTrailReadRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'cortex-logs-ingestion-access-m-a-1101513494371'
+      RoleName: 'cortex-logs-ingestion-access-m-a-1101513494371'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -431,15 +487,23 @@ Resources:
           Value: paloaltonetworks
   EmptyBucketLambda:
     Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: This deletion callback accesses S3 over the AWS public endpoint and has no private-network dependency or tenant VPC input.
+          - id: CKV_AWS_116
+            comment: CloudFormation invokes this callback synchronously and receives its failure through cfnresponse, so an asynchronous DLQ would not handle failures.
     Properties:
       Handler: index.handler
       Role: !GetAtt 'EmptyBucketLambdaExecutionRole.Arn'
       Runtime: python3.12
       Timeout: 600
+      ReservedConcurrentExecutions: 1
       Code:
         ZipFile: "import boto3\nimport cfnresponse\n\ndef handler(event, context):\n    if event['RequestType'] != 'Delete':\n        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})\n        return\
           \ {'Status': 'RequestType=Delete'}\n    \n    try:\n        physical_resource_id = event['PhysicalResourceId']\n        s3 = boto3.resource('s3')\n        bucket_name = event['ResourceProperties']['BucketDetails']['BucketName']\n\
-          \        print(f\"cleaning up bucket {bucket_name}\")\n\n        bucket = s3.Bucket(bucket_name)\n        bucket.objects.delete()\n      \n        cfnresponse.send(event, context, cfnresponse.SUCCESS,\
+          \        print(f\"cleaning up bucket {bucket_name}\")\n\n        bucket = s3.Bucket(bucket_name)\n        bucket.object_versions.delete()\n      \n        cfnresponse.send(event, context, cfnresponse.SUCCESS,\
           \ {}, physical_resource_id)\n        print(f\"finished cleaning up bucket {bucket_name}\")\n        return {'Status': 'Success'}\n    except Exception as e:\n        cfnresponse.send(event, context,\
           \ cfnresponse.SUCCESS, {\"Success\": False, \"error\": str(e)}, physical_resource_id)\n        print(f\"failed at cleaning up bucket {bucket_name}: {e}\")\n        return {'Status': 'Failure'}\n"
       Tags:
@@ -458,6 +522,7 @@ Resources:
       S3BucketName: !Ref 'CloudTrailLogsBucket'
       KMSKeyId: !Ref 'CloudTrailKMSKey'
       IsLogging: true
+      EnableLogFileValidation: true
       IsMultiRegionTrail: true
       IncludeGlobalServiceEvents: true
       IsOrganizationTrail: !If
@@ -744,6 +809,15 @@ Resources:
                 aws:RequestTag/managed_by: paloaltonetworks
   CortexDISCOVERYPolicy:
     Type: AWS::IAM::ManagedPolicy
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_109
+            comment: The vendor discovery connector requires account-wide service metadata APIs that do not share resource-level authorization support.
+          - id: CKV_AWS_110
+            comment: The vendor discovery connector requires account-wide service metadata APIs that Checkov classifies conservatively as privilege escalation.
+          - id: CKV_AWS_111
+            comment: The vendor discovery connector requires account-wide service metadata APIs; access is bounded by the external-ID trust policy.
     Properties:
       ManagedPolicyName: Cortex-DISCOVERY-Policy-m-a-1101513494371
       PolicyDocument:
@@ -768,6 +842,19 @@ Resources:
             Resource: '*'
   CortexAutomationPolicy:
     Type: AWS::IAM::ManagedPolicy
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_107
+            comment: Credential-state remediation is an explicit connector capability and is bounded by the external-ID trust policy.
+          - id: CKV_AWS_108
+            comment: Cross-service remediation includes S3 object operations by design and is bounded by the external-ID trust policy.
+          - id: CKV_AWS_109
+            comment: Permissions-management remediation is an explicit connector capability and is bounded by the external-ID trust policy.
+          - id: CKV_AWS_110
+            comment: Role-passing and grant operations are explicit remediation capabilities and are bounded by the external-ID trust policy.
+          - id: CKV_AWS_111
+            comment: Account-wide write remediation is the purpose of this vendor connector policy and is bounded by the external-ID trust policy.
     Properties:
       ManagedPolicyName: Cortex-Automation-Policy-m-a-1101513494371
       PolicyDocument:
@@ -908,12 +995,17 @@ Resources:
             Resource: '*'
           - Sid: BudgetsPermissions
             Effect: Allow
-            Action:
-              - budgets:DescribeBudgets
-              - budgets:DescribeNotificationsForBudget
+            Action: budgets:ViewBudget
             Resource: '*'
   CortexDSPMPolicy:
     Type: AWS::IAM::ManagedPolicy
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_109
+            comment: Snapshot export and key-grant operations are required DSPM capabilities and are bounded by the external-ID trust policy.
+          - id: CKV_AWS_111
+            comment: DSPM snapshot and export APIs require account-wide write operations where resource scoping is not uniformly supported.
     Properties:
       ManagedPolicyName: Cortex-DSPM-Policy-m-a-1101513494371
       PolicyDocument:

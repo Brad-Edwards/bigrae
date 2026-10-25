@@ -26,9 +26,8 @@ from .._common import (
 )
 from .._workflow_model import (
     _CORE_WORKFLOW_PATH,
-    _ENGINE_WORKFLOW_PATH,
     _DW_REUSABLE_WORKFLOW_PATHS,
-    _DwShapeError,
+    _ENGINE_WORKFLOW_PATH,
     _PLATFORM_WORKFLOW_PATH,
     _RANGE_WORKFLOW_PATH,
     _dw_is_self_hosted,
@@ -36,6 +35,7 @@ from .._workflow_model import (
     _dw_job_if,
     _dw_jobs,
     _dw_load_workflow,
+    _DwShapeError,
 )
 from ._deploy_workflow_action_pin import (
     _ACTION_PIN_CHECK,
@@ -59,6 +59,15 @@ from ._deploy_workflow_action_pin import (
     _dw_workflow_is_cloud_credentialed,
     _workflow_action_pin_relevant,
     check_workflow_action_sha_pinning,
+)
+from ._deploy_workflow_iam_drift import (
+    _GLOBAL_IAM_DIR,
+    _IAM_DRIFT_CHECK,
+    _IAM_DRIFT_RULE,
+    _IAM_DRIFT_WORKFLOW_PATH,
+    _iam_drift_relevant,
+    _iam_drift_violation,
+    check_global_iam_drift_check,
 )
 from ._deploy_workflow_plan_scope import (
     _DEPLOY_WORKFLOW_PATH,
@@ -98,15 +107,6 @@ from ._deploy_workflow_routing import (
     _check_deploy_workflow_quality_only_routing,
     _check_platform_build_portal_image_gate,
     _platform_app_source_globs,
-)
-from ._deploy_workflow_iam_drift import (
-    _GLOBAL_IAM_DIR,
-    _IAM_DRIFT_CHECK,
-    _IAM_DRIFT_RULE,
-    _IAM_DRIFT_WORKFLOW_PATH,
-    _iam_drift_relevant,
-    _iam_drift_violation,
-    check_global_iam_drift_check,
 )
 from ._deploy_workflow_runner_exposure import (
     _RUNNER_EXPOSURE_CHECK,

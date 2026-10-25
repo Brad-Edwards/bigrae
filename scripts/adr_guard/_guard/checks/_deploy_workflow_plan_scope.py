@@ -24,7 +24,6 @@ from ._deploy_workflow_text import (
     _workflow_job_block,
 )
 
-
 _DEPLOY_WORKFLOW_PATH = ".github/workflows/deploy.yml"
 _PLAN_SCOPE_CHECK = "deploy-workflow-plan-scope"
 _PLAN_SCOPE_RULE = "ADR-003-R2"

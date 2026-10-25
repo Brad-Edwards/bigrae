@@ -15,7 +15,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -23,6 +23,10 @@ import deploy
 import gcp_base_images as gbi
 
 PINNED_IMAGE_TAG = "abc1234"
+
+
+def _skip_dependency_check(*_args, **_kwargs):
+    """No-op CLI dependency boundary for parser/dispatch unit tests."""
 
 
 class _StopAfterImageHandoff(RuntimeError):
@@ -412,7 +416,6 @@ class TestMainCLI:
         """CLI executes bootstrap_account when bootstrap command given."""
         with (
             patch("sys.argv", ["deploy.py", "bootstrap", "--env", "dev", "--profile", "test"]),
-            patch("deploy.check_dependencies"),
             patch("shutil.which", return_value="/usr/bin/tool"),
             patch("deploy.bootstrap_account") as mock_bootstrap,
             patch("deploy.walkthrough_github_secrets"),
@@ -420,7 +423,7 @@ class TestMainCLI:
         ):
             mock_bootstrap.return_value = {"role_arn": "test"}
 
-            deploy.main()
+            deploy.main(dependency_checker=_skip_dependency_check)
 
             mock_bootstrap.assert_called_once_with(deploy.BootstrapConfig(env="dev"), "test", dry_run=False)
 
@@ -428,7 +431,6 @@ class TestMainCLI:
         """CLI executes terraform_deploy when terraform command given."""
         with (
             patch("sys.argv", ["deploy.py", "terraform", "--env", "dev", "--profile", "test"]),
-            patch("deploy.check_dependencies"),
             patch("shutil.which", return_value="/usr/bin/tool"),
             patch("deploy.terraform_deploy") as mock_terraform,
             patch("deploy.walkthrough_acm_validation"),
@@ -438,7 +440,7 @@ class TestMainCLI:
         ):
             mock_terraform.return_value = {}
 
-            deploy.main()
+            deploy.main(dependency_checker=_skip_dependency_check)
 
             mock_terraform.assert_called_once_with("dev", "test", dry_run=False)
 
@@ -446,11 +448,10 @@ class TestMainCLI:
         """CLI executes full_deployment when full command given."""
         with (
             patch("sys.argv", ["deploy.py", "full", "--env", "dev", "--profile", "test"]),
-            patch("deploy.check_dependencies"),
             patch("shutil.which", return_value="/usr/bin/tool"),
             patch("deploy.full_deployment") as mock_full,
         ):
-            deploy.main()
+            deploy.main(dependency_checker=_skip_dependency_check)
 
             mock_full.assert_called_once_with("dev", "test", dry_run=False)
 
@@ -503,7 +504,6 @@ class TestMainCLI:
         """CLI passes --dry-run flag to bootstrap_account."""
         with (
             patch("sys.argv", ["deploy.py", "bootstrap", "--env", "dev", "--profile", "test", "--dry-run"]),
-            patch("deploy.check_dependencies"),
             patch("shutil.which", return_value="/usr/bin/tool"),
             patch("deploy.bootstrap_account") as mock_bootstrap,
             patch("deploy.walkthrough_github_secrets"),
@@ -511,7 +511,7 @@ class TestMainCLI:
         ):
             mock_bootstrap.return_value = {"role_arn": "test"}
 
-            deploy.main()
+            deploy.main(dependency_checker=_skip_dependency_check)
 
             # Should be called with dry_run=True
             assert mock_bootstrap.call_args[1]["dry_run"] is True
@@ -520,18 +520,18 @@ class TestMainCLI:
         """CLI passes --dry-run flag to terraform_deploy."""
         with (
             patch("sys.argv", ["deploy.py", "terraform", "--env", "dev", "--profile", "test", "--dry-run"]),
-            patch("deploy.check_dependencies"),
             patch("shutil.which", return_value="/usr/bin/tool"),
             patch("deploy.terraform_deploy") as mock_terraform,
         ):
             mock_terraform.return_value = None
 
-            deploy.main()
+            deploy.main(dependency_checker=_skip_dependency_check)
 
             assert mock_terraform.call_args[1]["dry_run"] is True
 
     def test_passes_dry_run_flag_to_gdc_bootstrap(self):
         """CLI passes --dry-run flag to gdc_bootstrap_cluster."""
+        mock_gdc_bootstrap = Mock()
         with (
             patch(
                 "sys.argv",
@@ -545,10 +545,11 @@ class TestMainCLI:
                     "--dry-run",
                 ],
             ),
-            patch("deploy.check_dependencies"),
-            patch("deploy.gdc_bootstrap_cluster") as mock_gdc_bootstrap,
         ):
-            deploy.main()
+            deploy.main(
+                dependency_checker=_skip_dependency_check,
+                gdc_bootstrapper=mock_gdc_bootstrap,
+            )
 
             assert mock_gdc_bootstrap.call_args[1]["dry_run"] is True
 
@@ -691,16 +692,18 @@ class TestMainCLI:
 
     def test_gdc_bootstrap_defaults_to_gce_range_backend(self):
         """gdc-bootstrap defaults to the gce range backend so no ABM substrate / SA key is built (#1716)."""
+        mock_gdc_bootstrap = Mock()
         with (
             patch.dict("os.environ", {"GCP_RANGE_BACKEND": ""}, clear=False),
             patch(
                 "sys.argv",
                 ["deploy.py", "gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"],
             ),
-            patch("deploy.check_dependencies"),
-            patch("deploy.gdc_bootstrap_cluster") as mock_gdc_bootstrap,
         ):
-            deploy.main()
+            deploy.main(
+                dependency_checker=_skip_dependency_check,
+                gdc_bootstrapper=mock_gdc_bootstrap,
+            )
 
             config = mock_gdc_bootstrap.call_args[0][0]
             assert config.range_backend == "gce"
@@ -708,6 +711,7 @@ class TestMainCLI:
 
     def test_gdc_bootstrap_range_backend_gdc_selects_substrate(self):
         """--range-backend gdc selects the ABM/GDC substrate-building path (#1716)."""
+        mock_gdc_bootstrap = Mock()
         with (
             patch(
                 "sys.argv",
@@ -722,10 +726,11 @@ class TestMainCLI:
                     "gdc",
                 ],
             ),
-            patch("deploy.check_dependencies"),
-            patch("deploy.gdc_bootstrap_cluster") as mock_gdc_bootstrap,
         ):
-            deploy.main()
+            deploy.main(
+                dependency_checker=_skip_dependency_check,
+                gdc_bootstrapper=mock_gdc_bootstrap,
+            )
 
             config = mock_gdc_bootstrap.call_args[0][0]
             assert config.range_backend == "gdc"
@@ -733,21 +738,24 @@ class TestMainCLI:
 
     def test_gdc_bootstrap_defaults_to_gcp_dev_environment(self):
         """gdc-bootstrap defaults to the gcp-dev environment for back-compat."""
+        mock_gdc_bootstrap = Mock()
         with (
             patch(
                 "sys.argv",
                 ["deploy.py", "gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"],
             ),
-            patch("deploy.check_dependencies"),
-            patch("deploy.gdc_bootstrap_cluster") as mock_gdc_bootstrap,
         ):
-            deploy.main()
+            deploy.main(
+                dependency_checker=_skip_dependency_check,
+                gdc_bootstrapper=mock_gdc_bootstrap,
+            )
 
             config = mock_gdc_bootstrap.call_args[0][0]
             assert config.environment == "gcp-dev"
 
     def test_gdc_bootstrap_environment_selects_tenant(self):
         """--environment selects a per-tenant deployment (Terraform root, state prefix, values-<env>)."""
+        mock_gdc_bootstrap = Mock()
         with (
             patch(
                 "sys.argv",
@@ -760,16 +768,18 @@ class TestMainCLI:
                     "nazgul",
                 ],
             ),
-            patch("deploy.check_dependencies"),
-            patch("deploy.gdc_bootstrap_cluster") as mock_gdc_bootstrap,
         ):
-            deploy.main()
+            deploy.main(
+                dependency_checker=_skip_dependency_check,
+                gdc_bootstrapper=mock_gdc_bootstrap,
+            )
 
             config = mock_gdc_bootstrap.call_args[0][0]
             assert config.environment == "nazgul"
 
     def test_gdc_bootstrap_terraform_identity_operator_adc(self):
         """--terraform-identity operator-adc threads through to the config (#1718)."""
+        mock_gdc_bootstrap = Mock()
         with (
             patch(
                 "sys.argv",
@@ -784,10 +794,11 @@ class TestMainCLI:
                     "operator-adc",
                 ],
             ),
-            patch("deploy.check_dependencies"),
-            patch("deploy.gdc_bootstrap_cluster") as mock_gdc_bootstrap,
         ):
-            deploy.main()
+            deploy.main(
+                dependency_checker=_skip_dependency_check,
+                gdc_bootstrapper=mock_gdc_bootstrap,
+            )
 
             config = mock_gdc_bootstrap.call_args[0][0]
             assert config.terraform_identity == "operator-adc"

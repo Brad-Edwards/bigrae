@@ -13,7 +13,6 @@ from .._common import (
     _walk_all_files,
 )
 
-
 # ---------------------------------------------------------------------------
 # ADR-004-R14: live cloud identifier hygiene.
 #

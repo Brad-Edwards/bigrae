@@ -6,9 +6,7 @@ here, so this module remains the single import site for the whole model.
 """
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -17,10 +15,6 @@ from ._workflow_model_expr import (
     _DW_EXPR_TOKEN,
     _DW_EXPR_WRAPPER,
     _DW_RESULT_REF,
-    _DwExprError,
-    _DwParser,
-    _DwScenario,
-    _DwShapeError,
     _dw_call_function,
     _dw_evaluate_if,
     _dw_evaluate_scenario,
@@ -37,8 +31,11 @@ from ._workflow_model_expr import (
     _dw_tokenize,
     _dw_truthy,
     _dw_unwrap_expr,
+    _DwExprError,
+    _DwParser,
+    _DwScenario,
+    _DwShapeError,
 )
-
 
 _CORE_WORKFLOW_PATH = ".github/workflows/_core.yml"
 _RANGE_WORKFLOW_PATH = ".github/workflows/_range.yml"
@@ -239,6 +236,47 @@ def _dw_extract_set_environment_script(
     raise _DwShapeError(f"{name}: no 'Set environment' step in 'changes' job")
 
 
+_DW_SET_ENVIRONMENT_PROGRAM = (
+    'AWS_ENV="dev"',
+    'AWS_IS_DEV="true"',
+    'AWS_GITHUB_ENV="aws-dev"',
+    'GCP_ENV="gcp-dev"',
+    'GCP_GITHUB_ENV="gcp-dev"',
+    'GCP_RELEASE_SCAN_GITHUB_ENV="gcp-release-scan-dev"',
+    'RUN_AWS="false"',
+    'RUN_GCP="false"',
+    'APPLY_AWS="false"',
+    'DEPLOY_GCP="false"',
+    'if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then',
+    'case "$ENVIRONMENT" in',
+    'aws-dev)',
+    'RUN_AWS="true"',
+    'APPLY_AWS="true"',
+    ';;',
+    'gcp-dev|orthanc|sauron|balrog)',
+    'GCP_ENV="$ENVIRONMENT"',
+    'GCP_GITHUB_ENV="$ENVIRONMENT"',
+    'GCP_RELEASE_SCAN_GITHUB_ENV="gcp-release-scan-${ENVIRONMENT#gcp-}"',
+    'RUN_GCP="true"',
+    'DEPLOY_GCP="true"',
+    ';;',
+    'esac',
+    'fi',
+    '{',
+    'echo "aws_environment=$AWS_ENV"',
+    'echo "aws_is_dev=$AWS_IS_DEV"',
+    'echo "aws_github_environment=$AWS_GITHUB_ENV"',
+    'echo "gcp_environment=$GCP_ENV"',
+    'echo "gcp_github_environment=$GCP_GITHUB_ENV"',
+    'echo "gcp_release_scan_github_environment=$GCP_RELEASE_SCAN_GITHUB_ENV"',
+    'echo "run_aws=$RUN_AWS"',
+    'echo "run_gcp=$RUN_GCP"',
+    'echo "apply_aws=$APPLY_AWS"',
+    'echo "deploy_gcp=$DEPLOY_GCP"',
+    '} >> "$GITHUB_OUTPUT"',
+)
+
+
 def _dw_evaluate_env(
     script: str,
     event_name: str,
@@ -246,44 +284,48 @@ def _dw_evaluate_env(
     base_ref: str = "",
     environment_input: str = "",
 ) -> dict[str, str]:
-    """Execute the workflow's own ``Set environment`` bash and return its
-    ``GITHUB_OUTPUT`` key/value pairs. Only literal event/branch strings reach
-    bash - no secrets, no shell trace - matching GitHub's default
-    ``bash -e -o pipefail`` shell."""
-    import tempfile
+    """Statically model the closed deploy-environment router.
 
-    rendered = (
-        script.replace("${{ github.event_name }}", event_name)
-        .replace("${{ github.base_ref }}", base_ref)
-        .replace("${{ github.event.inputs.environment }}", environment_input)
+    The workflow body is untrusted repository input during pull-request CI, so
+    the guard must never execute it.  Fail closed unless every non-comment line
+    matches the reviewed router program, then evaluate that program as data.
+    """
+    del ref, base_ref  # Retained in the public test-model API for compatibility.
+    program = tuple(
+        line.strip()
+        for line in script.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
     )
-    with tempfile.TemporaryDirectory() as tmp:
-        out_path = os.path.join(tmp, "github_output")
-        Path(out_path).touch()
-        env = {
-            "PATH": os.environ.get("PATH", ""),
-            "ENVIRONMENT": environment_input,
-            "GITHUB_REF": ref,
-            "GITHUB_OUTPUT": out_path,
-        }
-        proc = subprocess.run(
-            ["bash", "-eo", "pipefail", "-c", rendered],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
+    if program != _DW_SET_ENVIRONMENT_PROGRAM:
+        raise _DwShapeError(
+            "deploy.yml: unsupported Set environment program; update the static model before changing the router"
         )
-        if proc.returncode != 0:
-            raise _DwShapeError(
-                f"Set environment script exited {proc.returncode}: {proc.stderr.strip()}"
-            )
-        outputs = {}
-        for line in Path(out_path).read_text().splitlines():
-            line = line.strip()
-            if "=" in line:
-                key, val = line.split("=", 1)
-                outputs[key] = val
+
+    outputs = {
+        "aws_environment": "dev",
+        "aws_is_dev": "true",
+        "aws_github_environment": "aws-dev",
+        "gcp_environment": "gcp-dev",
+        "gcp_github_environment": "gcp-dev",
+        "gcp_release_scan_github_environment": "gcp-release-scan-dev",
+        "run_aws": "false",
+        "run_gcp": "false",
+        "apply_aws": "false",
+        "deploy_gcp": "false",
+    }
+    if event_name != "workflow_dispatch":
+        return outputs
+    if environment_input == "aws-dev":
+        outputs["run_aws"] = "true"
+        outputs["apply_aws"] = "true"
+    elif environment_input in {"gcp-dev", "orthanc", "sauron", "balrog"}:
+        outputs["gcp_environment"] = environment_input
+        outputs["gcp_github_environment"] = environment_input
+        outputs["gcp_release_scan_github_environment"] = (
+            f"gcp-release-scan-{environment_input.removeprefix('gcp-')}"
+        )
+        outputs["run_gcp"] = "true"
+        outputs["deploy_gcp"] = "true"
     return outputs
 
 

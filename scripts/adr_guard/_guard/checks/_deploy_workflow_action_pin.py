@@ -18,11 +18,10 @@ from .._common import (
     is_guard_source_path,
 )
 from .._workflow_model import (
-    _DwShapeError,
     _dw_is_self_hosted,
     _dw_load_workflow,
+    _DwShapeError,
 )
-
 
 _ACTION_PIN_CHECK = "workflow-action-sha-pinning"
 _ACTION_PIN_RULE = "ADR-037-R1"

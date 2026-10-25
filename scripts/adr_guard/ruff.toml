@@ -1,0 +1,14 @@
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[lint.per-file-ignores]
+# The compatibility facade intentionally imports check modules for callers and
+# tests that access them as attributes rather than by a symbol in this module.
+"adr_guard.py" = ["E402", "F401"]
+# These entrypoints add their own directory to sys.path before importing the
+# adjacent module so they also work when invoked directly by Git hooks.
+"block_agent_attribution_commit_msg.py" = ["E402"]
+"test_agent_attribution.py" = ["E402"]

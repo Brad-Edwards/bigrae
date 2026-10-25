@@ -9,7 +9,6 @@ from .._common import (
     _repo_relative,
 )
 
-
 # child_process import shapes we care about (any form — named, default,
 # namespace, CJS destructure, bare CJS require — with or without the
 # `node:` prefix). We require the import as evidence that this file

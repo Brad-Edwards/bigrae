@@ -14,8 +14,8 @@ from ._common import (
     load_adr_exceptions,
 )
 from ._registry import (
-    CHECKS,
     CHECK_LEVELS,
+    CHECKS,
 )
 
 

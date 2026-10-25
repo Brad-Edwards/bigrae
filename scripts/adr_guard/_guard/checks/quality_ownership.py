@@ -16,26 +16,25 @@ from .._common import (
     _walk_all_files,
 )
 from .._workflow_model import (
-    _DwShapeError,
     _dw_jobs,
     _dw_load_workflow,
     _dw_truthy,
+    _DwShapeError,
 )
 from ._quality_ownership_model import (
     _QUALITY_CONTRACT_REL,
     _QUALITY_WORKFLOW_REL,
+    _load_quality_module,
+    _quality_load_contract,
     _QualityContract,
     _QualityJobRef,
     _QualityJobs,
     _QualityUnit,
     _QualityViol,
-    _load_quality_module,
-    _quality_load_contract,
 )
 from ._quality_ownership_routing import (
     _QUALITY_INPUT_VALUES,
     _QUALITY_MATRIX_OUTPUT,
-    _QualityProbe,
     _quality_docs_only_violations,
     _quality_eval_if,
     _quality_job_reachable,
@@ -47,11 +46,11 @@ from ._quality_ownership_routing import (
     _quality_routing_reachability,
     _quality_strip_if,
     _quality_unit_routing_violations,
+    _QualityProbe,
 )
 from .layer_imports import (
     _classified_packages,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Production-path quality-ownership conformance (#1530, GEN-002, ADR-004-R24)

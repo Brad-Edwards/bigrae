@@ -7,7 +7,6 @@ from pathlib import Path
 from .._common import Violation, _read_text_safe
 from .cloud_identifiers import _IDENTIFIER_RULE_ID, _identifier_skip, _iter_identifier_candidates
 
-
 # ---------------------------------------------------------------------------
 # ADR-004-R14 / ADR-011: GCP deploy-identity hygiene in Kustomize overlays.
 #
