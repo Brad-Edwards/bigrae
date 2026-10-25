@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess  # nosec B404
 import sys
@@ -35,6 +36,7 @@ from bootstrap_core import (
     confirm,
     error,
     gcloud_resource_exists,
+    gcp_terraform_var_files,
     get_repo_root,
     header,
     info,
@@ -999,6 +1001,41 @@ def run_gcp_terraform_apply_with_retry(
         sys.exit(1)
 
 
+@contextmanager
+def _gcp_terraform_context(repo_root: Path, environment: str) -> Iterator[None]:
+    """Select shared source with environment-specific values and backend metadata."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", environment):
+        raise ValueError("Invalid GCP environment")
+    roots = (repo_root / "platform/terraform/gcp/environments").resolve()
+    values = (roots / environment).resolve()
+    shared = roots / "platform"
+    if (
+        values.parent != roots
+        or not any((values / name).is_file() for name in ("terraform.tfvars", "terraform.tfvars.json"))
+        or not shared.is_dir()
+    ):
+        raise ValueError("GCP environment values or shared Terraform root not found")
+    var_files = gcp_terraform_var_files(values)
+    flags = " ".join(shlex.quote(f"-var-file={path}") for path in var_files)
+    updates = {"TF_DATA_DIR": str(values / ".terraform")}
+    for operation in ("plan", "apply", "destroy", "import"):
+        key = f"TF_CLI_ARGS_{operation}"
+        updates[key] = " ".join(part for part in (os.environ.get(key, ""), flags) if part)
+    previous = {key: os.environ.get(key) for key in updates}
+    original_dir = Path.cwd()
+    try:
+        os.environ.update(updates)
+        os.chdir(shared)
+        yield
+    finally:
+        os.chdir(original_dir)
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def _run_gcp_bootstrap_probe(cmd: list[str], credentials_path: Path) -> subprocess.CompletedProcess[str]:
     """Run a gcloud probe using the temporary bootstrap credential file."""
     env = os.environ.copy()
@@ -1523,9 +1560,7 @@ def apply_gcp_control_plane_terraform(
     # CMEK permissions; fresh projects do not have the identity yet.
     operations.ensure_service_identity(config, dry_run=dry_run)
 
-    original_dir = os.getcwd()
-    os.chdir(tf_dir)
-    try:
+    with _gcp_terraform_context(repo_root, config.environment):
         if dry_run:
             operations.command_runner(
                 [
@@ -1588,8 +1623,6 @@ def apply_gcp_control_plane_terraform(
             operations.wait_for_access(config, credentials_path)
             operations.terraform_apply(config)
             return _capture_terraform_outputs()
-    finally:
-        os.chdir(original_dir)
 
 
 def stage_gcp_control_plane_values(

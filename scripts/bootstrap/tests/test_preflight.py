@@ -53,7 +53,6 @@ class TestAwsSecretNames:
     def test_role_secret_is_unsuffixed_for_prod(self):
         assert preflight._aws_role_secret("prod") == "AWS_ROLE_ARN"
         assert preflight._aws_role_secret("dev") == "AWS_ROLE_ARN_DEV"
-        assert preflight._aws_role_secret("proof") == "AWS_ROLE_ARN_PROOF"
 
     def test_state_bucket_secret_is_unsuffixed_for_prod(self):
         assert preflight._aws_state_bucket_secret("prod") == "TF_INFRA_STATE_BUCKET"
@@ -64,7 +63,7 @@ class TestAwsSecretNames:
         assert preflight._tf_vars_secret("dev", "core") == "TF_VARS_DEV_CORE"
 
     def test_shifter_config_secret(self):
-        assert preflight._shifter_config_secret("proof") == "SHIFTER_CONFIG_PROOF_RANGE"
+        assert preflight._shifter_config_secret("dev") == "SHIFTER_CONFIG_DEV_RANGE"
 
 
 # --- run_preflight: CI (secret) mode ------------------------------------------

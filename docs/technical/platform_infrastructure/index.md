@@ -1,6 +1,7 @@
 # Platform Infrastructure
 
-Cloud infrastructure and CI/CD for Shifter.
+Shifter platform workloads use the shared Helm chart on EKS or GKE.
+Terraform owns the supporting cloud infrastructure and workload identity grants.
 
 - [AWS EKS backend bundle](aws-eks-bundle.md)
 - [GCP native identity](gcp-native-identity.md)
@@ -8,79 +9,48 @@ Cloud infrastructure and CI/CD for Shifter.
 
 ## AWS
 
-### Directory Structure
+| Surface | Source | Responsibility |
+| --- | --- | --- |
+| Account foundation | `platform/terraform/global/` | IAM, runners and developer workstations |
+| Core | `platform/terraform/environments/<env>/` | Registries, budgets and shared state services |
+| Range | `platform/terraform/environments/<env>/range/` | Range networking and exported provider settings |
+| Portal data plane | `platform/terraform/environments/<env>/portal/` | RDS, Redis, Cognito, object storage and secrets |
+| Control plane | `platform/terraform/environments/<env>/eks/` | EKS, workload identity and ingress prerequisites |
+| Application workloads | `platform/charts/shifter/` | Web, workers, provisioner Jobs, Guacamole and guacd |
 
-```
-platform/terraform/
-├── global/
-│   ├── iam/              # GitHub OIDC, CI/CD IAM roles
-│   ├── github-runner/    # Self-hosted runner infrastructure
-│   └── dev-box/          # Developer workstation
-├── modules/
-│   ├── ecr/              # Container registries
-│   ├── portal/           # Shifter app infrastructure
-│   ├── range/            # Range VPC and networking
-│   ├── engine-provisioner/   # ECS Fargate for Engine
-│   ├── engine-state/         # Engine state bucket and DynamoDB locks
-│   ├── guacamole/            # Browser-based RDP (Guacamole)
-│   └── log-aggregation/      # Centralized logging
-├── environments/
-│   ├── dev/              # Dev environment configs
-│   └── prod/             # Prod environment configs
-└── cloudformation/           # Cortex XDR connector templates
-```
+The retained `prod` roots are owned by @Brad-Edwards.
+Their callers are the bootstrap `terraform`/`full` commands and EKS lifecycle.
+Only `aws-dev` is an AWS deployment workflow choice.
+The optional portal CTFd module has the same owner and is called by `module.ctfd` in the portal root.
+It uses upstream CTFd setup; it has no repository-specific seed script.
 
-### Components
-
-| Component | Module | Purpose |
-|-----------|--------|---------|
-| **Global** | `global/iam/` | GitHub OIDC provider, CI/CD IAM roles, github-runner, dev-box |
-| **Core** | `environments/{env}/` | ECR repositories, budget alerts |
-| **Range** | `modules/range/` | Range VPC, security groups, Network Firewall |
-| **Portal*** | `modules/portal/` | ALB, EC2 (configurable ASG), RDS, Redis, Cognito, S3 |
-| **Provisioner** | `modules/engine-provisioner/` | ECS Fargate task for range provisioning |
-| **Guacamole** | `modules/guacamole/` | Browser-based RDP access to range instances |
-| **CloudFormation** | `cloudformation/{env}/` | Cortex XDR connector IAM roles (manually deployed) |
-
-*Portal is a legacy name. Deploys Shifter Django infrastructure.
-
-### State Management
-
-Terraform state is stored in S3 with S3 native locking (`use_lockfile = true`).
-The engine state module also creates a DynamoDB table for provisioner runtime
-locks; that table is not the Terraform backend lock.
+Terraform state uses S3 native locking.
+Engine/Pulumi state has separate storage and lock ownership.
+Unused connector templates and the standalone workshop root are retired.
+See [configuration and recovery](../../dev/deployment-configuration.md) before accessing earlier infrastructure revisions.
 
 ## GCP
 
-See [GCP Infrastructure](gcp-infrastructure) for full details.
+`platform/terraform/gcp/environments/platform/` is the single platform execution root.
+`platform/terraform/gcp/environments/<environment>/terraform.tfvars` supplies each environment's values.
+Local overrides stay beside those value files and are passed explicitly by bootstrap.
+Each environment keeps its own state bucket/prefix and Terraform metadata directory.
+Foundation identity and runner roots remain independent under `gcp/global/`.
 
-### Directory Structure
+| Service | Responsibility |
+| --- | --- |
+| GKE | Private control plane and platform node pools; Connect Gateway access |
+| Cloud SQL | Platform and Guacamole PostgreSQL databases |
+| Memorystore | Redis cache and coordination |
+| Pub/Sub | Domain events and subscriptions |
+| Artifact Registry | Digest-bound control-plane images |
+| Secret Manager | Runtime secret bundles and references |
+| Cloud DNS / Cloud Armor | Public hostname, TLS and edge policy |
 
-```
-platform/
-├── terraform/gcp/
-│   ├── modules/platform-core/    # All GCP infrastructure
-│   └── environments/gcp-dev/     # Environment config
-├── charts/shifter/               # Helm chart for the GCP control plane
-└── k8s/gcp/                      # GCP base manifests and generated deployment assets
-```
-
-### Components
-
-| Component | Service | Purpose |
-|-----------|---------|---------|
-| **GKE Cluster** | GKE | Private nodes with node pools (web, workers, provisioner) and public control-plane endpoint restricted by authorized CIDRs |
-| **Cloud SQL** | Cloud SQL | PostgreSQL (platform + Guacamole databases) |
-| **Memorystore** | Memorystore | Redis (channel layer, worker coordination) |
-| **Pub/Sub** | Pub/Sub | Event topic with per-domain subscriptions |
-| **Artifact Registry** | Artifact Registry | Container image repositories |
-| **Secret Manager** | Secret Manager | Runtime secret bundles |
-| **Cloud DNS** | Cloud DNS | Optional public hostname with managed TLS |
-| **Cloud Armor** | Cloud Armor | Baseline WAF policy on the public portal and Guacamole backends |
-
-### State Management
-
-Terraform state is stored in a GCS bucket per environment.
+The shared chart owns application workloads.
+Kustomize overlays supply deployment assets and validation manifests.
+The common runtime component supplies repeated patches; overlays supply environment values.
+The identity renderer reads Terraform outputs instead of committing live identities.
 
 ## Related Docs
 

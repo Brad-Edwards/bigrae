@@ -24,7 +24,7 @@ GCP_DIR = PACKER_DIR / "gcp"
 GCP_SCRIPTS_DIR = GCP_DIR / "scripts"
 
 # Image types that ship a GCE builder in this iteration.
-GCE_IMAGE_TYPES = ["ubuntu", "brokenbk", "kali", "windows", "dc", "dc-prebaked"]
+GCE_IMAGE_TYPES = ["ubuntu", "kali", "windows", "dc", "dc-prebaked"]
 
 
 class TestGcpTemplateStructure:
@@ -1003,7 +1003,7 @@ class TestLinuxCandidateValidation:
         [
             ("ubuntu", True, True),
             ("kali", True, True),
-            ("brokenbk", True, True),
+            ("retired-image", False, False),
             ("ubuntu", False, False),
             ("", True, False),
             ("unknown", True, False),

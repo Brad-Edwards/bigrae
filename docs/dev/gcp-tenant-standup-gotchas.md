@@ -56,9 +56,9 @@ environment (`setup.md` step 4 documents this; the `README.md` `gdc-bootstrap`
 example does not show them inline, so it is easy to miss). The range-host SA
 follows the Terraform naming contract, the `shifter-<environment>` account-id
 prefix with hyphens removed plus `-range-host`, for example
-`shifternazgul-range-host@<project>.iam.gserviceaccount.com`. Terraform creates
+`shiftersample-range-host@<project>.iam.gserviceaccount.com`. Terraform creates
 that SA during the same apply, so supply the derived value for the first run;
-after the first apply, read the authoritative value from the environment root
+after the first apply, read the authoritative value from the shared root with the selected environment backend
 `range_host_service_account_email` output and reuse it for retries and the CI
 Environment.
 
@@ -128,3 +128,11 @@ project changes at deploy time; the repository segment
 and stay. The local `gdc-bootstrap` path uses the Helm chart, not this overlay,
 and takes the project from `--project-id` / `local.auto.tfvars`, so the
 placeholder never blocks the local standup either.
+
+## Shared Terraform source
+
+The execution root is `platform/terraform/gcp/environments/platform`.
+Keep private overrides under `platform/terraform/gcp/environments/<environment>/`.
+Bootstrap selects that directory's values and isolates `TF_DATA_DIR` automatically.
+Manual commands must select both explicitly.
+Follow [deployment configuration](deployment-configuration.md) before reusing retained state.

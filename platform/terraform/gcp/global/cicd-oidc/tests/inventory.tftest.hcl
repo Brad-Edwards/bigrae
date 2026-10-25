@@ -1,5 +1,34 @@
 mock_provider "google" {}
 
+run "renamed_canonical_reusable_workflow" {
+  command = plan
+  variables {
+    purpose_contexts = {
+      for purpose, workflow in { deploy = "deploy.yml", destroy = "gcp-dev-destroy.yml" } : purpose => [{
+        environment           = "customer-${purpose}"
+        ref                   = "refs/heads/main"
+        workflow_ref          = "example/product/.github/workflows/${workflow}@refs/heads/main"
+        reusable_workflow_ref = purpose == "deploy" ? "Brad-Edwards/bigrae/.github/workflows/_gcp-dev.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" : ""
+      }]
+    }
+  }
+}
+
+run "foreign_reusable_workflow_rejected" {
+  command = plan
+  variables {
+    purpose_contexts = {
+      for purpose, workflow in { deploy = "deploy.yml", destroy = "gcp-dev-destroy.yml" } : purpose => [{
+        environment           = "customer-${purpose}"
+        ref                   = "refs/heads/main"
+        workflow_ref          = "example/product/.github/workflows/${workflow}@refs/heads/main"
+        reusable_workflow_ref = purpose == "deploy" ? "example/foreign/.github/workflows/_gcp-dev.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" : ""
+      }]
+    }
+  }
+  expect_failures = [var.purpose_contexts]
+}
+
 variables {
   project_number               = "789"
   project_id                   = "example-project"

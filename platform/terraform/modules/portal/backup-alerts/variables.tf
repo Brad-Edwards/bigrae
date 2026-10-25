@@ -9,7 +9,7 @@ variable "name_prefix" {
 }
 
 variable "environment" {
-  description = "Environment name (e.g., prod, dev, proof)"
+  description = "Environment name (e.g., prod, dev)"
   type        = string
 }
 

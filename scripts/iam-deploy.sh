@@ -20,6 +20,10 @@ while [[ $# -gt 0 ]]; do
             ENV="$2"
             shift 2
             ;;
+        --plan)
+            ACTION="plan"
+            shift
+            ;;
         --apply)
             ACTION="apply"
             shift
@@ -46,8 +50,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate environment
-if [[ "$ENV" != "dev" && "$ENV" != "prod" && "$ENV" != "proof" && "$ENV" != "all" ]]; then
-    echo "Error: Environment must be 'dev', 'prod', 'proof', or 'all'" >&2
+if [[ "$ENV" != "dev" && "$ENV" != "prod" && "$ENV" != "all" ]]; then
+    echo "Error: Environment must be 'dev', 'prod', or 'all'" >&2
     exit 1
 fi
 
@@ -71,17 +75,13 @@ if [[ "$ENV" == "all" ]]; then
 fi
 
 # Set AWS profile and Terraform state bucket based on environment. The bucket
-# mirrors the CI deploy secrets (TF_INFRA_STATE_BUCKET_DEV / _PROOF, and
+# mirrors the CI deploy secrets (TF_INFRA_STATE_BUCKET_DEV, and
 # TF_INFRA_STATE_BUCKET for prod) so this script and the deploy pipeline resolve
 # the backend from the same source of truth.
 case "$ENV" in
     dev)
         AWS_PROFILE="${PANW_SHIFTER_DEV_PROFILE:?PANW_SHIFTER_DEV_PROFILE not set. Check .env file.}"
         STATE_BUCKET="${TF_INFRA_STATE_BUCKET_DEV:?TF_INFRA_STATE_BUCKET_DEV not set. Check .env file.}"
-        ;;
-    proof)
-        AWS_PROFILE="${PANW_SHIFTER_PROOF_PROFILE:?PANW_SHIFTER_PROOF_PROFILE not set. Check .env file.}"
-        STATE_BUCKET="${TF_INFRA_STATE_BUCKET_PROOF:?TF_INFRA_STATE_BUCKET_PROOF not set. Check .env file.}"
         ;;
     prod)
         AWS_PROFILE="${PANW_SHIFTER_PROD_PROFILE:?PANW_SHIFTER_PROD_PROFILE not set. Check .env file.}"
@@ -98,7 +98,7 @@ echo "=========================================="
 cd "$(dirname "$0")/../platform/terraform/global/iam"
 
 # Clean and reinitialize for the target environment
-rm -rf .terraform .terraform.lock.hcl
+rm -rf .terraform
 
 # Render the backend config from the real state bucket. The committed
 # <env>.s3.tfbackend files carry a REPLACE_AT_BOOTSTRAP placeholder so

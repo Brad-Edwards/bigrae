@@ -6,7 +6,7 @@ GitHub Actions with self-hosted runners.
 
 ```
 .github/workflows/
-├── deploy.yml              # AWS orchestrator (change detection, dependency chain)
+├── deploy.yml              # Cloud orchestrator (change detection, dependency chain)
 ├── _quality.yml            # Linting, security scanning
 ├── _core.yml               # Core infrastructure (ECR, budgets)
 ├── _range.yml              # Range VPC infrastructure
@@ -36,9 +36,9 @@ Jobs run only when relevant files change. `deploy.yml` detects changes and trigg
 |-----|-------------|
 | **core** | `platform/terraform/modules/ecr/**`, `platform/terraform/environments/*/*.tf` |
 | **range** | `platform/terraform/modules/range/**`, `platform/terraform/environments/*/range/**` |
-| **shifter_engine** | `shifter/engine/provisioner/**`, `platform/terraform/modules/pulumi-provisioner/**` |
-| **shifter_platform** | `platform/terraform/modules/portal/**`, `platform/terraform/modules/guacamole/**`, `platform/terraform/environments/*/portal/**` (Terraform only) |
-| **portal_image** | `shifter/shifter_platform/**`, `shifter/cyberscript/**`, `shifter/installation/**` (portal image build/deploy, no Terraform) |
+| **shifter_engine** | `shifter/engine/provisioner/**`, `platform/terraform/environments/*/eks/**` |
+| **shifter_platform** | `platform/terraform/modules/portal/**`, `platform/terraform/environments/*/portal/**` (Terraform only) |
+| **portal_image** | `shifter/shifter_platform/**`, `shifter/installation/**` (portal image build/deploy, no Terraform) |
 
 ## Environment Targeting
 
@@ -86,10 +86,13 @@ The GCP CI path:
 1. validates Terraform and rendered manifests
 2. applies GCP Terraform
 3. builds and pushes control-plane images
-4. renders secure Helm values from Terraform outputs and Secret Manager
+4. renders Helm settings and secret references from Terraform outputs
 5. installs or upgrades the Shifter Helm release
 
-Every deploy dispatch runs the quality gate first as the safety gate before an apply.
+Every deploy dispatch runs the quality gate before an apply.
+The GCP jobs use one shared Terraform root with selected environment var-files.
+Each environment retains its own backend prefix and `TF_DATA_DIR`.
+The AWS application lifecycle uses EKS and the shared Helm chart.
 
 The bootstrap path is security-gated and fails closed unless:
 

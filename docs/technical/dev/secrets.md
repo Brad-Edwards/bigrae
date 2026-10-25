@@ -28,7 +28,7 @@ These must be configured in repository Settings > Secrets and variables > Action
 | `GCP_BOOTSTRAP_ADMIN_PASSWORD` | Optional first GCP operator password for Identity Platform bootstrap |
 | `PLATFORM_BOOTSTRAP_STAFF_EMAILS` | Optional comma-separated runtime staff bootstrap emails for production auth providers |
 | `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS` | Optional comma-separated runtime superuser bootstrap emails for production auth providers |
-| `TF_INFRA_STATE_BUCKET[_DEV/_PROOF]` | Terraform state bucket the backend render reads (prod is unsuffixed) |
+| `TF_INFRA_STATE_BUCKET[_DEV]` | Terraform state bucket the backend render reads (prod is unsuffixed) |
 | `TF_VARS_<ENV>_CORE` / `_RANGE` / `_PORTAL` | Per-environment Terraform `local.auto.tfvars` payloads, rendered to a gitignored `local.auto.tfvars` at deploy time (since #1250) |
 | `SHIFTER_CONFIG_<ENV>_RANGE` / `SHIFTER_CONFIG_GCP_DEV` | Deployment `shifter.yaml` payload that renders the range egress allowlist |
 
@@ -63,21 +63,11 @@ Terraform state.
 
 #### Provisioning (Terraform-managed)
 
-The DC domain password secret is created and seeded by the engine-provisioner
-module (`platform/terraform/modules/engine-provisioner/secrets.tf`), exactly
-like the portal RDS credentials and the Django-app secret: a `random_password`
-generated at apply time and stored in `aws_secretsmanager_secret.dc_domain_password`
-via an `aws_secretsmanager_secret_version`. `terraform apply` for the portal
-stack creates the secret with a live `AWSCURRENT` value and wires its ARN into
-the engine ECS task definition (`secrets = [...]`) and the portal SSM parameter
-(`${ps_prefix}/dc-domain-password-secret-arn`). The engine provisioner uses
-that value to promote each prebaked DC AMI (the AMI ships AD DS binaries; the
-domain (and its Administrator password) is created per range at provision
-time) and to domain-join victims; the portal Django container reads it at
-runtime via `entrypoint.sh`. There is no out-of-band
-`aws secretsmanager create-secret` / `put-secret-value` step. A fresh
-environment is fully provisioned by the normal bootstrap → `terraform apply`
-flow, same as every other secret in the stack.
+The Portal Terraform root creates and seeds the DC domain password secret.
+Its `random_password.dc_domain_password` value is stored in Secrets Manager.
+The AWS EKS provisioner environment carries the secret reference through the existing hydration boundary.
+The secret is not stored in Helm values or committed configuration.
+A fresh environment uses the normal infrastructure apply; no manual secret creation is required.
 
 ### Dev Box
 

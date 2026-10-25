@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap"))
 
 import terraform_backend as tb  # noqa: E402
 
-ALLOWED_ENVS = frozenset({"dev", "proof", "prod"})
+ALLOWED_ENVS = frozenset({"dev", "prod"})
 _BUCKET_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 
 

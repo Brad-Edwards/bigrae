@@ -135,270 +135,78 @@ silent.
 
 ## Environments and Terraform Layout
 
-Shifter currently uses one Terraform directory set and one deploy branch per
-environment. Standing up a new tenant means adding both. This is the current
-model, not a target architecture; it duplicates stack wiring across
-environments, so treat an existing environment's directory set as the unit you
-copy.
+GCP uses one execution root, `platform/terraform/gcp/environments/platform/`.
+The four environment directories contain values only.
+AWS retains separate `dev` and `prod` Core, Range, Portal and EKS roots.
+The AWS production roots are owned by @Brad-Edwards and remain available through
+the bootstrap `terraform` and `full` commands and the EKS lifecycle.
 
 ### Terraform directories
 
-```
+```text
 platform/terraform/
-  environments/<env>/        AWS environment; the root is the Core (ECR) stack
-    range/                   Range VPC stack (its own backend state)
-    portal/                  Portal / application stack (its own backend state)
-  gcp/environments/<env>/    GCP environment (core stack plus Helm control plane)
-  global/                    Shared account-wide stacks (IAM, GitHub runners, ...)
-  modules/                   Reusable AWS modules
-  gcp/modules/               Reusable GCP modules
+  environments/<env>/             AWS Core stack
+    range/                         AWS Range stack
+    portal/                        AWS services and data plane
+    eks/                           AWS Kubernetes control plane
+  gcp/environments/platform/      Shared GCP execution root
+  gcp/environments/<env>/         GCP values and private local overrides
+  global/                         AWS account-wide infrastructure
+  modules/                        Reusable AWS modules
+  gcp/global/                     Independent GCP foundation and runner roots
+  gcp/modules/                    Reusable GCP modules
 ```
 
-Existing environments: `dev`, `prod`, and `proof` under `environments/` (AWS),
-and `gcp-dev` under `gcp/environments/` (GCP). Each AWS environment is three
-stacks applied in order (Core, then Range, then Portal), each with its own
-backend state key. See
-[`aws-terraform-apply-order.md`](../../dev/aws-terraform-apply-order.md)
-for the authoritative order and state keys.
+### Deployment selection
 
-### Deploy branches
+Deployments use an explicit `workflow_dispatch` environment choice.
+Pushes and pull requests run validation only.
+The maintained choices are `aws-dev`, `gcp-dev`, `orthanc`, `sauron` and `balrog`.
+Branch names do not select an environment.
+AWS production remains a local operator path; it is not a deploy workflow choice.
+See [CI/CD](../platform_infrastructure/cicd.md) for the trigger matrix.
 
-Each environment deploys from its own long-lived branch, not from `dev`. The
-branch name does not always match the environment directory name.
+### Adding a GCP environment
 
-| Environment | Terraform directory | Deploy branch | Trigger |
-|-------------|---------------------|---------------|---------|
-| AWS dev | `environments/dev` | `aws-dev` | push deploys |
-| AWS proof | `environments/proof` | `aws-proof` | `workflow_dispatch` |
-| AWS prod | `environments/prod` | `main` | `workflow_dispatch` |
-| GCP dev | `gcp/environments/gcp-dev` | `gcp-dev` | push deploys |
+1. Add its value file under `gcp/environments/<environment>/`.
+2. Add its value-only Kubernetes overlay using the shared runtime component.
+3. Configure its protected GitHub Environments and purpose identities.
+4. Add its explicit workflow authorization choice.
+5. Use a separate state bucket/prefix and `TF_DATA_DIR`.
 
-`dev` is the integration branch: it runs Quality only and never deploys. See
-[CI/CD](ci-cd) for the full trigger matrix.
-
-### Adding a new environment
-
-1. Copy an existing environment's Terraform directory set (for example
-   `environments/proof/` for AWS or `gcp/environments/gcp-dev/` for GCP), then
-   update its backend state keys and `local.auto.tfvars` values for the new
-   account and hostnames.
-2. Create the environment's deploy branch and wire its per-environment secrets
-   and repository variables. See
-   [`deploy-secrets.md`](../../dev/deploy-secrets.md).
-3. Bootstrap the account and follow the standup steps below.
+Do not copy the shared Terraform source or runtime patches.
+See [deployment configuration and recovery](../../dev/deployment-configuration.md).
 
 ## AWS Deployment
 
-Use the deployment CLI which walks you through each step with confirmations:
+AWS platform workloads run on EKS through the shared Helm chart.
+Prepare Core, Range and Portal infrastructure using the
+[AWS apply order](../../dev/aws-terraform-apply-order.md).
+The Portal root owns persistent AWS services; it does not deploy the application containers.
+
+The maintained application entrypoint uses a validated installation config and attested image digests:
 
 ```bash
-# Preview what will happen (no changes made)
-./scripts/bootstrap/deploy.py full --env prod --profile <your-prod-profile> --dry-run
-
-# Run the full deployment
-./scripts/bootstrap/deploy.py full --env prod --profile <your-prod-profile>
+./scripts/bootstrap/deploy.py eks-deploy \
+  --config shifter.yaml --images .shifter/images.json --profile <aws-profile>
 ```
 
-Or run phases separately:
+Follow the [AWS EKS bundle](../platform_infrastructure/aws-eks-bundle.md)
+and [EKS operations](../../ops/portal-eks-operations.md) for prerequisites, protected inputs,
+workload identities, ingress, deployment checks and teardown.
+Terraform owns cloud infrastructure. Helm owns namespaced platform workloads.
+Legacy EC2 portal deployment scripts are not supported entrypoints.
+
+The retained infrastructure-only CLI remains available for `dev` and `prod`:
 
 ```bash
-# Phase 1: Bootstrap AWS account (S3 state backend, GitHub OIDC, IAM)
-./scripts/bootstrap/deploy.py bootstrap --env prod --profile <your-prod-profile>
-
-# Phase 2: Deploy Terraform (Core → Range → Portal)
-./scripts/bootstrap/deploy.py terraform --env prod --profile <your-prod-profile>
+./scripts/bootstrap/deploy.py bootstrap --env dev --profile <aws-profile>
+./scripts/bootstrap/deploy.py terraform --env dev --profile <aws-profile>
 ```
 
-### 1. Bootstrap AWS Account
-
-The `bootstrap` command creates:
-- S3 bucket for Terraform state with S3 native locking (`use_lockfile = true`)
-- GitHub OIDC provider (keyless CI/CD auth)
-- IAM role with all required permissions
-
-It outputs:
-- GitHub secret value (`AWS_ROLE_ARN`)
-- Backend configuration for `backend.tf` files
-
-### 2. Configure GitHub Secrets
-
-Add these secrets in GitHub repository settings (Settings → Secrets and variables → Actions):
-
-| Secret | Value |
-|--------|-------|
-| `AWS_ROLE_ARN` | Prod IAM role ARN from bootstrap output |
-| `AWS_ROLE_ARN_DEV` | Dev IAM role ARN from bootstrap output |
-
-### 3. Update Backend Configuration
-
-Copy the backend config from bootstrap output to these files:
-
-| File | State Key |
-|------|-----------|
-| `platform/terraform/environments/prod/backend.tf` | `shifter/prod/terraform.tfstate` |
-| `platform/terraform/environments/prod/portal/backend.tf` | `prod/portal/terraform.tfstate` |
-| `platform/terraform/environments/prod/range/backend.tf` | `prod/range/terraform.tfstate` |
-
-### 4. Configure deployment-specific values
-
-The committed `terraform.tfvars` files ship an `example.com` baseline.
-Override per-deployment values with a `local.auto.tfvars` (gitignored)
-alongside each baseline; Terraform auto-loads `*.auto.tfvars` and the
-local overrides win:
-
-```bash
-cat > platform/terraform/environments/prod/portal/local.auto.tfvars <<EOF
-domain_name           = "shifter.your-domain.example"
-ses_domain            = "your-domain.example"
-alarm_email           = "your-team@your-domain.example"
-allowed_email_domains = ["your-domain.example"]
-user_storage_bucket   = "shifter-user-storage-<your-account-id>"
-EOF
-```
-
-`local.auto.tfvars` is gitignored; never commit one. The full list of
-required values, plus the CI-deploy equivalent via GitHub secrets and
-repository variables, is documented in
-[`docs/dev/deploy-secrets.md`](../../dev/deploy-secrets.md).
-
-### 5. Deploy Infrastructure
-
-Deploy in this order (dependencies flow down):
-
-```
-┌─────────────────────────────────┐
-│  1. Core (ECR repositories)    │
-│  platform/terraform/environments/prod/
-└───────────────┬─────────────────┘
-                │
-        ┌───────┴───────┐
-        │               │
-        ▼               ▼
-┌───────────────┐ ┌─────────────────────────┐
-│  2. Range VPC │ │  (wait for Range)       │
-│  .../range/   │ │                         │
-└───────┬───────┘ └─────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────┐
-│  3. Portal                      │
-│  .../portal/                    │
-│  (references Range outputs)     │
-└─────────────────────────────────┘
-```
-
-**Using the CLI (recommended):**
-
-```bash
-./scripts/bootstrap/deploy.py terraform --env prod --profile <your-profile>
-```
-
-The CLI walks through each component, shows the plan, and asks for confirmation before applying.
-
-**Via CI/CD:**
-
-Run `Deploy` with `workflow_dispatch` on `main` to deploy the AWS production
-environment after bootstrap and backend configuration are complete. Pushing or
-merging to `main` updates the production code branch only; it does not deploy.
-
-**Manual deployment:**
-
-```bash
-# Step 1: Core (ECR)
-cd platform/terraform/environments/prod
-AWS_PROFILE=<your-profile> terraform init && terraform plan && terraform apply
-
-# Step 2: Range VPC
-cd range
-AWS_PROFILE=<your-profile> terraform init && terraform plan && terraform apply
-
-# Step 3: Portal
-cd ../portal
-AWS_PROFILE=<your-profile> terraform init && terraform plan && terraform apply
-```
-
-### 6. ACM Certificate Validation
-
-On first deploy, Terraform pauses waiting for ACM certificate validation (up to 45 min timeout).
-
-**Get the validation records:**
-
-```bash
-# While terraform apply is running (or after plan), get the CNAME records:
-cd platform/terraform/environments/prod/portal
-AWS_PROFILE=<your-profile> terraform output -json acm_validation_records
-```
-
-Output format:
-```json
-{
-  "shifter.yourdomain.com": {
-    "name": "_abc123.shifter.yourdomain.com.",
-    "type": "CNAME",
-    "value": "_xyz789.acm-validations.aws."
-  }
-}
-```
-
-**Add to your DNS provider:**
-
-| Type | Name | Value |
-|------|------|-------|
-| CNAME | `_abc123.shifter.yourdomain.com` | `_xyz789.acm-validations.aws.` |
-
-After DNS propagates (~5 min), Terraform continues automatically.
-
-### 7. Point Domain to ALB
-
-After deployment completes:
-
-```bash
-cd platform/terraform/environments/prod/portal
-AWS_PROFILE=<your-profile> terraform output alb_dns_name
-```
-
-Create a CNAME record pointing your domain to the ALB DNS name.
-
-### 8. Build and Push Container
-
-The first deploy creates empty ECR repos. The portal, Guacamole, and engine
-provisioner images are built and pushed by the Deploy workflow itself, not by a
-local script. Trigger the deploy to build and push them:
-
-```bash
-# Run the Deploy workflow with workflow_dispatch on the environment's deploy
-# branch (aws-dev for dev, main for prod). The _shifter-platform.yml "build"
-# job builds shifter/shifter_platform/Dockerfile and pushes to the
-# shifter-<env>-portal ECR repo; the "push-guacamole-images" job builds and
-# pushes guacd and guacamole-client.
-gh workflow run Deploy --ref main
-```
-
-### 9. Cognito Configuration
-
-Cognito is fully configured by Terraform. You only need to:
-
-1. **Set `cognito_domain_prefix`** in `local.auto.tfvars` (must be globally unique):
-   ```hcl
-   cognito_domain_prefix = "shifter-prod-yourorg"
-   ```
-
-2. **Create first user** (after Terraform apply):
-   ```bash
-   # Get user pool ID from terraform output
-   USER_POOL_ID=$(terraform output -raw cognito_user_pool_id)
-
-   # Create user
-   aws cognito-idp admin-create-user \
-     --user-pool-id $USER_POOL_ID \
-     --username YOUR_EMAIL@example.com \
-     --user-attributes Name=email,Value=YOUR_EMAIL@example.com \
-     --profile <your-profile>
-   ```
-
-Callback URLs (`https://yourdomain.com/oidc/callback/`) are automatically configured from `domain_name`.
-
-Email domain restrictions are controlled via `allowed_email_domains` in portal module.
+Bootstrap renders private backend files in the operator instance directory.
+Pass those files to Terraform init; do not edit committed backend examples.
+Configure the exact deployment values described in [deploy secrets](../../dev/deploy-secrets.md).
 
 ## Existing Environment Setup
 
@@ -469,7 +277,7 @@ If empty, push a container first.
 
 ## GCP Deployment
 
-GCP provisions with Terraform (`platform/terraform/gcp/`, rooted at `environments/gcp-dev`, whose main module is `modules/platform-core/`) and a control plane deployed either from the Helm chart `platform/charts/shifter/` (the local `gdc-bootstrap` path) or from the kustomize overlay `platform/k8s/gcp/overlays/gcp-dev/` (the CI `deploy.yml` path).
+GCP provisions with Terraform (`platform/terraform/gcp/`, rooted at `environments/platform`, whose main module is `modules/platform-core/`) and a control plane deployed either from the Helm chart `platform/charts/shifter/` (the local `gdc-bootstrap` path) with generated Kubernetes deployment assets from `platform/k8s/gcp/overlays/<environment>/`.
 
 ### 1. GCP Project Setup
 
@@ -492,8 +300,8 @@ Terraform initializes and can provision an isolated private image-build network
 before the platform exists. It verifies project/repository numeric IDs and
 requires explicit purpose Environment and workflow trust tuples.
 
-Apply `platform/terraform/gcp/global/cicd-oidc` for each used identity profile
-(`gcp-dev`, `proof`, and `prod`) and follow the staged cutover/readback in
+Apply `platform/terraform/gcp/global/cicd-oidc` with each deployment’s explicit
+identity values and follow the staged cutover/readback in
 `docs/dev/deploy-secrets.md`. Do not hand-create service accounts or broaden the
 provider condition. The profiles create one provider per project and distinct
 purpose identities:
@@ -514,8 +322,8 @@ purpose identities:
 ### 3. Configure deployment-specific values
 
 The committed `terraform.tfvars` ships an `example.com` baseline; supply
-the real values via a gitignored `local.auto.tfvars` (Terraform auto-loads
-`*.auto.tfvars`):
+the real values via a gitignored environment-local `local.auto.tfvars`.
+Bootstrap passes this file explicitly to the shared root:
 
 ```bash
 cat > platform/terraform/gcp/environments/gcp-dev/local.auto.tfvars <<'EOF'
@@ -530,7 +338,7 @@ EOF
 Treat an existing `local.auto.tfvars` as deployment state, not as a reusable
 sample. Before bootstrap, replace every tenant-bound value left by an earlier
 project, especially `project_id`, `dynamic_secret_project_id`, and
-`public_hostname`. Terraform auto-loads this file and its values drive the
+`public_hostname`. Bootstrap loads the selected file and its values drive the
 ingress and managed certificate; selecting a different `shifter.yaml` does not
 override a stale hostname here. Confirm the hostname in both inputs agrees
 before applying so bootstrap does not stop at DNS/TLS for the previous tenant.
@@ -538,107 +346,19 @@ before applying so bootstrap does not stop at DNS/TLS for the previous tenant.
 For CI deploys the equivalent values come from GitHub secrets; see
 [`docs/dev/deploy-secrets.md`](../../dev/deploy-secrets.md).
 
-The CI deployment also reads the committed tenant overlay at
-`platform/k8s/gcp/overlays/<environment>/`; GitHub Environment values do not
-rewrite its image or Workload Identity references. Before the tenant's first CI
-deploy, verify both account-bound surfaces in that overlay:
+The CI deployment reads the selected value-only Kubernetes overlay.
+The shared component supplies runtime patches.
+`scripts/gcp/render_overlay_identity.py` supplies image repositories and workload identities from Terraform outputs.
+Keep committed placeholders synthetic; do not put real project identities in these files.
 
-- every `images[].newName` in `kustomization.yaml` uses the tenant project and
-  the Artifact Registry repositories created for that environment
-- every `iam.gke.io/gcp-service-account` annotation in
-  `patch-serviceaccounts.patch` uses the tenant project and the service-account
-  localpart created by the platform Terraform naming contract
-
-Render the overlay before pushing the tenant branch and inspect the resulting
-image names and service-account annotations:
-
-```bash
-kubectl kustomize platform/k8s/gcp/overlays/<environment> > /tmp/<environment>-rendered.yaml
-```
-
-Do not copy an existing tenant overlay without replacing both surfaces. A stale
-project in either file can leave Terraform and GitHub correctly configured while
-the CI Kubernetes deploy still pulls from another project's registry or binds
-pods to another project's identities.
-
-#### Optional: model access broker
-
-> **Not supported for use.** The broker is parked: keep `settings.model_broker`
-> and `settings.model_access` disabled. Three known defects make it unfit to run:
-> its TLS certificates are never renewed, so deploys fail 16 days after the first
-> broker deploy and its certificate expires at day 30; a fresh tenant with a
-> broker template fails its first deploy; and every model call requires finite
-> spend, rate, and concurrency limits. Range guests reach models through the
-> keyless default below. This section documents the settings for reference only.
-
-The ADR-059 model access broker is off by default. Without it, range guests use
-the keyless Vertex identity (ADR-064). Turning it on needs three
-`shifter.yaml` settings blocks that must agree with each other, plus prerequisites
-outside the repository. Validation rejects a partial broker configuration before
-any cloud change.
-
-- `settings.model_broker`: `enabled: true`, the broker `hostname`, a private IPv4
-  `vip` inside the platform GKE subnet, and `admitted_subnets`. Each admitted
-  subnet must sit inside `range_network_cidr` and be disjoint from the VIP and
-  from the other subnets. The block also needs the TLS Secret, control TLS
-  Secret, and CA ConfigMap names, and `model_projects`, which maps each model
-  project ID to its invocation service-account ID. `global_access` stays `false`
-  unless cross-region private clients need the VIP.
-- `settings.model_access`: `enabled: true` and a versioned, priced catalog
-  with its digest. Every account needs a positive spend, rate, and concurrency
-  ceiling; the schema has no unlimited mode.
-- `settings.model_broker_runtime`: the provider inventory, whose principals must
-  equal the applied invocation service accounts, and the fingerprint Secret name
-  and key version. It also takes `guest_trust_ca_pem`, the public broker CA
-  certificate that guests trust. With an empty CA, no guest can enroll.
-
-Supply the blocks one of two ways:
-
-1. A reviewed template at
-   `platform/deploy/gcp/<environment>/model-broker-overlay.template.json`, the
-   recommended path. It must contain exactly the three blocks above and the
-   placeholders `__GCP_PROJECT_ID__`, `__GUEST_CA_PEM__`, and
-   `__CATALOG_DIGEST__`. It must also use the fixed names
-   `model-broker-tls-v1`, `model-control-tls-v1`, `model-access-ca-v1`, and
-   `broker-fingerprint-v1`. On each CI deploy,
-   `scripts/gcp/prepare_model_broker_overlay.py` creates or verifies the broker
-   CA, both TLS Secrets, the CA ConfigMap, and the fingerprint Secret in
-   `shifter-platform`. It also fills in the CA and the catalog digest. The
-   reference shape is
-   `scripts/gcp/tests/fixtures/model-broker-overlay.template.json`.
-2. The `SHIFTER_CONFIG_OVERLAY_JSON` variable, or the blocks written directly into
-   `shifter.yaml`. Neither path creates the trust objects or computes the catalog
-   digest: create the Kubernetes Secrets and ConfigMap first, and set the digest
-   and CA yourself. The local `gdc-bootstrap` path supports only this form. The
-   chart mounts the trust objects by name, so a missing object makes the Helm
-   upgrade fail.
-
-Before enabling:
-
-- Run the first deploy without the template. The template step connects to the
-  GKE cluster before Terraform runs, so on a fresh tenant it fails because the
-  cluster does not exist yet. Add the template once the cluster exists.
-- Prepare every model project. Each one needs billing enabled, the label
-  `shifter-deployment=<deployment.name>`, and the Vertex models enabled. Terraform
-  enables the APIs and creates the invocation service account and its roles
-  there. The CI deploy identity holds roles only in the platform project, so
-  grant it equivalent authority in each other model project first.
-- Set `GCP_RANGE_PRIVATE_GOOGLE_ACCESS=false`. Broker clients require
-  source-preserving isolated egress, and a broker-enrolled range with Private
-  Google Access on fails to provision.
-- Plan certificate renewal. The template path issues 30-day TLS certificates
-  and a 365-day CA, and refuses to deploy when a certificate has less than 14
-  days left or the CA less than 30. It does not renew either automatically yet.
-
-See [GCP packaging](../../architecture/model-access/gcp-packaging.md) and the
-[model access GCP probes](../../ops/model-access-gcp-probes.md) for the full
-contract and post-deploy checks.
+The model-access broker is parked and unsupported under ADR-068.
+Use the supported keyless-direct guest model path where required.
 
 ### 4. Deploy
 
 The first clean install runs locally under your own credentials (Workload Identity
 Federation is only needed for CI). Subsequent deploys run through CI with
-`gh workflow run deploy.yml --ref gcp-dev -f environment=gcp-dev`. The local
+`gh workflow run deploy.yml --ref dev -f environment=gcp-dev`. The local
 bootstrap entrypoint is below. GitHub Environment variables are not imported into
 the operator's shell, so export the range-plane values locally even when CI is
 already configured. Refresh both the `gcloud` user credential and Application
@@ -661,7 +381,8 @@ prefix `shiftergcpdev`). After the first platform apply, read back the canonical
 value:
 
 ```bash
-terraform -chdir=platform/terraform/gcp/environments/<environment> \
+TF_DATA_DIR="$PWD/platform/terraform/gcp/environments/<environment>/.terraform" \
+  terraform -chdir=platform/terraform/gcp/environments/platform \
   output -raw range_host_service_account_email
 ```
 

@@ -44,11 +44,11 @@ export const SafePath = z
 export const SafeName = z.string().regex(/^[\w.*?-]+$/, MSG_INVALID_CHARACTERS);
 export const AmiTypeSchema = z
   .enum(BASE_AMI_TYPES)
-  .describe("AMI type (kali, ubuntu, windows, dc, brokenbk)");
+  .describe("AMI type (kali, ubuntu, windows, dc)");
 export const GceImageTypeSchema = z
   .enum(GCE_IMAGE_TYPES)
   .describe(
-    "GCE image type (ubuntu, brokenbk, kali, windows, dc, dc-prebaked)"
+    "GCE image type (ubuntu, kali, windows, dc, dc-prebaked)"
   );
 export const GceImageNameSchema = z
   .string()

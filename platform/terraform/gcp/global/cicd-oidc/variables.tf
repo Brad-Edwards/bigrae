@@ -23,7 +23,7 @@ variable "github_org" {
 variable "github_repo" {
   description = "GitHub repository allowed to federate into the build service account."
   type        = string
-  default     = "shifter"
+  default     = "bigrae"
 }
 
 variable "promotion_reader_service_account_email" {

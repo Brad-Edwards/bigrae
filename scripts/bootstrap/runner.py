@@ -81,7 +81,7 @@ class RunnerTarget:
 
     The registration operation is parameterized by this target (the #1433
     extensibility seam): future multi-AZ/subnet placement, differing label sets,
-    or a separate proof/prod fleet change the target mapping, not the
+    or a separate prod fleet change the target mapping, not the
     token-handling path or the Terraform root.
     """
 

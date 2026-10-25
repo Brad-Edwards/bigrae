@@ -137,7 +137,7 @@ class TestExpressionOperandCoverage(unittest.TestCase):
         self.assertFalse(ADR_GUARD._dw_evaluate_if("${{ github.event_name == 'pull_request' }}", event_name="push"))
 
     def test_repository_identity_is_resolvable(self):
-        expr = "github.repository == 'Brad-Edwards/shifter'"
+        expr = "github.repository == 'Brad-Edwards/bigrae'"
         # The permissive default is the canonical repository, so only the
         # scenario under test flips the outcome.
         self.assertTrue(ADR_GUARD._dw_evaluate_if(expr))
@@ -452,7 +452,7 @@ class TestSonarScannerIdentity(unittest.TestCase):
     has not crept back in.
     """
 
-    CANONICAL_REPOSITORY = "Brad-Edwards/shifter"
+    CANONICAL_REPOSITORY = "Brad-Edwards/bigrae"
     IDENTITY_PROPERTIES = (
         "sonar.projectKey",
         "sonar.organization",
@@ -869,7 +869,7 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertEqual(destroy_env["GCP_ENVIRONMENT"], "${{ inputs.environment }}")
         self.assertEqual(
             destroy_env["TF_DIR"],
-            "platform/terraform/gcp/environments/${{ inputs.environment }}",
+            "platform/terraform/gcp/environments/platform",
         )
         self.assertEqual(
             destroy_env["TF_BACKEND_PREFIX"],

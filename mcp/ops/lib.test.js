@@ -40,6 +40,12 @@ import {
 // ---------------------------------------------------------------------------
 // REGION constant
 // ---------------------------------------------------------------------------
+describe("DEFAULT_GITHUB_REPO", () => {
+  it("uses the canonical renamed repository", () => {
+    assert.equal(DEFAULT_GITHUB_REPO, "Brad-Edwards/bigrae");
+  });
+});
+
 describe("REGION", () => {
   it("is us-east-2", () => {
     assert.equal(REGION, "us-east-2");
@@ -1199,7 +1205,6 @@ describe("BASE_AMI_TYPES", () => {
       "ubuntu",
       "windows",
       "dc",
-      "brokenbk",
     ]);
   });
 });
@@ -1211,7 +1216,6 @@ describe("GCE_IMAGE_TYPES", () => {
   it("matches the packer-gcp.yml image_type choices", () => {
     assert.deepEqual([...GCE_IMAGE_TYPES], [
       "ubuntu",
-      "brokenbk",
       "kali",
       "windows",
       "dc",

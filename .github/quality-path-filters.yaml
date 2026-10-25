@@ -326,15 +326,6 @@ quality_units:
       security: [chart-lint-security]
       test: [chart-tests]
 
-  - id: cloudformation
-    paths:
-      - platform/cloudformation/**
-    sonar: false
-    responsibilities:
-      lint: [cloudformation-validate]
-      security: [cloudformation-security]
-      test: [cloudformation-validate]
-
 exclusions:
   - type: docs
     reason: >-
@@ -419,7 +410,6 @@ exclusions:
       - scripts/check_checkov_invocation_parity/**
       - scripts/post_deploy_smoke/**
       - scripts/terraform/**
-      - scripts/ctf-scenario/**
       - scripts/tests/**
       # Root-level helper scripts are enumerated (not a scripts/* wildcard) so a
       # new script package under scripts/ still fails closed as unclassified.

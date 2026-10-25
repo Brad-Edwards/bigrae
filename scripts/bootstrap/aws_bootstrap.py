@@ -9,6 +9,9 @@ from pathlib import Path
 
 import terraform_backend as tb
 from bootstrap_core import (
+    AWS_ENVIRONMENTS as AWS_ENVIRONMENTS,
+)
+from bootstrap_core import (
     BootstrapConfig,
     _validate_argv,
     confirm,
@@ -178,9 +181,6 @@ def administrator_access_policy_document() -> str:
             ],
         }
     )
-
-
-AWS_ENVIRONMENTS = ("dev", "proof", "prod")
 
 
 def _ensure_state_bucket(bucket_name: str, config: BootstrapConfig, profile: str, dry_run: bool) -> None:

@@ -11,7 +11,7 @@ let it deploy to both dev and prod.
 - Placement (ADR-004-R20, issue #1437). The standard is a dedicated,
   non-default runner VPC from `modules/github-runner-network`: private runner
   subnet, NAT-only egress, no private-DNS interface endpoints, encrypted flow
-  logs. `dev.tfvars` and `proof.tfvars` set `create_runner_network = true`, and
+  logs. `dev.tfvars` sets `create_runner_network = true`, and
   the bootstrap `runners` path passes it. It has no portal or range dependency,
   so it works on a fresh account and commits no live IDs (ADR-004-R14). The
   managed network takes precedence over `vpc_id`/`subnet_id` and

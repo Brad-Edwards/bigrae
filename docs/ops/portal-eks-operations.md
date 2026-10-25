@@ -41,7 +41,7 @@ Prerequisites for the commands below:
   `platform/terraform/environments/<profile>/eks` outputs, never from a guessed
   resource name or a GitHub variable.
 
-Throughout, `<profile>` is the environment (`dev`, `proof`, or `prod`) and the
+Throughout, `<profile>` is the environment (`dev` or `prod`) and the
 platform workloads live in the `shifter-platform` namespace.
 
 ## 1. Architecture overview

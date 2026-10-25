@@ -6,7 +6,7 @@ architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/shifter/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-17 against integration revision `6b1c88082`.
+**Reviewed:** 2026-10-25 against integration revision `b174cdea8` and the deployment configuration cleanup.
 This describes source behavior, not a certificate of a live deployment.
 
 ## System context and trust boundaries
@@ -61,6 +61,8 @@ it is not the current target for all installations.
 The canonical control-plane package is the shared Helm chart, hosted on GKE for
 GCP or EKS for AWS. Provisioner Jobs use the selected cluster; CI runner placement
 is a separate concern. Older ECS files do not define the current AWS package.
+GCP uses one Terraform execution root with separate environment values and state metadata.
+See [deployment configuration](../dev/deployment-configuration.md) for selection and recovery.
 GCP bootstrap and CI consume generated configuration from Terraform and Secret
 Manager; keep platform hosting separate from the range guest backend.
 
