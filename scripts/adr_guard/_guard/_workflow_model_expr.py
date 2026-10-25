@@ -4,12 +4,12 @@ Split out of ``_workflow_model.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-
 
 _DW_RESULT_REF = re.compile(r"needs\.([A-Za-z0-9_-]+)\.result")
 _DW_EXPR_TOKEN = re.compile(
@@ -117,9 +117,7 @@ def _dw_tokenize(expr: str) -> list[tuple[str, str]]:
 class _DwParser:
     """Recursive-descent evaluator: `!` > comparison > `&&` > `||`."""
 
-    def __init__(
-        self, tokens: list[tuple[str, str]], resolve: Callable[[str], object]
-    ) -> None:
+    def __init__(self, tokens: list[tuple[str, str]], resolve: Callable[[str], object]) -> None:
         self._toks = tokens
         self._i = 0
         self._resolve = resolve
@@ -281,9 +279,7 @@ def _dw_evaluate_scenario(if_expr: object, scenario: _DwScenario) -> bool:
     if not expr:
         # no `if:` at all is always eligible
         return True
-    parser = _DwParser(
-        _dw_tokenize(expr), lambda path: _dw_resolve_operand(path, scenario)
-    )
+    parser = _DwParser(_dw_tokenize(expr), lambda path: _dw_resolve_operand(path, scenario))
     return _dw_truthy(parser.evaluate())
 
 

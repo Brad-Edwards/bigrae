@@ -5,6 +5,7 @@ through `dorny/paths-filter` classifiers. These checks keep the classifiers and
 the job conditions that consume them intact, so a docs-only diff is the only
 Quality skip path and an app-only diff still builds and deploys the portal image.
 """
+
 from __future__ import annotations
 
 import re
@@ -23,7 +24,6 @@ from ._deploy_workflow_text import (
     _paths_filter_block,
     _workflow_job_block,
 )
-
 
 _QUALITY_RELEVANT_OUTPUT = (
     "quality_relevant: ${{ steps.quality_non_docs.outputs.non_docs == 'true' || "
@@ -46,9 +46,7 @@ _QUALITY_GUARDRAIL_DOCS_REQUIRED_GLOBS = (
     # docs-only pack edit must still run Quality.
     "shifter/environment-packs/**",
 )
-_PR_GATE_SKIPPED_QUALITY_GUARD = (
-    '[ "$quality_result" = "skipped" ] && [ "$quality_relevant" != "false" ]'
-)
+_PR_GATE_SKIPPED_QUALITY_GUARD = '[ "$quality_result" = "skipped" ] && [ "$quality_relevant" != "false" ]'
 _QUALITY_ONLY_OUTPUT = "quality_only: ${{ steps.filter.outputs.quality_only }}"
 _QUALITY_ONLY_REQUIRED_GLOBS = ("scripts/stack-smoke/**",)
 _PORTAL_IMAGE_OUTPUT = "portal_image: ${{ steps.filter.outputs.portal_image }}"
@@ -70,11 +68,7 @@ _PORTAL_IMAGE_BUILD_INPUT = "inputs.portal_image_changes"
 def _platform_app_source_globs(deploy_text: str) -> list[str]:
     """Return app-source globs wrongly present in the `shifter_platform` filter."""
     platform_block = _paths_filter_block(deploy_text, "shifter_platform")
-    return [
-        glob
-        for glob in _filter_globs(platform_block)
-        if glob == "shifter/**" or glob.startswith("shifter/")
-    ]
+    return [glob for glob in _filter_globs(platform_block) if glob == "shifter/**" or glob.startswith("shifter/")]
 
 
 def _check_deploy_workflow_plan_routing(deploy_text: str) -> list[Violation]:
@@ -121,9 +115,7 @@ def _check_deploy_workflow_plan_routing(deploy_text: str) -> list[Violation]:
             )
         )
     elif missing_non_doc_globs := [
-        glob
-        for glob in _QUALITY_NON_DOCS_REQUIRED_GLOBS
-        if not _block_contains_glob(non_docs_block, glob)
+        glob for glob in _QUALITY_NON_DOCS_REQUIRED_GLOBS if not _block_contains_glob(non_docs_block, glob)
     ]:
         violations.append(
             _plan_scope_violation(
@@ -141,9 +133,7 @@ def _check_deploy_workflow_plan_routing(deploy_text: str) -> list[Violation]:
             )
         )
     elif missing_guardrail_globs := [
-        glob
-        for glob in _QUALITY_GUARDRAIL_DOCS_REQUIRED_GLOBS
-        if not _block_contains_glob(guardrail_docs_block, glob)
+        glob for glob in _QUALITY_GUARDRAIL_DOCS_REQUIRED_GLOBS if not _block_contains_glob(guardrail_docs_block, glob)
     ]:
         violations.append(
             _plan_scope_violation(
@@ -161,9 +151,7 @@ def _check_deploy_workflow_plan_routing(deploy_text: str) -> list[Violation]:
                 "changes run Quality",
             )
         )
-    elif not pr_gate_block or not _active_line_contains(
-        pr_gate_block, _PR_GATE_SKIPPED_QUALITY_GUARD
-    ):
+    elif not pr_gate_block or not _active_line_contains(pr_gate_block, _PR_GATE_SKIPPED_QUALITY_GUARD):
         violations.append(
             _plan_scope_violation(
                 _DEPLOY_WORKFLOW_PATH,
@@ -188,9 +176,7 @@ def _check_deploy_workflow_quality_only_routing(deploy_text: str) -> list[Violat
         ]
 
     missing_globs = [
-        glob
-        for glob in _QUALITY_ONLY_REQUIRED_GLOBS
-        if not _block_contains_glob(quality_only_block, glob)
+        glob for glob in _QUALITY_ONLY_REQUIRED_GLOBS if not _block_contains_glob(quality_only_block, glob)
     ]
     if missing_globs:
         return [
@@ -240,9 +226,7 @@ def _environment_pack_globs(repo_root: Path) -> tuple[list[str], list[str]]:
     """Return per-pack ``(shipped, development)`` globs for the pack collection."""
     dockerfile = repo_root / _PORTAL_DOCKERFILE_PATH
     shipped = (
-        set(_PORTAL_PACK_COPY_RE.findall(dockerfile.read_text(encoding="utf-8")))
-        if dockerfile.is_file()
-        else set()
+        set(_PORTAL_PACK_COPY_RE.findall(dockerfile.read_text(encoding="utf-8"))) if dockerfile.is_file() else set()
     )
     packs_dir = repo_root / _ENVIRONMENT_PACKS_DIR
     packs = {path.name for path in packs_dir.iterdir() if path.is_dir()} if packs_dir.is_dir() else set()

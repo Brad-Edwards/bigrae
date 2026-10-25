@@ -31,6 +31,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
 
@@ -217,7 +218,7 @@ class TestManualDeployDispatch(unittest.TestCase):
     environment). push and pull_request run validation only, and no branch name
     selects a deployment target."""
 
-    ENV_OPTIONS = {"aws-dev", "gcp-dev", "orthanc", "sauron", "balrog"}
+    ENV_OPTIONS: ClassVar[set[str]] = {"aws-dev", "gcp-dev", "orthanc", "sauron", "balrog"}
 
     @classmethod
     def setUpClass(cls):
@@ -670,10 +671,10 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertIn('resource "google_storage_bucket" "release_evidence"', identity)
         self.assert_hcl_assignment(identity, "role", '"roles/storage.objectCreator"')
         self.assert_hcl_assignment(identity, "role", '"roles/storage.objectViewer"')
-        self.assert_hcl_assignment(identity, 'public_access_prevention', '"enforced"')
-        self.assert_hcl_assignment(identity, 'uniform_bucket_level_access', 'true')
-        self.assert_hcl_assignment(identity, 'retention_period', '"7776000"')
-        self.assert_hcl_assignment(identity, 'is_locked', 'true')
+        self.assert_hcl_assignment(identity, "public_access_prevention", '"enforced"')
+        self.assert_hcl_assignment(identity, "uniform_bucket_level_access", "true")
+        self.assert_hcl_assignment(identity, "retention_period", '"7776000"')
+        self.assert_hcl_assignment(identity, "is_locked", "true")
 
     def test_gcp_guest_build_and_sbom_evidence_cross_trust_boundaries(self):
         build = (REPO_ROOT / ".github/workflows/packer-gcp.yml").read_text(encoding="utf-8")
@@ -873,13 +874,9 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         # A single upfront preflight fails with the full list of any secrets
         # missing from the selected <environment>-destroy Environment before
         # checkout/auth, rather than one render step at a time.
-        destroy_text = (REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(
-            encoding="utf-8"
-        )
+        destroy_text = (REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(encoding="utf-8")
         self.assertIn("Preflight - required destroy secrets present", destroy_text)
-        self.assertIn(
-            "-destroy' Environment is missing required secret(s)", destroy_text
-        )
+        self.assertIn("-destroy' Environment is missing required secret(s)", destroy_text)
 
     def test_gcp_bootstrap_secrets_never_reach_process_argv(self):
         workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
@@ -916,7 +913,7 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
 class TestGithubEnvironmentBinding(unittest.TestCase):
     """#935 / ADR-003-R5: mutating deploy jobs bind a GitHub Environment."""
 
-    EXPECTED = {
+    EXPECTED: ClassVar[dict[str, tuple[str, ...]]] = {
         "_core.yml": ("apply",),
         "_range.yml": ("apply",),
         "_shifter-engine.yml": ("build", "verify-provisioner-image"),

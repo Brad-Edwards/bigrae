@@ -27,7 +27,6 @@ platform/terraform/
 ├── environments/
 │   ├── dev/              # Dev environment configs
 │   └── prod/             # Prod environment configs
-└── cloudformation/           # Cortex XDR connector templates
 ```
 
 ### Components
@@ -40,7 +39,6 @@ platform/terraform/
 | **Portal*** | `modules/portal/` | ALB, EC2 (configurable ASG), RDS, Redis, Cognito, S3 |
 | **Provisioner** | `modules/engine-provisioner/` | ECS Fargate task for range provisioning |
 | **Guacamole** | `modules/guacamole/` | Browser-based RDP access to range instances |
-| **CloudFormation** | `cloudformation/{env}/` | Cortex XDR connector IAM roles (manually deployed) |
 
 *Portal is a legacy name. Deploys Shifter Django infrastructure.
 

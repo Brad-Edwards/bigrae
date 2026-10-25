@@ -148,7 +148,8 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [check-rds-pending-modifications-lint]
-      security: []
+      # Ruff runs the S (bandit) security rules in the same blocking job.
+      security: [check-rds-pending-modifications-lint]
       test: [check-rds-pending-modifications-tests]
 
   - id: handle_sd_replacement
@@ -157,7 +158,8 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [handle-sd-replacement-lint]
-      security: []
+      # Ruff runs the S (bandit) security rules in the same blocking job.
+      security: [handle-sd-replacement-lint]
       test: [handle-sd-replacement-tests]
 
   - id: assert_portal_inspection
@@ -166,7 +168,8 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [assert-portal-inspection-lint]
-      security: []
+      # Ruff runs the S (bandit) security rules in the same blocking job.
+      security: [assert-portal-inspection-lint]
       test: [assert-portal-inspection-tests]
 
   - id: installation
@@ -222,7 +225,10 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [k8s-lint]
-      security: []
+      # kube-linter enforces the security checks in .kube-linter.yaml on every
+      # rendered kustomize root (non-root, read-only root, no privilege
+      # escalation, no writable host mounts, safe sysctls).
+      security: [k8s-lint]
       test: [k8s-schema]
 
   - id: mcp_ngfw
@@ -233,7 +239,8 @@ quality_units:
       package: ngfw
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ngfw}}]
-      security: []
+      # eslint-plugin-security runs with --max-warnings 0, so a finding fails.
+      security: [{job: mcp-lint, matrix: {package: ngfw}}]
       test: [{job: mcp-tests, matrix: {package: ngfw}}]
 
   - id: mcp_ops
@@ -244,7 +251,8 @@ quality_units:
       package: ops
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ops}}]
-      security: []
+      # eslint-plugin-security runs with --max-warnings 0, so a finding fails.
+      security: [{job: mcp-lint, matrix: {package: ops}}]
       test: [{job: mcp-tests, matrix: {package: ops}}]
 
   - id: mcp_planner
@@ -255,7 +263,8 @@ quality_units:
       package: planner
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: planner}}]
-      security: []
+      # eslint-plugin-security runs with --max-warnings 0, so a finding fails.
+      security: [{job: mcp-lint, matrix: {package: planner}}]
       test: [{job: mcp-tests, matrix: {package: planner}}]
 
   - id: mcp_shared
@@ -267,8 +276,9 @@ quality_units:
       fanout_all_on_change: true
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: shared}}]
-      security: []
-      test: []
+      # eslint-plugin-security runs with --max-warnings 0, so a finding fails.
+      security: [{job: mcp-lint, matrix: {package: shared}}]
+      test: [{job: mcp-tests, matrix: {package: shared}}]
 
   - id: adr_guard
     paths:
@@ -282,24 +292,27 @@ quality_units:
       - .shifter.yaml
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      # adr-guard-lint runs Ruff with the S (bandit) rules on the guard and
+      # ownership Python. adr-conformance validates the policy files.
+      lint: [adr-guard-lint, adr-conformance]
+      security: [adr-guard-lint, adr-conformance]
       test: [adr-guard-tests]
 
   - id: stack_smoke
     paths:
       - scripts/stack-smoke/**
+      # The portal image build context. The stack-smoke job builds that image,
+      # so it is the test that consumes this file (#1698).
+      - shifter/.dockerignore
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      # Ruff with the S (bandit) rules for the Python helpers, and ShellCheck.
+      lint: [stack-smoke-lint]
+      security: [stack-smoke-lint]
       test: [stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
-  # exclusions (ADR-004-R23 forbids exempting shipped build/runtime material via
-  # exclusions). They have no dedicated blocking quality job yet, so every
-  # responsibility is a visible, dated ADR-004-R23 gap tracked by #1698 rather
-  # than a hidden config exclusion.
+  # exclusions (ADR-004-R24 forbids exempting shipped build/runtime material).
   - id: container_images
     paths:
       - shifter/engine/guacamole/**
@@ -307,36 +320,23 @@ quality_units:
       - shifter/.dockerignore
     sonar: false
     responsibilities:
-      lint: []
-      security: []
-      test: [guacamole-authority-tests]
+      # hadolint for the Dockerfiles, ShellCheck for the entrypoints.
+      lint: [container-images-lint]
+      # Trivy config with --exit-code 1 on the Dockerfiles.
+      security: [container-images-security]
+      # guacamole-authority-tests builds the client image; container-images-tests
+      # builds the guacd image and checks its contract.
+      test: [guacamole-authority-tests, container-images-tests]
 
   - id: charts
     paths:
       - platform/charts/**
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      # helm lint and kube-linter on the defaults and every provider profile.
+      lint: [charts-lint]
+      security: [charts-lint]
       test: [chart-tests]
-
-  - id: cloudformation
-    paths:
-      - platform/cloudformation/**
-    sonar: false
-    responsibilities:
-      lint: []
-      security: []
-      test: []
-
-  - id: branding_assets
-    paths:
-      - assets/**
-    sonar: false
-    responsibilities:
-      lint: []
-      security: []
-      test: []
 
 exclusions:
   - type: docs

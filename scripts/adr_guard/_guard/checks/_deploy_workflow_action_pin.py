@@ -7,6 +7,7 @@ SHA (supply-chain provenance, issue #1519). This mirrors the `_dw_*`
 workflow-as-data model rather than string-matching workflow text, and fails
 closed: a workflow that cannot be parsed cannot be classified.
 """
+
 from __future__ import annotations
 
 import re
@@ -18,11 +19,10 @@ from .._common import (
     is_guard_source_path,
 )
 from .._workflow_model import (
-    _DwShapeError,
     _dw_is_self_hosted,
     _dw_load_workflow,
+    _DwShapeError,
 )
-
 
 _ACTION_PIN_CHECK = "workflow-action-sha-pinning"
 _ACTION_PIN_RULE = "ADR-037-R1"
@@ -45,9 +45,7 @@ def _dw_iter_workflow_files(repo_root: Path) -> list[str]:
     if not wf_dir.is_dir():
         return []
     return sorted(
-        f".github/workflows/{p.name}"
-        for p in wf_dir.iterdir()
-        if p.is_file() and p.suffix in (".yml", ".yaml")
+        f".github/workflows/{p.name}" for p in wf_dir.iterdir() if p.is_file() and p.suffix in (".yml", ".yaml")
     )
 
 
@@ -78,9 +76,7 @@ def _dw_step_uses(step: object) -> str | None:
 def _dw_step_uses_cloud_auth(step: object) -> bool:
     """True when a step authenticates to AWS or GCP."""
     uses = _dw_step_uses(step)
-    if uses and any(
-        uses == a or uses.startswith(a + "@") for a in _CLOUD_AUTH_ACTIONS
-    ):
+    if uses and any(uses == a or uses.startswith(a + "@") for a in _CLOUD_AUTH_ACTIONS):
         return True
     if isinstance(step, dict):
         with_block = step.get("with")
@@ -114,11 +110,7 @@ def _dw_iter_strings(node: object) -> Iterator[str]:
 
 def _dw_references_named_secret(node: object) -> bool:
     """True if the YAML subtree references any ``secrets.X`` except GITHUB_TOKEN."""
-    return any(
-        name != "GITHUB_TOKEN"
-        for text in _dw_iter_strings(node)
-        for name in _DW_NAMED_SECRET_RE.findall(text)
-    )
+    return any(name != "GITHUB_TOKEN" for text in _dw_iter_strings(node) for name in _DW_NAMED_SECRET_RE.findall(text))
 
 
 def _dw_job_forwards_secrets(job: dict[str, object]) -> bool:
@@ -164,9 +156,7 @@ def _dw_workflow_is_cloud_credentialed(wf: dict[str, object]) -> bool:
     if not isinstance(jobs, dict):
         return False
     return any(
-        _dw_job_is_cloud_credentialed(job)
-        for job in jobs.values()
-        if isinstance(job, dict)
+        _dw_job_is_cloud_credentialed(job) for job in jobs.values() if isinstance(job, dict)
     ) or _dw_references_named_secret(wf.get("env"))
 
 
@@ -202,10 +192,7 @@ def _workflow_action_pin_relevant(files: list[str] | None) -> bool:
     """True when a changed file can affect ADR-037-R1 action pinning."""
     if files is None:
         return True
-    return any(
-        f.startswith(".github/workflows/") or is_guard_source_path(f)
-        for f in files
-    )
+    return any(f.startswith(".github/workflows/") or is_guard_source_path(f) for f in files)
 
 
 def _action_pin_hint(ref: str) -> str:
@@ -234,9 +221,7 @@ def _action_pin_violations_for_workflow(rel: str, wf: dict[str, object]) -> list
     return violations
 
 
-def check_workflow_action_sha_pinning(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def check_workflow_action_sha_pinning(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Cloud-credentialed workflows pin every action to a full SHA (ADR-037-R1).
 
     Enumerates every ``.github/workflows/*.yml`` as data, classifies each as

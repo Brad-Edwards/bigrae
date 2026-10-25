@@ -342,6 +342,8 @@ export function loadPolicy({ path, profile } = {}) {
   if (!path) {
     throw new PolicyError("loadPolicy: 'path' is required");
   }
+  // Callers give a fixed config path (repo .shifter.yaml, or a test file).
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is never tool input
   const text = readFileSync(path, "utf-8");
   const doc = yaml.parse(text);
   if (!doc || typeof doc !== "object" || !("mcp_ops" in doc)) {

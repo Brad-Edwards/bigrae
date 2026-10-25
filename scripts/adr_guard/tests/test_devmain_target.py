@@ -68,8 +68,8 @@ def _make(*args: str) -> str:
     lane: a sub-make would otherwise interleave its own ``Entering directory``
     bookkeeping with the recipe under inspection.
     """
-    result = subprocess.run(  # noqa: S603
-        ["make", "--no-print-directory", *args],  # noqa: S607
+    result = subprocess.run(
+        ["make", "--no-print-directory", *args],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,

@@ -1689,8 +1689,7 @@
         ],
         "infrastructure": [
           "platform/terraform/modules",
-          "platform/terraform/environments",
-          "platform/cloudformation"
+          "platform/terraform/environments"
         ],
         "kubernetes": [
           "platform/charts/shifter"

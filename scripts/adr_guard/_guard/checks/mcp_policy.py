@@ -1,4 +1,5 @@
 """MCP policy checks: no shell exec, ops TLS strict (JS/TS source scanning)."""
+
 from __future__ import annotations
 
 import re
@@ -8,7 +9,6 @@ from .._common import (
     Violation,
     _repo_relative,
 )
-
 
 # child_process import shapes we care about (any form — named, default,
 # namespace, CJS destructure, bare CJS require — with or without the
@@ -236,9 +236,7 @@ def _js_candidate_paths(repo_root: Path, files: list[str] | None, scan_root: Pat
     if files is not None:
         return [repo_root / path for path in files if path.startswith(prefix) and path.endswith(_JS_SUFFIXES)]
     return [
-        p
-        for p in scan_root.rglob("*")
-        if p.is_file() and p.suffix in _JS_SUFFIXES and "node_modules" not in p.parts
+        p for p in scan_root.rglob("*") if p.is_file() and p.suffix in _JS_SUFFIXES and "node_modules" not in p.parts
     ]
 
 

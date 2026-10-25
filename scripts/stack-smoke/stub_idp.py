@@ -123,7 +123,7 @@ class _Handler(BaseHTTPRequestHandler):
     # http.server logs the full request line (with query string) to stderr by
     # default; that would leak code/state/nonce. Emit only method + path (no
     # query) + status, never bodies, headers, or query values.
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - base signature
+    def log_message(self, format: str, *args: Any) -> None:
         # Method + path only. Never the query string (carries code/state/nonce).
         path = urlparse(self.path).path
         sys.stderr.write(f"[stub-idp] {self.command} {path}\n")
@@ -148,7 +148,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     # --- routing ------------------------------------------------------------
-    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == self.cfg.jwks_path:
             self._json(200, self.keys.jwks)
@@ -159,7 +159,7 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._error(404, "not_found")
 
-    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_POST(self) -> None:
         if urlparse(self.path).path == self.cfg.token_path:
             self._handle_token()
         else:

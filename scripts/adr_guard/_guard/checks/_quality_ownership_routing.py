@@ -6,6 +6,7 @@ docs-only change selects none of them. Split out of ``quality_ownership.py`` to
 keep each module under the file-length limit; every public name here is
 re-imported by that module so the package surface is unchanged.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,13 +15,13 @@ from types import ModuleType
 
 from .._common import Violation
 from .._workflow_model import (
-    _DwExprError,
-    _DwParser,
-    _DwShapeError,
     _dw_job_if,
     _dw_normalize_expr,
     _dw_tokenize,
     _dw_truthy,
+    _DwExprError,
+    _DwParser,
+    _DwShapeError,
 )
 from ._quality_ownership_model import (
     _QUALITY_CONTRACT_REL,
@@ -82,9 +83,7 @@ def _quality_eval_if(if_expr: object, outputs: dict[str, str]) -> bool:
     expr = _quality_strip_if(if_expr)
     if not expr:
         return True
-    parser = _DwParser(
-        _dw_tokenize(expr), lambda pathstr: _quality_resolve_operand(pathstr, outputs)
-    )
+    parser = _DwParser(_dw_tokenize(expr), lambda pathstr: _quality_resolve_operand(pathstr, outputs))
     return _dw_truthy(parser.evaluate())
 
 
@@ -106,9 +105,7 @@ def _quality_job_reachable(
     needs = job.get("needs") or []
     if isinstance(needs, str):
         needs = [needs]
-    return all(
-        _quality_job_reachable(jobs, need, outputs, seen | {job_id}) for need in needs
-    )
+    return all(_quality_job_reachable(jobs, need, outputs, seen | {job_id}) for need in needs)
 
 
 _QUALITY_MATRIX_OUTPUT = {"mcp-lint": "mcp_lint_packages", "mcp-tests": "mcp_test_packages"}
@@ -199,8 +196,7 @@ def _quality_output_wiring_violations(
             violations.append(
                 viol(
                     _QUALITY_WORKFLOW_REL,
-                    f"paths output {key!r} is sourced from the classifier but is not an "
-                    "emitted contract output",
+                    f"paths output {key!r} is sourced from the classifier but is not an emitted contract output",
                 )
             )
     return violations
@@ -244,9 +240,7 @@ def _quality_ref_routing_violations(
             )
         ]
     elif ref.matrix:
-        violations = _quality_matrix_reachable(
-            ref, probe.resp, probe.unit, probe.outputs, jobs, viol
-        )
+        violations = _quality_matrix_reachable(ref, probe.resp, probe.unit, probe.outputs, jobs, viol)
     else:
         violations = []
     return violations
@@ -293,11 +287,7 @@ def _quality_docs_only_violations(
     except Exception:
         return []
     declared_jobs = {
-        ref.job
-        for unit in contract.units
-        for refs in unit.responsibilities.values()
-        for ref in refs
-        if ref.job in jobs
+        ref.job for unit in contract.units for refs in unit.responsibilities.values() for ref in refs if ref.job in jobs
     }
     violations = []
     for job_id in sorted(declared_jobs):

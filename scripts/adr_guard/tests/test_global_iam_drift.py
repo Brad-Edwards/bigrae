@@ -11,6 +11,7 @@ missing global/iam path filter, an echoed/commented plan, a swallowed exit
 status, continue-on-error, and a cross-job scope match. One positive test
 asserts the real committed workflow satisfies the guard.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -51,29 +52,22 @@ jobs:
 
 
 def _wf(on_block: str = _ON_VALID, jobs_block: str = _JOBS_VALID) -> str:
-    return (
-        "name: IAM Drift Check\n"
-        f"{on_block}"
-        "permissions:\n"
-        "  id-token: write\n"
-        "  contents: read\n"
-        f"{jobs_block}"
-    )
+    return f"name: IAM Drift Check\n{on_block}permissions:\n  id-token: write\n  contents: read\n{jobs_block}"
 
 
-def _drift_jobs(plan_run: str, working_directory: str = "platform/terraform/global/iam",
-                continue_on_error: bool = False, scope_via_defaults: bool = True) -> str:
+def _drift_jobs(
+    plan_run: str,
+    working_directory: str = "platform/terraform/global/iam",
+    continue_on_error: bool = False,
+    scope_via_defaults: bool = True,
+) -> str:
     defaults = (
-        f"    defaults:\n      run:\n        working-directory: {working_directory}\n"
-        if scope_via_defaults
-        else ""
+        f"    defaults:\n      run:\n        working-directory: {working_directory}\n" if scope_via_defaults else ""
     )
     coe = "        continue-on-error: true\n" if continue_on_error else ""
     # plan_run may be a single line or a block scalar body.
     if "\n" in plan_run.strip():
-        run_block = "        run: |\n" + "".join(
-            f"          {line}\n" for line in plan_run.strip().splitlines()
-        )
+        run_block = "        run: |\n" + "".join(f"          {line}\n" for line in plan_run.strip().splitlines())
     else:
         run_block = f"        run: {plan_run.strip()}\n"
     return (
@@ -163,17 +157,13 @@ class TestGlobalIamDriftGuard(unittest.TestCase):
 
     def test_wrong_branch_is_flagged(self):
         on_block = (
-            "on:\n  push:\n    branches: [dev, feature-x]\n"
-            "    paths:\n      - 'platform/terraform/global/iam/**'\n"
+            "on:\n  push:\n    branches: [dev, feature-x]\n    paths:\n      - 'platform/terraform/global/iam/**'\n"
         )
         violations = _violations(_wf(on_block=on_block))
         self.assertTrue(any("dev, main" in v.message for v in violations))
 
     def test_missing_global_iam_path_filter_is_flagged(self):
-        on_block = (
-            "on:\n  push:\n    branches: [dev, main]\n"
-            "    paths:\n      - 'platform/terraform/environments/**'\n"
-        )
+        on_block = "on:\n  push:\n    branches: [dev, main]\n    paths:\n      - 'platform/terraform/environments/**'\n"
         violations = _violations(_wf(on_block=on_block))
         self.assertTrue(any("path" in v.message for v in violations))
 
@@ -201,9 +191,7 @@ class TestGlobalIamDriftGuard(unittest.TestCase):
         self.assertTrue(_violations(_wf(jobs_block=jobs)))
 
     def test_continue_on_error_is_flagged(self):
-        jobs = _drift_jobs(
-            "terraform plan -detailed-exitcode -refresh=false", continue_on_error=True
-        )
+        jobs = _drift_jobs("terraform plan -detailed-exitcode -refresh=false", continue_on_error=True)
         self.assertTrue(_violations(_wf(jobs_block=jobs)))
 
     def test_job_level_continue_on_error_is_flagged(self):
@@ -252,15 +240,11 @@ class TestGlobalIamDriftGuard(unittest.TestCase):
     # --- relevance --------------------------------------------------------- #
     def test_irrelevant_file_subset_skips(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(
-                ADR_GUARD.check_global_iam_drift_check(Path(tmp), ["README.md"]), []
-            )
+            self.assertEqual(ADR_GUARD.check_global_iam_drift_check(Path(tmp), ["README.md"]), [])
 
     def test_relevant_file_subset_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertTrue(
-                ADR_GUARD.check_global_iam_drift_check(Path(tmp), [WORKFLOW_REL])
-            )
+            self.assertTrue(ADR_GUARD.check_global_iam_drift_check(Path(tmp), [WORKFLOW_REL]))
 
 
 if __name__ == "__main__":

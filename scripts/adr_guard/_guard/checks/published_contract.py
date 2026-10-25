@@ -1,4 +1,5 @@
 """Published-contract snapshot immutability (ADR-011-R8)."""
+
 from __future__ import annotations
 
 import os
@@ -10,7 +11,6 @@ from .._common import (
     _boundary_mock_base_reference_candidates,
     _git_text,
 )
-
 
 _PUBLISHED_CONTRACT_DIR = "shifter/installation/published_contract"
 _PUBLISHED_CONTRACT_SNAPSHOT_RE = re.compile(r"^backend-bundle-contract\.v(\d+)\.json$")

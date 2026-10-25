@@ -7,6 +7,7 @@ couples the consumer to another stack's whole state file; native data sources
 and SSM parameters return only the values the consumer needs and keep the
 stacks loosely coupled.
 """
+
 from __future__ import annotations
 
 import re

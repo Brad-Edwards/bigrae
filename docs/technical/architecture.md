@@ -61,6 +61,8 @@ it is not the current target for all installations.
 The canonical control-plane package is the shared Helm chart, hosted on GKE for
 GCP or EKS for AWS. Provisioner Jobs use the selected cluster; CI runner placement
 is a separate concern. Older ECS files do not define the current AWS package.
+The AWS bundle owns the Terraform modules and environments under
+`platform/terraform`. Vendor connector templates are not part of the package.
 GCP bootstrap and CI consume generated configuration from Terraform and Secret
 Manager; keep platform hosting separate from the range guest backend.
 

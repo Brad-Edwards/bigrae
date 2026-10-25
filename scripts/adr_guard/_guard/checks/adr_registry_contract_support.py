@@ -16,9 +16,7 @@ RANGE_SUBSTRATE_DEFERRED_ADAPTERS = frozenset({"azure"})
 RANGE_SUBSTRATE_ISSUE_REFERENCES = frozenset({"283", "478", "265", "277"})
 
 
-def validate_exact_string_members(
-    value: object, expected: frozenset[str], field: str
-) -> list[str]:
+def validate_exact_string_members(value: object, expected: frozenset[str], field: str) -> list[str]:
     """Validate one closed interface-contract string collection."""
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         return [f"{field} must be a list of strings"]
@@ -26,17 +24,13 @@ def validate_exact_string_members(
     if len(value) != len(actual):
         message = f"{field} must not contain duplicates"
     elif actual != expected:
-        message = (
-            f"{field} must contain exactly {sorted(expected)}; got {sorted(actual)}"
-        )
+        message = f"{field} must contain exactly {sorted(expected)}; got {sorted(actual)}"
     else:
         return []
     return [message]
 
 
-def interface_contract_kind_error(
-    contract: dict[str, object], adr_id: str
-) -> str | None:
+def interface_contract_kind_error(contract: dict[str, object], adr_id: str) -> str | None:
     """Return the contract kind error, or None when the declared kind is supported."""
     expected_kind = REQUIRED_INTERFACE_CONTRACTS.get(adr_id)
     kind = contract.get("kind")
@@ -47,9 +41,7 @@ def interface_contract_kind_error(
     return None
 
 
-def validate_contract_conformance(
-    contract: dict[str, object], adr_id: str
-) -> list[str]:
+def validate_contract_conformance(contract: dict[str, object], adr_id: str) -> list[str]:
     """Validate the conformance obligations declared by an interface contract."""
     conformance = contract.get("conformance")
     if not isinstance(conformance, dict):
@@ -87,9 +79,7 @@ def _is_declared_operation_list(operations: object) -> bool:
         return False
     if not all(isinstance(operation, str) for operation in operations):
         return False
-    return set(operations).issubset(RANGE_SUBSTRATE_OPERATIONS) and len(
-        operations
-    ) == len(set(operations))
+    return set(operations).issubset(RANGE_SUBSTRATE_OPERATIONS) and len(operations) == len(set(operations))
 
 
 def _issue_reference_mapping_is_valid(mapping: dict[str, object]) -> bool:
@@ -97,14 +87,10 @@ def _issue_reference_mapping_is_valid(mapping: dict[str, object]) -> bool:
     mapping_fields = set(mapping)
     if mapping_fields == {"disposition"} and mapping["disposition"] == "out-of-scope":
         return True
-    return mapping_fields == {"operations"} and _is_declared_operation_list(
-        mapping.get("operations")
-    )
+    return mapping_fields == {"operations"} and _is_declared_operation_list(mapping.get("operations"))
 
 
-def _issue_reference_error(
-    mapping: object, reference: object, adr_id: str
-) -> str | None:
+def _issue_reference_error(mapping: object, reference: object, adr_id: str) -> str | None:
     """Return the error for one issue-reference mapping, or None when it is valid."""
     if not isinstance(mapping, dict):
         return f"{adr_id} issue reference {reference} mapping must be an object"
@@ -117,9 +103,7 @@ def _issue_reference_error(
     )
 
 
-def validate_contract_issue_references(
-    contract: dict[str, object], adr_id: str
-) -> list[str]:
+def validate_contract_issue_references(contract: dict[str, object], adr_id: str) -> list[str]:
     """Validate the issue-reference map declared by an interface contract."""
     references = contract.get("issue_references")
     if not isinstance(references, dict):
@@ -153,9 +137,7 @@ def validate_closed_mapping(
     actual_keys = set(value)
     errors: list[str] = []
     if actual_keys != expected_keys:
-        errors.append(
-            f"{field} must contain exactly {sorted(expected_keys)}; got {sorted(actual_keys)}"
-        )
+        errors.append(f"{field} must contain exactly {sorted(expected_keys)}; got {sorted(actual_keys)}")
     for key, expected in fixed.items():
         if key not in value:
             continue
@@ -164,7 +146,5 @@ def validate_closed_mapping(
             errors.append(f"{field}.{key} must be {expected!r}; got {actual!r}")
     for key, expected in set_members.items():
         if key in value:
-            errors.extend(
-                validate_exact_string_members(value[key], expected, f"{field}.{key}")
-            )
+            errors.extend(validate_exact_string_members(value[key], expected, f"{field}.{key}"))
     return errors

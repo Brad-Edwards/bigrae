@@ -29,12 +29,8 @@ const REMOVED_TOOLS = ["run_command", "show_system_info", "show_routes"];
 // single-quoted, or backtick template literal WITHOUT `${...}`
 // interpolation. Interpolated template literals are intentionally
 // excluded so they trigger the "non-literal registration" guard below.
-const TOOL_REGISTRATION_LITERAL = new RegExp(
-  // server.tool(  +  string-literal-of-any-quote-style
-  String.raw`server\.tool\(\s*(?:"([^"\\]+)"|'([^'\\]+)'|` + "`" +
-    String.raw`([^` + "`" + String.raw`$\\]+)` + "`" + String.raw`)`,
-  "g",
-);
+const TOOL_REGISTRATION_LITERAL =
+  /server\.tool\(\s*(?:"([^"\\]+)"|'([^'\\]+)'|`([^`$\\]+)`)/g;
 
 // Match ANY `server.tool(` registration regardless of the first
 // argument's shape (literal, identifier, function call, interpolated

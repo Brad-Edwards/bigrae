@@ -31,10 +31,9 @@ if [[ -n "${POSTGRESQL_HOSTNAME:-}" ]] && [[ -n "${POSTGRESQL_DATABASE:-}" ]]; t
     else
         echo "Database schema not found, initializing..."
 
-        # Generate and apply schema
-        /opt/guacamole/bin/initdb.sh --postgresql | psql
-
-        if [[ $? -eq 0 ]]; then
+        # Generate and apply schema. ON_ERROR_STOP makes psql exit non-zero
+        # when a SQL statement fails, so a partial schema is not a success.
+        if /opt/guacamole/bin/initdb.sh --postgresql | psql -v ON_ERROR_STOP=1; then
             echo "Database schema initialized successfully"
         else
             echo "ERROR: Failed to initialize database schema" >&2

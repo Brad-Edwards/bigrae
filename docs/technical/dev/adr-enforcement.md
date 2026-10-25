@@ -1024,6 +1024,25 @@ reconciles the contract against the whole repository for estate completeness,
 per-path ownership completeness across lint, security, and test, and routing
 reachability against the real workflow.
 
+For issue #1698 gap closure, see the
+[production quality preflight](../../architecture/production-quality-gap-closure-preflight-1698.md).
+It distinguishes missing ownership wiring from missing enforcement and records
+command-scope and caller-gating risks. The current rule is ADR-004-R24; old R23
+quality-gap references do not refer to the current credentialed-workflow rule.
+
+Issue #1698 closed every recorded R24 gap without an exception:
+
+| Unit | Gap closed by |
+| --- | --- |
+| `assert_portal_inspection`, `check_rds_pending_modifications`, `handle_sd_replacement` | The existing `*-lint` jobs own security. Their Ruff config selects the `S` (bandit) rules. |
+| `mcp_ngfw`, `mcp_ops`, `mcp_planner`, `mcp_shared` | `mcp-lint` owns security. Each package runs `eslint . --max-warnings 0`, so an `eslint-plugin-security` finding fails the job. `mcp-tests` now runs the `mcp/shared` tests. |
+| `k8s` | `k8s-lint` owns security through the `.kube-linter.yaml` security checks on every rendered kustomize root. `security-k8s` (Checkov) stays advisory and cannot own a responsibility; #2558 makes it blocking. |
+| `adr_guard` | `adr-guard-lint` runs Ruff with `scripts/adr_guard/ruff.toml` (which selects the `S` rules) on the guard and ownership tooling. `adr-conformance` validates the policy files. |
+| `stack_smoke` | `stack-smoke-lint` runs Ruff with the `S` rules and ShellCheck. The unit also owns `shifter/.dockerignore`, because the `stack-smoke` job builds the portal image from that context. The job gate accepts the `shifter_platform` and `installation` outputs, so a portal-only change runs the smoke. |
+| `container_images` | `container-images-lint` (hadolint and ShellCheck), `container-images-security` (blocking Trivy config), and `container-images-tests` (builds the guacd image and checks its contract). |
+| `charts` | `charts-lint` runs `helm lint --strict` and kube-linter on the defaults and every provider profile. |
+| `cloudformation`, `branding_assets` | Removed. The vendor connector templates and the unreferenced design assets are no longer in the repository. |
+
 To add a production path:
 
 1. Add a quality unit to `quality_units` with its `paths` and the real

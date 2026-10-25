@@ -1,4 +1,5 @@
 """Python complexity gate (ADR-012)."""
+
 from __future__ import annotations
 
 import re
@@ -6,11 +7,10 @@ import tomllib
 from pathlib import Path
 
 from .._common import (
-    Violation,
     _ADR_GUARD_PATH,
+    Violation,
     is_guard_source_path,
 )
-
 
 # Canonical Python packages whose pyproject.toml must enforce the per-function
 # complexity gate. Keyed off `.pre-commit-config.yaml` ruff hooks. Adding a new

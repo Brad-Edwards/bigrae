@@ -4,6 +4,7 @@ Split out of ``secret_hygiene.py`` so both the generated-artifact and the
 secret-env scans share one source-control enumeration; the public name is
 re-imported by ``secret_hygiene.py`` so the package surface is unchanged.
 """
+
 from __future__ import annotations
 
 import subprocess
