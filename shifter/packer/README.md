@@ -77,7 +77,7 @@ After a successful build:
 - SSM Agent
 
 **Services (running on boot):**
-- Apache 2.4 with mod_php
+- Apache 2.4 with mod_php. `scripts/ubuntu/php-security-floor.sh` fails the build when a php8.1 package is below `8.1.2-1ubuntu2.28`, held, or not configured, or when Apache does not load PHP (#2556). The AWS verifier runs the same check on the booted candidate before it updates the SSM pointer. The GCP qualification workflow runs it on the booted candidate before promotion.
 - MySQL 8.0
 - Docker
 - OpenSSH Server
@@ -108,7 +108,7 @@ After a successful build:
 - WinRM enabled for remote management
 
 **Services:**
-- XAMPP (Apache 2.4, MySQL, PHP)
+- XAMPP (Apache 2.4, MySQL, PHP). The build replaces the bundled PHP directory with the official PHP 8.2.35 Thread Safe build, verified by SHA-256, and keeps XAMPP's `php.ini`. It fails when PHP is below the security floor, does not start cleanly, or does not load in Apache. The AWS candidate verifier checks the floor again on the booted image (#2556).
 - IIS with management tools
 - FTP Server
 - OpenSSH Server
