@@ -91,7 +91,7 @@ variation is a parameter change rather than a copy of the workflow block.
 | `SMOKE_WEB_PORT` | `18000` | Host port mapped to the web container's 8000 |
 | `SMOKE_HEALTH_PATH` | `/health/` | Readiness path to poll for 200 |
 | `SMOKE_WS_PATH` | `ws/notifications/` | Routed websocket consumer path |
-| `SMOKE_PAGES` | dashboard/range/terminal/settings/help | Space-separated authenticated page paths to render + asset-check |
+| `SMOKE_PAGES` | SPA root/range/terminal/settings/help | Space-separated authenticated page paths to render + asset-check |
 | `SMOKE_BOOT_TIMEOUT` | `180` | Seconds to wait for readiness |
 | `SMOKE_HEARTBEAT_TIMEOUT` | `120` | Seconds to wait for each heartbeat |
 | `SMOKE_WORKER_SPECS` | cms worker + ctf-scheduler | `name\|heartbeat_file\|command` per line |

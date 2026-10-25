@@ -46,7 +46,7 @@ SMOKE_HEALTH_PATH="${SMOKE_HEALTH_PATH:-/health/}"
 SMOKE_WS_PATH="${SMOKE_WS_PATH:-ws/notifications/}"
 # Authenticated, range-independent pages whose render + static assets are
 # asserted off the built image (the #923 TEST-3 range-independent subset).
-SMOKE_PAGES="${SMOKE_PAGES:-/dashboard/ /mission-control/ /mission-control/terminal/ /mission-control/settings/ /mission-control/help/}"
+SMOKE_PAGES="${SMOKE_PAGES:-/ /mission-control/ /mission-control/terminal/ /mission-control/settings/ /mission-control/help/}"
 SMOKE_BOOT_TIMEOUT="${SMOKE_BOOT_TIMEOUT:-180}"
 SMOKE_HEARTBEAT_TIMEOUT="${SMOKE_HEARTBEAT_TIMEOUT:-120}"
 # Bound for log-line assertions against `docker logs` (the line is already

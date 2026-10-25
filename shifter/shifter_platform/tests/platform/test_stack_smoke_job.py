@@ -175,6 +175,14 @@ def test_harness_asserts_authenticated_page_renders(smoke_script: str) -> None:
     assert "--session-file" in smoke_script
 
 
+def test_harness_page_render_list_uses_direct_render_routes(smoke_script: str) -> None:
+    """Render checks must not mistake an intentional router redirect for a page."""
+
+    pages_default = next(line for line in smoke_script.splitlines() if line.startswith("SMOKE_PAGES="))
+    assert "${SMOKE_PAGES:-/ /mission-control/" in pages_default
+    assert "/dashboard/" not in pages_default
+
+
 def test_page_smoke_helper_checks_static_and_sourcemaps() -> None:
     helper = WS_HELPER.parent.joinpath("page_smoke.py").read_text(encoding="utf-8")
     assert "/static/" in helper
