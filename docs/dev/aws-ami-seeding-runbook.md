@@ -83,13 +83,18 @@ not apply IAM or set secrets. Complete the cutover once per AWS account (`dev`,
    gh secret set AWS_IMAGE_ROLE_ARN_DEV --repo Brad-Edwards/bigrae --body "$ROLE_ARN"
    ```
 
-3. Confirm the repository still uses the default OIDC subject format so the pinned
-   trust matches (a non-default subject would need the Terraform trust updated):
+3. Confirm the repository's OIDC subject format and immutable IDs match the
+   Terraform inputs. The renamed canonical repository uses immutable subjects:
 
    ```bash
    gh api repos/Brad-Edwards/bigrae/actions/oidc/customization/sub
-   # expect use_default: true, use_immutable_subject: false
+   # expect use_default: true, use_immutable_subject: true
    ```
+
+   AWS trust defaults to `github_subject_format = "immutable"`. Other repositories
+   must supply their own owner and repository names and immutable IDs. Select
+   `"default"` explicitly only when the repository still emits the legacy subject
+   shape. Keep the existing exact `dev` and `main` image-build subjects.
 
 Until the secret is set the base `build` job fails closed with
 `Required secret AWS_IMAGE_ROLE_ARN_<ENV> is not set`. The `bake-scenario` job

@@ -27,6 +27,8 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 - IMPLEMENTS → CONFIG `scripts/stack-smoke/ruff.toml` (Blocking smoke helper lint and security rules)
 - TESTS → TEST `scripts/stack-smoke/test_page_smoke.py` (Reject non-HTTP smoke transports before file access)
 - TESTS → TEST `scripts/adr_guard/tests/test_deploy_secret_sync.py` (Compatible config options and conflict rejection without GitHub writes)
+- TESTS → TEST `scripts/bootstrap/tests/test_github_oidc_subjects.py` (Immutable and explicit legacy bootstrap subjects; reject invalid identities)
+- TESTS → TEST `platform/terraform/global/iam/tests/github-subject.tftest.hcl` (Native AWS trust subjects retain exact repository IDs and protected refs)
 - TESTS → TEST `scripts/bootstrap/tests/test_cli.py` (CLI behavior without internal orchestration mocks)
 - TESTS → TEST `scripts/bootstrap/tests/test_gcp_control_plane.py` (Process-boundary bootstrap and GDC ordering behavior)
 - DOCUMENTS → DOCUMENTATION `docs/architecture/bigrae-rename-quality-design-2555.md` (CI data flows and protection controls)

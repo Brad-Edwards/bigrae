@@ -108,6 +108,16 @@ ref and workflow restrictions. Under the user's no-deployments decision,
 no cloud-trust overlap or live migration is required. No cloud resource name
 or state location is derived from branding.
 
+GitHub's rename changes the default OIDC subject to include immutable owner and
+repository IDs. AWS and GCP templates and AWS bootstrap must construct that
+format from their explicit identity inputs. Canonical defaults use the observed
+IDs. Other repositories supply their own IDs. The explicit legacy format selects
+only the old subject shape; a policy never accepts both shapes as a fallback.
+Existing audience, purpose, branch and Environment restrictions retain their scope.
+The image-role guard requires exactly the `dev` and `main` subjects. It checks
+the selected prefix expression when the policy uses a shared prefix, and rejects
+wildcards, extra subjects and changes to the owner or repository ID fields.
+
 Plugin admission accepts exactly one invocation key, `BIGRAE_PLUGIN_INPUT` or
 its legacy alias, through a matching Secret key reference. The static and Helm
 policies share the same restriction and behavioral admission tests. Settings,

@@ -60,7 +60,8 @@ _SECRET_ENV_ROOTS: tuple[str, ...] = ("platform/k8s/",)
 # Basename suffix that selects "secret env" files. Matched on the
 # basename only so unrelated `*.env` files (config-bearing, not
 # secret-bearing) are not scanned by this check.
-_SECRET_ENV_SUFFIX = "-secrets.env"  # noqa: S105 - a file suffix, not a credential
+# a file suffix, not a credential
+_SECRET_ENV_SUFFIX = "-secrets.env"  # noqa: S105
 
 # Fail-loud synthetic values that may appear as the RHS of an
 # assignment in a tracked secret env file. The intent is that
@@ -232,7 +233,8 @@ def _scan_secret_env_file(abs_path: Path, rel_path: str) -> list[Violation]:
                 rule_id="ADR-004-R9",
                 path=rel_path,
                 message=(
-                    f"Tracked secret-env assignment `{var_name}` "  # noqa: S608 - a message string, not SQL
+                    # a message string, not SQL
+                    f"Tracked secret-env assignment `{var_name}` "  # noqa: S608
                     f"(line {lineno}) has a non-placeholder value. "
                     "Replace with an allowed synthetic placeholder "
                     "(REPLACE_AT_DEPLOY, CHANGE_ME, PLACEHOLDER, "

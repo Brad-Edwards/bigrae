@@ -35,7 +35,8 @@ def _terraform_plan_arguments(stripped_line: str) -> list[str] | None:
     """Arguments of the line's first `terraform plan`, or None when it has none."""
     tokens = _command_tokens(stripped_line)
     for index, token in enumerate(tokens[:-1]):
-        if token != "terraform" or tokens[index + 1] != "plan":  # noqa: S105 - a shell word, not a credential
+        # a shell word, not a credential
+        if token != "terraform" or tokens[index + 1] != "plan":  # noqa: S105
             continue
         plan_tokens: list[str] = []
         for plan_token in tokens[index + 2 :]:
@@ -60,7 +61,8 @@ def _terraform_plan_writes_saved_plan(stripped_line: str) -> bool:
     if f"-out={_TERRAFORM_PLAN_FILE}" in plan_tokens:
         return True
     return any(
-        plan_token == "-out"  # noqa: S105 - a shell word, not a credential
+        # a shell word, not a credential
+        plan_token == "-out"  # noqa: S105
         and next_index + 1 < len(plan_tokens)
         and plan_tokens[next_index + 1] == _TERRAFORM_PLAN_FILE
         for next_index, plan_token in enumerate(plan_tokens)
@@ -71,7 +73,8 @@ def _terraform_apply_uses_saved_plan(stripped_line: str) -> bool:
     """True when the line applies the saved `tfplan` under a lock timeout."""
     tokens = _command_tokens(stripped_line)
     for index, token in enumerate(tokens[:-1]):
-        if token != "terraform" or tokens[index + 1] != "apply":  # noqa: S105 - a shell word, not a credential
+        # a shell word, not a credential
+        if token != "terraform" or tokens[index + 1] != "apply":  # noqa: S105
             continue
         apply_tokens = tokens[index + 2 :]
         return (

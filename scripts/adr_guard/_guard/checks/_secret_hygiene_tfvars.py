@@ -20,7 +20,8 @@ _TFVARS_SCOPE = (
     "platform/terraform/global",
 )
 _SECRET_NAME_GROUP = (
-    r"((?:[A-Za-z_][A-Za-z0-9_]*"  # noqa: S105 - a name pattern, not a credential
+    # a name pattern, not a credential
+    r"((?:[A-Za-z_][A-Za-z0-9_]*"  # noqa: S105
     r"(?:_passwords?|_secrets?|_tokens?|_keys?|_credentials?|_authcodes?|_pin_values?))"
     r"|(?:authcodes?|pin_values?))"
 )

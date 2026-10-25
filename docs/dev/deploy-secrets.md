@@ -253,9 +253,14 @@ readback**:
 
 1. **Verify the OIDC subject format first.** `gh api
    repos/Brad-Edwards/bigrae/actions/oidc/customization/sub` must return
-   `use_default: true`, `use_immutable_subject: false`. A different result means
-   the subjects in `local.federated_subjects` and the provider condition must be
-   redesigned before applying - do not change the customization to fit the code.
+   `use_default: true`, `use_immutable_subject: true` for the renamed canonical
+   repository. The subject prefix must contain the observed owner and repository
+   IDs. AWS and GCP inputs now default to `github_subject_format = "immutable"`.
+   Other repositories must supply their own `github_org`, `github_repo`,
+   `github_owner_id` and `github_repository_id`. AWS bootstrap passes these same
+   identity inputs to its Terraform role. A repository that still uses the old
+   subject shape must explicitly select `github_subject_format = "default"`.
+   Do not change GitHub customization or admit both formats to fit a stale policy.
 2. **Create and protect the purpose Environments.** An `environment:` subject
    does not carry the source branch. Configure `gcp-build-dev`,
    `gcp-build-proof`, `gcp-validate-dev`, `gcp-validate-proof`,

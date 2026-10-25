@@ -248,13 +248,17 @@ def _terraform_apply_iam(config: BootstrapConfig, dry_run: bool) -> None:
     """Run terraform apply (or plan in dry-run) for the IAM stack; exit on apply failure."""
     info(f"Running terraform apply for {config.env}...")
     tfvars_file = f"{config.env}.tfvars"
+    identity_args = [
+        f"-var={key}={getattr(config, key)}"
+        for key in ("github_org", "github_repo", "github_owner_id", "github_repository_id", "github_subject_format")
+    ]
 
     if dry_run:
-        run_cmd(["terraform", "plan", f"-var-file={tfvars_file}"], dry_run=dry_run)
+        run_cmd(["terraform", "plan", f"-var-file={tfvars_file}", *identity_args], dry_run=dry_run)
         return
 
     apply_result = run_cmd(
-        ["terraform", "apply", "-auto-approve", f"-var-file={tfvars_file}"],
+        ["terraform", "apply", "-auto-approve", f"-var-file={tfvars_file}", *identity_args],
         dry_run=dry_run,
         check=False,
     )
@@ -309,9 +313,7 @@ def _github_oidc_trust_policy(config: BootstrapConfig, account_id: str) -> dict[
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
                     "StringEquals": {"token.actions.githubusercontent.com:aud": "sts.amazonaws.com"},
-                    "StringLike": {
-                        "token.actions.githubusercontent.com:sub": (f"repo:{config.github_org}/{config.github_repo}:*")
-                    },
+                    "StringLike": {"token.actions.githubusercontent.com:sub": f"{config.github_subject_prefix}:*"},
                 },
             }
         ],

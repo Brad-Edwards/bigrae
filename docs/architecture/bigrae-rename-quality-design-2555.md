@@ -37,6 +37,19 @@ Current source labels and attestation checks use the new repository name.
 Published artifact provenance and pinned pack records keep their original names.
 Bootstrap defaults use the new name and the existing config-path resolver.
 
+GitHub changed this repository to immutable OIDC subjects at the rename.
+Future GCP and AWS trust inputs default to that format.
+Bootstrap uses the same explicit format choice and owner and repository IDs.
+Canonical defaults bind the observed IDs; other repositories must supply their own IDs.
+An explicit legacy setting supports repositories that still use names alone.
+A policy selects one format. It does not accept both formats together.
+Purpose, audience, branch and Environment restrictions retain their existing scope.
+Native policy tests use synthetic IDs and mocked providers without cloud access.
+The IAM guard reuses its HCL assignment reader to require exactly two image-role
+subjects. Prefix-based subjects require the reviewed single-format prefix expression.
+Legacy literal subjects remain supported as one exact pair.
+Extra branches, wildcard subjects and altered prefix expressions cause failure.
+
 ## CI components and interfaces
 
 The quality contract is `.github/quality-path-filters.yaml`.
@@ -187,6 +200,8 @@ The required CI-level ADR check must pass before readiness is claimed.
 | [Bandit CLI](https://bandit.readthedocs.io/en/latest/man/bandit.html) | CI version 1.9.4. Severity level. | Preserve blocking medium and higher Python security checks. |
 | [Trivy misconfiguration](https://trivy.dev/latest/docs/scanner/misconfiguration/) | CI version 0.76.1. Misconfiguration scanning. | Reuse blocking Dockerfile security checks. |
 | [GitHub repository rename](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository) | Read 2026-10-25. Redirects, Pages and local remotes. | Rename within the same owner. Verify repository redirects and Pages separately. |
+| [GitHub OIDC reference](https://docs.github.com/en/actions/reference/security/oidc) | Read 2026-10-25. Immutable subject claims. | Match the observed owner and repository IDs after rename; select one subject format. |
+| [Terraform provider mocks](https://developer.hashicorp.com/terraform/language/tests/mocking) | Verified with CI versions 1.13.3 and 1.16.1. Mock providers and generated data. | Test rendered trust policies at plan time without credentials or cloud access. |
 
 The prose review uses the official standard and its dictionary.
 Project names, paths, scanner names, and CI terms are technical nouns.

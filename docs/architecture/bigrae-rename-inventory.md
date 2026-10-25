@@ -89,6 +89,11 @@ same repository ID, `1241599684`, and owner ID, `56809295`.
 PR #2560 targets `dev`. Current source, repository tooling, new image source
 labels, attestation checks and future-deployment examples use the new slug.
 The Sonar gate accepts only the new slug with both immutable IDs.
+GitHub readback also confirms immutable OIDC subjects after the rename.
+AWS and GCP future templates default to that format. AWS bootstrap uses the same
+identity inputs for its temporary policy and Terraform role. Explicit legacy
+mode selects only the older subject shape. Native tests use synthetic identities
+and mocked providers; no cloud migration is required.
 The Ground Control project key and Sonar project key retain their existing
 independent identities. Historical issue links, published artifact provenance
 and pinned pack source records retain their original coordinates.
