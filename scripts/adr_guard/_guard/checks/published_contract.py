@@ -11,7 +11,6 @@ from .._common import (
     _git_text,
 )
 
-
 _PUBLISHED_CONTRACT_DIR = "shifter/installation/published_contract"
 _PUBLISHED_CONTRACT_SNAPSHOT_RE = re.compile(r"^backend-bundle-contract\.v(\d+)\.json$")
 _PUBLISHED_CONTRACT_CHECK = "published-contract-snapshots-immutable"

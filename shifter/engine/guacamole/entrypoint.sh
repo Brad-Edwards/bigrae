@@ -32,9 +32,7 @@ if [[ -n "${POSTGRESQL_HOSTNAME:-}" ]] && [[ -n "${POSTGRESQL_DATABASE:-}" ]]; t
         echo "Database schema not found, initializing..."
 
         # Generate and apply schema
-        /opt/guacamole/bin/initdb.sh --postgresql | psql
-
-        if [[ $? -eq 0 ]]; then
+        if /opt/guacamole/bin/initdb.sh --postgresql | psql; then
             echo "Database schema initialized successfully"
         else
             echo "ERROR: Failed to initialize database schema" >&2

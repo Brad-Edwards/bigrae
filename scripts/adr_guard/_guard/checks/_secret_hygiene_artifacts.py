@@ -15,7 +15,6 @@ from .._common import (
 )
 from ._secret_hygiene_git import _git_ls_files_stdout
 
-
 # Centralized blocked-path / blocked-name set for the
 # `no-tracked-generated-artifacts` check (ADR-004-R8). Each entry is a
 # pair: (root prefix under which the rule applies, predicate over the

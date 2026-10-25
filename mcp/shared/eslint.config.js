@@ -6,7 +6,9 @@ export default [
     ignores: ["node_modules/**"],
     plugins: { security },
     rules: {
-      ...security.configs.recommended.rules,
+      ...Object.fromEntries(
+        Object.keys(security.configs.recommended.rules).map((rule) => [rule, "error"]),
+      ),
       // Keys are zod-validated enums (dev/prod) or internal iteration — not user input
       "security/detect-object-injection": "off",
     },

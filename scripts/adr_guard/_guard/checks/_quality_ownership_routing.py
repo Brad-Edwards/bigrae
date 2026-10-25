@@ -14,13 +14,13 @@ from types import ModuleType
 
 from .._common import Violation
 from .._workflow_model import (
-    _DwExprError,
-    _DwParser,
-    _DwShapeError,
     _dw_job_if,
     _dw_normalize_expr,
     _dw_tokenize,
     _dw_truthy,
+    _DwExprError,
+    _DwParser,
+    _DwShapeError,
 )
 from ._quality_ownership_model import (
     _QUALITY_CONTRACT_REL,

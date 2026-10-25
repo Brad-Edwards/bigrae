@@ -76,14 +76,13 @@ jobs:
       # change so it cannot self-bypass (#1530, ADR-004-R24).
       guard_selfcheck: ${{ steps.selfcheck.outputs.guard_selfcheck }}
       stack_smoke: ${{ steps.detect.outputs.stack_smoke }}
-      # Build / deployment / runtime image owners (#1530). Reserved routing
-      # outputs: no blocking job consumes them yet (gaps tracked by #1698), but
-      # they are declared so the contract and workflow stay in sync.
+      # Build / deployment / runtime owners (#1530). Their blocking jobs consume
+      # these routing outputs directly.
       container_images: ${{ steps.detect.outputs.container_images }}
+      portal_image_context: ${{ steps.detect.outputs.portal_image_context }}
       guacamole_authority: ${{ steps.detect.outputs.guacamole_authority }}
       charts: ${{ steps.detect.outputs.charts }}
       cloudformation: ${{ steps.detect.outputs.cloudformation }}
-      branding_assets: ${{ steps.detect.outputs.branding_assets }}
       mcp_lint_any: ${{ steps.detect.outputs.mcp_lint_any }}
       mcp_test_any: ${{ steps.detect.outputs.mcp_test_any }}
       mcp_lint_packages: ${{ steps.detect.outputs.mcp_lint_packages }}
@@ -215,6 +214,179 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: devops-actions/actionlint@467e2ce19b2310e93c9ffa0b50fe31f86b5a7f23 # v0.1.10
+
+  adr-guard-lint-security:
+    permissions:
+      contents: read
+    name: Lint and security (ADR tooling)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.adr_guard == 'true' || needs.paths.outputs.guard_selfcheck == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Lint ADR tooling
+        run: |
+          uvx --from ruff==0.15.13 ruff check \
+            --config scripts/adr_guard/ruff.toml \
+            scripts/adr_guard scripts/quality_ownership
+      - name: Scan ADR tooling
+        run: |
+          uvx --from bandit==1.9.4 bandit -q -ll -r \
+            scripts/adr_guard scripts/quality_ownership \
+            -x scripts/adr_guard/tests
+
+  stack-smoke-lint-security:
+    permissions:
+      contents: read
+    name: Lint and security (stack smoke)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - uses: ./.github/actions/install-shellcheck
+      - name: Lint Python helpers
+        run: uvx --from ruff==0.15.13 ruff check scripts/stack-smoke
+      - name: Scan Python helpers
+        run: uvx --from bandit==1.9.4 bandit -q -ll -r scripts/stack-smoke
+      - name: Lint shell harness
+        run: shellcheck scripts/stack-smoke/*.sh
+
+  deployment-utilities-sast:
+    permissions:
+      contents: read
+    name: Security (deployment utilities)
+    needs: [paths]
+    if: >-
+      ${{ needs.paths.outputs.run_all == 'true'
+      || needs.paths.outputs.check_rds_pending_modifications == 'true'
+      || needs.paths.outputs.handle_sd_replacement == 'true'
+      || needs.paths.outputs.assert_portal_inspection == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Scan deployment utilities
+        run: |
+          uvx --from bandit==1.9.4 bandit -q -ll -r \
+            scripts/check_rds_pending_modifications \
+            scripts/handle_sd_replacement \
+            scripts/assert_portal_inspection \
+            -x scripts/check_rds_pending_modifications/tests,scripts/handle_sd_replacement/tests,scripts/assert_portal_inspection/tests
+
+  container-images-lint-security:
+    permissions:
+      contents: read
+    name: Lint and security (container inputs)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true' || needs.paths.outputs.portal_image_context == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: ./.github/actions/install-shellcheck
+      - name: Check Dockerfiles with BuildKit
+        run: |
+          docker build --check shifter/engine/guacamole
+          docker build --check shifter/engine/guacd
+          docker build --check -f shifter/shifter_platform/Dockerfile shifter
+      - name: Lint container entrypoints
+        run: shellcheck shifter/engine/guacamole/*.sh
+      - name: Install Trivy
+        env:
+          TRIVY_VERSION: 0.76.1
+          TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/trivy-bin"
+          curl -fsSL -o "${RUNNER_TEMP}/trivy.tar.gz" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/trivy.tar.gz" -C "${RUNNER_TEMP}/trivy-bin" trivy
+          echo "${RUNNER_TEMP}/trivy-bin" >> "${GITHUB_PATH}"
+      - name: Scan Dockerfile policy
+        env:
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        run: |
+          trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL shifter/engine/guacamole
+          trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL shifter/engine/guacd
+          trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL shifter/shifter_platform/Dockerfile
+
+  chart-lint-security:
+    permissions:
+      contents: read
+    name: Lint and security (Helm chart)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.charts == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Install Helm
+        env:
+          HELM_VERSION: v3.15.4
+          HELM_SHA256: 11400fecfc07fd6f034863e4e0c4c4445594673fd2a129e701fe41f31170cfa9
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/helm-bin"
+          curl -fsSL -o "${RUNNER_TEMP}/helm.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${RUNNER_TEMP}/helm.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/helm.tar.gz" -C "${RUNNER_TEMP}" linux-amd64/helm
+          mv "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm-bin/helm"
+          echo "${RUNNER_TEMP}/helm-bin" >> "${GITHUB_PATH}"
+      - name: Install kube-linter
+        env:
+          KUBE_LINTER_SHA256: 8a0f8ba6c28910acd4886cc4d501ed32f3d404a53ac5e72c45a0dd893fcadb03
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "${RUNNER_TEMP}/kube-linter.tar.gz" \
+            "https://github.com/stackrox/kube-linter/releases/download/v0.7.2/kube-linter-linux.tar.gz"
+          echo "${KUBE_LINTER_SHA256}  ${RUNNER_TEMP}/kube-linter.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/kube-linter.tar.gz" -C "${RUNNER_TEMP}" kube-linter
+      - name: Lint and render every supported profile
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/rendered-chart"
+          for values in values.yaml values-aws-dev.yaml values-aws-prod.yaml values-gcp-dev.yaml values-gcp-prod.yaml; do
+            helm lint platform/charts/shifter -f "platform/charts/shifter/${values}"
+            helm template quality-check platform/charts/shifter \
+              -f "platform/charts/shifter/${values}" \
+              > "${RUNNER_TEMP}/rendered-chart/${values}"
+          done
+          "${RUNNER_TEMP}/kube-linter" lint --config .kube-linter.yaml "${RUNNER_TEMP}/rendered-chart"
+
+  cloudformation-validate:
+    permissions:
+      contents: read
+    name: Validate (CloudFormation)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.cloudformation == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Validate templates
+        run: uvx --from cfn-lint==1.40.4 cfn-lint platform/cloudformation/dev/*.yml platform/cloudformation/prod/*.yml
+
+  cloudformation-security:
+    permissions:
+      contents: read
+    name: Security (CloudFormation)
+    needs: [paths]
+    if: ${{ needs.paths.outputs.run_all == 'true' || needs.paths.outputs.cloudformation == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Checkov CloudFormation policy
+        uses: bridgecrewio/checkov-action@02a4c5d6a02367e5ea493c34c26b094302fd3f61 # v12
+        with:
+          version: 3.2.495
+          directory: platform/cloudformation/
+          framework: cloudformation
+          soft_fail: false
+          quiet: true
+          compact: true
 
   terraform-lint:
     permissions:
@@ -1871,6 +2043,7 @@ jobs:
       - name: Build local synthetic gateway and RDP guest
         run: |
           docker build -t shifter-guacamole-2319-local:latest shifter/engine/guacamole
+          docker build -t shifter-guacd-202-local:latest shifter/engine/guacd
           docker build -t shifter-synthetic-rdp-2319:latest shifter/shifter_platform/tests/integration/guacamole-rdp
       - name: Qualify real SSH, SFTP and RDP closure
         working-directory: shifter/shifter_platform
@@ -2444,15 +2617,13 @@ jobs:
       - name: Install Trivy (hermetic, version-pinned, checksum-verified)
         env:
           TRIVY_VERSION: 0.71.2
+          TRIVY_SHA256: 0510e71e2fd39bf863856d499c8dc19feb4e7336546394c502a8f5cc7ab27460
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/trivy-bin"
           curl -fsSL -o "${RUNNER_TEMP}/trivy.tar.gz" \
             "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -fsSL -o "${RUNNER_TEMP}/trivy_checksums.txt" \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
-          expected=$(grep "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" "${RUNNER_TEMP}/trivy_checksums.txt" | awk '{print $1}')
-          echo "${expected}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
+          echo "${TRIVY_SHA256}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
           tar -xzf "${RUNNER_TEMP}/trivy.tar.gz" -C "${RUNNER_TEMP}/trivy-bin" trivy
           echo "${RUNNER_TEMP}/trivy-bin" >> "${GITHUB_PATH}"
           "${RUNNER_TEMP}/trivy-bin/trivy" --version
@@ -2497,15 +2668,13 @@ jobs:
       - name: Install OSV-Scanner (hermetic, version-pinned, checksum-verified)
         env:
           OSV_VERSION: v2.4.0
+          OSV_SHA256: 15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/osv-bin"
           curl -fsSL -o "${RUNNER_TEMP}/osv-scanner" \
             "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64"
-          curl -fsSL -o "${RUNNER_TEMP}/osv-scanner_SHA256SUMS" \
-            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_SHA256SUMS"
-          expected=$(grep 'osv-scanner_linux_amd64$' "${RUNNER_TEMP}/osv-scanner_SHA256SUMS" | awk '{print $1}')
-          echo "${expected}  ${RUNNER_TEMP}/osv-scanner" | sha256sum -c -
+          echo "${OSV_SHA256}  ${RUNNER_TEMP}/osv-scanner" | sha256sum -c -
           chmod +x "${RUNNER_TEMP}/osv-scanner"
           echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
           "${RUNNER_TEMP}/osv-scanner" --version
@@ -2628,7 +2797,7 @@ jobs:
       contents: read
     name: Stack smoke (built image)
     needs: [paths]
-    if: ${{ inputs.run_stack_smoke && !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true') }}
+    if: ${{ inputs.run_stack_smoke && !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true' || needs.paths.outputs.portal_image_context == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3

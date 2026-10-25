@@ -103,7 +103,14 @@ def _drift_site_exclusions(repo_root: Path) -> tuple[list[str], list[Violation]]
 
     path = repo_root / "mkdocs.yml"
     try:
-        config = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) if path.is_file() else {}
+        if not path.is_file():
+            config = {}
+        else:
+            loader = yaml.BaseLoader(path.read_text(encoding="utf-8"))
+            try:
+                config = loader.get_single_data()
+            finally:
+                loader.dispose()
     except (OSError, yaml.YAMLError):
         return [], [_drift_violation("Cannot read MkDocs configuration for drift targets")]
     if not isinstance(config, dict) or not isinstance(config.get("exclude_docs", ""), str):

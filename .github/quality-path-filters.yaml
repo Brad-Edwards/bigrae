@@ -148,7 +148,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [check-rds-pending-modifications-lint]
-      security: []
+      security: [deployment-utilities-sast]
       test: [check-rds-pending-modifications-tests]
 
   - id: handle_sd_replacement
@@ -157,7 +157,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [handle-sd-replacement-lint]
-      security: []
+      security: [deployment-utilities-sast]
       test: [handle-sd-replacement-tests]
 
   - id: assert_portal_inspection
@@ -166,7 +166,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [assert-portal-inspection-lint]
-      security: []
+      security: [deployment-utilities-sast]
       test: [assert-portal-inspection-tests]
 
   - id: installation
@@ -222,7 +222,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [k8s-lint]
-      security: []
+      security: [k8s-lint]
       test: [k8s-schema]
 
   - id: mcp_ngfw
@@ -233,7 +233,7 @@ quality_units:
       package: ngfw
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ngfw}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: ngfw}}]
       test: [{job: mcp-tests, matrix: {package: ngfw}}]
 
   - id: mcp_ops
@@ -244,7 +244,7 @@ quality_units:
       package: ops
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ops}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: ops}}]
       test: [{job: mcp-tests, matrix: {package: ops}}]
 
   - id: mcp_planner
@@ -255,7 +255,7 @@ quality_units:
       package: planner
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: planner}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: planner}}]
       test: [{job: mcp-tests, matrix: {package: planner}}]
 
   - id: mcp_shared
@@ -267,8 +267,8 @@ quality_units:
       fanout_all_on_change: true
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: shared}}]
-      security: []
-      test: []
+      security: [{job: mcp-lint, matrix: {package: shared}}]
+      test: [{job: mcp-tests, matrix: {package: shared}}]
 
   - id: adr_guard
     paths:
@@ -282,8 +282,8 @@ quality_units:
       - .shifter.yaml
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      lint: [adr-guard-lint-security]
+      security: [adr-guard-lint-security]
       test: [adr-guard-tests]
 
   - id: stack_smoke
@@ -291,33 +291,39 @@ quality_units:
       - scripts/stack-smoke/**
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      lint: [stack-smoke-lint-security]
+      security: [stack-smoke-lint-security]
       test: [stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
   # exclusions (ADR-004-R23 forbids exempting shipped build/runtime material via
-  # exclusions). They have no dedicated blocking quality job yet, so every
-  # responsibility is a visible, dated ADR-004-R23 gap tracked by #1698 rather
-  # than a hidden config exclusion.
+  # exclusions). Each responsibility resolves to a blocking job below.
   - id: container_images
     paths:
       - shifter/engine/guacamole/**
       - shifter/engine/guacd/**
+    sonar: false
+    responsibilities:
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [guacamole-authority-tests]
+
+  - id: portal_image_context
+    paths:
       - shifter/.dockerignore
     sonar: false
     responsibilities:
-      lint: []
-      security: []
-      test: [guacamole-authority-tests]
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [stack-smoke]
 
   - id: charts
     paths:
       - platform/charts/**
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      lint: [chart-lint-security]
+      security: [chart-lint-security]
       test: [chart-tests]
 
   - id: cloudformation
@@ -325,18 +331,9 @@ quality_units:
       - platform/cloudformation/**
     sonar: false
     responsibilities:
-      lint: []
-      security: []
-      test: []
-
-  - id: branding_assets
-    paths:
-      - assets/**
-    sonar: false
-    responsibilities:
-      lint: []
-      security: []
-      test: []
+      lint: [cloudformation-validate]
+      security: [cloudformation-security]
+      test: [cloudformation-validate]
 
 exclusions:
   - type: docs
@@ -347,6 +344,11 @@ exclusions:
       are owned by the adr_guard unit via most-specific precedence.
     paths:
       - docs/**
+      # Reference artwork and the retired login-style sample are documentation
+      # inputs only. No build context, template, static-collection path, or
+      # deployment bundle consumes root assets/**; shipped UI assets live under
+      # shifter/shifter_platform/static/ and are owned by shifter_platform.
+      - assets/**
       - README.md
       - CHANGELOG.md
       - CODE_OF_CONDUCT.md
@@ -395,8 +397,9 @@ exclusions:
       # Exact-release Trivy exposure-management policy consumed by the
       # release-scan gate in .github/workflows/_gcp-dev.yml (--ignorefile).
       - .trivyignore.yaml
-      # OSV-Scanner suppressions (time-boxed, no-upstream-fix) consumed by the
-      # Security (osv-scanner) quality job via --config.
+      # OSV-Scanner policy consumed by the Security (osv-scanner) quality job
+      # via --config. Any future suppression must be time-boxed and limited to
+      # an advisory with no upstream fix.
       - osv-scanner.toml
       - tools/install-vale.sh
 

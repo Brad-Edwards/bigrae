@@ -19,7 +19,7 @@ import subprocess
 from contextlib import nullcontext
 from pathlib import Path
 from typing import ClassVar
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -300,35 +300,29 @@ gke_master_authorized_cidrs = []
         # config (#1015); a deployment shifter.yaml must be resolvable.
         (mock_repo_root / "shifter.yaml").write_text("version: 1\nbackend: gcp\n")
 
-        class _FakeResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb):
-                return False
-
-            def read(self) -> bytes:
-                return b'{"name":"operations/artifactregistry-service-identity"}'
-
         terraform_output = json.dumps(_sample_gcp_control_plane_outputs(config.project_id))
+        mock_init = Mock()
+        mock_wait = Mock()
+        mock_apply = Mock()
+        mock_run_cmd = Mock()
+        operations = gcp_control_plane._GCPControlPlaneTerraformOperations(
+            repo_root=Mock(return_value=mock_repo_root),
+            resource_exists=Mock(return_value=False),
+            command_runner=mock_run_cmd,
+            ensure_service_identity=Mock(),
+            bootstrap_credentials=Mock(return_value=nullcontext(Path("bootstrap.json"))),
+            terraform_init=mock_init,
+            wait_for_access=mock_wait,
+            terraform_apply=mock_apply,
+        )
 
         with (
-            patch("deploy.get_repo_root", return_value=mock_repo_root),
-            patch("deploy.gcloud_resource_exists", return_value=False),
-            patch("deploy.gcp_terraform_bootstrap_credentials", return_value=nullcontext(Path("bootstrap.json"))),
-            patch("deploy.run_gcp_terraform_init_with_retry") as mock_init,
-            patch("deploy.wait_for_gcp_terraform_bootstrap_access") as mock_wait,
-            patch("deploy.run_gcp_terraform_apply_with_retry") as mock_apply,
-            patch("deploy.run_cmd") as mock_run_cmd,
-            patch("deploy._gcp_identity_access_token", return_value="test-access-token"),
-            patch("deploy.urllib_request.urlopen", return_value=_FakeResponse()),
-            patch("os.chdir"),
             patch(
                 "subprocess.run",
                 return_value=subprocess.CompletedProcess(["terraform"], 0, stdout=terraform_output),
             ),
         ):
-            outputs = deploy.apply_gcp_control_plane_terraform(config)
+            outputs = deploy.apply_gcp_control_plane_terraform(config, operations=operations)
 
         # The apply flow renders the range egress bridge tfvars from shifter.yaml (#1015).
         assert any("shifter-config" in (call.args[0] if call.args else []) for call in mock_run_cmd.call_args_list), (
@@ -358,36 +352,30 @@ gke_master_authorized_cidrs = []
         )
         (mock_repo_root / "shifter.yaml").write_text("version: 1\nbackend: gcp\n")
 
-        class _FakeResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb):
-                return False
-
-            def read(self) -> bytes:
-                return b'{"name":"operations/artifactregistry-service-identity"}'
-
         terraform_output = json.dumps(_sample_gcp_control_plane_outputs(config.project_id))
+        mock_creds = Mock()
+        mock_init = Mock()
+        mock_wait = Mock()
+        mock_apply = Mock()
+        operations = gcp_control_plane._GCPControlPlaneTerraformOperations(
+            repo_root=Mock(return_value=mock_repo_root),
+            resource_exists=Mock(return_value=False),
+            command_runner=Mock(),
+            ensure_service_identity=Mock(),
+            bootstrap_credentials=mock_creds,
+            terraform_init=mock_init,
+            wait_for_access=mock_wait,
+            terraform_apply=mock_apply,
+        )
 
         with (
             patch.dict("os.environ", {}, clear=False),
-            patch("deploy.get_repo_root", return_value=mock_repo_root),
-            patch("deploy.gcloud_resource_exists", return_value=False),
-            patch("deploy.gcp_terraform_bootstrap_credentials") as mock_creds,
-            patch("deploy.run_gcp_terraform_init_with_retry") as mock_init,
-            patch("deploy.wait_for_gcp_terraform_bootstrap_access") as mock_wait,
-            patch("deploy.run_gcp_terraform_apply_with_retry") as mock_apply,
-            patch("deploy.run_cmd"),
-            patch("deploy._gcp_identity_access_token", return_value="test-access-token"),
-            patch("deploy.urllib_request.urlopen", return_value=_FakeResponse()),
-            patch("os.chdir"),
             patch(
                 "subprocess.run",
                 return_value=subprocess.CompletedProcess(["terraform"], 0, stdout=terraform_output),
             ),
         ):
-            outputs = deploy.apply_gcp_control_plane_terraform(config)
+            outputs = deploy.apply_gcp_control_plane_terraform(config, operations=operations)
 
             # Under the caller's user ADC, identitytoolkit / Identity Platform need
             # a quota project or they 403; the operator-adc path sets it (#1738).
@@ -2722,28 +2710,24 @@ class TestGdcBootstrapRangeBackend:
             "GCP_RANGE_HOST_SERVICE_ACCOUNT_EMAIL": "range-host@example-gcp-project.iam.gserviceaccount.com",
         }
         image_probe_ok = subprocess.CompletedProcess(["gcloud"], 0, stdout="an-image\n", stderr="")
+        mock_substrate = Mock()
+        mock_platform = Mock(return_value={"gke_cluster_name": {"value": "shifter-gcp-dev-platform"}})
         with (
             patch.dict(os.environ, range_env, clear=True),
-            patch("gcp_control_plane.confirm", return_value=True),
             patch("gcp_control_plane.subprocess.run", return_value=image_probe_ok) as mock_image_lookup,
-            patch("gcp_control_plane.ensure_gdc_apis") as mock_apis,
-            patch("gcp_control_plane.ensure_gdc_service_account") as mock_sa,
-            patch("gcp_control_plane.stage_gdc_bootstrap_assets") as mock_stage,
-            patch("gcp_control_plane.sync_gdc_vm_image_secret") as mock_vm_image,
-            patch(
-                "gcp_control_plane.bootstrap_gcp_control_plane",
-                return_value={"gke_cluster_name": {"value": "shifter-gcp-dev-platform"}},
-            ) as mock_platform,
         ):
-            result = gcp_control_plane.gdc_bootstrap_cluster(config, dry_run=False)
+            result = gcp_control_plane.gdc_bootstrap_cluster(
+                config,
+                dry_run=False,
+                confirmation=lambda _prompt: True,
+                substrate_builder=mock_substrate,
+                control_plane_bootstrapper=mock_platform,
+            )
 
         image_commands = [invocation.args[0] for invocation in mock_image_lookup.call_args_list]
         assert [command[4] for command in image_commands] == ["shifter-ubuntu", "shifter-dc"]
         assert all(command[-3:-1] == ["--project", config.project_id] for command in image_commands)
-        mock_apis.assert_not_called()
-        mock_sa.assert_not_called()
-        mock_stage.assert_not_called()
-        mock_vm_image.assert_not_called()
+        mock_substrate.assert_not_called()
         mock_platform.assert_called_once_with(config, dry_run=False)
         assert result["gke_cluster_name"] == "shifter-gcp-dev-platform"
         assert result["workstation"] == ""
@@ -2752,31 +2736,60 @@ class TestGdcBootstrapRangeBackend:
     def test_gdc_backend_builds_substrate_before_control_plane(self, tmp_path):
         """The gdc backend still builds the substrate (including the vm-image secret) before the control plane."""
         config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1", range_backend="gdc")
+        operations: list[str] = []
+
+        def build_substrate(*_args, **_kwargs):
+            operations.append("substrate")
+
+        def bootstrap_platform(*_args, **_kwargs):
+            operations.append("control-plane")
+            return {}
+
+        result = gcp_control_plane.gdc_bootstrap_cluster(
+            config,
+            dry_run=False,
+            confirmation=lambda _prompt: True,
+            substrate_builder=build_substrate,
+            control_plane_bootstrapper=bootstrap_platform,
+        )
+
+        assert operations == ["substrate", "control-plane"]
+        assert result["workstation"] == config.workstation.name
+
+    def test_substrate_builder_invokes_each_operation_port(self, tmp_path):
+        """The substrate builder owns ordering while side effects stay behind explicit ports."""
+        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1", range_backend="gdc")
         staged = {
             "ssh_metadata": tmp_path / "ssh-metadata",
             "assets_dir": tmp_path / "assets",
             "service_account_key": tmp_path / "bm-gcr.json",
         }
-        with (
-            patch("gcp_control_plane.confirm", return_value=True),
-            patch("gcp_control_plane.ensure_gdc_apis") as mock_apis,
-            patch("gcp_control_plane.ensure_gdc_service_account"),
-            patch("gcp_control_plane.stage_gdc_bootstrap_assets", return_value=staged),
-            patch("gcp_control_plane.ensure_gdc_network"),
-            patch("gcp_control_plane.ensure_gdc_instances"),
-            patch("gcp_control_plane.sync_gdc_instance_ssh_metadata"),
-            patch("gcp_control_plane.wait_for_gdc_ssh"),
-            patch("gcp_control_plane.upload_gdc_assets"),
-            patch("gcp_control_plane.run_gdc_workstation_script"),
-            patch("gcp_control_plane.sync_gdc_access_secret"),
-            patch("gcp_control_plane.sync_gdc_vm_image_secret") as mock_vm_image,
-            patch("gcp_control_plane.bootstrap_gcp_control_plane", return_value={}),
-        ):
-            result = gcp_control_plane.gdc_bootstrap_cluster(config, dry_run=False)
+        operations = gcp_control_plane._GDCSubstrateOperations(
+            ensure_apis=Mock(),
+            ensure_service_account=Mock(),
+            stage_assets=Mock(return_value=staged),
+            ensure_network=Mock(),
+            ensure_instances=Mock(),
+            sync_ssh_metadata=Mock(),
+            wait_for_ssh=Mock(),
+            upload_assets=Mock(),
+            run_workstation_script=Mock(),
+            sync_access_secret=Mock(),
+            sync_vm_image_secret=Mock(),
+        )
 
-        mock_apis.assert_called_once()
-        mock_vm_image.assert_called_once()
-        assert result["workstation"] == config.workstation.name
+        gcp_control_plane._build_gdc_substrate(config, operations=operations)
+
+        operations.ensure_apis.assert_called_once_with(config, dry_run=False)
+        operations.ensure_service_account.assert_called_once_with(config, dry_run=False)
+        operations.stage_assets.assert_called_once()
+        assert operations.wait_for_ssh.call_count == len(config.all_hosts)
+        assert operations.run_workstation_script.call_count == 4
+        operations.sync_vm_image_secret.assert_called_once_with(
+            config,
+            staged["service_account_key"],
+            dry_run=False,
+        )
 
 
 class TestGceRangePreconditions:

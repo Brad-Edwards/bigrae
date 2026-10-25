@@ -10,21 +10,19 @@ from .._common import (
     Violation,
     _load_json_yaml,
 )
-
 from ._documentation_drift import (
-    DOCS_COVERAGE_MANIFEST,
     _DOCS_EXCLUDED_PART,
+    DOCS_COVERAGE_MANIFEST,
     _check_drift_targets,
     _check_feature_drift,
     _coverage_manifest_shape_error,
     _coverage_violation,
-    _feature_doc_paths_error,
     _doc_path_is_excluded,
     _documentation_changed_paths,
     _drift_associations,
+    _feature_doc_paths_error,
     _relative_drift_path,
 )
-
 
 GUARDRAIL_PREFIXES = (
     ".github/workflows/",

@@ -14,15 +14,14 @@ from .._common import (
 )
 from .._workflow_model import (
     _DW_REUSABLE_WORKFLOW_PATHS,
-    _DwShapeError,
     _dw_is_self_hosted,
     _dw_job_denied_on_pull_request,
     _dw_job_if,
     _dw_jobs,
     _dw_load_workflow,
+    _DwShapeError,
 )
 from ._deploy_workflow_plan_scope import _DEPLOY_WORKFLOW_PATH
-
 
 _RUNNER_EXPOSURE_CHECK = "deploy-workflow-runner-exposure"
 _RUNNER_EXPOSURE_RULE = "ADR-003-R5"

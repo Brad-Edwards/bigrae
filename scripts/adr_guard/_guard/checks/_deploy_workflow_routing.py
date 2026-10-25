@@ -24,7 +24,6 @@ from ._deploy_workflow_text import (
     _workflow_job_block,
 )
 
-
 _QUALITY_RELEVANT_OUTPUT = (
     "quality_relevant: ${{ steps.quality_non_docs.outputs.non_docs == 'true' || "
     "steps.quality_guardrails.outputs.guardrail_docs == 'true' || "

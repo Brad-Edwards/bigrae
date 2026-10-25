@@ -122,6 +122,27 @@ every production path to its blocking lint, security, and test jobs; the
 See `docs/technical/dev/adr-enforcement.md` for how to add a quality unit or
 record a gap.
 
+The blocking repository-wide owners include:
+
+- ADR tooling: Ruff plus medium-and-higher Bandit findings.
+- Stack smoke: Ruff, medium-and-higher Bandit findings, and ShellCheck.
+- Standalone deployment utilities: one blocking medium-and-higher Bandit lane
+  in addition to their package-local Ruff and test jobs.
+- MCP packages: ESLint security rules promoted to errors, zero warning
+  tolerance, package tests (including `mcp/shared`), and dependency audits.
+- Container inputs: BuildKit Dockerfile checks, entrypoint ShellCheck, and
+  high/critical Trivy configuration policy; the Guacamole authority test job
+  builds both customized runtime images. The root `.dockerignore` is a separate
+  portal-image-context owner whose test route builds and boots the production
+  portal image through stack smoke.
+- Helm charts: lint and render every supported values profile, then scan the
+  rendered manifests with kube-linter.
+- CloudFormation: cfn-lint validation and blocking Checkov policy. Permanent
+  resource-level applicability decisions are recorded next to the affected
+  resource; applicable encryption, validation, public-access, versioning,
+  rotation, service-publisher key policy, and concurrency findings are fixed in
+  the templates.
+
 The Shifter Engine reusable workflow has an additional blocking provisioner
 pytest gate before local Docker validation, credentialed image build, and ECS
 deploy. This keeps a deploy dispatch from building or deploying the provisioner

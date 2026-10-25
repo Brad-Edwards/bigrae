@@ -48,7 +48,6 @@ from ._secret_hygiene_tfvars import (
     check_no_plaintext_secrets_in_tfvars,
 )
 
-
 # Centralized scope for the `no-populated-secret-env-files` check
 # (ADR-004-R9). Each entry is a repo-relative path prefix under which
 # `*-secrets.env` files are scanned. Adding a future overlay (e.g.

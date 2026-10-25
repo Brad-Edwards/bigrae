@@ -15,7 +15,6 @@ from .._common import (
 )
 from ._layer_imports_policy import load_classification
 
-
 _PLATFORM_REL = "shifter/shifter_platform"
 _SETTINGS_REL = "shifter/shifter_platform/config/settings.py"
 _LAYER_POLICY_REL = "scripts/check_layer_imports/layer_imports.yaml"

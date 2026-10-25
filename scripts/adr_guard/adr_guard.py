@@ -80,6 +80,8 @@ for _module_name in _SOURCE_MODULES:
 # which several tests reference directly rather than through a member symbol.
 from _guard.checks import (  # noqa: E402
     _documentation_drift as documentation_drift,
+)
+from _guard.checks import (
     accessibility_baseline,
     adr_registry,
     boundary_mock,
@@ -121,7 +123,6 @@ __all__ = sorted(_exported | set(_SUBMODULES))
 # The CLI entry point. Also re-exported by the loop above; imported explicitly
 # here so the ``__main__`` dispatch resolves statically.
 from _guard._cli import main  # noqa: E402
-
 
 if __name__ == "__main__":
     sys.exit(main())
