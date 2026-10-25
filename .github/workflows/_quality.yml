@@ -2557,6 +2557,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-checkov-
 
+      - name: Test Checkov immutable subject compatibility
+        run: >-
+          docker run --rm --network none
+          --volume "${GITHUB_WORKSPACE}:/workspace:ro" --workdir /workspace
+          --entrypoint python
+          ghcr.io/bridgecrewio/checkov@sha256:4c2c3b67f09867ef2843a03d8ba82adf712eb93ea3584c1708c24ed584f6da17
+          -m unittest scripts.check_checkov_invocation_parity.test_immutable_subjects -q
+
       - name: Checkov IaC Security
         # Blocking gate per ADR-004-R11. Skip-check entries live in
         # platform/terraform/.checkov.yaml so this job consumes the canonical
@@ -2568,6 +2576,7 @@ jobs:
           directory: platform/terraform/
           config_file: platform/terraform/.checkov.yaml
           download_external_modules: true
+          external_checks_dirs: scripts/check_checkov_invocation_parity/compat
           soft_fail: false
 
   security-k8s:

@@ -5,7 +5,8 @@ import os
 
 import pytest
 
-from aws_bootstrap import _github_oidc_trust_policy, _terraform_apply_iam
+import deploy
+from aws_bootstrap import _github_oidc_trust_policy
 from bootstrap_core import BootstrapConfig
 
 
@@ -65,7 +66,7 @@ def test_terraform_role_uses_the_bootstrap_identity(tmp_path, monkeypatch, capfd
         github_owner_id="456",
         github_repository_id="123",
     )
-    _terraform_apply_iam(config, dry_run=False)
+    deploy._terraform_apply_iam(config, dry_run=False)
     output = capfd.readouterr().out.splitlines()
     args = json.loads(next(line for line in output if line.startswith('["apply"')))
     identity = dict(arg.removeprefix("-var=").split("=", 1) for arg in args if arg.startswith("-var="))

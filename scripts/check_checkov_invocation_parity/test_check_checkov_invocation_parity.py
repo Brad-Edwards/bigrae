@@ -15,6 +15,19 @@ from .check_checkov_invocation_parity import check_repo
 
 
 class CheckCheckovInvocationParityTest(unittest.TestCase):
+    def test_missing_or_changed_compatibility_adapter_fails(self) -> None:
+        for value in ("", "wrong/path"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / ".pre-commit-config.yaml").write_text("repos: []\n")
+                workflow = root / ".github/workflows/_quality.yml"
+                workflow.parent.mkdir(parents=True)
+                text = _valid_ci_workflow().replace(
+                    "scripts/check_checkov_invocation_parity/compat", value
+                )
+                workflow.write_text(text)
+                self.assertTrue(any("compatibility adapter" in item for item in check_repo(root)))
+
     def test_repo_root_passes_when_precommit_and_ci_match(self) -> None:
         repo_root = Path(__file__).resolve().parents[2]
         violations = check_repo(repo_root)
@@ -352,7 +365,7 @@ def _valid_precommit_config() -> str:
             hooks:
               - id: checkov
                 args:
-                  [--config-file, platform/terraform/.checkov.yaml, --directory, platform/terraform/, --download-external-modules, "true"]
+                  [--config-file, platform/terraform/.checkov.yaml, --directory, platform/terraform/, --download-external-modules, "true", --external-checks-dir, scripts/check_checkov_invocation_parity/compat]
         """
     ).lstrip()
 
@@ -369,6 +382,7 @@ def _valid_ci_workflow() -> str:
                   directory: platform/terraform/
                   config_file: platform/terraform/.checkov.yaml
                   download_external_modules: true
+                  external_checks_dirs: scripts/check_checkov_invocation_parity/compat
                   soft_fail: false
         """
     ).lstrip()

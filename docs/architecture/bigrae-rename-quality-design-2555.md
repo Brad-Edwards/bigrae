@@ -50,6 +50,13 @@ subjects. Prefix-based subjects require the reviewed single-format prefix expres
 Legacy literal subjects remain supported as one exact pair.
 Extra branches, wildcard subjects and altered prefix expressions cause failure.
 
+Checkov's pinned repository parser does not accept immutable owner syntax.
+A small external-check loader extends only that parser through Checkov's existing hook.
+It requires the pinned package version and known original parser expression.
+It adds the immutable name-and-ID shape; all vendor policy logic remains active.
+The CI parity guard requires the loader path. Native positive and negative scans
+verify the adapter. No rule skip, soft failure, or policy waiver is added.
+
 ## CI components and interfaces
 
 The quality contract is `.github/quality-path-filters.yaml`.

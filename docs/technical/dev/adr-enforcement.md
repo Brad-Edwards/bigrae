@@ -117,6 +117,10 @@ Existing audience, purpose, branch and Environment restrictions retain their sco
 The image-role guard requires exactly the `dev` and `main` subjects. It checks
 the selected prefix expression when the policy uses a shared prefix, and rejects
 wildcards, extra subjects and changes to the owner or repository ID fields.
+The pinned Checkov action loads a version-bound compatibility adapter for the
+immutable repository subject syntax. The adapter changes only the repository
+parser; CKV_GCP_125 and the native WIF guard remain blocking. CI parity checks
+require the adapter path, and tests reject unsupported versions and parser changes.
 
 Plugin admission accepts exactly one invocation key, `BIGRAE_PLUGIN_INPUT` or
 its legacy alias, through a matching Secret key reference. The static and Helm
