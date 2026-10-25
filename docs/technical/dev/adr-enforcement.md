@@ -38,6 +38,10 @@ The current enforcement stack has six parts:
    filtering) and `_guard/_workflow_model.py` (the `_dw_*` workflow-as-data
    model), with `_guard/_registry.py` holding the deterministic `CHECKS` /
    `CHECK_LEVELS` registry and `_guard/_cli.py` the argument parsing. The
+   deploy-environment evaluator does not execute workflow shell. It removes
+   comments, requires the exact reviewed router program, and models its outputs
+   as data. Its branch-reference inputs remain compatibility-only parameters.
+   The
    `_guard` package uses package-relative imports internally, so it is importable
    on its own; the facade re-exports its full public surface, so
    `python3 scripts/adr_guard/adr_guard.py` and tests that load it by path keep

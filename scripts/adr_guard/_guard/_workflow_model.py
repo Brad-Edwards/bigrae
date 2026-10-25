@@ -290,7 +290,8 @@ def _dw_evaluate_env(
     the guard must never execute it.  Fail closed unless every non-comment line
     matches the reviewed router program, then evaluate that program as data.
     """
-    del ref, base_ref  # Retained in the public test-model API for compatibility.
+    # Retained in the public test-model API for compatibility.
+    del ref, base_ref
     program = tuple(
         line.strip()
         for line in script.splitlines()

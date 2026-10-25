@@ -2730,6 +2730,23 @@ def check_gce_range_preconditions(
     sys.exit(1)
 
 
+def _resolve_gdc_bootstrap_operations(
+    confirmation: Callable[[str], bool] | None,
+    substrate_builder: Callable[..., None] | None,
+    control_plane_bootstrapper: Callable[..., dict[str, dict[str, object]]] | None,
+) -> tuple[
+    Callable[[str], bool],
+    Callable[..., None],
+    Callable[..., dict[str, dict[str, object]]],
+]:
+    """Resolve injectable GDC orchestration ports without burdening the coordinator."""
+    return (
+        confirmation or confirm,
+        substrate_builder or _build_gdc_substrate,
+        control_plane_bootstrapper or bootstrap_gcp_control_plane,
+    )
+
+
 def gdc_bootstrap_cluster(
     config: GDCBootstrapConfig,
     dry_run: bool = False,
@@ -2741,9 +2758,11 @@ def gdc_bootstrap_cluster(
     control_plane_bootstrapper: Callable[..., dict[str, dict[str, object]]] | None = None,
 ) -> dict[str, str]:
     """Bootstrap the repeatable GDC-on-Compute-Engine VM Runtime cluster."""
-    confirmation = confirmation or confirm
-    substrate_builder = substrate_builder or _build_gdc_substrate
-    control_plane_bootstrapper = control_plane_bootstrapper or bootstrap_gcp_control_plane
+    confirmation, substrate_builder, control_plane_bootstrapper = _resolve_gdc_bootstrap_operations(
+        confirmation,
+        substrate_builder,
+        control_plane_bootstrapper,
+    )
     if not config.project_id:
         error("GDC bootstrap requires a GCP project ID. Set PANW_GCP_DEV or pass --project-id.")
         sys.exit(1)
