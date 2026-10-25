@@ -15,8 +15,12 @@ class FetchSchemeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "synthetic.txt"
             artifact.write_text("synthetic smoke fixture", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "only http and https"):
+            with self.assertRaisesRegex(ValueError, r"HTTP\(S\) on loopback"):
                 page_smoke._fetch(artifact.as_uri(), "synthetic-session", "sessionid")
+
+    def test_rejects_non_loopback_hosts_before_transport(self):
+        with self.assertRaisesRegex(ValueError, r"HTTP\(S\) on loopback"):
+            page_smoke._fetch("https://example.invalid/page", "synthetic-session", "sessionid")
 
 
 if __name__ == "__main__":

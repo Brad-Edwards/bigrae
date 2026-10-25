@@ -27,7 +27,7 @@ dependencies = [
     "django-health-check<5.0",
     "django-rest-knox==5.0.4",
     "django-ses",
-    "djangorestframework>=3.17.2",
+    "djangorestframework>=3.18.3",
     "drf-spectacular>=0.29.0",
     "drf-spectacular-sidecar>=2026.6.1",
     "firebase-admin",
@@ -284,6 +284,8 @@ warn_return_any = true
 # uv - dependency constraints for transitive security fixes
 [tool.uv]
 constraint-dependencies = [
+    "aiohttp>=3.14.5",
+    "certifi>=2026.10.19",
     "cryptography>=48.0.1",
     "pyopenssl>=26.0.0",
     "pyasn1>=0.6.4",
@@ -291,8 +293,13 @@ constraint-dependencies = [
     "ujson>=5.13.0",
     "cbor2>=5.9.0",
     "urllib3>=2.6.3",
-    "filelock>=3.20.3",
-    "virtualenv>=20.36.1",
+    "filelock>=4.2.1",
+    "opentelemetry-api>=1.45.1",
+    # Twisted 26.4.0 is affected by multiple HTTP request-processing issues.
+    # 26.10.0rc1 is the first upstream release carrying the fixes; keep this
+    # exact until a tested stable 26.10 release supersedes it.
+    "twisted==26.10.0rc1",
+    "virtualenv>=21.14.9",
     "pygments>=2.20.0",
     "requests>=2.33.0",
     "pyjwt>=2.13.0",

@@ -275,7 +275,7 @@ def _build_handler(cfg: _Config, keys: _Keys, state: _State) -> type[_Handler]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - private smoke network
+    parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--issuer", required=True, help="OIDC_ISSUER_URL (iss + JWKS base)")
     parser.add_argument("--auth-domain", required=True, help="OIDC_AUTH_DOMAIN (oauth2 endpoints base)")

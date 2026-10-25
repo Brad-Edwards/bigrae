@@ -37,7 +37,7 @@ _SKIP_TESTS_FORBIDDEN_MARKERS = (
 )
 # Lint / architecture / security jobs in _quality.yml that must never be gated
 # on inputs.skip_tests (ADR-003-R2 / issue #760).
-_QUALITY_SKIP_TESTS_IMMUNE_JOB_SUFFIXES = ("-lint", "-lint-js", "-sast", "-arch")
+_QUALITY_SKIP_TESTS_IMMUNE_JOB_SUFFIXES = ("-lint", "-lint-js", "-lint-security", "-sast", "-arch")
 _QUALITY_SKIP_TESTS_IMMUNE_JOB_NAMES = frozenset(
     {
         "adr-conformance",
@@ -49,8 +49,8 @@ _QUALITY_SKIP_TESTS_IMMUNE_JOB_NAMES = frozenset(
         "k8s-lint",
         "k8s-schema",
         "mcp-lint",
-        "chart-tests",
-        "container-images-security",
+        "chart-lint-security",
+        "container-images-lint-security",
     }
 )
 _QUALITY_JOB_NAME_RE = re.compile(r"^ {2}([a-z0-9_-]+):\s*$")

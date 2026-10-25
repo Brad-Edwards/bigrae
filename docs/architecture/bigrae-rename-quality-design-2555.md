@@ -64,13 +64,13 @@ Only reviewed, compatible changes can enter this branch.
 
 | Surface | Lint and security design | Behavior evidence |
 | --- | --- | --- |
-| Three AWS inspection scripts | Credit their existing blocking Ruff jobs, which enable security rules. | Prove that a security-rule violation returns failure. |
+| Three AWS inspection scripts | Keep their Ruff jobs and the incoming shared Bandit security job. | Prove that a security-rule violation returns failure. |
 | MCP packages | Make existing ESLint security warnings fail with `--max-warnings 0`. Repair findings at their owning functions. | Run package tests. Include the existing shared-package tests in the test matrix. |
-| ADR and ownership tooling | Add blocking Ruff coverage with security rules for both existing directories. | Retain ownership, routing, and self-bypass negative tests. |
-| Stack smoke scripts | Use Ruff for Python and ShellCheck for shell. | Retain the existing smoke-contract tests. |
+| ADR and ownership tooling | Reuse the incoming Ruff and Bandit job. Keep the stricter committed Ruff rules. | Retain ownership, routing, and self-bypass negative tests. |
+| Stack smoke scripts | Reuse the incoming Ruff, Bandit, and ShellCheck job. | Keep transport tests and the existing smoke-contract tests. |
 | Kubernetes manifests | Credit the existing blocking kube-linter job after its native security failure probe passes. | Keep schema, kube-linter, admission, and routing tests. |
-| Helm chart | Add Helm lint for the neutral and supported provider profiles to the existing chart contract job. | Its security assertions and lint run independently of the optional test-skip flag. |
-| Container inputs | Use Hadolint, ShellCheck, and a blocking configuration security scan. | Keep authority tests. Add a bounded, credential-free guacd image smoke test. |
+| Helm chart | Reuse the incoming profile lint and rendered kube-linter job. | Its security checks run independently of the optional test-skip flag. |
+| Container inputs | Reuse the incoming BuildKit, ShellCheck, and Trivy checks. | Keep authority tests, guacd runtime checks, and the SQL failure test. |
 | CloudFormation | Remove the two unused vendor installer templates under the user's explicit decision. | Remove their obsolete ownership entry and identifier exception. Keep historical evidence in Git. |
 | Root branding assets | Current references occur in a hook filter and deprecated documentation. No current runtime or build consumer was found. | Remove unused legacy assets with their obsolete ownership record after a final consumer search. Keep historical evidence in Git history. |
 | Bootstrap tests | Replace the expired exception's internal orchestration mocks with process or cloud-client boundary fixtures. | Assert commands, results, errors, and absence of unintended effects. Reduce the legacy baseline. |

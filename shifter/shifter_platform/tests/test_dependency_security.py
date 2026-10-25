@@ -8,7 +8,7 @@ from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 ASYNCSSH_MIN_VERSION = (2, 23, 1)
-DRF_MIN_VERSION = (3, 17, 2)
+DRF_MIN_VERSION = (3, 18, 3)
 SQLPARSE_MIN_VERSION = (0, 6, 0)
 
 
@@ -22,7 +22,7 @@ def test_asyncssh_direct_dependency_declares_patched_floor() -> None:
     pyproject = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert "asyncssh>=2.23.1" in pyproject["project"]["dependencies"]
-    assert "djangorestframework>=3.17.2" in pyproject["project"]["dependencies"]
+    assert "djangorestframework>=3.18.3" in pyproject["project"]["dependencies"]
     assert "sqlparse>=0.6.0" in pyproject["tool"]["uv"]["constraint-dependencies"]
 
 

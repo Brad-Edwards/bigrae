@@ -1848,7 +1848,11 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             self.assertTrue(any("skip" in v.message.lower() and v.rule_id == "ADR-003-R2" for v in violations))
 
     def test_flags_architecture_job_gated_on_skip_tests(self) -> None:
-        for job in ("adr-conformance", "chart-tests", "container-images-security"):
+        jobs = (
+            "adr-conformance", "chart-lint-security", "container-images-lint-security",
+            "adr-guard-lint-security", "stack-smoke-lint-security",
+        )
+        for job in jobs:
             with self.subTest(job=job), tempfile.TemporaryDirectory() as tmp:
                 repo_root = Path(tmp)
                 self._write_workflows(repo_root, self._deploy_text(), self._platform_text())
@@ -1868,7 +1872,8 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             repo_root = Path(tmp)
             self._write_workflows(repo_root, self._deploy_text(), self._platform_text())
             (repo_root / ".github" / "workflows" / "_quality.yml").write_text(
-                "jobs:\n  chart-tests:\n    if: needs.paths.outputs.charts == 'true'\n    runs-on: ubuntu-latest\n",
+                "jobs:\n  chart-lint-security:\n"
+                "    if: needs.paths.outputs.charts == 'true'\n    runs-on: ubuntu-latest\n",
                 encoding="utf-8",
             )
 

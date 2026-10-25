@@ -25,6 +25,10 @@ so they fire on a real regression without coupling to YAML formatting.
 
 from __future__ import annotations
 
+import importlib.util
+import threading
+import urllib.error
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -171,6 +175,14 @@ def test_harness_asserts_authenticated_page_renders(smoke_script: str) -> None:
     assert "--session-file" in smoke_script
 
 
+def test_harness_page_render_list_uses_direct_render_routes(smoke_script: str) -> None:
+    """Render checks must not mistake an intentional router redirect for a page."""
+
+    pages_default = next(line for line in smoke_script.splitlines() if line.startswith("SMOKE_PAGES="))
+    assert "${SMOKE_PAGES:-/ /mission-control/" in pages_default
+    assert "/dashboard/" not in pages_default
+
+
 def test_page_smoke_helper_checks_static_and_sourcemaps() -> None:
     helper = WS_HELPER.parent.joinpath("page_smoke.py").read_text(encoding="utf-8")
     assert "/static/" in helper
@@ -178,6 +190,44 @@ def test_page_smoke_helper_checks_static_and_sourcemaps() -> None:
     # Mirrors the production ALB so the DEBUG=False image serves instead of
     # issuing its HTTPS redirect.
     assert "X-Forwarded-Proto" in helper
+
+
+def test_page_smoke_rejects_redirect_before_forwarding_session_cookie() -> None:
+    """A loopback response cannot redirect an authenticated probe elsewhere."""
+
+    spec = importlib.util.spec_from_file_location("stack_smoke_page_helper", PAGE_HELPER)
+    assert spec is not None and spec.loader is not None
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+
+    class RedirectHandler(BaseHTTPRequestHandler):
+        target_requests = 0
+
+        def do_GET(self) -> None:
+            if self.path == "/start":
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/target")
+                self.end_headers()
+                return
+            type(self).target_requests += 1
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            helper._fetch(f"http://127.0.0.1:{server.server_port}/start", "secret-session", "sessionid")
+        assert exc_info.value.code == 302
+        assert RedirectHandler.target_requests == 0
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 def test_harness_does_not_override_image_user(smoke_script: str) -> None:

@@ -21,19 +21,9 @@
       "target": "deploy.bootstrap_account"
     },
     {
-      "count": 6,
-      "path": "scripts/bootstrap/tests/test_cli.py",
-      "target": "deploy.check_dependencies"
-    },
-    {
       "count": 1,
       "path": "scripts/bootstrap/tests/test_cli.py",
       "target": "deploy.full_deployment"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_cli.py",
-      "target": "deploy.gdc_bootstrap_cluster"
     },
     {
       "count": 1,
@@ -81,7 +71,7 @@
       "target": "deploy.Path.home"
     },
     {
-      "count": 3,
+      "count": 2,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy._gcp_identity_access_token"
     },
@@ -101,24 +91,14 @@
       "target": "deploy.error"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.gcloud_resource_exists"
     },
     {
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.gcp_terraform_bootstrap_credentials"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.get_gcp_managed_certificate_status"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.get_repo_root"
     },
     {
       "count": 2,
@@ -156,19 +136,9 @@
       "target": "deploy.resolve_gcp_bootstrap_operator_credentials"
     },
     {
-      "count": 8,
+      "count": 7,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.run_cmd"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.run_gcp_terraform_apply_with_retry"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.run_gcp_terraform_init_with_retry"
     },
     {
       "count": 10,
@@ -186,7 +156,7 @@
       "target": "deploy.time.sleep"
     },
     {
-      "count": 4,
+      "count": 3,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.urllib_request.urlopen"
     },
@@ -203,11 +173,6 @@
     {
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.wait_for_gcp_terraform_bootstrap_access"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.wait_for_user"
     },
     {
@@ -219,16 +184,6 @@
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy.apply_gcp_control_plane_terraform"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.bootstrap_gcp_control_plane"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.confirm"
     },
     {
       "count": 1,
@@ -249,26 +204,6 @@
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy.ensure_gdc_access_secret"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.ensure_gdc_apis"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.ensure_gdc_instances"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.ensure_gdc_network"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.ensure_gdc_service_account"
     },
     {
       "count": 1,
@@ -323,47 +258,12 @@
     {
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.run_gdc_workstation_script"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy.stage_gcp_control_plane_values"
     },
     {
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.stage_gdc_bootstrap_assets"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.sync_gdc_access_secret"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.sync_gdc_instance_ssh_metadata"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.sync_gdc_vm_image_secret"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy.time.sleep"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.upload_gdc_assets"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.wait_for_gdc_ssh"
     },
     {
       "count": 1,
@@ -611,7 +511,7 @@
       "target": "components.network._get_network_inventory"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "shifter/engine/provisioner/tests/test_range_ops_ngfw_retry.py",
       "target": "range_ops.AWSExecutor"
     },
@@ -621,34 +521,19 @@
       "target": "range_ops.NGFWStartPlan"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "shifter/engine/provisioner/tests/test_range_ops_ngfw_retry.py",
       "target": "range_ops.OpsOrchestrator"
     },
     {
       "count": 1,
       "path": "shifter/engine/provisioner/tests/test_range_ops_ngfw_retry.py",
-      "target": "range_ops._ngfw.NGFWStopPlan"
-    },
-    {
-      "count": 2,
-      "path": "shifter/engine/provisioner/tests/test_range_ops_ngfw_retry.py",
       "target": "range_ops._update_ngfw_status"
     },
     {
       "count": 1,
       "path": "shifter/engine/provisioner/tests/test_range_ops_ngfw_retry.py",
-      "target": "range_ops.get_db_connection"
-    },
-    {
-      "count": 2,
-      "path": "shifter/engine/provisioner/tests/test_range_ops_ngfw_retry.py",
       "target": "range_ops.get_range_ngfw_info"
-    },
-    {
-      "count": 2,
-      "path": "shifter/engine/provisioner/tests/test_range_ops_ngfw_retry.py",
-      "target": "range_ops.publish_ngfw_event"
     },
     {
       "count": 1,
@@ -791,19 +676,9 @@
       "target": "ngfw_terraform._run_ngfw_operation_for_provider"
     },
     {
-      "count": 2,
-      "path": "shifter/engine/provisioner/tests/test_terraform_runner.py",
-      "target": "ngfw_terraform._run_pan_os_post_provision"
-    },
-    {
       "count": 1,
       "path": "shifter/engine/provisioner/tests/test_terraform_runner.py",
       "target": "ngfw_terraform._run_provision"
-    },
-    {
-      "count": 5,
-      "path": "shifter/engine/provisioner/tests/test_terraform_runner.py",
-      "target": "ngfw_terraform.publish_ngfw_event"
     },
     {
       "count": 1,
@@ -841,11 +716,6 @@
       "target": "ngfw_terraform_cleanup._deactivate_vmseries_license"
     },
     {
-      "count": 2,
-      "path": "shifter/engine/provisioner/tests/test_terraform_runner.py",
-      "target": "ngfw_terraform_cleanup.publish_ngfw_event"
-    },
-    {
       "count": 1,
       "path": "shifter/engine/provisioner/tests/test_terraform_runner.py",
       "target": "ngfw_terraform_cleanup.terraform_runner.cleanup_ngfw_state"
@@ -866,7 +736,7 @@
       "target": "cms.services.create_range"
     },
     {
-      "count": 3,
+      "count": 2,
       "path": "shifter/shifter_platform/tests/ctf/test_api_error_paths.py",
       "target": "ctf.services.attachment.add_challenge_file"
     },
@@ -958,15 +828,10 @@
     {
       "count": 1,
       "path": "shifter/shifter_platform/tests/ctf/test_api_view_flows.py",
-      "target": "ctf.services.attachment.add_challenge_file"
-    },
-    {
-      "count": 1,
-      "path": "shifter/shifter_platform/tests/ctf/test_api_view_flows.py",
       "target": "ctf.services.force_delete_event"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "shifter/shifter_platform/tests/ctf/test_api_view_flows.py",
       "target": "ctf.services.notification.send_announcement"
     },
@@ -992,33 +857,8 @@
     },
     {
       "count": 1,
-      "path": "shifter/shifter_platform/tests/ctf/test_auth_registration.py",
-      "target": "ctf.models.CTFEvent.objects"
-    },
-    {
-      "count": 7,
-      "path": "shifter/shifter_platform/tests/ctf/test_auth_registration.py",
-      "target": "ctf.models.CTFParticipant.objects"
-    },
-    {
-      "count": 2,
-      "path": "shifter/shifter_platform/tests/ctf/test_auth_registration.py",
-      "target": "management.services.get_user_profile"
-    },
-    {
-      "count": 1,
-      "path": "shifter/shifter_platform/tests/ctf/test_auth_registration.py",
-      "target": "management.services.set_active_ctf_event"
-    },
-    {
-      "count": 1,
       "path": "shifter/shifter_platform/tests/ctf/test_brackets.py",
       "target": "ctf.services.scoring.CTFParticipant.objects"
-    },
-    {
-      "count": 2,
-      "path": "shifter/shifter_platform/tests/ctf/test_challenge_navigation.py",
-      "target": "cms.services.get_range_target_instances"
     },
     {
       "count": 1,
@@ -1031,19 +871,14 @@
       "target": "ctf.context_processors.ctf_navigation"
     },
     {
-      "count": 8,
+      "count": 4,
       "path": "shifter/shifter_platform/tests/ctf/test_event_deletion.py",
       "target": "ctf.models.CTFEvent.all_objects"
     },
     {
-      "count": 4,
-      "path": "shifter/shifter_platform/tests/ctf/test_event_deletion.py",
-      "target": "ctf.services.force_delete_event"
-    },
-    {
       "count": 2,
       "path": "shifter/shifter_platform/tests/ctf/test_event_deletion.py",
-      "target": "ctf.services.get_event_stats"
+      "target": "ctf.services.force_delete_event"
     },
     {
       "count": 1,
@@ -1071,41 +906,6 @@
       "target": "mission_control.context_processors.active_range"
     },
     {
-      "count": 1,
-      "path": "shifter/shifter_platform/tests/ctf/test_events.py",
-      "target": "config.context_processors.user_permissions"
-    },
-    {
-      "count": 3,
-      "path": "shifter/shifter_platform/tests/ctf/test_events.py",
-      "target": "ctf.bridges.cms_list_scenarios"
-    },
-    {
-      "count": 1,
-      "path": "shifter/shifter_platform/tests/ctf/test_events.py",
-      "target": "ctf.context_processors.ctf_navigation"
-    },
-    {
-      "count": 5,
-      "path": "shifter/shifter_platform/tests/ctf/test_events.py",
-      "target": "ctf.services.get_event"
-    },
-    {
-      "count": 2,
-      "path": "shifter/shifter_platform/tests/ctf/test_events.py",
-      "target": "ctf.services.get_event_stats"
-    },
-    {
-      "count": 4,
-      "path": "shifter/shifter_platform/tests/ctf/test_events.py",
-      "target": "ctf.services.get_organizer_events"
-    },
-    {
-      "count": 1,
-      "path": "shifter/shifter_platform/tests/ctf/test_events.py",
-      "target": "mission_control.context_processors.active_range"
-    },
-    {
       "count": 2,
       "path": "shifter/shifter_platform/tests/ctf/test_models.py",
       "target": "ctf.models.CTFEvent.save"
@@ -1121,7 +921,7 @@
       "target": "ctf.models.CTFParticipant.user"
     },
     {
-      "count": 2,
+      "count": 1,
       "path": "shifter/shifter_platform/tests/ctf/test_models.py",
       "target": "ctf.models.CTFScheduledTask.save"
     },
@@ -1309,26 +1109,6 @@
       "count": 18,
       "path": "shifter/shifter_platform/tests/ctf/test_services/test_submission.py",
       "target": "ctf.services.submission.verify_flag"
-    },
-    {
-      "count": 1,
-      "path": "shifter/shifter_platform/tests/scenario_editor/test_view_error_flows.py",
-      "target": "cms.scenario_editor.services.clone_scenario"
-    },
-    {
-      "count": 4,
-      "path": "shifter/shifter_platform/tests/scenario_editor/test_view_error_flows.py",
-      "target": "cms.scenario_editor.services.create_scenario"
-    },
-    {
-      "count": 3,
-      "path": "shifter/shifter_platform/tests/scenario_editor/test_view_error_flows.py",
-      "target": "cms.scenario_editor.services.update_scenario"
-    },
-    {
-      "count": 5,
-      "path": "shifter/shifter_platform/tests/scenario_editor/test_view_error_flows.py",
-      "target": "cms.scenario_editor.services.validate_yaml"
     }
   ]
 }

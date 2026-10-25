@@ -148,7 +148,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [check-rds-pending-modifications-lint]
-      security: [check-rds-pending-modifications-lint]
+      security: [deployment-utilities-sast]
       test: [check-rds-pending-modifications-tests]
 
   - id: handle_sd_replacement
@@ -157,7 +157,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [handle-sd-replacement-lint]
-      security: [handle-sd-replacement-lint]
+      security: [deployment-utilities-sast]
       test: [handle-sd-replacement-tests]
 
   - id: assert_portal_inspection
@@ -166,7 +166,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [assert-portal-inspection-lint]
-      security: [assert-portal-inspection-lint]
+      security: [deployment-utilities-sast]
       test: [assert-portal-inspection-tests]
 
   - id: installation
@@ -282,8 +282,8 @@ quality_units:
       - .shifter.yaml
     sonar: false
     responsibilities:
-      lint: [adr-guard-lint]
-      security: [adr-guard-lint]
+      lint: [adr-guard-lint-security]
+      security: [adr-guard-lint-security]
       test: [adr-guard-tests]
 
   - id: stack_smoke
@@ -291,30 +291,39 @@ quality_units:
       - scripts/stack-smoke/**
     sonar: false
     responsibilities:
-      lint: [stack-smoke-lint]
-      security: [stack-smoke-lint]
-      test: [stack-smoke-lint, stack-smoke]
+      lint: [stack-smoke-lint-security]
+      security: [stack-smoke-lint-security]
+      test: [stack-smoke-lint-security, stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
-  # exclusions (ADR-004-R24). Native checks and behavior tests own these inputs.
+  # exclusions (ADR-004-R24 forbids exempting shipped build/runtime material via
+  # exclusions). Each responsibility resolves to a blocking job below.
   - id: container_images
     paths:
       - shifter/engine/guacamole/**
       - shifter/engine/guacd/**
+    sonar: false
+    responsibilities:
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [guacamole-authority-tests, guacd-image-tests]
+
+  - id: portal_image_context
+    paths:
       - shifter/.dockerignore
     sonar: false
     responsibilities:
-      lint: [container-images-lint]
-      security: [container-images-lint, container-images-security]
-      test: [guacamole-authority-tests, guacd-image-tests]
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [stack-smoke]
 
   - id: charts
     paths:
       - platform/charts/**
     sonar: false
     responsibilities:
-      lint: [chart-tests]
-      security: [chart-tests]
+      lint: [chart-lint-security]
+      security: [chart-lint-security]
       test: [chart-tests]
 
 exclusions:
@@ -374,8 +383,9 @@ exclusions:
       # Exact-release Trivy exposure-management policy consumed by the
       # release-scan gate in .github/workflows/_gcp-dev.yml (--ignorefile).
       - .trivyignore.yaml
-      # OSV-Scanner suppressions (time-boxed, no-upstream-fix) consumed by the
-      # Security (osv-scanner) quality job via --config.
+      # OSV-Scanner policy consumed by the Security (osv-scanner) quality job
+      # via --config. Any future suppression must be time-boxed and limited to
+      # an advisory with no upstream fix.
       - osv-scanner.toml
       - tools/install-vale.sh
 

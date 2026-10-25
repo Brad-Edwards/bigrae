@@ -801,11 +801,16 @@ def _handle_full(args: argparse.Namespace) -> None:
     full_deployment(args.env, args.profile, dry_run=args.dry_run)
 
 
-def _handle_gdc_bootstrap(args: argparse.Namespace) -> None:
+def _handle_gdc_bootstrap(
+    args: argparse.Namespace,
+    *,
+    bootstrapper: Callable[..., None] | None = None,
+) -> None:
     """Bootstrap the configured GDC VM Runtime control plane."""
+    bootstrapper = bootstrapper or gdc_bootstrap_cluster
     config = _build_gdc_bootstrap_config(args)
     if not args.import_public_base_images:
-        gdc_bootstrap_cluster(
+        bootstrapper(
             config,
             dry_run=args.dry_run,
             allow_missing_range_images=args.allow_missing_range_images,
@@ -887,12 +892,16 @@ _COMMAND_HANDLERS = {
 }
 
 
-def main() -> None:
-    """Parse CLI arguments, enforce shared gates, and invoke one handler."""
+def main(
+    *,
+    dependency_checker: Callable[..., None] | None = None,
+    gdc_bootstrapper: Callable[..., None] | None = None,
+) -> None:
+    """Parse arguments and dispatch through injectable external operations."""
     args = _build_parser().parse_args()
     if getattr(args, "yes", False):
         set_assume_yes(True)
-    check_dependencies(
+    (dependency_checker or check_dependencies)(
         args.command,
         cloud=getattr(args, "cloud", None),
         import_public_base_images=getattr(args, "import_public_base_images", False),
@@ -900,7 +909,11 @@ def main() -> None:
     if args.command in {"bootstrap", "terraform", "full"}:
         preflight_gate(Cloud.AWS, Mode.LOCAL, args.env, headless=args.headless)
     try:
-        _COMMAND_HANDLERS[args.command](args)
+        handler = _COMMAND_HANDLERS[args.command]
+        if args.command == "gdc-bootstrap" and gdc_bootstrapper is not None:
+            _handle_gdc_bootstrap(args, bootstrapper=gdc_bootstrapper)
+        else:
+            handler(args)
     except BaseImageError as exc:
         error(str(exc))
         raise SystemExit(1) from None

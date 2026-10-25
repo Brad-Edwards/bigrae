@@ -66,10 +66,12 @@ expanded #2555 on 2026-10-25 to repair those failures under GEN-002.
 The [quality design](bigrae-rename-quality-design-2555.md) defines the CI
 boundaries and coverage for that scope.
 
-The full CI-level ADR check now passes, as do all 548 guard tests.
+The full CI-level ADR check passes. The guard tests also pass at the initial
+repair checkpoint. Integration changes receive targeted checks before publish.
 Blocking native checks own each remaining production path.
 The five expired exceptions have been removed without renewal.
-The bootstrap internal-mock allowance decreases from 256 to 204.
+The initial repair reduced the bootstrap internal-mock allowance from 256 to 204.
+The integration merge retains the newer reduction to 175.
 The user approved removal of the two unused CloudFormation installers.
 Their identifier exception and quality owner have been removed.
 The unused root branding assets have also been removed after a consumer search.

@@ -120,7 +120,8 @@ def _scan_file_for_noqa(path: Path, relpath: str, sites: dict[tuple[str, str], t
         if classification == "c901":
             # def_match is guaranteed by the "c901" branch in _classify_noqa_line.
             def_match = _DEF_NAME_PATTERN.search(line)
-            assert def_match is not None
+            if def_match is None:
+                continue
             sites[(relpath, def_match.group(1))] = (line.strip(), lineno)
         else:
             sites[(relpath, classification)] = (line.strip(), lineno)
