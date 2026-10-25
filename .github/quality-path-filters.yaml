@@ -397,8 +397,9 @@ exclusions:
       # Exact-release Trivy exposure-management policy consumed by the
       # release-scan gate in .github/workflows/_gcp-dev.yml (--ignorefile).
       - .trivyignore.yaml
-      # OSV-Scanner suppressions (time-boxed, no-upstream-fix) consumed by the
-      # Security (osv-scanner) quality job via --config.
+      # OSV-Scanner policy consumed by the Security (osv-scanner) quality job
+      # via --config. Any future suppression must be time-boxed and limited to
+      # an advisory with no upstream fix.
       - osv-scanner.toml
       - tools/install-vale.sh
 

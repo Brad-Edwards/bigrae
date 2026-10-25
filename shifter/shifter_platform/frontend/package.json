@@ -52,7 +52,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^9.17.0",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react": "^7.37.3",
@@ -62,8 +62,8 @@
     "openapi-typescript": "^7.13.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2",
-    "vite": "^8.1.5",
-    "vitest": "^4.1.11",
+    "vite": "^8.1.6",
+    "vitest": "^4.1.12",
     "vitest-axe": "^0.1.0"
   },
   "overrides": {
@@ -84,6 +84,7 @@
     "eslint-plugin-react": {
       "minimatch": "^10.2.6"
     },
+    "dompurify": "^3.4.17",
     "katex": "^0.18.2"
   }
 }
