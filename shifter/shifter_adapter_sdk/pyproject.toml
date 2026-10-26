@@ -25,6 +25,13 @@ bigrae_adapter_sdk = ["py.typed"]
 
 [dependency-groups]
 dev = ["pytest>=9", "ruff>=0.15"]
+client-runtime = ["bigrae-client"]
+
+[tool.uv]
+default-groups = ["dev", "client-runtime"]
+
+[tool.uv.sources]
+bigrae-client = { path = "../shifter_client" }
 
 [tool.pytest.ini_options]
 markers = ["integration: executes external toolchains or isolated package environments"]

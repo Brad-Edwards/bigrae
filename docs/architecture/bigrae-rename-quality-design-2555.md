@@ -57,6 +57,10 @@ It adds the immutable name-and-ID shape; all vendor policy logic remains active.
 The CI parity guard requires the loader path. Native positive and negative scans
 verify the adapter. No rule skip, soft failure, or policy waiver is added.
 
+Wheel integration tests declare the native client's runtime as an SDK development
+dependency group. The SDK lock supplies exact artifact URLs and hashes for offline
+installation in a fresh environment. Released SDK dependencies remain unchanged.
+
 ## CI components and interfaces
 
 The quality contract is `.github/quality-path-filters.yaml`.

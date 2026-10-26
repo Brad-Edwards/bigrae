@@ -123,7 +123,7 @@ def test_installed_sdk_and_external_adapter_need_no_application(tmp_path, prefix
             "export",
             "--frozen",
             "--offline",
-            "--no-dev",
+            "--no-default-groups",
             "--extra",
             "runtime",
             "--no-emit-project",
@@ -188,12 +188,37 @@ def test_native_client_alias_installs_as_one_transport(tmp_path):
     environment = tmp_path / "client-runtime"
     _run([sys.executable, "-m", "venv", "--without-pip", str(environment)], tmp_path)
     python = environment / "bin" / "python"
-    _run([uv, "pip", "install", "--offline", "--python", str(python), str(wheel), str(legacy_wheel)], tmp_path)
+    runtime_lock = tmp_path / "pylock.client.toml"
+    _run(
+        [
+            uv,
+            "export",
+            "--frozen",
+            "--offline",
+            "--only-group",
+            "client-runtime",
+            "--no-emit-local",
+            "--format",
+            "pylock.toml",
+            "--output-file",
+            str(runtime_lock),
+        ],
+        Path(__file__).resolve().parents[1],
+    )
+    _run([uv, "pip", "install", "--offline", "--python", str(python), "-r", str(runtime_lock)], tmp_path)
+    _run(
+        [uv, "pip", "install", "--offline", "--no-deps", "--python", str(python), str(wheel), str(legacy_wheel)],
+        tmp_path,
+    )
+    _run([uv, "pip", "check", "--python", str(python)], tmp_path)
     _run(
         [
             str(python),
             "-I",
             "-c",
+            "from importlib.metadata import version\n"
+            "assert version('bigrae-client') == '0.1.0'\n"
+            "assert version('shifter-client') == '0.2.0'\n"
             "from bigrae_client import ServiceClient\n"
             "from shifter_client import ServiceClient as Old\n"
             "assert ServiceClient is Old\n",

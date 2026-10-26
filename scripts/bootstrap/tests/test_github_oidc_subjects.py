@@ -46,6 +46,8 @@ def test_explicit_format_selects_one_subject(subject_format, expected):
         {"github_repository_id": ""},
         {"github_owner_id": "0"},
         {"github_repository_id": "123:*"},
+        {"github_repository_id": "1\u0662\u0663"},
+        {"github_owner_id": "\u0664\u0665\u0666"},
         {"github_subject_format": "both"},
     ],
 )

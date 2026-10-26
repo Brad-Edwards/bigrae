@@ -504,7 +504,7 @@ class BootstrapConfig:
         if self.github_subject_format != "immutable":
             raise ValueError("github_subject_format must be default or immutable")
         for key in ("github_owner_id", "github_repository_id"):
-            if not re.fullmatch(r"[1-9][0-9]*", getattr(self, key)):
+            if not re.fullmatch(r"[1-9]\d*", getattr(self, key), flags=re.ASCII):
                 raise ValueError(f"{key} must be a positive numeric GitHub ID")
         return f"repo:{self.github_org}@{self.github_owner_id}/{self.github_repo}@{self.github_repository_id}"
 
