@@ -180,9 +180,6 @@ def administrator_access_policy_document() -> str:
     )
 
 
-AWS_ENVIRONMENTS = ("dev", "prod")
-
-
 def _ensure_state_bucket(bucket_name: str, config: BootstrapConfig, profile: str, dry_run: bool) -> None:
     """Create the Terraform-state S3 bucket, or confirm reuse if it already exists."""
     if not dry_run and s3_bucket_exists(bucket_name, profile):

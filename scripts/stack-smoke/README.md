@@ -18,7 +18,7 @@ credentials**: the only AWS surface is a local ElasticMQ SQS double reached via
    deps and runs `compilemessages` / `collectstatic` as the non-root `appuser`.
 2. **Boot**: `entrypoint.sh` waits for the DB, runs migrations exactly once
    (a dedicated one-shot; every long-running container boots with
-   `SKIP_MIGRATIONS=1`, mirroring `scripts/portal-deploy/deploy_portal.sh`), and
+   `SKIP_MIGRATIONS=1`, matching the shared chart’s separate migration Job), and
    execs the production Gunicorn/Uvicorn ASGI command as `appuser`.
 3. **Readiness**: `/health/` returns 200 from the real dependency-aware
    `django-health-check` registry (DB + cache + storage + Redis channel layer).

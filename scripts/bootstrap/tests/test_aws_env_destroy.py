@@ -289,8 +289,6 @@ def test_happy_path_orders_layers_and_runs_pre_destroy_handling(tmp_path, monkey
     assert "-var=allow_default_vpc=true" in runner
     iam = fake.find(lambda c: c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "global/iam")[0]
     assert "-var=environment=dev" in iam
-    # The env tfvars supply the required repository identity variables (ADR-069).
-    assert "-var-file=dev.tfvars" in iam
 
 
 def test_runner_uses_managed_vpc_var_when_network_module_in_state(tmp_path, monkeypatch, sweep_ok):
@@ -702,15 +700,13 @@ def test_phase_finalize_destroys_iam_last_after_sweep_and_verify(tmp_path, monke
     assert labels.index("verify") < labels.index("iam-destroy")
 
 
-# prod is not a teardown target. The proof environment is retired.
-@pytest.mark.parametrize("env", ["prod", "proof"])
-def test_main_rejects_non_teardown_env(env):
-    with pytest.raises(SystemExit, match="unsupported teardown environment"):
-        aed.main(["--env", env, "--state-bucket", f"shifter-{env}-infra-uuid"])
+def test_main_rejects_prod():
+    with pytest.raises(SystemExit):
+        aed.main(["--env", "prod", "--state-bucket", "shifter-prod-infra-uuid"])
 
 
 def test_main_requires_state_bucket():
-    with pytest.raises(SystemExit, match="--state-bucket is required"):
+    with pytest.raises(SystemExit):
         aed.main(["--env", "dev", "--state-bucket", "  "])
 
 

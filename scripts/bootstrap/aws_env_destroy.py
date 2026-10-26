@@ -22,7 +22,7 @@ Pre-destroy handling (per the runbook):
 - Lift deletion protection on the Portal RDS surfaces by writing a
   ``teardown-*.auto.tfvars`` override (protection off) that lexically overrides
   the rendered ``local.auto.tfvars``, then a targeted ``terraform apply`` on the
-  protection-bearing resources before the Portal destroy. dev already ships
+  protection-bearing resources before the Portal destroy. dev already ship
   these ``false`` (secure default ``true`` is prod-only), so the lift is a
   no-op there but defends any env that enabled them.
 - Empty S3 buckets the stack owns (discovered from its Terraform state, then
@@ -206,9 +206,7 @@ def _layers(env: str, state_bucket: str) -> tuple[Layer, ...]:
         # destroy time (managed, default opt-in, or explicit external), so
         # destroy reproduces the applied topology rather than a fixed guess.
         Layer("github-runner", "global/github-runner", topology_from_state=True),
-        # The env tfvars carry the deployment identity (ADR-069). Bootstrap apply
-        # and the drift check read the same file.
-        Layer("iam", "global/iam", var_flags=(f"-var-file={env}.tfvars", f"-var=environment={env}")),
+        Layer("iam", "global/iam", var_flags=(f"-var=environment={env}",)),
     )
 
 

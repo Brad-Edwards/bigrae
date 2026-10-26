@@ -1257,7 +1257,6 @@ describe("BASE_AMI_TYPES", () => {
       "ubuntu",
       "windows",
       "dc",
-      "brokenbk",
     ]);
   });
 });
@@ -1269,7 +1268,6 @@ describe("GCE_IMAGE_TYPES", () => {
   it("matches the packer-gcp.yml image_type choices", () => {
     assert.deepEqual([...GCE_IMAGE_TYPES], [
       "ubuntu",
-      "brokenbk",
       "kali",
       "windows",
       "dc",

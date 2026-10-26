@@ -1988,8 +1988,7 @@
       },
       "supported_profiles": [
         "dev",
-        "prod",
-        "proof"
+        "prod"
       ],
       "teardown": {
         "argv": [

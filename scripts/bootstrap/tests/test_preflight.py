@@ -71,11 +71,14 @@ class TestAwsSecretNames:
 
 class TestAwsEnvironmentValidation:
     @pytest.mark.parametrize("environment", ["proof", "staging", ""])
-    def test_unknown_aws_environment_is_rejected(self, environment):
-        with pytest.raises(ValueError, match="unsupported AWS environment"):
-            preflight.run_preflight(Cloud.AWS, Mode.CI, environment, env={})
+    def test_unknown_aws_environment_fails_the_report(self, environment):
+        # The retired proof tenant and any other unknown AWS environment must
+        # fail the preflight report, not crash on a missing env-suffix lookup.
+        report = preflight.run_preflight(Cloud.AWS, Mode.CI, environment, env={})
+        assert not report.ok
+        assert any(r.status is Status.FAIL for r in report.results)
 
-    def test_gate_stops_cleanly_on_an_unknown_aws_environment(self):
+    def test_gate_stops_on_an_unknown_aws_environment(self):
         with pytest.raises(SystemExit) as exc:
             preflight.preflight_gate(Cloud.AWS, Mode.CI, "proof", headless=True)
         assert exc.value.code == 1

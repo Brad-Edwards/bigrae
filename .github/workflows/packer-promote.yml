@@ -12,7 +12,6 @@ on:
           - ubuntu
           - windows
           - dc
-          - brokenbk
 
 jobs:
   # DC AMIs are prebaked - just update SSM from config file

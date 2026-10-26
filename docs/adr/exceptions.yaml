@@ -23,7 +23,6 @@
     "reason": "CKV_AWS_46 (hard-coded EC2 user_data secret): false positive on Terraform templatefile interpolation. The relevant lines read SECRET_KEY=$${secret_key} where secret_key is generated at instance boot via openssl rand -hex 32. No hardcoded secret exists at the source level.",
     "expires_on": "2027-05-26",
     "paths": [
-      "platform/terraform/global/ctfd-workshop/",
       "platform/terraform/modules/portal/ctfd/"
     ]
   },
@@ -54,10 +53,9 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
-    "reason": "CKV_AWS_88 / CKV_AWS_130 (EC2 / subnet public IP) and CKV_AWS_25 / CKV_AWS_260 / CKV_AWS_24 (open RDP/HTTP/SSH ingress): these fire on workshop demo ranges (ctfd-workshop, dev-box) and on the CTFd-platform module that backs customer CTF events. Demo participants need direct console access to those instances (public IP + RDP/SSH/HTTP from controlled CIDRs) or the workshop scenario does not run. The ingress rules are scoped to specific source CIDRs where possible; '0.0.0.0/0' appears only on the public CTFd web port where the platform is by design publicly reachable.",
+    "reason": "CKV_AWS_88 / CKV_AWS_130 (EC2 / subnet public IP) and CKV_AWS_25 / CKV_AWS_260 / CKV_AWS_24 (open RDP/HTTP/SSH ingress): these fire on demo workstations (dev-box) and on the CTFd-platform module that backs customer CTF events. Demo participants need direct console access to those instances (public IP + RDP/SSH/HTTP from controlled CIDRs) or the workshop scenario does not run. The ingress rules are scoped to specific source CIDRs where possible; '0.0.0.0/0' appears only on the public CTFd web port where the platform is by design publicly reachable.",
     "expires_on": "2026-11-26",
     "paths": [
-      "platform/terraform/global/ctfd-workshop/",
       "platform/terraform/global/dev-box/",
       "platform/terraform/modules/portal/ctfd/"
     ]

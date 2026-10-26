@@ -37,3 +37,5 @@ These retain their stated design authority and are not historical preflights:
 - [Artifact preparation](raes-in-tenant-artifact-preparation-design-1583.md)
 - [RAES hard cut](raes-migration-adr.md)
 - [External runtime boundary](external-scenario-runtime-design.md)
+
+- [Shared deployment configuration](deployment-root-consolidation-2089.md)

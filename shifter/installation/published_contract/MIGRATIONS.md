@@ -64,3 +64,12 @@ adapters are installed independently through the tenant administration UI.
 Existing AWS ranges that depend on legacy guest model roles must be drained with
 the previous release before the new platform IAM is applied. Broker qualification
 is required before migrating workloads that need model access.
+
+## Contract version 1 deployment profile retirement
+
+The AWS registry now admits only the maintained `dev` and `prod` profiles.
+The retired environment has no deployed resources, as confirmed by its operator.
+Existing configurations for that environment must select a maintained profile and supply its own deployment inputs.
+The bundle schema and settings schema remain unchanged.
+The current artifact is regenerated; the version-1 frozen snapshot remains unchanged.
+Any archived cleanup uses the earlier release with its original backend, under operator control.

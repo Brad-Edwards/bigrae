@@ -7,15 +7,17 @@ Region: `us-east-2` (all portal resources)
 This runbook is the operator procedure for recovering portal data and
 infrastructure after a destructive failure (accidental delete, corruption,
 region/AZ outage, failed deploy). It covers the AWS portal stack only—RDS,
-the portal upload bucket, portal EC2/ASG runtime, Cognito, Terraform state, and
-engine/Pulumi state. GCP and Kubernetes DR are out of scope.
+the portal upload bucket, Cognito, Terraform state and engine/Pulumi state.
+AWS runtime recovery uses the shared chart on EKS.
+See [EKS operations](portal-eks-operations.md) for cluster and workload recovery.
+GCP disaster recovery remains outside this runbook.
 
 ## How to read this runbook
 
 Three concepts are kept distinct on purpose—conflating them produces a DR plan
 that looks complete but cannot restore data:
 
-- **Availability** controls (Multi-AZ, ASG replacement, health checks) reduce
+- **Availability** controls (Multi-AZ, pod replacement, health checks) reduce
   downtime from a *single* failure. They are not a tested restore and do not
   protect against delete/corruption that propagates to the standby.
 - **Recoverability** controls (backups, snapshots, object versions, identity
@@ -25,7 +27,7 @@ that looks complete but cannot restore data:
   control. See [Tested recovery exercise](#tested-recovery-exercise).
 
 Data classes drive the target. **Authoritative** state (RDS) must be restorable
-with a bounded RPO. **Generated** state (EC2 root volumes, Redis, range compute)
+with a bounded RPO. **Generated** state (Kubernetes workloads, Redis, range compute)
 is rebuilt, not restored. **Ephemeral** state (portal uploads) is accepted-loss
 by design. **Identity-provider** state (Cognito) is reseeded, not restored into
 the app database. **Infrastructure state** (Terraform/Pulumi) is recovered from
@@ -35,14 +37,14 @@ object versions.
 
 | Component | Data class | Owner surface | RTO | RPO | Restore primitive | Alert source | Region policy |
 |---|---|---|---|---|---|---|---|
-| Portal RDS (PostgreSQL) | Authoritative | `modules/portal/rds`, env `db_*` vars | ≤ 2 h (drill: ~53 min) | ~5–10 min (PITR log lag) | PITR or snapshot restore to new instance | RDS event subscription (`backup`/`failure`/`low storage`) → backup-alerts SNS | Same-region; Multi-AZ in prod/proof. Cross-region copy deferred (see [Deferred](#deferred-enhancements)) |
-| Guacamole RDS (PostgreSQL) | Authoritative (session/connection metadata) | `modules/guacamole/rds.tf`, env `guacamole_db_*` vars | ≤ 2 h | ~5–10 min (PITR log lag) | PITR or snapshot restore to new instance | RDS event subscription → backup-alerts SNS | Same-region; Multi-AZ in prod/proof |
+| Portal RDS (PostgreSQL) | Authoritative | `modules/portal/rds`, env `db_*` vars | ≤ 2 h (drill: ~53 min) | ~5–10 min (PITR log lag) | PITR or snapshot restore to new instance | RDS event subscription (`backup`/`failure`/`low storage`) → backup-alerts SNS | Same-region; Multi-AZ in prod. Cross-region copy deferred (see [Deferred](#deferred-enhancements)) |
+| Guacamole RDS (PostgreSQL) | Authoritative (session/connection metadata) | `modules/portal/eks`, Guacamole secret and database settings | ≤ 2 h | ~5–10 min (PITR log lag) | PITR or snapshot restore to new instance | RDS event subscription → backup-alerts SNS | Same-region; Multi-AZ in prod |
 | Portal uploads (S3) | Ephemeral | `modules/portal/s3` | n/a | Accepted loss | None—rebuild on re-upload | n/a | Same-region. Versioning/CRR intentionally off (see [S3 uploads](#portal-uploads-s3)) |
-| Portal EC2 / ASG | Generated | `modules/portal/ec2`, `scripts/portal-deploy/deploy_portal.sh` | ≤ 1 h | n/a (stateless) | Terraform apply + ASG instance refresh + SSM redeploy | ASG/worker-health alarms (existing) | Same-region, multi-AZ ASG |
+| Platform workloads | Generated | `platform/charts/shifter`, EKS root | Requalify after restore | n/a (stateless) | Restore prerequisites, then atomic Helm deployment | Kubernetes readiness and rollout checks | Same-region EKS |
 | Cognito user pool | Identity-provider | `modules/portal/cognito` | ≤ 4 h | Best-effort (export cadence) | Terraform recreate pool + reseed users; Django users restore via RDS | Pool deletion protection (prod) | Same-region; managed service |
 | Terraform state (S3 backend) | Infrastructure | `scripts/bootstrap/terraform_backend.py`, `render_aws_backend_configs.py` | ≤ 1 h | ≤ last apply | S3 object-version restore; cross-region copy of state bucket | S3 bucket versioning | Same-region; cross-region copy is an operator step |
 | Engine/Pulumi state (S3 + DynamoDB) | Infrastructure | `modules/engine-state` | ≤ 1 h | ≤ last stack op | S3 noncurrent-version restore; DynamoDB PITR for locks | DynamoDB PITR | Same-region |
-| Secrets Manager | Authoritative (credentials) | `modules/portal/rds`, `modules/guacamole`, `modules/portal/ssm` | ≤ 30 min | n/a (regenerated) | Terraform regenerates from `random_password`; rotate consumers | n/a | Same-region |
+| Secrets Manager | Authoritative (credentials) | Portal and EKS roots, runtime secret references | ≤ 30 min | n/a (regenerated) | Terraform regenerates from `random_password`; rotate consumers | n/a | Same-region |
 | Redis (channel layer) | Generated | `modules/portal/redis` | ≤ 30 min | n/a (ephemeral) | Recreate replication group; clients reconnect | Existing Redis alarms | Same-region |
 | Range compute/state | Generated | engine provisioner, Pulumi state | ≤ 1 h per range | n/a | Re-provision from scenario template + engine/Pulumi state | Range launch-failure alarm | Same-region |
 
@@ -62,7 +64,7 @@ The portal database is the authoritative application store (Django
 `auth_user`, `UserProfile`, audit trail, CMS/CTF/range metadata). Automated
 backups are enabled (`backup_retention_days = 7` in all environments),
 `copy_tags_to_snapshot = true`, and a final snapshot is taken on delete except
-where `db_skip_final_snapshot = true` (dev/proof).
+where `db_skip_final_snapshot = true` (dev).
 
 RDS restores never overwrite the source instance—they create a **new**
 instance. Recovery is therefore: restore to a new identifier, validate, then
@@ -121,20 +123,15 @@ make a generic checklist pass—that changes delete/retention semantics for
 every consumer (agent uploads, experiment scripts, CTF attachments) and requires
 revisiting lifecycle, KMS, and ADR exceptions as its own design decision.
 
-### Portal EC2 / ASG
+### Platform workloads on EKS
 
-Portal and AgentChat instances are **generated** runtime—no application state
-lives on the root volume. Recovery is rebuild, not restore:
-
-1. `terraform apply` the portal stack to recreate launch templates / ASG.
-2. Trigger an ASG **instance refresh** (or scale the ASG to replace instances).
-   New instances run `user_data.sh`, hydrate config/secrets from SSM + Secrets
-   Manager, pull the pinned ECR image, and register with the ALB.
-3. Verify the worker-health and ALB target health are green.
-
-Do not back up EC2 root volumes as application state—that produces stale app
-images and secret-bearing snapshots. AMI backups are only justified for a
-prebaked, irreplaceable image, which the portal does not use.
+Application state lives in managed databases and object stores.
+Recreate failed cluster infrastructure through the isolated EKS root.
+Restore data and secret references before deploying workloads.
+Use attested image digests with the normal `eks-deploy` lifecycle.
+Verify migrations, readiness, workers and authenticated remote access after recovery.
+Do not use retired EC2 portal scripts for workload recovery.
+Follow [EKS operations](portal-eks-operations.md) for deployment checks and rollback limits.
 
 ### Cognito
 

@@ -287,6 +287,7 @@ class TestGdcControlPlaneTerraform:
         )
         tf_dir = mock_repo_root / "platform" / "terraform" / "gcp" / "environments" / "gcp-dev"
         tf_dir.mkdir(parents=True)
+        (tf_dir.parent / "platform").mkdir(exist_ok=True)
         (tf_dir / "terraform.tfvars").write_text(
             """
 project_id = "shifter-gcp-dev"
@@ -343,6 +344,7 @@ gke_master_authorized_cidrs = []
         )
         tf_dir = mock_repo_root / "platform" / "terraform" / "gcp" / "environments" / "gcp-dev"
         tf_dir.mkdir(parents=True)
+        (tf_dir.parent / "platform").mkdir(exist_ok=True)
         (tf_dir / "terraform.tfvars").write_text(
             'project_id = "shifter-gcp-dev"\n'
             'region = "us-central1"\n'

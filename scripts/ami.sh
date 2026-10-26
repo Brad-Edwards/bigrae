@@ -42,7 +42,7 @@ usage() {
     echo "  -p <type>   Promote AMI to prod (runs packer-promote.yml)"
     echo ""
     echo "AMI types:"
-    echo "  Base: kali, ubuntu, windows, dc, brokenbk"
+    echo "  Base: kali, ubuntu, windows, dc"
     echo "Dispatch ref: $WORKFLOW_REF (current branch: $BRANCH; override with AMI_WORKFLOW_REF=main)"
     exit 1
 }

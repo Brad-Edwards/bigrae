@@ -11,7 +11,7 @@ guest AMIs from the same `/shifter/ami/*` parameters.
 
 Packer sources live in `shifter/packer/` (`kali.pkr.hcl`, `ubuntu.pkr.hcl`,
 `windows.pkr.hcl`, `dc.pkr.hcl`, shared `variables.pkr.hcl`, per-env
-`dev.pkrvars.hcl` / `proof.pkrvars.hcl`). The deep reference is
+`dev.pkrvars.hcl`). The deep reference is
 [`shifter/packer/README.md`](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/packer/README.md).
 
 ## Ordering: no circular dependency with the portal VPC
@@ -66,7 +66,7 @@ guardrail (ADR-004-R22) pins those invariants.
 
 The implementation PR ships the Terraform, workflow wiring, and guardrail but does
 not apply IAM or set secrets. Complete the cutover once per AWS account (`dev`,
-`proof`, and `prod` for promotions):
+and `prod` for promotions):
 
 1. Apply the global-IAM stack so the role and its output exist:
 
@@ -76,7 +76,7 @@ not apply IAM or set secrets. Complete the cutover once per AWS account (`dev`,
    ```
 
 2. Set the `AWS_IMAGE_ROLE_ARN_<ENV>` GitHub secret from the output (prod is the
-   unsuffixed `AWS_IMAGE_ROLE_ARN`; base builds target `dev`/`proof`):
+   unsuffixed `AWS_IMAGE_ROLE_ARN`; base builds target `dev`):
 
    ```bash
    ROLE_ARN=$(terraform -chdir=platform/terraform/global/iam output -raw github_actions_image_role_arn)
@@ -117,7 +117,7 @@ dedicated least-privilege image-pipeline role, not the broad deploy role (see
 
 The base `build` job takes its **builder** VPC and subnet from trusted repository
 Actions variables too, not the committed pkrvars (issue #1777). Set these once per
-account (suffixed by environment, `_DEV` / `_PROOF`), pointing at a public subnet
+account (suffixed by environment, `_DEV`), pointing at a public subnet
 with an internet-gateway route (the account default VPC is fine):
 
 | Variable | Value |
@@ -143,7 +143,7 @@ The gate reads its subnet, security group, and instance profile from **trusted
 repository Actions variables**, not dispatch inputs, so the candidate's launch
 identity cannot be chosen at dispatch time. Set these once per account (Settings
 -> Secrets and variables -> Actions -> Variables), suffixed by environment
-(`_DEV` / `_PROOF`):
+(`_DEV`):
 
 | Variable | Value |
 |----------|-------|
@@ -168,7 +168,7 @@ file and seeds SSM without a build (see "Pre-promoted DC AMI" below):
 gh workflow run "Packer AMI Build" -f ami_type=dc -f environment=dev -f ref=dev
 ```
 
-`environment` accepts `dev` or `proof`. There is no `prod` build option: prod
+`environment` accepts `dev`. There is no `prod` build option: prod
 AMIs are produced by promoting a validated dev AMI with `packer-promote.yml`, not
 by building directly in prod. Private pack images are built and published from their owning repositories.
 The base types above are the ones the portal plan requires.

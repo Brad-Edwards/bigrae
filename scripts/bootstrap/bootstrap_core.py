@@ -532,6 +532,9 @@ GCP_TERRAFORM_BOOTSTRAP_BUCKET_ROLE = "roles/storage.objectAdmin"
 GCP_IAP_TCP_SOURCE_RANGE = "35.235.240.0/20"
 
 
+AWS_ENVIRONMENTS = ("dev", "prod")
+
+
 @dataclass
 class BootstrapConfig:
     """AWS bootstrap defaults and derived resource names."""
@@ -547,6 +550,10 @@ class BootstrapConfig:
     github_repository_id: str
     github_owner_id: str
     github_subject_format: str = "immutable"
+
+    def __post_init__(self) -> None:
+        if self.env not in AWS_ENVIRONMENTS:
+            raise ValueError("AWS environment must be dev or prod")
 
     @property
     def github_subject_prefix(self) -> str:
@@ -816,22 +823,68 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def read_gcp_control_plane_security_inputs(tf_dir: Path) -> dict[str, object]:
-    """Read security-sensitive Terraform inputs, honoring ``*.auto.tfvars`` overrides."""
-    tfvars_files = [tf_dir / "terraform.tfvars", *sorted(tf_dir.glob("*.auto.tfvars"))]
-    contents = "\n".join(path.read_text() for path in tfvars_files if path.exists())
+def gcp_terraform_var_files(tf_dir: Path) -> list[Path]:
+    """Return Terraform's default var-files in their native precedence order."""
+    baseline = [tf_dir / "terraform.tfvars", tf_dir / "terraform.tfvars.json"]
+    automatic = sorted([*tf_dir.glob("*.auto.tfvars"), *tf_dir.glob("*.auto.tfvars.json")])
+    return [path for path in baseline + automatic if path.is_file()]
 
-    public_hostname_matches = re.findall(r'(?m)^\s*public_hostname\s*=\s*"([^"]*)"\s*$', contents)
-    managed_tls_matches = re.findall(r"(?m)^\s*enable_managed_tls\s*=\s*(true|false)\s*$", contents)
-    cidr_block_matches = re.findall(r"gke_master_authorized_cidrs\s*=\s*\[(.*?)\]", contents, re.DOTALL)
 
-    return {
-        "public_hostname": public_hostname_matches[-1].strip() if public_hostname_matches else "",
-        "enable_managed_tls": bool(managed_tls_matches and managed_tls_matches[-1] == "true"),
-        "gke_master_authorized_cidrs": (
-            [match.strip() for match in re.findall(r'"([^"]+)"', cidr_block_matches[-1])] if cidr_block_matches else []
-        ),
+def _gcp_hcl_security_inputs(contents: str) -> dict[str, object]:
+    """Read supported HCL security fields without replacing absent values."""
+    settings: dict[str, object] = {}
+    hostnames = re.findall(r'(?m)^\s*public_hostname\s*=\s*"([^\"]*)"\s*$', contents)
+    tls_values = re.findall(r"(?m)^\s*enable_managed_tls\s*=\s*(true|false)\s*$", contents)
+    cidr_values = re.findall(r"gke_master_authorized_cidrs\s*=\s*\[(.*?)\]", contents, re.DOTALL)
+    if hostnames:
+        settings["public_hostname"] = hostnames[-1].strip()
+    if tls_values:
+        settings["enable_managed_tls"] = tls_values[-1] == "true"
+    if cidr_values:
+        settings["gke_master_authorized_cidrs"] = [
+            value.strip() for value in re.findall(r'"([^\"]+)"', cidr_values[-1])
+        ]
+    return settings
+
+
+def _gcp_json_security_inputs(contents: str) -> dict[str, object]:
+    """Validate JSON security input shapes without exposing payload values."""
+    try:
+        values = json.loads(contents)
+    except json.JSONDecodeError:
+        raise ValueError("GCP Terraform JSON variables must be valid JSON") from None
+    if not isinstance(values, dict):
+        raise ValueError("GCP Terraform JSON variables must be an object")
+    settings = {
+        key: values[key]
+        for key in ("public_hostname", "enable_managed_tls", "gke_master_authorized_cidrs")
+        if key in values
     }
+    if "public_hostname" in settings:
+        if not isinstance(settings["public_hostname"], str):
+            raise ValueError("GCP public_hostname must be a string")
+        settings["public_hostname"] = settings["public_hostname"].strip()
+    if "enable_managed_tls" in settings and not isinstance(settings["enable_managed_tls"], bool):
+        raise ValueError("GCP enable_managed_tls must be a boolean")
+    if "gke_master_authorized_cidrs" in settings:
+        cidrs = settings["gke_master_authorized_cidrs"]
+        if not isinstance(cidrs, list) or any(not isinstance(cidr, str) for cidr in cidrs):
+            raise ValueError("GCP gke_master_authorized_cidrs must be a list of strings")
+        settings["gke_master_authorized_cidrs"] = [cidr.strip() for cidr in cidrs]
+    return settings
+
+
+def read_gcp_control_plane_security_inputs(tf_dir: Path) -> dict[str, object]:
+    """Read HCL and JSON security settings in Terraform var-file order."""
+    settings: dict[str, object] = {
+        "public_hostname": "",
+        "enable_managed_tls": False,
+        "gke_master_authorized_cidrs": [],
+    }
+    for path in gcp_terraform_var_files(tf_dir):
+        reader = _gcp_json_security_inputs if path.suffix == ".json" else _gcp_hcl_security_inputs
+        settings.update(reader(path.read_text()))
+    return settings
 
 
 def validate_gcp_control_plane_security_inputs(tf_dir: Path) -> None:

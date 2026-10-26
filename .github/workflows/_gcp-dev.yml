@@ -83,9 +83,9 @@ jobs:
       - run: terraform fmt -check -recursive
         working-directory: platform/terraform/gcp
       - run: terraform init -backend=false
-        working-directory: platform/terraform/gcp/environments/${{ inputs.environment }}
+        working-directory: platform/terraform/gcp/environments/platform
       - run: terraform validate
-        working-directory: platform/terraform/gcp/environments/${{ inputs.environment }}
+        working-directory: platform/terraform/gcp/environments/platform
       # Shared with the PR-tier Lint (k8s schemas) job so a PR is rejected for
       # exactly what this deploy gate rejects.
       - uses: ./.github/actions/validate-gcp-manifests
@@ -115,7 +115,10 @@ jobs:
     env:
       GCP_ENVIRONMENT: ${{ inputs.environment }}
       USE_GKE_GCLOUD_AUTH_PLUGIN: "True"
-      TF_DIR: platform/terraform/gcp/environments/${{ inputs.environment }}
+      TF_DIR: platform/terraform/gcp/environments/platform
+      TF_VALUES_FILE: ${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/terraform.tfvars
+      TF_DATA_DIR: ${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/.terraform
+      TF_CLI_ARGS_import: -var-file=${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/terraform.tfvars
       K8S_OVERLAY_DIR: platform/k8s/gcp/overlays/${{ inputs.environment }}
       TF_BACKEND_PREFIX: shifter/${{ inputs.environment }}/platform-core
       EDGE_CERT_NAME: platform-managed-cert
@@ -323,7 +326,7 @@ jobs:
           chmod 600 "${RANGE_EGRESS_TFVARS_FILE}"
           {
             echo "RANGE_EGRESS_TFVARS_FILE=${RANGE_EGRESS_TFVARS_FILE}"
-            echo "TF_CLI_ARGS_apply=-var-file=${TF_VARS_FILE} -var-file=${RANGE_EGRESS_TFVARS_FILE}"
+            echo "TF_CLI_ARGS_apply=-var-file=${TF_VALUES_FILE} -var-file=${TF_VARS_FILE} -var-file=${RANGE_EGRESS_TFVARS_FILE}"
           } >> "${GITHUB_ENV}"
       - name: Bootstrap Terraform backend metadata
         env:
@@ -893,7 +896,10 @@ jobs:
     env:
       GCP_ENVIRONMENT: ${{ inputs.environment }}
       USE_GKE_GCLOUD_AUTH_PLUGIN: "True"
-      TF_DIR: platform/terraform/gcp/environments/${{ inputs.environment }}
+      TF_DIR: platform/terraform/gcp/environments/platform
+      TF_VALUES_FILE: ${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/terraform.tfvars
+      TF_DATA_DIR: ${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/.terraform
+      TF_CLI_ARGS_import: -var-file=${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/terraform.tfvars
       K8S_OVERLAY_DIR: platform/k8s/gcp/overlays/${{ inputs.environment }}
       TF_BACKEND_PREFIX: shifter/${{ inputs.environment }}/platform-core
       EDGE_CERT_NAME: platform-managed-cert
@@ -1659,7 +1665,10 @@ jobs:
     env:
       GCP_ENVIRONMENT: ${{ inputs.environment }}
       USE_GKE_GCLOUD_AUTH_PLUGIN: "True"
-      TF_DIR: platform/terraform/gcp/environments/${{ inputs.environment }}
+      TF_DIR: platform/terraform/gcp/environments/platform
+      TF_VALUES_FILE: ${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/terraform.tfvars
+      TF_DATA_DIR: ${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/.terraform
+      TF_CLI_ARGS_import: -var-file=${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/terraform.tfvars
       TF_BACKEND_PREFIX: shifter/${{ inputs.environment }}/platform-core
       GCP_DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT || vars.GCP_SERVICE_ACCOUNT }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER || vars.GCP_WIF_PROVIDER }}
