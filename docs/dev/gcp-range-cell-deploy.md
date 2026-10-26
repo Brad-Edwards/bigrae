@@ -1,6 +1,6 @@
 # GCP GCE range-cell deploy runbook
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 The GCP range backend defaults to the GCE range-cell path, the approved GCP
 live-fire backend (ADR-030). This runbook covers enabling it in a real
@@ -142,7 +142,7 @@ is the guest model path (`MODEL_BROKER_GUEST_VIP` set), which is optional
 readiness; see the
 [external runtime boundary](../architecture/external-scenario-runtime-design.md).
 
-The deployment `shifter.yaml` must also set
+The deployment `bigrae.yaml` must also set
 `settings.dynamic_secret_project_id` to the pre-existing, deployment-only
 range-secret project. This is distinct from the guest compute project. Broker
 model invocation may use that project, the platform project, or another
@@ -221,7 +221,7 @@ matches the event is refused before the old participant range is torn down.
 
 Range subnets get VPC Flow Logs and range NAT gateways get Cloud NAT logging by
 default. The platform project also logs Vertex AI Data Access calls. Change
-these controls with `settings.range_telemetry` in `shifter.yaml`. The deploy
+these controls with `settings.range_telemetry` in `bigrae.yaml`. The deploy
 verifies them after Terraform apply. See
 [GCP range audit telemetry](../ops/gcp-range-audit-telemetry.md).
 
@@ -331,7 +331,7 @@ inside the configured container as the configured participant user. The image
 owns that fixed executable and manifest. It must exercise the real browser
 launcher with disposable state, validate browser trust/start state/clean home
 and projected material, emit no sensitive output, and return nonzero on any
-mismatch. Shifter discards its output and exposes only bounded pass/failure
+mismatch. BigRAE discards its output and exposes only bounded pass/failure
 codes. Do not qualify a fresh profile for participant use from the marker
 alone; the immutable image, participant canary, content-readback, egress, and
 shared-service evidence required by

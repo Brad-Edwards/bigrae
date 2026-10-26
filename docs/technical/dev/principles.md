@@ -1,6 +1,6 @@
 # Engineering Principles
 
-How we build Shifter.
+How we build BigRAE.
 
 ## Core Philosophy
 

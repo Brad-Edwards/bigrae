@@ -247,6 +247,17 @@ def load_root_config(path: str | Path) -> RootConfig:
     return validate_root_config_data(data)
 
 
+def default_root_config_path(directory: str | Path = ".") -> Path:
+    """Resolve default product/legacy filenames through one validated contract."""
+    root = Path(directory)
+    canonical, legacy = root / "bigrae.yaml", root / "shifter.yaml"
+    if canonical.exists() and legacy.exists() and load_root_config(canonical) != load_root_config(legacy):
+        raise InstallationConfigError(
+            [ConfigIssue("bigrae.yaml / shifter.yaml", "conflicting default installation configs")]
+        )
+    return legacy if not canonical.exists() and legacy.exists() else canonical
+
+
 def validate_root_config_data(data: dict[str, Any]) -> RootConfig:
     """Validate embedded installation intent through the same canonical checks.
 

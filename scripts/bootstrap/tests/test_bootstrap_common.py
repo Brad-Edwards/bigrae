@@ -723,7 +723,7 @@ class TestBootstrapConfig:
     def test_has_default_github_repo(self):
         """Config has default GitHub repository."""
         config = deploy.BootstrapConfig(env="dev")
-        assert config.github_repo == "shifter"
+        assert config.github_repo == "bigrae"
 
     def test_bucket_prefix_for_prod_env(self):
         """Config generates correct bucket prefix for prod."""

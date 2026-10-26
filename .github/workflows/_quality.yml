@@ -76,8 +76,7 @@ jobs:
       # change so it cannot self-bypass (#1530, ADR-004-R24).
       guard_selfcheck: ${{ steps.selfcheck.outputs.guard_selfcheck }}
       stack_smoke: ${{ steps.detect.outputs.stack_smoke }}
-      # Build / deployment / runtime owners (#1530). Their blocking jobs consume
-      # these routing outputs directly.
+      # Build and deployment inputs use the same contract-driven routing.
       container_images: ${{ steps.detect.outputs.container_images }}
       portal_image_context: ${{ steps.detect.outputs.portal_image_context }}
       guacamole_authority: ${{ steps.detect.outputs.guacamole_authority }}
@@ -253,6 +252,9 @@ jobs:
       - name: Lint shell harness
         run: shellcheck scripts/stack-smoke/*.sh
 
+      - name: Test smoke transport restrictions
+        run: python3 -m unittest discover -s scripts/stack-smoke -p 'test_*.py'
+
   deployment-utilities-sast:
     permissions:
       contents: read
@@ -291,7 +293,7 @@ jobs:
           docker build --check shifter/engine/guacd
           docker build --check -f shifter/shifter_platform/Dockerfile shifter
       - name: Lint container entrypoints
-        run: shellcheck shifter/engine/guacamole/*.sh shifter/engine/guacd/tests/*.sh
+        run: shellcheck shifter/engine/guacamole/*.sh
       - name: Install Trivy
         env:
           TRIVY_VERSION: 0.76.1
@@ -2160,7 +2162,7 @@ jobs:
       contents: read
     name: Tests (charts)
     needs: [paths]
-    if: ${{ !inputs.skip_tests && ((needs.paths.outputs.run_all == 'true' || needs.paths.outputs.charts == 'true')) }}
+    if: ${{ !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.charts == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -2193,23 +2195,6 @@ jobs:
       # would only measure the tests covering themselves (cf. the packer lane).
       - name: Run chart contract tests
         run: uv run --python 3.12 --with pyyaml --with pytest python -m pytest platform/charts/shifter/tests/ -q
-
-  container-images-tests:
-    permissions:
-      contents: read
-    name: Tests (container images)
-    needs: [paths]
-    if: ${{ !inputs.skip_tests && ((needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true')) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      # Builds shifter/engine/guacd/Dockerfile and checks the image contract:
-      # non-root user, RDP drive directory, and guacd listening under the
-      # Kubernetes runtime posture.
-      - name: Test the guacd image contract
-        run: shifter/engine/guacd/tests/image_contract.sh
 
   check-layer-imports-tests:
     permissions:
@@ -2397,6 +2382,38 @@ jobs:
         working-directory: shifter/shifter_platform
         run: uv run pytest engine/tests/test_subnet_allocation_migrations_postgres.py
 
+  guacd-image-tests:
+    permissions:
+      contents: read
+    name: Tests (guacd image)
+    needs: [paths]
+    if: ${{ !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.container_images == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Build and test runtime permissions and health
+        run: |
+          set -euo pipefail
+          docker build --pull --tag guacd-quality shifter/engine/guacd
+          docker run --rm --network none --entrypoint /bin/sh guacd-quality -ec \
+            'test "$(id -u)" -ne 0; test -w /var/lib/guacamole/drive; test "$(stat -c %a /var/lib/guacamole/drive)" = 750'
+          trap 'docker rm -f guacd-quality >/dev/null 2>&1 || true' EXIT
+          # Run with the Kubernetes posture: read-only root, no capabilities.
+          docker run --detach --network none --read-only --cap-drop ALL --tmpfs /tmp \
+            --tmpfs /var/lib/guacamole/drive:uid=1000,gid=1000,mode=0750 \
+            --name guacd-quality guacd-quality
+          for _attempt in $(seq 1 30); do
+            if docker exec guacd-quality nc -z 127.0.0.1 4822; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'guacd did not become ready' >&2
+          exit 1
+
+      - name: Test database initialization failure
+        run: bash shifter/engine/guacamole/test-entrypoint.sh
+
   adr-guard-tests:
     permissions:
       contents: read
@@ -2544,6 +2561,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-checkov-
 
+      - name: Test Checkov immutable subject compatibility
+        run: >-
+          docker run --rm --network none
+          --volume "${GITHUB_WORKSPACE}:/workspace:ro" --workdir /workspace
+          --entrypoint python
+          ghcr.io/bridgecrewio/checkov@sha256:4c2c3b67f09867ef2843a03d8ba82adf712eb93ea3584c1708c24ed584f6da17
+          -m unittest scripts.check_checkov_invocation_parity.test_immutable_subjects -q
+
       - name: Checkov IaC Security
         # Blocking gate per ADR-004-R11. Skip-check entries live in
         # platform/terraform/.checkov.yaml so this job consumes the canonical
@@ -2555,6 +2580,7 @@ jobs:
           directory: platform/terraform/
           config_file: platform/terraform/.checkov.yaml
           download_external_modules: true
+          external_checks_dirs: scripts/check_checkov_invocation_parity/compat
           soft_fail: false
 
   security-k8s:
@@ -2963,7 +2989,9 @@ jobs:
         # every canonical-repo PR (#1310). `push` events (dev branch runs) carry
         # no pull_request payload and always scan.
         if: >-
-          ${{ github.repository == 'Brad-Edwards/shifter'
+          ${{ github.repository == 'Brad-Edwards/bigrae'
+          && github.repository_id == '1241599684'
+          && github.repository_owner_id == '56809295'
           && (github.event_name != 'pull_request'
           || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0

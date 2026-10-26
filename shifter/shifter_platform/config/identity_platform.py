@@ -190,8 +190,8 @@ def identity_platform_client_config() -> dict[str, Any]:
         "authDomain": auth_domain,
         "projectId": project_id,
         "tenantId": settings.IDENTITY_PLATFORM_TENANT_ID or None,
-        "issuer": getattr(settings, "IDENTITY_PLATFORM_ISSUER", "Shifter"),
-        "totpDisplayName": getattr(settings, "IDENTITY_PLATFORM_TOTP_DISPLAY_NAME", "Shifter Authenticator"),
+        "issuer": getattr(settings, "IDENTITY_PLATFORM_ISSUER", "BigRAE"),
+        "totpDisplayName": getattr(settings, "IDENTITY_PLATFORM_TOTP_DISPLAY_NAME", "BigRAE Authenticator"),
     }
 
 

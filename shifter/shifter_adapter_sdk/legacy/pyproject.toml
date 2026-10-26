@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shifter-adapter-sdk"
+version = "0.2.0"
+description = "Compatibility distribution; use bigrae-adapter-sdk"
+requires-python = ">=3.12"
+dependencies = ["bigrae-adapter-sdk==0.1.0"]
+
+[project.optional-dependencies]
+preparation = ["bigrae-adapter-sdk[preparation]==0.1.0"]
+runtime = ["bigrae-adapter-sdk[runtime]==0.1.0"]
+
+[tool.setuptools]
+packages = []

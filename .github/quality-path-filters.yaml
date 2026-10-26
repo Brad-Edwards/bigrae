@@ -293,10 +293,10 @@ quality_units:
     responsibilities:
       lint: [stack-smoke-lint-security]
       security: [stack-smoke-lint-security]
-      test: [stack-smoke]
+      test: [stack-smoke-lint-security, stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
-  # exclusions (ADR-004-R23 forbids exempting shipped build/runtime material via
+  # exclusions (ADR-004-R24 forbids exempting shipped build/runtime material via
   # exclusions). Each responsibility resolves to a blocking job below.
   - id: container_images
     paths:
@@ -306,9 +306,7 @@ quality_units:
     responsibilities:
       lint: [container-images-lint-security]
       security: [container-images-lint-security]
-      # guacamole-authority-tests builds the client image; container-images-tests
-      # builds the guacd image and checks its contract (#1698).
-      test: [guacamole-authority-tests, container-images-tests]
+      test: [guacamole-authority-tests, guacd-image-tests]
 
   - id: portal_image_context
     paths:

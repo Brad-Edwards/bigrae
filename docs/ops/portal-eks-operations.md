@@ -1,6 +1,6 @@
 # Portal on EKS operations runbook
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/188>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/188>
 Ownership and security model: [AWS EKS backend bundle](../technical/platform_infrastructure/aws-eks-bundle.md)
 Region: `us-east-2` (all AWS Portal resources)
 
@@ -182,7 +182,7 @@ Deployment is a Helm upgrade driven by the deploy tooling, not an SSM instance
 refresh (that is the legacy ASG path).
 
 - **Pipeline.** The `eks-deploy` job in `.github/workflows/_shifter-platform.yml`
-  runs `scripts/bootstrap/deploy.py eks-deploy` with the rendered `shifter.yaml`
+  runs `scripts/bootstrap/deploy.py eks-deploy` with the rendered `bigrae.yaml`
   (`backend: aws`), a digest-pinned image file, the backend config, and the EKS
   Terraform inputs. Image identities are `repository@sha256:<digest>`; tags are
   rejected.

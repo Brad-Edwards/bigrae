@@ -23,7 +23,7 @@ export {
 
 // --- GitHub Actions (gh CLI) ---
 
-export const DEFAULT_GITHUB_REPO = "Brad-Edwards/shifter";
+export const DEFAULT_GITHUB_REPO = "Brad-Edwards/bigrae";
 
 /** Protected integration branch for prod AMI promotion workflows. */
 export const PROMOTE_AMI_REF = "dev";

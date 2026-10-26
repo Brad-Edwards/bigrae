@@ -60,7 +60,7 @@ variable "purpose_contexts" {
         startswith(context.workflow_ref, "${var.github_org}/${var.github_repo}/.github/workflows/") &&
         endswith(context.workflow_ref, "@${context.ref}") &&
         can(regex("^[A-Za-z0-9_./@-]+$", context.workflow_ref)) &&
-        (context.reusable_workflow_ref == "" || can(regex("^Brad-Edwards/shifter/\\.github/workflows/_[a-z0-9_-]+\\.yml@[a-f0-9]{40}$", context.reusable_workflow_ref)))
+        (context.reusable_workflow_ref == "" || (startswith(context.reusable_workflow_ref, "${var.github_org}/${var.github_repo}/.github/workflows/") && can(regex("^_[a-z0-9_-]+\\.yml@[a-f0-9]{40}$", trimprefix(context.reusable_workflow_ref, "${var.github_org}/${var.github_repo}/.github/workflows/")))))
       ]
     ]))
     error_message = "Trust tuples require exact repository, Environment, branch and workflow contexts."

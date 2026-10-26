@@ -51,9 +51,10 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2320: dedicated Guacamole/guacd KSAs and bounded native SQL admission.
 # Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
+# Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "fa57a30ab197ac14f0f93f03b76ee47737b5211a2c57a1b878108c01b700fe5b",
-    "gcp-prod": "996af9585bf6fb957f5fc6aab5c18d0371883b19c28d2b42461ccc075e12edeb",
+    "gcp-dev": "7c852a1d9a813fe4edce0f70e34bb46171136ad55836f9aaffe10dbed0427ed9",
+    "gcp-prod": "0b02cbfbac9e99953bf8af620a7ef805707028b534b96e2aadfb541c047c8c1b",
 }
 
 

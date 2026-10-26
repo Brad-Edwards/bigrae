@@ -30,7 +30,7 @@ These must be configured in repository Settings > Secrets and variables > Action
 | `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS` | Optional comma-separated runtime superuser bootstrap emails for production auth providers |
 | `TF_INFRA_STATE_BUCKET[_DEV/_PROOF]` | Terraform state bucket the backend render reads (prod is unsuffixed) |
 | `TF_VARS_<ENV>_CORE` / `_RANGE` / `_PORTAL` | Per-environment Terraform `local.auto.tfvars` payloads, rendered to a gitignored `local.auto.tfvars` at deploy time (since #1250) |
-| `SHIFTER_CONFIG_<ENV>_RANGE` / `SHIFTER_CONFIG_GCP_DEV` | Deployment `shifter.yaml` payload that renders the range egress allowlist |
+| `SHIFTER_CONFIG_<ENV>_RANGE` / `SHIFTER_CONFIG_GCP_DEV` | Deployment `bigrae.yaml` payload that renders the range egress allowlist |
 
 AWS uses IAM role ARNs for OIDC federation. `gcp-dev` uses Google workload
 identity federation. No static access keys are required.

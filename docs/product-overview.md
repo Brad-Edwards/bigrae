@@ -1,4 +1,4 @@
-# Shifter Documentation
+# BigRAE Documentation
 
 Run XDR/XSIAM demos without installing tools on your laptop.
 

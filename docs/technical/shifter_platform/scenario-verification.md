@@ -1,6 +1,6 @@
 # Scenario Verification Plugins
 
-Shifter's scenario-verification package provides a neutral contract for
+BigRAE's scenario-verification package provides a neutral contract for
 discovering an installed verification plugin, running its checks through an
 injected transport, and rendering one redacted report. Core ships no
 per-scenario adapters, answer material, target topology, concrete runner, or

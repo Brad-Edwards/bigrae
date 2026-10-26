@@ -1,8 +1,8 @@
-site_name: Shifter Documentation
-site_description: Deploy, operate, and develop the Shifter cyber-range platform.
-site_url: https://brad-edwards.github.io/shifter/
-repo_url: https://github.com/Brad-Edwards/shifter
-repo_name: Brad-Edwards/shifter
+site_name: BigRAE Documentation
+site_description: Deploy, operate, and develop the BigRAE cyber-range platform.
+site_url: https://brad-edwards.github.io/bigrae/
+repo_url: https://github.com/Brad-Edwards/bigrae
+repo_name: Brad-Edwards/bigrae
 edit_uri: edit/dev/docs/
 docs_dir: docs
 
@@ -62,6 +62,7 @@ markdown_extensions:
 # prose). Everything else is picked up by the auto-generated nav below.
 exclude_docs: |
   architecture/
+  !architecture/bigrae-rename-inventory.md
   audit/
   design/
   research/

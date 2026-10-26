@@ -1199,7 +1199,7 @@ jobs:
           OPENVPN_DIGEST: ${{ needs.prepare.outputs.openvpn_digest }}
         run: |
           # ADR-037-R6: verify the GitHub OIDC-signed provenance attestation for
-          # each built image@digest and the fixed Brad-Edwards/shifter identity
+          # each built image@digest and the fixed Brad-Edwards/bigrae identity
           # before the GKE rollout. These are the same digests the overlay was
           # just pinned to (and ENGINE_TASK_IMAGE), so the verified bytes are the
           # deployed bytes. No bypass mode.
@@ -1217,7 +1217,7 @@ jobs:
               exit 1
             fi
             echo "Verifying provenance for ${label} (${digest})"
-            gh attestation verify "oci://${root}@${digest}" --repo Brad-Edwards/shifter
+            gh attestation verify "oci://${root}@${digest}" --repo Brad-Edwards/bigrae
           }
           verify "${PORTAL_IMAGE_ROOT}" "${PORTAL_DIGEST}" "portal"
           verify "${PROVISIONER_IMAGE_ROOT}" "${PROVISIONER_DIGEST}" "provisioner"

@@ -11,7 +11,7 @@ GitHub Actions does not provide native fallback from `ubuntu-latest` to
 self-hosted runners or a priority order across those runner classes.
 Workflow jobs must choose a concrete scheduling target.
 
-Shifter splits workflow capacity by job type. Portable quality jobs run
+BigRAE splits workflow capacity by job type. Portable quality jobs run
 on `ubuntu-latest` to use the GitHub-hosted runner allotment, while
 deployment, image build, Packer, and environment-mutating jobs remain on
 `self-hosted` custom runners.
@@ -47,7 +47,7 @@ After Terraform creates the instance, connect via SSM and complete these steps:
 ```bash
 sudo -u ec2-user bash
 cd /home/ec2-user/actions-runner
-./config.sh --url https://github.com/Brad-Edwards/shifter --token <TOKEN>
+./config.sh --url https://github.com/Brad-Edwards/bigrae --token <TOKEN>
 ```
 
 Generate the registration token at: Settings > Actions > Runners > New self-hosted runner.

@@ -46,7 +46,7 @@ jobs:
           import pathlib
           import tomllib
           project = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]
-          if project["name"] != "shifter-adapter-sdk" or project["version"] != os.environ["RELEASE_VERSION"]:
+          if project["name"] != "bigrae-adapter-sdk" or project["version"] != os.environ["RELEASE_VERSION"]:
               raise SystemExit("Release version must match the committed adapter SDK project")
           PY
           uv run --locked --all-extras ruff check .
@@ -64,6 +64,8 @@ jobs:
           "$SDK_RELEASE_VENV/bin/python" -I - <<'PY'
           import importlib.metadata
           import shifter_adapter_sdk
+          import bigrae_adapter_sdk
+          from bigrae_adapter_sdk.runtime import RuntimeInput as BigRAEInput
           import shifter_adapter_sdk.preparation
           import shifter_adapter_sdk.runtime
           import shifter_adapter_sdk.verification
@@ -71,7 +73,9 @@ jobs:
           from pathlib import Path
           import sys
           assert Path(shifter_adapter_sdk.__file__).is_relative_to(Path(sys.prefix))
-          assert importlib.metadata.version("shifter-adapter-sdk")
+          assert importlib.metadata.version("bigrae-adapter-sdk")
+          assert bigrae_adapter_sdk.__version__ == shifter_adapter_sdk.__version__
+          assert BigRAEInput is shifter_adapter_sdk.runtime.RuntimeInput
           PY
       - name: Preserve exact tested distributions
         id: upload

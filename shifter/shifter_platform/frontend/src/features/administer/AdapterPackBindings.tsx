@@ -115,7 +115,7 @@ function PackRemovalDialog({ organization, pack, onClose, onRemoved }: Readonly<
       </li>)}
       {hidden > 0 ? <li>{hidden} more {hidden === 1 ? "reference" : "references"} not listed.</li> : null}
     </ul> : null}>
-    {pack.name} leaves the catalog and its adapter assignment is deleted. Shifter deletes the stored pack archives.
+    {pack.name} leaves the catalog and its adapter assignment is deleted. BigRAE deletes the stored pack archives.
     Ended events and destroyed ranges keep their history. Removal is refused while an event, schedule or range still uses the pack.
   </ConfirmDialog>;
 }

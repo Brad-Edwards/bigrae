@@ -1,6 +1,6 @@
 # Platform Infrastructure
 
-Cloud infrastructure and CI/CD for Shifter.
+Cloud infrastructure and CI/CD for BigRAE.
 
 - [AWS EKS backend bundle](aws-eks-bundle.md)
 - [GCP native identity](gcp-native-identity.md)
@@ -40,7 +40,7 @@ platform/terraform/
 | **Provisioner** | `modules/engine-provisioner/` | ECS Fargate task for range provisioning |
 | **Guacamole** | `modules/guacamole/` | Browser-based RDP access to range instances |
 
-*Portal is a legacy name. Deploys Shifter Django infrastructure.
+*Portal is a legacy name. Deploys BigRAE Django infrastructure.
 
 ### State Management
 

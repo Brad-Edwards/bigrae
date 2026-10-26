@@ -21,7 +21,7 @@ from .registry import KNOWN_BACKENDS
 EXAMPLES_DIR: Path = Path(__file__).resolve().parent / "examples"
 
 #: The default destination for a scaffolded root config: ``shifter.yaml`` in the CWD.
-DEFAULT_DESTINATION = Path("shifter.yaml")
+DEFAULT_DESTINATION = Path("bigrae.yaml")
 
 
 class ScaffoldError(Exception):
@@ -80,6 +80,9 @@ def scaffold_config(
 
     source = _example_path(backend, examples_dir)
     dest = _validated_destination(destination)
+
+    if destination is None and Path("shifter.yaml").exists():
+        raise ScaffoldError("legacy shifter.yaml already exists; migrate it or choose an explicit --output")
 
     if dest.exists() and not force:
         raise ScaffoldError(f"{dest}: already exists; pass --force to overwrite it")

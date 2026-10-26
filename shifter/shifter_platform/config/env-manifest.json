@@ -58,6 +58,176 @@
       "source_file": "config/_email.py"
     },
     {
+      "default": "''",
+      "name": "BIGRAE_CTF_COMMUNICATION_ALLOWED_LINK_HOSTS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "30",
+      "name": "BIGRAE_CTF_COMMUNICATION_BACKOFF_BASE_SECONDS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "3600",
+      "name": "BIGRAE_CTF_COMMUNICATION_BACKOFF_CAP_SECONDS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "0.25",
+      "name": "BIGRAE_CTF_COMMUNICATION_BACKOFF_JITTER_FRACTION",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "6",
+      "name": "BIGRAE_CTF_COMMUNICATION_MAX_ATTEMPTS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "5000",
+      "name": "BIGRAE_CTF_COMMUNICATION_MAX_AUDIENCE",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "86400",
+      "name": "BIGRAE_CTF_COMMUNICATION_MAX_ELAPSED_SECONDS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "500000",
+      "name": "BIGRAE_CTF_COMMUNICATION_MAX_OUTSTANDING_GLOBAL",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "20000",
+      "name": "BIGRAE_CTF_COMMUNICATION_MAX_OUTSTANDING_PER_EVENT",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "100000",
+      "name": "BIGRAE_CTF_COMMUNICATION_MAX_OUTSTANDING_PER_WORKSPACE",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "'Shifter/CtfCommunication'",
+      "name": "BIGRAE_CTF_COMMUNICATION_METRICS_NAMESPACE",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "600",
+      "name": "BIGRAE_CTF_COMMUNICATION_RATE_GLOBAL",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "30",
+      "name": "BIGRAE_CTF_COMMUNICATION_RATE_PER_ACTOR",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "120",
+      "name": "BIGRAE_CTF_COMMUNICATION_RATE_PER_WORKSPACE",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "60",
+      "name": "BIGRAE_CTF_COMMUNICATION_RATE_WINDOW_SECONDS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "20",
+      "name": "BIGRAE_CTF_COMMUNICATION_RELEASE_GRACE_MINUTES",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "str(_DEFAULT_RETENTION_DAYS)",
+      "name": "BIGRAE_CTF_COMMUNICATION_RETENTION_DAYS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "10",
+      "name": "BIGRAE_CTF_COMMUNICATION_TRANSPORT_TIMEOUT_SECONDS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "100",
+      "name": "BIGRAE_CTF_COMMUNICATION_WORKER_BATCH_SIZE",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "120",
+      "name": "BIGRAE_CTF_COMMUNICATION_WORKER_LEASE_SECONDS",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "25",
+      "name": "BIGRAE_CTF_COMMUNICATION_WORKER_PER_EVENT_CAP",
+      "source_file": "config/_ctf_communication_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "BIGRAE_CTF_CONTENT_BUCKET",
+      "source_file": "config/_ctf_content_settings.py"
+    },
+    {
+      "default": "str(_DEFAULT_MAX_BYTES)",
+      "name": "BIGRAE_CTF_CONTENT_MAX_BYTES",
+      "source_file": "config/_ctf_content_settings.py"
+    },
+    {
+      "default": "'ctf/content-bundles'",
+      "name": "BIGRAE_CTF_CONTENT_PREFIX",
+      "source_file": "config/_ctf_content_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "BIGRAE_CTF_CONTENT_REFERENCES_JSON",
+      "source_file": "config/_ctf_content_settings.py"
+    },
+    {
+      "default": "'raes/content-delivery'",
+      "name": "BIGRAE_RAES_CONTENT_DELIVERY_PREFIX",
+      "source_file": "config/_raes_settings.py"
+    },
+    {
+      "default": "'45'",
+      "name": "BIGRAE_RAES_FEATURE_ARTIFACT_WAIT_SECONDS",
+      "source_file": "config/_raes_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "BIGRAE_RAES_PACKAGE_BUCKET",
+      "source_file": "config/_raes_settings.py"
+    },
+    {
+      "default": "'268435456'",
+      "name": "BIGRAE_RAES_PACKAGE_MAX_ARCHIVE_BYTES",
+      "source_file": "config/_raes_settings.py"
+    },
+    {
+      "default": "'20000'",
+      "name": "BIGRAE_RAES_PACKAGE_MAX_ENTRIES",
+      "source_file": "config/_raes_settings.py"
+    },
+    {
+      "default": "'1073741824'",
+      "name": "BIGRAE_RAES_PACKAGE_MAX_UNCOMPRESSED_BYTES",
+      "source_file": "config/_raes_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "BIGRAE_RAES_PACKAGE_PREFIX",
+      "source_file": "config/_raes_settings.py"
+    },
+    {
+      "default": "str(_raes_default_package_root)",
+      "name": "BIGRAE_RAES_PACKAGE_ROOT",
+      "source_file": "config/_raes_settings.py"
+    },
+    {
+      "default": "'noreply@shifter.local'",
+      "name": "BIGRAE_SUPPORT_EMAIL",
+      "source_file": "config/settings.py"
+    },
+    {
       "default": "'report-only'",
       "name": "BROWSER_CSP_MODE",
       "source_file": "config/_browser_security.py"
@@ -233,7 +403,7 @@
       "source_file": "config/_database_settings.py"
     },
     {
-      "default": "'https://brad-edwards.github.io/shifter/'",
+      "default": "'https://brad-edwards.github.io/bigrae/'",
       "name": "DOCS_SITE_URL",
       "source_file": "config/settings.py"
     },
@@ -438,7 +608,7 @@
       "source_file": "config/_oidc_settings.py"
     },
     {
-      "default": "'Shifter'",
+      "default": "'BigRAE'",
       "name": "IDENTITY_PLATFORM_ISSUER",
       "source_file": "config/_oidc_settings.py"
     },
@@ -453,7 +623,7 @@
       "source_file": "config/_credential_settings.py"
     },
     {
-      "default": "'Shifter Authenticator'",
+      "default": "'BigRAE Authenticator'",
       "name": "IDENTITY_PLATFORM_TOTP_DISPLAY_NAME",
       "source_file": "config/_oidc_settings.py"
     },

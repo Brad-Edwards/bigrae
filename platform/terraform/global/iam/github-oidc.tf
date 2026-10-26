@@ -22,7 +22,11 @@ variable "github_org" {
 variable "github_repo" {
   description = "GitHub repository name"
   type        = string
-  default     = "shifter"
+  default     = "bigrae"
+}
+
+locals {
+  github_subject_prefix = var.github_subject_format == "immutable" ? "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" : "repo:${var.github_org}/${var.github_repo}"
 }
 
 # Get current AWS account ID
@@ -63,7 +67,7 @@ resource "aws_iam_role" "github_actions" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:*"
+            "token.actions.githubusercontent.com:sub" = "${local.github_subject_prefix}:*"
           }
         }
       }
@@ -132,8 +136,8 @@ resource "aws_iam_role" "github_actions_image" {
             # build runs from dev|main (the workflow's inline ref gate); a
             # feature-branch or pull-request subject receives no AWS role.
             "token.actions.githubusercontent.com:sub" = [
-              "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/dev",
-              "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"
+              "${local.github_subject_prefix}:ref:refs/heads/dev",
+              "${local.github_subject_prefix}:ref:refs/heads/main"
             ]
           }
         }

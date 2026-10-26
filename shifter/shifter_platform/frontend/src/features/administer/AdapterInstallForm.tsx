@@ -56,7 +56,7 @@ export function AdapterInstallForm({ organization }: Readonly<{ organization: st
       <CardHeader><CardTitle>Install a plugin</CardTitle></CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-4">
-          <p>Upload the plugin author&apos;s installation file. Shifter checks compatibility before enabling this version.</p>
+          <p>Upload the plugin author&apos;s installation file. BigRAE checks compatibility before enabling this version.</p>
           {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
           {success ? <output className="block">Installation started. Compatibility checks are running.</output> : null}
           <Label htmlFor="adapter-manifest">Plugin installation file</Label>

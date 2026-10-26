@@ -1,7 +1,7 @@
 # AWS EKS backend bundle
 
 The AWS backend uses EKS and `platform/charts/shifter` as the canonical
-packaging for Shifter platform workloads, and the provisioner dispatches as a
+packaging for BigRAE platform workloads, and the provisioner dispatches as a
 Kubernetes Job on the cluster (mirroring GCP). Range and target delivery (the
 VMs inside a range) remain ECS/VM behind the existing ADR-039 range adapter;
 Cognito remains the user identity provider. These are separate boundaries.
@@ -12,12 +12,12 @@ The explicit entrypoint is:
 
 ```console
 ./scripts/bootstrap/deploy.py eks-deploy \
-  --config shifter.yaml \
+  --config bigrae.yaml \
   --images .shifter/images.json \
   --profile operator
 ```
 
-`shifter.yaml` must select `backend: aws`. The image file is a JSON mapping
+`bigrae.yaml` must select `backend: aws`. The image file is a JSON mapping
 whose values are attested `repository@sha256:<digest>` identities. Tags are
 rejected. Protected input files must resolve beneath the repository, the system
 temporary directory, `RUNNER_TEMP`, or an operator-selected
@@ -89,7 +89,7 @@ references through the existing hydration boundary.
 
 The AWS entry in the backend bundle registry
 (`shifter/installation/registry.py`) is the machine-readable contract that
-`shifter-config doctor` reads to detect missing prerequisites and secret wiring
+`bigrae-config doctor` reads to detect missing prerequisites and secret wiring
 before a deploy. There is one generic doctor entrypoint; AWS-specific readiness
 is declared through the bundle's `required_tools`, `required_secrets`,
 `validation_checks`, and `health_checks`, not through provider-specific doctor
@@ -98,13 +98,13 @@ code.
 The AWS bundle declares the pre-mutation validation front doors, the fast
 credential-free checks doctor runs before touching infrastructure:
 
-- `root-config`: validate the `shifter.yaml` shape with `shifter-config validate`.
+- `root-config`: validate the `bigrae.yaml` shape with `bigrae-config validate`.
 - `terraform-fmt`: `terraform fmt -check -recursive platform/terraform/environments`.
 - `helm-template`: render `platform/charts/shifter` with
   `values-aws-dev.yaml` so an AWS value-shape error fails before deploy, not
   just a default-values template error.
 - `eks-preflight`: run the canonical EKS deploy preflight
-  (`scripts/bootstrap/preflight.py --config shifter.yaml --component eks`),
+  (`scripts/bootstrap/preflight.py --config bigrae.yaml --component eks`),
   which derives the cloud and profile from the same root config the deploy uses
   and checks the tools plus the isolated EKS root and backend inputs. doctor and
   the deploy lifecycle therefore share one prerequisite contract instead of
@@ -142,7 +142,7 @@ live in `installation.settings_aws`, mirroring `installation.settings_gcp`.
 
 ```console
 ./scripts/bootstrap/deploy.py eks-teardown \
-  --config shifter.yaml \
+  --config bigrae.yaml \
   --profile operator
 ```
 

@@ -36,10 +36,10 @@ def policy():
     return next(item for item in resources() if item["kind"] == "ValidatingAdmissionPolicy")
 
 
-@pytest.fixture
-def job():
+@pytest.fixture(params=["SHIFTER_PLUGIN_INPUT", "BIGRAE_PLUGIN_INPUT"])
+def job(request):
     client = ManifestClient()
-    env = _build_env(client, {"SHIFTER_PLUGIN_INPUT": "private invocation"}, "runtime-plugin-secrets-" + "1" * 16)
+    env = _build_env(client, {request.param: "private invocation"}, "runtime-plugin-secrets-" + "1" * 16)
     return _build_job(
         client,
         "registry.example.test/plugin@sha256:" + "a" * 64,
@@ -61,12 +61,11 @@ def accepted(policy, job):
 def test_actual_worker_profile_is_admitted_without_cloud_credentials(policy, job):
     assert accepted(policy, job)
     container = job["spec"]["template"]["spec"]["containers"][0]
+    key = container["env"][0]["name"]
     assert container["env"] == [
         {
-            "name": "SHIFTER_PLUGIN_INPUT",
-            "valueFrom": {
-                "secretKeyRef": {"name": "runtime-plugin-secrets-" + "1" * 16, "key": "SHIFTER_PLUGIN_INPUT"}
-            },
+            "name": key,
+            "valueFrom": {"secretKeyRef": {"name": "runtime-plugin-secrets-" + "1" * 16, "key": key}},
         }
     ]
 

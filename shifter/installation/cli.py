@@ -44,7 +44,7 @@ from pathlib import Path
 from .cli_parser import build_parser
 from .doctor import CheckScope, CheckStatus, DoctorReport, run_doctor
 from .errors import InstallationConfigError
-from .loader import load_root_config
+from .loader import default_root_config_path, load_root_config
 from .publication import (
     ARTIFACT_PATH,
     build_contract_artifact,
@@ -322,6 +322,14 @@ def _cmd_contract(contract_command: str | None, output: str | None, parser: argp
     return 2
 
 
+def _default_config_path() -> str:
+    """Select the canonical default, rejecting conflicting compatibility input."""
+    selected = default_root_config_path()
+    if selected.name == "shifter.yaml":
+        print("shifter.yaml is deprecated; use bigrae.yaml", file=sys.stderr)
+    return str(selected)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the shifter-config command-line interface."""
 
@@ -330,6 +338,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help(sys.stderr)
         return 2
+    if hasattr(args, "path") and args.path is None:
+        try:
+            args.path = _default_config_path()
+        except InstallationConfigError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    return _dispatch(args, parser)
+
+
+def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Dispatch parsed input after default-path resolution has succeeded."""
     if args.command == "validate":
         exit_code = _cmd_validate(args.path)
     elif args.command == "render":

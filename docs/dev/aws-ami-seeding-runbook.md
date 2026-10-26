@@ -1,6 +1,6 @@
 # AWS range AMI seeding
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 The Portal Terraform stack reads the range base AMIs from SSM as data sources
 (`/shifter/ami/kali`, `/shifter/ami/ubuntu`, `/shifter/ami/windows`,
@@ -12,7 +12,7 @@ guest AMIs from the same `/shifter/ami/*` parameters.
 Packer sources live in `shifter/packer/` (`kali.pkr.hcl`, `ubuntu.pkr.hcl`,
 `windows.pkr.hcl`, `dc.pkr.hcl`, shared `variables.pkr.hcl`, per-env
 `dev.pkrvars.hcl` / `proof.pkrvars.hcl`). The deep reference is
-[`shifter/packer/README.md`](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/packer/README.md).
+[`shifter/packer/README.md`](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/packer/README.md).
 
 ## Ordering: no circular dependency with the portal VPC
 
@@ -80,16 +80,21 @@ not apply IAM or set secrets. Complete the cutover once per AWS account (`dev`,
 
    ```bash
    ROLE_ARN=$(terraform -chdir=platform/terraform/global/iam output -raw github_actions_image_role_arn)
-   gh secret set AWS_IMAGE_ROLE_ARN_DEV --repo Brad-Edwards/shifter --body "$ROLE_ARN"
+   gh secret set AWS_IMAGE_ROLE_ARN_DEV --repo Brad-Edwards/bigrae --body "$ROLE_ARN"
    ```
 
-3. Confirm the repository still uses the default OIDC subject format so the pinned
-   trust matches (a non-default subject would need the Terraform trust updated):
+3. Confirm the repository's OIDC subject format and immutable IDs match the
+   Terraform inputs. The renamed canonical repository uses immutable subjects:
 
    ```bash
-   gh api repos/Brad-Edwards/shifter/actions/oidc/customization/sub
-   # expect use_default: true, use_immutable_subject: false
+   gh api repos/Brad-Edwards/bigrae/actions/oidc/customization/sub
+   # expect use_default: true, use_immutable_subject: true
    ```
+
+   AWS trust defaults to `github_subject_format = "immutable"`. Other repositories
+   must supply their own owner and repository names and immutable IDs. Select
+   `"default"` explicitly only when the repository still emits the legacy subject
+   shape. Keep the existing exact `dev` and `main` image-build subjects.
 
 Until the secret is set the base `build` job fails closed with
 `Required secret AWS_IMAGE_ROLE_ARN_<ENV> is not set`. The `bake-scenario` job

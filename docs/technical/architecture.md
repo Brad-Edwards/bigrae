@@ -1,19 +1,32 @@
 # Current-state architecture handbook
 
-Shifter runs authorized cyber-range exercises through one application control
+BigRAE runs authorized cyber-range exercises through one application control
 plane and separately isolated guest workloads. Start here for the current
 architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
-[CODEOWNERS](https://github.com/Brad-Edwards/shifter/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-17 against integration revision `6b1c88082`.
+[CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
+**Reviewed:** 2026-10-23 against integration revision `a80fbc061` and the
+prepared product-name compatibility changes in #2555.
 This describes source behavior, not a certificate of a live deployment.
+
+BigRAE is the current product name. Public BigRAE config, SDK, client and plugin
+names converge on their existing validation and execution owners; legacy names
+remain compatible. Conflicting old/new configuration fails before use. The
+[identifier ledger](../architecture/bigrae-rename-inventory.md) distinguishes
+branding from persisted, wire and infrastructure identity, and the
+[cutover procedure](../how-to/bigrae-rename-cutover.md) verifies GitHub repository
+configuration and future-deployment templates. The user directs that no
+deployments exist, so no live cloud trust or workload migration is required. Plugin jobs
+remain isolated and receive one Secret-backed invocation input under either
+exact supported name. The source preparation does not change deployed resource
+names, authorization, internal imports, historical provenance or metric identity.
 
 ## System context and trust boundaries
 
 ```mermaid
 flowchart LR
-    Human[Operator or participant browser] -->|HTTPS session and CSRF| App[Shifter application]
+    Human[Operator or participant browser] -->|HTTPS session and CSRF| App[BigRAE application]
     Client[External API client] -->|HTTPS authenticated API| App
     IdP[Identity provider] -->|Verified identity| App
     App -->|Authorized domain services| Workers[Application workers]
@@ -55,7 +68,7 @@ it is not the current target for all installations.
 | Schedulers and reconcilers | CTF scheduling, leases, launch delivery, result application and event-outbox delivery run as separate worker commands. |
 | Provisioner Jobs | Independently packaged `shifter/engine/provisioner`; exact image, service account and namespace binding; provider effects and guest readback. |
 | Plugin/preparation Jobs | Explicitly installed, isolated executable images; separate administrator grants and pinned worker/verifier identities. |
-| Guacamole and guacd | Remote-access services; Shifter authorizes the exact target/session and continuing access. Guacamole has separate database credentials. |
+| Guacamole and guacd | Remote-access services; BigRAE authorizes the exact target/session and continuing access. Guacamole has separate database credentials. |
 | Optional access services | Deployment-selected VPN and other integrations have their own identities and support conditions. |
 
 The canonical control-plane package is the shared Helm chart, hosted on GKE for
@@ -131,10 +144,10 @@ a client-owned generation. Destroyed status alone is not verified absence:
 cleanup readback, residual obligations and retained recovery records matter.
 See [retry-safe operations](shifter_platform/retry-safe-range-operations.md).
 
-[Range-event delivery](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/range-event-delivery-preflight-476.md)
+[Range-event delivery](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/range-event-delivery-preflight-476.md)
 is an implementation record. The current input/result definitions are
-[Engine operation models](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/engine/models/_operation_io.py),
-with shared [wire envelopes](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/shared/operation_envelope.py).
+[Engine operation models](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/engine/models/_operation_io.py),
+with shared [wire envelopes](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/shared/operation_envelope.py).
 Reconciliation, bounded retries and dead-letter handling repair delivery;
 WebSocket notifications are projections and can be recovered by an authorized read.
 
@@ -158,7 +171,7 @@ Backup existence is not evidence of a successful restore rehearsal.
 ## Package and dependency ownership
 
 The authoritative dependency map is
-[layer_imports.yaml](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/check_layer_imports/layer_imports.yaml),
+[layer_imports.yaml](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/check_layer_imports/layer_imports.yaml),
 backed by `.importlinter` and model-boundary checks. The following is its reader's map.
 
 | Package/root | Owns | Supported dependency seam |
@@ -172,7 +185,7 @@ backed by `.importlinter` and model-boundary checks. The following is its reader
 | `shared` | Neutral contracts, auth primitives, audit, cloud interfaces | Public contracts; no domain/model imports. Only `shared.raes` imports RAES. |
 | `config` | Settings, provider adapters, root routing, composition | Explicit public composition seams; no domain model imports. |
 | `shifter/engine/provisioner` | Independent provider/guest executor | Versioned immutable inputs/results and standalone plain-data RAES reader; no Django/domain ORM dependency. |
-| `shifter/environment-packs` | Shifter-owned bootstrap and validation content | Current RAES packs registered through the same CMS validation boundary as external content. |
+| `shifter/environment-packs` | BigRAE-owned bootstrap and validation content | Current RAES packs registered through the same CMS validation boundary as external content. |
 | `shifter/installation` | Root config, backend bundles, runtime inventories | Typed bundle validation/rendering; backend selection before mutation. |
 | `shifter/shifter_client` | Native Google service transport | Renewable provider credentials and relative authenticated API calls; no application internals. |
 | `shifter/shifter_adapter_sdk` | Independent adapter ABI | Public verification, runtime and preparation contracts; no application imports. |
@@ -186,14 +199,14 @@ allowlists remain authoritative when a table entry is broader.
 
 The versioned application API is `/api/v1/`, composed by `config/api_urls.py`.
 Authenticated `/api/v1/schema/` and `/api/v1/docs/` expose OpenAPI and Swagger;
-the [published contract](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/openapi/v1.json)
+the [published contract](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/openapi/v1.json)
 is generated. Schema filtering means it is not a complete inventory of mounted
 routes. [API development](dev/api.md) describes serializers, scopes, session/CSRF
 and sanitized errors. Credential migration is subject to ADR-066 activation;
 clients must use the deployed credential contract and service authorization.
 Public static documentation does not make API access anonymous.
 
-Use the [client transport](https://github.com/Brad-Edwards/shifter/tree/dev/shifter/shifter_client)
+Use the [client transport](https://github.com/Brad-Edwards/bigrae/tree/dev/shifter/shifter_client)
 for its documented native-Google service use case. It does not authorize
 application or cloud effects, and does not automatically replay mutations after
 a credential failure. Use the API's operation/retry contract where provided.
@@ -208,7 +221,7 @@ a credential failure. Use the API's operation/retry contract where provided.
 
 See [artifact preparation](../ops/artifact-preparation.md),
 [verification plugins](shifter_platform/scenario-verification.md) and the
-[adapter SDK](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_adapter_sdk/README.md).
+[adapter SDK](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_adapter_sdk/README.md).
 Pack content never authorizes executable installation. Private content, adapters,
 image recipes, answers and acceptance evidence stay in their owner's repository.
 A compatibility probe, buildable SDK, or accepted manifest proves neither a
@@ -225,7 +238,7 @@ advertising scenario support; #2080's review did not perform a fresh live deploy
 
 The documentation maintainer reviews this page when an architecture boundary
 changes. `documentation-coverage` enforces the `drift_sources` associations in
-[the coverage manifest](https://github.com/Brad-Edwards/shifter/blob/dev/docs/adr/documentation-coverage.yaml).
+[the coverage manifest](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/adr/documentation-coverage.yaml).
 Mapped dependency, wire, authority, persistence, backend, deployable and extension
 changes must include review/update of the associated handbook page. Record a
 review date and the inspected source revision when wording remains accurate.
@@ -235,5 +248,5 @@ The guard checks structure and paired changes; maintainers review accuracy and
 support claims. New boundaries extend the manifest. Run the
 [ADR guard](dev/adr-enforcement.md) and `mkdocs build --strict`, then inspect
 links and diagrams. Historical
-[preflights and reviews](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/index.md)
+[preflights and reviews](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/index.md)
 explain implementation decisions; they are not prerequisites or current authority.
