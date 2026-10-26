@@ -126,9 +126,16 @@ class ModelAccessRangeView(ClosedModel):
     range_ref: OwnedReference
     authority_ref: OwnedReference
     range_uuid: UUID
-    owner_user_id: PositiveInt
-    workspace_id: PositiveInt
+    owner_user_id: PositiveInt | None = None
+    owner_principal_uuid: UUID | None = None
+    workspace_id: PositiveInt | None = None
     request_uuid: UUID | None = None
+
+    @model_validator(mode="after")
+    def _require_owner_identity(self) -> ModelAccessRangeView:
+        if self.owner_user_id is None and self.owner_principal_uuid is None:
+            raise ValueError("range owner identity is required")
+        return self
 
 
 class ModelAccessRangePage(ClosedModel):

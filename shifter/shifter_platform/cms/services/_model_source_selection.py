@@ -10,24 +10,23 @@ from shared.model_access.reservation import AuthorityRevision
 from shared.model_access.sources import ModelSourceSponsorship
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
     from cms.scenarios.model_needs import ScenarioModelNeedsProjection
     from engine.services import ModelSourceView
+    from shared.credentials import CredentialContext
     from shared.model_access.core_models import EffectiveProfile, ModelAlias
     from shared.model_access.sources import ModelSourceConfiguration
 
 from engine.services import compile_authorized_model_sources, project_authorized_model_sources
 from shared.model_access import ContractError
 from shared.model_access.sources import ModelSourceSelection, ModelSourceUseScope
-from workspaces.services import WorkspaceOperation, authorize_bound_workspace
+from workspaces.services import AccountScopeError, hierarchy_target_scope, workspace_id_for_uuid, workspace_scope_for_id
 
 SPONSOR_UNAVAILABLE = "source.sponsor_unavailable"
 
 
 @overload
 def resolve_launch_sources(
-    actor: User, workspace_id: int, selection: object, *, catalog: ModelAccessCatalog
+    actor: CredentialContext, workspace_id: int, selection: object, *, catalog: ModelAccessCatalog
 ) -> tuple[ModelAccessCatalog, tuple[AuthorityRevision, ...]]:
     """Preserve the non-null catalog type when a deployment catalog is supplied."""
     ...
@@ -35,14 +34,14 @@ def resolve_launch_sources(
 
 @overload
 def resolve_launch_sources(
-    actor: User, workspace_id: int, selection: object, *, catalog: None
+    actor: CredentialContext, workspace_id: int, selection: object, *, catalog: None
 ) -> tuple[ModelAccessCatalog | None, tuple[AuthorityRevision, ...]]:
     """Preserve the optional catalog type when no deployment catalog is supplied."""
     ...
 
 
 def resolve_launch_sources(
-    actor: User, workspace_id: int, selection: object, *, catalog: ModelAccessCatalog | None
+    actor: CredentialContext, workspace_id: int, selection: object, *, catalog: ModelAccessCatalog | None
 ) -> tuple[ModelAccessCatalog | None, tuple[AuthorityRevision, ...]]:
     """Source selection conveys no permission to use another tenant's funds."""
     selected = ModelSourceSelection.model_validate(selection or {})
@@ -50,37 +49,31 @@ def resolve_launch_sources(
         return catalog, ()
     if catalog is None or not catalog.enabled:
         raise ContractError("source.policy_unavailable")
-    authorization = authorize_bound_workspace(actor, workspace_id, WorkspaceOperation.LAUNCH_RANGE)
-    return resolve_model_source_selection(actor, authorization.organization_uuid, selected, catalog=catalog)
+    organization_uuid, _workspace_uuid = _workspace_ancestry(workspace_id)
+    return resolve_model_source_selection(actor, organization_uuid, selected, catalog=catalog)
 
 
 def resolve_model_source_sponsorship(
-    actor: User, workspace_id: int, selection: object, *, administrative: bool = False
+    actor: CredentialContext, workspace_id: int, selection: object
 ) -> ModelSourceSponsorship:
     """Validate an organizer's sources before projecting event sponsorship."""
     from django.conf import settings
 
     from shared.model_access.sources import ModelSourceSponsorship
 
-    if administrative:
-        from workspaces.services import authorize_model_source_workspace
-
-        authorization = authorize_model_source_workspace(actor, workspace_id=workspace_id)
-    else:
-        authorization = authorize_bound_workspace(actor, workspace_id, WorkspaceOperation.USE_CTF_COMMUNICATIONS)
+    organization_uuid, workspace_uuid = _workspace_ancestry(workspace_id)
     catalog = getattr(settings, "MODEL_ACCESS_CATALOG", None)
     if not getattr(settings, "MODEL_ACCESS_ENABLED", False) or catalog is None:
         raise ContractError("source.policy_unavailable")
-    if authorization.organization_uuid is None:
-        raise ContractError(SPONSOR_UNAVAILABLE)
     selected = ModelSourceSelection.model_validate(selection)
-    resolve_model_source_selection(actor, authorization.organization_uuid, selected, catalog=catalog)
+    resolve_model_source_selection(actor, organization_uuid, selected, catalog=catalog)
+    from shared.model_access.sources import ModelSourceCredentialReference
+
     return ModelSourceSponsorship(
-        actor_id=actor.pk,
-        organization_uuid=authorization.organization_uuid,
-        workspace_id=workspace_id,
+        credential_reference=ModelSourceCredentialReference.from_credential(actor),
+        organization_uuid=organization_uuid,
+        workspace_uuid=workspace_uuid,
         selection=selected,
-        administrative=administrative,
     )
 
 
@@ -88,38 +81,49 @@ def resolve_sponsored_sources(
     sponsorship: ModelSourceSponsorship, *, catalog: ModelAccessCatalog
 ) -> tuple[ModelAccessCatalog, tuple[AuthorityRevision, ...]]:
     """Recheck persisted sponsor and tenant membership at participant admission."""
-    from django.contrib.auth.models import User
+    try:
+        from shared.credentials import resolve_current_credential
 
-    actor = User.objects.filter(pk=sponsorship.actor_id, is_active=True).first()
-    if actor is None:
-        raise ContractError(SPONSOR_UNAVAILABLE)
-    current = resolve_model_source_sponsorship(
-        actor, sponsorship.workspace_id, sponsorship.selection, administrative=sponsorship.administrative
-    )
+        actor = resolve_current_credential(sponsorship.credential_reference.credential())
+        workspace_id = workspace_id_for_uuid(sponsorship.workspace_uuid)
+    except Exception:
+        raise ContractError(SPONSOR_UNAVAILABLE) from None
+    current = resolve_model_source_sponsorship(actor, workspace_id, sponsorship.selection)
     if current != sponsorship:
         raise ContractError(SPONSOR_UNAVAILABLE)
     return resolve_model_source_selection(actor, sponsorship.organization_uuid, sponsorship.selection, catalog=catalog)
 
 
-def _source_use_scope(actor: User, organization_uuid: UUID | None) -> ModelSourceUseScope:
-    """Recheck active tenant membership before exposing source-use authority."""
-    from django.contrib.auth.models import User
-
-    from workspaces.services import OrganizationAuthorizationError, content_organization_uuids
-
-    current = User.objects.filter(pk=actor.pk, is_active=True).first()
-    if organization_uuid is None or organization_uuid not in content_organization_uuids(current):
-        raise OrganizationAuthorizationError("Organization access denied")
-    return ModelSourceUseScope(actor_id=actor.pk, organization_uuid=organization_uuid)
+def _workspace_ancestry(workspace_id: int) -> tuple[UUID, UUID]:
+    """Resolve one retained workspace through the SQL-owned hierarchy."""
+    scope = workspace_scope_for_id(workspace_id)
+    if scope.organization_uuid is None or scope.workspace_uuid is None:
+        raise AccountScopeError(SPONSOR_UNAVAILABLE)
+    return scope.organization_uuid, scope.workspace_uuid
 
 
-def list_usable_model_sources(actor: User, organization_uuid: UUID | None) -> tuple[ModelSourceView, ...]:
+def _source_use_scope(actor: CredentialContext, organization_uuid: UUID | None) -> ModelSourceUseScope:
+    """Validate organization ancestry before Engine evaluates exact policy."""
+    from workspaces.services import OrganizationAuthorizationError
+
+    try:
+        if organization_uuid is None:
+            raise ValueError
+        scope = hierarchy_target_scope("organization", organization_uuid)
+        if scope.organization_uuid != organization_uuid:
+            raise ValueError
+    except Exception:
+        raise OrganizationAuthorizationError("Organization access denied") from None
+    return ModelSourceUseScope(credential=actor, organization_uuid=organization_uuid)
+
+
+def list_usable_model_sources(actor: CredentialContext, organization_uuid: UUID | None) -> tuple[ModelSourceView, ...]:
     """Resolve current tenancy before requesting runtime source metadata."""
     return project_authorized_model_sources(_source_use_scope(actor, organization_uuid))
 
 
 def resolve_model_source_selection(
-    actor: User, organization_uuid: UUID | None, selection: object, *, catalog: ModelAccessCatalog
+    actor: CredentialContext, organization_uuid: UUID | None, selection: object, *, catalog: ModelAccessCatalog
 ) -> tuple[ModelAccessCatalog, tuple[AuthorityRevision, ...]]:
     """Compose tenancy authority with Engine-owned source grants and fences."""
     return compile_authorized_model_sources(_source_use_scope(actor, organization_uuid), selection, catalog=catalog)
@@ -147,7 +151,7 @@ def project_scenario_model_demands(scenario_id: str, *, expected_concurrency: in
 
 
 def model_source_alias_options(
-    actor: User, organization: UUID | None, scenario: str
+    actor: CredentialContext, organization: UUID | None, scenario: str
 ) -> tuple[list[dict[str, object]], bool]:
     """Project compatible authorized choices for the scenario's verified needs."""
 
@@ -156,16 +160,20 @@ def model_source_alias_options(
     from cms.scenarios.model_needs import project_scenario_model_needs
     from cms.scenarios.registry import check_scenario_access
 
+    sources = list_usable_model_sources(actor, organization)
     catalog = getattr(settings, "MODEL_ACCESS_CATALOG", None)
     if not getattr(settings, "MODEL_ACCESS_ENABLED", False) or catalog is None:
         return [], False
     if not scenario:
         return [], True
-    check_scenario_access(scenario, actor)
+    check_scenario_access(
+        scenario,
+        actor,
+        scope=hierarchy_target_scope("organization", organization) if organization is not None else None,
+    )
     projection = project_scenario_model_needs(scenario)
     if projection.resolution_failed or (projection.needs and not projection.digest_verified):
         raise ContractError("source.scenario_unavailable")
-    sources = list_usable_model_sources(actor, organization)
     profiles = {need.profile_id for need in projection.needs.values()}
     aliases = []
     for alias in catalog.aliases:

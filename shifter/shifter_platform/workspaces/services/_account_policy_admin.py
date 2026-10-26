@@ -27,6 +27,7 @@ from ._account import (
     hierarchy_target_scope,
 )
 from ._egress import _set_egress_policy_unchecked
+from ._hierarchy_publication import publish_hierarchy_relationships
 from ._lifecycle import WorkspaceAuditContext, WorkspaceProjection
 from ._quota import WorkspaceQuotaAuditContext
 from ._quota_admin import WorkspaceResourceUsage, _set_quota_policy_unchecked
@@ -119,7 +120,9 @@ def admin_create_account(
             resolve_principal(owner)
         except Exception as exc:
             raise AccountScopeError(_DENIED) from exc
-    return create_account(kind=kind, name=name, owner=owner, audit_actor=actor.principal, request_audit=audit)
+    account = create_account(kind=kind, name=name, owner=owner, audit_actor=actor.principal, request_audit=audit)
+    publish_hierarchy_relationships("account", account.uuid, provider)
+    return account
 
 
 def admin_create_organization(
@@ -136,7 +139,9 @@ def admin_create_organization(
     except AccountScopeError as exc:
         raise AccountScopeError(_DENIED) from exc
     _require_action(actor, provider, "account.manage_organizations", TargetRef("account", account_uuid), scope)
-    return create_account_organization(account_uuid, name, audit_actor=actor.principal, request_audit=audit)
+    organization = create_account_organization(account_uuid, name, audit_actor=actor.principal, request_audit=audit)
+    publish_hierarchy_relationships("organization", organization.uuid, provider)
+    return organization
 
 
 def admin_create_workspace(
@@ -162,9 +167,11 @@ def admin_create_workspace(
         TargetRef("organization", organization_uuid),
         scope,
     )
-    return create_account_workspace(
+    workspace = create_account_workspace(
         account_uuid, organization_uuid, name, audit_actor=actor.principal, request_audit=audit
     )
+    publish_hierarchy_relationships("workspace", workspace.uuid, provider)
+    return workspace
 
 
 def admin_individual_account(actor: CredentialContext, provider: AuthorizationProvider) -> AccountAdminView:

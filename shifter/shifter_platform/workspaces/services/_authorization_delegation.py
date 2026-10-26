@@ -34,6 +34,7 @@ from workspaces.models import (
 from ._account import hierarchy_target_scope, resolve_resource_scope
 from ._authorization_commands import (
     AuthorizationMutationConflict,
+    EventOwnershipHandoffPolicyMutationRequest,
     NativeRelationshipMutationRequest,
     PolicyMutationRequest,
 )
@@ -292,11 +293,13 @@ def _resolve_assignment_subject(
     effect: PolicyEffect,
     actor: PrincipalRef,
     scope: ResourceScope,
+    *,
+    allow_self: bool = False,
 ) -> None:
     """Validate active, exactly scoped subjects and reject self-grants."""
     if subject.kind == "principal":
         _resolve_principal_uuid(subject.uuid)
-        if effect == PolicyEffect.GRANT and subject.uuid == actor.uuid:
+        if effect == PolicyEffect.GRANT and subject.uuid == actor.uuid and not allow_self:
             raise AuthorizationMutationConflict("self-assignment is not permitted")
     elif subject.kind == "group":
         if not AuthorizationGroup.objects.filter(uuid=subject.uuid, **_scope_lookup(scope)).exists():
@@ -313,4 +316,13 @@ def _resolve_policy_change(request: PolicyMutationRequest) -> None:
     """Validate actor, target ownership, and the assignment subject in SQL."""
     resolve_principal(request.actor)
     _resolve_concrete_target(request.target, request.scope)
-    _resolve_assignment_subject(request.subject, request.effect, request.actor, request.scope)
+    # Only the internal, closed event-ownership handoff command may retain the
+    # former owner's existing authority as direct staff grants. Public direct
+    # assignments and native groups/roles cannot grant authority to the caller.
+    _resolve_assignment_subject(
+        request.subject,
+        request.effect,
+        request.actor,
+        request.scope,
+        allow_self=isinstance(request, EventOwnershipHandoffPolicyMutationRequest),
+    )

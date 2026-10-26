@@ -31,7 +31,7 @@ spec:
           {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
           {{- include "shifter.tmpVolumeMount" . | nindent 10 }}
           args: ["python", "manage.py", "reconcile_warm_pool", "--loop", "--interval", "300"]
-          {{- if .Values.cloudSqlProxy.enabled }}
+          {{- if or .Values.cloudSqlProxy.enabled .Values.openfga.enabled }}
           env:
             {{- include "shifter.databaseUserEnv" (dict "root" . "role" "workers") | nindent 12 }}
           {{- end }}

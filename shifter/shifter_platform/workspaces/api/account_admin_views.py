@@ -1,4 +1,4 @@
-"""S8 account administration HTTP adapter, prepared without production routing."""
+"""S8 account administration HTTP adapter mounted in production routing."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from uuid import UUID
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -152,7 +153,7 @@ class _AccountAPIView(APIView):
     """Apply canonical credential admission, closed parsing, and safe errors."""
 
     permission_classes = [IsAuthenticatedSessionOrApiToken]
-    parser_classes = [ClosedJSONParser]
+    parser_classes = [ClosedJSONParser, FormParser, MultiPartParser]
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, (services.AccountScopeError, PrincipalResolutionError, ValueError)):
@@ -420,7 +421,11 @@ class AccountWorkspaceQuotaPolicyView(_AccountAPIView):
 class AccountWorkspaceEgressPolicyView(_AccountAPIView):
     """Policy-authorized egress authoring for human and service administrators."""
 
-    @extend_schema(request=WorkspaceEgressPolicyCommandSerializer, responses=WorkspaceSerializer)
+    @extend_schema(
+        request=WorkspaceEgressPolicyCommandSerializer,
+        responses=WorkspaceSerializer,
+        operation_id="api_v1_workspace_set_egress_policy",
+    )
     def put(self, request: Request, workspace_uuid: UUID) -> Response:
         command = WorkspaceEgressPolicyCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -456,7 +461,11 @@ class AccountWorkspaceRenameView(_AccountAPIView):
 class AccountWorkspaceArchiveView(_AccountAPIView):
     """Archive one non-default workspace after exact policy checks."""
 
-    @extend_schema(request=EmptyAccountCommandSerializer, responses=WorkspaceSerializer)
+    @extend_schema(
+        request=EmptyAccountCommandSerializer,
+        responses=WorkspaceSerializer,
+        operation_id="api_v1_workspace_archive",
+    )
     def post(self, request: Request, workspace_uuid: UUID) -> Response:
         command = EmptyAccountCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -470,7 +479,11 @@ class AccountWorkspaceArchiveView(_AccountAPIView):
 class AccountWorkspaceRestoreView(_AccountAPIView):
     """Restore one workspace under its persisted account ancestry."""
 
-    @extend_schema(request=EmptyAccountCommandSerializer, responses=WorkspaceSerializer)
+    @extend_schema(
+        request=EmptyAccountCommandSerializer,
+        responses=WorkspaceSerializer,
+        operation_id="api_v1_workspace_restore",
+    )
     def post(self, request: Request, workspace_uuid: UUID) -> Response:
         command = EmptyAccountCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)

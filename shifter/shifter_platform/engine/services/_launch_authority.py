@@ -54,13 +54,23 @@ def range_runtime_binding_digest(row: Range | Instance) -> str:
     )
 
 
-def admit_launch_authority(payload: dict[str, object], credential: CredentialContext) -> dict[str, object]:
+def admit_launch_authority(
+    payload: dict[str, object],
+    credential: CredentialContext,
+    *,
+    authority_action: str | None = None,
+    authority_target: TargetRef | None = None,
+) -> dict[str, object]:
     """Check the existing parent for creation; the exact leaf for lifecycle."""
     from engine.models import Range
 
     from ._range_authority import project_range_authority
 
-    if payload.get("resource") not in {"range", "raes-range"} or "request_id" not in payload:
+    if (
+        payload.get("resource") not in {"range", "raes-range"}
+        or "request_id" not in payload
+        or (authority_action is None) != (authority_target is None)
+    ):
         raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
     request_uuid = UUID(str(payload["request_id"]))
     projection = project_range_authority(request_uuid)
@@ -74,6 +84,11 @@ def admit_launch_authority(payload: dict[str, object], credential: CredentialCon
     if payload.get("operation") in {"provision", "activate"}:
         target = parent
         action = "event.manage_ranges" if parent.type == "event" else f"{parent.type}.launch_range"
+    if authority_action is not None:
+        if authority_action != "event.manage_ranges" or parent.type != "event" or authority_target != parent:
+            raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+        action = authority_action
+        target = authority_target
     require_authorization(
         AuthorizationRequest(
             current.principal,
@@ -134,6 +149,9 @@ def authorize_launch_authority(intent: ProvisionerLaunchIntent, runtime: Range |
         if intent.authority_kind == "cleanup":
             return
         current = resolve_current_credential(credential_reference_from_record(intent))
+        if intent.authority_kind == "warm_pool":
+            _authorize_warm_pool_authority(intent, runtime, current)
+            return
         if runtime.request is None:
             raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
         projection = project_range_authority(runtime.request.request_id)
@@ -173,6 +191,42 @@ def authorize_launch_authority(intent: ProvisionerLaunchIntent, runtime: Range |
         raise PermissionError(_OPERATION_AUTHORITY_UNAVAILABLE) from None
 
 
+def _authorize_warm_pool_authority(intent: ProvisionerLaunchIntent, runtime: Range, current: CredentialContext) -> None:
+    """Recheck the exact service and installation decision for warm preparation."""
+    from shared.identity_scope import ResourceScope
+
+    target = TargetRef("installation")
+    scope = ResourceScope("installation")
+    if (
+        current.principal.kind != "service"
+        or intent.authority_action != "installation.launch_range"
+        or intent.authority_target_type != "installation"
+        or intent.authority_target_uuid is not None
+        or intent.authority_parent_type != "installation"
+        or intent.authority_parent_uuid is not None
+        or intent.authority_scope_kind != "installation"
+        or any(
+            value is not None
+            for value in (
+                intent.authority_account_uuid,
+                intent.authority_organization_uuid,
+                intent.authority_workspace_uuid,
+            )
+        )
+        or runtime.scope_kind != "installation"
+        or any(value is not None for value in (runtime.account_id, runtime.organization_id, runtime.workspace_id))
+        or runtime.owner_principal_uuid != current.principal.uuid
+        or runtime.owner_principal_uuid != intent.authority_owner_uuid
+        or runtime.cms_range_uuid != intent.authority_resource_uuid
+    ):
+        raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+    require_authorization(
+        AuthorizationRequest(current.principal, "installation.launch_range", target, scope, current.ceiling)
+    )
+    if resolve_current_credential(current) != current:
+        raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+
+
 def assert_launch_authority_binding(intent: ProvisionerLaunchIntent, runtime: Range | Instance) -> None:
     """Pure SQL-fact fence after policy evaluation, safe inside a row lock."""
     from engine.models import Instance
@@ -182,10 +236,9 @@ def assert_launch_authority_binding(intent: ProvisionerLaunchIntent, runtime: Ra
 
         assert_device_authority_binding(intent, runtime)
         return
-    if intent.authority_kind not in {
-        "principal",
-        "cleanup",
-    } or intent.authority_binding_digest != range_runtime_binding_digest(runtime):
+    if intent.authority_kind not in {"principal", "cleanup", "warm_pool"} or (
+        intent.authority_binding_digest != range_runtime_binding_digest(runtime)
+    ):
         raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
     if intent.authority_kind == "cleanup":
         from ._launch_cleanup_authority import assert_cleanup_origin
@@ -223,8 +276,27 @@ def assert_admitted_launch_binding(fields: dict[str, object], runtime: Range | I
         from shared.operation_authority import authority_resource_scope
 
         scope = authority_resource_scope(fields)
-        if resolve_credential_scope(leaf) != scope:
+        # A newly created CTF range reaches the durable outbox before the
+        # owning CTF row can record the returned request/range identifiers.
+        # Its admitted event parent is already fenced into both the runtime
+        # row and binding digest; later worker authorization requires the CTF
+        # aggregate resolver as usual.
+        event_parent = fields.get("authority_parent_uuid") if fields.get("authority_parent_type") == "event" else None
+        if event_parent is not None:
+            if runtime.event_uuid != event_parent:
+                raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+        elif resolve_credential_scope(leaf) != scope:
             raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+    if (
+        fields
+        and fields.get("authority_kind") == "warm_pool"
+        and (
+            runtime.scope_kind != "installation"
+            or runtime.owner_principal_uuid != fields.get("authority_owner_uuid")
+            or runtime.cms_range_uuid != fields.get("authority_resource_uuid")
+        )
+    ):
+        raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
 
 
 def _assert_admitted_device_binding(fields: dict[str, object], runtime: Instance) -> None:

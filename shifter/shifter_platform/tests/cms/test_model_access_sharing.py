@@ -109,6 +109,24 @@ def test_user_selector_allows_self_service_but_denies_another_users_ranges():
     assert f"range:{owned.uuid}" not in {item.reference for item in resolution.member_refs}
 
 
+def test_user_selector_does_not_reauthorize_a_range_transferred_to_another_principal():
+    owner = User.objects.create_user("transferred-selector-owner@test")
+    replacement = User.objects.create_user("transferred-selector-replacement@test")
+    organization = Organization.objects.create(name="Transferred Selector Org")
+    workspace = Workspace.objects.create(organization=organization, name="Transferred Selector Workspace")
+    retained = _range(owner, workspace)
+    transferred = _range(owner, workspace)
+    transferred.owner_principal_uuid = replacement.identity_principal.uuid
+    transferred.save(update_fields=["owner_principal_uuid"])
+
+    resolution = resolve_model_access_selector(
+        owner,
+        SharingSelector(kind=SelectorKind.USER, ids=(str(owner.pk),)),
+    )
+
+    assert {item.reference for item in resolution.member_refs} == {f"range:{retained.uuid}"}
+
+
 def test_all_ranges_selector_denies_non_operator_actor():
     actor = User.objects.create_user("all-ranges-outsider@test")
 

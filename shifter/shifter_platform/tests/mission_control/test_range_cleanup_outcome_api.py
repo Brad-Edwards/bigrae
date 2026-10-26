@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 from django.urls import reverse
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("principal_owner_policy")]
 
 
 def _outcome(client, request_id):

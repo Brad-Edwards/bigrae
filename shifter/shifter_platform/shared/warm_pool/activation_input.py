@@ -23,8 +23,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, cast
+from uuid import UUID
 
+from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.raes.operation_input import RaesOperationInput, RaesOperationInputError, parse_raes_operation_input
 
 __all__ = [
@@ -38,18 +40,17 @@ __all__ = [
 
 #: Schema tag so a future change to the activation projection cannot be read under
 #: an older parser. Bump when a field's meaning changes or a field is added/removed.
-ACTIVATION_SCHEMA = "range-warm-activation/v1"
-
-# Bounded to keep the input a reference-only projection, never a registry dump.
-# 254 == a login/email identity, the RFC-5321 local+domain ceiling.
-_MAX_USERNAME_LEN = 254
+ACTIVATION_SCHEMA = "range-warm-activation/v2"
 
 _INPUT_KEYS = frozenset(
     {
         "schema",
-        "claimant_user_id",
-        "claimant_username",
-        "workspace_id",
+        "claimant_principal_uuid",
+        "claimant_principal_kind",
+        "scope_kind",
+        "account_uuid",
+        "organization_uuid",
+        "workspace_uuid",
         "range_source",
         "instantiation_purpose",
         "range_backend",
@@ -91,13 +92,25 @@ def _require_nonempty_str(value: object, field: str, *, max_len: int) -> str:
     return value
 
 
+def _uuid(value: object, field: str, *, optional: bool = False) -> UUID | None:
+    """Parse one canonical non-nil UUID identity, allowing explicit null only when requested."""
+    if optional and value is None:
+        return None
+    try:
+        parsed = UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        raise ActivationInputError(f"activation input {field} must be a UUID") from None
+    if parsed.int == 0 or str(value) != str(parsed):
+        raise ActivationInputError(f"activation input {field} must be a canonical non-nil UUID")
+    return parsed
+
+
 @dataclass(frozen=True)
 class ActivationInput:
     """The parsed, validated claimant projection for one warm activation."""
 
-    claimant_user_id: int
-    claimant_username: str
-    workspace_id: int
+    claimant: PrincipalRef
+    scope: ResourceScope
     range_source: str
     instantiation_purpose: str
     range_backend: str
@@ -133,31 +146,44 @@ def parse_activation_input(payload: object) -> ActivationInput:
         raes_input = parse_raes_operation_input(obj["raes_input"])
     except RaesOperationInputError as exc:
         raise ActivationInputError(f"activation input raes_input is invalid: {exc}") from None
-    return ActivationInput(
-        claimant_user_id=_require_positive_int(obj["claimant_user_id"], "claimant_user_id"),
-        claimant_username=_require_nonempty_str(
-            obj["claimant_username"], "claimant_username", max_len=_MAX_USERNAME_LEN
-        ),
-        workspace_id=_require_positive_int(obj["workspace_id"], "workspace_id"),
-        range_source=_require_nonempty_str(obj["range_source"], "range_source", max_len=64),
-        instantiation_purpose=_require_nonempty_str(obj["instantiation_purpose"], "instantiation_purpose", max_len=64),
-        range_backend=_require_nonempty_str(obj["range_backend"], "range_backend", max_len=8),
-        legacy_range_id=_require_positive_int(obj["legacy_range_id"], "legacy_range_id"),
-        compatibility_digest=_require_nonempty_str(obj["compatibility_digest"], "compatibility_digest", max_len=80),
-        prepared_generation_fence=_require_nonempty_str(
-            obj["prepared_generation_fence"], "prepared_generation_fence", max_len=64
-        ),
-        raes_input=raes_input,
-    )
+    try:
+        principal = PrincipalRef(
+            cast(UUID, _uuid(obj["claimant_principal_uuid"], "claimant_principal_uuid")),
+            cast(Literal["human", "service"], obj["claimant_principal_kind"]),
+        )
+        scope = ResourceScope(
+            cast(Literal["installation", "account"], obj["scope_kind"]),
+            _uuid(obj["account_uuid"], "account_uuid", optional=True),
+            _uuid(obj["organization_uuid"], "organization_uuid", optional=True),
+            _uuid(obj["workspace_uuid"], "workspace_uuid", optional=True),
+        )
+        return ActivationInput(
+            claimant=principal,
+            scope=scope,
+            range_source=_require_nonempty_str(obj["range_source"], "range_source", max_len=64),
+            instantiation_purpose=_require_nonempty_str(
+                obj["instantiation_purpose"], "instantiation_purpose", max_len=64
+            ),
+            range_backend=_require_nonempty_str(obj["range_backend"], "range_backend", max_len=8),
+            legacy_range_id=_require_positive_int(obj["legacy_range_id"], "legacy_range_id"),
+            compatibility_digest=_require_nonempty_str(obj["compatibility_digest"], "compatibility_digest", max_len=80),
+            prepared_generation_fence=_require_nonempty_str(
+                obj["prepared_generation_fence"], "prepared_generation_fence", max_len=64
+            ),
+            raes_input=raes_input,
+        )
+    except ActivationInputError:
+        raise
+    except Exception:
+        raise ActivationInputError("activation input claimant or scope is invalid") from None
 
 
 @dataclass(frozen=True)
 class ActivationClaimant:
     """The trusted claimant identity projection for one warm activation."""
 
-    user_id: int
-    username: str
-    workspace_id: int
+    principal: PrincipalRef
+    scope: ResourceScope
 
 
 @dataclass(frozen=True)
@@ -186,9 +212,12 @@ def build_activation_input(
     """
     payload = {
         "schema": ACTIVATION_SCHEMA,
-        "claimant_user_id": claimant.user_id,
-        "claimant_username": claimant.username,
-        "workspace_id": claimant.workspace_id,
+        "claimant_principal_uuid": str(claimant.principal.uuid),
+        "claimant_principal_kind": claimant.principal.kind,
+        "scope_kind": claimant.scope.kind,
+        "account_uuid": str(claimant.scope.account_uuid) if claimant.scope.account_uuid else None,
+        "organization_uuid": str(claimant.scope.organization_uuid) if claimant.scope.organization_uuid else None,
+        "workspace_uuid": str(claimant.scope.workspace_uuid) if claimant.scope.workspace_uuid else None,
         "range_source": generation.range_source,
         "instantiation_purpose": generation.instantiation_purpose,
         "range_backend": generation.range_backend,

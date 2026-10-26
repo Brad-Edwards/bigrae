@@ -48,7 +48,7 @@ def _owned_range(user: User, request_id: UUID) -> Range:
     return range_obj
 
 
-def has_openvpn_profile(user: User, request_id: UUID) -> bool:
+def has_openvpn_profile(user: User | CredentialContext, request_id: UUID, *, participation: bool = False) -> bool:
     """Project only safe readiness for the current owner and READY range."""
     from engine.models import Range
 
@@ -58,7 +58,7 @@ def has_openvpn_profile(user: User, request_id: UUID) -> bool:
         from ._vpn_profiles import admit_vpn_profile_authority
 
         try:
-            admit_vpn_profile_authority(user, request_id)
+            admit_vpn_profile_authority(user, request_id, participation=participation)
             runtime = Range.objects.get(request__request_id=request_id)
             parse_openvpn_capability(runtime.remote_access_capability)
             return True
@@ -120,6 +120,11 @@ def get_openvpn_profile(
     if isinstance(user, CredentialContext):
         from ._vpn_profile_delivery import get_individual_vpn_profile
 
+        runtime = Range.objects.filter(request__request_id=request_id).first()
+        if runtime is None:
+            raise VpnProfileNotFound("Range not found")
+        if runtime.status != Range.Status.READY:
+            raise VpnProfileConflict("Range is not ready for VPN profile delivery")
         return get_individual_vpn_profile(user, request_id, participation=participation)
 
     range_obj = _owned_range(user, request_id)

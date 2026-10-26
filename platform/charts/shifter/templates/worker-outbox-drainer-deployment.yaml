@@ -31,7 +31,7 @@ spec:
           {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
           {{- include "shifter.tmpVolumeMount" . | nindent 10 }}
           args: ["python", "manage.py", "drain_range_event_outbox", "--loop", "--interval", "10"]
-          {{- if .Values.cloudSqlProxy.enabled }}
+          {{- if or .Values.cloudSqlProxy.enabled .Values.openfga.enabled }}
           env:
             {{- include "shifter.databaseUserEnv" (dict "root" . "role" "workers") | nindent 12 }}
           {{- end }}

@@ -1037,9 +1037,15 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                     "workspaces.services": [
                         "OrganizationAuthorizationError", "get_organization_profile",
                         "resource_scope_from_ids", "resolve_range_scope_binding",
+                        "hierarchy_target_scope",
                     ]
                 },
                 "config": {
+                    "engine.services": [
+                        "apply_identity_cutover_resources",
+                        "identity_cutover_resource_disposition",
+                        "pending_identity_cutover_work",
+                    ],
                     "workspaces.services": [
                         "list_administrable_organizations",
                         "hierarchy_target_scope",
@@ -1048,6 +1054,20 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                         "PolicyMutationRequest",
                         "apply_policy_mutation",
                         "event_placement_scope",
+                        "admin_principal_context",
+                        "policy_admin_registrations",
+                        "IdentityCutoverConflict",
+                        "activate_identity_cutover",
+                        "apply_identity_cutover_sql",
+                        "begin_identity_cutover",
+                        "bind_identity_cutover_provider",
+                        "get_identity_cutover_state",
+                        "identity_cutover_disposition",
+                        "identity_cutover_relationships",
+                        "identity_cutover_resource_mappings",
+                        "plan_identity_cutover_accounts",
+                        "record_identity_cutover_bootstrap",
+                        "record_identity_cutover_policy_intent",
                     ],
                     "management.api.policy_views": ["PolicyAdminView"],
                     "workspaces.api.serializers": ["AuthorizationMutationSerializer"],

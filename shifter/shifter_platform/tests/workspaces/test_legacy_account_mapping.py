@@ -140,10 +140,11 @@ def test_shared_memberships_map_to_one_principal_at_each_existing_scope():
 
     assert plan.blockers == ()
     assert {
-        (member.scope_kind, member.scope_id, member.principal_uuid, member.role) for member in plan.memberships
+        (member.scope_kind, member.scope_id, member.user_id, member.principal_uuid, member.role)
+        for member in plan.memberships
     } == {
-        ("organization", organization.id, principal_id, "admin"),
-        ("workspace", workspace.id, principal_id, "owner"),
+        ("organization", organization.id, user.id, principal_id, "admin"),
+        ("workspace", workspace.id, user.id, principal_id, "owner"),
     }
 
 

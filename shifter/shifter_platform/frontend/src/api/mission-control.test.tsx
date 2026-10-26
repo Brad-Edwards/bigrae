@@ -27,9 +27,10 @@ beforeEach(() => {
 describe("missionControlKeys", () => {
   it("scopes every query key under the mission-control namespace", () => {
     expect(missionControlKeys.currentRange[0]).toBe("mission-control");
-    expect(missionControlKeys.history[0]).toBe("mission-control");
-    expect(missionControlKeys.agents[0]).toBe("mission-control");
-    expect(missionControlKeys.scenarios[0]).toBe("mission-control");
+    expect(missionControlKeys.historyAll[0]).toBe("mission-control");
+    expect(missionControlKeys.history()[0]).toBe("mission-control");
+    expect(missionControlKeys.agents()[0]).toBe("mission-control");
+    expect(missionControlKeys.scenarios()[0]).toBe("mission-control");
     expect(missionControlKeys.ngfwList[0]).toBe("mission-control");
   });
 });
@@ -75,7 +76,7 @@ describe("useCancelRange", () => {
     // test, otherwise the dashboard/history silently shows stale range state
     // after a lifecycle action (test-quality review, #1370).
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: missionControlKeys.currentRange });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: missionControlKeys.history });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: missionControlKeys.historyAll });
     // Never auto-retries a destructive lifecycle mutation.
     expect(result.current.failureCount).toBe(0);
   });
@@ -93,6 +94,6 @@ describe("useLaunchRange", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: missionControlKeys.currentRange });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: missionControlKeys.history });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: missionControlKeys.historyAll });
   });
 });

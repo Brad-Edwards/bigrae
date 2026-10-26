@@ -15,22 +15,19 @@ from shared.credentials import CredentialContext
 def test_service_administrator_uses_live_event_policy_and_exact_scope(ctf_event_active, monkeypatch):
     from ctf.models import CTFEvent
     from ctf.services.unified_authorization import require_event_action, require_event_creation
-    from management.services import principal_for_user
     from shared.authorization import port
-    from workspaces.services import create_account
+    from workspaces.models import Account
 
-    account = create_account(
-        kind="individual", name="Personal CTF account", owner=principal_for_user(ctf_event_active.created_by)
-    )
     event = CTFEvent.objects.create(
         name="Personal CTF event",
         created_by=ctf_event_active.created_by,
         scope_kind="account",
-        account_id=account.id,
+        account_id=ctf_event_active.account_id,
         scenario_id="synthetic",
         event_start=ctf_event_active.event_start,
         event_end=ctf_event_active.event_end,
     )
+    account = Account.objects.get(pk=event.account_id)
     service = create_service_principal("CTF administrator")
     credential = CredentialContext(
         service,
@@ -79,12 +76,12 @@ def test_service_administrator_uses_live_event_policy_and_exact_scope(ctf_event_
 
 
 @pytest.mark.django_db
-def test_temporary_participant_cannot_use_event_administration(ctf_event_active):
+def test_temporary_participant_cannot_use_event_administration(ctf_event_active, organizer_credential):
     from config.credential_scope import temporary_participant_credential
     from ctf.services.participant.accounts import create_participant_accounts
     from ctf.services.unified_authorization import require_event_action
 
-    participant = create_participant_accounts(ctf_event_active.pk, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.pk, count=1, actor=organizer_credential)[0]
     credential = temporary_participant_credential(participant.user)
     with pytest.raises(CTFPermissionError):
         require_event_action(credential, participant.event_id, "event.manage_staff")
@@ -159,3 +156,177 @@ def test_business_event_cannot_claim_a_direct_account_parent(ctf_event_active, m
     with pytest.raises(CTFPermissionError):
         require_event_action(credential, event.pk, "event.manage_config")
     assert checked == []
+
+
+@pytest.mark.django_db
+def test_service_principal_creates_updates_and_delegates_event_without_human_projection(monkeypatch):
+    """Service administrators use the same parent/event policy and principal topology."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from ctf.enums import EventStaffRole
+    from ctf.services.event import assign_event_staff, create_event_for_credential, update_event
+    from ctf.services.event.staff import actions_for_role
+    from management.services import create_service_principal
+    from shared.authorization import port
+    from workspaces.models import Organization
+    from workspaces.services import create_account
+
+    account = create_account(kind="team", name="Service event account")
+    organization = Organization.objects.get(account_id=account.id, is_default=True)
+    owner = create_service_principal("Service event owner")
+    delegate = create_service_principal("Service event delegate")
+    credential = CredentialContext(
+        owner,
+        "service",
+        uuid4(),
+        CredentialCeiling(
+            frozenset(
+                {
+                    "organization.create_event",
+                    "event.manage",
+                    "event.manage_staff",
+                    *actions_for_role(EventStaffRole.CO_ORGANIZER.value),
+                }
+            )
+        ),
+        frozenset(),
+    )
+    checked = []
+
+    def check(request):
+        checked.append(request)
+        return AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")
+
+    relationships = set()
+
+    def write_relationships(change):
+        from shared.authorization import PolicyEffect
+
+        relationships.update((row.user, row.relation, row.object) for row in change.writes)
+        logical = change.grant_tuple
+        logical_key = (logical.user, logical.relation, logical.object)
+        if change.effect == PolicyEffect.GRANT:
+            relationships.add(logical_key)
+        else:
+            relationships.discard(logical_key)
+
+    def read_relationships(change):
+        from shared.authorization import RelationshipState
+
+        row = change.grant_tuple
+        return RelationshipState((row.user, row.relation, row.object) in relationships, False)
+
+    provider = SimpleNamespace(
+        store_id="test-store",
+        model_id="test-model",
+        check=check,
+        batch_check=lambda requests: tuple(check(request) for request in requests),
+        write_relationships=write_relationships,
+        read_relationships=read_relationships,
+    )
+    monkeypatch.setattr(port, "_provider_factory", lambda: provider)
+    now = timezone.now()
+    event = create_event_for_credential(
+        credential,
+        {
+            "name": "Principal-native event",
+            "event_start": now + timedelta(days=1),
+            "event_end": now + timedelta(days=2),
+            "organization": organization.uuid,
+        },
+    )
+
+    assert event.created_by_id is None
+    assert event.creator_principal_uuid == owner.uuid
+    assert event.owner_principal_uuid == owner.uuid
+    assert event.authorization_publication_state == "confirmed"
+    assert relationships == {
+        (f"organization:{organization.uuid}", "organization", f"event:{event.pk}"),
+        (f"principal:{owner.uuid}", "direct_administrator", f"event:{event.pk}"),
+    }
+    assert checked[-1].action == "organization.create_event"
+
+    update_event(event.pk, {"description": "updated"}, actor_id=credential)
+    assert checked[-1].action == "event.manage_config"
+    staff_checks_start = len(checked)
+    staff = assign_event_staff(event.pk, credential, delegate.uuid, EventStaffRole.CO_ORGANIZER.value)
+
+    assert staff.user_id is None
+    assert staff.principal_uuid == delegate.uuid
+    delegated_actions = [request.action for request in checked[staff_checks_start:]]
+    assert set(actions_for_role(EventStaffRole.CO_ORGANIZER.value)) <= set(delegated_actions)
+    assert delegated_actions.count("event.manage") == len(actions_for_role(EventStaffRole.CO_ORGANIZER.value))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_event_relationship_publication_recovers_lost_acknowledgement(monkeypatch):
+    """A provider timeout after commit is reconciled by primary readback."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from ctf.services.event import create_event_for_credential
+    from management.services import create_service_principal
+    from shared.authorization import RelationshipState, port
+    from workspaces.models import Organization
+    from workspaces.services import create_account
+
+    account = create_account(kind="team", name="Lost acknowledgement account")
+    organization = Organization.objects.get(account_id=account.id, is_default=True)
+    owner = create_service_principal("Lost acknowledgement owner")
+    credential = CredentialContext(
+        owner,
+        "service",
+        uuid4(),
+        CredentialCeiling(frozenset({"organization.create_event"})),
+        frozenset(),
+    )
+    relationships = set()
+    first = True
+    provider_io_in_atomic = []
+
+    def check(_request):
+        return AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")
+
+    def write_relationships(change):
+        nonlocal first
+        from django.db import connection
+
+        provider_io_in_atomic.append(connection.in_atomic_block)
+        relationships.update((row.user, row.relation, row.object) for row in change.writes)
+        if first:
+            first = False
+            raise RuntimeError("lost acknowledgement")
+
+    def read_relationships(change):
+        row = change.grant_tuple
+        return RelationshipState((row.user, row.relation, row.object) in relationships, False)
+
+    monkeypatch.setattr(
+        port,
+        "_provider_factory",
+        lambda: SimpleNamespace(
+            store_id="test-store",
+            model_id="test-model",
+            check=check,
+            write_relationships=write_relationships,
+            read_relationships=read_relationships,
+        ),
+    )
+    now = timezone.now()
+    event = create_event_for_credential(
+        credential,
+        {
+            "name": "Lost acknowledgement event",
+            "event_start": now + timedelta(days=1),
+            "event_end": now + timedelta(days=2),
+            "organization": organization.uuid,
+        },
+    )
+
+    assert event.authorization_publication_state == "confirmed"
+    assert event.authorization_provider_store_id == "test-store"
+    assert event.authorization_model_id == "test-model"
+    assert provider_io_in_atomic == [False, False]

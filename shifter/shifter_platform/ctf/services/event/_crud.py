@@ -24,11 +24,13 @@ from ctf.models import CTFEvent
 from shared.log_sanitize import safe_log_value
 
 from ._validation import validate_content_scenario_access, validate_scoring_mode
-from ._workspace import resolve_event_workspace_id
+from ._workspace import resolve_event_placement
 from .scheduling import _reschedule_event_tasks, _reschedule_live_event_schedule
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+
+    from shared.credentials import CredentialContext
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +72,16 @@ _EVENT_MUTABLE_FIELDS = frozenset(
 )
 
 
-def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
-    """Create a new CTF event.
+def create_event_for_credential(
+    credential: CredentialContext,
+    event_data: dict[str, Any],
+    *,
+    creator_user: User | None = None,
+) -> CTFEvent:
+    """Create a new event after exact parent policy, with principal attribution.
 
     Args:
-        user: The user creating the event (becomes created_by).
+        credential: The current human or service proof.
         event_data: Dictionary containing event fields.
 
     Returns:
@@ -83,7 +90,7 @@ def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
     Raises:
         CTFValidationError: If event data is invalid.
     """
-    logger.info("Creating CTF event for user %s", safe_log_value(user.email))
+    logger.info("Creating CTF event for principal %s", safe_log_value(credential.principal.uuid))
 
     # Validate required fields
     required_fields = ["name", "event_start", "event_end"]
@@ -109,8 +116,8 @@ def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
     # created_by, id, timestamps, etc.
     safe_data = {k: v for k, v in event_data.items() if k in _EVENT_MUTABLE_FIELDS}
     scenario_id = str(safe_data.get("scenario_id", CTFEvent._meta.get_field("scenario_id").default))
-    validate_content_scenario_access(user, scenario_id)
-    workspace_id = resolve_event_workspace_id(user, event_data)
+    placement = resolve_event_placement(credential, event_data)
+    validate_content_scenario_access(credential, scenario_id, scope=placement.scope)
     from ctf.services.content_resolution import resolve_scenario_ctf_content
 
     resolved_content = resolve_scenario_ctf_content(scenario_id)
@@ -120,33 +127,71 @@ def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
 
         cms_fence_pack_reference(scenario_id)
         event = CTFEvent.objects.create(
-            created_by=user,
-            workspace_id=workspace_id,
+            created_by=creator_user,
+            creator_principal_uuid=credential.principal.uuid,
+            owner_principal_uuid=credential.principal.uuid,
+            scope_kind=placement.scope.kind,
+            account_id=placement.account_id,
+            organization_id=placement.organization_id,
+            workspace_id=placement.workspace_id,
+            authorization_publication_state="requested",
             status=EventStatus.DRAFT.value,
             **safe_data,
         )
-        if "model_sources" in event_data:
-            from .model_sources import set_event_model_sources
-
-            set_event_model_sources(event, user, event_data["model_sources"], expected_revision=0)
-            event.save(update_fields=["model_sources", "model_source_actor_id", "model_source_revision", "updated_at"])
-        if resolved_content is not None:
-            from ctf.services.content_hydration import hydrate_event_ctf_content
-
-            hydrate_event_ctf_content(event.pk, resolved_content, actor_id=user.pk)
-
         if event.public_registration_enabled:
             from ctf.services.audit import audit_public_registration_publication
 
             audit_public_registration_publication(
-                actor_id=user.pk,
+                actor_id=creator_user.pk if creator_user is not None else None,
                 event_id=event.pk,
                 enabled=True,
+                principal=credential.principal,
             )
+    from .relationships import publish_event_relationships
 
-        logger.info("Created CTF event %s: %s", event.id, event.name)
+    event = publish_event_relationships(event.pk)
+
+    try:
+        with transaction.atomic():
+            if "model_sources" in event_data:
+                from .model_sources import set_event_model_sources
+
+                set_event_model_sources(event, credential, event_data["model_sources"], expected_revision=0)
+                event.save(
+                    update_fields=[
+                        "model_sources",
+                        "model_source_authority",
+                        "model_source_actor_id",
+                        "model_source_revision",
+                        "updated_at",
+                    ]
+                )
+            if resolved_content is not None:
+                from ctf.services.content_hydration import hydrate_event_ctf_content
+
+                hydrate_event_ctf_content(event.pk, resolved_content, actor_id=credential)
+
+            logger.info("Created CTF event %s: %s", event.id, event.name)
+    except Exception:
+        # The event is not usable until all requested source/content state is
+        # installed. Remove the SQL aggregate on initialization failure rather
+        # than exposing a published but partially configured event. Any provider
+        # tuple is harmless without a matching SQL target and is reconciled by
+        # the cutover/runtime relationship inventory.
+        with transaction.atomic():
+            incomplete = CTFEvent.all_objects.filter(pk=event.pk).first()
+            if incomplete is not None:
+                incomplete.delete(soft=False)
+        raise
 
     return event
+
+
+def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
+    """Compatibility entrypoint using the same principal policy as native callers."""
+    from shared.api.principals import human_session_credential
+
+    return create_event_for_credential(human_session_credential(user), event_data, creator_user=user)
 
 
 def _validate_event_time_range(event_start: datetime, event_end: datetime) -> None:
@@ -165,6 +210,7 @@ def _reschedule_event_if_schedule_changed(
     old_event_start: datetime,
     old_event_end: datetime,
     old_cleanup_time: datetime | None,
+    actor: object | None,
 ) -> None:
     """Reschedule pending tasks when event times change."""
     schedule_changed = ("event_start" in safe_data and safe_data["event_start"] != old_event_start) or (
@@ -172,7 +218,9 @@ def _reschedule_event_if_schedule_changed(
     )
     event_end_changed = "event_end" in safe_data and safe_data["event_end"] != old_event_end
     if schedule_changed and event.status == EventStatus.REGISTRATION.value:
-        _reschedule_event_tasks(event)
+        if actor is None:
+            raise CTFValidationError("Lifecycle authority unavailable")
+        _reschedule_event_tasks(event, actor)
     elif event_end_changed and event.status in (
         EventStatus.ACTIVE.value,
         EventStatus.PAUSED.value,
@@ -206,7 +254,7 @@ def _reject_team_config_changes_after_start(event: CTFEvent, event_data: dict[st
         )
 
 
-def delete_event(event_id: UUID, *, actor_id: int | None = None) -> None:
+def delete_event(event_id: UUID, *, actor_id: object | None = None) -> None:
     """Soft-delete a CTF event.
 
     Args:
@@ -246,7 +294,7 @@ def delete_event(event_id: UUID, *, actor_id: int | None = None) -> None:
 
 def force_delete_event(
     event_id: UUID,
-    actor: User,
+    actor: object,
     confirmation_name: str,
 ) -> dict[str, Any]:
     """Force-delete a CTF event and all associated resources.
@@ -272,6 +320,7 @@ def force_delete_event(
     from ctf.models import CTFChallengeFile, CTFParticipant
     from ctf.s3 import delete_challenge_file
     from ctf.services import event as _e
+    from ctf.services.actors import event_actor_credential
     from ctf.services.authorization import assert_event_capability
     from ctf.services.range.lifecycle import _destroy_single_range
 
@@ -288,7 +337,8 @@ def force_delete_event(
     # co-organizer, or the platform-admin override may force-delete; moderators/
     # judges cannot. The view checks this too, but internal callers must not
     # bypass it.
-    assert_event_capability(actor.pk, event, EventCapability.DELETE)
+    credential = event_actor_credential(actor)
+    assert_event_capability(credential, event, EventCapability.DELETE)
 
     if confirmation_name != event.name:
         raise CTFValidationError(
@@ -318,7 +368,7 @@ def force_delete_event(
     ).select_related("user")
     for participant in participants_with_ranges:
         try:
-            if _destroy_single_range(participant, participant.user):
+            if _destroy_single_range(participant, credential):
                 ranges_destroyed += 1
         except Exception:
             ranges_failed += 1
@@ -354,11 +404,10 @@ def force_delete_event(
         event.delete(soft=False)
 
     logger.warning(
-        "FORCE DELETE: Event %s (%s) permanently deleted by %s (pk=%s). Ranges destroyed: %d, ranges failed: %d.",
+        "FORCE DELETE: Event %s (%s) permanently deleted by an authorized principal. "
+        "Ranges destroyed: %d, ranges failed: %d.",
         safe_log_value(event_id),
         safe_log_value(event_name),
-        safe_log_value(actor.email),
-        actor.pk,
         ranges_destroyed,
         ranges_failed,
     )

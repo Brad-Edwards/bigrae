@@ -1,4 +1,4 @@
-"""Dormant account/profile adapters; production routing remains unchanged."""
+"""Production account/profile adapters backed by policy-aware services."""
 
 from uuid import UUID
 
@@ -52,7 +52,17 @@ class AccountPrincipalContextView(_AccountAPIView):
 class PolicyAccountDetailView(AccountDetailView):
     """Read/update the canonical account name without altering account identity."""
 
-    @extend_schema(request=SubdivisionCommandSerializer, responses=AccountViewSerializer)
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name"],
+                "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 200}},
+            }
+        },
+        responses=AccountViewSerializer,
+    )
     def patch(self, request: Request, account_uuid: UUID) -> Response:
         command = SubdivisionCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -96,7 +106,7 @@ class PolicyOrganizationProfileView(_AccountAPIView):
 class PolicyWorkspaceQuotaView(_AccountAPIView):
     """Expose the same bounded quota projection to authorized humans/services."""
 
-    @extend_schema(responses=WorkspaceQuotaSerializer)
+    @extend_schema(responses=WorkspaceQuotaSerializer, operation_id="api_v1_workspace_quota")
     def get(self, request: Request, workspace_uuid: UUID) -> Response:
         result = services.admin_workspace_quota_usage(
             authenticated_credential(request), configured_authorization_provider(), workspace_uuid

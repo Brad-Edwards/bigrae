@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from django.contrib.auth.models import User
 from rest_framework import permissions
 
-from shared.api.principals import active_actor_user
+from shared.api.principals import active_actor_user, authenticated_credential
 from shared.auth import PARTICIPANT_ALLOWED_LIFECYCLE_VERBS, is_ctf_participant_only
 
 if TYPE_CHECKING:
@@ -26,6 +26,10 @@ class HasMissionControlActor(permissions.BasePermission):
     message = "API token is not associated with an active user."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
+        try:
+            authenticated_credential(request)
+        except ValueError:
+            return False
         user = mission_control_actor_user(request)
         return bool(user and user.is_active)
 

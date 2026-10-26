@@ -23,4 +23,4 @@ Teams need a designated manager for administrative actions. Without a captain ro
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFTeam.captain FK field - data model only, no captain actions implemented)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/admin.py` (Django admin exposes captain field for organizer reassignment (partial))
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#646` (CTF-503: Team Captains)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#646` (CTF-503: Team Captains)

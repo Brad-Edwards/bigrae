@@ -11,6 +11,7 @@ from rest_framework import serializers
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -84,7 +85,7 @@ class PolicyAdminView(APIView):
 
     authentication_classes = [ApiTokenAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticatedSessionOrApiToken]
-    parser_classes = [ClosedJSONParser]
+    parser_classes = [ClosedJSONParser, FormParser, MultiPartParser]
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, PermissionError):
@@ -107,7 +108,11 @@ class PolicyAdminUserListView(PolicyAdminView, ListAPIView):
 
     serializer_class = AdminUserListItemSerializer
 
-    @extend_schema(parameters=[AdminUserListQuerySerializer], responses=AdminUserListItemSerializer(many=True))
+    @extend_schema(
+        parameters=[AdminUserListQuerySerializer],
+        responses=AdminUserListItemSerializer(many=True),
+        operation_id="api_v1_administer_users_list",
+    )
     def get(self, request: Request, *args: object, **kwargs: object) -> Response:
         return super().get(request, *args, **kwargs)
 
@@ -126,7 +131,7 @@ class PolicyAdminUserDetailView(PolicyAdminView, RetrieveAPIView):
 
     serializer_class = PolicyAdminUserDetailSerializer
 
-    @extend_schema(responses=PolicyAdminUserDetailSerializer)
+    @extend_schema(responses=PolicyAdminUserDetailSerializer, operation_id="api_v1_administer_users_retrieve")
     def get(self, request: Request, *args: object, **kwargs: object) -> Response:
         return super().get(request, *args, **kwargs)
 
@@ -140,7 +145,11 @@ class PolicyAdminUserDetailView(PolicyAdminView, RetrieveAPIView):
     def get_serializer_context(self) -> dict[str, Any]:
         return {**super().get_serializer_context(), "policy_actor": authenticated_credential(self.request)}
 
-    @extend_schema(request=PolicyUserMetadataCommandSerializer, responses=PolicyAdminUserDetailSerializer)
+    @extend_schema(
+        request=PolicyUserMetadataCommandSerializer,
+        responses=PolicyAdminUserDetailSerializer,
+        operation_id="api_v1_administer_users_update",
+    )
     def patch(self, request: Request, pk: int) -> Response:
         command = PolicyUserMetadataCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -165,7 +174,11 @@ class PolicyAdminUserDetailView(PolicyAdminView, RetrieveAPIView):
 class PolicyAdminUserLifecycleView(PolicyAdminView, APIView):
     """Run the one locked lifecycle service for human or service administrators."""
 
-    @extend_schema(request=PolicyLifecycleCommandSerializer, responses=PolicyAdminUserDetailSerializer)
+    @extend_schema(
+        request=PolicyLifecycleCommandSerializer,
+        responses=PolicyAdminUserDetailSerializer,
+        operation_id="api_v1_administer_users_lifecycle",
+    )
     def post(self, request: Request, pk: int) -> Response:
         command = PolicyLifecycleCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -201,7 +214,11 @@ def _policy_transition(request: Request, pk: int, action: lifecycle.AccountLifec
 class PolicyAdminUserSetActiveView(PolicyAdminView, APIView):
     """Preserve the v1 set-active command through the policy lifecycle service."""
 
-    @extend_schema(request=PolicySetActiveCommandSerializer, responses=PolicyAdminUserDetailSerializer)
+    @extend_schema(
+        request=PolicySetActiveCommandSerializer,
+        responses=PolicyAdminUserDetailSerializer,
+        operation_id="api_v1_administer_users_set_active",
+    )
     def post(self, request: Request, pk: int) -> Response:
         command = PolicySetActiveCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -216,7 +233,11 @@ class PolicyAdminUserSetActiveView(PolicyAdminView, APIView):
 class PolicyAdminUserDeleteView(PolicyAdminView, APIView):
     """Preserve the v1 soft-delete command through the policy lifecycle service."""
 
-    @extend_schema(request=EmptyPolicyCommandSerializer, responses=PolicyAdminUserDetailSerializer)
+    @extend_schema(
+        request=EmptyPolicyCommandSerializer,
+        responses=PolicyAdminUserDetailSerializer,
+        operation_id="api_v1_administer_users_soft_delete",
+    )
     def post(self, request: Request, pk: int) -> Response:
         command = EmptyPolicyCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -226,7 +247,11 @@ class PolicyAdminUserDeleteView(PolicyAdminView, APIView):
 class PolicyAdminUserResetPasswordView(PolicyAdminView, APIView):
     """Request a local reset through the installation policy and proven delivery service."""
 
-    @extend_schema(request=EmptyPolicyCommandSerializer, responses=PolicyAdminUserDetailSerializer)
+    @extend_schema(
+        request=EmptyPolicyCommandSerializer,
+        responses=PolicyAdminUserDetailSerializer,
+        operation_id="api_v1_administer_users_reset_password",
+    )
     def post(self, request: Request, pk: int) -> Response:
         command = EmptyPolicyCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)

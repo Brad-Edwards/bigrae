@@ -84,6 +84,31 @@ def range_egress_compatible_with_event(
     return pinned_mode is not None and pinned_mode == current_mode
 
 
+def range_egress_compatible_with_scope(range_instance_pk: int, scope) -> bool:
+    """Compare an event range's pinned posture with its immutable SQL scope."""
+    from engine.services import get_pinned_range_egress_mode_by_request
+    from workspaces.services import resolve_resource_scope
+
+    instance = RangeInstance.objects.select_related("request").filter(pk=range_instance_pk).first()
+    if instance is None or instance.request is None:
+        return False
+    resolved = resolve_resource_scope(scope)
+    if (instance.scope_kind, instance.account_id, instance.organization_id, instance.workspace_id) != (
+        resolved.kind,
+        resolved.account_id,
+        resolved.organization_id,
+        resolved.workspace_id,
+    ):
+        return False
+    if resolved.workspace_id is None:
+        current_mode = "none"
+    else:
+        from cms.services._range_workspace import resolve_effective_egress_mode_locked
+
+        current_mode = resolve_effective_egress_mode_locked(resolved.workspace_id)
+    return get_pinned_range_egress_mode_by_request(instance.request.request_id) == current_mode
+
+
 def _engine_rebind_range_workspace_call(
     request_id: uuid.UUID, *, expected_workspace_id: int, new_workspace_id: int
 ) -> RangeWorkspaceRebindOutcome:  # NOSONAR

@@ -21,4 +21,4 @@ Hand-maintaining flat CIDR lists per scenario and per platform deployment does n
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#777` (PLAT-222: Composable Egress Allowlist Sets with Admin UI)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#777` (PLAT-222: Composable Egress Allowlist Sets with Admin UI)

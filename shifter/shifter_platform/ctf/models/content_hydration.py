@@ -43,9 +43,13 @@ class CTFContentHydrationReceipt(CTFBaseModel):
     drifted_at = models.DateTimeField(null=True, blank=True)
     hydrated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="ctf_content_hydrations",
+        help_text="Optional legacy human projection; never application authority",
     )
+    hydrated_by_principal_uuid = models.UUIDField(db_index=True, editable=False)
     hydrated_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -54,6 +58,14 @@ class CTFContentHydrationReceipt(CTFBaseModel):
         db_table = "ctf_content_hydration_receipt"
         verbose_name = "CTF content hydration receipt"
         verbose_name_plural = "CTF content hydration receipts"
+
+    def save(self, *args, **kwargs) -> None:
+        """Project retained human attribution to its stable principal on create."""
+        if self._state.adding and self.hydrated_by_id is not None and not self.hydrated_by_principal_uuid:
+            from shared.principal_port import principal_for_user
+
+            self.hydrated_by_principal_uuid = principal_for_user(self.hydrated_by).uuid
+        super().save(*args, **kwargs)
 
 
 __all__ = ["CTFContentHydrationReceipt"]

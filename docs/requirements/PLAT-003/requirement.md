@@ -26,7 +26,7 @@ Ranges are the core infrastructure product of Shifter. If the platform deploys o
 - IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/components/network.py` (Network component - creates AWS VPC subnets/security groups/route tables)
 - IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/executors/ssm_executor.py` (SSM Executor - uses AWS SSM for remote command execution on range VMs)
 - IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/config.py` (Provisioner config - RangeConfig uses AWS-specific fields (AMI IDs, VPC ID, instance profiles))
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#672` (PLAT-003: GCP Range Provisioning)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#672` (PLAT-003: GCP Range Provisioning)
 - DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/platform_infrastructure/networking.md` (Networking architecture - GCP platform and range connectivity)
 - DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/platform_infrastructure/gdc-provisioning.md` (GDC provisioning architecture - runtime primitives and range networking)
 - IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/range_terraform_runner.py` (Provider-routed range Terraform runner)

@@ -182,6 +182,8 @@ class RangeInstance(SoftDeleteMixin, models.Model):
             models.UniqueConstraint(
                 fields=["owner_principal_uuid", "range_source"],
                 condition=models.Q(owner_principal_uuid__isnull=False, deleted_at__isnull=True)
+                & models.Q(range_source=RangeSource.MISSION_CONTROL.value)
+                & ~models.Q(scope_kind="installation")
                 & ~models.Q(status=ResourceStatus.DESTROYING.value),
                 name="uq_range_active_principal_source",
             ),
@@ -213,7 +215,10 @@ class RangeInstance(SoftDeleteMixin, models.Model):
             # Control + CTF coexistence is preserved.
             models.UniqueConstraint(
                 fields=["user_id", "range_source"],
-                condition=models.Q(deleted_at__isnull=True) & ~models.Q(status=ResourceStatus.DESTROYING.value),
+                condition=models.Q(deleted_at__isnull=True)
+                & models.Q(range_source=RangeSource.MISSION_CONTROL.value)
+                & ~models.Q(scope_kind="installation")
+                & ~models.Q(status=ResourceStatus.DESTROYING.value),
                 name=ACTIVE_RANGE_UNIQUE_CONSTRAINT,
             ),
             models.CheckConstraint(

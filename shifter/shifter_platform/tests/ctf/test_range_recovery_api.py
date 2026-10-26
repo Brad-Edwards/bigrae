@@ -31,6 +31,7 @@ class TestRangeRecoveryApi:
         organizer_user,
         ctf_participant: CTFParticipant,
         second_participant_user,
+        settings,
     ):
         """Organizer recovers a participant's range in their own event -> 200 + recovery result (issue #1018).
 
@@ -43,13 +44,19 @@ class TestRangeRecoveryApi:
         from ctf.models import CTFSpareRange
         from tests.ctf.test_services.test_range_recovery import _make_spare_range
 
-        old_range = _make_spare_range(owner=ctf_participant.user)
+        settings.ENGINE_TASK_CLUSTER = "synthetic-namespace"
+        settings.ENGINE_TASK_DEFINITION = "example.test/synthetic@sha256:" + "1" * 64
+
+        old_range = _make_spare_range(event=ctf_participant.event, owner=ctf_participant.user)
         ctf_participant.range_instance_id = old_range.pk
         ctf_participant.save(update_fields=["range_instance_id"])
-        spare_range = _make_spare_range(owner=second_participant_user, scenario_id=ctf_participant.event.scenario_id)
+        spare_range = _make_spare_range(
+            event=ctf_participant.event,
+            owner=ctf_participant.event.created_by,
+            scenario_id=ctf_participant.event.scenario_id,
+        )
         CTFSpareRange.objects.create(
             event=ctf_participant.event,
-            owner_user=second_participant_user,
             range_instance_id=spare_range.pk,
             status=SpareRangeStatus.READY.value,
         )
@@ -82,25 +89,39 @@ class TestRangeRecoveryApi:
 
 
 @pytest.fixture
-def event_with_spare_scenario(ctf_event: CTFEvent, organizer_user, monkeypatch):
+def event_with_spare_scenario(ctf_event: CTFEvent, organizer_user, monkeypatch, settings):
     """CTF event configured with a RAES source and cloud dispatch held at its seam."""
     from cms.models import RaesPackageSource
+    from cms.raes.dispatch import CmsRaesDispatchPort
+    from workspaces.services import resource_scope_from_ids
 
     monkeypatch.setattr("engine.services._raes_range.start_raes_range_provisioning", lambda *_a, **_kw: None)
+    settings.ENGINE_TASK_CLUSTER = "synthetic-namespace"
+    settings.ENGINE_TASK_DEFINITION = "example.test/synthetic@sha256:" + "1" * 64
 
-    def dispatch(request_id, user, _source, backend_admission, workspace_id, egress_mode, **_kwargs):
-        from engine.services import create_raes_range
-
-        create_raes_range(
-            request_id=request_id,
-            user_id=user.id,
-            compiled_plan={"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": {}},
-            backend_admission=backend_admission,
-            workspace_id=workspace_id,
-            egress_mode=egress_mode,
+    def dispatch(request_id, credential, source, options):
+        port = CmsRaesDispatchPort(
+            user_id=None,
+            request_id=str(request_id),
+            workspace_id=options.workspace_id,
+            backend_admission=options.backend_admission,
+            egress_mode=options.egress_mode,
+            credential=credential,
+            scope=options.principal_scope,
+            source=source,
+            owner_principal=options.owner_principal,
+            authority_action=options.authority_action,
+            authority_target=options.authority_target,
         )
+        port.realize({"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": {}})
 
-    monkeypatch.setattr("cms.services._raes_range_create._dispatch_raes_package", dispatch)
+    monkeypatch.setattr("cms.services._raes_dispatch.dispatch_repo_raes_package", dispatch)
+    scope = resource_scope_from_ids(
+        kind=ctf_event.scope_kind,
+        account_id=ctf_event.account_id,
+        organization_id=ctf_event.organization_id,
+        workspace_id=ctf_event.workspace_id,
+    )
     source = RaesPackageSource.objects.create(
         scenario_id="ctf-spare-pool-api-flow-test",
         contract_kind="raes",
@@ -110,6 +131,9 @@ def event_with_spare_scenario(ctf_event: CTFEvent, organizer_user, monkeypatch):
         package_digest="sha256:" + "a" * 64,
         conformance_status="passed",
         registered_by=organizer_user,
+        owner_principal_uuid=ctf_event.owner_principal_uuid,
+        scope_kind="account",
+        account_uuid=scope.account_uuid,
     )
     ctf_event.scenario_id = source.scenario_id
     ctf_event.range_config = {"agents_by_os": {}, "ngfw_enabled": False}

@@ -1,8 +1,8 @@
 site_name: Shifter Documentation
 site_description: Deploy, operate, and develop the Shifter cyber-range platform.
 site_url: https://brad-edwards.github.io/shifter/
-repo_url: https://github.com/Brad-Edwards/shifter
-repo_name: Brad-Edwards/shifter
+repo_url: https://github.com/Brad-Edwards/bigrae
+repo_name: Brad-Edwards/bigrae
 edit_uri: edit/dev/docs/
 docs_dir: docs
 

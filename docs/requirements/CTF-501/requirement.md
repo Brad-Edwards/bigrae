@@ -22,5 +22,5 @@ Not all CTF events are team-based, some are individual competitions. Organizers 
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFEvent.team_mode field (line 279))
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#644` (CTF-501: Team Mode Toggle)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#644` (CTF-501: Team Mode Toggle)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (Scoreboard view team_mode branching (line 373))

@@ -27,5 +27,5 @@ Score timelines help participants and organizers understand performance patterns
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/scoreboard.html` (Participant scoreboard - score timeline chart)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/participant_detail.html` (Admin participant detail - score timeline chart for organizers)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring.py` (TestGetScoreTimeline - 8 tests for score timeline service)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#572` (CTF-408: Per-User Score Timeline)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#572` (CTF-408: Per-User Score Timeline)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/scoreboard.py` (CTF Views - no score timeline/progression endpoint exists)

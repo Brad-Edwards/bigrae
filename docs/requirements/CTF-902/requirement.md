@@ -31,4 +31,4 @@ Range lifecycle must be tightly coupled to event lifecycle to prevent orphaned r
 - IMPLEMENTS → CODE_FILE `ctf/services/notification.py` (Organizer notification on provisioning failure)
 - IMPLEMENTS → CODE_FILE `static/js/ctf-ranges.js` (Organizer range UI - stop/start/restart/destroy action buttons)
 - TESTS → TEST `tests/ctf/test_services/test_range.py` (Range service tests - provision, destroy, status, cleanup)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#542` (CTF-902: Range Lifecycle Management)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#542` (CTF-902: Range Lifecycle Management)

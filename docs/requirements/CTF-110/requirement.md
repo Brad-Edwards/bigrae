@@ -25,4 +25,4 @@ Visibility control lets organizers stage challenges before making them available
 - IMPLEMENTS → CODE_FILE `ctf/services/challenge.py` (get_available_challenges excludes hidden; visibility in mutable fields)
 - IMPLEMENTS → CODE_FILE `ctf/services/submission.py` (submit_flag blocks hidden and locked challenges)
 - TESTS → TEST `tests/ctf/test_challenges.py` (TestChallengeVisibility, 10 tests covering all visibility states and filtering)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#544` (CTF-110: Challenge Visibility Control)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#544` (CTF-110: Challenge Visibility Control)

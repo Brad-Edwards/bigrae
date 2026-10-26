@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from django.utils import timezone
@@ -287,14 +288,14 @@ def test_owner_invalidation_advances_the_shared_fence_before_fanout():
     assert (other.authority_revision, other.state) == (1, "allowed")
 
 
-def test_range_mutation_invalidates_range_collection_owner_and_workspace_fences(django_user_model):
+def test_range_mutation_invalidates_only_authority_facts_that_changed():
     from engine.models import Range, SharingAuthorityFence
 
     svc = _services()
-    owner = django_user_model.objects.create_user("range-fence@example.test")
+    owner_uuid = uuid4()
     refs = (
         {"owner": "engine", "reference": "all-ranges"},
-        {"owner": "management", "reference": f"user:{owner.pk}"},
+        {"owner": "management", "reference": f"principal:{owner_uuid}"},
         {"owner": "workspaces", "reference": "workspace-id:51"},
     )
     for authority_ref in refs:
@@ -305,7 +306,11 @@ def test_range_mutation_invalidates_range_collection_owner_and_workspace_fences(
             state="allowed",
         )
 
-    range_obj = Range.objects.create(user=owner, workspace_id=51, status=Range.Status.READY)
+    range_obj = Range.objects.create(
+        owner_principal_uuid=owner_uuid,
+        workspace_id=51,
+        status=Range.Status.READY,
+    )
     for authority_ref in refs:
         fence = SharingAuthorityFence.objects.get(
             deployment_id=_DEPLOYMENT,
@@ -313,6 +318,14 @@ def test_range_mutation_invalidates_range_collection_owner_and_workspace_fences(
             authority_reference=authority_ref["reference"],
         )
         assert (fence.authority_revision, fence.state) == (2, "unknown")
+
+    for authority_ref in refs:
+        svc["fence"](
+            deployment_id=_DEPLOYMENT,
+            authority_ref=authority_ref,
+            authority_revision=3,
+            state="allowed",
+        )
 
     range_ref = {"owner": "engine", "reference": f"range:{range_obj.uuid}"}
     svc["fence"](
@@ -329,6 +342,13 @@ def test_range_mutation_invalidates_range_collection_owner_and_workspace_fences(
         authority_reference=f"range:{range_obj.uuid}",
     )
     assert (range_fence.authority_revision, range_fence.state) == (2, "unknown")
+    for authority_ref in refs[1:]:
+        fence = SharingAuthorityFence.objects.get(
+            deployment_id=_DEPLOYMENT,
+            authority_owner=authority_ref["owner"],
+            authority_reference=authority_ref["reference"],
+        )
+        assert (fence.authority_revision, fence.state) == (3, "allowed")
 
 
 def test_owner_resolution_refreshes_fences_and_publishes_next_membership_revision():

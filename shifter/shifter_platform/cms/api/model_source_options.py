@@ -10,15 +10,12 @@ from cms.api.model_sources import ModelSourceViewSerializer
 from cms.api.preparation_adapters import PreparationSerializer
 from cms.services import model_source_alias_options
 from shared.api.errors import api_error_response
-from shared.api.permissions import IsAuthenticatedSession
+from shared.api.permissions import IsAuthenticatedSessionOrApiToken
+from shared.api.principals import authenticated_credential
+from shared.api_tokens.permissions import require_scope
+from shared.api_tokens.scopes import AUTHORIZATION_ACTION_SCOPES
 from shared.model_access import ContractError
-from workspaces.services import (
-    OrganizationAuthorizationError,
-    WorkspaceAuthorizationError,
-    WorkspaceOperation,
-    authorize_workspace,
-    list_actor_workspace_contexts,
-)
+from workspaces.services import AccountScopeError, OrganizationAuthorizationError, workspace_option
 
 
 class SourceOptionsQuerySerializer(PreparationSerializer):
@@ -56,34 +53,37 @@ class SourceOptionsSerializer(serializers.Serializer):
 
 
 class ModelSourceOptionsView(APIView):
-    """Discover source choices under the current session authority."""
+    """Discover source choices under the exact organization policy action."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = [
+        IsAuthenticatedSessionOrApiToken,
+        require_scope(AUTHORIZATION_ACTION_SCOPES["organization.manage_model_sources"]),
+    ]
 
     @extend_schema(parameters=[SourceOptionsQuerySerializer], responses=SourceOptionsSerializer)
     def get(self, request: Request) -> Response:
         query = SourceOptionsQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         values = query.validated_data
-        operation = (
-            WorkspaceOperation.USE_CTF_COMMUNICATIONS if values["purpose"] == "ctf" else WorkspaceOperation.LAUNCH_RANGE
-        )
-        contexts = [item for item in list_actor_workspace_contexts(request.user) if operation in item.capabilities]
-        selected = values.get("workspace") or next((item.workspace_uuid for item in contexts if item.is_personal), None)
+        selected = values.get("workspace")
         aliases: list[dict[str, object]] = []
         available = False
+        workspaces: list[dict[str, object]] = []
         try:
             if selected:
-                if values["purpose"] == "admin":
-                    from workspaces.services import authorize_model_source_workspace
-
-                    authority = authorize_model_source_workspace(request.user, workspace_uuid=selected)
-                else:
-                    authority = authorize_workspace(request.user, selected, operation)
+                workspace = workspace_option(selected)
                 aliases, available = model_source_alias_options(
-                    request.user, authority.organization_uuid, values["scenario"]
+                    authenticated_credential(request), workspace.organization_uuid, values["scenario"]
                 )
-        except (OrganizationAuthorizationError, WorkspaceAuthorizationError, ContractError, ValueError):
+                workspaces.append(
+                    {
+                        "uuid": workspace.uuid,
+                        "name": workspace.name,
+                        "organization_name": workspace.organization_name,
+                        "is_personal": False,
+                    }
+                )
+        except (AccountScopeError, OrganizationAuthorizationError, ContractError, ValueError):
             return api_error_response(
                 code="source_options_unavailable",
                 message="Model sources are unavailable for this workspace and scenario.",
@@ -92,15 +92,7 @@ class ModelSourceOptionsView(APIView):
             )
         return Response(
             {
-                "workspaces": [
-                    {
-                        "uuid": item.workspace_uuid,
-                        "name": item.workspace_name,
-                        "organization_name": item.organization.name,
-                        "is_personal": item.is_personal,
-                    }
-                    for item in contexts
-                ],
+                "workspaces": workspaces,
                 "workspace": selected,
                 "aliases": aliases,
                 "available": available,

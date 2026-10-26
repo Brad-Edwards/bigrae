@@ -162,6 +162,8 @@ Consumed by `.github/workflows/_gcp-dev.yml`.
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | secret | yes | Workload identity provider resource id. |
 | `GCP_BOOTSTRAP_ADMIN_EMAIL` | secret | yes | First Identity Platform operator, elevated in Django. Must match `GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN`. Required unless `SHIFTER_SKIP_OPERATOR_BOOTSTRAP=true` is set to deliberately skip operator creation (the skip is logged). |
 | `GCP_BOOTSTRAP_ADMIN_PASSWORD` | secret | yes | Initial password for the bootstrap operator (rotated by TOTP enrollment on first sign-in). Required unless `SHIFTER_SKIP_OPERATOR_BOOTSTRAP=true`. |
+| `IDENTITY_CUTOVER_FACTS_JSON` | secret | first hard cut | Closed `shifter.identity-cutover-facts/v1` document containing only reviewed internal mapping IDs. The workflow mounts it as an owner-only file in the one-shot cutover Job and deletes the Kubernetes Secret afterward. |
+| `IDENTITY_BOOTSTRAP_FACTS_JSON` | secret | first hard cut | Closed `shifter.identity-bootstrap-facts/v1` document naming the exact immutable provider issuer and subject for the first application administrator. Email lookup is not accepted. |
 | `GCP_CTF_CONTENT_BUCKET` | variable | with content refs | GCS bucket holding digest-pinned native CTF content bundles; rendered into the `ctf_content_bucket_name` tfvar and surfaced to the runtime as `SHIFTER_CTF_CONTENT_BUCKET`. **Required whenever the app secret bundle carries `ctf_content_references`:** `config/_ctf_content_settings.py` fails closed when references are configured without a bucket, so leaving this unset renders a ConfigMap with no binding and crashloops the portal. The reference catalog itself stays in the app secret, never here. |
 | `PLATFORM_BOOTSTRAP_STAFF_EMAILS` | secret | no | Comma-separated list of emails elevated to Django `is_staff` on first sign-in. |
 | `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS` | secret | no | Comma-separated list of emails elevated to `is_superuser`. |
@@ -252,7 +254,7 @@ not the whole cutover - the live activation is a **fail-closed operator step wit
 readback**:
 
 1. **Verify the OIDC subject format first.** `gh api
-   repos/Brad-Edwards/shifter/actions/oidc/customization/sub` must return
+   repos/Brad-Edwards/bigrae/actions/oidc/customization/sub` must return
    `use_default: true`, `use_immutable_subject: false`. A different result means
    the subjects in `local.federated_subjects` and the provider condition must be
    redesigned before applying - do not change the customization to fit the code.

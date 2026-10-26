@@ -21,14 +21,14 @@ A backend contract lets Shifter add and validate backends without spreading prov
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#721` (Architecture: root-configured backend bundles for OSS Shifter)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#722` (Draft requirements and ADR for root-configured backend bundles)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#726` (Derive runtime configuration from selected backend bundle)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#727` (Add backend-aware setup and doctor validation UX)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#728` (Migrate AWS support into a backend bundle)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#729` (Migrate GCP support into a backend bundle)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#731` (Define initial local backend scope)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#725` (Define backend bundle contract and registry)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#721` (Architecture: root-configured backend bundles for OSS Shifter)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#722` (Draft requirements and ADR for root-configured backend bundles)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#726` (Derive runtime configuration from selected backend bundle)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#727` (Add backend-aware setup and doctor validation UX)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#728` (Migrate AWS support into a backend bundle)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#729` (Migrate GCP support into a backend bundle)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#731` (Define initial local backend scope)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#725` (Define backend bundle contract and registry)
 - DOCUMENTS → DOCUMENTATION `docs/architecture/root-configured-backend-bundles.md` (Root-Configured Backend Bundles)
 - CONSTRAINS → ADR `ADR-011` (OSS deployments use root-configured backend bundles)
 - IMPLEMENTS → CODE_FILE `shifter/installation/contract.py` (installation.contract, BackendBundle and the typed contract parts (settings_model, generated_outputs, validation_checks, health_checks, capabilities, owned_files, docs))

@@ -24,5 +24,5 @@ Topics enable filtering challenges by attack technique across events, which is v
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFTopic model and topics M2M on CTFChallenge)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (_resolve_topics() and topics in create_challenge/update_challenge)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_challenges.py` (TestChallengeTopics: create, update, cross-event reuse, uniqueness, clear tests)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#552` (CTF-119: Challenge Topics)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#552` (CTF-119: Challenge Topics)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant_challenges.py` (Topic filtering in participant_challenges() and topics in API responses)

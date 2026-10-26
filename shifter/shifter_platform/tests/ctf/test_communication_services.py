@@ -14,7 +14,6 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import (
@@ -26,14 +25,33 @@ from ctf.models import (
     RecipientSnapshot,
 )
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign, resolve_recipients
+from shared.api.principals import human_session_credential
+from shared.principal_port import principal_for_user
+from workspaces.models import Account
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 
 
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
+def _account_uuid(user):
+    principal = principal_for_user(user)
+    account, _ = Account.objects.get_or_create(
+        individual_principal_uuid=principal.uuid,
+        defaults={"kind": Account.Kind.INDIVIDUAL, "name": f"Test account {user.pk}"},
+    )
+    return str(account.uuid)
+
+
+def _release(campaign, user, occurrence_key, **kwargs):
+    from ctf.services.communication import AdmissionActor
+
+    return release_campaign(
+        campaign,
+        occurrence_key=occurrence_key,
+        admission=AdmissionActor(credential=human_session_credential(user)),
+        **kwargs,
+    )
 
 
 def _participant(event, email, *, status=ParticipantStatus.ACTIVE.value, team=None):
@@ -68,23 +86,26 @@ def _draft(ctf_event, **overrides) -> CampaignDraft:
 
 
 def test_owner_can_create_a_campaign_for_their_event(organizer_user, ctf_event):
-    campaign = create_campaign(organizer_user, _workspace_uuid(organizer_user), _draft(ctf_event))
+    campaign = create_campaign(organizer_user, _account_uuid(organizer_user), _draft(ctf_event), parent_type="account")
 
     assert campaign.status == "draft"
-    assert campaign.workspace_id == ctf_event.workspace_id
+    assert campaign.account_id == ctf_event.account_id
+    assert campaign.workspace_id is None
     assert list(campaign.target_events.values_list("id", flat=True)) == [ctf_event.id]
     assert campaign.message_revisions.count() == 1
 
 
 def test_campaign_cannot_target_an_event_in_a_different_workspace(organizer_user, ctf_event):
+    outsider = User.objects.create_user(username="foreign@e.com", email="foreign@e.com")
     foreign_event = CTFEvent.objects.create(
         name="Foreign",
-        created_by=organizer_user,
-        workspace_id=ctf_event.workspace_id + 99999,
+        created_by=outsider,
+        scope_kind="account",
+        account_id=Account.objects.get(uuid=_account_uuid(outsider)).pk,
         event_start=timezone.now() + timedelta(days=1),
         event_end=timezone.now() + timedelta(days=1, hours=2),
     )
-    ws = _workspace_uuid(organizer_user)
+    account = _account_uuid(organizer_user)
     draft = _draft(
         ctf_event,
         target_event_ids=[foreign_event.id],
@@ -92,7 +113,7 @@ def test_campaign_cannot_target_an_event_in_a_different_workspace(organizer_user
     )
 
     with pytest.raises(CTFCommunicationError):
-        create_campaign(organizer_user, ws, draft)
+        create_campaign(organizer_user, account, draft, parent_type="account")
 
 
 def test_campaign_cannot_target_an_event_without_notification_capability(
@@ -103,11 +124,12 @@ def test_campaign_cannot_target_an_event_without_notification_capability(
     others_event = CTFEvent.objects.create(
         name="Someone else's",
         created_by=second_organizer_user,
-        workspace_id=ctf_event.workspace_id,
+        scope_kind=ctf_event.scope_kind,
+        account_id=ctf_event.account_id,
         event_start=timezone.now() + timedelta(days=1),
         event_end=timezone.now() + timedelta(days=1, hours=2),
     )
-    ws = _workspace_uuid(organizer_user)
+    account = _account_uuid(organizer_user)
     draft = _draft(
         ctf_event,
         target_event_ids=[others_event.id],
@@ -115,16 +137,16 @@ def test_campaign_cannot_target_an_event_without_notification_capability(
     )
 
     with pytest.raises(CTFCommunicationError):
-        create_campaign(organizer_user, ws, draft)
+        create_campaign(organizer_user, account, draft, parent_type="account")
 
 
 def test_campaign_creation_denies_a_workspace_the_author_does_not_belong_to(organizer_user, ctf_event):
     outsider = User.objects.create_user(username="outsider@e.com", email="outsider@e.com")
-    outsider_workspace = _workspace_uuid(outsider)
+    outsider_account = _account_uuid(outsider)
     draft = _draft(ctf_event)
 
     with pytest.raises(CTFCommunicationError):
-        create_campaign(organizer_user, outsider_workspace, draft)
+        create_campaign(organizer_user, outsider_account, draft, parent_type="account")
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +170,8 @@ def test_audience_referencing_a_non_target_event_is_rejected(ctf_event):
     other = CTFEvent.objects.create(
         name="Other",
         created_by=ctf_event.created_by,
-        workspace_id=ctf_event.workspace_id,
+        scope_kind=ctf_event.scope_kind,
+        account_id=ctf_event.account_id,
         event_start=timezone.now() + timedelta(days=1),
         event_end=timezone.now() + timedelta(days=1, hours=2),
     )
@@ -164,9 +187,9 @@ def test_audience_referencing_a_non_target_event_is_rejected(ctf_event):
 def test_release_materializes_snapshots_receipts_and_delivery_commands(organizer_user, ctf_event):
     _participant(ctf_event, "a@test.com")
     _participant(ctf_event, "b@test.com")
-    campaign = create_campaign(organizer_user, _workspace_uuid(organizer_user), _draft(ctf_event))
+    campaign = create_campaign(organizer_user, _account_uuid(organizer_user), _draft(ctf_event), parent_type="account")
 
-    intent = release_campaign(campaign, occurrence_key="occ-1", actor_user_id=organizer_user.id)
+    intent = _release(campaign, organizer_user, "occ-1")
 
     assert intent.status == "released"
     snapshots = RecipientSnapshot.objects.filter(intent=intent)
@@ -180,10 +203,10 @@ def test_release_materializes_snapshots_receipts_and_delivery_commands(organizer
 
 def test_release_is_idempotent_and_never_grows_the_audience(organizer_user, ctf_event):
     _participant(ctf_event, "a@test.com")
-    campaign = create_campaign(organizer_user, _workspace_uuid(organizer_user), _draft(ctf_event))
+    campaign = create_campaign(organizer_user, _account_uuid(organizer_user), _draft(ctf_event), parent_type="account")
 
-    first = release_campaign(campaign, occurrence_key="occ-dup", actor_user_id=organizer_user.id)
-    second = release_campaign(campaign, occurrence_key="occ-dup", actor_user_id=organizer_user.id)
+    first = _release(campaign, organizer_user, "occ-dup")
+    second = _release(campaign, organizer_user, "occ-dup")
 
     assert first.id == second.id
     assert CommunicationIntent.objects.filter(campaign=campaign).count() == 1
@@ -192,9 +215,9 @@ def test_release_is_idempotent_and_never_grows_the_audience(organizer_user, ctf_
 
 def test_release_encrypts_the_delivery_coordinate_at_rest(organizer_user, ctf_event):
     _participant(ctf_event, "secret@test.com")
-    campaign = create_campaign(organizer_user, _workspace_uuid(organizer_user), _draft(ctf_event))
+    campaign = create_campaign(organizer_user, _account_uuid(organizer_user), _draft(ctf_event), parent_type="account")
 
-    intent = release_campaign(campaign, occurrence_key="occ-enc", actor_user_id=organizer_user.id)
+    intent = _release(campaign, organizer_user, "occ-enc")
     snapshot = RecipientSnapshot.objects.get(intent=intent)
 
     # The decrypted coordinate round-trips through the model...
@@ -214,12 +237,12 @@ def test_release_idempotency_is_scoped_to_the_campaign(organizer_user, ctf_event
     # Two campaigns released with the SAME occurrence must not collapse onto one
     # intent: the idempotency identity is campaign-scoped (codex finding).
     _participant(ctf_event, "a@test.com")
-    ws = _workspace_uuid(organizer_user)
-    first_campaign = create_campaign(organizer_user, ws, _draft(ctf_event))
-    second_campaign = create_campaign(organizer_user, ws, _draft(ctf_event, title="Second"))
+    account = _account_uuid(organizer_user)
+    first_campaign = create_campaign(organizer_user, account, _draft(ctf_event), parent_type="account")
+    second_campaign = create_campaign(organizer_user, account, _draft(ctf_event, title="Second"), parent_type="account")
 
-    first = release_campaign(first_campaign, occurrence_key="shared-occ", actor_user_id=organizer_user.id)
-    second = release_campaign(second_campaign, occurrence_key="shared-occ", actor_user_id=organizer_user.id)
+    first = _release(first_campaign, organizer_user, "shared-occ")
+    second = _release(second_campaign, organizer_user, "shared-occ")
 
     assert first.id != second.id
     assert first.campaign_id == first_campaign.id
@@ -228,21 +251,21 @@ def test_release_idempotency_is_scoped_to_the_campaign(organizer_user, ctf_event
 
 def test_release_rejects_a_revision_from_another_campaign(organizer_user, ctf_event):
     _participant(ctf_event, "a@test.com")
-    ws = _workspace_uuid(organizer_user)
-    campaign = create_campaign(organizer_user, ws, _draft(ctf_event))
-    other = create_campaign(organizer_user, ws, _draft(ctf_event, title="Other"))
+    account = _account_uuid(organizer_user)
+    campaign = create_campaign(organizer_user, account, _draft(ctf_event), parent_type="account")
+    other = create_campaign(organizer_user, account, _draft(ctf_event, title="Other"), parent_type="account")
     foreign_revision = other.message_revisions.first()
 
     with pytest.raises(CTFCommunicationError):
-        release_campaign(campaign, occurrence_key="x", revision=foreign_revision, actor_user_id=organizer_user.id)
+        _release(campaign, organizer_user, "x", revision=foreign_revision)
 
 
 def test_release_refuses_when_a_target_event_is_cancelled(organizer_user, ctf_event):
     from ctf.enums import EventStatus
 
     _participant(ctf_event, "a@test.com")
-    campaign = create_campaign(organizer_user, _workspace_uuid(organizer_user), _draft(ctf_event))
+    campaign = create_campaign(organizer_user, _account_uuid(organizer_user), _draft(ctf_event), parent_type="account")
     CTFEvent.objects.filter(pk=ctf_event.pk).update(status=EventStatus.CANCELLED.value)
 
     with pytest.raises(CTFCommunicationError):
-        release_campaign(campaign, occurrence_key="x", actor_user_id=organizer_user.id)
+        _release(campaign, organizer_user, "x")

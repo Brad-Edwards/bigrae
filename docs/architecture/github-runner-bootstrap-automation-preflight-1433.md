@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-11
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1433>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1433>
 
 This is a requirement-free preflight. The GitHub issue is the shipping
 contract: fresh AWS bootstrap must provision self-hosted runner infrastructure
@@ -94,7 +94,7 @@ but should not become a second runner IaC root.
 | Runner IaC owner | `platform/terraform/global/github-runner/{main.tf,variables.tf,outputs.tf,alarms.tf,README.md}` | Terraform owns hosts, IAM, alarms, and outputs. It must not consume registration tokens. |
 | Network guard | ADR-004-R20, `scripts/check_tf_runner_network/check_tf_runner_network.py`, `docs/architecture/github-runner-network-isolation-preflight-1222.md` | Keep default-VPC fail-closed behavior and subnet/VPC membership validation. |
 | SSM JSON precedent | `scripts/portal_deploy/portal_deploy.py` and tests for #1413 | Render `{"commands": [...]}` with `json.dumps` and pass it as one argv element. |
-| GitHub repository target | `.ground-control.yaml` `github_repo`, `BootstrapConfig.github_org/github_repo` | Default to `Brad-Edwards/shifter`; do not follow stray remotes or user-level repo defaults. |
+| GitHub repository target | `.ground-control.yaml` `github_repo`, `BootstrapConfig.github_org/github_repo` | Default to `Brad-Edwards/bigrae`; do not follow stray remotes or user-level repo defaults. |
 | Fresh-account docs | `scripts/bootstrap/README.md`, `docs/dev/aws-runner-provisioning-runbook.md`, `docs/dev/deploy-secrets.md`, `docs/dev/aws-terraform-apply-order.md` | Update after implementation so the docs describe the automated path, not the old manual gap. |
 | Runner teardown | `docs/dev/aws-teardown-runbook.md`, runner README removal section | Preserve removal-token handling as a separate lifecycle path. Do not mix registration and deregistration tokens. |
 
@@ -103,7 +103,7 @@ but should not become a second runner IaC root.
 Security layers the intended design must pass:
 
 - GitHub auth surface: use the repo registration-token endpoint for
-  `Brad-Edwards/shifter` through `gh api` or a narrowly scoped GitHub API
+  `Brad-Edwards/bigrae` through `gh api` or a narrowly scoped GitHub API
   helper. A token is minted per runner, used once, and never persisted. Errors
   may name the endpoint and runner name, but must not echo response bodies that
   include token material.

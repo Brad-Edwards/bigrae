@@ -14,7 +14,7 @@ from ctf.exceptions import CTFNotFoundError, CTFRangeError
 from ctf.models import CTFParticipant
 
 
-def get_range_status(participant_id: UUID) -> dict[str, Any]:
+def get_range_status(participant_id: UUID, *, credential=None) -> dict[str, Any]:
     """Get range status for a participant.
 
     Args:
@@ -61,14 +61,12 @@ def get_range_status(participant_id: UUID) -> dict[str, Any]:
     # {uuid, name, private_ip, os_type} allowlist; outside the ready state we
     # return an empty list rather than leaking stale targets.
     target_instances: list[dict[str, str]] = []
-    if participant.user_id:
+    if credential is not None:
         from ctf.bridges import cms_get_range_target_instances, cms_has_openvpn_profile
 
-        user = participant.user
-        if user is not None:
-            vpn_profile_available = cms_has_openvpn_profile(user, participant.range_instance_id)
-            if participant.range_status == "ready":
-                target_instances = cms_get_range_target_instances(user)
+        vpn_profile_available = cms_has_openvpn_profile(credential, participant.range_instance_id)
+        if participant.range_status == "ready":
+            target_instances = cms_get_range_target_instances(credential, participant.range_instance_id)
 
     return {
         "participant_id": str(participant_id),

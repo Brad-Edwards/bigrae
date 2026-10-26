@@ -20,7 +20,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from ctf.exceptions import CTFNotFoundError, CTFRangeError
-from ctf.models import CTFParticipant
+from ctf.models import CTFEvent, CTFParticipant
 from shared.log_sanitize import safe_log_value
 from shared.range_instantiation_policy import POLICY_DENIAL_CODE
 
@@ -101,7 +101,7 @@ def _is_permanent_provisioning_error(exc: Exception) -> bool:
     return getattr(exc, "code", "") == POLICY_DENIAL_CODE
 
 
-def provision_participant_range(participant_id: UUID) -> dict[str, Any]:
+def provision_participant_range(participant_id: UUID, *, actor: object | None = None) -> dict[str, Any]:
     """Provision a range for a participant.
 
     Uses the event's scenario_id to create a range via CMS.
@@ -118,8 +118,24 @@ def provision_participant_range(participant_id: UUID) -> dict[str, Any]:
     """
     logger.info("Provisioning range for participant %s", safe_log_value(participant_id))
 
-    participant, user, previous_status = _claim_for_provisioning(participant_id)
-    event = participant.event
+    if actor is None:
+        raise CTFRangeError("Range provisioning authority unavailable")
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import assert_event_action
+
+    # Resolve the exact initiating credential before claiming capacity or
+    # changing participant state.  An authority-free request must be a pure
+    # denial, not a participant left behind in ``provisioning``.
+    credential = event_actor_credential(actor)
+    event_id = CTFParticipant.objects.filter(pk=participant_id).values_list("event_id", flat=True).first()
+    if event_id is None:
+        raise CTFNotFoundError(
+            f"Participant {participant_id} not found",
+            details={"participant_id": str(participant_id)},
+        )
+    event = CTFEvent.objects.get(pk=event_id)
+    assert_event_action(credential, event, "event.manage_ranges")
+    participant, _user, previous_status = _claim_for_provisioning(participant_id, expected_event_id=event.pk)
     agents_by_os = event.range_config.get("agents_by_os", {}) if event.range_config else {}
     ngfw_enabled = event.range_config.get("ngfw_enabled", False) if event.range_config else False
 
@@ -129,9 +145,18 @@ def provision_participant_range(participant_id: UUID) -> dict[str, Any]:
         from ctf.bridges import CTFRangeLaunchOptions, cms_create_range, cms_find_range_instance_id
         from ctf.services.model_access_sharing import participant_model_admission_subject
         from ctf.services.range.model_allocation import project_event_model_scope
+        from management.services import resolve_principal_uuid
+        from workspaces.services import resource_scope_from_ids
+
+        owner = resolve_principal_uuid(participant.principal_uuid)
+        scope = resource_scope_from_ids(
+            kind=event.scope_kind,
+            account_id=event.account_id,
+            organization_id=event.organization_id,
+            workspace_id=event.workspace_id,
+        )
 
         result = cms_create_range(
-            user=user,
             scenario=event.scenario_id,
             agents_by_os=agents_by_os,
             ngfw_enabled=ngfw_enabled,
@@ -144,8 +169,10 @@ def provision_participant_range(participant_id: UUID) -> dict[str, Any]:
                 model_launch_scope=project_event_model_scope(
                     event, participant.pk, participant_model_admission_subject(participant)
                 ),
-                content_authorizer=event.created_by,
-                event_policy_workspace_id=event.workspace_id,
+                credential=credential,
+                scope=scope,
+                owner_principal=owner,
+                event_uuid=event.pk,
             ),
         )
     except Exception as e:
@@ -178,7 +205,9 @@ def provision_participant_range(participant_id: UUID) -> dict[str, Any]:
     }
 
 
-def _claim_for_provisioning(participant_id: UUID) -> tuple[CTFParticipant, User, str]:
+def _claim_for_provisioning(
+    participant_id: UUID, *, expected_event_id: UUID | None = None
+) -> tuple[CTFParticipant, User, str]:
     """Durably claim the participant's range assignment.
 
     Returns the participant, its registered user and its prior range status.
@@ -199,6 +228,12 @@ def _claim_for_provisioning(participant_id: UUID) -> tuple[CTFParticipant, User,
                 f"Participant {participant_id} not found",
                 details={"participant_id": str(participant_id)},
             ) from None
+
+        if expected_event_id is not None and participant.event_id != expected_event_id:
+            raise CTFRangeError(
+                "Participant event changed during range authorization",
+                details={"participant_id": str(participant_id)},
+            )
 
         user = participant.user
         if user is None:
@@ -252,6 +287,7 @@ def provision_participant_range_with_retry(
     max_retries: int = 3,
     base_delay: int = 30,
     heartbeat: Callable[[], None] | None = None,
+    actor: object | None = None,
 ) -> dict[str, Any]:
     """Provision a range with exponential backoff retry.
 
@@ -269,7 +305,7 @@ def provision_participant_range_with_retry(
 
     for attempt in range(1 + max_retries):
         try:
-            result = provision_participant_range(participant_id)
+            result = provision_participant_range(participant_id, actor=actor)
             if attempt > 0:
                 logger.info(
                     "Provisioning succeeded on attempt %d for participant %s",

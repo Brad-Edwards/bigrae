@@ -9,7 +9,6 @@ from uuid import UUID
 
 from shared.authorization import CredentialCeiling, TargetRef
 from shared.identity_scope import PrincipalRef, ResourceScope
-from shared.principal_port import resolve_principal
 
 
 class CredentialRevoked(ValueError):
@@ -117,6 +116,15 @@ def resolve_credential_scope(target: TargetRef) -> ResourceScope:
 CredentialReferenceResolver = Callable[[str, UUID], CredentialContext]
 _reference_resolver: CredentialReferenceResolver | None = None
 _local_reference_resolver: CredentialReferenceResolver | None = None
+_principal_resolver: Callable[[PrincipalRef], PrincipalRef] | None = None
+
+
+def bind_credential_principal_resolver(resolver: Callable[[PrincipalRef], PrincipalRef]) -> None:
+    """Compose live principal validation without importing the Django-backed directory."""
+    global _principal_resolver
+    if not callable(resolver) or (_principal_resolver is not None and _principal_resolver is not resolver):
+        raise ValueError("Credential principal resolver already bound")
+    _principal_resolver = resolver
 
 
 def bind_credential_reference_resolver(
@@ -155,7 +163,7 @@ def resolve_local_credential(original: CredentialContext) -> CredentialContext:
 def _resolve_credential(original: CredentialContext, resolver: CredentialReferenceResolver | None) -> CredentialContext:
     """Revalidate the same credential reference and intersect its original ceiling."""
     try:
-        if not isinstance(original, CredentialContext) or resolver is None:
+        if not isinstance(original, CredentialContext) or resolver is None or _principal_resolver is None:
             raise ValueError("Missing credential owner")
         current = resolver(original.kind, original.credential_uuid)
         if not isinstance(current, CredentialContext) or (
@@ -165,7 +173,7 @@ def _resolve_credential(original: CredentialContext, resolver: CredentialReferen
             current.event_uuid,
         ) != (original.principal, original.kind, original.credential_uuid, original.event_uuid):
             raise ValueError("Credential identity changed")
-        principal = resolve_principal(current.principal)
+        principal = _principal_resolver(current.principal)
         original_target, current_target = original.ceiling.target, current.ceiling.target
         target = _intersect_targets(original_target, current_target)
         return CredentialContext(

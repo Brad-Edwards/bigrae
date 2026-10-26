@@ -21,10 +21,10 @@ Credential and artifact management is implemented across CMS and Mission Control
 
 ## Traceability
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#15` (Django: Agent config CRUD with S3 upload)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#34` (Infra: S3 bucket for user uploads)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#90` (Portal: Agent upload to S3)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#461` (SCM PINs and NGFW authcodes are stored in plaintext JSON despite the platform claiming encryption at rest)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#15` (Django: Agent config CRUD with S3 upload)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#34` (Infra: S3 bucket for user uploads)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#90` (Portal: Agent upload to S3)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#461` (SCM PINs and NGFW authcodes are stored in plaintext JSON despite the platform claiming encryption at rest)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services.py` (Credential and upload service layer)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/assets/s3.py` (Object-storage asset helpers)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/assets/upload_token.py` (Signed upload completion tokens)

@@ -136,7 +136,7 @@ def _create_managed_challenge(
     event: CTFEvent,
     bundle_challenge: BundleChallenge,
     *,
-    actor_id: int,
+    actor_id: object,
 ) -> CTFChallenge:
     """Create one managed challenge row with its flags and hints (no drift audit).
 
@@ -193,7 +193,7 @@ def _assert_no_scoring_ledger(event: CTFEvent) -> None:
         )
 
 
-def _reconcile_live(event: CTFEvent, bundle: CtfContentBundle, *, actor_id: int) -> tuple[str, ...]:
+def _reconcile_live(event: CTFEvent, bundle: CtfContentBundle, *, actor_id: object) -> tuple[str, ...]:
     """Apply presentation/verification-only refresh to a live event.
 
     Rejects the whole revision atomically when the semantic diff touches any
@@ -218,7 +218,7 @@ def _reconcile_live(event: CTFEvent, bundle: CtfContentBundle, *, actor_id: int)
     return tuple(sorted(changed))
 
 
-def _reconcile_full(event: CTFEvent, bundle: CtfContentBundle, *, actor_id: int) -> tuple[str, ...]:
+def _reconcile_full(event: CTFEvent, bundle: CtfContentBundle, *, actor_id: object) -> tuple[str, ...]:
     """Reconcile the complete managed graph on a pre-activation event.
 
     Computes the semantic diff before mutating so the reported categories reflect
@@ -296,7 +296,7 @@ def refresh_event_ctf_content(
     event_id: UUID,
     resolved: ResolvedCtfContent,
     *,
-    actor_id: int,
+    actor_id: object,
     expected_current_digest: str,
 ) -> ContentRefreshResult:
     """Reconcile a managed event to the configured revision under an optimistic fence.

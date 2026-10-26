@@ -20,8 +20,8 @@ from ctf.api.organizer._base import (
     _EVENT_NOT_FOUND,
     _EVENT_READ,
     _EVENT_WRITE,
-    _actor,
-    _capture_event_authority,
+    _actor_may_manage,
+    _credential,
     _event_authority,
     _raise_bad_request,
     _raise_forbidden,
@@ -48,9 +48,6 @@ if TYPE_CHECKING:
     from typing import Any
     from uuid import UUID
 
-    from django.contrib.auth.models import User
-    from django.db.models import QuerySet
-
     from ctf.models import CTFEvent
 
 # Canonical page-size bound for the authority-aware event list. The platform-admin
@@ -60,34 +57,65 @@ if TYPE_CHECKING:
 _EVENT_LIST_PAGE_SIZE = 200
 
 
-def _bounded_event_page(
-    events: QuerySet[CTFEvent], *, page: int | None, page_size: int | None, is_admin: bool
-) -> QuerySet[CTFEvent]:
-    """Slice the ordered queryset by explicit pagination, else bound the admin path."""
-    if page is not None or page_size is not None:
-        size = page_size or _EVENT_LIST_PAGE_SIZE
-        start = ((page or 1) - 1) * size
-        return events[start : start + size]
-    if is_admin:
-        return events[:_EVENT_LIST_PAGE_SIZE]
-    return events
+def _authorized_event_page(events, credential, *, page: int | None, page_size: int | None) -> list[CTFEvent]:
+    """Apply the requested page after policy filtering, in bounded database batches."""
+    from ctf.exceptions import CTFPermissionError
+    from ctf.services.unified_authorization import require_event_action
+
+    size = page_size or _EVENT_LIST_PAGE_SIZE
+    start = ((page or 1) - 1) * size if page is not None or page_size is not None else 0
+    stop = start + size
+    readable: list[CTFEvent] = []
+    offset = 0
+    while len(readable) < stop:
+        batch = list(events[offset : offset + _EVENT_LIST_PAGE_SIZE])
+        if not batch:
+            break
+        offset += len(batch)
+        for event in batch:
+            try:
+                require_event_action(credential, event.pk, "event.read")
+            except CTFPermissionError:
+                continue
+            readable.append(event)
+            if len(readable) == stop:
+                break
+    return readable[start:stop]
 
 
-def _event_projection_context(
-    request: Request, actor: User, events: Sequence[CTFEvent], *, is_admin: bool
-) -> dict[str, Any]:
-    """Build serializer context with a prefetched staff-role map (no per-row query)."""
-    context: dict[str, Any] = {"request": request, "actor": actor, "is_platform_admin": is_admin, "staff_roles": {}}
-    if not is_admin:
-        event_ids = [event.id for event in events]
-        if event_ids:
-            from ctf.models import CTFEventStaff
+def _event_projection_context(request: Request, credential, events: Sequence[CTFEvent]) -> dict[str, Any]:
+    """Build advisory capabilities from the same live decisions as mutations."""
+    from ctf.services.credential_scope import event_credential_scope
+    from ctf.services.event.staff import capability_action_pairs
+    from shared.authorization import AuthorizationRequest, TargetRef, configured_authorization_provider
 
-            context["staff_roles"] = dict(
-                CTFEventStaff.objects.filter(user=actor, event_id__in=event_ids, deleted_at__isnull=True).values_list(
-                    "event_id", "role"
+    context: dict[str, Any] = {"request": request, "access_capabilities": {}}
+    indexed: list[tuple[UUID, str]] = []
+    checks: list[AuthorizationRequest] = []
+    for event in events:
+        scope = event_credential_scope(event.pk)
+        for capability, action in capability_action_pairs():
+            indexed.append((event.pk, capability))
+            checks.append(
+                AuthorizationRequest(
+                    credential.principal,
+                    action,
+                    TargetRef("event", event.pk),
+                    scope,
+                    credential.ceiling,
                 )
             )
+    if checks:
+        try:
+            decisions = configured_authorization_provider().batch_check(tuple(checks))
+        except Exception:
+            decisions = ()
+        if len(decisions) == len(indexed) and all(decision.kind != "evaluator_error" for decision in decisions):
+            capabilities: dict[UUID, list[str]] = {}
+            for (event_id, capability), decision in zip(indexed, decisions, strict=True):
+                if decision.allowed:
+                    capabilities.setdefault(event_id, []).append(capability)
+            context["access_capabilities"] = capabilities
     return context
 
 
@@ -109,70 +137,81 @@ class EventListView(APIView):
         """Return the events the actor may administer (authority-aware, bounded).
 
         A platform administrator sees all live events; an ordinary organizer sees
-        owned plus live staff-assigned events. Search/status/owner/ordering are
-        allowlisted data filters; the admin path is bounded to the canonical page
-        size. The v1 ``{"events": [...]}`` envelope is unchanged (ADR-040).
+        owned plus live staff-assigned events. Search/status/stable-owner/ordering
+        are allowlisted data filters; the admin path is bounded to the canonical
+        page size. The v1 ``{"events": [...]}`` envelope is unchanged (ADR-040).
         """
-        from ctf.services.authorization import is_ctf_platform_admin
-        from ctf.services.event._queries import resolve_administrable_events
+        from ctf.exceptions import CTFError
+        from ctf.models import CTFEvent
+        from shared.api.principals import authenticated_credential
 
-        actor = _actor(request)
+        credential = authenticated_credential(request)
         query = EventListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params = query.validated_data
 
-        events = resolve_administrable_events(actor, status=params.get("status") or None)
+        events = CTFEvent.objects.all()
+        if params.get("status"):
+            events = events.filter(status=params["status"])
         search = params.get("search")
         if search:
             events = events.filter(name__icontains=search)
-        owner = params.get("owner")
+        owner = params.get("owner_principal_uuid")
         if owner:
-            try:
-                events = events.filter(created_by_id=int(owner))
-            except (TypeError, ValueError):
-                events = events.none()
+            events = events.filter(owner_principal_uuid=owner)
         ordering = params.get("ordering")
         if ordering:
             events = events.order_by(ordering, "id")
 
-        is_admin = is_ctf_platform_admin(actor)
-        page = _bounded_event_page(
-            events, page=params.get("page"), page_size=params.get("page_size"), is_admin=is_admin
-        )
-        rows = list(page)
-        context = _event_projection_context(request, actor, rows, is_admin=is_admin)
+        try:
+            rows = _authorized_event_page(
+                events,
+                credential,
+                page=params.get("page"),
+                page_size=params.get("page_size"),
+            )
+        except CTFError as exc:
+            raise _CtfApiError(
+                code="dependency_unavailable",
+                message="Service unavailable",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ) from exc
+        context = _event_projection_context(request, credential, rows)
         return Response({"events": EventSummarySerializer(rows, many=True, context=context).data})
 
     @extend_schema(request=EventWriteSerializer, responses={201: EventMutationResultSerializer})
     def post(self, request: Request) -> Response:
         """Create an event from the request body.
 
-        Creation is organizer authority, never the platform-admin override
-        (ADR-052): a new event has no existing event on which to resolve override
-        authority, and creation makes the actor ``created_by``. The list GET is
-        admitted for organizers or platform admins, but POST requires a genuine
-        CTF organizer, so a pure superuser cannot create an event and acquire
-        ownership.
+        The selected existing account parent is the authorization target. Human
+        and service administrators use the same principal policy; creator
+        attribution is separate from event ownership.
         """
         from django.core.exceptions import ValidationError
 
-        from ctf.bridges import get_user_role
-        from ctf.exceptions import CTFValidationError
-        from ctf.services import create_event
-
-        if not get_user_role(_actor(request)).is_ctf_organizer:
-            try:
-                _raise_forbidden()
-            except _CtfApiError as exc:
-                return exc.to_response(request)
+        from ctf.exceptions import CTFError, CTFPermissionError, CTFValidationError
+        from ctf.services import create_event_for_credential
+        from shared.api.principals import active_actor_user, authenticated_credential
 
         serializer = EventWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             try:
-                event = create_event(_actor(request), dict(serializer.validated_data))
+                event = create_event_for_credential(
+                    authenticated_credential(request),
+                    dict(serializer.validated_data),
+                    creator_user=active_actor_user(request),
+                )
+            except CTFPermissionError:
+                _raise_forbidden()
             except (CTFValidationError, ValidationError):
                 _raise_invalid_event()
+            except CTFError as exc:
+                raise _CtfApiError(
+                    code="dependency_unavailable",
+                    message="Service unavailable",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ) from exc
             return Response(
                 {"id": str(event.id), "name": event.name, "status": event.status},
                 status=status.HTTP_201_CREATED,
@@ -193,14 +232,11 @@ class EventDetailView(APIView):
     @extend_schema(operation_id="ctf_events_retrieve", responses=EventDetailSerializer)
     def get(self, request: Request, event_id: UUID) -> Response:
         """Return the full event detail projection with owner and access context."""
-        from ctf.services.authorization import is_ctf_platform_admin
-
         try:
-            event = _resolve_owned_event(request, event_id, capability=EventCapability.CONFIG)
+            event = _resolve_owned_event(request, event_id, action="event.read")
         except _CtfApiError as exc:
             return exc.to_response(request)
-        actor = _actor(request)
-        context = _event_projection_context(request, actor, [event], is_admin=is_ctf_platform_admin(actor))
+        context = _event_projection_context(request, _credential(request), [event])
         return Response(EventDetailSerializer(event, context=context).data)
 
     @extend_schema(request=EventWriteSerializer, responses=EventMutationResultSerializer)
@@ -224,7 +260,7 @@ class EventDetailView(APIView):
                 # rolls the update back (ADR-052-R4). The service asserts the
                 # config capability again (defense in depth, #1922).
                 with transaction.atomic():
-                    updated = update_event(event_id, dict(serializer.validated_data), actor_id=_actor(request).pk)
+                    updated = update_event(event_id, dict(serializer.validated_data), actor_id=_credential(request))
                     _audit_admin_mutation(request, event, source, "event.update", changed_fields=changed)
             except (CTFValidationError, CTFStateError, ValidationError):
                 _raise_invalid_event()
@@ -247,7 +283,7 @@ class EventDetailView(APIView):
         from shared.audit import AuditAction
 
         with transaction.atomic():
-            delete_event(event_id, actor_id=_actor(request).pk)
+            delete_event(event_id, actor_id=_credential(request))
             _audit_admin_mutation(request, event, source, "event.delete", action=AuditAction.DELETE)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -269,13 +305,8 @@ class ForceDeleteEventView(APIView):
                 event = CTFEvent.all_objects.get(pk=event_id)
             except CTFEvent.DoesNotExist:
                 _raise_not_found(_EVENT_NOT_FOUND)
-            # Owner, full co-organizer (delete capability), or the platform-admin
-            # override may force-delete; the typed-name confirmation and lifecycle
-            # safeguards below still apply unchanged (#1922, ADR-052-R5).
-            source = _event_authority(request, event, EventCapability.DELETE)
-            if source is None:
+            if not _actor_may_manage(request, event, None, action="event.delete", retained_delete=True):
                 _raise_forbidden()
-            _capture_event_authority(request, event, source)
             confirmation_name = request.data.get("confirmation_name") if isinstance(request.data, dict) else None
             if not confirmation_name:
                 _raise_bad_request("confirmation_name is required.")
@@ -287,7 +318,7 @@ class ForceDeleteEventView(APIView):
             # completed/failed outcome on EVERY exit path (ADR-052-R4).
             with admin_external_audit(request, "event.force_delete", action=AuditAction.DELETE):
                 try:
-                    result = ctf_services.force_delete_event(event_id, _actor(request), confirmation_name)
+                    result = ctf_services.force_delete_event(event_id, _credential(request), confirmation_name)
                 except CTFValidationError:
                     _raise_invalid_event()
             return Response(result)
@@ -306,5 +337,5 @@ class ScenarioListView(APIView):
         """Return scenario id/name pairs from the CMS registry."""
         import ctf.bridges as ctf_bridges
 
-        scenarios = [{"id": sid, "name": name} for sid, name in ctf_bridges.cms_list_scenarios(_actor(request))]
+        scenarios = [{"id": sid, "name": name} for sid, name in ctf_bridges.cms_list_scenarios(_credential(request))]
         return Response({"scenarios": scenarios})

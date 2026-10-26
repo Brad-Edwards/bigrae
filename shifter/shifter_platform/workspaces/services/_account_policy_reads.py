@@ -14,7 +14,7 @@ from shared.authorization import AuthorizationProvider, AuthorizationRequest, Ta
 from shared.credentials import CredentialContext
 from workspaces.models import Account, Organization, Workspace
 
-from ._account import AccountScopeError, hierarchy_target_scope
+from ._account import AccountScopeError, WorkspaceOptionView, hierarchy_target_scope
 from ._account_policy_admin import AccountAdminView, _active_actor, _require_action
 from ._account_policy_lifecycle import _scope_for_lifecycle
 
@@ -22,6 +22,7 @@ _DENIED = "Scope unavailable"
 _BATCH_SIZE = 100
 _READ_ORGANIZATION = "organization.read"
 _READ_WORKSPACE = "workspace.read"
+_LAUNCH_RANGE = "workspace.launch_range"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,14 @@ class WorkspaceAdminPage:
 
     count: int
     results: tuple[WorkspaceAdminView, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LaunchWorkspacePage:
+    """Authorized active workspaces offered by the range-launch selector."""
+
+    count: int
+    results: tuple[WorkspaceOptionView, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,3 +296,52 @@ def admin_list_workspaces(
         query, actor, provider, _READ_WORKSPACE, "workspace", lambda row: row.uuid, window=(offset, limit)
     )
     return WorkspaceAdminPage(count, tuple(_workspace_view(row) for row in rows))
+
+
+def list_launch_workspace_options(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    *,
+    offset: int = 0,
+    limit: int = 100,
+) -> LaunchWorkspacePage:
+    """Page active workspaces where the credential may launch a range.
+
+    SQL supplies only candidate identities and display labels. The policy
+    provider decides every result, including inherited account/organization
+    grants, so membership rows never become authorization.
+    """
+    _active_actor(actor)
+    _valid_page(offset, limit)
+    permitted, exact_uuid = _collection_ceiling(actor, _LAUNCH_RANGE, "workspace")
+    if not permitted:
+        return LaunchWorkspacePage(0, ())
+    query = Workspace.objects.filter(
+        archived_at__isnull=True,
+        organization__account__isnull=False,
+    ).select_related("organization")
+    if exact_uuid is not None:
+        query = query.filter(uuid=exact_uuid)
+    count, rows = _visible_page(
+        query,
+        actor,
+        provider,
+        _LAUNCH_RANGE,
+        "workspace",
+        lambda row: row.uuid,
+        window=(offset, limit),
+    )
+    return LaunchWorkspacePage(
+        count,
+        tuple(
+            WorkspaceOptionView(
+                row.pk,
+                row.uuid,
+                row.name,
+                row.organization_id,
+                row.organization.uuid,
+                row.organization.name,
+            )
+            for row in rows
+        ),
+    )

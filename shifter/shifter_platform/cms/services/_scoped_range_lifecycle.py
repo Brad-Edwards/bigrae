@@ -9,6 +9,7 @@ from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from engine.services import commit_prepared_range_lifecycle, prepare_range_lifecycle, prepare_system_range_cleanup
 from shared.audit import AuditEntityType, AuditEvent, audit_log, principal_actor_fields
+from shared.authorization import TargetRef
 from shared.credentials import CredentialContext
 
 from ._unified_authorization import require_range_action
@@ -31,7 +32,13 @@ _RANGE_UNAVAILABLE = "Range unavailable"
 
 
 def run_scoped_range_lifecycle(
-    credential: CredentialContext, operation: str, *, instance_pk: int | None = None, request_id: str | None = None
+    credential: CredentialContext,
+    operation: str,
+    *,
+    instance_pk: int | None = None,
+    request_id: str | None = None,
+    authority_action: str = "range.manage",
+    authority_target: TargetRef | None = None,
 ) -> None:
     """Authorize before locking; neither historical owner nor user ID vetoes policy."""
     from ._range_lifecycle import PAUSE_OP, RESUME_OP, _assert_lifecycle_supported
@@ -39,15 +46,43 @@ def run_scoped_range_lifecycle(
     try:
         candidate = _scoped_lifecycle_candidate(instance_pk, request_id)
         snapshot = require_range_action(
-            credential, candidate.uuid, "range.manage", include_terminal=operation == "destroy"
+            credential,
+            candidate.uuid,
+            authority_action,
+            include_terminal=operation == "destroy",
+            authority_target=authority_target,
         )
         if operation in {"destroy", "cancel"}:
-            return _destroy_scoped_range(credential, snapshot, operation)
+            return _destroy_scoped_range(
+                credential,
+                snapshot,
+                operation,
+                authority_action=authority_action,
+                authority_target=authority_target,
+            )
         if snapshot.request is None:
             raise CMSError(_RANGE_UNAVAILABLE)
         op = PAUSE_OP if operation == "pause" else RESUME_OP
         _assert_lifecycle_supported(snapshot, op)
-        prepared = prepare_range_lifecycle(credential, snapshot.request.request_id, operation)
+        if operation == "resume":
+            from ._model_allocation import needs_model_preparation, prepare_model_access_for_dispatch
+
+            if needs_model_preparation(snapshot.request.request_id):
+                from engine.services import resolve_model_access_range_views
+
+                (range_view,) = resolve_model_access_range_views(request_uuids=(snapshot.request.request_id,))
+                prepare_model_access_for_dispatch(
+                    snapshot.request.request_id,
+                    range_id=range_view.range_uuid,
+                    renew=True,
+                )
+        prepared = prepare_range_lifecycle(
+            credential,
+            snapshot.request.request_id,
+            operation,
+            authority_action=authority_action if authority_target is not None else None,
+            authority_target=authority_target,
+        )
         fence = {field: getattr(snapshot, field) for field in _BINDING_FIELDS}
         with transaction.atomic():
             row = (
@@ -80,11 +115,24 @@ def run_scoped_range_lifecycle(
         raise CMSError(_RANGE_OPERATION_UNAVAILABLE) from None
 
 
-def _destroy_scoped_range(credential: CredentialContext, snapshot: RangeInstance, operation: str) -> None:
+def _destroy_scoped_range(
+    credential: CredentialContext,
+    snapshot: RangeInstance,
+    operation: str,
+    *,
+    authority_action: str,
+    authority_target: TargetRef | None,
+) -> None:
     """Commit admitted destruction against the unchanged CMS runtime binding."""
     if snapshot.request is None:
         raise CMSError(_RANGE_UNAVAILABLE)
-    prepared = prepare_range_lifecycle(credential, snapshot.request.request_id, operation)
+    prepared = prepare_range_lifecycle(
+        credential,
+        snapshot.request.request_id,
+        operation,
+        authority_action=authority_action if authority_target is not None else None,
+        authority_target=authority_target,
+    )
     fence = {field: getattr(snapshot, field) for field in _BINDING_FIELDS}
     with transaction.atomic():
         row = (
@@ -112,6 +160,19 @@ def _destroy_scoped_range(credential: CredentialContext, snapshot: RangeInstance
             ),
             strict=True,
         )
+
+
+def run_event_range_lifecycle(
+    credential: CredentialContext, event_uuid: UUID, range_instance_pk: int, operation: str
+) -> None:
+    """Run lifecycle work using the owning event's exact range-management grant."""
+    return run_scoped_range_lifecycle(
+        credential,
+        operation,
+        instance_pk=range_instance_pk,
+        authority_action="event.manage_ranges",
+        authority_target=TargetRef("event", event_uuid),
+    )
 
 
 def destroy_expired_scoped_range(range_uuid: UUID) -> None:

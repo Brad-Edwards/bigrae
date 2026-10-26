@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 /**
  * Delegated staff management (CTF-607, #1922): moderators, judges, and full
- * co-organizers by email. Staff management and ownership transfer are owner-only,
+ * co-organizers by principal UUID. Staff management and ownership transfer are owner-only,
  * so this card renders only for the event owner (`canManage`). Ownership can be
  * handed to a current co-organizer via "Make owner".
  */
@@ -25,7 +25,7 @@ export function EventStaffCard({ eventId, canManage = true }: Readonly<{ eventId
   const assign = useAssignCtfEventStaff(eventId);
   const revoke = useRevokeCtfEventStaff(eventId);
   const transfer = useTransferCtfEventOwnership(eventId);
-  const [email, setEmail] = useState("");
+  const [principalUuid, setPrincipalUuid] = useState("");
   const [role, setRole] = useState<CtfEventStaffAssignRequest["role"]>("moderator");
 
   const assignError = describeMutationError(assign.error, "Could not assign staff.");
@@ -51,14 +51,21 @@ export function EventStaffCard({ eventId, canManage = true }: Readonly<{ eventId
           className="flex flex-wrap items-end gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            if (email.trim()) {
-              assign.mutate({ email: email.trim(), role }, { onSuccess: () => setEmail("") });
+            if (principalUuid.trim()) {
+              assign.mutate(
+                { principal_uuid: principalUuid.trim(), role },
+                { onSuccess: () => setPrincipalUuid("") },
+              );
             }
           }}
         >
           <div className="flex min-w-56 flex-1 flex-col gap-1">
-            <Label htmlFor="staff-email">Organizer email</Label>
-            <Input id="staff-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <Label htmlFor="staff-principal">Principal UUID</Label>
+            <Input
+              id="staff-principal"
+              value={principalUuid}
+              onChange={(event) => setPrincipalUuid(event.target.value)}
+            />
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="staff-role">Role</Label>
@@ -73,7 +80,7 @@ export function EventStaffCard({ eventId, canManage = true }: Readonly<{ eventId
               </SelectContent>
             </Select>
           </div>
-          <Button type="submit" disabled={!email.trim() || assign.isPending}>
+          <Button type="submit" disabled={!principalUuid.trim() || assign.isPending}>
             Add staff
           </Button>
         </form>
@@ -83,9 +90,10 @@ export function EventStaffCard({ eventId, canManage = true }: Readonly<{ eventId
         {staff.data?.staff?.length ? (
           <ul className="divide-y divide-border/60">
             {staff.data.staff.map((member) => (
-              <li key={member.user_id} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <li key={member.principal_uuid} className="flex items-center justify-between gap-3 py-2 text-sm">
                 <span>
-                  {member.email} <span className="text-muted-foreground">· {member.role}</span>
+                  <span className="font-mono">{member.principal_uuid}</span>{" "}
+                  <span className="text-muted-foreground">· {member.role}</span>
                 </span>
                 <div className="flex items-center gap-1">
                   {member.role === "co_organizer" ? (
@@ -94,7 +102,7 @@ export function EventStaffCard({ eventId, canManage = true }: Readonly<{ eventId
                       size="sm"
                       variant="ghost"
                       disabled={transfer.isPending}
-                      onClick={() => transfer.mutate(member.user_id)}
+                      onClick={() => transfer.mutate(member.principal_uuid)}
                     >
                       Make owner
                     </Button>
@@ -104,7 +112,7 @@ export function EventStaffCard({ eventId, canManage = true }: Readonly<{ eventId
                     size="sm"
                     variant="ghost"
                     disabled={revoke.isPending}
-                    onClick={() => revoke.mutate(member.user_id)}
+                    onClick={() => revoke.mutate(member.principal_uuid)}
                   >
                     Remove
                   </Button>

@@ -4,7 +4,7 @@ Architecture rules in this repo are enforced by tooling, not just prose.
 
 ## What Exists
 
-The [model-access design for #681](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md)
+The [model-access design for #681](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/index.md)
 adds proposed ADR-059 through ADR-061 and documentation coverage for the
 planned feature. Registry/import validation applies now. Runtime enforcement
 of broker authorization, atomic budgets, revocation and provider isolation
@@ -12,7 +12,7 @@ must land with the owning implementation issues and their behavioral/cloud
 tests; a passing documentation check is not evidence of those guarantees.
 ADR-060-R3 also requires independently configurable sharing, explicit overlap
 and membership rules, deduplicated pool accounting and separately revocable
-range grants. The [sharing contract](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/sharing.md)
+range grants. The [sharing contract](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/sharing.md)
 is consumed by #2139/#2140 and the downstream implementation/evidence issues;
 it adds no waiver or claim of existing runtime enforcement.
 

@@ -66,7 +66,7 @@ def create_event_page(
     body: str,
     slug: str | None = None,
     order: int = 0,
-    actor_id: int | None = None,
+    actor_id: object | None = None,
 ) -> CTFEventPage:
     """Create a page under the single service boundary, enforcing bounds.
 
@@ -75,6 +75,10 @@ def create_event_page(
     conditional-unique constraint is the concurrency backstop, mapped here to a
     controlled validation response rather than a 500).
     """
+    if actor_id is not None:
+        from ctf.services.authorization import assert_event_action
+
+        assert_event_action(actor_id, event, "event.manage_content")
     if len(body) > MAX_EVENT_PAGE_BODY_CHARS:
         raise CTFValidationError("Page body exceeds the maximum length.")
     active_count = CTFEventPage.objects.filter(event=event, deleted_at__isnull=True).count()
@@ -100,9 +104,13 @@ def update_event_page(
     page: CTFEventPage,
     *,
     fields: dict[str, object],
-    actor_id: int | None = None,
+    actor_id: object | None = None,
 ) -> CTFEventPage:
     """Apply the given ``title``/``body``/``order`` subset with bounds; slug is stable."""
+    if actor_id is not None:
+        from ctf.services.authorization import assert_event_action
+
+        assert_event_action(actor_id, page.event, "event.manage_content")
     body = fields.get("body")
     if isinstance(body, str) and len(body) > MAX_EVENT_PAGE_BODY_CHARS:
         raise CTFValidationError("Page body exceeds the maximum length.")
@@ -114,13 +122,17 @@ def update_event_page(
     return page
 
 
-def delete_event_page(page: CTFEventPage, *, actor_id: int | None = None) -> None:
+def delete_event_page(page: CTFEventPage, *, actor_id: object | None = None) -> None:
     """Soft-delete the page; soft-deleting the reserved briefing restores fallback."""
+    if actor_id is not None:
+        from ctf.services.authorization import assert_event_action
+
+        assert_event_action(actor_id, page.event, "event.manage_content")
     page.delete(soft=True)
     _audit(actor_id, event_id=page.event_id, page=page, action="delete")
 
 
-def _audit(actor_id: int | None, *, event_id: UUID, page: CTFEventPage, action: str) -> None:
+def _audit(actor_id: object | None, *, event_id: UUID, page: CTFEventPage, action: str) -> None:
     """Record the mutation with ids/lengths only; guidance body never enters audit."""
     if actor_id is None:
         return

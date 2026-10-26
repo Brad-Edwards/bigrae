@@ -4,7 +4,7 @@ Status: diagnostic finding (analytical)
 
 Date: 2026-06-07
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/852>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/852>
 
 Companion preflight: [`portal-context-processor-preflight-852.md`](portal-context-processor-preflight-852.md)
 

@@ -43,6 +43,16 @@ from ._feature_artifacts import (
     await_ready,
     request_acquisition,
 )
+from ._identity_cutover import (
+    apply_identity_cutover_resources as apply_identity_cutover_resources,
+)
+from ._identity_cutover import identity_cutover_contract_gaps as identity_cutover_contract_gaps
+from ._identity_cutover import (
+    identity_cutover_resource_disposition as identity_cutover_resource_disposition,
+)
+from ._identity_cutover import (
+    pending_identity_cutover_work as pending_identity_cutover_work,
+)
 from ._lifecycle import dispatch_prepared_range_resume, pause_range, resume_range
 from ._model_admission import admit_range_model_access
 from ._model_broker_control import advance_model_call, commit_model_call, finish_model_call, reserve_model_call
@@ -89,6 +99,7 @@ from ._model_request_reconcile import (
 from ._model_source_control import model_source_execution
 from ._model_sources import (
     ModelSourceView,
+    authorize_model_source_organization,
     compile_authorized_model_sources,
     create_model_source,
     list_model_sources,
@@ -122,9 +133,11 @@ from ._principal_ngfw import commit_ngfw_lifecycle, prepare_ngfw_lifecycle
 from ._principal_range_create import prepare_raes_range_creation
 from ._principal_range_events import verified_range_status_projection as verified_range_status_projection
 from ._principal_range_owner import commit_range_owner_move as commit_range_owner_move
+from ._principal_range_owner import prepare_event_range_owner_move as prepare_event_range_owner_move
 from ._principal_range_owner import prepare_range_owner_move as prepare_range_owner_move
 from ._principal_range_scope import commit_range_scope_move as commit_range_scope_move
 from ._principal_range_scope import prepare_range_scope_move as prepare_range_scope_move
+from ._principal_warm_claim import commit_warm_range_claim, prepare_warm_range_claim
 from ._public_operations import (
     DEFAULT_RETRY_TTL_SECONDS,
     MintedOperation,
@@ -135,7 +148,12 @@ from ._public_operations import (
     operation_id_for_request,
     prune_expired_retry_bindings,
 )
-from ._queries import get_authoritative_range_status, get_ranges_for_ngfw, get_user_ready_range_instances
+from ._queries import (
+    get_authoritative_range_status,
+    get_principal_ready_range_instances,
+    get_ranges_for_ngfw,
+    get_user_ready_range_instances,
+)
 from ._raes_evidence import record_raes_operation_status, record_raes_runtime_snapshot
 from ._raes_image import (
     RaesImageMappingError,
@@ -163,6 +181,7 @@ from ._range import (
 )
 from ._range_authority import RangeAuthorityProjection as RangeAuthorityProjection
 from ._range_authority import has_range_runtime as has_range_runtime
+from ._range_authority import native_range_id_by_request as native_range_id_by_request
 from ._range_authority import project_range_authority as project_range_authority
 from ._range_by_request import (
     RangeOwnershipTransferBlocked,
@@ -333,6 +352,7 @@ __all__ = (
     "assess_declared_event_capacity",
     "assess_event_capacity",
     "authenticate_model_access",
+    "authorize_model_source_organization",
     "authorize_vpn_session",
     "await_ready",
     "begin_range_model_policy_change",
@@ -350,6 +370,7 @@ __all__ = (
     "commit_model_call",
     "commit_ngfw_lifecycle",
     "commit_request_spend",
+    "commit_warm_range_claim",
     "compile_authorized_model_sources",
     "confirm_receipt_verifier_binding",
     "connect_ngfw_terminal",
@@ -385,6 +406,7 @@ __all__ = (
     "get_or_create_allocation_group",
     "get_owned_instance_request_ref",
     "get_pinned_range_egress_mode_by_request",
+    "get_principal_ready_range_instances",
     "get_range_failure_reason_by_request",
     "get_range_membership",
     "get_range_model_policy_status",
@@ -424,6 +446,7 @@ __all__ = (
     "prepare_ngfw_creation",
     "prepare_ngfw_lifecycle",
     "prepare_raes_range_creation",
+    "prepare_warm_range_claim",
     "preview_effective_policy",
     "project_authorized_model_sources",
     "project_model_launch_authority",

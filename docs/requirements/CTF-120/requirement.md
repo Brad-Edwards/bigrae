@@ -32,5 +32,5 @@ Ratings help organizers identify well-received vs frustrating challenges and imp
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event.py` (Event service with rating_visibility handling)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/event_form.html` (Rating visibility config in event admin form template)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_events.py` (Event tests covering rating_visibility field)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#554` (CTF-120: Challenge Ratings)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#554` (CTF-120: Challenge Ratings)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/play.py` (api_rate_challenge endpoint and rating context in challenge detail views)

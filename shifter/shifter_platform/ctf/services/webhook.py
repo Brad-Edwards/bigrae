@@ -37,7 +37,7 @@ def create_event_webhook(
     url: str,
     secret: str,
     subscribed_events: list[str],
-    actor_id: int,
+    actor_id: object,
 ) -> CTFWebhook:
     """Register a webhook on an event, asserting the ``config`` capability (#1922).
 
@@ -45,34 +45,32 @@ def create_event_webhook(
     the event policy is enforced at the final write, not only at the HTTP
     resolver.
     """
-    from ctf.enums import EventCapability
     from ctf.exceptions import CTFValidationError
     from ctf.models import CTFWebhook
-    from ctf.services.authorization import assert_event_capability
+    from ctf.services.authorization import assert_event_action
     from ctf.validators._ssrf import is_blocked_url
 
-    assert_event_capability(actor_id, event, EventCapability.CONFIG)
+    assert_event_action(actor_id, event, "event.manage_communications")
     if not isinstance(url, str) or not url.startswith("https://") or is_blocked_url(url):
         raise CTFValidationError("Webhook destination is unavailable.", code="CTF_WEBHOOK_DESTINATION_BLOCKED")
     return CTFWebhook.objects.create(event=event, url=url, secret=secret, subscribed_events=subscribed_events)
 
 
-def delete_event_webhook(webhook_id: UUID, *, actor_id: int) -> None:
+def delete_event_webhook(webhook_id: UUID, *, actor_id: object) -> None:
     """Soft-delete a webhook, asserting the ``config`` capability on its event (#1922).
 
     Raises:
         CTFNotFoundError: If the webhook does not exist.
         CTFPermissionError: If ``actor_id`` lacks the ``config`` capability.
     """
-    from ctf.enums import EventCapability
     from ctf.exceptions import CTFNotFoundError
     from ctf.models import CTFWebhook
-    from ctf.services.authorization import assert_event_capability
+    from ctf.services.authorization import assert_event_action
 
     webhook = CTFWebhook.objects.select_related("event").filter(pk=webhook_id, deleted_at__isnull=True).first()
     if webhook is None:
         raise CTFNotFoundError("Webhook not found", details={"webhook_id": str(webhook_id)})
-    assert_event_capability(actor_id, webhook.event, EventCapability.CONFIG)
+    assert_event_action(actor_id, webhook.event, "event.manage_communications")
     webhook.delete(soft=True)
 
 

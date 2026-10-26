@@ -222,7 +222,7 @@ class TestForceDeleteEvent:
         return mock_part_qs, mock_file_qs
 
     @pytest.mark.django_db
-    def test_force_delete_success(self, ctf_event, organizer_user, monkeypatch):
+    def test_force_delete_success(self, ctf_event, organizer_user, organizer_credential, monkeypatch):
         """force_delete_event hard-deletes the event and counts the teardown dispatched.
 
         DB-backed: the destroy is dispatched (``cms_destroy_range`` mocked so no
@@ -232,7 +232,7 @@ class TestForceDeleteEvent:
         from ctf.models import CTFEvent, CTFParticipant
         from ctf.services.event import force_delete_event
 
-        monkeypatch.setattr("ctf.bridges.cms_destroy_range", lambda user, range_instance_id: None)
+        monkeypatch.setattr("ctf.bridges.cms_destroy_range", lambda credential, event_id, range_instance_id: None)
         CTFParticipant.objects.create(
             event=ctf_event,
             user=organizer_user,
@@ -243,13 +243,29 @@ class TestForceDeleteEvent:
             range_status="ready",
         )
 
-        result = force_delete_event(ctf_event.pk, organizer_user, ctf_event.name)
+        result = force_delete_event(ctf_event.pk, organizer_credential, ctf_event.name)
 
         assert result["event_name"] == ctf_event.name
         assert result["ranges_destroyed"] == 1  # dispatched
         assert result["ranges_failed"] == 0
         # Hard delete: gone even from all_objects (which still sees soft-deletes).
         assert not CTFEvent.all_objects.filter(pk=ctf_event.pk).exists()
+
+    @pytest.mark.django_db
+    def test_force_delete_authorizes_a_soft_deleted_event_through_retained_ancestry(
+        self, ctf_event, organizer_credential
+    ):
+        from ctf.models import CTFEvent
+        from ctf.services.event import force_delete_event
+
+        event_id = ctf_event.pk
+        event_name = ctf_event.name
+        ctf_event.delete(soft=True)
+
+        result = force_delete_event(event_id, organizer_credential, event_name)
+
+        assert result["event_id"] == str(event_id)
+        assert not CTFEvent.all_objects.filter(pk=event_id).exists()
 
     @pytest.mark.django_db
     def test_force_delete_releases_temporary_accounts(self, ctf_event, organizer_user, django_user_model):
@@ -310,7 +326,9 @@ class TestForceDeleteEvent:
             force_delete_event(missing_id, organizer_user, "Whatever")
 
     @pytest.mark.django_db
-    def test_force_delete_range_cleanup_partial_failure(self, ctf_event, organizer_user, participant_user, monkeypatch):
+    def test_force_delete_range_cleanup_partial_failure(
+        self, ctf_event, organizer_user, organizer_credential, participant_user, monkeypatch
+    ):
         """force_delete_event proceeds and tallies dispatched vs failed when a destroy fails.
 
         DB-backed: one range dispatches its destroy (counted), the other raises
@@ -321,7 +339,7 @@ class TestForceDeleteEvent:
         from ctf.services.event import force_delete_event
         from shared.exceptions import CMSError
 
-        def _destroy(user, range_instance_id):
+        def _destroy(credential, event_id, range_instance_id):
             if range_instance_id == 999999:
                 raise CMSError("no such range")
 
@@ -346,7 +364,7 @@ class TestForceDeleteEvent:
             range_status="ready",
         )
 
-        result = force_delete_event(ctf_event.pk, organizer_user, ctf_event.name)
+        result = force_delete_event(ctf_event.pk, organizer_credential, ctf_event.name)
 
         assert result["ranges_destroyed"] == 1  # dispatched
         assert result["ranges_failed"] == 1
@@ -406,8 +424,8 @@ class TestApiForceDeleteEvent:
         return client
 
     @pytest.fixture
-    def mock_event(self, organizer_user):
-        return _make_mock_event(created_by_id=organizer_user.pk)
+    def mock_event(self, ctf_event):
+        return ctf_event
 
     def test_api_force_delete_success(self, organizer_client, mock_event):
         """POST with valid confirmation should return 200 and summary."""

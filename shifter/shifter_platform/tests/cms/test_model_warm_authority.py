@@ -1,4 +1,4 @@
-"""Warm preparation authority follows the real inactive-owner ledger lifecycle."""
+"""Warm preparation authority follows service custody and the ledger lifecycle."""
 
 from datetime import timedelta
 from uuid import uuid4
@@ -8,22 +8,35 @@ from django.db import transaction
 from django.utils import timezone
 
 from cms.services._model_allocation import prepare_model_access_for_dispatch
-from cms.services._warm_pool_reconcile import create_managed_warm_user
 from engine.models import ModelAllocation, ModelLaunchPreparationRecord, Range, WarmRangeGeneration
 from engine.services import record_model_observations
 from engine.services._model_allocation_launch import allocate_launch_models
+from shared.authorization import CredentialCeiling, TargetRef
+from shared.credentials import CredentialContext
+from shared.identity_scope import PrincipalRef
 from shared.model_access import ContractError
 
 from ..engine.services.test_model_allocation import allocation_inputs
-from .test_model_allocation_dispatch import setup_launch
+from .test_model_allocation_dispatch import setup_warm_launch
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
-def warm_launch(django_user_model, settings):
-    owner, request, instance = setup_launch(django_user_model, settings, owner=create_managed_warm_user())
-    instance.expires_at = instance.maximum_expires_at = None
-    instance.save(update_fields=["expires_at", "maximum_expires_at"])
+@pytest.fixture
+def warm_credential(monkeypatch):
+    credential = CredentialContext(
+        PrincipalRef(uuid4(), "service"),
+        "service",
+        uuid4(),
+        CredentialCeiling(frozenset({"installation.launch_range"}), TargetRef("installation")),
+        frozenset(),
+    )
+    monkeypatch.setattr("cms.services._model_allocation.resolve_current_credential", lambda original: original)
+    return credential
+
+
+def warm_launch(django_user_model, settings, credential):
+    owner, request, _instance = setup_warm_launch(django_user_model, settings, credential)
     generation = WarmRangeGeneration.objects.create(
         request_id=request.request_id,
         range=Range.objects.get(uuid=request.range_id),
@@ -53,31 +66,32 @@ def allocate_preparation(request, operation="provision"):
 @pytest.mark.parametrize(
     ("invalid", "error_code"),
     [
-        ("active", r"allocation\.authority_unavailable"),
-        ("password", r"allocation\.authority_unavailable"),
-        ("unmanaged", r"allocation\.authority_unavailable"),
-        ("deleted", r"allocation\.authority_unavailable"),
+        ("credential-revoked", r"allocation\.authority_unavailable"),
+        ("user-present", r"allocation\.authority_unavailable"),
+        ("account-scope", r"allocation\.authority_unavailable"),
         ("expired", r"allocation\.scope_unavailable"),
         ("retired", r"allocation\.scope_unavailable"),
         ("absent", r"allocation\.scope_unavailable"),
     ],
 )
 def test_warm_preparation_requires_real_system_identity_and_live_ledger(
-    django_user_model, settings, invalid, error_code
+    django_user_model, settings, warm_credential, monkeypatch, invalid, error_code
 ):
-    owner, request, generation = warm_launch(django_user_model, settings)
-    if invalid == "active":
-        owner.is_active = True
-        owner.save(update_fields=["is_active"])
-    elif invalid == "password":
-        owner.set_password("not-a-system-owner")
-        owner.save(update_fields=["password"])
-    elif invalid == "unmanaged":
-        owner.email = "ordinary@example.invalid"
-        owner.save(update_fields=["email"])
-    elif invalid == "deleted":
-        owner.profile.deleted_at = timezone.now()
-        owner.profile.save(update_fields=["deleted_at"])
+    _owner, request, generation = warm_launch(django_user_model, settings, warm_credential)
+    if invalid == "credential-revoked":
+        monkeypatch.setattr(
+            "cms.services._model_allocation.resolve_current_credential",
+            lambda original: (_ for _ in ()).throw(ValueError("revoked")),
+        )
+    elif invalid == "user-present":
+        from cms.models import RangeInstance
+
+        user = django_user_model.objects.create_user(username="invalid-warm-user")
+        RangeInstance.objects.filter(request__request_id=request.request_id).update(user_id=user.pk)
+    elif invalid == "account-scope":
+        from cms.models import RangeInstance
+
+        RangeInstance.objects.filter(request__request_id=request.request_id).update(scope_kind="account", account_id=1)
     elif invalid == "expired":
         generation.idle_deadline = timezone.now() - timedelta(seconds=1)
         generation.save(update_fields=["idle_deadline"])
@@ -94,8 +108,10 @@ def test_warm_preparation_requires_real_system_identity_and_live_ledger(
 
 @pytest.mark.parametrize("allocated", [False, True])
 @pytest.mark.parametrize("mutation", ["claim", "retire", "deadline", "scope", "draw"])
-def test_warm_ledger_mutation_invalidates_preparation(django_user_model, settings, allocated, mutation):
-    _, request, generation = warm_launch(django_user_model, settings)
+def test_warm_ledger_mutation_invalidates_preparation(
+    django_user_model, settings, warm_credential, allocated, mutation
+):
+    _, request, generation = warm_launch(django_user_model, settings, warm_credential)
     prepare_model_access_for_dispatch(request.request_id, range_id=request.range_id)
     allocation = allocate_preparation(request)[0] if allocated else None
     with transaction.atomic():
@@ -132,8 +148,8 @@ def test_warm_ledger_mutation_invalidates_preparation(django_user_model, setting
             assert not ModelAllocation.objects.exists()
 
 
-def test_preparation_authority_cannot_activate_a_claimant(django_user_model, settings):
-    _, request, _ = warm_launch(django_user_model, settings)
+def test_preparation_authority_cannot_activate_a_claimant(django_user_model, settings, warm_credential):
+    _, request, _ = warm_launch(django_user_model, settings, warm_credential)
     prepare_model_access_for_dispatch(request.request_id, range_id=request.range_id)
     with pytest.raises(ContractError, match=r"allocation\.system_preparation_only"):
         allocate_preparation(request, "activate")

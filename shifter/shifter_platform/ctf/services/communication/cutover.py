@@ -73,10 +73,21 @@ def _draft(row: CTFNotification) -> CommunicationCampaign:
     if (row.status == "scheduled") != (row.scheduled_at is not None):
         raise _blocked()
     try:
-        binding = ws.authorize_bound_workspace(
-            row.created_by, row.event.workspace_id, ws.WorkspaceOperation.USE_CTF_COMMUNICATIONS
+        scope = ws.resource_scope_from_ids(
+            kind=row.event.scope_kind,
+            account_id=row.event.account_id,
+            organization_id=row.event.organization_id,
+            workspace_id=row.event.workspace_id,
         )
-    except ws.WorkspaceAuthorizationError:
+        if scope.workspace_uuid is not None:
+            parent_type, parent_uuid = "workspace", scope.workspace_uuid
+        elif scope.organization_uuid is not None:
+            parent_type, parent_uuid = "organization", scope.organization_uuid
+        else:
+            parent_type, parent_uuid = "account", scope.account_uuid
+        if parent_uuid is None:
+            raise ValueError
+    except (ValueError, ws.AccountScopeError):
         raise _blocked() from None
     trigger = (
         {"kind": "manual"}
@@ -85,7 +96,7 @@ def _draft(row: CTFNotification) -> CommunicationCampaign:
     )
     return create_campaign(
         row.created_by,
-        binding.workspace_uuid,
+        parent_uuid,
         CampaignDraft(
             title=row.subject,
             origin="organizer_staff",
@@ -96,6 +107,7 @@ def _draft(row: CTFNotification) -> CommunicationCampaign:
             subject=row.subject,
             body=row.body,
         ),
+        parent_type=parent_type,
         maintenance=True,
     )
 

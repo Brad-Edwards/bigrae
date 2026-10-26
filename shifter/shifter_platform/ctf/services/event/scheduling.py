@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _CLEANUP_WARNING_LEAD_MINUTES = 30
 
 
-def _schedule_event_tasks(event: CTFEvent) -> None:
+def _schedule_event_tasks(event: CTFEvent, actor: object) -> None:
     """Schedule automated tasks for an event.
 
     Tasks are recorded in the database and executed by the
@@ -38,6 +38,10 @@ def _schedule_event_tasks(event: CTFEvent) -> None:
     from ctf.models import CTFScheduledTask
 
     now = timezone.now()
+    from ctf.services.actors import event_actor_credential
+    from shared.operation_authority import credential_reference_fields
+
+    credential = event_actor_credential(actor)
 
     # Spin up ranges before event, holding the pack admission fence (ADR-034-R13).
     with transaction.atomic():
@@ -48,6 +52,7 @@ def _schedule_event_tasks(event: CTFEvent) -> None:
             event=event,
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
             scheduled_for=event.get_spinup_time(),
+            **credential_reference_fields(credential),
         )
 
     # Event start
@@ -135,10 +140,10 @@ def _reschedule_live_event_schedule(event: CTFEvent) -> None:
     logger.info("Rescheduled live end tasks for event %s", event.id)
 
 
-def _reschedule_event_tasks(event: CTFEvent) -> None:
+def _reschedule_event_tasks(event: CTFEvent, actor: object) -> None:
     """Reschedule tasks after event times change."""
     _cancel_event_tasks(event)
-    _schedule_event_tasks(event)
+    _schedule_event_tasks(event, actor)
     _reschedule_challenge_release_tasks(event)
     logger.info("Rescheduled tasks for event %s", event.id)
 
@@ -192,7 +197,7 @@ def list_event_tasks(event_id: UUID) -> QuerySet[CTFScheduledTask]:
     )
 
 
-def _assert_lifecycle_actor(event_id: UUID, actor_id: int | None) -> None:
+def _assert_lifecycle_actor(event_id: UUID, actor_id: object | None) -> None:
     """Assert the interactive ``actor_id`` holds the lifecycle capability (#1922).
 
     Interactive scheduler-control commands pass ``actor_id`` so the event policy
@@ -209,7 +214,7 @@ def _assert_lifecycle_actor(event_id: UUID, actor_id: int | None) -> None:
 
 
 def run_task_now(
-    event_id: UUID, task_id: UUID, *, actor_id: int | None = None, actor_token_id: int | None = None
+    event_id: UUID, task_id: UUID, *, actor_id: object | None = None, actor_token_id: int | None = None
 ) -> CTFScheduledTask:
     """Make a pending task due immediately (#526 manual trigger).
 
@@ -247,7 +252,7 @@ def run_task_now(
     return task
 
 
-def _run_communication_task_now(task: CTFScheduledTask, actor_id: int | None, actor_token_id: int | None) -> None:
+def _run_communication_task_now(task: CTFScheduledTask, actor_id: object | None, actor_token_id: int | None) -> None:
     """Perform an authorized early release for a RELEASE_COMMUNICATION run-now.
 
     Requires a live interactive actor; the communication admission owner re-checks
@@ -273,8 +278,16 @@ def _run_communication_task_now(task: CTFScheduledTask, actor_id: int | None, ac
     if intent is None:
         raise CTFNotFoundError("Scheduled communication not found", details={"task_id": str(task.pk)})
 
+    from shared.credentials import CredentialContext
+
     request_early_release(
-        intent, actor=AdmissionActor(user_id=actor_id, token_id=actor_token_id, allow_early_release=True)
+        intent,
+        actor=AdmissionActor(
+            credential=actor_id if isinstance(actor_id, CredentialContext) else None,
+            user_id=actor_id if isinstance(actor_id, int) else None,
+            token_id=actor_token_id,
+            allow_early_release=True,
+        ),
     )
     # The declaration is released out of band; settle the pending task so the poller
     # does not later re-run it (release is idempotent, so this is a tidy-up).
@@ -308,7 +321,7 @@ def has_pending_cleanup_task(event_id: UUID) -> bool:
     ).exists()
 
 
-def defer_event_cleanup(event_id: UUID, hours: int, *, actor_id: int | None = None) -> int:
+def defer_event_cleanup(event_id: UUID, hours: int, *, actor_id: object | None = None) -> int:
     """Push the pending automated cleanup (and its warning) back by `hours` (CTF-1003).
 
     Returns the number of tasks moved; raises when no cleanup is pending. An
@@ -334,7 +347,7 @@ def defer_event_cleanup(event_id: UUID, hours: int, *, actor_id: int | None = No
     return len(tasks)
 
 
-def cancel_event_cleanup(event_id: UUID, *, actor_id: int | None = None) -> int:
+def cancel_event_cleanup(event_id: UUID, *, actor_id: object | None = None) -> int:
     """Cancel the pending automated cleanup (and its warning) (CTF-1003).
 
     Ranges then live until the organizer destroys them or force-deletes the

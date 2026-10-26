@@ -42,12 +42,11 @@ from ctf.services.range.recovery_steps import (
     _ensure_rebuild_replacement_ready,
     _ensure_spare_attached,
     _ensure_spare_reserved,
-    _participant_user,
 )
 from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+    from ctf.services.actors import EventActor
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +65,7 @@ def _validate_strategy(strategy: str) -> None:
 def _claim_recovery(
     participant_id: UUID,
     strategy: str,
-    operator: User | None,
+    operator: EventActor,
 ) -> tuple[CTFParticipant, CTFRangeRecovery, int]:
     """Lock the participant, validate inputs, and get-or-create the recovery intent row.
 
@@ -104,6 +103,11 @@ def _claim_recovery(
             )
 
         _validate_strategy(strategy)
+        from ctf.services.actors import event_actor_credential, event_actor_user_id
+        from ctf.services.authorization import assert_event_action
+
+        assert_event_action(operator, participant.event, "event.manage_ranges")
+        credential = event_actor_credential(operator)
 
         recovery, created = CTFRangeRecovery.objects.get_or_create(
             participant=participant,
@@ -111,7 +115,8 @@ def _claim_recovery(
             strategy=strategy,
             defaults={
                 "event": participant.event,
-                "created_by": operator,
+                "created_by_id": event_actor_user_id(operator),
+                "initiated_by_principal_uuid": credential.principal.uuid,
             },
         )
         if created:
@@ -179,7 +184,7 @@ def recover_participant_range(
     participant_id: UUID,
     *,
     strategy: str,
-    operator: User,
+    operator: EventActor,
     spare_range_instance_id: int | None = None,
 ) -> dict[str, Any]:
     """Recover a participant's range that is beyond in-place repair.
@@ -219,6 +224,9 @@ def recover_participant_range(
     )
 
     participant, recovery, old_range_instance_id = _claim_recovery(participant_id, strategy, operator)
+    from ctf.services.actors import event_actor_credential
+
+    credential = event_actor_credential(operator)
 
     if recovery.phase == RecoveryPhase.COMPLETED.value:
         logger.info("recover_participant_range: recovery=%s already completed", recovery.pk)
@@ -233,13 +241,13 @@ def recover_participant_range(
             from ctf.services.model_access_sharing import participant_model_admission_subject
 
             model_subject = participant_model_admission_subject(participant)
-            _ensure_old_range_blocked(recovery, old_range_instance_id, _participant_user(participant))
-            _ensure_rebuild_replacement_ready(recovery, participant, model_subject)
+            _ensure_old_range_blocked(recovery, old_range_instance_id, credential)
+            _ensure_rebuild_replacement_ready(recovery, participant, model_subject, credential)
         else:
             # reassign_spare reserves the spare before teardown (no stranding).
             _ensure_spare_reserved(recovery, participant, spare_range_instance_id)
-            _ensure_old_range_blocked(recovery, old_range_instance_id, _participant_user(participant))
-            _ensure_spare_attached(recovery, participant)
+            _ensure_old_range_blocked(recovery, old_range_instance_id, credential)
+            _ensure_spare_attached(recovery, participant, credential)
         _ensure_participant_repointed(participant, recovery)
         _complete_recovery(recovery, participant, operator)
     except Exception as exc:

@@ -4,7 +4,7 @@ Status: implementation candidate; exact-release verdict unresolved
 
 Date: 2026-09-12
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/2084>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/2084>
 
 Design source:
 `docs/architecture/gcp-release-security-closure-preflight-2084.md`

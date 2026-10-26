@@ -22,4 +22,4 @@ Event result export enables post-event reporting, analysis, and record-keeping. 
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py (get_event_statistics)` (Event statistics service - computes stats but no CSV/JSON export function)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#631` (CTF-1103: Event Export)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#631` (CTF-1103: Event Export)

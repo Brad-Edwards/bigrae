@@ -37,8 +37,15 @@ def _client_for(user: User) -> Client:
 
 
 def _assign(client, event, email, role):
+    from management.services import principal_for_user
+
+    target = User.objects.get(email=email)
     return call_json(
-        client, "post", "api_event_staff", kwargs={"event_id": event.id}, body={"email": email, "role": role}
+        client,
+        "post",
+        "api_event_staff",
+        kwargs={"event_id": event.id},
+        body={"principal_uuid": str(principal_for_user(target).uuid), "role": role},
     )
 
 
@@ -165,9 +172,12 @@ class TestCoOrganizerListing:
             authenticated_organizer_client,
             "delete",
             "api_event_staff_member",
-            kwargs={"event_id": co_organized_event.id, "user_id": co_organizer_user.pk},
+            kwargs={
+                "event_id": co_organized_event.id,
+                "principal_uuid": co_organizer_user.identity_principal.uuid,
+            },
         )
-        assert revoke.status_code == 200
+        assert revoke.status_code == 204
         listing = call_json(co_organizer_client, "get", "api_event_list")
         ids = {e["id"] for e in listing.json()["events"]}
         assert str(co_organized_event.id) not in ids
@@ -185,7 +195,7 @@ class TestAccessProjection:
             authenticated_organizer_client, "get", "api_event_detail", kwargs={"event_id": co_organized_event.id}
         )
         body = detail.json()
-        assert body["access_source"] == "owner"
+        assert body["access_source"] == "policy"
         assert "delete" in body["access_capabilities"]
 
     def test_co_organizer_projection(self, co_organized_event, co_organizer_client):
@@ -193,24 +203,59 @@ class TestAccessProjection:
         body = detail.json()
         # A co-organizer reaches the event through a live staff row; the advisory
         # capability set is the full co-organizer grant.
-        assert body["access_source"] == "event_staff"
+        assert body["access_source"] == "policy"
         assert "challenges" in body["access_capabilities"]
 
     def test_listing_carries_access_source(self, co_organized_event, co_organizer_client):
         listing = call_json(co_organizer_client, "get", "api_event_list")
         entry = next(e for e in listing.json()["events"] if e["id"] == str(co_organized_event.id))
-        assert entry["access_source"] == "event_staff"
+        assert entry["access_source"] == "policy"
         assert "challenges" in entry["access_capabilities"]
+
+    def test_projection_omits_capability_denied_by_live_policy(
+        self, co_organized_event, authenticated_organizer_client, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+        def _decision(request):
+            allowed = request.action != "event.delete"
+            return AuthorizationDecision(
+                DecisionKind.ALLOWED if allowed else DecisionKind.DENIED,
+                "policy_allowed" if allowed else "policy_denied",
+            )
+
+        monkeypatch.setattr(
+            port,
+            "_provider_factory",
+            lambda: SimpleNamespace(
+                check=_decision,
+                batch_check=lambda requests: tuple(_decision(request) for request in requests),
+            ),
+        )
+
+        detail = call_json(
+            authenticated_organizer_client,
+            "get",
+            "api_event_detail",
+            kwargs={"event_id": co_organized_event.id},
+        )
+
+        assert detail.status_code == 200
+        assert "delete" not in detail.json()["access_capabilities"]
+        assert "challenges" in detail.json()["access_capabilities"]
 
 
 class TestOwnershipTransfer:
     def _transfer(self, client, event, new_owner_id):
+        target = User.objects.get(pk=new_owner_id)
         return call_json(
             client,
             "post",
             "api_event_transfer_ownership",
             kwargs={"event_id": event.id},
-            body={"user_id": new_owner_id},
+            body={"principal_uuid": str(target.identity_principal.uuid)},
         )
 
     def test_owner_transfers_to_co_organizer(
@@ -258,6 +303,18 @@ class TestOwnershipTransfer:
         staff = call_json(prev_owner_client, "get", "api_event_staff", kwargs={"event_id": co_organized_event.id})
         assert staff.status_code == 403
 
+    def test_new_owner_keeps_read_and_management_permissions_after_staff_row_retirement(
+        self, co_organized_event, authenticated_organizer_client, co_organizer_user
+    ):
+        self._transfer(authenticated_organizer_client, co_organized_event, co_organizer_user.pk)
+        new_owner_client = _client_for(co_organizer_user)
+
+        detail = call_json(new_owner_client, "get", "api_event_detail", kwargs={"event_id": co_organized_event.id})
+        staff = call_json(new_owner_client, "get", "api_event_staff", kwargs={"event_id": co_organized_event.id})
+
+        assert detail.status_code == 200
+        assert staff.status_code == 200
+
 
 class TestCoOrganizerRealtime:
     """Realtime authorization is consistent: co-organizers subscribe and receive (#1922)."""
@@ -276,7 +333,10 @@ class TestCoOrganizerRealtime:
             authenticated_organizer_client,
             "delete",
             "api_event_staff_member",
-            kwargs={"event_id": co_organized_event.id, "user_id": co_organizer_user.pk},
+            kwargs={
+                "event_id": co_organized_event.id,
+                "principal_uuid": co_organizer_user.identity_principal.uuid,
+            },
         )
         assert _can_subscribe(co_organizer_user, event_topic(co_organized_event.id)) is False
 
@@ -312,9 +372,81 @@ class TestAuthorityMutationsAreAudited:
             "post",
             "api_event_transfer_ownership",
             kwargs={"event_id": ctf_event.id},
-            body={"user_id": co_organizer_user.pk},
+            body={"principal_uuid": str(co_organizer_user.identity_principal.uuid)},
         )
         assert AuditLog.objects.filter(context__icontains="ctf_event_ownership_transfer").exists()
+
+
+class TestAuthorityTransitionDurability:
+    """Provider interruption leaves one resumable, event-serialized intent."""
+
+    def test_interrupted_assignment_resumes_same_intent(
+        self, ctf_event, organizer_user, co_organizer_user, monkeypatch
+    ):
+        from ctf.exceptions import CTFStateError
+        from ctf.models import CTFEventAuthorityTransition, CTFEventStaff
+        from ctf.services.event import staff as staff_service
+
+        original_publish = staff_service._publish_staff_role
+
+        def _interrupt(*args, **kwargs):
+            assert CTFEventAuthorityTransition.objects.filter(
+                event=ctf_event,
+                state=CTFEventAuthorityTransition.State.PENDING,
+            ).exists()
+            raise CTFStateError("simulated provider interruption")
+
+        monkeypatch.setattr(staff_service, "_publish_staff_role", _interrupt)
+        with pytest.raises(CTFStateError):
+            staff_service.assign_event_staff(
+                ctf_event.id,
+                organizer_user,
+                co_organizer_user.identity_principal.uuid,
+                "co_organizer",
+            )
+
+        monkeypatch.setattr(staff_service, "_publish_staff_role", original_publish)
+        staff_service.assign_event_staff(
+            ctf_event.id,
+            organizer_user,
+            co_organizer_user.identity_principal.uuid,
+            "co_organizer",
+        )
+
+        assert CTFEventStaff.objects.filter(
+            event=ctf_event,
+            principal_uuid=co_organizer_user.identity_principal.uuid,
+            role="co_organizer",
+        ).exists()
+        assert CTFEventAuthorityTransition.objects.get(event=ctf_event).state == "confirmed"
+
+    def test_pending_assignment_blocks_conflicting_assignment(
+        self, ctf_event, organizer_user, co_organizer_user, monkeypatch
+    ):
+        from ctf.exceptions import CTFStateError, CTFValidationError
+        from ctf.services.event import staff as staff_service
+
+        second = _organizer("second-coorg@test.com")
+
+        def _interrupt(*_args, **_kwargs):
+            raise CTFStateError("simulated interruption")
+
+        monkeypatch.setattr(staff_service, "_publish_staff_role", _interrupt)
+        with pytest.raises(CTFStateError):
+            staff_service.assign_event_staff(
+                ctf_event.id,
+                organizer_user,
+                co_organizer_user.identity_principal.uuid,
+                "co_organizer",
+            )
+
+        with pytest.raises(CTFValidationError, match="concurrently"):
+            staff_service.assign_event_staff(
+                ctf_event.id,
+                organizer_user,
+                second.identity_principal.uuid,
+                "moderator",
+            )
 
 
 class TestReviewFindingRegressions:
@@ -339,7 +471,7 @@ class TestReviewFindingRegressions:
             "post",
             "api_event_transfer_ownership",
             kwargs={"event_id": co_organized_event.id},
-            body={"user_id": co_organizer_user.pk},
+            body={"principal_uuid": str(co_organizer_user.identity_principal.uuid)},
         )
         assert resp.status_code == 400
         co_organized_event.refresh_from_db()

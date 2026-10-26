@@ -27,6 +27,10 @@ load_dotenv()
 # pattern uses ``from .base import *``).
 from config._api_token_settings import *  # NOSONAR  # noqa: E402
 from config._browser_security import *  # NOSONAR  # noqa: E402
+
+# Every browser session carries a stable, revocable, non-secret credential
+# reference used by delayed-operation reauthorization.
+SESSION_ENGINE = "management.session_backend"
 from config._cache_settings import *  # NOSONAR  # noqa: E402
 from config._channels import *  # NOSONAR  # noqa: E402
 from config._channels import _build_channel_layers  # noqa: E402

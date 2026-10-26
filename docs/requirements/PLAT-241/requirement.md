@@ -37,13 +37,13 @@ The user requires a cloud-agnostic admin layer (AWS and GCP) that leans on prove
 - CONSTRAINS → GITHUB_ISSUE `1945`
 - CONSTRAINS → GITHUB_ISSUE `1946`
 - CONSTRAINS → GITHUB_ISSUE `1947`
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/api/views.py` (Reuses DRF, IsStaffSession, and the workspace service seam; no cloud-specific branch)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_context.py` (Read-only projection via workspaces.services facade + central role policy (no hand-rolled authz))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/api/policy_profile_views.py` (Reuses DRF, principal credentials, and the policy service seam without a cloud branch)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_policy_context.py` (Read-only projection through the workspaces facade and shared authorization port)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/app/nav.ts` (Reuses the central nav registry + Django-admin escape hatch; no cloud-specific assumptions)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/api/principalContext.ts` (Reuses the shared fetch client, generated OpenAPI types, and TanStack Query; identical on AWS/GCP)
-- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_organization_api.py` (Proves session-only auth via shared DRF seam; no cloud-specific branch (AWS/GCP identical))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/api/lifecycle_views.py` (Session-only auth via shared DRF seam + workspaces.services role policy; no cloud-specific branch (AWS/GCP identical))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/api/workspaces.ts` (Reuses the shared apiFetch client, generated OpenAPI types, and TanStack Query; identical on AWS/GCP)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/api/account-administration.ts` (Shared fetch client, generated types, and TanStack Query without cloud assumptions)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_account_policy_admin.py` (Human/service principal DRF boundary with no cloud-specific branch)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/api/account_admin_views.py` (Principal policy lifecycle adapter through workspaces services)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/administer/accounts/AccountAdministrationPage.tsx` (Cloud-neutral account and subdivision administration)
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_policy_invitations.py` (S4 prepared administration; activation remains coordinated)
 

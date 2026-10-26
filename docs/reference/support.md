@@ -11,7 +11,7 @@ before reporting unexpected behavior. Inspect unknown cleanup before retrying;
 do not delete recovery evidence to clear a failed range.
 
 Report non-sensitive defects and feature requests in
-[the canonical repository](https://github.com/Brad-Edwards/shifter/issues).
+[the canonical repository](https://github.com/Brad-Edwards/bigrae/issues).
 Include expected/actual behavior, release or commit, selected backend and a
 synthetic reproduction. Exclude credentials, private scenario identities,
 customer data, signed URLs and operational evidence.
@@ -19,6 +19,6 @@ customer data, signed URLs and operational evidence.
 Report suspected vulnerabilities privately to
 [Brad Edwards](mailto:j.bradley.edwards@gmail.com), the contact published on the
 [maintainer's profile](https://github.com/Brad-Edwards).
-Read the [security policy](https://github.com/Brad-Edwards/shifter/blob/dev/SECURITY.md)
+Read the [security policy](https://github.com/Brad-Edwards/bigrae/blob/dev/SECURITY.md)
 before sending sensitive material. Private GitHub advisory reporting is currently
 disabled; security response has no guaranteed deadline.

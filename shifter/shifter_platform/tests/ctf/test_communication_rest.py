@@ -5,8 +5,11 @@ from rest_framework.test import APIClient
 
 from ctf.models import CommunicationCampaign, CommunicationIntent
 from shared.api_tokens.models import ApiToken
+from shared.api_tokens.scopes import AUTHORIZATION_ACTION_SCOPES
+from shared.principal_port import principal_for_user
+from workspaces.models import Account
 
-pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
+pytestmark = pytest.mark.django_db
 URL = "/api/v1/ctf/communications/"
 
 
@@ -22,7 +25,10 @@ def test_scheduler_history_cannot_bypass_communication_scope_or_leak_errors(orga
         error_message="private-error-canary",
         metadata={"intent_id": "missing"},
     )
-    client, _ = token_client(organizer_user, ["ctf:event:read"])
+    client, _ = token_client(
+        organizer_user,
+        ["ctf:event:read", AUTHORIZATION_ACTION_SCOPES["event.manage_lifecycle"]],
+    )
     response = client.get(f"/api/v1/ctf/events/{ctf_event.pk}/tasks/")
     assert response.status_code == 200
     assert str(task.pk) not in response.content.decode()
@@ -30,10 +36,14 @@ def test_scheduler_history_cannot_bypass_communication_scope_or_leak_errors(orga
 
 
 def body(event, owner):
-    import workspaces.services as ws
+    principal = principal_for_user(owner)
+    account, _ = Account.objects.get_or_create(
+        individual_principal_uuid=principal.uuid,
+        defaults={"kind": Account.Kind.INDIVIDUAL, "name": f"Test account {owner.pk}"},
+    )
 
     return {
-        "workspace_id": str(ws.resolve_personal_workspace(owner).workspace_uuid),
+        "account": str(account.uuid),
         "title": "Welcome",
         "target_event_ids": [str(event.pk)],
         "audience_spec": {"kind": "event", "event_ids": [str(event.pk)]},
@@ -56,7 +66,7 @@ def test_token_can_create_release_and_cancel(organizer_user, ctf_event):
     response = client.post(URL, body(ctf_event, organizer_user), format="json")
     assert response.status_code == 201, response.content
     identity = response.json()["id"]
-    assert client.get(URL, {"workspace_id": body(ctf_event, organizer_user)["workspace_id"]}).status_code == 200
+    assert client.get(URL, {"account": body(ctf_event, organizer_user)["account"]}).status_code == 200
     response = client.post(f"{URL}{identity}/release/", {"occurrence_key": "release-1"}, format="json")
     assert response.status_code == 202, response.content
     assert response.json()["status"] == "released"
@@ -92,21 +102,29 @@ def test_unknown_fields_and_malformed_values_do_not_leak(organizer_user, ctf_eve
     assert "private-value" not in response.content.decode() + caplog.text
 
 
-def test_multi_event_campaign_is_not_disclosed_to_one_event_owner(organizer_user, second_organizer_user, ctf_event):
-    import workspaces.services as ws
+def test_multi_event_campaign_is_not_disclosed_to_one_event_owner(
+    organizer_user,
+    second_organizer_user,
+    organizer_credential,
+    ctf_event,
+    live_session_credential,
+):
+    from ctf.enums import EventStaffRole
     from ctf.models import CTFEvent
     from ctf.services.communication import CampaignDraft, create_campaign
+    from ctf.services.event import assign_event_staff, revoke_event_staff, transfer_event_ownership
 
     second = CTFEvent.objects.create(
         name="Second",
         created_by=organizer_user,
-        workspace_id=ctf_event.workspace_id,
+        scope_kind=ctf_event.scope_kind,
+        account_id=ctf_event.account_id,
         event_start=ctf_event.event_start,
         event_end=ctf_event.event_end,
     )
     campaign = create_campaign(
         organizer_user,
-        ws.resolve_personal_workspace(organizer_user).workspace_uuid,
+        body(ctf_event, organizer_user)["account"],
         CampaignDraft(
             title="private-campaign",
             origin="organizer_staff",
@@ -117,16 +135,29 @@ def test_multi_event_campaign_is_not_disclosed_to_one_event_owner(organizer_user
             subject="Secret",
             body="Secret",
         ),
+        parent_type="account",
     )
-    CTFEvent.objects.filter(pk=second.pk).update(created_by=second_organizer_user)
+    new_owner = principal_for_user(second_organizer_user)
+    assign_event_staff(
+        second.pk,
+        organizer_credential,
+        new_owner.uuid,
+        EventStaffRole.CO_ORGANIZER.value,
+    )
+    transfer_event_ownership(second.pk, organizer_credential, new_owner.uuid)
+    revoke_event_staff(
+        second.pk,
+        live_session_credential(second_organizer_user),
+        principal_for_user(organizer_user).uuid,
+    )
     client, _ = token_client(organizer_user, ["ctf:communication:read"])
     assert client.get(f"{URL}{campaign.pk}/").status_code == 404
-    response = client.get(URL, {"workspace_id": body(ctf_event, organizer_user)["workspace_id"]})
+    response = client.get(URL, {"account": body(ctf_event, organizer_user)["account"]})
     assert response.status_code == 200
     assert "private-campaign" not in response.content.decode()
     visible = create_campaign(
         organizer_user,
-        ws.resolve_personal_workspace(organizer_user).workspace_uuid,
+        body(ctf_event, organizer_user)["account"],
         CampaignDraft(
             title="Visible",
             origin="organizer_staff",
@@ -137,12 +168,13 @@ def test_multi_event_campaign_is_not_disclosed_to_one_event_owner(organizer_user
             subject="Visible",
             body="Visible",
         ),
+        parent_type="account",
     )
     for event_filter in ({}, {"event_id": str(ctf_event.pk)}):
         response = client.get(
             URL,
             {
-                "workspace_id": body(ctf_event, organizer_user)["workspace_id"],
+                "account": body(ctf_event, organizer_user)["account"],
                 "limit": 1,
                 **event_filter,
             },

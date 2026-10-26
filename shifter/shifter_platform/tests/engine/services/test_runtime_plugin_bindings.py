@@ -344,9 +344,15 @@ def test_controller_rejects_generation_change_during_worker_observation(pack, wo
     assert not RuntimePluginInvocation.objects.filter(state="planned").exists()
 
 
-def test_warm_claim_cannot_skip_a_disabled_plugin_binding(pack, monkeypatch):
+def test_warm_claim_cannot_skip_a_disabled_plugin_binding(pack, monkeypatch, live_session_credential, allow_all_policy):
     from cms.services._warm_pool_claim import WarmClaimRequest, attempt_warm_claim
     from shared.enums import RangeSource
+    from shared.identity_scope import ResourceScope
+    from workspaces.models import Account
+
+    account = Account.objects.create(kind="team", name="Synthetic plugin account")
+    pack.organization.account = account
+    pack.organization.save(update_fields=["account"])
 
     monkeypatch.setattr("cms.services._warm_pool_claim._resolve_claim_candidates", lambda *args: [("pool", "digest")])
     monkeypatch.setattr(
@@ -356,16 +362,16 @@ def test_warm_claim_cannot_skip_a_disabled_plugin_binding(pack, monkeypatch):
     claim = Mock(side_effect=AssertionError("A base-only generation cannot satisfy a plugin-bound pack"))
     monkeypatch.setattr("cms.services._warm_pool_claim._run_atomic_claim", claim)
     request = WarmClaimRequest(
-        pack.actor,
-        "example",
-        pack.scope.pack_digest,
-        "",
-        "gce",
-        InstantiationPurpose.LIVE_FIRE,
-        RangeSource.MISSION_CONTROL,
-        1,
-        "status-quo",
-        uuid4(),
+        credential=live_session_credential(pack.actor),
+        scope=ResourceScope("account", account.uuid, pack.organization.uuid),
+        scenario="example",
+        package_digest=pack.scope.pack_digest,
+        lock_digest="",
+        backend="gce",
+        instantiation_purpose=InstantiationPurpose.LIVE_FIRE,
+        range_source=RangeSource.MISSION_CONTROL,
+        egress_mode="status-quo",
+        request_id=uuid4(),
     )
     assert attempt_warm_claim(request) is None
     change_runtime_plugin(pack.actor, pack.organization.uuid, pack.installed.id, "disable")

@@ -37,10 +37,11 @@ Workspace lifecycle is the core of a usable shared-infrastructure admin layer. A
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/api/lifecycle_views.py` (Session-authorized DRF workspace lifecycle API under /api/v1/workspaces/)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/models/_workspace.py` (archived_at reversible archive marker; archival never cascades to bound ranges)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/roles.py` (Workspace lifecycle operations and role matrix (owner/admin read/rename/archive/restore; owner-only transfer))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/administer/organization/WorkspaceListPage.tsx` (SPA workspace list/search/create surface)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/administer/organization/WorkspaceDetailPage.tsx` (SPA workspace detail/admin surface: rename, archive/restore, owner transfer)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/administer/accounts/AccountAdministrationPage.tsx` (Policy-filtered organization and workspace collection surface)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/administer/accounts/WorkspaceAdministrationPanel.tsx` (Workspace rename, archive/restore, owner transfer, and membership surface)
 - TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_lifecycle.py` (Lifecycle service behavior, authorization, and invariant tests (last-owner, no range cascade, personal protection))
-- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_lifecycle_api.py` (Lifecycle DRF boundary tests (admission, org-admin/workspace-role authorization, opaque denials))
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_account_policy_admin.py` (Policy-native lifecycle HTTP boundary and opaque denials)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_policy_workspace_lifecycle.py` (Principal policy lifecycle, invariant, and audit tests)
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_policy_memberships.py` (S4 prepared administration; activation remains coordinated)
 
@@ -49,3 +50,5 @@ Workspace lifecycle is the core of a usable shared-infrastructure admin layer. A
 - TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_policy_memberships.py` (S4 prepared administration; activation remains coordinated)
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_account_policy_lifecycle.py` (Prepared lifecycle and fact-only integer ownership compatibility)
+- IMPLEMENTS → GITHUB_ISSUE `2321` (S8 activation of the prepared policy-native workspace lifecycle)
+- TESTS → TEST `shifter/shifter_platform/frontend/src/features/administer/accounts/WorkspaceAdministrationPanel.test.tsx` (Activated workspace lifecycle UI contract)

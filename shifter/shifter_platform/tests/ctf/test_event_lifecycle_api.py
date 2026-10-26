@@ -174,11 +174,11 @@ class TestEventEndCleanupWindow:
             scheduled_for=timezone.now(),
         )
         called = []
-        monkeypatch.setattr("ctf.services.range.cleanup_event_ranges", lambda event_id: called.append(event_id))
+        monkeypatch.setattr("cms.services.expire_due_ranges", lambda: called.append("due") or {"expired": 0})
 
         _handle_event_end(end_task)
 
-        assert called == [ctf_event_active.pk]
+        assert called == ["due"]
 
 
 class TestCleanupWarning:

@@ -7,7 +7,7 @@ import { ModelSourcePicker } from "@/components/ModelSourcePicker";
 import type { ModelSourceSelection } from "@/api/model-sources";
 
 import { describeMutationError } from "@/api/errors";
-import { useAgents, useLaunchRange, useScenarios } from "@/api/mission-control";
+import { useAgents, useLaunchRange, useLaunchWorkspaces, useScenarios } from "@/api/mission-control";
 import type { AgentListItem, ScenarioListItem } from "@/api/types";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -55,7 +55,6 @@ interface LaunchOptionsFormProps {
   modelSources: ModelSourceSelection;
   onModelSourcesChange: (value: ModelSourceSelection) => void;
   workspace: string;
-  onWorkspaceChange: (value: string) => void;
 }
 
 /** The scenario/agent picker form, once options have loaded successfully. */
@@ -69,7 +68,7 @@ function LaunchOptionsForm({
   errors,
   onSubmit,
   onCancel,
-  isPending, modelSources, onModelSourcesChange, workspace, onWorkspaceChange,
+  isPending, modelSources, onModelSourcesChange, workspace,
 }: Readonly<LaunchOptionsFormProps>) {
   const selectedScenario = scenarioList.find((scenario) => scenario.id === scenarioId);
 
@@ -123,7 +122,7 @@ function LaunchOptionsForm({
             </Select>
             <FieldError id="f-agent-e" message={errors.agent} />
           </div>
-          <ModelSourcePicker scenario={scenarioId} workspace={workspace} value={modelSources} onChange={onModelSourcesChange} onWorkspaceChange={onWorkspaceChange} disabled={isPending} />
+          <ModelSourcePicker scenario={scenarioId} workspace={workspace} value={modelSources} onChange={onModelSourcesChange} disabled={isPending} />
         </CardContent>
         <CardFooter className="justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onCancel}>
@@ -148,10 +147,13 @@ interface LaunchOptionsSectionProps extends LaunchOptionsFormProps {
 function LaunchOptionsSection({ optionsError, optionsLoading, ...formProps }: Readonly<LaunchOptionsSectionProps>) {
   if (optionsError) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>Could not load launch options</AlertTitle>
-        <AlertDescription>Scenarios or agents failed to load. Please retry.</AlertDescription>
-      </Alert>
+      <div className="space-y-4">
+        <Alert variant="destructive">
+          <AlertTitle>Could not load launch options</AlertTitle>
+          <AlertDescription>Select another workspace or retry.</AlertDescription>
+        </Alert>
+        <LaunchOptionsForm {...formProps} />
+      </div>
     );
   }
 
@@ -179,15 +181,16 @@ function LaunchOptionsSection({ optionsError, optionsLoading, ...formProps }: Re
  */
 export function RangeLaunchPage() {
   const navigate = useNavigate();
-  const scenarios = useScenarios();
-  const agents = useAgents();
+  const [workspace, setWorkspace] = useState("");
+  const launchWorkspaces = useLaunchWorkspaces();
+  const scenarios = useScenarios(workspace);
+  const agents = useAgents(workspace);
   const launch = useLaunchRange();
 
   const [scenarioId, setScenarioId] = useState("");
   const [agentId, setAgentId] = useState("");
   const [errors, setErrors] = useState<FormErrors>({});
   const [modelSources, setModelSources] = useState<ModelSourceSelection>({ aliases: [] });
-  const [workspace, setWorkspace] = useState("");
 
   const scenarioList = scenarios.data?.scenarios ?? [];
   const agentList = agents.data?.agents ?? [];
@@ -228,6 +231,35 @@ export function RangeLaunchPage() {
         </Alert>
       ) : null}
 
+      <div className="mb-5 flex flex-col gap-2">
+        <Label htmlFor="f-workspace">Workspace</Label>
+        {launchWorkspaces.isLoading ? <Skeleton className="h-9 w-full" /> : null}
+        {launchWorkspaces.isError ? (
+          <Alert variant="destructive">
+            <AlertTitle>Could not load launch workspaces</AlertTitle>
+            <AlertDescription>Retry before choosing where to launch this range.</AlertDescription>
+          </Alert>
+        ) : null}
+        {launchWorkspaces.data ? (
+          <select
+            id="f-workspace"
+            className="w-full rounded border bg-background p-2"
+            value={workspace}
+            onChange={(event) => {
+              setWorkspace(event.target.value);
+              setScenarioId("");
+              setAgentId("");
+              setModelSources({ aliases: [] });
+            }}
+          >
+            {launchWorkspaces.data.personal_available ? <option value="">Personal workspace</option> : null}
+            {launchWorkspaces.data.workspaces.map((item) => (
+              <option key={item.uuid} value={item.uuid}>{item.organization_name} / {item.name}</option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+
       <LaunchOptionsSection
         optionsError={optionsError}
         optionsLoading={optionsLoading}
@@ -242,7 +274,7 @@ export function RangeLaunchPage() {
         onCancel={() => navigate(missionControlDashboardPath())}
         isPending={launch.isPending}
         modelSources={modelSources} onModelSourcesChange={setModelSources}
-        workspace={workspace} onWorkspaceChange={setWorkspace}
+        workspace={workspace}
       />
     </div>
   );

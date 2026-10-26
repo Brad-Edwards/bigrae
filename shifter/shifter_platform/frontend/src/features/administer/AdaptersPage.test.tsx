@@ -23,11 +23,15 @@ const adapter = {
 };
 const page = (results: unknown[]) => ({ results, next_cursor: null });
 const base = "/cms/organizations/org-1/plugins/";
-const isOrganizations = (url: string) => url === "/workspaces/organizations/";
+const policyOrganizations = (url: string, results = organizations.results) => {
+  if (url === "/accounts/") return { count: 1, results: [{ uuid: "account-1", name: "Account", kind: "team" }] };
+  if (url === "/accounts/account-1/organizations/") return { count: results.length, results };
+  return undefined;
+};
 
 beforeEach(() => {
   mockApi.mockReset();
-  mockApi.mockImplementation(async (url) => isOrganizations(url) ? organizations : page([adapter]));
+  mockApi.mockImplementation(async (url) => policyOrganizations(url) ?? page([adapter]));
 });
 
 describe("tenant plugin administration", () => {
@@ -42,7 +46,7 @@ describe("tenant plugin administration", () => {
   it("requires confirmation and preserves a rejected action", async () => {
     mockApi.mockImplementation(async (url, options) => {
       if (options?.method === "POST") throw new ApiError(400, { code: "invalid", message: "Plugin unavailable" });
-      return isOrganizations(url) ? organizations : page([adapter]);
+      return policyOrganizations(url) ?? page([adapter]);
     });
     renderRoute(<AdaptersPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Disable" }));
@@ -56,7 +60,7 @@ describe("tenant plugin administration", () => {
   });
 
   it("retains retired versions and offers no reactivation", async () => {
-    mockApi.mockImplementation(async (url) => isOrganizations(url) ? organizations : page([{ ...adapter, state: "retired" }]));
+    mockApi.mockImplementation(async (url) => policyOrganizations(url) ?? page([{ ...adapter, state: "retired" }]));
     renderRoute(<AdaptersPage />);
     expect(await screen.findByText("Retained for existing ranges")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
@@ -78,7 +82,7 @@ describe("tenant plugin administration", () => {
     const user = userEvent.setup();
     mockApi.mockImplementation(async (url, options) => {
       if (options?.method === "POST") return { ...adapter, state: "checking" };
-      return isOrganizations(url) ? organizations : page([]);
+      return policyOrganizations(url) ?? page([]);
     });
     renderRoute(<AdaptersPage />);
     fireEvent.change(await screen.findByLabelText("Plugin installation file"), {
@@ -95,7 +99,7 @@ describe("tenant plugin administration", () => {
 
   it("allows failed installation retry with replacement private registry credentials", async () => {
     mockApi.mockImplementation(async (url, options) => options?.method === "POST" ? adapter :
-      isOrganizations(url) ? organizations : page([{ ...adapter, state: "failed" }]));
+      policyOrganizations(url) ?? page([{ ...adapter, state: "failed" }]));
     renderRoute(<AdaptersPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Retry installation" }));
     const dialog = within(screen.getByRole("alertdialog"));
@@ -117,14 +121,13 @@ describe("tenant plugin administration", () => {
 });
 
 it("lets an administrator reach organizations beyond the first page", async () => {
+  const manyOrganizations = Array.from({ length: 26 }, (_, index) => ({
+    uuid: index === 25 ? "org-2" : `org-${index + 10}`,
+    name: index === 25 ? "Second tenant" : `Tenant ${index + 1}`,
+  }));
   mockApi.mockImplementation(async (url) => {
-    if (url === "/workspaces/organizations/") return {
-      ...organizations, count: 2, next: "/workspaces/organizations/?page=2", previous: null,
-    };
-    if (url === "/workspaces/organizations/?page=2") return {
-      results: [{ uuid: "org-2", name: "Second tenant" }], count: 2, next: null,
-      previous: "/workspaces/organizations/",
-    };
+    const response = policyOrganizations(url, manyOrganizations);
+    if (response) return response;
     return page([]);
   });
   renderRoute(<AdaptersPage />);
@@ -136,7 +139,8 @@ it("lets an administrator reach organizations beyond the first page", async () =
 
 it("loads older versions for administration and keeps earlier versions visible", async () => {
   mockApi.mockImplementation(async (url) => {
-    if (isOrganizations(url)) return organizations;
+    const response = policyOrganizations(url);
+    if (response) return response;
     if (url === base) return { results: [adapter], next_cursor: "next-page" };
     if (url === `${base}?cursor=next-page`) return page([{ ...adapter, id: "adapter-2",
       manifest: { ...manifest, plugin_id: "example.older", version: "0.9" } }]);

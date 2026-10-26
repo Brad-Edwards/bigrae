@@ -543,11 +543,6 @@
       "source_file": "config/_openfga_settings.py"
     },
     {
-      "default": "'false'",
-      "name": "OPENFGA_ENABLED",
-      "source_file": "config/_openfga_settings.py"
-    },
-    {
       "default": "''",
       "name": "OPENFGA_MODEL_ID",
       "source_file": "config/_openfga_settings.py"
@@ -875,6 +870,11 @@
     {
       "default": "''",
       "name": "WARM_POOL_POLICY_JSON",
+      "source_file": "config/_warm_pool_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "WARM_POOL_SERVICE_CREDENTIAL_UUID",
       "source_file": "config/_warm_pool_settings.py"
     }
   ]

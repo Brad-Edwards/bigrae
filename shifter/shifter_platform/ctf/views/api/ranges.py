@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 from ctf.views import _access
 from ctf.views._access import (
-    _get_user,
     _json_error,
     _resolve_owned_participant,
     ctf_organizer_required,
@@ -32,6 +31,7 @@ from ctf.views._parsing import (
 from ctf.views.api._common import (
     _resolve_owned_event_json,
 )
+from shared.api.principals import authenticated_credential
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,9 @@ def api_provision_ranges(request: HttpRequest, event_id: UUID) -> JsonResponse:
 
     from ctf.services import range as range_service
 
-    task = range_service.request_event_provisioning(event_id, source="manual")
+    task = range_service.request_event_provisioning(
+        event_id, source="manual", actor_id=authenticated_credential(request)
+    )
     return JsonResponse(
         {
             "event_id": str(event_id),
@@ -151,7 +153,11 @@ def api_provision_participant_range(request: HttpRequest, participant_id: UUID) 
     """API: Provision a range for a single participant."""
     from ctf.services import range as range_service
 
-    return _participant_range_action(request, participant_id, range_service.provision_participant_range)
+    return _participant_range_action(
+        request,
+        participant_id,
+        lambda target_id: range_service.provision_participant_range(target_id, actor=authenticated_credential(request)),
+    )
 
 
 @login_required
@@ -161,7 +167,11 @@ def api_destroy_participant_range(request: HttpRequest, participant_id: UUID) ->
     """API: Destroy a range for a single participant."""
     from ctf.services import range as range_service
 
-    return _participant_range_action(request, participant_id, range_service.destroy_participant_range)
+    return _participant_range_action(
+        request,
+        participant_id,
+        lambda target_id: range_service.destroy_participant_range(target_id, actor=authenticated_credential(request)),
+    )
 
 
 def _run_participant_range_action(participant_id: UUID, action_fn: Callable[[UUID], Any]) -> JsonResponse:
@@ -199,7 +209,11 @@ def api_stop_participant_range(request: HttpRequest, participant_id: UUID) -> Js
     """API: Stop (pause) a participant's range."""
     from ctf.services import range as range_service
 
-    return _participant_range_action(request, participant_id, range_service.stop_participant_range)
+    return _participant_range_action(
+        request,
+        participant_id,
+        lambda target_id: range_service.stop_participant_range(target_id, actor=authenticated_credential(request)),
+    )
 
 
 @login_required
@@ -209,7 +223,11 @@ def api_start_participant_range(request: HttpRequest, participant_id: UUID) -> J
     """API: Start (resume) a participant's stopped range."""
     from ctf.services import range as range_service
 
-    return _participant_range_action(request, participant_id, range_service.start_participant_range)
+    return _participant_range_action(
+        request,
+        participant_id,
+        lambda target_id: range_service.start_participant_range(target_id, actor=authenticated_credential(request)),
+    )
 
 
 @login_required
@@ -219,7 +237,11 @@ def api_restart_participant_range(request: HttpRequest, participant_id: UUID) ->
     """API: Restart a participant's range."""
     from ctf.services import range as range_service
 
-    return _participant_range_action(request, participant_id, range_service.restart_participant_range)
+    return _participant_range_action(
+        request,
+        participant_id,
+        lambda target_id: range_service.restart_participant_range(target_id, actor=authenticated_credential(request)),
+    )
 
 
 def _parse_spare_range_instance_id(body: dict[str, Any]) -> int | None:
@@ -252,7 +274,7 @@ def _run_recover_participant_range(request: HttpRequest, participant_id: UUID) -
         result = recover_participant_range(
             participant_id,
             strategy=strategy,
-            operator=_get_user(request),
+            operator=authenticated_credential(request),
             spare_range_instance_id=spare_range_instance_id,
         )
     except _BodyParseError as e:
@@ -326,7 +348,7 @@ def _run_provision_event_spares(request: HttpRequest, event_id: UUID) -> JsonRes
         return _json_error(e, "Could not process spare pool request.", 400)
 
     try:
-        result = provision_event_spares(event_id, count, operator=_get_user(request))
+        result = provision_event_spares(event_id, count, operator=authenticated_credential(request))
     except CTFNotFoundError as e:
         return _json_error(e, _EVENT_NOT_FOUND_MSG, 404)
 

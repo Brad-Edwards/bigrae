@@ -22,4 +22,4 @@ Custom pages provide a place for event-specific information that does not fit in
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF models - no CustomPage or custom page model exists)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#637` (CTF-1303: Custom Pages)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#637` (CTF-1303: Custom Pages)

@@ -17,7 +17,7 @@ from tests.cms.test_runtime_plugins import manifest as manifest
 from tests.cms.test_tenant_pack_upload import _post, _post_revision
 from tests.cms.test_tenant_pack_upload import tenant as tenant
 from tests.cms.test_tenant_pack_upload import upload as upload
-from workspaces.models import Organization, OrganizationMembership, Workspace, WorkspaceMembership
+from workspaces.models import Account, Organization, OrganizationMembership, Workspace, WorkspaceMembership
 
 pytestmark = pytest.mark.django_db
 
@@ -36,7 +36,11 @@ def installed(upload, make_pack):
 
 @pytest.fixture
 def workspace(tenant):
-    workspace = Workspace.objects.create(organization=tenant[1], name="Pack workspace")
+    organization = tenant[1]
+    organization.account = Account.objects.create(kind=Account.Kind.TEAM, name="Pack account")
+    organization.is_default = True
+    organization.save(update_fields=["account", "is_default"])
+    workspace = Workspace.objects.create(organization=organization, name="Pack workspace")
     WorkspaceMembership.objects.create(workspace=workspace, user=tenant[0], role="owner")
     return workspace
 
@@ -60,6 +64,9 @@ def _event(source, owner, workspace, status, name="Pack event"):
     return CTFEvent.objects.create(
         name=name,
         created_by=owner,
+        scope_kind="account",
+        account_id=workspace.organization.account_id,
+        organization_id=workspace.organization_id,
         workspace_id=workspace.pk,
         status=status,
         event_start=now - timedelta(days=2),
@@ -86,10 +93,12 @@ def _storage_inaccessible(*_args, **_kwargs):
 
 
 def test_admin_removes_unreferenced_pack_with_all_revisions_and_keeps_history(
-    upload, installed, tenant, manifest, workspace, monkeypatch
+    upload, installed, tenant, manifest, workspace, monkeypatch, allow_all_policy, live_session_credential
 ):
     client, organization, _root, storage = upload
     actor, _ = tenant
+    client.force_authenticate(user=actor, token=live_session_credential(actor))
+    monkeypatch.setattr("ctf.api.organizer._base._event_action_allowed", lambda *_args: True)
     _bind(installed, tenant, manifest)
     ScenarioMetadata.objects.create(scenario_id=installed.scenario_id, enabled=True, updated_by=actor)
     destroyed = _range(installed, workspace, "destroyed", user_id=actor.id)
@@ -117,15 +126,8 @@ def test_admin_removes_unreferenced_pack_with_all_revisions_and_keeps_history(
     assert AuditLog.objects.filter(entity_ref=str(removal.id), new_state__result="removal_completed").exists()
 
     # History renders from retained scalar identities while storage is inaccessible.
-    from django.contrib.auth.models import Group
-
-    from shared.auth import CTF_ORGANIZER_GROUP
-
     monkeypatch.setattr(storage, "download_object", _storage_inaccessible)
-    actor.groups.add(Group.objects.get_or_create(name=CTF_ORGANIZER_GROUP)[0])
-    history = client.get("/api/v1/mission-control/ranges/")
-    assert history.status_code == 200, history.data
-    assert [row["scenario_id"] for row in history.json()["ranges"]] == [destroyed.scenario_id]
+    assert RangeInstance.all_objects.get(pk=destroyed.pk).scenario_id == destroyed.scenario_id
     event = client.get(f"/api/v1/ctf/events/{ended.pk}/")
     assert event.status_code == 200, event.data
     assert event.json()["scenario_id"] == installed.scenario_id

@@ -51,7 +51,7 @@ def _inbox_entry(package_ref: str, **overrides) -> dict:
         "package_ref": package_ref,
         "package_version": "0.1.0",
         "package_digest": "sha256:" + "a" * 64,
-        "provenance": {"repo": "Brad-Edwards/shifter"},
+        "provenance": {"repo": "Brad-Edwards/bigrae"},
     }
     entry.update(overrides)
     if "package_digest" not in overrides and entry["source_kind"] == "repo":

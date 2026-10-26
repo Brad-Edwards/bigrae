@@ -33,6 +33,7 @@ from workspaces.models import (
 
 from ._authorization_commands import (
     AuthorizationMutationConflict,
+    EventOwnershipHandoffPolicyMutationRequest,
     MutationRequest,
     NativeRelationshipChange,
     PolicyMutationRequest,
@@ -86,6 +87,9 @@ def _request_payload(request: MutationRequest) -> dict[str, object]:
             "target_kind": request.target.type,
             "target": str(request.target.uuid) if request.target.uuid else None,
             "effect": request.effect.value,
+            "trusted_context": (
+                "event_ownership_handoff" if isinstance(request, EventOwnershipHandoffPolicyMutationRequest) else ""
+            ),
         }
     return {**common, **_native_payload(request.change)}
 
@@ -153,6 +157,7 @@ def _operation_fields(request: MutationRequest) -> dict[str, object]:
     payload = _request_payload(request)
     return {
         "relationship_kind": payload["relationship_kind"],
+        "trusted_context": payload.get("trusted_context", ""),
         "subject_kind": payload["subject_kind"],
         "subject_uuid": payload["subject"],
         "action": payload["action"],

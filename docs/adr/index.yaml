@@ -138,7 +138,7 @@
       },
       {
         "id": "ADR-003-R7",
-        "description": "SonarCloud scanner identity is repository deployment configuration, not shared source-analysis configuration. The SonarQube Cloud scan step in `.github/workflows/_quality.yml` consumes the project key and organization from the non-secret `SONAR_PROJECT_KEY` and `SONAR_ORGANIZATION` repository variables; `sonar-project.properties` retains shared sources, exclusions, report paths, suppressions, encoding, version, and file-header policy but no `sonar.projectKey`, `sonar.organization`, or `sonar.projectName`. The scan attempt is gated on the canonical `github.repository`, never on either variable being present, so missing or renamed variables fail the scanner loudly on `Brad-Edwards/shifter`. Runs under any other repository slug skip: SonarCloud is this project's tooling choice and is not imposed on anyone who cloned the repository. Fork-origin pull requests also skip, because they execute in the base repository's context (passing the identity test) but receive no secrets, and a scan that cannot be given `SONAR_TOKEN` would hand an outside contributor an unfixable red check; their code is analyzed on the `dev` run after merge. The existing `SONAR_TOKEN` reusable-workflow secret boundary, path/coverage routing, and action SHA pinning remain unchanged. Every canonical analysis that runs MUST set `sonar.qualitygate.wait=true`; scanner upload success without the terminal quality-gate verdict is not an accepted release result. Repository-variable activation and readback are part of the same delivery as the workflow change. The `.ground-control.yaml` `sonarcloud` block remains Ground Control integration metadata and is not a scanner runtime input or an alternative source for workflow arguments. Generated OpenAPI declarations follow the established generated-schema source-analysis exclusion, with any additional exact artifact recorded as an owned, time-bounded exception. Their DRF drift verification and TypeScript consumer checks remain mandatory; handwritten administration code retains all analysis gates.",
+        "description": "SonarCloud scanner identity is repository deployment configuration, not shared source-analysis configuration. The SonarQube Cloud scan step in `.github/workflows/_quality.yml` consumes the project key and organization from the non-secret `SONAR_PROJECT_KEY` and `SONAR_ORGANIZATION` repository variables; `sonar-project.properties` retains shared sources, exclusions, report paths, suppressions, encoding, version, and file-header policy but no `sonar.projectKey`, `sonar.organization`, or `sonar.projectName`. The scan attempt is gated on the canonical `github.repository`, never on either variable being present, so missing or renamed variables fail the scanner loudly on `Brad-Edwards/bigrae`. Runs under any other repository slug skip: SonarCloud is this project's tooling choice and is not imposed on anyone who cloned the repository. Fork-origin pull requests also skip, because they execute in the base repository's context (passing the identity test) but receive no secrets, and a scan that cannot be given `SONAR_TOKEN` would hand an outside contributor an unfixable red check; their code is analyzed on the `dev` run after merge. The existing `SONAR_TOKEN` reusable-workflow secret boundary, path/coverage routing, and action SHA pinning remain unchanged. Every canonical analysis that runs MUST set `sonar.qualitygate.wait=true`; scanner upload success without the terminal quality-gate verdict is not an accepted release result. Repository-variable activation and readback are part of the same delivery as the workflow change. The `.ground-control.yaml` `sonarcloud` block remains Ground Control integration metadata and is not a scanner runtime input or an alternative source for workflow arguments. Generated OpenAPI declarations follow the established generated-schema source-analysis exclusion, with any additional exact artifact recorded as an owned, time-bounded exception. Their DRF drift verification and TypeScript consumer checks remain mandatory; handwritten administration code retains all analysis gates.",
         "checks": []
       },
       {
@@ -775,7 +775,7 @@
       "docs/architecture/provider-neutral-range-substrate.md",
       "docs/architecture/aws-deploy-tfvars-preflight-1249.md",
       "docs/architecture/configurable-range-leases-preflight-27.md",
-      "https://github.com/Brad-Edwards/shifter/issues/2169",
+      "https://github.com/Brad-Edwards/bigrae/issues/2169",
       "docs/architecture/runtime-mission-control-lease-policy-preflight-2169.md",
       "docs/adr/index.yaml",
       "shifter/shifter_platform/cms/models/lease_policy.py",
@@ -1650,9 +1650,9 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1340",
-      "https://github.com/Brad-Edwards/shifter/issues/1348",
-      "https://github.com/Brad-Edwards/shifter/issues/1354",
+      "https://github.com/Brad-Edwards/bigrae/issues/1340",
+      "https://github.com/Brad-Edwards/bigrae/issues/1348",
+      "https://github.com/Brad-Edwards/bigrae/issues/1354",
       "docs/architecture/gdc-windows-dc-image-build.md",
       "docs/architecture/gdc-vm-runtime-live-fire-gate-preflight-1348.md",
       "docs/architecture/range-instantiation-policy-control-preflight-1354.md",
@@ -1710,9 +1710,9 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1262",
-      "https://github.com/Brad-Edwards/shifter/issues/1264",
-      "https://github.com/Brad-Edwards/shifter/issues/1563",
+      "https://github.com/Brad-Edwards/bigrae/issues/1262",
+      "https://github.com/Brad-Edwards/bigrae/issues/1264",
+      "https://github.com/Brad-Edwards/bigrae/issues/1563",
       "docs/architecture/aces-runtime-target-backend-manifest-preflight-1233.md",
       "docs/architecture/aces-backend-manifest-realizability-preflight-1563.md",
       "docs/architecture/aces-account-credentials-preflight-1560.md",
@@ -1836,16 +1836,16 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1264",
-      "https://github.com/Brad-Edwards/shifter/issues/1562",
-      "https://github.com/Brad-Edwards/shifter/issues/1563",
-      "https://github.com/Brad-Edwards/shifter/issues/1564",
-      "https://github.com/Brad-Edwards/shifter/issues/1565",
-      "https://github.com/Brad-Edwards/shifter/issues/1569",
-      "https://github.com/Brad-Edwards/shifter/issues/1606",
-      "https://github.com/Brad-Edwards/shifter/issues/1710",
-      "https://github.com/Brad-Edwards/shifter/issues/1710",
-      "https://github.com/Brad-Edwards/shifter/issues/1937",
+      "https://github.com/Brad-Edwards/bigrae/issues/1264",
+      "https://github.com/Brad-Edwards/bigrae/issues/1562",
+      "https://github.com/Brad-Edwards/bigrae/issues/1563",
+      "https://github.com/Brad-Edwards/bigrae/issues/1564",
+      "https://github.com/Brad-Edwards/bigrae/issues/1565",
+      "https://github.com/Brad-Edwards/bigrae/issues/1569",
+      "https://github.com/Brad-Edwards/bigrae/issues/1606",
+      "https://github.com/Brad-Edwards/bigrae/issues/1710",
+      "https://github.com/Brad-Edwards/bigrae/issues/1710",
+      "https://github.com/Brad-Edwards/bigrae/issues/1937",
       "https://github.com/OpenRAE/rae/issues/713",
       "https://github.com/OpenRAE/rae/pull/1041",
       "docs/architecture/aces-runtime-target-backend-manifest-preflight-1233.md",
@@ -2039,7 +2039,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1575",
+      "https://github.com/Brad-Edwards/bigrae/issues/1575",
       "scripts/bootstrap/preflight.py",
       "scripts/bootstrap/tests/test_preflight.py",
       "docs/dev/deploy-secrets.md",
@@ -2082,7 +2082,7 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1520",
+      "https://github.com/Brad-Edwards/bigrae/issues/1520",
       "docs/architecture/rev1/security.md",
       "docs/architecture/browser-security-policy-preflight-1520.md",
       "https://docs.djangoproject.com/en/6.0/ref/csp/"
@@ -2124,7 +2124,7 @@
       },
       {
         "id": "ADR-037-R6",
-        "description": "Before mutating ECS/portal or Kubernetes rollout, deployment MUST verify the GitHub attestation for the fixed Brad-Edwards/shifter repository identity and the exact fully-qualified image@sha256 it will deploy. A valid signature for another repository, a tag resolving to a digest, or a digest merely matching the expected shape is insufficient. Any verifier failure, missing attestation, subject/repository mismatch, or digest mismatch is a hard ::error:: and non-zero exit; there is no first-deploy, continue-on-error, or other bypass.",
+        "description": "Before mutating ECS/portal or Kubernetes rollout, deployment MUST verify the GitHub attestation for the fixed Brad-Edwards/bigrae repository identity and the exact fully-qualified image@sha256 it will deploy. A valid signature for another repository, a tag resolving to a digest, or a digest merely matching the expected shape is insufficient. Any verifier failure, missing attestation, subject/repository mismatch, or digest mismatch is a hard ::error:: and non-zero exit; there is no first-deploy, continue-on-error, or other bypass.",
         "checks": []
       },
       {
@@ -2150,7 +2150,7 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1519",
+      "https://github.com/Brad-Edwards/bigrae/issues/1519",
       "docs/architecture/rev1-build-deployment-provenance-preflight-1519.md",
       "docs/architecture/rev1-build-deployment-provenance.md",
       "scripts/adr_guard/adr_guard.py",
@@ -2200,7 +2200,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1591",
+      "https://github.com/Brad-Edwards/bigrae/issues/1591",
       "mkdocs.yml",
       ".github/workflows/docs.yml",
       "docs/index.md"
@@ -2333,11 +2333,11 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1322",
-      "https://github.com/Brad-Edwards/shifter/issues/1695",
-      "https://github.com/Brad-Edwards/shifter/issues/1696",
-      "https://github.com/Brad-Edwards/shifter/issues/28",
-      "https://github.com/Brad-Edwards/shifter/issues/2169",
+      "https://github.com/Brad-Edwards/bigrae/issues/1322",
+      "https://github.com/Brad-Edwards/bigrae/issues/1695",
+      "https://github.com/Brad-Edwards/bigrae/issues/1696",
+      "https://github.com/Brad-Edwards/bigrae/issues/28",
+      "https://github.com/Brad-Edwards/bigrae/issues/2169",
       "docs/architecture/provider-neutral-range-substrate.md",
       "docs/architecture/range-warm-pool-preflight-28.md",
       "docs/architecture/runtime-mission-control-lease-policy-preflight-2169.md",
@@ -2399,7 +2399,7 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1329",
+      "https://github.com/Brad-Edwards/bigrae/issues/1329",
       "docs/architecture/openapi-contract-publication-preflight-1329.md",
       "docs/architecture/spa-cutover-architecture-1300.md",
       "shifter/shifter_platform/config/api_urls.py",
@@ -2555,7 +2555,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1776",
+      "https://github.com/Brad-Edwards/bigrae/issues/1776",
       "docs/architecture/release-please-preflight-1776.md",
       "docs/DEVELOPMENT_WORKFLOW.md",
       "release-please-config.json",
@@ -2620,7 +2620,7 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/478",
+      "https://github.com/Brad-Edwards/bigrae/issues/478",
       "docs/architecture/provisioner-persistence-boundary-preflight-478.md",
       "docs/architecture/provisioner-subnet-coordination-preflight-1838.md",
       "docs/architecture/raes-gce-shared-vpc-subnet-allocation-preflight-2219.md",
@@ -2689,7 +2689,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1324",
+      "https://github.com/Brad-Edwards/bigrae/issues/1324",
       "docs/architecture/aws-eks-helm-packaging-preflight-1324.md",
       "docs/architecture/root-configured-backend-bundles.md",
       "docs/architecture/branch-routing-provider-coupling-inventory.md",
@@ -2756,7 +2756,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1374",
+      "https://github.com/Brad-Edwards/bigrae/issues/1374",
       "docs/architecture/risk-register-removal-preflight-1374.md",
       "docs/architecture/audit-system-architecture.md",
       "docs/architecture/audit-tamper-detection-preflight-327.md",
@@ -2873,16 +2873,16 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1325",
-      "https://github.com/Brad-Edwards/shifter/issues/1326",
-      "https://github.com/Brad-Edwards/shifter/issues/1327",
-      "https://github.com/Brad-Edwards/shifter/issues/1938",
-      "https://github.com/Brad-Edwards/shifter/issues/1939",
-      "https://github.com/Brad-Edwards/shifter/issues/1943",
-      "https://github.com/Brad-Edwards/shifter/issues/1944",
-      "https://github.com/Brad-Edwards/shifter/issues/1945",
-      "https://github.com/Brad-Edwards/shifter/issues/1946",
-      "https://github.com/Brad-Edwards/shifter/issues/2169",
+      "https://github.com/Brad-Edwards/bigrae/issues/1325",
+      "https://github.com/Brad-Edwards/bigrae/issues/1326",
+      "https://github.com/Brad-Edwards/bigrae/issues/1327",
+      "https://github.com/Brad-Edwards/bigrae/issues/1938",
+      "https://github.com/Brad-Edwards/bigrae/issues/1939",
+      "https://github.com/Brad-Edwards/bigrae/issues/1943",
+      "https://github.com/Brad-Edwards/bigrae/issues/1944",
+      "https://github.com/Brad-Edwards/bigrae/issues/1945",
+      "https://github.com/Brad-Edwards/bigrae/issues/1946",
+      "https://github.com/Brad-Edwards/bigrae/issues/2169",
       "docs/architecture/organization-workspace-preflight-1325.md",
       "docs/architecture/workspace-membership-roles-preflight-1326.md",
       "docs/architecture/range-workspace-scoping-preflight-1327.md",
@@ -2957,7 +2957,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/680",
+      "https://github.com/Brad-Edwards/bigrae/issues/680",
       "docs/architecture/capacity-aware-provisioning-preflight-680.md",
       "shifter/shifter_platform/shared/capacity",
       "shifter/shifter_platform/shared/cloud/aws/capacity_inventory.py",
@@ -3021,7 +3021,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1939",
+      "https://github.com/Brad-Edwards/bigrae/issues/1939",
       "docs/architecture/organization-profile-settings-preflight-1939.md",
       "shifter/shifter_platform/workspaces/roles.py",
       "shifter/shifter_platform/workspaces/models/_organization.py",
@@ -3059,7 +3059,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/535",
+      "https://github.com/Brad-Edwards/bigrae/issues/535",
       "docs/architecture/ctf-participant-lifecycle-preflight-535.md",
       "shifter/shifter_platform/openapi/v1.retirements.json",
       "shifter/shifter_platform/ctf/api/serializers/organizer_ops.py",
@@ -3086,7 +3086,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2029",
+      "https://github.com/Brad-Edwards/bigrae/issues/2029",
       "docs/architecture/gcp-range-cell-zone-pool-preflight-2029.md",
       "shifter/shifter_platform/engine/services/_range_placement.py",
       "shifter/shifter_platform/engine/migrations/0054_range_placement_zone.py",
@@ -3289,8 +3289,8 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2047",
-      "https://github.com/Brad-Edwards/shifter/issues/2048",
+      "https://github.com/Brad-Edwards/bigrae/issues/2047",
+      "https://github.com/Brad-Edwards/bigrae/issues/2048",
       "docs/architecture/ctf-communications-raes-inject-preflight-2047.md",
       "docs/architecture/ctf-communication-delivery-engine-preflight-2049.md",
       "docs/architecture/ctf-communication-api-cutover-preflight-2100.md",
@@ -3361,7 +3361,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1923",
+      "https://github.com/Brad-Edwards/bigrae/issues/1923",
       "docs/architecture/ctf-platform-administration-preflight-1923.md",
       "shifter/shifter_platform/config/_oidc_settings.py",
       "shifter/shifter_platform/config/bootstrap_admin.py",
@@ -3413,7 +3413,7 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2075",
+      "https://github.com/Brad-Edwards/bigrae/issues/2075",
       "docs/architecture/product-development-surfaces.md",
       "docs/architecture/bigrae-consume-development-boundary-preflight-2075.md",
       "docs/adr/index.yaml"
@@ -3525,8 +3525,8 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2081",
-      "https://github.com/Brad-Edwards/shifter/issues/2080",
+      "https://github.com/Brad-Edwards/bigrae/issues/2081",
+      "https://github.com/Brad-Edwards/bigrae/issues/2080",
       "docs/architecture/dedicated-customer-deployment-authority.md",
       "docs/architecture/bigrae-dedicated-customer-authority-preflight-2081.md",
       "docs/adr/index.yaml",
@@ -3679,7 +3679,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/713",
+      "https://github.com/Brad-Edwards/bigrae/issues/713",
       "docs/architecture/continuous-accessibility-enforcement-preflight-713.md",
       "docs/requirements/UX-010/requirement.md",
       "docs/requirements/UX-050/requirement.md",
@@ -3747,7 +3747,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1295",
+      "https://github.com/Brad-Edwards/bigrae/issues/1295",
       "docs/architecture/gcp-range-cell-containment-threat-model.md",
       "docs/ops/range-escape-validation.md",
       "shifter/engine/provisioner/gcp_range_cell_firewall.py",
@@ -3800,8 +3800,8 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1295",
-      "https://github.com/Brad-Edwards/shifter/issues/2080",
+      "https://github.com/Brad-Edwards/bigrae/issues/1295",
+      "https://github.com/Brad-Edwards/bigrae/issues/2080",
       "docs/architecture/gcp-range-cell-containment-threat-model.md",
       "platform/terraform/gcp/modules/portal/gke",
       "platform/k8s/gcp/base/networkpolicies.yaml",
@@ -3869,9 +3869,9 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1967",
-      "https://github.com/Brad-Edwards/shifter/issues/1968",
-      "https://github.com/Brad-Edwards/shifter/issues/1969",
+      "https://github.com/Brad-Edwards/bigrae/issues/1967",
+      "https://github.com/Brad-Edwards/bigrae/issues/1968",
+      "https://github.com/Brad-Edwards/bigrae/issues/1969",
       "https://github.com/OpenRAE/rae/commit/ebb70a34b8e7d1cc8964c443841ae57e12ed1014",
       "https://github.com/OpenRAE/rae/blob/ebb70a34b8e7d1cc8964c443841ae57e12ed1014/docs/decisions/adrs/adr-108-modular-participant-control-and-governed-effects.md",
       "https://github.com/OpenRAE/rae/blob/ebb70a34b8e7d1cc8964c443841ae57e12ed1014/docs/research/modular-participant-control/composition.md",
@@ -3892,7 +3892,7 @@
       "shifter/engine/provisioner/range_ops/_pause_resume.py",
       "docs/requirements/GEN-2005/requirement.md",
       "docs/adr/README.md",
-      "https://github.com/Brad-Edwards/shifter/issues/1967#issuecomment-5555762123",
+      "https://github.com/Brad-Edwards/bigrae/issues/1967#issuecomment-5555762123",
       "https://docs.cloud.google.com/compute/docs/instances/stop-start-instance"
     ]
   },
@@ -3928,7 +3928,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/681",
+      "https://github.com/Brad-Edwards/bigrae/issues/681",
       "docs/adr/059-range-model-access-broker.md",
       "docs/architecture/model-access/source-management-preflight-2243.md",
       "docs/architecture/model-access/gcp-packaging.md",
@@ -3966,7 +3966,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2275",
+      "https://github.com/Brad-Edwards/bigrae/issues/2275",
       "docs/adr/064-default-range-model-access.md",
       "docs/architecture/gcp-range-audit-telemetry-preflight-2535.md",
       "platform/terraform/gcp/modules/portal/iam/main.tf",
@@ -4006,7 +4006,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/681",
+      "https://github.com/Brad-Edwards/bigrae/issues/681",
       "docs/adr/060-model-access-allocation-accounting.md",
       "docs/architecture/model-access/allocation-preflight-2120.md",
       "docs/architecture/model-access/request-accounting-preflight-2121.md",
@@ -4054,7 +4054,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/681",
+      "https://github.com/Brad-Edwards/bigrae/issues/681",
       "docs/adr/061-model-access-operations-qualification.md",
       "docs/architecture/model-access/request-accounting-preflight-2121.md",
       "docs/ops/model-access-gcp-probes.md",
@@ -4097,7 +4097,7 @@
       "agent-policy"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/1906",
+      "https://github.com/Brad-Edwards/bigrae/issues/1906",
       "docs/architecture/ctf-signed-receipt-binding-preflight-1906.md",
       "docs/architecture/nested-ctf-participant-readiness-preflight-1910.md",
       "docs/architecture/ctf-http-validator-dns-rebinding-preflight-1188.md",
@@ -4157,8 +4157,8 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2086",
-      "https://github.com/Brad-Edwards/shifter/issues/1919",
+      "https://github.com/Brad-Edwards/bigrae/issues/2086",
+      "https://github.com/Brad-Edwards/bigrae/issues/1919",
       "docs/architecture/public-range-operations-preflight-2086.md",
       "docs/features/retry-safe-range-operations.md",
       "docs/technical/shifter_platform/retry-safe-range-operations.md",
@@ -4198,7 +4198,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2100",
+      "https://github.com/Brad-Edwards/bigrae/issues/2100",
       "docs/adr/065-retire-legacy-ctf-notification-writes.md",
       "docs/architecture/ctf-communication-migration-decision-2100.md",
       "shifter/shifter_platform/tests/ctf/test_communication_cutover.py",
@@ -4214,7 +4214,7 @@
     "rules": [
       {
         "id": "ADR-066-R1",
-        "description": "workspaces owns one stable Account root with a closed individual, team, or enterprise type. Individuals have no organization/workspace; team and enterprise accounts have one default organization and one default workspace per organization, with additional subdivisions allowed. Default creation is atomic and idempotent and grants no membership, role, policy, or cloud authority.",
+        "description": "workspaces owns one stable Account root with a closed individual, team, or enterprise type. Individuals have no organization/workspace; team and enterprise accounts have one default organization and one active default workspace per retained organization, with additional subdivisions allowed. Default creation is atomic and idempotent and grants no membership, ownership, role, policy, or cloud authority. S8 verifies existence and correct account type as well as the at-most-one guarantee of partial unique indexes.",
         "checks": []
       },
       {
@@ -4229,22 +4229,22 @@
       },
       {
         "id": "ADR-066-R4",
-        "description": "shared owns one closed dependency-neutral principal reference and ResourceScope. Installation scope is explicit and has no customer IDs; account scope requires an account and allows organization/workspace only with valid ancestry. Missing IDs never imply installation. workspaces.services resolves lifecycle and ancestry; owning domains persist validated scalar scope facts without cross-layer foreign keys, JSON scope bags, copied hierarchy, or local validators.",
+        "description": "shared owns one closed dependency-neutral principal reference and ResourceScope. Installation scope is explicit and has no customer IDs; account scope requires an account and allows organization/workspace only with valid ancestry. Missing IDs never imply installation. workspaces.services resolves lifecycle and ancestry; owning domains persist validated scalar scope facts without cross-layer foreign keys, JSON scope bags, copied hierarchy, or local validators. Final constraints are conditional on scope kind and resource-specific placement rules; account-only resources pass canonical operation parsers and complete SQL-owned descendant inventories without placeholder workspaces or users.",
         "checks": []
       },
       {
         "id": "ADR-066-R5",
-        "description": "Mapping uses durable user, provider tuple, membership, ownership, and scope facts; preserves compatible organization/workspace identities; and stops on ambiguity or contradiction without deletion, silent reassignment, guessed account type, guessed issuer, or fabricated grant. Source schema may precede S8, but runtime authority has no dual-write, read fallback, customer-specific fork, rollback model, or partial production cutover.",
+        "description": "Mapping uses durable user, provider tuple, membership, ownership, and scope facts; preserves compatible organization/workspace identities; and stops on ambiguity or contradiction without deletion, silent reassignment, guessed account type, guessed issuer, or fabricated grant. Legacy membership rows remain intact before S8; conversion explicitly reconciles their identity constraints and overlapping prepared facts without losing valid durable row identities or conflating membership, ownership and policy grants. Source schema may precede S8, but runtime authority has no dual-write, read fallback, customer-specific fork, rollback model, or partial production cutover. Cutover readiness must allow deployment-owned migrations and bootstrap before schema/policy availability, reuse the existing authorization journal, domain outbox/inbox, strict audit and bounded cleanup, and preserve the parent source-authorization gate and outstanding live acceptance evidence.",
         "checks": []
       },
       {
         "id": "ADR-066-R6",
-        "description": "One deployment may host unrelated B2C/B2B accounts, but account scope does not claim separate data, key, project, network, secret, workload identity, or incident boundaries. Application and cloud authority are separate explicit grants. Later integration uses provider-native GCP identity/IAM/renewal, OpenFGA, Django, and django-rest-knox; no custom authentication protocol, policy engine, token format, secret broker, mandatory JIT/Vault product, or extra approval workflow is authorized. S7 (#2320) preserves explicitly chosen project-admin operator authority and separate full application grants to the same service, protects effective impersonation/attachment and workload/guest boundaries, and supports explicit single-project deployment, superseding ADR-008-R7 mandatory dynamic-secret project separation for that slice. Native renewal must be proved in the actual supported source/client/database runtime arrangement. S7 uses separately authenticated private OpenFGA runtime/admin listeners and native PostgreSQL duties to deny runtime model/store/assertion administration; tuple-writing clients remain trusted and no experimental HTTP access-control feature is used. Configuration, secret matrices, admission and enforcement remain canonical and must be reconciled without blanket exemptions. Custom source remains subject to the parent authorization gate and application cutover remains S8.",
+        "description": "One deployment may host unrelated B2C/B2B accounts, but account scope does not claim separate data, key, project, network, secret, workload identity, or incident boundaries. Application and cloud authority are separate explicit grants. Later integration uses provider-native GCP identity/IAM/renewal, OpenFGA, Django, and django-rest-knox; no custom authentication protocol, policy engine, token format, secret broker, mandatory JIT/Vault product, or extra approval workflow is authorized. S7 (#2320) preserves explicitly chosen project-admin operator authority and separate full application grants to the same service, protects effective impersonation/attachment and workload/guest boundaries, and supports explicit single-project deployment, superseding ADR-008-R7 mandatory dynamic-secret project separation for that slice. Native renewal must be proved in the actual supported source/client/database runtime arrangement. S7 uses separately authenticated private OpenFGA runtime/admin listeners and native PostgreSQL duties to deny runtime model/store/assertion administration; tuple-writing clients remain trusted and no experimental HTTP access-control feature is used. Configuration, secret matrices, admission and enforcement remain canonical and must be reconciled without blanket exemptions. The owner approved the custom integration source and S8 application cutover for #2321 on 2026-10-25; this does not authorize deployment or waive first-deployment qualification.",
         "checks": []
       },
       {
         "id": "ADR-066-R7",
-        "description": "At S8, HTTP admits a valid credential and the owning service enforces application administration through the shared principal, registered action, resolved target/scope, live OpenFGA decision, and credential ceiling for HTTP and direct callers alike. Human and service application administrators have the same valid application operations when credentials permit. This supersedes ADR-045-R3's staff-session-only audit read, ADR-046-R13's Django-superuser-only transfer override, ADR-046-R10's superuser-only quota authoring, and ADR-048-R2/R3's organization overrides for integrated operations; earlier production gates remain until S8. The deployment-global audit ledger is read only with installation.read_audit; customer audit access cannot be inferred from unscoped historical rows. Retained Django-admin and legacy browser writes use authorized services or lose their write path, and transfers resolve both source and destination authority without fabricating grants or changing cloud authority. Human-user lifecycle, customer Account lifecycle, and deployment settings remain distinct. Coverage must distinguish prepared adapters from mounted operations; provider failure is not an empty authorized result, and transfer summaries preserve blocked outcomes without claiming cross-resource atomicity.",
+        "description": "At S8, HTTP admits a valid credential and the owning service enforces application administration through the shared principal, registered action, resolved target/scope, live OpenFGA decision, and credential ceiling for HTTP and direct callers alike. Human and service application administrators have the same valid application operations when credentials permit. This supersedes ADR-045-R3's staff-session-only audit read, ADR-046-R13's Django-superuser-only transfer override, ADR-046-R10's superuser-only quota authoring, and ADR-048-R2/R3's organization overrides for integrated operations; earlier production gates remain until S8. PLAT-232 retains one UUID-only profile/PATCH/validation/strict-audit contract; organization.read and organization.update replace legacy role/override admission without a second veto. Profile reads do not authorize pack, adapter, model-source or workspace effects that previously borrowed the org-admin helper; each uses its registered action. Browser profile discovery distinguishes read/edit authority without staff or workspace-membership prerequisites. PLAT-233 activates the prepared workspace commands under exact registered actions; membership and multiple-owner facts remain separate from grants, and transfer neither grants policy nor requires a legacy owner-role veto. Preserve active defaults, ownerless creation, last-owner protection, authorized archive/restore no-ops, strict audit and model-access invalidation without deleting or rehoming bound ranges. Creation requires confirmed SQL-owned parent projection through the incumbent authorization boundary; parent relations are not grants and SQL/OpenFGA writes are not atomic. The deployment-global audit ledger is read only with installation.read_audit; customer audit access cannot be inferred from unscoped historical rows. Retained Django-admin and legacy browser writes use authorized services or lose their write path, and transfers resolve both source and destination authority without fabricating grants or changing cloud authority. Human-user lifecycle, customer Account lifecycle, and deployment settings remain distinct. Coverage must distinguish prepared adapters from mounted operations; provider failure is not an empty authorized result, and transfer summaries preserve blocked outcomes without claiming cross-resource atomicity.",
         "checks": []
       },
       {
@@ -4259,16 +4259,20 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2308",
-      "https://github.com/Brad-Edwards/shifter/issues/2314",
-      "https://github.com/Brad-Edwards/shifter/issues/2315",
-      "https://github.com/Brad-Edwards/shifter/issues/2316",
+      "https://github.com/Brad-Edwards/bigrae/issues/2308",
+      "https://github.com/Brad-Edwards/bigrae/issues/2314",
+      "https://github.com/Brad-Edwards/bigrae/issues/2315",
+      "https://github.com/Brad-Edwards/bigrae/issues/2316",
+      "https://github.com/Brad-Edwards/bigrae/issues/2321",
       "docs/adr/066-account-principal-resource-scope.md",
       "docs/architecture/account-principal-scope-preflight-2314.md",
+      "docs/architecture/workspace-lifecycle-preflight-1940.md",
+      "docs/architecture/integrated-identity-cutover-preflight-2321.md",
+      "docs/design/identity-cutover-2321-proposal.md",
       "docs/architecture/openfga-authorization-preflight-2315.md",
       "docs/architecture/unified-credential-auth-preflight-2316.md",
       "docs/architecture/gcp-native-identity-authority-preflight-2320.md",
-      "https://github.com/Brad-Edwards/shifter/issues/2320",
+      "https://github.com/Brad-Edwards/bigrae/issues/2320",
       "docs/architecture/account-administration-preflight-2317.md",
       "docs/architecture/account-administration-coverage-2317.md",
       "docs/architecture/content-range-authority-preflight-2319.md",
@@ -4323,7 +4327,7 @@
       "ci"
     ],
     "evidence": [
-      "https://github.com/Brad-Edwards/shifter/issues/2411",
+      "https://github.com/Brad-Edwards/bigrae/issues/2411",
       "docs/adr/067-model-access-enforcement-optional.md",
       "docs/adr/064-default-range-model-access.md",
       "docs/adr/059-range-model-access-broker.md"
@@ -4368,7 +4372,7 @@
       "docs/architecture/model-access/gateway-replacement-evaluation-2274.md",
       "docs/adr/064-default-range-model-access.md",
       "docs/technical/dev/setup.md",
-      "https://github.com/Brad-Edwards/shifter/issues/2274"
+      "https://github.com/Brad-Edwards/bigrae/issues/2274"
     ]
   }
 ]

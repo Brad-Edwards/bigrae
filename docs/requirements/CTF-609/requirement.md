@@ -24,4 +24,4 @@ Disqualification is a softer action than banning, it removes competitive standin
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant.py (disqualify_participant)` (disqualify_participant() - sets status to DISQUALIFIED, clears CTF participant profile)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py (get_scoreboard)` (Scoreboard excludes DISQUALIFIED participants (filters by ACTIVE/REGISTERED/COMPLETED only))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums_registration.py (ParticipantStatus.DISQUALIFIED)` (DISQUALIFIED enum value)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#657` (CTF-609: Participant Disqualification)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#657` (CTF-609: Participant Disqualification)

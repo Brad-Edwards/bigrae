@@ -20,8 +20,8 @@ The five Django apps each have their own base template and navigation pattern, p
 
 ## Traceability
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#710` (Information architecture & sitemap for the unified platform)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#709` (UX research & personas for OSS Shifter redesign)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#710` (Information architecture & sitemap for the unified platform)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#709` (UX research & personas for OSS Shifter redesign)
 - IMPLEMENTS → DOCUMENTATION `docs/design/ux-003-information-architecture-sitemap.md` (UX-003 Information Architecture And Sitemap)
 - IMPLEMENTS → PULL_REQUEST `1154` (Add unified platform IA sitemap)
 - DOCUMENTS → DOCUMENTATION `docs/design/ux-003-oss-shifter-research-personas.md` (UX-003 OSS Shifter Research Personas)

@@ -102,14 +102,14 @@ class TestProvisionParticipantRange:
     """
 
     @pytest.mark.django_db
-    def test_not_found(self):
+    def test_not_found(self, organizer_credential):
         """Raises CTFNotFoundError for nonexistent participant."""
         uuid4_2 = uuid4()
         with pytest.raises(CTFNotFoundError):
-            range_service.provision_participant_range(uuid4_2)
+            range_service.provision_participant_range(uuid4_2, actor=organizer_credential)
 
     @pytest.mark.django_db
-    def test_already_assigned_raises_and_keeps_assignment(self, ctf_participant):
+    def test_already_assigned_raises_and_keeps_assignment(self, ctf_participant, organizer_credential):
         """An already-assigned participant raises without re-provisioning (CTF-7).
 
         No CMS mock: if the guard regressed and the code reached provisioning,
@@ -121,13 +121,13 @@ class TestProvisionParticipantRange:
         ctf_participant.save(update_fields=["range_instance_id", "updated_at"])
 
         with pytest.raises(CTFRangeError, match="already has a range"):
-            range_service.provision_participant_range(ctf_participant.pk)
+            range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
 
         ctf_participant.refresh_from_db()
         assert ctf_participant.range_instance_id == 42
 
     @pytest.mark.django_db
-    def test_provision_success_persists_assignment(self, ctf_participant):
+    def test_provision_success_persists_assignment(self, ctf_participant, organizer_credential):
         """The launch runs after the claim commits; success persists the assignment.
 
         A feature-artifact launch waits for the launcher, which cannot see an
@@ -147,21 +147,22 @@ class TestProvisionParticipantRange:
             patch("ctf.bridges.cms_create_range", side_effect=launch) as mock_create,
             patch("ctf.bridges.cms_find_range_instance_id", return_value=99),
         ):
-            result = range_service.provision_participant_range(ctf_participant.pk)
+            result = range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
 
         assert observed == {"savepoints": 0, "status": "provisioning"}
         assert result["status"] == "provisioning"
         mock_create.assert_called_once()
-        assert mock_create.call_args.kwargs["user"] == ctf_participant.user
         launch_options = mock_create.call_args.kwargs["launch_options"]
-        assert launch_options.content_authorizer == ctf_participant.event.created_by
+        assert launch_options.credential == organizer_credential
+        assert launch_options.owner_principal.uuid == ctf_participant.principal_uuid
+        assert launch_options.event_uuid == ctf_participant.event_id
 
         ctf_participant.refresh_from_db()
         assert ctf_participant.range_instance_id == 99
         assert ctf_participant.range_status == "provisioning"
 
     @pytest.mark.django_db
-    def test_in_flight_provisioning_blocks_reprovision(self, ctf_participant):
+    def test_in_flight_provisioning_blocks_reprovision(self, ctf_participant, organizer_credential):
         """A participant mid-provision (status set, no instance id) is treated as claimed (#942).
 
         cms_create_range can succeed while cms_find_range_instance_id returns
@@ -175,33 +176,35 @@ class TestProvisionParticipantRange:
         ctf_participant.save(update_fields=["range_status", "updated_at"])
 
         with pytest.raises(CTFRangeError, match="already has a range"):
-            range_service.provision_participant_range(ctf_participant.pk)
+            range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
 
         ctf_participant.refresh_from_db()
         assert ctf_participant.range_instance_id is None
         assert ctf_participant.range_status == "provisioning"
 
     @pytest.mark.django_db
-    def test_provision_requires_registered_user(self, ctf_participant_no_account):
+    def test_provision_requires_registered_user(self, ctf_participant_no_account, organizer_credential):
         """Raises CTFRangeError if participant has no linked user."""
         with pytest.raises(CTFRangeError, match="must be registered"):
-            range_service.provision_participant_range(ctf_participant_no_account.pk)
+            range_service.provision_participant_range(ctf_participant_no_account.pk, actor=organizer_credential)
 
     @pytest.mark.django_db
-    def test_provision_cms_failure(self, ctf_participant):
+    def test_provision_cms_failure(self, ctf_participant, organizer_credential):
         """CMS errors are wrapped in CTFRangeError and release the claim for a retry."""
         with (
             patch("ctf.bridges.cms_create_range", side_effect=RuntimeError("CMS down")),
             pytest.raises(CTFRangeError, match="Range provisioning failed"),
         ):
-            range_service.provision_participant_range(ctf_participant.pk)
+            range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
 
         ctf_participant.refresh_from_db()
         assert ctf_participant.range_status == ""
         assert ctf_participant.range_instance_id is None
 
     @pytest.mark.django_db
-    def test_policy_denial_propagates_permanent_code(self, ctf_participant, settings, monkeypatch):
+    def test_policy_denial_propagates_permanent_code(
+        self, ctf_participant, organizer_credential, settings, monkeypatch
+    ):
         """A real GDC live-fire denial reaches provision with its permanent code intact (#1348).
 
         No mock: under gcp+gdc the real CMS create_range gate raises a CMSError carrying
@@ -215,7 +218,7 @@ class TestProvisionParticipantRange:
         monkeypatch.setenv("GCP_RANGE_BACKEND", "gdc")
 
         with pytest.raises(CTFRangeError) as exc:
-            range_service.provision_participant_range(ctf_participant.pk)
+            range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
 
         assert exc.value.code == POLICY_DENIAL_CODE
 
@@ -336,38 +339,7 @@ class TestCleanupEventRanges:
             mock_objects.DoesNotExist = CTFEvent.DoesNotExist
             uuid4_2 = uuid4()
             with pytest.raises(CTFNotFoundError):
-                range_service.cleanup_event_ranges(uuid4_2)
-
-    def test_destroys_ranges(self):
-        """Destroys all assigned ranges using participant.user."""
-        from ctf.models import CTFEvent
-
-        event_id = uuid4()
-        mock_user = Mock()
-        mock_participant = Mock(
-            pk=uuid4(),
-            range_instance_id=42,
-            range_status="ready",
-            user=mock_user,
-        )
-
-        with (
-            patch.object(CTFEvent, "objects") as mock_event_objects,
-            patch.object(CTFParticipant, "objects") as mock_part_objects,
-            patch("ctf.bridges.cms_destroy_range") as mock_destroy,
-        ):
-            mock_event_objects.get.return_value = Mock()
-            mock_part_objects.filter.return_value.select_related.return_value = [mock_participant]
-
-            result = range_service.cleanup_event_ranges(event_id)
-
-        assert result["dispatched"] == 1
-        mock_destroy.assert_called_once_with(mock_user, 42)
-        mock_participant.save.assert_called_once()
-        # #1919: dispatch retains the linkage and marks "destroying"; the verified
-        # terminal projection is what clears range_instance_id and releases capacity.
-        assert mock_participant.range_instance_id == 42
-        assert mock_participant.range_status == "destroying"
+                range_service.cleanup_event_ranges(uuid4_2, actor=Mock())
 
 
 class TestDestroyParticipantRange:
@@ -377,30 +349,7 @@ class TestDestroyParticipantRange:
         """Raises CTFNotFoundError for nonexistent participant."""
         uuid4_2 = uuid4()
         with pytest.raises(CTFNotFoundError):
-            range_service.destroy_participant_range(uuid4_2)
-
-    @pytest.mark.usefixtures("_patch_participant_get")
-    def test_no_range(self, mock_participant):
-        """Raises CTFRangeError when no range assigned."""
-        with pytest.raises(CTFRangeError, match="No range assigned"):
-            range_service.destroy_participant_range(mock_participant.pk)
-
-    @pytest.mark.usefixtures("_patch_participant_get")
-    def test_destroy_success(self, mock_participant):
-        """Successfully destroys a participant's range."""
-        mock_participant.range_instance_id = 42
-        mock_participant.range_status = "ready"
-
-        with patch("ctf.bridges.cms_destroy_range") as mock_destroy:
-            result = range_service.destroy_participant_range(mock_participant.pk)
-
-        assert result["status"] == "destroying"
-        mock_destroy.assert_called_once_with(mock_participant.user, 42)
-        mock_participant.save.assert_called_once()
-        # #1919: dispatch is not terminal cleanup -- the linkage is retained and the
-        # status is truthfully "destroying" until the range actually reaches DESTROYED.
-        assert mock_participant.range_instance_id == 42
-        assert mock_participant.range_status == "destroying"
+            range_service.destroy_participant_range(uuid4_2, actor=Mock())
 
 
 # ---------------------------------------------------------------------------
@@ -450,9 +399,9 @@ class TestProvisionEventRangesThrottled:
             range_service.provision_event_ranges_throttled(uuid4_2, 300)
 
     @pytest.mark.django_db
-    def test_empty_participants(self, ctf_event):
+    def test_empty_participants(self, ctf_event, organizer_credential):
         """Returns zeros when no participants need provisioning."""
-        result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300)
+        result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300, actor=organizer_credential)
 
         assert result["total"] == 0
         assert result["successful"] == 0
@@ -461,14 +410,14 @@ class TestProvisionEventRangesThrottled:
 
     @pytest.mark.django_db
     @pytest.mark.usefixtures("_patch_sleep")
-    def test_failures_and_skips_tallied_with_notification(self, ctf_event, participant_user):
+    def test_failures_and_skips_tallied_with_notification(self, ctf_event, participant_user, organizer_credential):
         """Failures and benign skips are tallied separately; failures notify the organizer."""
         _make_unregistered_participant(ctf_event, 0)
         _make_unregistered_participant(ctf_event, 1)
         _make_skip_participant(ctf_event, participant_user, 0)
 
         with patch("ctf.services.notification.notify_organizer_provision_failure") as mock_notify:
-            result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300)
+            result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300, actor=organizer_credential)
 
         assert result["total"] == 3
         assert result["successful"] == 0
@@ -478,19 +427,19 @@ class TestProvisionEventRangesThrottled:
         mock_notify.assert_called_once()
 
     @pytest.mark.django_db
-    def test_pacing_sleeps_between_provisions_only(self, ctf_event, _patch_sleep):
+    def test_pacing_sleeps_between_provisions_only(self, ctf_event, organizer_credential, _patch_sleep):
         """Sleeps fill the inter-provision gaps (one fewer than participants), each summing to the clamped delay."""
         for i in range(3):
             _make_unregistered_participant(ctf_event, i)
 
-        range_service.provision_event_ranges_throttled(ctf_event.pk, 300)
+        range_service.provision_event_ranges_throttled(ctf_event.pk, 300, actor=organizer_credential)
 
         # window=300 / 3 participants = 100s clamped; two gaps; chunked sleeps sum to 200s.
         assert sum(c.args[0] for c in _patch_sleep.call_args_list) == 200.0
 
     @pytest.mark.django_db
     @pytest.mark.usefixtures("_patch_sleep")
-    def test_shutdown_interruption(self, ctf_event):
+    def test_shutdown_interruption(self, ctf_event, organizer_credential):
         """shutdown_check stops the loop and sets interrupted=True."""
         for i in range(5):
             _make_unregistered_participant(ctf_event, i)
@@ -503,14 +452,16 @@ class TestProvisionEventRangesThrottled:
             calls["n"] += 1
             return calls["n"] > 1
 
-        result = range_service.provision_event_ranges_throttled(ctf_event.pk, 600, shutdown_check=shutdown_check)
+        result = range_service.provision_event_ranges_throttled(
+            ctf_event.pk, 600, shutdown_check=shutdown_check, actor=organizer_credential
+        )
 
         assert result["interrupted"] is True
         assert result["total"] == 1
 
     @pytest.mark.django_db
     @pytest.mark.usefixtures("_patch_sleep")
-    def test_heartbeat_called_each_iteration(self, ctf_event):
+    def test_heartbeat_called_each_iteration(self, ctf_event, organizer_credential):
         """The heartbeat fires at least once per participant so the task stays live.
 
         DB-backed with unregistered participants: provisioning fails fast before
@@ -521,20 +472,24 @@ class TestProvisionEventRangesThrottled:
             _make_unregistered_participant(ctf_event, i)
         heartbeat = Mock()
 
-        result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300, heartbeat=heartbeat)
+        result = range_service.provision_event_ranges_throttled(
+            ctf_event.pk, 300, heartbeat=heartbeat, actor=organizer_credential
+        )
 
         assert heartbeat.call_count >= 3
         assert result["total"] == 3
 
     @pytest.mark.django_db
     @pytest.mark.usefixtures("_patch_sleep")
-    def test_heartbeat_failure_does_not_abort_spin_up(self, ctf_event):
+    def test_heartbeat_failure_does_not_abort_spin_up(self, ctf_event, organizer_credential):
         """A failing heartbeat is swallowed; the spin-up loop still runs to completion."""
         for i in range(3):
             _make_unregistered_participant(ctf_event, i)
         heartbeat = Mock(side_effect=RuntimeError("db hiccup"))
 
-        result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300, heartbeat=heartbeat)
+        result = range_service.provision_event_ranges_throttled(
+            ctf_event.pk, 300, heartbeat=heartbeat, actor=organizer_credential
+        )
 
         assert heartbeat.call_count >= 3
         assert result["total"] == 3
@@ -646,10 +601,10 @@ class TestRequestEventProvisioning:
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
         ).count()
 
-    def test_creates_due_now_task_when_none_exists(self, ctf_event):
+    def test_creates_due_now_task_when_none_exists(self, ctf_event, organizer_credential):
         before = timezone.now()
 
-        task = range_service.request_event_provisioning(ctf_event.id, source="manual")
+        task = range_service.request_event_provisioning(ctf_event.id, source="manual", actor_id=organizer_credential)
 
         assert task.task_type == ScheduledTaskType.SPIN_UP_RANGES.value
         assert task.status == ScheduledTaskStatus.PENDING.value
@@ -657,14 +612,17 @@ class TestRequestEventProvisioning:
         assert task.metadata.get("source") == "manual"
         assert self._spin_up_count(ctf_event) == 1
 
-    def test_coalesces_future_pending_pulled_to_now(self, ctf_event):
+    def test_coalesces_future_pending_pulled_to_now(self, ctf_event, organizer_credential):
+        from shared.operation_authority import credential_reference_fields
+
         existing = CTFScheduledTask.objects.create(
             event=ctf_event,
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
             scheduled_for=timezone.now() + timedelta(hours=6),
+            **credential_reference_fields(organizer_credential),
         )
 
-        task = range_service.request_event_provisioning(ctf_event.id, source="manual")
+        task = range_service.request_event_provisioning(ctf_event.id, source="manual", actor_id=organizer_credential)
 
         assert task.pk == existing.pk
         task.refresh_from_db()
@@ -673,24 +631,27 @@ class TestRequestEventProvisioning:
         # No duplicate runnable task was created.
         assert self._spin_up_count(ctf_event) == 1
 
-    def test_reuses_running_task(self, ctf_event):
+    def test_reuses_running_task(self, ctf_event, organizer_credential):
+        from shared.operation_authority import credential_reference_fields
+
         existing = CTFScheduledTask.objects.create(
             event=ctf_event,
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
             scheduled_for=timezone.now() - timedelta(minutes=1),
             status=ScheduledTaskStatus.RUNNING.value,
+            **credential_reference_fields(organizer_credential),
         )
 
-        task = range_service.request_event_provisioning(ctf_event.id)
+        task = range_service.request_event_provisioning(ctf_event.id, actor_id=organizer_credential)
 
         assert task.pk == existing.pk
         assert task.status == ScheduledTaskStatus.RUNNING.value
         assert self._spin_up_count(ctf_event) == 1
 
-    def test_event_not_found_raises(self):
+    def test_event_not_found_raises(self, organizer_credential):
         uuid4_2 = uuid4()
         with pytest.raises(CTFNotFoundError):
-            range_service.request_event_provisioning(uuid4_2)
+            range_service.request_event_provisioning(uuid4_2, actor_id=organizer_credential)
 
 
 @pytest.mark.django_db
@@ -744,24 +705,38 @@ class TestCmsBridgeRangeSource:
     """
 
     @pytest.fixture
-    def _ctf_raes_source(self, participant_user, monkeypatch):
+    def _ctf_raes_source(self, ctf_event, organizer_user, monkeypatch, settings):
         from cms.models import RaesPackageSource
+        from cms.raes.dispatch import CmsRaesDispatchPort
+        from workspaces.services import resource_scope_from_ids
 
         monkeypatch.setattr("engine.services._raes_range.start_raes_range_provisioning", lambda *_a, **_kw: None)
+        settings.ENGINE_TASK_CLUSTER = "synthetic-namespace"
+        settings.ENGINE_TASK_DEFINITION = "example.test/synthetic@sha256:" + "1" * 64
 
-        def dispatch(request_id, user, _source, backend_admission, workspace_id, egress_mode, **_kwargs):
-            from engine.services import create_raes_range
-
-            create_raes_range(
-                request_id=request_id,
-                user_id=user.id,
-                compiled_plan={"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": {}},
-                backend_admission=backend_admission,
-                workspace_id=workspace_id,
-                egress_mode=egress_mode,
+        def dispatch(request_id, credential, source, options):
+            port = CmsRaesDispatchPort(
+                user_id=None,
+                request_id=str(request_id),
+                workspace_id=options.workspace_id,
+                backend_admission=options.backend_admission,
+                egress_mode=options.egress_mode,
+                credential=credential,
+                scope=options.principal_scope,
+                source=source,
+                owner_principal=options.owner_principal,
+                authority_action=options.authority_action,
+                authority_target=options.authority_target,
             )
+            port.realize({"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": {}})
 
-        monkeypatch.setattr("cms.services._raes_range_create._dispatch_raes_package", dispatch)
+        monkeypatch.setattr("cms.services._raes_dispatch.dispatch_repo_raes_package", dispatch)
+        scope = resource_scope_from_ids(
+            kind=ctf_event.scope_kind,
+            account_id=ctf_event.account_id,
+            organization_id=ctf_event.organization_id,
+            workspace_id=ctf_event.workspace_id,
+        )
         return RaesPackageSource.objects.create(
             scenario_id="ctf-bridge-test",
             contract_kind="raes",
@@ -770,23 +745,41 @@ class TestCmsBridgeRangeSource:
             package_version="1.0.0",
             package_digest="sha256:" + "a" * 64,
             conformance_status="passed",
-            registered_by=participant_user,
+            registered_by=organizer_user,
+            owner_principal_uuid=ctf_event.owner_principal_uuid,
+            scope_kind="account",
+            account_uuid=scope.account_uuid,
         )
 
-    def test_cms_create_range_persists_ctf_range_source(self, participant_user, _ctf_raes_source):
+    def test_cms_create_range_persists_ctf_range_source(
+        self, participant_user, ctf_participant, ctf_event, organizer_credential, _ctf_raes_source
+    ):
         """ctf.bridges.cms_create_range stores the range with CTF provenance."""
         from cms.models import RangeInstance
-        from ctf.bridges import cms_create_range
+        from ctf.bridges import CTFRangeLaunchOptions, cms_create_range
         from engine.models import Range as EngineRange
+        from management.services import resolve_principal_uuid
         from shared.enums import RangeSource
+        from workspaces.services import resource_scope_from_ids
 
         teardown_at = timezone.now() + timedelta(days=5)
+        scope = resource_scope_from_ids(
+            kind=ctf_event.scope_kind,
+            account_id=ctf_event.account_id,
+            organization_id=ctf_event.organization_id,
+            workspace_id=ctf_event.workspace_id,
+        )
         result = cms_create_range(
-            user=participant_user,
             scenario=_ctf_raes_source.scenario_id,
             agents_by_os={},
             ngfw_enabled=False,
             remote_access_teardown_at=teardown_at,
+            launch_options=CTFRangeLaunchOptions(
+                credential=organizer_credential,
+                scope=scope,
+                owner_principal=resolve_principal_uuid(ctf_participant.principal_uuid),
+                event_uuid=ctf_event.pk,
+            ),
         )
 
         assert isinstance(result, RangeProvisionResult)

@@ -8,7 +8,7 @@ contract. Return to the [current-state handbook](../architecture.md).
 CyberScript is retired. Current authoring, package registration, catalog, API,
 persistence and new provisioning use RAES. The platform currently pins
 `raes==3.5.0` and `raes-env-packs==5.2.0` in its
-[package manifest](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/pyproject.toml)
+[package manifest](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/pyproject.toml)
 and lockfile. Check those files when upgrading; a historical page is not a
 second pin registry.
 
@@ -42,7 +42,7 @@ retired CyberScript or ACES path.
 The target stays one released RAES contract, with backend capabilities advertised
 only when their admitted shapes have real guest effects and readback evidence.
 The current
-[backend manifest](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/shared/raes/backend-manifest.json)
+[backend manifest](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/shared/raes/backend-manifest.json)
 and realization envelope bound claims. Parsing a field, retaining a projection,
 or passing unit conformance is not proof of live scenario support. Private packs
 and executable adapters remain separately owned and authorized.
@@ -58,7 +58,7 @@ it cannot establish that condition. Rollback is an operator-controlled restore
 of the preceding release and matching pre-cutover database backup, with workers
 stopped. There is no in-process mixed-schema rollback flag.
 
-The [hard-cut decision](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/raes-migration-adr.md)
-and [ADR registry](https://github.com/Brad-Edwards/shifter/blob/dev/docs/adr/index.yaml)
+The [hard-cut decision](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/raes-migration-adr.md)
+and [ADR registry](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/adr/index.yaml)
 retain the detailed migration and realization constraints. Earlier preflights
 are historical records and do not override them.

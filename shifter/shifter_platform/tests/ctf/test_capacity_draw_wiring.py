@@ -21,7 +21,9 @@ def _summary(outcome: str, *, blocking: bool):
 
 
 class TestParticipantPath:
-    def test_draw_happens_before_the_range_is_created(self, ctf_event_active, participant_user, monkeypatch):
+    def test_draw_happens_before_the_range_is_created(
+        self, ctf_event_active, participant_user, organizer_credential, monkeypatch
+    ):
         """Ordering is the point: refuse before creating, not after."""
         from ctf.models import CTFParticipant
         from ctf.services.range.provision import provision_participant_range
@@ -47,11 +49,13 @@ class TestParticipantPath:
         monkeypatch.setattr("ctf.bridges.cms_create_range", _record_create)
 
         with pytest.raises(CTFRangeError):
-            provision_participant_range(participant.pk)
+            provision_participant_range(participant.pk, actor=organizer_credential)
 
         assert order == ["admit", "create"]
 
-    def test_blocking_draw_refuses_without_creating_a_range(self, ctf_event_active, participant_user, monkeypatch):
+    def test_blocking_draw_refuses_without_creating_a_range(
+        self, ctf_event_active, participant_user, organizer_credential, monkeypatch
+    ):
         from ctf.models import CTFParticipant
         from ctf.services.range.provision import provision_participant_range
 
@@ -70,11 +74,13 @@ class TestParticipantPath:
         monkeypatch.setattr("ctf.bridges.cms_create_range", lambda **kwargs: created.append(1))
 
         with pytest.raises(CTFRangeError, match="capacity budget"):
-            provision_participant_range(participant.pk)
+            provision_participant_range(participant.pk, actor=organizer_credential)
 
         assert created == []
 
-    def test_draw_is_keyed_on_the_participant(self, ctf_event_active, participant_user, monkeypatch):
+    def test_draw_is_keyed_on_the_participant(
+        self, ctf_event_active, participant_user, organizer_credential, monkeypatch
+    ):
         """A stable key is what makes a retried provision idempotent."""
         from ctf.models import CTFParticipant
         from ctf.services.range.provision import provision_participant_range
@@ -93,11 +99,13 @@ class TestParticipantPath:
         )
 
         with pytest.raises(CTFRangeError):
-            provision_participant_range(participant.pk)
+            provision_participant_range(participant.pk, actor=organizer_credential)
 
         assert seen == [participant.pk]
 
-    def test_failed_creation_releases_the_draw(self, ctf_event_active, participant_user, monkeypatch):
+    def test_failed_creation_releases_the_draw(
+        self, ctf_event_active, participant_user, organizer_credential, monkeypatch
+    ):
         """A range that never came up must not hold budget."""
         from ctf.models import CTFParticipant
         from ctf.services.range.provision import provision_participant_range
@@ -119,13 +127,13 @@ class TestParticipantPath:
         monkeypatch.setattr("ctf.bridges.cms_create_range", _boom)
 
         with pytest.raises(CTFRangeError):
-            provision_participant_range(participant.pk)
+            provision_participant_range(participant.pk, actor=organizer_credential)
 
         assert released == [participant.pk]
 
 
 class TestSparePath:
-    def test_blocking_draw_marks_the_spare_failed_without_creating(self, ctf_event, monkeypatch):
+    def test_blocking_draw_marks_the_spare_failed_without_creating(self, ctf_event, organizer_credential, monkeypatch):
         from ctf.enums import SpareRangeStatus
         from ctf.services.range.spares import provision_event_spares
 
@@ -137,7 +145,7 @@ class TestSparePath:
         monkeypatch.setattr("ctf.services.range.capacity.assess_declared_capacity", lambda event_id, source: None)
         monkeypatch.setattr("ctf.bridges.cms_create_range", lambda **kwargs: created.append(1))
 
-        result = provision_event_spares(ctf_event.pk, 2)
+        result = provision_event_spares(ctf_event.pk, 2, operator=organizer_credential)
 
         assert created == []
         assert result["created"] == 0
@@ -145,7 +153,7 @@ class TestSparePath:
 
         assert CTFSpareRange.objects.filter(event=ctf_event, status=SpareRangeStatus.FAILED.value).count() == 2
 
-    def test_each_spare_draws_under_a_distinct_key(self, ctf_event, monkeypatch):
+    def test_each_spare_draws_under_a_distinct_key(self, ctf_event, organizer_credential, monkeypatch):
         """Two spares must not collide on one ledger key."""
         from ctf.services.range.spares import provision_event_spares
 
@@ -156,7 +164,7 @@ class TestSparePath:
         )
         monkeypatch.setattr("ctf.services.range.capacity.assess_declared_capacity", lambda event_id, source: None)
 
-        provision_event_spares(ctf_event.pk, 3)
+        provision_event_spares(ctf_event.pk, 3, operator=organizer_credential)
 
         assert len(seen) == 3
         assert len(set(seen)) == 3

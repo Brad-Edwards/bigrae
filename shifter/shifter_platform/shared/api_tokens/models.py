@@ -51,6 +51,7 @@ class ApiToken(models.Model):
     last_used_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    reissue_required_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         """Retain stable metadata row IDs for existing operation/audit references."""
@@ -109,7 +110,9 @@ class ApiToken(models.Model):
     @property
     def requires_reissue(self) -> bool:
         """Historical custom proofs are retained for S8 disposition, not login."""
-        return bool(self.verifier_hash) and self.knox_token_id is None and self.revoked_at is None
+        return self.reissue_required_at is not None or (
+            bool(self.verifier_hash) and self.knox_token_id is None and self.revoked_at is None
+        )
 
     @property
     def has_usable_scope(self) -> bool:

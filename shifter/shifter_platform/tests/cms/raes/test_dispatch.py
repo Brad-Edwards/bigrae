@@ -129,6 +129,42 @@ class TestCmsRaesDispatchPort:
         assert range_obj.range_config["kind"] == RAES_PROVISIONING_PLAN_KIND
         assert range_obj.range_config["resources"]["provision.node.attacker"]["resource_type"] == "node"
 
+    def test_model_access_is_prepared_before_dispatch_without_holding_the_creation_transaction(
+        self, user, monkeypatch
+    ):
+        from django.db import transaction
+
+        from engine import services as engine_services
+
+        connection = transaction.get_connection()
+        baseline_atomic_depth = len(connection.atomic_blocks)
+        calls = []
+        original_dispatch = engine_services.dispatch_created_raes_range
+
+        def _prepare(*_args, **_kwargs):
+            calls.append(("prepare", len(connection.atomic_blocks)))
+
+        def _dispatch(*args, **kwargs):
+            calls.append(("dispatch", len(connection.atomic_blocks)))
+            return original_dispatch(*args, **kwargs)
+
+        monkeypatch.setattr("cms.services._model_allocation.needs_model_preparation", lambda _request_id: True)
+        monkeypatch.setattr("cms.services._model_allocation.prepare_model_access_for_dispatch", _prepare)
+        monkeypatch.setattr(engine_services, "dispatch_created_raes_range", _dispatch)
+        request_id = uuid4()
+
+        result = CmsRaesDispatchPort(
+            user_id=user.id,
+            workspace_id=_WORKSPACE_ID,
+            request_id=str(request_id),
+        ).realize(make_compiled_plan())
+
+        assert result.accepted is True
+        assert calls == [
+            ("prepare", baseline_atomic_depth),
+            ("dispatch", baseline_atomic_depth),
+        ]
+
     def test_realize_persists_delivery_bindings_for_source_backed_content(self, user, monkeypatch, tmp_path, settings):
         # A plan with source-backed content threads pack_root through the port; the
         # prepared byte-free bindings are persisted beside the plan (#1564).

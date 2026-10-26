@@ -24,5 +24,5 @@ Provisioning many range instances simultaneously creates a thundering herd again
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (_handle_spin_up_ranges() - Scheduler integration for throttled provisioning)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py::CTFEvent.range_spinup_minutes` (CTFEvent.range_spinup_minutes - Per-event configurable spinup window)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (TestProvisionEventRangesThrottled - Throttled provisioning test suite)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#571` (CTF-905: Throttled Range Provisioning)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#571` (CTF-905: Throttled Range Provisioning)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/batch.py` (provision_event_ranges_throttled() - throttled range provisioning)

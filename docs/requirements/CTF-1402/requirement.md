@@ -23,4 +23,4 @@ Event branding enables differentiated event experiences, important for events co
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF Event model - would need theming/branding fields)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/base.html` (CTF base template - would need dynamic theme selection)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#639` (CTF-1402: Theming)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#639` (CTF-1402: Theming)

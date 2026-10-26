@@ -71,6 +71,26 @@ class TestListAgents:
         assert response.status_code == 200
         assert _json(response)["max_file_size_bytes"] == 2048 * 1024 * 1024
 
+    @pytest.mark.parametrize("route", ["agents-list", "scenarios-list"])
+    def test_catalog_reads_reject_malformed_workspace_selector(self, authenticated_client, route):
+        client, _user = authenticated_client(email=f"bad-{route}@example.com")
+
+        response = client.get(reverse(f"v1:mission_control:{route}"), {"workspace_uuid": "not-a-uuid"})
+
+        assert response.status_code == 400
+        assert _json(response)["error"]["code"] == "invalid"
+
+    @pytest.mark.parametrize("route", ["agents-list", "scenarios-list"])
+    def test_catalog_reads_hide_unavailable_workspace(self, authenticated_client, route):
+        from uuid import uuid4
+
+        client, _user = authenticated_client(email=f"foreign-{route}@example.com")
+
+        response = client.get(reverse(f"v1:mission_control:{route}"), {"workspace_uuid": str(uuid4())})
+
+        assert response.status_code == 403
+        assert _json(response)["error"]["code"] == "workspace_not_available"
+
 
 class TestSubnetIndexAllocation:
     """Exercises Range.allocate_subnet_index against real rows."""

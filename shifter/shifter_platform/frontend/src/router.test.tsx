@@ -66,17 +66,15 @@ describe("router", () => {
     expect(group("mission-control")?.handle?.permissionPolicy).toBe("authenticated");
     expect(group("scenario-editor")?.handle?.permissionPolicy).toBe("threat_research");
     expect(group("raes-image-registry")?.handle?.permissionPolicy).toBe("threat_research");
-    expect(group("administer")?.handle?.permissionPolicy).toBe("staff");
+    expect(group("administer")?.handle?.permissionPolicy).toBe("authenticated");
     expect(group("ctf")?.handle?.permissionPolicy).toBe("ctf_participant");
     expect(group("ctf/admin")?.handle?.permissionPolicy).toBe("ctf_organizer");
   });
 
-  it("nests the scoped workspace surfaces under the organization console", () => {
+  it("mounts the policy-backed account administration surface", () => {
     const paths = collectPaths(router.routes as readonly RouteNode[]);
-    expect(paths).toContain("organization");
-    expect(paths).toContain("workspaces/:workspaceUuid");
-    // The dynamic per-workspace surfaces are generated from WORKSPACE_SURFACES.
-    expect(paths).toContain("membership");
+    expect(paths).toContain("accounts");
+    expect(paths).toContain("organization/*");
   });
 
   it("redirects the legacy Mission Control settings URL to the staff-owned page", async () => {
@@ -94,11 +92,11 @@ describe("router", () => {
     await waitFor(() => expect(memoryRouter.state.location.pathname).toBe(platformSettingsPath()));
   });
 
-  it("preserves the staff gate when a non-staff user follows the legacy settings URL", async () => {
+  it("preserves the lease-policy gate when an unauthorized user follows the legacy settings URL", async () => {
     mockUseBootstrap.mockReturnValue({
       data: {
         ...STAFF_BOOTSTRAP,
-        principal: { ...STAFF_BOOTSTRAP.principal, is_staff: false },
+        permissions: { ...STAFF_BOOTSTRAP.permissions, can_manage_lease_policy: false },
       },
       isLoading: false,
       error: null,

@@ -357,8 +357,8 @@
   {
     "rule_id": "ADR-019-R1",
     "owner": "@Brad-Edwards",
-    "reason": "Temporary baseline convergence for bootstrap tests already merged to dev by #1713, #1716, #1718, #1738, #1742, and #1745. Their independently reviewed branches introduced aggregate CLI/GDC orchestration patch counts that were not reflected in the shared ratchet after merge, making the CI-only full-repository guard fail for every subsequent PR that touches a guardrail path (surfaced again while merging dev into #994). This exception records the exact current counts without exempting any future growth; the bootstrap tests must be converted to process/cloud-boundary or observable-behavior tests before expiry.",
-    "expires_on": "2026-10-18",
+    "reason": "Temporary baseline convergence for bootstrap tests already merged to dev by #1713, #1716, #1718, #1738, #1742, and #1745. Their independently reviewed branches introduced aggregate CLI/GDC orchestration patch counts that were not reflected in the shared ratchet after merge, making the CI-only full-repository guard fail for every subsequent PR that touches a guardrail path (surfaced again while merging dev into #994). This exception records the exact current counts without exempting any future growth; the bootstrap tests must be converted to process/cloud-boundary or observable-behavior tests before expiry. Revalidated during #2321 on 2026-10-25: the ratchet remains fixed and no additional patch allowance is granted.",
+    "expires_on": "2026-11-25",
     "paths": [
       "scripts/adr_guard/boundary_mock_baseline.json"
     ]
@@ -376,8 +376,8 @@
   {
     "rule_id": "ADR-004-R24",
     "owner": "@Brad-Edwards",
-    "reason": "Production-path quality-ownership SECURITY gaps (#1530). These quality units have lint and/or test coverage but no category-specific BLOCKING security (SAST) job: the script categories (assert_portal_inspection, check_rds_pending_modifications, handle_sd_replacement, cyberscript, stack_smoke) and the adr_guard/quality_ownership guard tooling have no dedicated blocking SAST lane; the MCP packages (mcp_ngfw, mcp_ops, mcp_planner, mcp_shared) have no JavaScript SAST lane; k8s security is provided only by the advisory continue-on-error Checkov job. Recorded as visible, dated gaps rather than mislabelling an advisory/absent job as a blocking owner (the #1530 preflight forbids not_applicable/advisory dispositions). Gap-closure tracked by #1698.",
-    "expires_on": "2026-10-17",
+    "reason": "Production-path quality-ownership SECURITY gaps (#1530). These quality units have lint and/or test coverage but no category-specific BLOCKING security (SAST) job: the script categories (assert_portal_inspection, check_rds_pending_modifications, handle_sd_replacement, cyberscript, stack_smoke) and the adr_guard/quality_ownership guard tooling have no dedicated blocking SAST lane; the MCP packages (mcp_ngfw, mcp_ops, mcp_planner, mcp_shared) have no JavaScript SAST lane; k8s security is provided only by the advisory continue-on-error Checkov job. Recorded as visible, dated gaps rather than mislabelling an advisory/absent job as a blocking owner (the #1530 preflight forbids not_applicable/advisory dispositions). Gap-closure tracked by #1698. Revalidated during #2321 on 2026-10-25; no quality owner was removed or downgraded.",
+    "expires_on": "2026-11-25",
     "paths": [
       ".github/quality-path-filters.yaml#assert_portal_inspection:security",
       ".github/quality-path-filters.yaml#check_rds_pending_modifications:security",
@@ -395,8 +395,8 @@
   {
     "rule_id": "ADR-004-R24",
     "owner": "@Brad-Edwards",
-    "reason": "Production-path quality-ownership LINT gaps (#1530). These quality units have test coverage but no category-specific BLOCKING lint job: cyberscript has no dedicated linter; stack_smoke are shell/smoke script categories with no lint lane; the adr_guard/quality_ownership guard tooling is ruff-linted only via pre-commit, with no blocking CI lint job. Recorded as visible, dated gaps per the #1530 preflight (no not_applicable disposition). Gap-closure tracked by #1698.",
-    "expires_on": "2026-10-17",
+    "reason": "Production-path quality-ownership LINT gaps (#1530). These quality units have test coverage but no category-specific BLOCKING lint job: cyberscript has no dedicated linter; stack_smoke are shell/smoke script categories with no lint lane; the adr_guard/quality_ownership guard tooling is ruff-linted only via pre-commit, with no blocking CI lint job. Recorded as visible, dated gaps per the #1530 preflight (no not_applicable disposition). Gap-closure tracked by #1698. Revalidated during #2321 on 2026-10-25; no quality owner was removed or downgraded.",
+    "expires_on": "2026-11-25",
     "paths": [
       ".github/quality-path-filters.yaml#cyberscript:lint",
       ".github/quality-path-filters.yaml#stack_smoke:lint",
@@ -406,8 +406,8 @@
   {
     "rule_id": "ADR-004-R24",
     "owner": "@Brad-Edwards",
-    "reason": "Production-path quality-ownership TEST gap (#1530). mcp_shared is intentionally absent from the MCP test matrix: a change to mcp/shared/** fans lint out to every MCP package (fanout_all_on_change) but shared itself has no own test job. Recorded as a visible, dated gap; whether shared gains its own tests or stays deliberately exercised via the dependent packages is decided in #1698.",
-    "expires_on": "2026-10-17",
+    "reason": "Production-path quality-ownership TEST gap (#1530). mcp_shared is intentionally absent from the MCP test matrix: a change to mcp/shared/** fans lint out to every MCP package (fanout_all_on_change) but shared itself has no own test job. Recorded as a visible, dated gap; whether shared gains its own tests or stays deliberately exercised via the dependent packages is decided in #1698. Revalidated during #2321 on 2026-10-25; no quality owner was removed or downgraded.",
+    "expires_on": "2026-11-25",
     "paths": [
       ".github/quality-path-filters.yaml#mcp_shared:test"
     ]
@@ -415,8 +415,8 @@
   {
     "rule_id": "ADR-004-R24",
     "owner": "@Brad-Edwards",
-    "reason": "Production build / deployment / runtime image owners with no dedicated blocking quality job yet (#1530). These are tracked build/runtime inputs, so ADR-004-R24 requires them to be quality units (not exclusions): container_images (GDC VM images, Guacamole/guacd runtime image inputs, Docker build config), charts (Helm charts), cloudformation (CloudFormation templates), and branding_assets (deploy-consumed logos/wordmarks/login stylesheet). charts now has a blocking TEST lane (chart-tests: the Helm chart contract suite, #1823) so charts:test is no longer a gap; its lint/security lanes and the other units' lanes remain gaps. Recorded as visible, dated gaps rather than hidden config exclusions. Gap-closure (helm lint, cfn-lint, image build/scan, asset checks) tracked by #1698.",
-    "expires_on": "2026-10-17",
+    "reason": "Production build / deployment / runtime image owners with no dedicated blocking quality job yet (#1530). These are tracked build/runtime inputs, so ADR-004-R24 requires them to be quality units (not exclusions): container_images (GDC VM images, Guacamole/guacd runtime image inputs, Docker build config), charts (Helm charts), cloudformation (CloudFormation templates), and branding_assets (deploy-consumed logos/wordmarks/login stylesheet). charts now has a blocking TEST lane (chart-tests: the Helm chart contract suite, #1823) so charts:test is no longer a gap; its lint/security lanes and the other units' lanes remain gaps. Recorded as visible, dated gaps rather than hidden config exclusions. Gap-closure (helm lint, cfn-lint, image build/scan, asset checks) tracked by #1698. Revalidated during #2321 on 2026-10-25; no quality owner was removed or downgraded.",
+    "expires_on": "2026-11-25",
     "paths": [
       ".github/quality-path-filters.yaml#container_images:lint",
       ".github/quality-path-filters.yaml#container_images:security",

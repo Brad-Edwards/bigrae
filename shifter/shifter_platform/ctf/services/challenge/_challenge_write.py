@@ -62,7 +62,7 @@ def _apply_challenge_m2m(
     tag_names: list[str] | None,
     topic_names: list[str] | None,
     flags_list: list[dict[str, Any]] | None,
-    actor_id: int,
+    actor_id: object,
 ) -> None:
     """Apply tags, topics, and per-challenge flag records after a challenge
     has been created/updated. Caller is responsible for the surrounding
@@ -125,7 +125,7 @@ def create_challenge(
     event_id: UUID,
     challenge_data: dict[str, Any],
     *,
-    actor_id: int,
+    actor_id: object,
     source_id: str = "",
 ) -> CTFChallenge:
     """Create a new challenge.
@@ -244,7 +244,7 @@ def _apply_optional_challenge_associations(
     flags_list: list[dict[str, Any]] | None,
     tag_names: list[str] | None,
     topic_names: list[str] | None,
-    actor_id: int,
+    actor_id: object,
 ) -> None:
     """Apply optional flag/tag/topic updates inside the existing transaction."""
     if flags_list is not None:
@@ -259,7 +259,7 @@ def _apply_optional_challenge_associations(
         challenge.topics.set(_resolve_topics(topic_names))
 
 
-def update_challenge(challenge_id: UUID, challenge_data: dict[str, Any], *, actor_id: int) -> CTFChallenge:
+def update_challenge(challenge_id: UUID, challenge_data: dict[str, Any], *, actor_id: object) -> CTFChallenge:
     """Update an existing challenge.
 
     Args:
@@ -335,7 +335,7 @@ def update_challenge(challenge_id: UUID, challenge_data: dict[str, Any], *, acto
     return challenge
 
 
-def delete_challenge(challenge_id: UUID, *, actor_id: int) -> None:
+def delete_challenge(challenge_id: UUID, *, actor_id: object) -> None:
     """Soft-delete a challenge.
 
     Args:

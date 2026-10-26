@@ -24,7 +24,7 @@ A11y tooling catches a substantial fraction of WCAG failures automatically. With
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/e2e/a11y/matrix.ts` (the registered surface/state matrix)
 - IMPLEMENTS → CODE_FILE `scripts/adr_guard/_guard/checks/accessibility_baseline.py` (exact-finding baseline non-growth ratchet)
 - IMPLEMENTS → CI `.github/workflows/deploy.yml` (Accessibility PR Gate job, every PR)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#1526` (browser accessibility gate implementation)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#1526` (browser accessibility gate implementation)
 - TESTS → TEST `scripts/adr_guard/tests/test_accessibility_baseline.py` (baseline non-growth ratchet)
 - TESTS → TEST `shifter/shifter_platform/frontend/src/test/a11y-surface-reconcile.test.ts` (fail-closed surface reconciliation)
 - DOCUMENTS → ADR `docs/adr/index.yaml` (ADR-055 browser-regression and non-growing-baseline contract)

@@ -237,7 +237,7 @@ class TestWebhooks:
             "api_webhook_detail",
             kwargs={"webhook_id": created.json()["id"]},
         )
-        assert gone.status_code == 200
+        assert gone.status_code == 204
         assert not CTFWebhook.objects.filter(deleted_at__isnull=True).exists()
 
     def test_register_rejects_unknown_event_type(self, ctf_event, authenticated_organizer_client):

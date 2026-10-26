@@ -7,7 +7,7 @@ Status: decision record — documented, not fixed (retained rollback path)
 
 Date: 2026-07-31
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1030>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1030>
 
 This is a requirement-free decision record. It documents a first-deploy
 ordering hazard in the retained AWS EC2/ASG portal path, why the active EKS

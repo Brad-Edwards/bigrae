@@ -46,11 +46,7 @@ spec:
               mountPath: /home/guacamole
           env:
             - name: OPENFGA_ENABLED
-              valueFrom:
-                configMapKeyRef:
-                  name: platform-runtime
-                  key: OPENFGA_ENABLED
-                  optional: true
+              value: "true"
             - name: GUACAMOLE_CONTROL_URL
               valueFrom:
                 configMapKeyRef:

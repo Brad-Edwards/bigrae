@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def request_event_provisioning(
-    event_id: UUID, *, source: str = "manual", actor_id: int | None = None
+    event_id: UUID, *, source: str = "manual", actor_id: object | None = None
 ) -> CTFScheduledTask:
     """Enqueue (or coalesce onto) a due-now SPIN_UP_RANGES task for an event.
 
@@ -56,23 +56,38 @@ def request_event_provisioning(
         CTFNotFoundError: If event doesn't exist.
         CTFPermissionError: If ``actor_id`` lacks the ``ranges`` capability.
     """
+    if actor_id is None:
+        raise ValueError("Range provisioning authority unavailable")
+    try:
+        admitted_event = CTFEvent.objects.get(pk=event_id)
+    except CTFEvent.DoesNotExist:
+        raise CTFNotFoundError(
+            f"Event {event_id} not found",
+            details={"event_id": str(event_id)},
+        ) from None
+    from ctf.enums import EventCapability
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import assert_event_capability
+    from shared.operation_authority import credential_reference_fields
+
+    credential = event_actor_credential(actor_id)
+    assert_event_capability(credential, admitted_event, EventCapability.RANGES)
+    authority_fields = credential_reference_fields(credential)
+    from ctf.bridges import cms_fence_pack_reference
+
+    cms_fence_pack_reference(admitted_event.scenario_id)
+
     spin_up = ScheduledTaskType.SPIN_UP_RANGES.value
     with transaction.atomic():
         # Serialize concurrent enqueues for the same event so duplicate clicks
         # cannot each create a runnable task.
         try:
-            event = CTFEvent.objects.select_for_update().get(pk=event_id)
+            CTFEvent.objects.select_for_update().get(pk=event_id)
         except CTFEvent.DoesNotExist:
             raise CTFNotFoundError(
                 f"Event {event_id} not found",
                 details={"event_id": str(event_id)},
             ) from None
-
-        if actor_id is not None:
-            from ctf.enums import EventCapability
-            from ctf.services.authorization import assert_event_capability
-
-            assert_event_capability(actor_id, event, EventCapability.RANGES)
 
         now = timezone.now()
 
@@ -82,6 +97,8 @@ def request_event_provisioning(
             status=ScheduledTaskStatus.RUNNING.value,
         ).first()
         if running is not None:
+            if any(getattr(running, key) != value for key, value in authority_fields.items()):
+                raise ValueError("Range provisioning is already running under another credential")
             logger.info("Coalescing provision request onto running task %s", running.pk)
             return running
 
@@ -95,6 +112,8 @@ def request_event_provisioning(
             .first()
         )
         if pending is not None:
+            if any(getattr(pending, key) != value for key, value in authority_fields.items()):
+                raise ValueError("Range provisioning is already queued under another credential")
             if pending.scheduled_for > now:
                 pending.scheduled_for = now
                 pending.metadata = {**(pending.metadata or {}), "source": source}
@@ -106,14 +125,12 @@ def request_event_provisioning(
                 logger.info("Coalescing provision request onto pending task %s", pending.pk)
             return pending
 
-        from ctf.bridges import cms_fence_pack_reference
-
-        cms_fence_pack_reference(event.scenario_id)
         task = CTFScheduledTask.objects.create(
             event_id=event_id,
             task_type=spin_up,
             scheduled_for=now,
             metadata={"source": source},
+            **authority_fields,
         )
     logger.info("Enqueued provision task %s for event %s", task.pk, safe_log_value(event_id))
     return task

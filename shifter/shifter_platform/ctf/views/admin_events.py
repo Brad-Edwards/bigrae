@@ -11,6 +11,8 @@ from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_http_methods
 
+from shared.api.principals import authenticated_credential
+
 if TYPE_CHECKING:
     from django.http import HttpRequest
 
@@ -224,7 +226,10 @@ def admin_event_detail(request: HttpRequest, event_id: UUID) -> HttpResponse:
                 "cancel": cancel_event,
             }
             handler = action_table.get(action)
-            success = handler(event) if handler else False
+            if action in {"schedule", "complete", "cancel"} and handler:
+                success = handler(event, actor=authenticated_credential(request))
+            else:
+                success = handler(event) if handler else False
             if success:
                 logger.info(
                     "User %s changed event %s status via action: %s",

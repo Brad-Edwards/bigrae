@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, cast
+from uuid import UUID
 
 from django.contrib.auth.models import User
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
@@ -12,11 +13,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from cms.services import (
+    AccountScopeError,
     WorkspaceLaunchDenied,
     WorkspaceLaunchQuotaExceeded,
     get_active_range,
     get_mission_control_range_lease,
     has_mission_control_openvpn_profile,
+    mission_control_range_scope,
 )
 from cms.services import (
     create_range_dispatch as cms_create_range,
@@ -51,6 +54,7 @@ from mission_control.api.serializers import (
     CurrentRangeResponseSerializer,
     LaunchRangeResponseSerializer,
     LaunchRangeSerializer,
+    LaunchWorkspaceListResponseSerializer,
     RangeLeaseResponseSerializer,
     RangeLifecycleSerializer,
     ScenarioListResponseSerializer,
@@ -59,16 +63,27 @@ from mission_control.api.serializers import (
 from mission_control.utils import build_connection_urls
 from mission_control.views._common import _audit_range_lifecycle
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
+from shared.api.principals import authenticated_credential
 from shared.api.schema import ApiErrorSerializer
 from shared.api.strict_json import ModelSelectionJSONParser
 from shared.audit import AuditAction
+from shared.credentials import CredentialContext
 from shared.errors import classify_user_message
 from shared.exceptions import CMSError
+from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 from shared.raes.presentation import build_range_participant_runtime_projection, build_range_raes_projection
-from shared.range_visibility import filter_visible_instances
 
 logger = logging.getLogger(__name__)
+
+
+def _selected_workspace(request: Request) -> UUID | None:
+    """Parse the optional public workspace selector without accepting internal IDs."""
+    value = request.query_params.get("workspace_uuid")
+    try:
+        return UUID(value) if value else None
+    except ValueError as exc:
+        raise CMSError("Selected workspace is not available.") from exc
 
 
 class CurrentRangeView(MissionControlReadAPIView):
@@ -77,8 +92,8 @@ class CurrentRangeView(MissionControlReadAPIView):
     @extend_schema(responses=CurrentRangeResponseSerializer, operation_id="api_v1_mission_control_range_retrieve")
     def get(self, request: Request) -> Response:
         """Return the active range and connection URLs for the request user."""
-        actor = self.actor_user()
-        active_range = get_active_range(actor)
+        credential = authenticated_credential(request)
+        active_range = get_active_range(credential)
         if not active_range:
             return Response(
                 {
@@ -91,14 +106,11 @@ class CurrentRangeView(MissionControlReadAPIView):
                     "vpn_profile_available": False,
                 }
             )
-        # Use the same domain-owned visibility policy as the legacy context
-        # processor so both Mission Control read paths expose identical instances.
-        active_range.instances = filter_visible_instances(actor, active_range.instances)
         projection = build_range_raes_projection(active_range.request_id)
         participant_runtime = build_range_participant_runtime_projection(
             active_range.request_id, active_range.instances
         )
-        lease = get_mission_control_range_lease(actor)
+        lease = get_mission_control_range_lease(credential)
         return Response(
             {
                 "has_range": True,
@@ -107,7 +119,9 @@ class CurrentRangeView(MissionControlReadAPIView):
                 "raes_projection": projection.to_payload() if projection else None,
                 "raes_participant_runtime": participant_runtime.to_payload() if participant_runtime else None,
                 "lifecycle": lease.to_payload() if lease else None,
-                "vpn_profile_available": has_mission_control_openvpn_profile(actor),
+                "vpn_profile_available": has_mission_control_openvpn_profile(
+                    credential, request_id=active_range.request_id
+                ),
             }
         )
 
@@ -143,7 +157,7 @@ class ExtendRangeLeaseView(MissionControlAPIView):
             from cms.services import RangeLeaseConflict, RangeLeaseNotFound
 
             try:
-                lease = cms_extend_mission_control_range(self.actor_user())
+                lease = cms_extend_mission_control_range(authenticated_credential(request))
             except RangeLeaseNotFound:
                 response = self.not_found("Range not found")
             except RangeLeaseConflict:
@@ -206,31 +220,51 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
         if error is not None:
             return error
         assert data is not None
-        return self._dispatch_launch(request, self.actor_user(), data)
+        try:
+            credential = authenticated_credential(request)
+            selected_workspace = data.get("workspace_uuid")
+            scope = mission_control_range_scope(credential.principal, selected_workspace)
+        except (AccountScopeError, ValueError):
+            return self.error_response(
+                code="workspace_not_available",
+                message="Selected workspace is not available.",
+                status_code=403,
+            )
+        return self._dispatch_launch(request, self.actor_user(), credential, scope, data)
 
     def _launch_range(
-        self, request: Request, user: User, data: dict[str, Any], caller_key: str | None = None
+        self,
+        request: Request,
+        user: User,
+        credential: CredentialContext,
+        scope: ResourceScope,
+        data: dict[str, Any],
+        caller_key: str | None = None,
     ) -> Response:
         """Launch a range once the request body has passed serializer checks."""
         scenario = str(data.get("scenario", "basic"))
-        valid_scenarios = {s["id"] for s in cms_list_launchable_scenarios(user, "range_launch")}
+        valid_scenarios = {s["id"] for s in cms_list_launchable_scenarios(credential, "range_launch", scope=scope)}
         if scenario not in valid_scenarios:
             return self.bad_request("Invalid scenario")
 
-        agents_by_os, agents_error = self._resolve_agents_by_os(user, data)
+        agents_by_os, agents_error = self._resolve_agents_by_os(credential, data)
         if agents_error is not None:
             return agents_error
 
         return self._create_range(
             request,
             user,
+            credential,
+            scope,
             scenario,
             agents_by_os,
             caller_key,
             LaunchChoices(data.get("workspace_uuid"), self._agents_selection(data), data.get("model_sources")),
         )
 
-    def _resolve_agents_by_os(self, user: User, data: dict[str, Any]) -> tuple[dict[str, int] | None, Response | None]:
+    def _resolve_agents_by_os(
+        self, credential: CredentialContext, data: dict[str, Any]
+    ) -> tuple[dict[str, int] | None, Response | None]:
         """Resolve either the explicit agent map or a legacy single agent id."""
         agents_error: Response | None = None
         agents_by_os: dict[str, int] | None = None
@@ -239,9 +273,13 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
         else:
             agent_id = cast(int, data.get("agent_id"))
             try:
-                agent = cms_get_agent(user, agent_id)
+                agent = cms_get_agent(credential, agent_id)
             except CMSError as exc:
-                logger.exception("Agent lookup failed: user=%s agent_id=%s", user.pk, safe_log_value(agent_id))
+                logger.exception(
+                    "Agent lookup failed: principal=%s agent_id=%s",
+                    credential.principal.uuid,
+                    safe_log_value(agent_id),
+                )
                 agents_error = self.bad_request(classify_user_message(str(exc), default="Agent not available"))
             else:
                 os_type = "windows" if agent.os.slug == "windows" else "linux"
@@ -252,6 +290,8 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
         self,
         request: Request,
         user: User,
+        credential: CredentialContext,
+        scope: ResourceScope,
         scenario: str,
         agents_by_os: dict[str, int] | None,
         caller_key: str | None,
@@ -259,13 +299,16 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
     ) -> Response:
         """Create a range and record the launch audit event."""
         if caller_key is not None:
-            return self._create_range_first_use(request, user, scenario, agents_by_os, caller_key, choices)
+            return self._create_range_first_use(
+                request, user, credential, scope, scenario, agents_by_os, caller_key, choices
+            )
         source_kwargs: dict[str, Any] = {"model_sources": choices.model_sources} if choices.model_sources else {}
         try:
             range_ctx = cms_create_range(
-                user,
+                credential,
                 scenario,
                 workspace_uuid=choices.workspace_uuid,
+                scope=scope,
                 **source_kwargs,
             )
         except CMSError as exc:
@@ -341,11 +384,12 @@ class RangeLifecycleView(MissionControlAPIView):
         assert data is not None
 
         user = self.actor_user()
+        credential = authenticated_credential(request)
         request_id = str(data["request_id"]) if data.get("request_id") else None
         range_id = data.get("range_id")
         try:
             if request_id:
-                getattr(cms_services_mod, self.by_request_attr)(user, request_id)
+                getattr(cms_services_mod, self.by_request_attr)(credential, request_id)
                 logger.info(
                     "Range %s: user=%s request_id=%s",
                     self.log_verb,
@@ -353,7 +397,7 @@ class RangeLifecycleView(MissionControlAPIView):
                     safe_log_value(request_id),
                 )
             else:
-                getattr(cms_services_mod, self.by_id_attr)(user, range_id)
+                getattr(cms_services_mod, self.by_id_attr)(credential, range_id)
                 logger.info(
                     "Range %s: user=%s range_id=%s",
                     self.log_verb,
@@ -450,13 +494,70 @@ class ResumeRangeView(RangeLifecycleView):
 class AgentListView(MissionControlReadAPIView):
     """Return the authenticated user's agent list."""
 
-    @extend_schema(responses=AgentListResponseSerializer, operation_id="api_v1_mission_control_agents_list")
+    @extend_schema(
+        parameters=[OpenApiParameter("workspace_uuid", type=str, required=False)],
+        responses=AgentListResponseSerializer,
+        operation_id="api_v1_mission_control_agents_list",
+    )
     def get(self, request: Request) -> Response:
         """Return agents available to the authenticated actor."""
+        credential = authenticated_credential(request)
+        try:
+            selected = _selected_workspace(request)
+        except CMSError:
+            return self.error_response(code="invalid", message="Invalid workspace.", status_code=400)
+        try:
+            scope = mission_control_range_scope(credential.principal, selected)
+        except (AccountScopeError, ValueError):
+            return self.error_response(
+                code="workspace_not_available",
+                message="Selected workspace is not available.",
+                status_code=403,
+            )
         return Response(
             {
-                "agents": cms_list_agents(self.actor_user()),
+                "agents": cms_list_agents(credential, scope=scope),
                 "max_file_size_bytes": cms_max_agent_file_size_bytes(),
+            }
+        )
+
+
+class LaunchWorkspaceListView(MissionControlReadAPIView):
+    """Discover launchable workspaces independently of catalog selection."""
+
+    @extend_schema(
+        responses=LaunchWorkspaceListResponseSerializer,
+        operation_id="api_v1_mission_control_launch_workspaces_list",
+    )
+    def get(self, request: Request) -> Response:
+        """Return active workspaces admitted by exact launch-range policy."""
+        from shared.authorization import configured_authorization_provider
+        from workspaces.services import AccountScopeError, list_launch_workspace_options
+
+        try:
+            page = list_launch_workspace_options(
+                authenticated_credential(request),
+                configured_authorization_provider(),
+            )
+        except (AccountScopeError, ValueError):
+            return self.error_response(
+                code="workspace_discovery_unavailable",
+                message="Launch workspaces are not available.",
+                status_code=403,
+            )
+        return Response(
+            {
+                "count": page.count,
+                "personal_available": True,
+                "workspaces": [
+                    {
+                        "uuid": item.uuid,
+                        "name": item.name,
+                        "organization_uuid": item.organization_uuid,
+                        "organization_name": item.organization_name,
+                    }
+                    for item in page.results
+                ],
             }
         )
 
@@ -464,8 +565,25 @@ class AgentListView(MissionControlReadAPIView):
 class ScenarioListView(MissionControlReadAPIView):
     """Return available range scenarios."""
 
-    @extend_schema(responses=ScenarioListResponseSerializer, operation_id="api_v1_mission_control_scenarios_list")
+    @extend_schema(
+        parameters=[OpenApiParameter("workspace_uuid", type=str, required=False)],
+        responses=ScenarioListResponseSerializer,
+        operation_id="api_v1_mission_control_scenarios_list",
+    )
     def get(self, request: Request) -> Response:
         """Return scenarios available to the authenticated actor."""
-        scenarios = cms_list_launchable_scenarios(self.actor_user(), "range_launch")
+        credential = authenticated_credential(request)
+        try:
+            selected = _selected_workspace(request)
+        except CMSError:
+            return self.error_response(code="invalid", message="Invalid workspace.", status_code=400)
+        try:
+            scope = mission_control_range_scope(credential.principal, selected)
+        except (AccountScopeError, ValueError):
+            return self.error_response(
+                code="workspace_not_available",
+                message="Selected workspace is not available.",
+                status_code=403,
+            )
+        scenarios = cms_list_launchable_scenarios(credential, "range_launch", scope=scope)
         return Response({"scenarios": scenarios})

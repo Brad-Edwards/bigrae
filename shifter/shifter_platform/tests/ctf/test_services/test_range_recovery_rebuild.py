@@ -50,7 +50,7 @@ class TestRebuildRecovery:
     @pytest.mark.django_db
     @pytest.mark.parametrize("old_range_status", [ResourceStatus.READY.value, ResourceStatus.FAILED.value])
     def test_rebuild_admits_against_realized_range_subject_not_draw(
-        self, rich_participant, organizer_user, monkeypatch, old_range_status
+        self, rich_participant, organizer_credential, monkeypatch, old_range_status
     ):
         # PLAT-202 (#2119): the replacement must be admitted against the realized
         # range's membership subject, not the draw — else a binding published
@@ -77,7 +77,7 @@ class TestRebuildRecovery:
         monkeypatch.setattr(gate, "assert_launch_model_access", _spy)
 
         result = recover_participant_range(
-            participant.pk, strategy=RecoveryStrategy.REBUILD.value, operator=organizer_user
+            participant.pk, strategy=RecoveryStrategy.REBUILD.value, operator=organizer_credential
         )
 
         assert result["phase"] == RecoveryPhase.COMPLETED.value
@@ -86,7 +86,9 @@ class TestRebuildRecovery:
         )
 
     @pytest.mark.django_db
-    def test_rebuild_preserves_identity_and_scoring_state(self, rich_participant, submission_and_award, organizer_user):
+    def test_rebuild_preserves_identity_and_scoring_state(
+        self, rich_participant, submission_and_award, organizer_user, organizer_credential
+    ):
         participant, old_range = rich_participant
         submission, award = submission_and_award
         participant_pk = participant.pk
@@ -97,7 +99,7 @@ class TestRebuildRecovery:
         result = recover_participant_range(
             participant_pk,
             strategy=RecoveryStrategy.REBUILD.value,
-            operator=organizer_user,
+            operator=organizer_credential,
         )
 
         assert result["phase"] == RecoveryPhase.COMPLETED.value
@@ -134,12 +136,13 @@ class TestRebuildRecovery:
         assert recovery.created_by_id == organizer_user.id
 
         audit = AuditLog.objects.get(action=AuditAction.RECOVER, entity_id=old_range.pk)
-        assert audit.actor_id == organizer_user.id
+        assert audit.actor_id is None
+        assert audit.actor_principal_uuid == organizer_credential.principal.uuid
         assert audit.new_state["participant_id"] == str(participant_pk)
         assert audit.new_state["strategy"] == RecoveryStrategy.REBUILD.value
 
     @pytest.mark.django_db
-    def test_old_range_access_denied_after_rebuild(self, rich_participant, organizer_user):
+    def test_old_range_access_denied_after_rebuild(self, rich_participant, organizer_credential):
         from engine.services import get_rdp_connection_info
 
         participant, old_range = rich_participant
@@ -147,7 +150,7 @@ class TestRebuildRecovery:
         recover_participant_range(
             participant.pk,
             strategy=RecoveryStrategy.REBUILD.value,
-            operator=organizer_user,
+            operator=organizer_credential,
         )
 
         old_engine_range = EngineRange.objects.get(pk=old_range.engine_range.pk)
@@ -158,9 +161,10 @@ class TestRebuildRecovery:
 
         assert EngineRange.resolve_active_for_instance(participant.user, old_range.instance_uuid) is None
 
-        # The old instance UUID never resolves again for this user -- whether
-        # the replacement range has finished provisioning by assertion time
-        # (-> "not found in range") or not (-> "not ready") is an environment
-        # timing detail, not part of the access-denial contract being tested.
-        with pytest.raises(ValueError, match=r"not found in range|not ready"):
-            get_rdp_connection_info(participant.user, old_range.instance_uuid)
+        # The old instance UUID never resolves again. The principal-native
+        # boundary deliberately returns one opaque denial for missing, stale,
+        # and unauthorized guest identifiers.
+        from shared.api.principals import human_session_credential
+
+        with pytest.raises(PermissionError, match="Instance unavailable"):
+            get_rdp_connection_info(human_session_credential(participant.user), old_range.instance_uuid)

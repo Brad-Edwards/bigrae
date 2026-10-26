@@ -37,7 +37,7 @@ PLATFORM_ENV := TESTING=1 DJANGO_DEBUG=true TEST_DB_BACKEND=sqlite DJANGO_SECRET
 # makes this value canonical regardless of remote configuration; `scripts/ami.sh`
 # pins the same way. Overridable only to target a different fork -- base, head,
 # title, and body are fixed because fixing them is the point of the target.
-DEVMAIN_REPO ?= Brad-Edwards/shifter
+DEVMAIN_REPO ?= Brad-Edwards/bigrae
 DEVMAIN_TITLE := chore(main): promote dev
 DEVMAIN_BODY := Promotes dev to main. Merge this PR with a merge commit. Do not squash it: squashing collapses the Conventional Commit subjects release-please reads on main, so the release PR loses this release's version bump and CHANGELOG section. See docs/DEVELOPMENT_WORKFLOW.md.
 

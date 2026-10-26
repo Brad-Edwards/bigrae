@@ -22,4 +22,4 @@ Challenge import enables reuse of challenge sets across events and sharing betwe
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (Challenge service - has create_challenge() but no import_challenges() function)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#629` (CTF-1101: Challenge Import)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#629` (CTF-1101: Challenge Import)

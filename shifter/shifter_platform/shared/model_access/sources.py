@@ -1,11 +1,16 @@
 """Closed tenant model-source intent and actor-selected routing references."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
 from uuid import UUID
 
-from pydantic import Field, StrictBool, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from shared.credentials import CredentialContext
 
 from shared.model_access.core_models import (
     ClosedModel,
@@ -37,19 +42,8 @@ class ModelSourceConfiguration(ClosedModel):
     output_price_per_million: NonNegativeInt
     currency: Currency = Currency.USD
     price_valid_until: datetime
-    # Registration alone grants nobody spending access. An admin explicitly
-    # opts members in, or lists individual active actors permitted to select it.
-    allow_organization_members: StrictBool = False
-    allowed_user_ids: Annotated[tuple[PositiveInt, ...], Field(max_length=256)] = ()
     # OpenRouter execution pins the selected upstream; no hidden fallback pool.
     upstream_provider: Annotated[str, Field(max_length=100, pattern=r"^[a-zA-Z0-9 /._-]*$")] = ""
-
-    @field_validator("allowed_user_ids")
-    @classmethod
-    def normalize_users(cls, values: tuple[int, ...]) -> tuple[int, ...]:
-        if len(values) != len(set(values)):
-            raise ValueError("duplicate permitted user")
-        return tuple(sorted(values))
 
     @model_validator(mode="after")
     def validate_configuration(self) -> Self:
@@ -119,20 +113,81 @@ class ModelSourceSelection(ClosedModel):
 class ModelSourceSponsorship(ClosedModel):
     """Server-projected source authority for event-funded participant ranges."""
 
-    actor_id: PositiveInt
+    credential_reference: ModelSourceCredentialReference
     organization_uuid: UUID
-    workspace_id: PositiveInt
+    workspace_uuid: UUID
     selection: ModelSourceSelection
-    administrative: StrictBool = False
+
+
+class ModelSourceCredentialReference(ClosedModel):
+    """Non-secret, exact initiating credential carried by delayed model work."""
+
+    principal_uuid: UUID
+    principal_kind: Literal["human", "service"]
+    credential_kind: Literal["session", "personal", "service", "temporary"]
+    credential_uuid: UUID
+    ceiling_actions: Annotated[tuple[str, ...], Field(max_length=256)]
+    target_type: str = ""
+    target_uuid: UUID | None = None
+    scopes: Annotated[tuple[str, ...], Field(max_length=256)] = ()
+    event_uuid: UUID | None = None
+
+    @field_validator("ceiling_actions", "scopes")
+    @classmethod
+    def canonical_values(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if tuple(sorted(set(values))) != values:
+            raise ValueError("credential values must be unique and sorted")
+        return values
+
+    @classmethod
+    def from_credential(cls, credential: CredentialContext) -> Self:
+        """Capture limits and identity, never bearer proof."""
+        from shared.operation_authority import credential_reference_fields
+
+        fields = credential_reference_fields(credential)
+        return cls(
+            principal_uuid=cast(UUID, fields["initiating_principal_uuid"]),
+            principal_kind=cast(Literal["human", "service"], fields["initiating_principal_kind"]),
+            credential_kind=cast(Literal["session", "personal", "service", "temporary"], fields["credential_kind"]),
+            credential_uuid=cast(UUID, fields["credential_uuid"]),
+            ceiling_actions=tuple(str(fields["credential_ceiling_actions"]).splitlines()),
+            target_type=str(fields["credential_target_type"]),
+            target_uuid=cast(UUID | None, fields["credential_target_uuid"]),
+            scopes=tuple(str(fields["credential_scopes"]).splitlines()),
+            event_uuid=cast(UUID | None, fields["credential_event_uuid"]),
+        )
+
+    def credential(self) -> CredentialContext:
+        """Rebuild the trusted reference for live owner revalidation."""
+        from types import SimpleNamespace
+
+        from shared.operation_authority import credential_reference_from_record
+
+        return credential_reference_from_record(
+            SimpleNamespace(
+                initiating_principal_uuid=self.principal_uuid,
+                initiating_principal_kind=self.principal_kind,
+                credential_kind=self.credential_kind,
+                credential_uuid=self.credential_uuid,
+                credential_ceiling_actions="\n".join(self.ceiling_actions),
+                credential_target_type=self.target_type,
+                credential_target_uuid=self.target_uuid,
+                credential_scopes="\n".join(self.scopes),
+                credential_event_uuid=self.event_uuid,
+            )
+        )
+
+
+ModelSourceSponsorship.model_rebuild()
 
 
 @dataclass(frozen=True)
 class ModelSourceUseScope:
-    """CMS-authorized tenant membership, passed only across the internal seam.
+    """CMS-resolved tenant scope and exact credential passed internally.
 
     This is not a wire payload. Engine separately enforces each source's use
-    grant and revision; CMS resolves live tenancy before constructing it.
+    action and revision; CMS resolves SQL ancestry before constructing it.
     """
 
-    actor_id: int
+    credential: CredentialContext
     organization_uuid: UUID

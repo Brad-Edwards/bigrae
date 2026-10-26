@@ -52,8 +52,22 @@ const AGENTS: AgentListResponse = {
   max_file_size_bytes: 2048 * 1024 * 1024,
 };
 
+const LAUNCH_WORKSPACES = {
+  count: 1,
+  personal_available: true,
+  workspaces: [
+    {
+      uuid: "11111111-1111-4111-8111-111111111111",
+      name: "Range lab",
+      organization_uuid: "22222222-2222-4222-8222-222222222222",
+      organization_name: "Example organization",
+    },
+  ],
+};
+
 function mockOptions() {
   mockApi.mockImplementation((path: string) => {
+    if (path === "/mission-control/launch-workspaces/") return Promise.resolve(LAUNCH_WORKSPACES);
     if (path === "/mission-control/scenarios/") return Promise.resolve(SCENARIOS);
     if (path === "/mission-control/agents/") return Promise.resolve(AGENTS);
     return Promise.reject(new Error(`unexpected path ${path}`));
@@ -78,6 +92,33 @@ beforeEach(() => {
 });
 
 describe("RangeLaunchPage", () => {
+  it("discovers launch workspaces before any scenario is selected", async () => {
+    mockOptions();
+    renderRoute(<RangeLaunchPage />);
+
+    expect(await screen.findByRole("option", { name: "Example organization / Range lab" })).toBeInTheDocument();
+    expect(mockApi).toHaveBeenCalledWith("/mission-control/launch-workspaces/", expect.objectContaining({ signal: expect.anything() }));
+  });
+
+  it("reloads catalog options for the selected workspace", async () => {
+    mockOptions();
+    const user = userEvent.setup();
+    renderRoute(<RangeLaunchPage />);
+
+    await user.selectOptions(await screen.findByLabelText("Workspace"), LAUNCH_WORKSPACES.workspaces[0].uuid);
+
+    await waitFor(() =>
+      expect(mockApi).toHaveBeenCalledWith(
+        "/mission-control/scenarios/",
+        expect.objectContaining({ query: { workspace_uuid: LAUNCH_WORKSPACES.workspaces[0].uuid } }),
+      ),
+    );
+    expect(mockApi).toHaveBeenCalledWith(
+      "/mission-control/agents/",
+      expect.objectContaining({ query: { workspace_uuid: LAUNCH_WORKSPACES.workspaces[0].uuid } }),
+    );
+  });
+
   it("shows a loading skeleton while launch options load", () => {
     mockApi.mockReturnValue(new Promise(() => {}));
     const { container } = renderRoute(<RangeLaunchPage />);
@@ -113,6 +154,7 @@ describe("RangeLaunchPage", () => {
 
     mockApi.mockImplementation((path: string) => {
       if (path === "/mission-control/range/launch/") return Promise.resolve({ success: true, range: {} });
+      if (path === "/mission-control/launch-workspaces/") return Promise.resolve(LAUNCH_WORKSPACES);
       if (path === "/mission-control/scenarios/") return Promise.resolve(SCENARIOS);
       if (path === "/mission-control/agents/") return Promise.resolve(AGENTS);
       return Promise.reject(new Error("unexpected"));
@@ -141,6 +183,7 @@ describe("RangeLaunchPage", () => {
       if (path === "/mission-control/range/launch/") {
         return Promise.reject(new ApiError(409, { code: "conflict", message: "You already have an active range." }));
       }
+      if (path === "/mission-control/launch-workspaces/") return Promise.resolve(LAUNCH_WORKSPACES);
       if (path === "/mission-control/scenarios/") return Promise.resolve(SCENARIOS);
       if (path === "/mission-control/agents/") return Promise.resolve(AGENTS);
       return Promise.reject(new Error("unexpected"));
@@ -169,6 +212,7 @@ describe("RangeLaunchPage", () => {
           resolveLaunch = resolve;
         });
       }
+      if (path === "/mission-control/launch-workspaces/") return Promise.resolve(LAUNCH_WORKSPACES);
       if (path === "/mission-control/scenarios/") return Promise.resolve(SCENARIOS);
       if (path === "/mission-control/agents/") return Promise.resolve(AGENTS);
       return Promise.reject(new Error("unexpected"));

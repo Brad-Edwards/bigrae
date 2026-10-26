@@ -20,6 +20,7 @@ import type {
   CurrentRangeResponse,
   GuacamoleBootstrapQueued,
   LaunchRangeResponse,
+  LaunchWorkspaceListResponse,
   NGFWCreateResponse,
   NGFWDestroyResponse,
   NGFWListResponse,
@@ -37,15 +38,17 @@ const MC_NS = "mission-control";
 export const missionControlKeys = {
   all: [MC_NS] as const,
   currentRange: [MC_NS, "range", "current"] as const,
-  history: [MC_NS, "range", "history"] as const,
-  agents: [MC_NS, "agents"] as const,
-  scenarios: [MC_NS, "scenarios"] as const,
+  historyAll: [MC_NS, "range", "history"] as const,
+  history: (workspace = "") => [MC_NS, "range", "history", workspace] as const,
+  agents: (workspace = "") => [MC_NS, "agents", workspace] as const,
+  scenarios: (workspace = "") => [MC_NS, "scenarios", workspace] as const,
+  launchWorkspaces: [MC_NS, "launch-workspaces"] as const,
   ngfwList: [MC_NS, "ngfw", "list"] as const,
 };
 
 function invalidateRange(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: missionControlKeys.currentRange });
-  queryClient.invalidateQueries({ queryKey: missionControlKeys.history });
+  queryClient.invalidateQueries({ queryKey: missionControlKeys.historyAll });
 }
 
 // Statuses that mean "the backend is still working on this"
@@ -74,24 +77,37 @@ export function useCurrentRange() {
   });
 }
 
-export function useRangeHistory() {
+export function useRangeHistory(workspace = "") {
   return useQuery({
-    queryKey: missionControlKeys.history,
-    queryFn: ({ signal }) => apiFetch<RangeHistoryResponse>("/mission-control/ranges/", { signal }),
+    queryKey: missionControlKeys.history(workspace),
+    queryFn: ({ signal }) => apiFetch<RangeHistoryResponse>("/mission-control/ranges/", {
+      signal, query: { workspace_uuid: workspace || undefined },
+    }),
   });
 }
 
-export function useAgents() {
+export function useAgents(workspace = "") {
   return useQuery({
-    queryKey: missionControlKeys.agents,
-    queryFn: ({ signal }) => apiFetch<AgentListResponse>("/mission-control/agents/", { signal }),
+    queryKey: missionControlKeys.agents(workspace),
+    queryFn: ({ signal }) => apiFetch<AgentListResponse>("/mission-control/agents/", {
+      signal, query: { workspace_uuid: workspace || undefined },
+    }),
   });
 }
 
-export function useScenarios() {
+export function useScenarios(workspace = "") {
   return useQuery({
-    queryKey: missionControlKeys.scenarios,
-    queryFn: ({ signal }) => apiFetch<ScenarioListResponse>("/mission-control/scenarios/", { signal }),
+    queryKey: missionControlKeys.scenarios(workspace),
+    queryFn: ({ signal }) => apiFetch<ScenarioListResponse>("/mission-control/scenarios/", {
+      signal, query: { workspace_uuid: workspace || undefined },
+    }),
+  });
+}
+
+export function useLaunchWorkspaces() {
+  return useQuery({
+    queryKey: missionControlKeys.launchWorkspaces,
+    queryFn: ({ signal }) => apiFetch<LaunchWorkspaceListResponse>("/mission-control/launch-workspaces/", { signal }),
   });
 }
 
@@ -107,6 +123,8 @@ export interface LaunchRangeRequest {
   scenario?: string;
   agent_id?: number;
   agents?: Record<string, number>;
+  workspace_uuid?: string;
+  model_sources?: { aliases: Array<{ logical_alias: string; sources: Array<{ source_id: string; revision: number; weight?: number }> }> };
 }
 
 export function useLaunchRange() {
@@ -278,7 +296,7 @@ export function useCompleteUpload() {
   return useMutation({
     mutationFn: (body: UploadCompleteRequest) =>
       apiFetch<UploadCompleteResponse>("/mission-control/upload/complete/", { method: "POST", body }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: missionControlKeys.agents }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [MC_NS, "agents"] }),
   });
 }
 

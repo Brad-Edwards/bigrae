@@ -1,12 +1,22 @@
 """Closed transient credentials; no caller-selected OAuth or SDK endpoints."""
 
-from typing import Annotated, Literal, Self
+from __future__ import annotations
+
+from typing import Annotated, Literal, Protocol, Self
 
 from pydantic import Field, SecretStr, model_validator
 
 from shared.model_access import ContractError
 from shared.model_access.core_models import ClosedModel
-from shared.model_access.sources import ModelSourceConfiguration
+
+
+class ModelSourceConfiguration(Protocol):
+    """Structural source fields needed for transient credential validation."""
+
+    provider: str
+    principal: str
+    project: str
+
 
 INVALID_SERVICE_ACCOUNT = "invalid service account credential"
 

@@ -125,6 +125,25 @@ def list_mission_control_range_history(
     if isinstance(user, CredentialContext):
         from ._scoped_range_queries import list_scoped_ranges
 
+        if scope is None:
+            from shared.credentials import resolve_current_credential
+            from shared.enums import RangeSource
+
+            current = resolve_current_credential(user)
+            candidates = RangeInstance.all_objects.filter(
+                owner_principal_uuid=current.principal.uuid,
+                range_source=RangeSource.MISSION_CONTROL.value,
+            ).order_by("-created_at")
+            visible = []
+            from ._unified_authorization import require_range_action
+
+            for candidate in candidates:
+                try:
+                    visible.append(require_range_action(current, candidate.uuid, "range.read", include_terminal=True))
+                except CMSError as exc:
+                    if exc.details and exc.details.get("code") == "authority-unavailable":
+                        raise
+            return visible
         return list_scoped_ranges(user, scope, include_terminal=True, range_source=RangeSource.MISSION_CONTROL.value)
     _validate_caller_user(user, "list_mission_control_range_history")
 

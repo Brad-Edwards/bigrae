@@ -509,8 +509,25 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: portal
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - portal
+                  - identity-cutover
+                  - worker-cms
+                  - worker-engine
+                  - worker-mc
+                  - worker-reconciler
+                  - worker-outbox-drainer
+                  - worker-provisioner-launcher
+                  - worker-warm-pool-reconciler
+                  - worker-operation-result-applier
+                  - worker-pack-removal-reconciler
+                  - ctf-scheduler
+                  - ctf-communication-worker
+                  - guacamole-bootstrap-prune
+                  - raes-operation-record-prune
       ports:
         - protocol: TCP
           port: 8080
@@ -524,8 +541,25 @@ metadata:
     {{- include "shifter.partOfLabels" . | nindent 4 }}
 spec:
   podSelector:
-    matchLabels:
-      app.kubernetes.io/component: portal
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - portal
+          - identity-cutover
+          - worker-cms
+          - worker-engine
+          - worker-mc
+          - worker-reconciler
+          - worker-outbox-drainer
+          - worker-provisioner-launcher
+          - worker-warm-pool-reconciler
+          - worker-operation-result-applier
+          - worker-pack-removal-reconciler
+          - ctf-scheduler
+          - ctf-communication-worker
+          - guacamole-bootstrap-prune
+          - raes-operation-record-prune
   policyTypes: [Egress]
   egress:
     - to:

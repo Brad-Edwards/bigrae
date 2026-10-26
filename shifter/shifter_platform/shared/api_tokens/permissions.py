@@ -43,7 +43,9 @@ def require_scope(read_scope: str, write_scope: str | None = None) -> type[permi
 
         def has_permission(self, request: Request, view: APIView) -> bool:
             auth = getattr(request, "auth", None)
-            if not isinstance(auth, (ApiToken, CredentialContext)):
+            if not isinstance(auth, ApiToken) and not (
+                isinstance(auth, CredentialContext) and auth.kind in {"personal", "service"}
+            ):
                 # Not a token request; session authz is enforced elsewhere.
                 return True
             required = read_scope if request.method in permissions.SAFE_METHODS else required_write

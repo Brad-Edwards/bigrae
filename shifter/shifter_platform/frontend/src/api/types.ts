@@ -16,9 +16,7 @@ export type DashboardSummary = components["schemas"]["DashboardSummary"];
  * `schema.d.ts` via `npm run gen:api` instead.
  */
 export type AdminUserListItem = components["schemas"]["AdminUserListItem"];
-export type AdminUserDetail = components["schemas"]["AdminUserDetail"];
 export type PaginatedAdminUserListItemList = components["schemas"]["PaginatedAdminUserListItemList"];
-export type OrganizerGrantResult = components["schemas"]["OrganizerGrantResult"];
 
 /**
  * User lifecycle administration types (#1943, PLAT-236). The `management`
@@ -28,11 +26,6 @@ export type OrganizerGrantResult = components["schemas"]["OrganizerGrantResult"]
  * `AdminUserDetail` are server-derived; the SPA never reconstructs transition or
  * reset-eligibility policy from them.
  */
-export type AccountLifecycleAction = components["schemas"]["LifecycleTransitionRequestActionEnum"];
-export type LifecycleTransitionRequest = components["schemas"]["LifecycleTransitionRequest"];
-export type TransferOwnershipRequest = components["schemas"]["TransferOwnershipRequest"];
-export type TransferOwnershipResult = components["schemas"]["TransferOwnershipResult"];
-export type TransferOwnershipResourceKind = components["schemas"]["TransferOwnershipRequest"]["resource_kinds"][number];
 
 /** Runtime Mission Control lease-policy administration contracts (#2169). */
 export type MissionControlLeasePolicy = components["schemas"]["LeasePolicy"];
@@ -49,11 +42,6 @@ export type ResetMissionControlLeasePolicyRequest = components["schemas"]["Reset
  * rather than hand-copying. `role`/`capabilities` are advisory display data — the
  * `/api/v1/workspaces/` endpoints reauthorize every operation.
  */
-export type PrincipalWorkspaceContext = components["schemas"]["PrincipalWorkspaceContext"];
-export type PaginatedPrincipalWorkspaceContextList =
-  components["schemas"]["PaginatedPrincipalWorkspaceContextList"];
-export type OrganizationRef = components["schemas"]["OrganizationRef"];
-export type WorkspaceRole = components["schemas"]["WorkspaceRoleEnum"];
 
 /**
  * Organization profile & settings types (#1939, PLAT-232), re-exported from the
@@ -62,7 +50,6 @@ export type WorkspaceRole = components["schemas"]["WorkspaceRoleEnum"];
  */
 export type OrganizationProfile = components["schemas"]["OrganizationProfile"];
 export type OrganizationProfileUpdate = components["schemas"]["PatchedOrganizationProfileUpdate"];
-export type PaginatedOrganizationProfileList = components["schemas"]["PaginatedOrganizationProfileList"];
 
 /**
  * Workspace lifecycle types (#1940, PLAT-233), re-exported from the generated
@@ -71,13 +58,10 @@ export type PaginatedOrganizationProfileList = components["schemas"]["PaginatedO
  * hand-copying. Workspaces are addressed by their public UUID only.
  */
 export type Workspace = components["schemas"]["Workspace"];
-export type CreateWorkspaceRequest = components["schemas"]["CreateWorkspace"];
-export type TransferWorkspaceOwnershipRequest = components["schemas"]["TransferWorkspaceOwnership"];
 // Workspace network egress policy (#1945, PLAT-238). The workspace-selectable
 // subset of the canonical RangeEgressMode vocabulary; the server re-validates and
 // authorizes every change.
 export type WorkspaceEgressPolicy = components["schemas"]["EgressPolicyEnum"];
-export type SetWorkspaceEgressPolicyRequest = components["schemas"]["SetWorkspaceEgressPolicy"];
 // Workspace resource quotas & usage (#1946, PLAT-239). Read-only projection of
 // usage against configured limits plus recent quota decisions; policy authoring
 // is a superuser-only Django-admin escape hatch, never a SPA surface.
@@ -101,13 +85,8 @@ export type AuthorizationEffect = components["schemas"]["EffectEnum"];
  * `user_id` the roster projection exposes; the closed `WorkspaceRole` vocabulary
  * is rendered as data/request values only and never used to reconstruct policy.
  */
-export type WorkspaceMembership = components["schemas"]["WorkspaceMembership"];
-export type AddWorkspaceMemberRequest = components["schemas"]["AddWorkspaceMember"];
-export type ChangeWorkspaceMemberRoleRequest = components["schemas"]["ChangeWorkspaceMemberRole"];
 
 /** Signed workspace invitation administration contracts (#1942, PLAT-235). */
-export type WorkspaceInvitation = components["schemas"]["WorkspaceInvitation"];
-export type IssueWorkspaceInvitationRequest = components["schemas"]["IssueWorkspaceInvitation"];
 
 /**
  * Range-to-workspace scope administration types (#1944, PLAT-237), re-exported
@@ -119,7 +98,6 @@ export type IssueWorkspaceInvitationRequest = components["schemas"]["IssueWorksp
  */
 export type RangeScopeBinding = components["schemas"]["RangeScopeBinding"];
 export type PaginatedRangeScopeBindingList = components["schemas"]["PaginatedRangeScopeBindingList"];
-export type RangeWorkspaceRebindRequest = components["schemas"]["RangeWorkspaceRebindRequest"];
 export type RangeWorkspaceRebindResult = components["schemas"]["RangeWorkspaceRebindResult"];
 
 /**
@@ -135,6 +113,7 @@ export type CurrentRangeResponse = components["schemas"]["CurrentRangeResponse"]
 export type RangeLease = components["schemas"]["RangeLease"];
 export type RangeLeaseResponse = components["schemas"]["RangeLeaseResponse"];
 export type LaunchRangeResponse = components["schemas"]["LaunchRangeResponse"];
+export type LaunchWorkspaceListResponse = components["schemas"]["LaunchWorkspaceListResponse"];
 export type SuccessResponse = components["schemas"]["SuccessResponse"];
 export type AgentListResponse = components["schemas"]["AgentListResponse"];
 export type AgentListItem = components["schemas"]["AgentListItem"];

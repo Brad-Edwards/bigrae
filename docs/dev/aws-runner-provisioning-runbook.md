@@ -10,7 +10,7 @@ the runner Terraform root reuses.
 
 This runbook is the standup entry point. The authoritative reference for runner
 architecture, health monitoring, removal, and gotchas is
-[`platform/terraform/global/github-runner/README.md`](https://github.com/Brad-Edwards/shifter/blob/dev/platform/terraform/global/github-runner/README.md).
+[`platform/terraform/global/github-runner/README.md`](https://github.com/Brad-Edwards/bigrae/blob/dev/platform/terraform/global/github-runner/README.md).
 
 ## Prerequisite
 
@@ -124,7 +124,7 @@ export AWS_PAGER=""
 
 INSTANCE=i-xxxxxxxxxxxxxxxxx
 NAME=shifter-github-runner-N
-TOKEN=$(gh api -X POST /repos/Brad-Edwards/shifter/actions/runners/registration-token --jq .token)
+TOKEN=$(gh api -X POST /repos/Brad-Edwards/bigrae/actions/runners/registration-token --jq .token)
 
 aws ssm send-command \
   --instance-ids "$INSTANCE" \
@@ -133,7 +133,7 @@ aws ssm send-command \
   --parameters "commands=[
     \"set -ex\",
     \"cd /home/ec2-user/actions-runner\",
-    \"sudo -u ec2-user ./config.sh --url https://github.com/Brad-Edwards/shifter --token $TOKEN --labels self-hosted,linux,X64 --unattended --replace --name $NAME\",
+    \"sudo -u ec2-user ./config.sh --url https://github.com/Brad-Edwards/bigrae --token $TOKEN --labels self-hosted,linux,X64 --unattended --replace --name $NAME\",
     \"./svc.sh install ec2-user\",
     \"./svc.sh start\"
   ]"
@@ -143,12 +143,12 @@ Registration tokens are single-use and expire in about an hour; mint a fresh one
 per runner. Verify the fleet is online:
 
 ```bash
-gh api repos/Brad-Edwards/shifter/actions/runners --jq '.runners[] | {name, status}'
+gh api repos/Brad-Edwards/bigrae/actions/runners --jq '.runners[] | {name, status}'
 ```
 
 Once every runner shows `status: online`, the AWS Deploy workflow can run. To
 remove or replace a runner, see the "Removing a runner" section of the
-[github-runner README](https://github.com/Brad-Edwards/shifter/blob/dev/platform/terraform/global/github-runner/README.md).
+[github-runner README](https://github.com/Brad-Edwards/bigrae/blob/dev/platform/terraform/global/github-runner/README.md).
 
 ## Move an existing fleet onto the managed network
 

@@ -32,6 +32,16 @@ class RangeAuthorityProjection:
     resource_generation: UUID | None
 
 
+def native_range_id_by_request(request_uuid: UUID) -> int:
+    """Return the private runtime identifier for an already-created range."""
+    from engine.models import Range
+
+    try:
+        return int(Range.objects.values_list("pk", flat=True).get(request__request_id=request_uuid))
+    except (Range.DoesNotExist, Range.MultipleObjectsReturned):
+        raise EngineError("Range unavailable") from None
+
+
 def has_range_runtime(request_uuid: UUID, public_uuid: UUID) -> bool:
     """Establish runtime presence independently of valid principal custody."""
     from django.db.models import Q

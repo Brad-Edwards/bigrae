@@ -27,4 +27,4 @@ Programmable flags enable dynamic validation logic, for example, verifying a sub
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/_flag_crud.py` (Programmable/HTTP flag creation and updates)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/flag.py` (CTFFlag programmable/HTTP type and validator configuration)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_programmable_flags.py` (Programmable and HTTP flag validation tests)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#509` (CTF-118: Programmable Flag Validation)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#509` (CTF-118: Programmable Flag Validation)

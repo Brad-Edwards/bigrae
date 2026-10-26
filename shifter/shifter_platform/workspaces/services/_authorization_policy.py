@@ -28,6 +28,9 @@ from ._authorization_commands import (
     AuthorizationMutationConflict as AuthorizationMutationConflict,
 )
 from ._authorization_commands import (
+    EventOwnershipHandoffPolicyMutationRequest as EventOwnershipHandoffPolicyMutationRequest,
+)
+from ._authorization_commands import (
     MutationRequest as MutationRequest,
 )
 from ._authorization_commands import (
@@ -156,7 +159,12 @@ def authorize_operation_reconciliation(
     change = _base_change_from_operation(operation)
     checks: tuple[AuthorizationRequest, ...]
     if isinstance(change, PolicyRelationshipChange):
-        request = PolicyMutationRequest(
+        request_type = (
+            EventOwnershipHandoffPolicyMutationRequest
+            if operation.trusted_context == "event_ownership_handoff"
+            else PolicyMutationRequest
+        )
+        request = request_type(
             actor=actor,
             credential=credential,
             scope=scope,

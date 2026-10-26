@@ -12,7 +12,7 @@ import { AdministrationError, AdministrationPages, AdministrationSection, NameFo
 import { ScopeMembershipPanel } from "./ScopeMembershipPanel";
 import { WorkspaceAdministrationPanel } from "./WorkspaceAdministrationPanel";
 
-/** S4 exports components; neither router nor navigation imports this page. */
+/** Policy-filtered account administration entry mounted by the production router. */
 export function AccountAdministrationEntry() {
   const context = useAdministrationQuery<AdministrationSchemas["AccountPrincipalContext"]>("/accounts/context/");
   const [browse, setBrowse] = useState(false);

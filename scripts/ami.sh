@@ -6,7 +6,7 @@
 
 set -e
 
-REPO="Brad-Edwards/shifter"
+REPO="Brad-Edwards/bigrae"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # Base/DC builds and prod promotions run only from a protected ref: a

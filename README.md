@@ -2,7 +2,7 @@
 
 Self-service agentic cyber-range platform for authorized purple, red and blue
 team exercises, with isolated guest workloads and operator-selected telemetry.
-Canonical repository: [Brad-Edwards/shifter](https://github.com/Brad-Edwards/shifter).
+Canonical repository: [Brad-Edwards/bigrae](https://github.com/Brad-Edwards/bigrae).
 
 Start with the [current-state architecture handbook](docs/technical/architecture.md)
 for system context, deployment components, authority, lifecycle, data ownership,
@@ -83,7 +83,7 @@ from the history promoted to `main`; see
   title        = {Shifter: Self-Service Agentic Cyber Range Platform},
   year         = {2026},
   license      = {MIT},
-  url          = {https://github.com/Brad-Edwards/shifter}
+  url          = {https://github.com/Brad-Edwards/bigrae}
 }
 ```
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import cast
+from uuid import UUID
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -143,6 +144,21 @@ def resolve_model_access_users(actor: object, user_ids: tuple[int, ...]) -> tupl
         if resolved != normalized:
             raise ModelAccessIdentityAuthorityError()
         return resolved
+
+
+def model_access_principals_for_users(user_ids: tuple[int, ...]) -> tuple[tuple[int, UUID], ...]:
+    """Resolve the current durable human principal for each already-authorized user."""
+    from management.models import Principal
+
+    normalized = _normalized_user_ids(user_ids)
+    rows = tuple(
+        Principal.objects.filter(user_id__in=normalized, kind=Principal.Kind.HUMAN, is_active=True)
+        .order_by("user_id")
+        .values_list("user_id", "uuid")
+    )
+    if tuple(user_id for user_id, _ in rows) != normalized:
+        raise ModelAccessIdentityAuthorityError()
+    return rows
 
 
 def resolve_model_preparation_user(user_id: int) -> int:

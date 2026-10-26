@@ -52,18 +52,23 @@ _BACKPRESSURE_RETRY_SECONDS = 60
 
 
 def _actor_for_scheduled(intent: CommunicationIntent) -> AdmissionActor:
-    """Reconstruct the admitting actor recorded on a scheduled declaration.
+    """Resolve the recorded non-secret credential reference at dispatch time."""
+    if intent.initiating_principal_uuid is None:
+        # Trusted lifecycle declarations are the only actor-free declarations.
+        if intent.actor_user_id is None and intent.actor_token_id is None:
+            return AdmissionActor(system=True)
+        raise CTFCommunicationError(
+            "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        )
+    try:
+        from shared.credentials import resolve_current_credential
+        from shared.operation_authority import credential_reference_from_record
 
-    The stored non-secret actor/token identity drives the due-time re-check: a
-    human declaration revalidates that user's live authority, a token declaration
-    revalidates the original user/token pair, and a declaration authored by trusted automation (no user,
-    no token) re-enters as system authority.
-    """
-    if intent.actor_token_id is not None:
-        return AdmissionActor(user_id=intent.actor_user_id, token_id=intent.actor_token_id)
-    if intent.actor_user_id is not None:
-        return AdmissionActor(user_id=intent.actor_user_id)
-    return AdmissionActor(system=True)
+        return AdmissionActor(credential=resolve_current_credential(credential_reference_from_record(intent)))
+    except Exception:
+        raise CTFCommunicationError(
+            "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        ) from None
 
 
 def schedule_declaration(
@@ -91,7 +96,7 @@ def schedule_declaration(
 
     with transaction.atomic():
         target_events = list(CTFEvent.objects.select_for_update().filter(id__in=target_event_ids).order_by("pk"))
-        reauthorize(campaign, target_events, actor)
+        actor = reauthorize(campaign, target_events, actor)
         locked_campaign = CommunicationCampaign.objects.select_for_update().get(pk=campaign.pk)
 
         existing = CommunicationIntent.objects.filter(idempotency_key=key).first()
@@ -118,6 +123,9 @@ def schedule_declaration(
         _assert_release_allowed(locked_campaign, target_events)
         revision = _resolve_revision(locked_campaign, revision)
 
+        from shared.operation_authority import credential_reference_fields
+
+        authority_fields = credential_reference_fields(actor.credential) if actor.credential is not None else {}
         intent = CommunicationIntent.objects.create(
             campaign=locked_campaign,
             revision=revision,
@@ -132,6 +140,7 @@ def schedule_declaration(
             idempotency_key=key,
             range_generation_ref=range_generation_ref,
             due_at=due_at,
+            **authority_fields,
         )
         CommunicationCampaign.objects.filter(pk=locked_campaign.pk).update(
             status=CampaignStatus.SCHEDULED.value, updated_at=now
@@ -168,8 +177,8 @@ def run_release_communication_task(task: CTFScheduledTask) -> dict[str, Any]:
         logger.warning("RELEASE_COMMUNICATION task %s references missing intent %s", task.pk, intent_id)
         return {"outcome": "missing_intent"}
 
-    actor = _actor_for_scheduled(intent)
     try:
+        actor = _actor_for_scheduled(intent)
         outcome = release_due_declaration(intent, actor=actor)
     except CTFCommunicationError as exc:
         return _denied_result(intent, exc)
@@ -214,7 +223,12 @@ def request_early_release(intent: CommunicationIntent, *, actor: AdmissionActor)
     admission re-check (workspace mutex + per-event notification authority) still
     runs inside ``release_due_declaration``.
     """
-    if actor.user_id is None or actor.token_id is not None or actor.system or not actor.allow_early_release:
+    if (
+        (actor.user_id is None and actor.credential is None)
+        or actor.token_id is not None
+        or actor.system
+        or not actor.allow_early_release
+    ):
         raise CTFCommunicationError(
             "Early release of a scheduled communication is not authorized",
             code="CTF_COMMUNICATION_EARLY_RELEASE_DENIED",

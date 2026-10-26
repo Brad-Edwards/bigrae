@@ -23,7 +23,9 @@ def list_authorization_event_uuids(workspace_ids: Sequence[int], limit: int) -> 
     if limit <= 0 or not workspace_ids:
         return ()
     return tuple(
-        CTFEvent.objects.filter(workspace_id__in=workspace_ids).order_by("id").values_list("id", flat=True)[:limit]
+        CTFEvent.objects.filter(workspace_id__in=workspace_ids, authorization_publication_state="confirmed")
+        .order_by("id")
+        .values_list("id", flat=True)[:limit]
     )
 
 
@@ -40,7 +42,12 @@ def list_authorization_nonworkspace_events(
 
     if limit <= 0:
         return ()
-    rows = CTFEvent.objects.filter(scope_kind="account", workspace_id__isnull=True, deleted_at__isnull=True)
+    rows = CTFEvent.objects.filter(
+        scope_kind="account",
+        workspace_id__isnull=True,
+        deleted_at__isnull=True,
+        authorization_publication_state="confirmed",
+    )
     if parent.kind == "account":
         resolved = resolve_resource_scope(parent)
         rows = rows.filter(account_id=resolved.account_id)

@@ -77,7 +77,7 @@ export function useCtfEventStaff(eventId: string, enabled = true) {
   return useQuery({
     queryKey: ctfKeys.eventStaff(eventId),
     enabled: enabled && Boolean(eventId),
-    queryFn: ({ signal }) => apiFetch<CtfEventStaffListResponse>(`${BASE}/events/${eventId}/staff/`, { signal }),
+    queryFn: ({ signal }) => apiFetch<CtfEventStaffListResponse>(`${BASE}/events/${eventId}/staff-members/`, { signal }),
   });
 }
 
@@ -85,7 +85,7 @@ export function useAssignCtfEventStaff(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: CtfEventStaffAssignRequest) =>
-      apiFetch<CtfEventStaffMember>(`${BASE}/events/${eventId}/staff/`, { method: "POST", body }),
+      apiFetch<CtfEventStaffMember>(`${BASE}/events/${eventId}/staff-members/`, { method: "POST", body }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) }),
   });
 }
@@ -93,8 +93,8 @@ export function useAssignCtfEventStaff(eventId: string) {
 export function useRevokeCtfEventStaff(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (userId: number) =>
-      apiFetch<unknown>(`${BASE}/events/${eventId}/staff/${userId}/`, { method: "DELETE" }),
+    mutationFn: (principalUuid: string) =>
+      apiFetch<unknown>(`${BASE}/events/${eventId}/staff-members/${principalUuid}/`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) }),
   });
 }
@@ -103,10 +103,10 @@ export function useRevokeCtfEventStaff(eventId: string) {
 export function useTransferCtfEventOwnership(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (userId: number) =>
-      apiFetch<CtfEventMutationResult>(`${BASE}/events/${eventId}/transfer-ownership/`, {
+    mutationFn: (principalUuid: string) =>
+      apiFetch<CtfEventMutationResult>(`${BASE}/events/${eventId}/ownership/transfer/`, {
         method: "POST",
-        body: { user_id: userId },
+        body: { principal_uuid: principalUuid },
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) });

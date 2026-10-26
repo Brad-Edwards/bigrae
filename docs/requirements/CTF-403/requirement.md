@@ -27,5 +27,5 @@ Scoreboard freeze is a standard CTF practice that maintains suspense in the fina
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms.py` (CTFEventForm - scoreboard_freeze_at field)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/migrations/0019_add_scoreboard_freeze.py` (Migration adding scoreboard_freeze_at to CTFEvent)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring.py` (Scoring tests - TestScoreboardFreeze and TestIsScoreboardFrozen)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#574` (CTF-403: Scoreboard Freeze)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#574` (CTF-403: Scoreboard Freeze)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (Views - freeze_at passed to scoring for participants, organizers see real-time)

@@ -17,9 +17,10 @@ from ctf.bridges import get_user_role
 from ctf.services.participant import is_viewing_participant
 from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
-from shared.api.principals import active_actor_user
+from shared.api.principals import active_actor_user, authenticated_credential
 from shared.api_tokens.models import ApiToken
 from shared.api_tokens.scopes import has_scope
+from shared.credentials import CredentialContext
 
 PermissionClass = type[permissions.BasePermission]
 LegacyView = Callable[..., HttpResponse]
@@ -78,34 +79,29 @@ class _CtfApiError(Exception):
 
 
 class HasActiveCTFActor(permissions.BasePermission):
-    """Require a session user or an API token owned by an active user."""
+    """Require one current human, service, personal, or temporary credential."""
 
     message = "API token is not associated with an active user."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return ctf_actor_user(request) is not None
+        try:
+            authenticated_credential(request)
+        except ValueError:
+            return False
+        return True
 
 
 class HasCTFEventAdminAccess(permissions.BasePermission):
-    """Admit the CTF event-administration surface for an organizer or platform admin.
-
-    Advisory top-level admission only (ADR-052): it does not redefine
-    ``is_ctf_organizer`` or grant any per-object authority. Every endpoint still
-    resolves owner / delegated-staff / platform-admin authority per operation via
-    the service resolver, so widening this gate cannot let a platform
-    administrator act where the per-object policy would refuse (e.g. staff
-    management stays owner-only).
-    """
+    """Admit non-temporary credentials; each operation makes the exact policy decision."""
 
     message = "Forbidden"
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        from ctf.services.authorization import is_ctf_platform_admin
-
-        user = ctf_actor_user(request)
-        if user is None:
+        try:
+            credential = authenticated_credential(request)
+        except ValueError:
             return False
-        return get_user_role(user).is_ctf_organizer or is_ctf_platform_admin(user)
+        return credential.kind != "temporary"
 
 
 class HasCTFParticipant(permissions.BasePermission):
@@ -143,7 +139,7 @@ class HasCTFEndpointScope(permissions.BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         auth = getattr(request, "auth", None)
-        if not isinstance(auth, ApiToken):
+        if not isinstance(auth, ApiToken) and not (isinstance(auth, CredentialContext) and auth.kind == "personal"):
             return True
         required = _required_scopes_for_method(request.method, view)
         return any(has_scope(auth.scopes, scope) for scope in required)

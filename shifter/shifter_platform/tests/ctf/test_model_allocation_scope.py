@@ -56,7 +56,7 @@ def test_invalid_demand_is_not_dropped_by_enforcing_path(ctf_event, settings):
         project_event_model_scope(ctf_event, uuid4(), OwnedReference(owner="ctf", reference="draw:test"))
 
 
-def test_inactive_spare_has_explicit_preparation_authority_and_revokes_on_consumption(
+def test_event_owned_spare_has_explicit_preparation_authority_and_revokes_on_consumption(
     ctf_event, django_user_model, settings
 ):
     from django.db import transaction
@@ -70,18 +70,16 @@ def test_inactive_spare_has_explicit_preparation_authority_and_revokes_on_consum
     from ..cms.test_model_allocation_dispatch import setup_launch
     from ..engine.services.test_model_allocation import allocation_inputs
 
-    owner, request, instance = setup_launch(django_user_model, settings)
-    owner.is_active = False
-    owner.set_unusable_password()
-    owner.save(update_fields=["is_active", "password"])
+    _owner, request, instance = setup_launch(django_user_model, settings, owner=ctf_event.created_by)
     ctf_event.model_demand = [_demand()]
     ctf_event.save(update_fields=["model_demand", "updated_at"])
-    spare = CTFSpareRange.objects.create(event=ctf_event, owner_user=owner)
+    spare = CTFSpareRange.objects.create(event=ctf_event)
     subject = OwnedReference(owner="ctf", reference=f"draw:{spare.pk}")
     scope = project_event_model_scope(ctf_event, request.draw_key, subject, spare_id=spare.pk)
     instance.range_source = "ctf"
+    instance.event_uuid = ctf_event.pk
     instance.model_launch_scope = scope.model_dump(mode="json")
-    instance.save(update_fields=["range_source", "model_launch_scope"])
+    instance.save(update_fields=["range_source", "event_uuid", "model_launch_scope"])
     _, _, observations = allocation_inputs(django_user_model)
     record_model_observations(settings.MODEL_ACCESS_CATALOG, lambda _: observations)
     with transaction.atomic():
@@ -93,8 +91,6 @@ def test_inactive_spare_has_explicit_preparation_authority_and_revokes_on_consum
     assert allocation.grant.state == "pending"
     assert allocation.snapshot["request"]["preparation_authority"] == {"owner": "ctf", "reference": f"spare:{spare.pk}"}
     assert ModelLaunchPreparationRecord.objects.get().intent["scope"]["system_preparation"]["kind"] == "ctf_spare"
-    owner.refresh_from_db()
-    assert not owner.is_active and not owner.has_usable_password()
     spare.status = "consumed"
     spare.save(update_fields=["status", "updated_at"])
     allocation.grant.refresh_from_db()
@@ -121,7 +117,7 @@ def test_system_preparation_rejects_spare_from_another_event(ctf_event, django_u
         model_demand=[_demand()],
     )
     other_event.save()
-    other_spare = CTFSpareRange.objects.create(event=other_event, owner_user=owner)
+    other_spare = CTFSpareRange.objects.create(event=other_event)
     with pytest.raises(ContractError, match=r"allocation\.system_owner_unavailable"):
         project_event_model_scope(
             ctf_event,
@@ -131,12 +127,63 @@ def test_system_preparation_rejects_spare_from_another_event(ctf_event, django_u
         )
 
 
+def test_delegated_event_range_manager_can_prepare_the_owners_range(
+    ctf_event, django_user_model, settings, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from cms.services import _model_allocation
+    from management.services import principal_for_user
+    from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind
+    from shared.credentials import CredentialContext
+
+    from ..cms.test_model_allocation_dispatch import setup_launch
+
+    _owner, request, instance = setup_launch(django_user_model, settings, owner=ctf_event.created_by)
+    instance.range_source = "ctf"
+    instance.event_uuid = ctf_event.pk
+    instance.save(update_fields=["range_source", "event_uuid"])
+    delegate = django_user_model.objects.create_user(username="delegated-model-preparer")
+    delegate_principal = principal_for_user(delegate)
+    credential = CredentialContext(
+        delegate_principal,
+        "session",
+        uuid4(),
+        CredentialCeiling(frozenset({"event.manage_ranges"})),
+        frozenset(),
+    )
+    seen = []
+
+    def _check(authority_request):
+        seen.append(authority_request)
+        return AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")
+
+    monkeypatch.setattr(_model_allocation, "credential_reference_from_record", lambda _row: credential)
+    monkeypatch.setattr(_model_allocation, "resolve_current_credential", lambda original: original)
+    monkeypatch.setattr(
+        "shared.authorization.port._provider_factory",
+        lambda: SimpleNamespace(check=_check),
+    )
+
+    current = _model_allocation._authorize_preparation(
+        instance,
+        _model_allocation._owner_reference(instance),
+        None,
+    )
+
+    assert current == credential
+    assert seen[0].action == "event.manage_ranges"
+    assert seen[0].target.uuid == ctf_event.pk
+    assert seen[0].scope.kind == "account"
+    assert request.request_id == instance.request.request_id
+
+
 @pytest.mark.parametrize(
     "field", ["model_demand", "event_start", "event_end", "range_spinup_minutes", "cleanup_delay_hours"]
 )
 @pytest.mark.parametrize("already_allocated", [False, True])
 def test_event_fact_mutation_fences_admission_and_pending_grant(
-    ctf_event, django_user_model, settings, field, already_allocated
+    ctf_event, django_user_model, settings, organizer_credential, field, already_allocated
 ):
     from ctf.services.event import update_event
     from engine.models import ModelAllocation, ModelPendingGrant
@@ -170,7 +217,7 @@ def test_event_fact_mutation_fences_admission_and_pending_grant(
 
     # Exercise the organizer's real transaction after the projection lock has
     # been released, not a direct write to the Engine authority projection.
-    update_event(ctf_event.pk, {field: replacement})
+    update_event(ctf_event.pk, {field: replacement}, actor_id=organizer_credential)
     if allocation is None:
         with pytest.raises(ContractError, match=r"allocation\.authority_unavailable"):
             allocate(inputs)
@@ -211,7 +258,7 @@ def test_event_uses_authored_scenario_envelope_when_no_manual_demand_is_set(ctf_
 
 
 def test_event_sponsor_funds_source_for_participant_without_source_membership(
-    ctf_event, django_user_model, settings, monkeypatch
+    ctf_event, django_user_model, settings, organizer_credential, monkeypatch
 ):
     from unittest.mock import Mock
 
@@ -219,16 +266,33 @@ def test_event_sponsor_funds_source_for_participant_without_source_membership(
 
     from cms.models import ScenarioModelNeeds
     from cms.services._model_allocation import prepare_model_access_for_dispatch
+    from ctf.models import CTFEvent
     from ctf.services.event.model_sources import set_event_model_sources
     from engine.services import create_model_source
     from engine.services._model_allocation_launch import allocate_launch_models
     from tests.cms.test_model_allocation_dispatch import setup_launch
     from tests.engine.services.test_model_sources import configuration, direct_source_catalog
-    from workspaces.models import Workspace, WorkspaceMembership
+    from workspaces.models import Account, Organization, OrganizationMembership, Workspace, WorkspaceMembership
+    from workspaces.services import create_account
 
     participant, request, instance = setup_launch(django_user_model, settings)
     sponsor = ctf_event.created_by
-    org = Workspace.objects.get(pk=ctf_event.workspace_id).organization
+    account = create_account(kind=Account.Kind.TEAM, name="Event sponsor account")
+    org = Organization.objects.get(account_id=account.id, is_default=True)
+    workspace = Workspace.objects.get(organization=org, is_default=True)
+    OrganizationMembership.objects.create(organization=org, user=sponsor, role="admin")
+    WorkspaceMembership.objects.create(workspace=workspace, user=sponsor, role="owner")
+    ctf_event = CTFEvent.objects.create(
+        name="Event sponsor model source",
+        created_by=sponsor,
+        scope_kind="account",
+        account_id=account.id,
+        organization_id=org.pk,
+        workspace_id=workspace.pk,
+        event_start=ctf_event.event_start,
+        event_end=ctf_event.event_end,
+        scenario_id=ctf_event.scenario_id,
+    )
     assert not WorkspaceMembership.objects.filter(user=participant, workspace__organization=org).exists()
     authored = ScenarioModelNeeds.objects.get(scenario_id=instance.scenario_id)
     authored.needs["participant"]["data_regions"].append("provider-managed")
@@ -238,14 +302,17 @@ def test_event_sponsor_funds_source_for_participant_without_source_membership(
     store.create_owned_secret.return_value = "synthetic-owned-reference"
     monkeypatch.setattr("shared.cloud.get_secrets_store", lambda: store)
     source = create_model_source(
-        sponsor, org.uuid, configuration(allowed_user_ids=[sponsor.pk]), credential={"api_key": "synthetic-secret"}
+        organizer_credential,
+        org.uuid,
+        configuration(),
+        credential={"api_key": "synthetic-secret"},
     )
     ctf_event.model_demand = [_demand()]
     ctf_event.scenario_id = instance.scenario_id
     with transaction.atomic():
         set_event_model_sources(
             ctf_event,
-            sponsor,
+            organizer_credential,
             {"aliases": [{"logical_alias": "coding-main", "sources": [{"source_id": str(source.id), "revision": 1}]}]},
             expected_revision=0,
         )

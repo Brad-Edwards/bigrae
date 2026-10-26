@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 
 from shared.model_access import ModelAccessRangePage, ModelAccessRangeView, OwnedReference
 
@@ -36,38 +37,39 @@ def resolve_model_access_range_reference(request_uuid: UUID) -> OwnedReference:
     return model_access_range_reference(range_uuids[0])
 
 
-def _legacy_identity_id(workspace_id: int | None) -> int:
-    """Require historical human and workspace identities for this legacy projection."""
-    if workspace_id is None:
-        raise SharingError(_RANGE_MEMBERSHIP_UNAVAILABLE)
-    return workspace_id
-
-
 def _query_shape(
     *,
     range_uuids: tuple[UUID, ...] | None,
     request_uuids: tuple[UUID, ...] | None,
     user_ids: tuple[int, ...] | None,
+    user_principal_uuids: tuple[UUID, ...] | None,
     workspace_ids: tuple[int, ...] | None,
     all_ranges: bool,
-) -> tuple[tuple[object, ...], tuple[object, ...] | None, dict[str, object]]:
+) -> tuple[tuple[object, ...], tuple[object, ...] | None, Q]:
     """Validate one query mode and return its supplied values and ORM filters."""
     modes = (range_uuids, request_uuids, user_ids, workspace_ids)
     if sum(value is not None for value in modes) + int(all_ranges) != 1:
         raise SharingError(_RANGE_RESOLUTION_SHAPE)
 
     explicit_values: tuple[object, ...] | None = None
-    filters: dict[str, object] = {}
+    filters = Q()
     if range_uuids is not None:
         explicit_values = tuple(range_uuids)
-        filters["uuid__in"] = explicit_values
+        filters = Q(uuid__in=explicit_values)
     elif request_uuids is not None:
         explicit_values = tuple(request_uuids)
-        filters["request__request_id__in"] = explicit_values
+        filters = Q(request__request_id__in=explicit_values)
     elif user_ids is not None:
-        filters["user_id__in"] = tuple(user_ids)
+        if user_principal_uuids is None or len(user_principal_uuids) != len(user_ids):
+            raise SharingError(_RANGE_RESOLUTION_SHAPE)
+        filters = Q(owner_principal_uuid__in=user_principal_uuids) | Q(
+            owner_principal_uuid__isnull=True,
+            user_id__in=tuple(user_ids),
+        )
     elif workspace_ids is not None:
-        filters["workspace_id__in"] = tuple(workspace_ids)
+        filters = Q(workspace_id__in=tuple(workspace_ids))
+    elif user_principal_uuids is not None:
+        raise SharingError(_RANGE_RESOLUTION_SHAPE)
     supplied = next((value for value in modes if value is not None), ())
     return supplied, explicit_values, filters
 
@@ -104,6 +106,7 @@ def resolve_model_access_range_page(
     range_uuids: tuple[UUID, ...] | None = None,
     request_uuids: tuple[UUID, ...] | None = None,
     user_ids: tuple[int, ...] | None = None,
+    user_principal_uuids: tuple[UUID, ...] | None = None,
     workspace_ids: tuple[int, ...] | None = None,
     all_ranges: bool = False,
     continuation: UUID | None = None,
@@ -122,6 +125,7 @@ def resolve_model_access_range_page(
         range_uuids=range_uuids,
         request_uuids=request_uuids,
         user_ids=user_ids,
+        user_principal_uuids=user_principal_uuids,
         workspace_ids=workspace_ids,
         all_ranges=all_ranges,
     )
@@ -130,7 +134,7 @@ def resolve_model_access_range_page(
 
     unavailable = (Range.Status.DESTROYING, Range.Status.DESTROYED, Range.Status.FAILED)
     with transaction.atomic():
-        eligible = Range.objects.filter(**filters).exclude(status__in=unavailable)
+        eligible = Range.objects.filter(filters).exclude(status__in=unavailable)
         assessment_count = eligible.count()
         if continuation is not None:
             eligible = eligible.filter(uuid__gt=continuation)
@@ -145,8 +149,9 @@ def resolve_model_access_range_page(
                 range_ref=model_access_range_reference(row.uuid),
                 authority_ref=OwnedReference(owner="engine", reference=f"range:{row.uuid}"),
                 range_uuid=row.uuid,
-                owner_user_id=_legacy_identity_id(row.user_id),
-                workspace_id=_legacy_identity_id(row.workspace_id),
+                owner_user_id=row.user_id,
+                owner_principal_uuid=row.owner_principal_uuid,
+                workspace_id=row.workspace_id,
                 request_uuid=row.request.request_id if row.request is not None else None,
             )
             for row in rows
@@ -163,6 +168,7 @@ def resolve_model_access_range_views(
     range_uuids: tuple[UUID, ...] | None = None,
     request_uuids: tuple[UUID, ...] | None = None,
     user_ids: tuple[int, ...] | None = None,
+    user_principal_uuids: tuple[UUID, ...] | None = None,
     workspace_ids: tuple[int, ...] | None = None,
     all_ranges: bool = False,
 ) -> tuple[ModelAccessRangeView, ...]:
@@ -175,6 +181,7 @@ def resolve_model_access_range_views(
             range_uuids=range_uuids,
             request_uuids=request_uuids,
             user_ids=user_ids,
+            user_principal_uuids=user_principal_uuids,
             workspace_ids=workspace_ids,
             all_ranges=all_ranges,
             continuation=continuation,

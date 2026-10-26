@@ -21,5 +21,5 @@ ADR-024 establishes ACES as the target scenario, runtime, experiment, and backen
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#676` (PLAT-007: Scenario Expressiveness Dependency)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#620` (Scenario expressiveness dependency)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#676` (PLAT-007: Scenario Expressiveness Dependency)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#620` (Scenario expressiveness dependency)

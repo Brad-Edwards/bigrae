@@ -10,6 +10,7 @@ the SSH key (``secrets_boundary``) and the urllib Guacamole token POST
 """
 
 import json
+import sys
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -36,6 +37,19 @@ def rf():
 @pytest.fixture
 def user(db):
     return User.objects.create_user(username="ssh-url@example.com", email="ssh-url@example.com")
+
+
+@pytest.fixture(autouse=True)
+def referenced_session_authentication(monkeypatch, live_session_credential):
+    """Make direct DRF view requests carry the same session proof as production."""
+    original = force_authenticate
+
+    def authenticate(request, user=None, token=None):
+        if isinstance(user, User) and token is None:
+            token = live_session_credential(user)
+        return original(request, user=user, token=token)
+
+    monkeypatch.setattr(sys.modules[__name__], "force_authenticate", authenticate)
 
 
 @pytest.fixture(autouse=True)

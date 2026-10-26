@@ -104,7 +104,7 @@ class TestCustomPages:
             "api_event_page_detail",
             kwargs={"page_id": created.json()["id"]},
         )
-        assert gone.status_code == 200
+        assert gone.status_code == 204
         assert not CTFEventPage.objects.filter(deleted_at__isnull=True).exists()
 
 

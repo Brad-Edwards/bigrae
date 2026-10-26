@@ -32,13 +32,19 @@ def _make_unregistered_participant(event, idx):
     )
 
 
-def _make_task(event, status, *, updated_minutes_ago=0):
+def _make_task(event, status, *, updated_minutes_ago=0, credential=None):
     """Create a RUNNING/PENDING scheduled task and backdate its updated_at."""
+    authority = {}
+    if credential is not None:
+        from shared.operation_authority import credential_reference_fields
+
+        authority = credential_reference_fields(credential)
     task = CTFScheduledTask.objects.create(
         event=event,
         task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
         scheduled_for=timezone.now(),
         status=status,
+        **authority,
     )
     if updated_minutes_ago:
         CTFScheduledTask.objects.filter(pk=task.pk).update(
@@ -119,7 +125,7 @@ class TestSpinUpHandlerHeartbeat:
     """_handle_spin_up_ranges must supply a heartbeat that touches updated_at."""
 
     @pytest.mark.django_db
-    def test_handler_heartbeat_advances_updated_at(self, ctf_event):
+    def test_handler_heartbeat_advances_updated_at(self, ctf_event, organizer_credential):
         """Running the handler bumps the claimed task's updated_at via its heartbeat.
 
         A single unregistered participant drives exactly one (fast-failing,
@@ -131,6 +137,7 @@ class TestSpinUpHandlerHeartbeat:
             event=ctf_event,
             status=ScheduledTaskStatus.RUNNING.value,
             updated_minutes_ago=10,
+            credential=organizer_credential,
         )
         before = task.updated_at
 

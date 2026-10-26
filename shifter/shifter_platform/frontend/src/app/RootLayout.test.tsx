@@ -40,7 +40,7 @@ beforeEach(() => {
 
 describe("RootLayout route gating", () => {
   it("renders the matched route when the advisory policy allows the principal", async () => {
-    renderWithHandle({ permissionPolicy: "staff" });
+    renderWithHandle({ permissionPolicy: "platform_admin" });
     expect(await screen.findByText("Area content")).toBeInTheDocument();
   });
 

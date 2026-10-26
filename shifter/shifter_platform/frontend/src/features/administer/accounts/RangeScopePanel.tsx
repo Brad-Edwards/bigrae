@@ -11,7 +11,7 @@ export function RangeScopePanel({ workspaceUuid }: Readonly<{ workspaceUuid: str
   const [selected, setSelected] = useState<AdministrationSchemas["RangeScopeBinding"] | null>(null);
   const [destination, setDestination] = useState("");
   const rows = useAdministrationQuery<AdministrationSchemas["PaginatedRangeScopeBindingList"]>(`/cms/workspaces/${workspaceUuid}/range-scoping/`, { page });
-  const move = useAdministrationMutation<AdministrationSchemas["RangeWorkspaceRebindResult"], AdministrationSchemas["PolicyRangeWorkspaceCommand"]>(`/cms/ranges/${selected?.request_id ?? ""}/workspace/`);
+  const move = useAdministrationMutation<AdministrationSchemas["RangeWorkspaceRebindResult"], AdministrationSchemas["PolicyRangeWorkspaceCommand"]>(`/cms/ranges/${selected?.request_id ?? ""}/scope/`);
   return <AdministrationSection title="Range scoping">
     <AdministrationError error={rows.error ?? move.error} />
     {rows.isPending ? <p>Loading ranges…</p> : null}

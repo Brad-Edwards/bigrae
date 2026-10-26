@@ -63,6 +63,7 @@ def _record_provision_attempt(
     tallies: dict[str, int],
     errors: list[dict[str, str]],
     heartbeat: Callable[[], None] | None = None,
+    actor: object | None = None,
 ) -> None:
     """Provision one participant and fold the outcome into the running tallies.
 
@@ -72,7 +73,7 @@ def _record_provision_attempt(
     the scheduled task and liveness file fresh (#943).
     """
     try:
-        provision_participant_range_with_retry(participant.pk, heartbeat=heartbeat)
+        provision_participant_range_with_retry(participant.pk, heartbeat=heartbeat, actor=actor)
         tallies["successful"] += 1
     except Exception as e:
         if _is_already_assigned_error(e):
@@ -89,6 +90,7 @@ def provision_event_ranges_throttled(
     spinup_window_seconds: int,
     shutdown_check: Callable[[], bool] | None = None,
     heartbeat: Callable[[], None] | None = None,
+    actor: object | None = None,
 ) -> dict[str, Any]:
     """Provision ranges for all participants with throttled pacing.
 
@@ -113,6 +115,20 @@ def provision_event_ranges_throttled(
     Raises:
         CTFNotFoundError: If event doesn't exist.
     """
+    try:
+        event = CTFEvent.objects.get(pk=event_id)
+    except CTFEvent.DoesNotExist:
+        raise CTFNotFoundError(
+            f"Event {event_id} not found",
+            details={"event_id": str(event_id)},
+        ) from None
+    if actor is None:
+        raise ValueError("Range provisioning authority unavailable")
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import assert_event_action
+
+    credential = event_actor_credential(actor)
+    assert_event_action(credential, event, "event.manage_ranges")
     capacity = _declare_and_assess(event_id)
     if capacity is not None and capacity["blocking"]:
         return _capacity_refused_result(event_id, capacity)
@@ -121,14 +137,6 @@ def provision_event_ranges_throttled(
         event_id,
         spinup_window_seconds,
     )
-
-    try:
-        CTFEvent.objects.get(pk=event_id)
-    except CTFEvent.DoesNotExist:
-        raise CTFNotFoundError(
-            f"Event {event_id} not found",
-            details={"event_id": str(event_id)},
-        ) from None
 
     participants = list(
         CTFParticipant.objects.filter(
@@ -154,6 +162,7 @@ def provision_event_ranges_throttled(
         errors,
         shutdown_check=shutdown_check,
         heartbeat=heartbeat,
+        actor=credential,
     )
 
     _notify_provision_failures(event_id, errors)
@@ -183,6 +192,7 @@ def _provision_participants_paced(
     *,
     shutdown_check: Callable[[], bool] | None = None,
     heartbeat: Callable[[], None] | None = None,
+    actor: object | None = None,
 ) -> bool:
     """Provision each participant in turn, waiting ``delay`` seconds between them.
 
@@ -201,7 +211,7 @@ def _provision_participants_paced(
             return True
 
         _safe_heartbeat(heartbeat, event_id)
-        _record_provision_attempt(participant, tallies, errors, heartbeat=heartbeat)
+        _record_provision_attempt(participant, tallies, errors, heartbeat=heartbeat, actor=actor)
 
         logger.info(
             "Throttled provisioning progress for event %s: %d/%d (%d ready, %d failed, %d skipped)",

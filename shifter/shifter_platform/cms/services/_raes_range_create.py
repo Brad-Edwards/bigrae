@@ -39,13 +39,14 @@ from shared.audit import (
 )
 from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
-from shared.identity_scope import ResourceScope
+from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.range_instantiation_policy import InstantiationPurpose
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from cms.models import RaesPackageSource, Request
+    from shared.authorization import TargetRef
     from shared.enums import RangeSource
     from shared.model_access import OwnedReference
     from shared.model_access.reservation import ModelLaunchScope
@@ -192,6 +193,13 @@ def create_raes_native_range(
     range_source: RangeSource | None = None,
     workspace_uuid: str | UUID | None = None,
     scope: ResourceScope | None = None,
+    model_sources: dict | None = None,
+    owner_principal: PrincipalRef | None = None,
+    authority_action: str | None = None,
+    authority_target: TargetRef | None = None,
+    remote_access_teardown_at: datetime | None = None,
+    model_admission_subject: OwnedReference | None = None,
+    model_launch_scope: ModelLaunchScope | None = None,
 ) -> RangeContext:
     """Launch a registered RAES package through the native provisioning path.
 
@@ -208,9 +216,20 @@ def create_raes_native_range(
         from ._scoped_range_launch import create_scoped_range
 
         return create_scoped_range(
-            user, scenario, scope=scope, range_source=range_source, workspace_uuid=workspace_uuid
+            user,
+            scenario,
+            scope=scope,
+            range_source=range_source,
+            workspace_uuid=workspace_uuid,
+            model_sources=model_sources,
+            owner_principal=owner_principal,
+            authority_action=authority_action,
+            authority_target=authority_target,
+            remote_access_teardown_at=remote_access_teardown_at,
+            model_admission_subject=model_admission_subject,
+            model_launch_scope=model_launch_scope,
         )
-    if scope is not None:
+    if scope is not None or model_sources:
         raise CMSError("Range launch scope unavailable")
     return _create_raes_native_range_impl(
         user,
@@ -364,43 +383,6 @@ def _create_raes_native_range_impl(  # NOSONAR -- mirrors the stable launch serv
         subject=model_admission_subject,
         package_digest=source.package_digest,
     )
-
-    # #28: attempt an atomic warm-pool claim before cold provisioning. A hit
-    # transfers a ready, compatible, system-owned generation to this user (audited
-    # ownership rehome) and enqueues activation, which realizes the claimant's
-    # fresh, sanitized access. A miss / disabled policy / unsupported backend
-    # cold-falls-back through the unchanged reservation + dispatch path below, with
-    # the inputs already validated for this launch.
-    from cms.services._warm_pool_claim import WarmClaimRequest, attempt_warm_claim
-
-    claimed_request_id = attempt_warm_claim(
-        WarmClaimRequest(
-            user=user,
-            scenario=scenario,
-            package_digest=source.package_digest,
-            lock_digest=source.lock_digest,
-            backend=backend_admission.backend if backend_admission else "",
-            instantiation_purpose=instantiation_purpose,
-            range_source=range_source,
-            workspace_id=workspace_id,
-            egress_mode=egress_mode,
-            request_id=request_id,
-            enforced_deadline=enforced_deadline,
-            model_launch_scope=model_launch_scope,
-            model_sources=model_sources,
-            policy_workspace_id=ctf_policy_workspace_id,
-        )
-    )
-    if claimed_request_id is not None:
-        _audit_raes_range_provision(
-            claimed_request_id,
-            scenario,
-            user,
-            range_source,
-            egress_policy_workspace_id=policy_workspace_id,
-            egress_mode=egress_mode,
-        )
-        return _build_raes_range_context(claimed_request_id, scenario, user)
 
     _request_id, _cms_request, range_instance, egress_mode = _reserve_active_range_slot(
         user,

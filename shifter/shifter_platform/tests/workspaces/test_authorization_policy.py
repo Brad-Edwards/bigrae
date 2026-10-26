@@ -27,6 +27,7 @@ from workspaces.models import Account, AuthorizationGroup, AuthorizationOperatio
 from workspaces.services import (
     AuthorizationAdminError,
     AuthorizationMutationConflict,
+    EventOwnershipHandoffPolicyMutationRequest,
     NativeRelationshipMutationRequest,
     PolicyMutationRequest,
     apply_native_relationship_mutation,
@@ -349,6 +350,79 @@ def test_group_self_add_is_denied_before_external_effect() -> None:
 
     assert result.state == AuthorizationOperation.State.DENIED
     assert provider.changes == []
+
+
+@pytest.mark.django_db
+def test_direct_action_self_grant_is_denied_before_external_effect() -> None:
+    account = Account.objects.create(kind=Account.Kind.INDIVIDUAL, name="A", individual_principal_uuid=ACTOR_ID)
+    provider = FakeProvider()
+    request = PolicyMutationRequest(
+        actor=PrincipalRef(ACTOR_ID, "human"),
+        credential=CredentialCeiling(frozenset({"account.read", "account.manage_authorization"})),
+        subject=RelationshipSubject("principal", ACTOR_ID),
+        action="account.read",
+        target=TargetRef("account", account.uuid),
+        scope=ResourceScope("account", account.uuid),
+        effect=PolicyEffect.GRANT,
+        idempotency_key="direct-self-grant",
+        model_id=MODEL_ID,
+    )
+
+    result = apply_policy_mutation(request, provider)
+
+    assert result.state == AuthorizationOperation.State.DENIED
+    assert provider.changes == []
+
+
+@pytest.mark.django_db
+def test_event_ownership_handoff_self_grant_is_closed_and_journaled() -> None:
+    from ctf.models import CTFEvent
+
+    account = Account.objects.create(kind=Account.Kind.INDIVIDUAL, name="A", individual_principal_uuid=ACTOR_ID)
+    now = timezone.now()
+    event = CTFEvent.objects.create(
+        name="Handoff event",
+        created_by=get_user_model().objects.get(username="actor"),
+        owner_principal_uuid=ACTOR_ID,
+        scope_kind="account",
+        account_id=account.pk,
+        scenario_id="synthetic",
+        event_start=now,
+        event_end=now + timedelta(days=1),
+    )
+    provider = FakeProvider()
+    request = EventOwnershipHandoffPolicyMutationRequest(
+        actor=PrincipalRef(ACTOR_ID, "human"),
+        credential=CredentialCeiling(frozenset({"event.read", "event.manage"})),
+        subject=RelationshipSubject("principal", ACTOR_ID),
+        action="event.read",
+        target=TargetRef("event", event.id),
+        scope=ResourceScope("account", account.uuid),
+        effect=PolicyEffect.GRANT,
+        idempotency_key="event-owner-handoff",
+        model_id=MODEL_ID,
+    )
+
+    result = apply_policy_mutation(request, provider)
+
+    operation = AuthorizationOperation.objects.get(pk=result.operation_id)
+    assert result.state == AuthorizationOperation.State.CONFIRMED
+    assert operation.trusted_context == "event_ownership_handoff"
+
+
+def test_event_ownership_handoff_rejects_non_staff_action() -> None:
+    with pytest.raises(ValueError, match="closed staff action set"):
+        EventOwnershipHandoffPolicyMutationRequest(
+            actor=PrincipalRef(ACTOR_ID, "human"),
+            credential=CredentialCeiling(frozenset({"event.manage_staff"})),
+            subject=RelationshipSubject("principal", ACTOR_ID),
+            action="event.manage_staff",
+            target=TargetRef("event", UUID("33333333-3333-3333-3333-333333333333")),
+            scope=ResourceScope("installation"),
+            effect=PolicyEffect.GRANT,
+            idempotency_key="invalid-event-owner-handoff",
+            model_id=MODEL_ID,
+        )
 
 
 @pytest.mark.django_db

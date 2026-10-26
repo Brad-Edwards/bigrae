@@ -23,7 +23,7 @@ Multiple independent deployments enable Shifter to serve different organizations
 
 - IMPLEMENTS → CONFIG `shifter/shifter_platform/config/settings.py` (Django settings - single deployment config, no deployment ID or isolation mechanism)
 - IMPLEMENTS → CONFIG `platform/terraform/environments/` (Terraform environments - dev/prod exist but single-account AWS only, no multi-deployment isolation)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#673` (PLAT-004: Independent Multi-Deployment)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#673` (PLAT-004: Independent Multi-Deployment)
 - IMPLEMENTS → CONFIG `platform/terraform/environments/dev/main.tf` (Independent AWS dev deployment environment)
 - IMPLEMENTS → CONFIG `platform/terraform/environments/prod/main.tf` (Independent AWS prod deployment environment)
 - IMPLEMENTS → CONFIG `platform/terraform/gcp/environments/gcp-dev/main.tf` (Independent GCP dev deployment environment)

@@ -69,18 +69,11 @@ class _EventAccessProjectionMixin:
         """Return the bounded owner reference for ``event``."""
         owner = event.created_by
         display = (owner.get_full_name() or owner.get_username()) if owner is not None else ""
-        return {"id": str(event.created_by_id), "display_name": display}
+        return {"id": str(event.owner_principal_uuid), "display_name": display}
 
     def _access_source(self, event: CTFEvent) -> str:
         """Compute the discovery access source without a per-row query."""
-        from ctf.services.authorization import EventAuthoritySource
-
-        actor = self.context.get("actor")
-        if actor is not None and event.created_by_id == actor.pk:
-            return EventAuthoritySource.OWNER.value
-        if self.context.get("is_platform_admin"):
-            return EventAuthoritySource.PLATFORM_ADMIN.value
-        return EventAuthoritySource.EVENT_STAFF.value
+        return "policy"
 
     def get_access_source(self, event: CTFEvent) -> str:
         """Return the closed authority source by which the actor reaches ``event``."""
@@ -89,14 +82,7 @@ class _EventAccessProjectionMixin:
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_access_capabilities(self, event: CTFEvent) -> list[str]:
         """Return the advisory capability nouns the actor holds for ``event``."""
-        from ctf.services.authorization import EventAuthoritySource
-        from ctf.services.event.staff import ALL_DELEGABLE_CAPABILITIES, capabilities_for_role
-
-        source = self._access_source(event)
-        if source in (EventAuthoritySource.OWNER.value, EventAuthoritySource.PLATFORM_ADMIN.value):
-            return list(ALL_DELEGABLE_CAPABILITIES)
-        role = (self.context.get("staff_roles") or {}).get(event.id)
-        return list(capabilities_for_role(role))
+        return list((self.context.get("access_capabilities") or {}).get(event.id, ()))
 
 
 class EventSummarySerializer(_EventAccessProjectionMixin, serializers.Serializer):
@@ -122,16 +108,17 @@ class EventListResponseSerializer(serializers.Serializer):
 class EventListQuerySerializer(serializers.Serializer):
     """Bounded, allowlisted query for the authority-aware event list (ADR-052-R3).
 
-    Search and ordering are allowlisted, status uses ``EventStatus``, owner is an
-    exact owner-id filter, and page/page-size are capped. These are data-selection
-    filters only and are never authority inputs.
+    Search and ordering are allowlisted, status uses ``EventStatus``,
+    owner_principal_uuid is an exact stable-principal filter, and page/page-size
+    are capped. These are data-selection filters only and are never authority
+    inputs.
     """
 
     _ORDERING = ("event_start", "-event_start", "name", "-name", "status", "-status")
 
     search = serializers.CharField(required=False, allow_blank=True, max_length=100)
     status = serializers.CharField(required=False, allow_blank=True, max_length=32)
-    owner = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    owner_principal_uuid = serializers.UUIDField(required=False, allow_null=True)
     ordering = serializers.ChoiceField(choices=_ORDERING, required=False, allow_blank=True)
     page = serializers.IntegerField(required=False, min_value=1)
     page_size = serializers.IntegerField(required=False, min_value=1, max_value=500)
@@ -182,22 +169,35 @@ class EventDetailSerializer(_EventAccessProjectionMixin, serializers.Serializer)
     capacity_hints = serializers.DictField(read_only=True)
     model_demand = serializers.ListField(child=serializers.DictField(), read_only=True)
     model_sources = ModelSourceSelectionField(read_only=True)
+    account = serializers.SerializerMethodField()
+    organization = serializers.SerializerMethodField()
     workspace = serializers.SerializerMethodField()
 
-    def get_workspace(self, event: CTFEvent) -> str | None:
-        from workspaces.services import WorkspaceAuthorizationError, WorkspaceOperation, authorize_bound_workspace
+    @staticmethod
+    def _scope(event: CTFEvent):
+        from workspaces.services import resource_scope_from_ids
 
-        request = self.context.get("request")
-        if request is None:
-            return None
-        try:
-            return str(
-                authorize_bound_workspace(
-                    request.user, event.workspace_id, WorkspaceOperation.USE_CTF_COMMUNICATIONS
-                ).workspace_uuid
-            )
-        except WorkspaceAuthorizationError:
-            return None
+        return resource_scope_from_ids(
+            kind=event.scope_kind,
+            account_id=event.account_id,
+            organization_id=event.organization_id,
+            workspace_id=event.workspace_id,
+        )
+
+    def get_account(self, event: CTFEvent) -> str | None:
+        """Return the event's public account identity."""
+        scope = self._scope(event)
+        return str(scope.account_uuid) if scope.account_uuid else None
+
+    def get_organization(self, event: CTFEvent) -> str | None:
+        """Return the event's public organization identity when present."""
+        scope = self._scope(event)
+        return str(scope.organization_uuid) if scope.organization_uuid else None
+
+    def get_workspace(self, event: CTFEvent) -> str | None:
+        """Return the event's public workspace identity when present."""
+        scope = self._scope(event)
+        return str(scope.workspace_uuid) if scope.workspace_uuid else None
 
     model_source_revision = serializers.IntegerField(read_only=True)
     logo_url = serializers.CharField(read_only=True, allow_blank=True)
@@ -271,11 +271,19 @@ class EventWriteSerializer(ClosedSerializer):
     capacity_hints = serializers.DictField(required=False)
     model_demand = serializers.ListField(child=serializers.DictField(), required=False, max_length=64)
     model_sources = ModelSourceSelectionField(required=False)
+    account = serializers.UUIDField(required=False)
+    organization = serializers.UUIDField(required=False)
     workspace = serializers.UUIDField(required=False)
     expected_model_source_revision = ModelSourceRevisionField(required=False, min_value=0)
     logo_url = serializers.URLField(required=False, allow_blank=True, max_length=500)
     visible_os_types = serializers.ListField(child=serializers.CharField(max_length=32), required=False, max_length=16)
     theme_color = serializers.RegexField(r"^(#[0-9a-fA-F]{6})?$", required=False, allow_blank=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Accept at most one explicit event parent; omission selects a human's individual account."""
+        if sum(key in attrs for key in ("account", "organization", "workspace")) > 1:
+            raise serializers.ValidationError("Select exactly one event placement.")
+        return attrs
 
     def validate_model_demand(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Validate each typed model-demand entry (PLAT-202, CTF-908).

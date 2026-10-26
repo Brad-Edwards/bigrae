@@ -23,4 +23,4 @@ Self-service team creation reduces organizer workload and lets participants form
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFTeam model - unique name constraint, captain FK, invite_code generation)
 - TESTS → TEST `shifter/shifter_platform/ctf/tests/test_models.py` (TestCTFTeamModel - test_create_team, test_team_unique_name_per_event)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#645` (CTF-502: Team Creation)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#645` (CTF-502: Team Creation)

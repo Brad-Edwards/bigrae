@@ -29,6 +29,24 @@ from . import principals as _principals
 from . import session_backend as _session_backend
 from . import temporary_accounts as _temporary_accounts
 from .audit_context import AuditContext
+from .identity_cutover import (
+    apply_identity_provider_bindings as apply_identity_provider_bindings,
+)
+from .identity_cutover import (
+    bootstrap_principal_uuid as bootstrap_principal_uuid,
+)
+from .identity_cutover import (
+    identity_cutover_disposition as identity_cutover_disposition,
+)
+from .identity_cutover import (
+    identity_cutover_principals as identity_cutover_principals,
+)
+from .identity_cutover import (
+    identity_cutover_token_count as identity_cutover_token_count,
+)
+from .identity_cutover import (
+    invalidate_pre_cutover_admission as invalidate_pre_cutover_admission,
+)
 from .models import ActivityLog, UserProfile
 
 save_session_assurance = _session_backend.save_session_assurance
@@ -54,6 +72,7 @@ ModelAccessGroupEligibilityView = _model_access_authority.ModelAccessGroupEligib
 ModelAccessGroupScope = _model_access_authority.ModelAccessGroupScope
 ModelAccessIdentityAuthorityError = _model_access_authority.ModelAccessIdentityAuthorityError
 is_platform_operator = _model_access_authority.is_platform_operator
+model_access_principals_for_users = _model_access_authority.model_access_principals_for_users
 resolve_model_access_group = _model_access_authority.resolve_model_access_group
 resolve_model_access_users = _model_access_authority.resolve_model_access_users
 resolve_model_preparation_user = _model_access_authority.resolve_model_preparation_user
@@ -65,6 +84,17 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
 logger = logging.getLogger(__name__)
+
+
+def policy_admin_registrations() -> tuple[tuple[type[object], type[object]], ...]:
+    """Return management-owned read-only admin registrations to the composition root."""
+    from management.policy_admin import PolicyActivityLogAdmin, PolicyUserAdmin, PolicyUserProfileAdmin
+
+    return (
+        (get_user_model(), PolicyUserAdmin),
+        (UserProfile, PolicyUserProfileAdmin),
+        (ActivityLog, PolicyActivityLogAdmin),
+    )
 
 
 def log_activity(action: str, user: User | None, **metadata: Any) -> None:

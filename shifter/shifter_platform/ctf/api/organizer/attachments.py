@@ -11,7 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ctf.api._base import CTF_ORGANIZER_PERMISSIONS, CTF_ROLE_PERMISSIONS, _CtfApiError
+from ctf.api._base import CTF_AUTH_PERMISSIONS, CTF_ORGANIZER_PERMISSIONS, _CtfApiError
 from ctf.api.organizer._audit import (
     admin_external_audit,
     audit_admin_event_mutation,
@@ -20,9 +20,10 @@ from ctf.api.organizer._base import (
     _EVENT_OR_PLAY_READ,
     _EVENT_READ,
     _EVENT_WRITE,
-    _actor,
     _actor_may_manage,
+    _credential,
     _delete_via_service,
+    _event_action_allowed,
     _raise_bad_request,
     _raise_forbidden,
     _raise_not_found,
@@ -38,6 +39,7 @@ from ctf.api.serializers import (
     PrerequisiteListResponseSerializer,
     PrerequisiteWriteSerializer,
 )
+from ctf.enums import EventCapability
 from shared.audit import AuditAction
 
 if TYPE_CHECKING:
@@ -53,29 +55,20 @@ def _is_file_download_allowed(request: Request, challenge_file: CTFChallengeFile
     get full access; otherwise the actor must be a non-disqualified participant
     of the event AND the challenge must be available to them.
     """
-    from ctf.bridges import get_user_role
     from ctf.exceptions import CTFStateError, CTFValidationError
-    from ctf.services.authorization import resolve_event_authority
     from ctf.services.challenge import assert_challenge_available_for_participant
-    from ctf.services.participant import get_participant_by_user, is_active_participant
+    from ctf.services.principal_participation import participant_for_credential
 
-    user = _actor(request)
     event = challenge_file.challenge.event
-    role = get_user_role(user)
-    # Owner-organizer or platform administrator may download for inspection; the
-    # participant availability rules below still gate every other actor.
-    if (role.is_ctf_organizer and event.created_by_id == user.pk) or resolve_event_authority(user, event) is not None:
+    credential = _credential(request)
+    if _event_action_allowed(credential, event.pk, "event.manage_challenges"):
         return True
-    if not is_active_participant(user, event=event):
+    try:
+        participant = participant_for_credential(credential, event.pk)
+        assert_challenge_available_for_participant(participant, challenge_file.challenge)
+    except (CTFStateError, CTFValidationError, ValueError):
         return False
-    participant = get_participant_by_user(user, event_id=event.id)
-    allowed = participant is not None
-    if participant is not None:
-        try:
-            assert_challenge_available_for_participant(participant, challenge_file.challenge)
-        except (CTFStateError, CTFValidationError):
-            allowed = False
-    return allowed
+    return True
 
 
 class ChallengeFilesView(APIView):
@@ -132,7 +125,7 @@ class ChallengeFilesView(APIView):
                         filename=uploaded_file.name or "unnamed",
                         display_name=display_name,
                         content_type=uploaded_file.content_type or "application/octet-stream",
-                        actor_id=_actor(request).pk,
+                        actor_id=_credential(request),
                     )
             except CTFPermissionError:
                 _raise_forbidden()
@@ -171,7 +164,7 @@ class ChallengeFileDeleteView(APIView):
                 challenge_file = CTFChallengeFile.objects.select_related("challenge__event").get(pk=file_id)
             except CTFChallengeFile.DoesNotExist:
                 _raise_not_found("File not found")
-            if not _actor_may_manage(request, challenge_file.challenge.event, None):
+            if not _actor_may_manage(request, challenge_file.challenge.event, EventCapability.CHALLENGES):
                 _raise_forbidden()
             return _delete_via_service(request, remove_challenge_file, file_id, operation="file.delete")
         except _CtfApiError as exc:
@@ -181,7 +174,7 @@ class ChallengeFileDeleteView(APIView):
 class FileDownloadView(APIView):
     """Return a presigned download URL for a challenge file (role-based access)."""
 
-    permission_classes = CTF_ROLE_PERMISSIONS
+    permission_classes = CTF_AUTH_PERMISSIONS
     required_read_scopes = _EVENT_OR_PLAY_READ
 
     @extend_schema(responses=FileDownloadResponseSerializer)
@@ -248,7 +241,9 @@ class ChallengePrerequisitesView(APIView):
             serializer.is_valid(raise_exception=True)
             try:
                 prereq = add_prerequisite(
-                    challenge_id, serializer.validated_data["required_challenge_id"], actor_id=_actor(request).pk
+                    challenge_id,
+                    serializer.validated_data["required_challenge_id"],
+                    actor_id=_credential(request),
                 )
             except CTFPermissionError:
                 _raise_forbidden()
@@ -285,7 +280,7 @@ class PrerequisiteDeleteView(APIView):
                 prereq = CTFChallengePrerequisite.objects.select_related("challenge__event").get(pk=prerequisite_id)
             except CTFChallengePrerequisite.DoesNotExist:
                 _raise_not_found("Prerequisite not found")
-            if not _actor_may_manage(request, prereq.challenge.event, None):
+            if not _actor_may_manage(request, prereq.challenge.event, EventCapability.CHALLENGES):
                 _raise_forbidden()
             return _delete_via_service(request, remove_prerequisite, prerequisite_id, operation="prerequisite.delete")
         except _CtfApiError as exc:

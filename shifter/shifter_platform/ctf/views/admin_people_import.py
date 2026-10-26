@@ -15,6 +15,7 @@ from django.views.decorators.http import require_http_methods
 
 from ctf.views._access import ctf_organizer_required
 from ctf.views.admin_people import _EVENT_NOT_FOUND_MSG, _FORBIDDEN_EVENT_MSG, _PARTICIPANT_LIST_ROUTE
+from shared.api.principals import authenticated_credential
 from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ def _run_participant_import(request: HttpRequest, event_id: UUID) -> tuple[list[
     csv_file = request.FILES["csv_file"]
     try:
         csv_content = csv_file.read().decode("utf-8")  # type: ignore[union-attr]
-        result = bulk_import_participants(event_id, csv_content)
+        result = bulk_import_participants(event_id, csv_content, actor=authenticated_credential(request))
     except CTFValidationError as e:
         return _participant_import_error_messages(e), 0, None
     imported_count = len(result["created"])

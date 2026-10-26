@@ -46,6 +46,7 @@ class MembershipMapping:
 
     scope_kind: str
     scope_id: int
+    user_id: int
     principal_uuid: UUID
     role: str
 
@@ -113,7 +114,7 @@ def _classify_shared_memberships(
         if not isinstance(principal_uuid, UUID) or principal_uuid.int == 0:
             blockers.append(MappingBlocker("principal_missing", user_id))
         else:
-            mappings.append(MembershipMapping(scope_kind, scope_id, principal_uuid, role))
+            mappings.append(MembershipMapping(scope_kind, scope_id, user_id, principal_uuid, role))
     return mappings, blockers
 
 

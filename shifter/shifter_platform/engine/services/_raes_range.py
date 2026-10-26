@@ -48,8 +48,9 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from engine.models import Range
+    from shared.authorization import TargetRef
     from shared.credentials import CredentialContext
-    from shared.identity_scope import ResourceScope
+    from shared.identity_scope import PrincipalRef, ResourceScope
     from shared.range_instantiation_policy import BackendAdmission
     from shared.runtime_plugin_binding import RuntimePluginScope
 
@@ -101,6 +102,12 @@ class RangeBindings:
     credential: CredentialContext | None = None
     resource_scope: ResourceScope | None = None
     cms_range_uuid: UUID | None = None
+    # Event launches deliberately separate the credential that requested the
+    # work from the principal that owns the resulting range.  For ordinary
+    # launches these remain unset and the credential principal is the owner.
+    owner_principal: PrincipalRef | None = None
+    authority_action: str | None = None
+    authority_target: TargetRef | None = None
     prepared_creation: PreparedRaesRangeCreation | None = None
 
 
@@ -205,7 +212,17 @@ def create_raes_range(
             request_id=request_uuid,
             request_type=RequestType.RANGE.value,
             user=user,
-            **({"owner_principal_uuid": principal_fields["owner_principal_uuid"]} if principal_fields else {}),
+            **(
+                {
+                    "owner_principal_uuid": principal_fields["owner_principal_uuid"],
+                    "scope_kind": principal_fields["scope_kind"],
+                    "account_id": principal_fields["account_id"],
+                    "organization_id": principal_fields["organization_id"],
+                    "workspace_id": workspace_id,
+                }
+                if principal_fields
+                else {}
+            ),
         )
         subnet_index = Range.allocate_subnet_index()
         # #2029 realized multi-region placement: pick the zone from the

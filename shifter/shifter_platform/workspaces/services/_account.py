@@ -97,6 +97,21 @@ def event_placement_scope(target_type: str, target_uuid: UUID) -> ResourceScope:
     return scope
 
 
+def individual_account_scope(principal: PrincipalRef) -> ResourceScope:
+    """Resolve an existing human's direct individual account without creating subdivisions."""
+    if not isinstance(principal, PrincipalRef) or principal.kind != "human":
+        raise AccountScopeError(_DENIED)
+    account = Account.objects.filter(
+        kind=Account.Kind.INDIVIDUAL,
+        individual_principal_uuid=principal.uuid,
+    ).first()
+    if account is None:
+        raise AccountScopeError(_DENIED)
+    scope = ResourceScope("account", account.uuid)
+    resolve_resource_scope(scope)
+    return scope
+
+
 def _audit_create(
     entity_type: str,
     entity_id: int,
@@ -157,6 +172,18 @@ class WorkspaceView:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkspaceOptionView:
+    """Display-safe workspace projection for cross-domain selectors."""
+
+    id: int
+    uuid: UUID
+    name: str
+    organization_id: int
+    organization_uuid: UUID
+    organization_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedResourceScope:
     """Resolved scalar ancestry for a validated resource scope."""
 
@@ -182,6 +209,50 @@ def _organization_view(organization: Organization) -> OrganizationView:
 def _workspace_view(workspace: Workspace) -> WorkspaceView:
     """Project a workspace without loading unrelated ancestry."""
     return WorkspaceView(workspace.id, workspace.uuid, workspace.organization_id, workspace.is_default)
+
+
+def workspace_option(workspace_uuid: UUID) -> WorkspaceOptionView:
+    """Resolve one active workspace without exposing the tenancy model."""
+    workspace = (
+        Workspace.objects.select_related("organization")
+        .filter(uuid=workspace_uuid, archived_at__isnull=True, organization__account__isnull=False)
+        .first()
+    )
+    if workspace is None:
+        raise AccountScopeError(_DENIED)
+    return WorkspaceOptionView(
+        workspace.pk,
+        workspace.uuid,
+        workspace.name,
+        workspace.organization_id,
+        workspace.organization.uuid,
+        workspace.organization.name,
+    )
+
+
+def workspace_id_for_uuid(workspace_uuid: UUID) -> int:
+    """Resolve an active workspace UUID to its private scalar identifier."""
+    return workspace_option(workspace_uuid).id
+
+
+def workspace_scope_for_id(workspace_id: int) -> ResourceScope:
+    """Resolve a retained workspace scalar to its validated public ancestry."""
+    workspace = Workspace.objects.only("uuid").filter(pk=workspace_id, archived_at__isnull=True).first()
+    if workspace is None:
+        raise AccountScopeError(_DENIED)
+    return hierarchy_target_scope("workspace", workspace.uuid)
+
+
+def active_workspace_ids_for_organization(organization_uuid: UUID) -> tuple[int, ...]:
+    """Return bounded scalar workspace identifiers for one retained organization."""
+    organization = Organization.objects.filter(uuid=organization_uuid, account__isnull=False).first()
+    if organization is None:
+        raise AccountScopeError(_DENIED)
+    return tuple(
+        Workspace.objects.filter(organization=organization, archived_at__isnull=True)
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
 
 
 def _locked_account(account_uuid: UUID) -> Account:
@@ -266,6 +337,9 @@ def create_account(
             request_audit,
         )
         _ensure_defaults_locked(account, audit_actor, request_audit)
+        from ._hierarchy_publication import stage_account_hierarchy
+
+        stage_account_hierarchy(account)
     return _account_view(account)
 
 
@@ -307,6 +381,9 @@ def create_account_organization(
             audit_actor,
             request_audit,
         )
+        from ._hierarchy_publication import stage_organization_hierarchy
+
+        stage_organization_hierarchy(organization)
         return _organization_view(organization)
 
 
@@ -334,6 +411,9 @@ def create_account_workspace(
             audit_actor,
             request_audit,
         )
+        from ._hierarchy_publication import stage_workspace_hierarchy
+
+        stage_workspace_hierarchy(workspace)
         return _workspace_view(workspace)
 
 
@@ -410,9 +490,16 @@ def assert_scope_principal_member(scope: ResourceScope, principal: PrincipalRef,
     resolve_resource_scope(scope)
     if scope.kind != "account" or scope.account_uuid is None or not isinstance(principal, PrincipalRef):
         raise AccountScopeError(_DENIED)
-    if for_update:
-        _locked_account(scope.account_uuid)
-    if not AccountMembership.objects.filter(account__uuid=scope.account_uuid, principal_uuid=principal.uuid).exists():
+    account = (
+        _locked_account(scope.account_uuid) if for_update else Account.objects.filter(uuid=scope.account_uuid).first()
+    )
+    if account is None:
+        raise AccountScopeError(_DENIED)
+    member = (
+        account.individual_principal_uuid == principal.uuid
+        or AccountMembership.objects.filter(account=account, principal_uuid=principal.uuid).exists()
+    )
+    if not member:
         raise AccountScopeError(_DENIED)
 
 

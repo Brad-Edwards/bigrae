@@ -28,4 +28,4 @@ Standard scoring is the simplest and most widely understood CTF scoring model. C
 - TESTS → TEST `shifter/shifter_platform/ctf/tests/conftest.py` (Test fixtures - correct submission awards challenge.points)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/_strategy.py` (StandardScoringStrategy, fixed challenge value, less hint penalty, independent of solve count)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring_mode.py` (Standard-scoring tests, full fixed value on solve, solve-count independence, hint-penalty modifier)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#520` (CTF-201: Introduce explicit CTF event scoring mode configuration (standard mode))
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#520` (CTF-201: Introduce explicit CTF event scoring mode configuration (standard mode))

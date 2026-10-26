@@ -19,7 +19,7 @@ from ctf.models import CTFChallenge, CTFHint, CTFHintUsage, CTFParticipant
 logger = logging.getLogger(__name__)
 
 
-def add_hint(challenge_id: UUID, hint_data: dict[str, Any], *, actor_id: int) -> CTFHint:
+def add_hint(challenge_id: UUID, hint_data: dict[str, Any], *, actor_id: object) -> CTFHint:
     """Add a hint to a challenge.
 
     Args:
@@ -79,7 +79,7 @@ def add_hint(challenge_id: UUID, hint_data: dict[str, Any], *, actor_id: int) ->
     return hint
 
 
-def update_hint(hint_id: UUID, hint_data: dict[str, Any], *, actor_id: int) -> CTFHint:
+def update_hint(hint_id: UUID, hint_data: dict[str, Any], *, actor_id: object) -> CTFHint:
     """Update a hint's text, penalty, or order.
 
     Args:
@@ -130,7 +130,7 @@ def update_hint(hint_id: UUID, hint_data: dict[str, Any], *, actor_id: int) -> C
     return hint
 
 
-def remove_hint(hint_id: UUID, *, actor_id: int) -> None:
+def remove_hint(hint_id: UUID, *, actor_id: object) -> None:
     """Soft-delete a hint.
 
     Args:

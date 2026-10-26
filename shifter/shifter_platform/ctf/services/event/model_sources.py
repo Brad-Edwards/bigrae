@@ -2,28 +2,31 @@
 
 from __future__ import annotations
 
-from django.contrib.auth.models import User
-
 from ctf.exceptions import CTFValidationError
 from ctf.models import CTFEvent
+from ctf.services.actors import EventActor, event_actor_credential, event_actor_user_id
 from shared.model_access import ContractError
-from shared.model_access.sources import ModelSourceSelection, ModelSourceSponsorship
+from shared.model_access.sources import (
+    ModelSourceCredentialReference,
+    ModelSourceSelection,
+    ModelSourceSponsorship,
+)
 from workspaces.services import OrganizationAuthorizationError, WorkspaceAuthorizationError
 
 SPONSOR_UNAVAILABLE = "source.sponsor_unavailable"
 
 
 def set_event_model_sources(
-    event: CTFEvent, actor: User | None, selection: object, *, expected_revision: int | None
+    event: CTFEvent, actor: EventActor | None, selection: object, *, expected_revision: int | None
 ) -> None:
     """Caller holds the event mutex; source policy changes use explicit CAS."""
     from ctf.bridges import cms_resolve_model_source_sponsorship
-    from ctf.enums import EventCapability
-    from ctf.services.authorization import assert_event_capability
+    from ctf.services.unified_authorization import require_event_action
 
     if actor is None:
         raise CTFValidationError("An organizer must authorize model sources.", code="source_sponsor_unavailable")
-    assert_event_capability(actor.pk, event, EventCapability.CONFIG)
+    credential = event_actor_credential(actor)
+    require_event_action(credential, event.pk, "event.manage_config")
     if expected_revision != event.model_source_revision:
         raise CTFValidationError(
             "Model sources changed. Reload this event before saving.", code="source_revision_conflict"
@@ -35,11 +38,14 @@ def set_event_model_sources(
         if selected.aliases:
             if event.workspace_id is None:
                 raise ContractError(SPONSOR_UNAVAILABLE)
-            cms_resolve_model_source_sponsorship(actor, event.workspace_id, selected)
+            cms_resolve_model_source_sponsorship(credential, event.workspace_id, selected)
     except (ValueError, ContractError, WorkspaceAuthorizationError, OrganizationAuthorizationError):
         raise CTFValidationError("Selected model sources are unavailable.", code="source_unavailable") from None
     event.model_sources = selected.model_dump(mode="json")
-    event.model_source_actor_id = actor.pk if selected.aliases else None
+    event.model_source_authority = (
+        ModelSourceCredentialReference.from_credential(credential).model_dump(mode="json") if selected.aliases else None
+    )
+    event.model_source_actor_id = event_actor_user_id(actor) if selected.aliases else None
     event.model_source_revision += 1
     from shared.audit import AuditActorType, AuditEvent, audit_log
 
@@ -49,8 +55,9 @@ def set_event_model_sources(
             entity_id=0,
             entity_ref=str(event.pk),
             action="update",
-            actor_type=AuditActorType.USER,
-            actor_id=actor.pk,
+            actor_type=AuditActorType.PRINCIPAL,
+            actor_id=None,
+            actor_principal_uuid=credential.principal.uuid,
             new_state={"event_model_source_revision": event.model_source_revision},
         ),
         strict=True,
@@ -60,16 +67,18 @@ def set_event_model_sources(
 def project_event_model_sources(event: CTFEvent) -> ModelSourceSponsorship | None:
     """Revalidate the source sponsor's current event and tenant authority."""
     from ctf.bridges import cms_resolve_model_source_sponsorship
-    from ctf.enums import EventCapability
-    from ctf.services.authorization import assert_event_capability
+    from ctf.services.unified_authorization import require_event_action
+    from shared.credentials import resolve_current_credential
 
     selection = ModelSourceSelection.model_validate(event.model_sources)
     if not selection.aliases:
         return None
-    if event.model_source_actor_id is None or event.workspace_id is None:
+    if event.model_source_authority is None or event.workspace_id is None:
         raise ContractError(SPONSOR_UNAVAILABLE)
-    actor = User.objects.filter(pk=event.model_source_actor_id, is_active=True).first()
-    if actor is None:
-        raise ContractError(SPONSOR_UNAVAILABLE)
-    assert_event_capability(actor.pk, event, EventCapability.CONFIG)
+    try:
+        reference = ModelSourceCredentialReference.model_validate(event.model_source_authority)
+        actor = resolve_current_credential(reference.credential())
+    except Exception:
+        raise ContractError(SPONSOR_UNAVAILABLE) from None
+    require_event_action(actor, event.pk, "event.manage_config")
     return cms_resolve_model_source_sponsorship(actor, event.workspace_id, selection)

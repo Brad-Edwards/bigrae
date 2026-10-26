@@ -18,6 +18,7 @@ map; ``TestGenerateRdpUrlSftpRoot`` covers that pass-through.
 from __future__ import annotations
 
 import json
+import sys
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -57,13 +58,27 @@ def other_user(db):
 
 
 @pytest.fixture
-def mock_user():
-    """A no-DB user input for the bootstrap status/open views (no engine calls)."""
-    user = MagicMock()
-    user.id = 1
-    user.email = "u@example.com"
-    user.is_authenticated = True
-    return user
+def mock_user(db):
+    """A durable user for bootstrap status/open authorization checks."""
+    from django.contrib.auth import get_user_model
+
+    return get_user_model().objects.create_user(username="bootstrap-status@example.com")
+
+
+@pytest.fixture(autouse=True)
+def referenced_session_authentication(monkeypatch, live_session_credential):
+    """Make direct DRF view requests carry the same session proof as production."""
+    from django.contrib.auth import get_user_model
+
+    original = force_authenticate
+    user_model = get_user_model()
+
+    def authenticate(request, user=None, token=None):
+        if isinstance(user, user_model) and token is None:
+            token = live_session_credential(user)
+        return original(request, user=user, token=token)
+
+    monkeypatch.setattr(sys.modules[__name__], "force_authenticate", authenticate)
 
 
 @pytest.fixture(autouse=True)

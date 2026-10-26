@@ -54,7 +54,7 @@ it("reconciles a successful unresolved organizer command in its original scope",
   mocked.mockImplementation((path, options) => {
     if (path === "/administer/users/") return Promise.resolve({ count: 1, results: [{ id: 42, display_name: "Target" }] });
     if (path === "/administer/users/42/") return Promise.resolve({ id: 42, principal_uuid: "principal-one", display_name: "Target", available_actions: [] });
-    if (path.endsWith("/grant-organizer/")) return Promise.resolve({ operation_id: "operation", state: "unresolved" });
+    if (path.endsWith("/event-creation-grants/")) return Promise.resolve({ operation_id: "operation", state: "unresolved" });
     if (path === "/accounts/original/authorization/operations/operation/") return Promise.resolve({ uuid: "operation", state: options?.method ? "confirmed" : "unresolved" });
     return Promise.resolve({ count: 0, results: [] });
   });

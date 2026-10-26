@@ -9,10 +9,9 @@ from workspaces.services import event_placement_scope, resource_scope_from_ids
 _SCOPE_UNAVAILABLE = "Credential scope unavailable"
 
 
-def event_credential_scope(event_uuid: UUID) -> ResourceScope:
-    """Return validated SQL ancestry, never an absent-scope installation default."""
-    event = CTFEvent.objects.filter(pk=event_uuid, deleted_at__isnull=True).first()
-    if event is None:
+def _event_scope(event: CTFEvent | None) -> ResourceScope:
+    """Validate one retained event's SQL ancestry."""
+    if event is None or event.authorization_publication_state != "confirmed":
         raise ValueError(_SCOPE_UNAVAILABLE)
     scope = resource_scope_from_ids(
         kind=event.scope_kind,
@@ -32,3 +31,13 @@ def event_credential_scope(event_uuid: UUID) -> ResourceScope:
         if event_placement_scope(parent_type, parent_uuid) != scope:
             raise ValueError(_SCOPE_UNAVAILABLE)
     return scope
+
+
+def event_credential_scope(event_uuid: UUID) -> ResourceScope:
+    """Return live validated SQL ancestry, never an absent-scope installation default."""
+    return _event_scope(CTFEvent.objects.filter(pk=event_uuid, deleted_at__isnull=True).first())
+
+
+def retained_event_delete_scope(event_uuid: UUID) -> ResourceScope:
+    """Resolve retained tombstone ancestry solely for permanent event deletion."""
+    return _event_scope(CTFEvent.all_objects.filter(pk=event_uuid).first())

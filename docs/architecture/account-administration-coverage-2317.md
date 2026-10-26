@@ -3,7 +3,7 @@
 This inventory completes the S4 preparation described in ADR-066. It compares
 all administer, audit, organization/workspace and range-scoping methods in the
 baseline v1 contract with the prepared service, DRF, browser and non-API paths.
-The scope clarification in [issue #2317](https://github.com/Brad-Edwards/shifter/issues/2317#issuecomment-5825481291)
+The scope clarification in [issue #2317](https://github.com/Brad-Edwards/bigrae/issues/2317#issuecomment-5825481291)
 makes #2321 the sole production activation point. Completion of this preparation
 does not claim that unmounted routes enforce production traffic.
 

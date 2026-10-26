@@ -11,7 +11,7 @@ from shared.model_access import ContractError
 _RANGE_UNAVAILABLE = "source.range_unavailable"
 
 
-def begin_range_model_policy_change(*, request_id: UUID, expected_revision: int, actor_id: int) -> int:
+def begin_range_model_policy_change(*, request_id: UUID, expected_revision: int, actor_principal_uuid: UUID) -> int:
     """CMS authorizes the editor; commit fencing before replacement admission."""
     from engine.models import Range
     from engine.services._model_allocation_lifecycle import revoke_model_generation
@@ -31,8 +31,9 @@ def begin_range_model_policy_change(*, request_id: UUID, expected_revision: int,
                 entity_type="range",
                 entity_id=row.pk,
                 action="update",
-                actor_type=AuditActorType.USER,
-                actor_id=actor_id,
+                actor_type=AuditActorType.PRINCIPAL,
+                actor_id=None,
+                actor_principal_uuid=actor_principal_uuid,
                 context=f"model source policy revision={row.model_source_policy_revision}",
             ),
             strict=True,
@@ -74,7 +75,7 @@ def admit_range_model_policy_change(*, request_id: UUID, expected_revision: int)
         return tuple(allocation.pk for allocation in allocations)
 
 
-def revoke_range_model_access(*, request_id: UUID, actor_id: int) -> int:
+def revoke_range_model_access(*, request_id: UUID, actor_principal_uuid: UUID) -> int:
     """Fence a range's current model grants and dispatch leases (M09, #2126).
 
     CMS authorizes the range administrator; this transactionally revokes the
@@ -97,8 +98,9 @@ def revoke_range_model_access(*, request_id: UUID, actor_id: int) -> int:
                 entity_type="range",
                 entity_id=row.pk,
                 action="model_access_revoke",
-                actor_type=AuditActorType.USER,
-                actor_id=actor_id,
+                actor_type=AuditActorType.PRINCIPAL,
+                actor_id=None,
+                actor_principal_uuid=actor_principal_uuid,
                 context=f"model access revoked authorities={fenced}",
             ),
             strict=True,

@@ -24,15 +24,15 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from django.contrib.auth.models import User
-
 from engine.services import (
     MintedOperation,
     bind_public_operation,
     lookup_public_operation,
     operation_id_for_request,
 )
+from shared.credentials import CredentialContext
 from shared.deployment import resolve_deployment_scope
+from shared.identity_scope import ResourceScope
 from shared.operation_intent import INTENT_PROJECTION_VERSION, canonical_intent_digest
 
 from ._raes_range_dispatch import create_range_dispatch
@@ -66,7 +66,7 @@ class RetrySafeLaunchOutcome:
 
 
 def _caller_intent(
-    user: User,
+    credential: CredentialContext,
     scenario: str,
     agents_selection: dict[str, Any],
     workspace_uuid: str | UUID | None,
@@ -84,7 +84,7 @@ def _caller_intent(
         "intent_projection_version": INTENT_PROJECTION_VERSION,
         "deployment_scope": deployment_scope,
         "action": _LAUNCH_ACTION,
-        "actor_key": str(user.id),
+        "actor_key": str(credential.principal.uuid),
         "workspace_uuid": str(workspace_uuid) if workspace_uuid else None,
         "scenario": str(scenario),
         "agents_selection": agents_selection,
@@ -98,7 +98,7 @@ def _caller_intent(
 
 
 def _digest(
-    user: User,
+    credential: CredentialContext,
     scenario: str,
     agents_selection: dict[str, Any],
     workspace_uuid: str | UUID | None,
@@ -107,12 +107,12 @@ def _digest(
 ) -> str:
     """Return the canonical digest of the caller's normalized launch intent."""
     return canonical_intent_digest(
-        _caller_intent(user, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
+        _caller_intent(credential, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
     )
 
 
 def resolve_retry_recovery(
-    user: User,
+    credential: CredentialContext,
     *,
     scenario: str,
     agents_selection: dict[str, Any],
@@ -128,10 +128,10 @@ def resolve_retry_recovery(
     catalog validation or effect occurs, so a retired scenario/agent still recovers.
     """
     deployment_scope = resolve_deployment_scope()
-    digest = _digest(user, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
+    digest = _digest(credential, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
     binding = lookup_public_operation(
         deployment_scope=deployment_scope,
-        actor_key=str(user.id),
+        actor_key=str(credential.principal.uuid),
         action=_LAUNCH_ACTION,
         caller_key=caller_key,
     )
@@ -147,7 +147,7 @@ def resolve_retry_recovery(
 
 
 def bind_first_use_launch(
-    user: User,
+    credential: CredentialContext,
     *,
     scenario: str,
     agents_selection: dict[str, Any],
@@ -155,6 +155,7 @@ def bind_first_use_launch(
     workspace_uuid: str | UUID | None = None,
     caller_key: str,
     model_sources: dict | None = None,
+    scope: ResourceScope,
 ) -> RetrySafeLaunchOutcome:
     """Dispatch and bind on first use of a retry key (mint + bind atomically).
 
@@ -164,7 +165,7 @@ def bind_first_use_launch(
     current generation on read.
     """
     deployment_scope = resolve_deployment_scope()
-    digest = _digest(user, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
+    digest = _digest(credential, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
 
     # RAES packages own topology; agents_by_os is accepted for caller back-compat
     # (the retry-key intent digest already binds agents_selection) but does not
@@ -176,12 +177,12 @@ def bind_first_use_launch(
 
     def mint() -> MintedOperation:
         """Dispatch the RAES create and return the minted request/operation identity."""
-        ctx = create_range_dispatch(user, scenario, workspace_uuid=workspace_uuid, **source_kwargs)
+        ctx = create_range_dispatch(credential, scenario, workspace_uuid=workspace_uuid, scope=scope, **source_kwargs)
         return MintedOperation(request_id=str(ctx.request_id), operation_id=operation_id_for_request(ctx.request_id))
 
     result = bind_public_operation(
         deployment_scope=deployment_scope,
-        actor_key=str(user.id),
+        actor_key=str(credential.principal.uuid),
         action=_LAUNCH_ACTION,
         caller_key=caller_key,
         intent_digest=digest,

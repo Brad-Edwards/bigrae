@@ -33,8 +33,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from cms.models import RaesPackageSource, RangeInstance
+    from shared.authorization import TargetRef
     from shared.credentials import CredentialContext
-    from shared.identity_scope import ResourceScope
+    from shared.identity_scope import PrincipalRef, ResourceScope
     from shared.raes.artifact_binding import ArtifactBinding
     from shared.raes.artifact_inventory import ArtifactRequirements, ArtifactSupply, BackendArtifact
     from shared.raes.content_delivery import DeliveryBinding
@@ -93,6 +94,9 @@ class CmsRaesDispatchPort:
     credential: CredentialContext | None = None
     scope: ResourceScope | None = None
     source: RaesPackageSource | None = None
+    owner_principal: PrincipalRef | None = None
+    authority_action: str | None = None
+    authority_target: TargetRef | None = None
 
     def realize(
         self,
@@ -126,9 +130,9 @@ class CmsRaesDispatchPort:
                 workspace_id=self.workspace_id,
                 egress_mode=self.egress_mode,
             )
-            if prepare_models:
-                prepare_model_access_for_dispatch(UUID(self.request_id), range_id=UUID(ref.range_id))
-                ref = dispatch_created_raes_range(UUID(self.request_id))
+        if prepare_models:
+            prepare_model_access_for_dispatch(UUID(self.request_id), range_id=UUID(ref.range_id))
+            ref = dispatch_created_raes_range(UUID(self.request_id))
         return ShifterDispatchResult(
             request_id=ref.request_id, accepted=ref.accepted, status=ref.status, range_id=ref.range_id
         )
@@ -141,15 +145,28 @@ class CmsRaesDispatchPort:
         from uuid import UUID
 
         from cms.models import RangeInstance
+        from cms.services._model_allocation import needs_model_preparation, prepare_model_access_for_dispatch
         from cms.services._scoped_range_launch import revalidate_scoped_launch
-        from engine.services import dispatch_created_raes_range, prepare_raes_range_creation, project_range_authority
+        from engine.services import dispatch_created_raes_range, prepare_raes_range_creation
 
         if self.credential is None or self.scope is None or self.source is None:
             raise ValueError("Range creation authority unavailable")
-        current = revalidate_scoped_launch(self.credential, self.scope, self.source)
+        current = revalidate_scoped_launch(
+            self.credential,
+            self.scope,
+            self.source,
+            authority_action=self.authority_action,
+            authority_target=self.authority_target,
+        )
         delivery = self._prepare_delivery(compiled_plan)
         artifacts = self._resolve_artifact_bindings(compiled_plan)
-        current = revalidate_scoped_launch(current, self.scope, self.source)
+        current = revalidate_scoped_launch(
+            current,
+            self.scope,
+            self.source,
+            authority_action=self.authority_action,
+            authority_target=self.authority_target,
+        )
         instance = RangeInstance.objects.select_related("request").get(request__request_id=self.request_id)
         bindings = RangeBindings(
             delivery=delivery,
@@ -161,8 +178,12 @@ class CmsRaesDispatchPort:
             credential=current,
             resource_scope=self.scope,
             cms_range_uuid=instance.uuid,
+            owner_principal=self.owner_principal,
+            authority_action=self.authority_action,
+            authority_target=self.authority_target,
         )
         prepared = prepare_raes_range_creation(bindings, self.workspace_id, instance.user_id, compiled_plan)
+        prepare_models = needs_model_preparation(self.request_id)
         with transaction.atomic():
             row = RangeInstance.objects.select_for_update(of=("self",)).select_related("request").get(pk=instance.pk)
             self._assert_principal_launch_row(row, current)
@@ -175,12 +196,21 @@ class CmsRaesDispatchPort:
                 egress_mode=self.egress_mode,
                 bindings=replace(bindings, prepared_creation=prepared),
             )
-            projection = project_range_authority(UUID(self.request_id))
-            if row.range_id is not None and row.range_id != projection.native_id:
+            if self.scope.kind == "installation":
+                from engine.services import native_range_id_by_request
+
+                native_id = native_range_id_by_request(UUID(self.request_id))
+            else:
+                from engine.services import project_range_authority
+
+                native_id = project_range_authority(UUID(self.request_id)).native_id
+            if row.range_id is not None and row.range_id != native_id:
                 raise ValueError("Range runtime changed")
-            row.range_id = projection.native_id
+            row.range_id = native_id
             row.save(update_fields=["range_id"])
-            ref = dispatch_created_raes_range(UUID(self.request_id), credential=current, prepared_creation=prepared)
+        if prepare_models:
+            prepare_model_access_for_dispatch(UUID(self.request_id), range_id=native_id)
+        ref = dispatch_created_raes_range(UUID(self.request_id), credential=current, prepared_creation=prepared)
         return ShifterDispatchResult(
             request_id=ref.request_id, accepted=ref.accepted, status=ref.status, range_id=ref.range_id
         )
@@ -198,7 +228,8 @@ class CmsRaesDispatchPort:
         if (
             resolve_local_credential(current) != current
             or row.status != "provisioning"
-            or row.owner_principal_uuid != current.principal.uuid
+            or row.owner_principal_uuid
+            != (self.owner_principal.uuid if self.owner_principal is not None else current.principal.uuid)
             or (row.scope_kind, row.account_id, row.organization_id, row.workspace_id, row.owner_principal_uuid)
             != (
                 row.request.scope_kind,

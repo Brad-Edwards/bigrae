@@ -30,4 +30,4 @@ Participants who registered days ago may forget about the event. Reminders reduc
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/reminder.html` (Reminder HTML email template with access URL and timezone-aware start time)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/reminder.txt` (Reminder plain text email template with access URL and timezone-aware start time)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_scheduler_handlers.py (TestHandleSendReminder)` (Tests for _handle_send_reminder scheduler handler)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#582` (CTF-1005: Scheduled Reminders)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#582` (CTF-1005: Scheduled Reminders)

@@ -27,4 +27,4 @@ Precise timing is fundamental to competitive fairness, all participants must hav
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFEvent model, event_start, event_end, event_timezone fields)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_submission.py` (Submission tests, time-boundary enforcement (TestTimeBoundaryEnforcement))
 - TESTS → TEST `shifter/shifter_platform/static/js/ctf-event-timing.test.js` (Event timing JS tests, formatDuration, formatLocalTime)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#583` (CTF-702: Event Timing)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#583` (CTF-702: Event Timing)

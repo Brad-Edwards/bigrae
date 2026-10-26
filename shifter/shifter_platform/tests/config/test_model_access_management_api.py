@@ -198,7 +198,7 @@ class TestGeneratedContract:
             "/api/v1/model-access/bindings/publish/": ("post", "model-access:sharing:write"),
             "/api/v1/model-access/bindings/drain/": ("post", "model-access:sharing:write"),
             "/api/v1/model-access/bindings/policy-preview/": ("post", "model-access:operator:read"),
-            "/api/v1/cms/ranges/{request_id}/model-sources/revoke/": ("post", "model-access:range:write"),
+            "/api/v1/cms/ranges/{request_id}/model-access/revoke/": ("post", "model-access:range:write"),
             "/api/v1/ctf/events/{event_id}/model-access/assessment/": ("get", "model-access:event:read"),
             "/api/v1/ctf/me/model-access/": ("get", "model-access:participant:read"),
         }

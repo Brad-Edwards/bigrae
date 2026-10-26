@@ -37,8 +37,16 @@ def helper_client(helper_organizer):
 
 
 def _assign(client, event, email, role):
+    from management.services import principal_for_user
+
+    target = User.objects.filter(email=email).first()
+    principal_uuid = principal_for_user(target).uuid if target is not None else "00000000-0000-0000-0000-000000000001"
     return call_json(
-        client, "post", "api_event_staff", kwargs={"event_id": event.id}, body={"email": email, "role": role}
+        client,
+        "post",
+        "api_event_staff",
+        kwargs={"event_id": event.id},
+        body={"principal_uuid": str(principal_uuid), "role": role},
     )
 
 
@@ -49,15 +57,15 @@ class TestStaffAssignment:
         assert resp.json()["role"] == "moderator"
 
         listing = call_json(authenticated_organizer_client, "get", "api_event_staff", kwargs={"event_id": ctf_event.id})
-        assert [s["email"] for s in listing.json()["staff"]] == ["helper@test.com"]
+        assert [s["principal_uuid"] for s in listing.json()["staff"]] == [str(helper_organizer.identity_principal.uuid)]
 
         gone = call_json(
             authenticated_organizer_client,
             "delete",
             "api_event_staff_member",
-            kwargs={"event_id": ctf_event.id, "user_id": helper_organizer.pk},
+            kwargs={"event_id": ctf_event.id, "principal_uuid": helper_organizer.identity_principal.uuid},
         )
-        assert gone.status_code == 200
+        assert gone.status_code == 204
         listing = call_json(authenticated_organizer_client, "get", "api_event_staff", kwargs={"event_id": ctf_event.id})
         assert listing.json()["staff"] == []
 
@@ -72,9 +80,11 @@ class TestStaffAssignment:
         assert _assign(authenticated_organizer_client, ctf_event, "nobody@test.com", "moderator").status_code == 404
         assert _assign(authenticated_organizer_client, ctf_event, "organizer@test.com", "sheriff").status_code == 400
 
-    def test_assign_rejects_owner_and_non_organizer(self, ctf_event, authenticated_organizer_client, participant_user):
+    def test_assign_rejects_owner_and_accepts_active_human_principal(
+        self, ctf_event, authenticated_organizer_client, participant_user
+    ):
         assert _assign(authenticated_organizer_client, ctf_event, "organizer@test.com", "judge").status_code == 400
-        assert _assign(authenticated_organizer_client, ctf_event, participant_user.email, "judge").status_code == 400
+        assert _assign(authenticated_organizer_client, ctf_event, participant_user.email, "judge").status_code == 201
 
 
 class TestModeratorCapabilities:

@@ -29,7 +29,7 @@ from ctf.api.organizer._base import (
     _RANGE_REQUEST_FAILED,
     _RECOVERY_REQUEST_FAILED,
     _SPARE_POOL_REQUEST_FAILED,
-    _actor,
+    _credential,
     _raise_bad_request,
     _raise_not_found,
     _resolve_active_participant,
@@ -98,9 +98,7 @@ def _parse_spare_pool_count(body: dict[str, object]) -> int:
     return value
 
 
-def _run_participant_range_action(
-    request: Request, participant_id: UUID, action_fn: Callable[[UUID], object]
-) -> Response:
+def _run_participant_range_action(request: Request, participant_id: UUID, action_fn: Callable[..., object]) -> Response:
     """Resolve+own the participant, run a range action, and map range errors to 400.
 
     Mirrors ``ctf.views.api.ranges._participant_range_action`` +
@@ -113,7 +111,7 @@ def _run_participant_range_action(
     try:
         _resolve_owned_participant(request, participant_id, capability=EventCapability.RANGES)
         try:
-            result = action_fn(participant_id)
+            result = action_fn(participant_id, actor=_credential(request))
         except (CTFNotFoundError, CTFRangeError):
             _raise_bad_request(_RANGE_REQUEST_FAILED)
         return Response(result)
@@ -144,7 +142,7 @@ class ParticipantRangeStatusView(APIView):
                     }
                 )
             try:
-                result = range_service.get_range_status(participant.pk)
+                result = range_service.get_range_status(participant.pk, credential=_credential(request))
             except CTFNotFoundError:
                 _raise_not_found(_PARTICIPANT_NOT_FOUND)
             return Response(result)
@@ -233,7 +231,7 @@ class EventRangeProvisionView(APIView):
             return exc.to_response(request)
         # Non-rollbackable provisioning: override intent before the enqueue, then outcome.
         with admin_external_audit(request, "range.provision"):
-            task = range_service.request_event_provisioning(event_id, source="manual", actor_id=_actor(request).pk)
+            task = range_service.request_event_provisioning(event_id, source="manual", actor_id=_credential(request))
         return Response(
             {
                 "event_id": str(event_id),
@@ -277,7 +275,7 @@ class EventSpareProvisionView(APIView):
         try:
             # Non-rollbackable spare provisioning: override intent then outcome.
             with admin_external_audit(request, "range.spare_provision"):
-                result = provision_event_spares(event_id, count, operator=_actor(request))
+                result = provision_event_spares(event_id, count, operator=_credential(request))
         except CTFNotFoundError:
             _raise_not_found(_EVENT_NOT_FOUND)
         return Response(result)
@@ -389,7 +387,7 @@ class ParticipantRangeRecoverView(APIView):
             result = recover_participant_range(
                 participant_id,
                 strategy=strategy,
-                operator=_actor(request),
+                operator=_credential(request),
                 spare_range_instance_id=spare_range_instance_id,
             )
         except _BodyParseError:

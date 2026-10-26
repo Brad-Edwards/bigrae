@@ -18,6 +18,7 @@ from shared.api.errors import api_error_response
 from shared.api.principals import authenticated_credential
 from shared.audit import request_audit
 from shared.authorization import PolicyEffect, RelationshipSubject, TargetRef, configured_authorization_provider
+from shared.principal_port import PrincipalResolutionError
 from workspaces.api.serializers import AuthorizationMutationSerializer
 from workspaces.services import (
     AccountScopeError,
@@ -41,7 +42,11 @@ class PolicyTransferOwnershipResult(TransferOwnershipResultSerializer):
 class PolicyAdministerTransferOwnershipView(PolicyAdminView):
     """Root identity authority composes independently authorized resource effects."""
 
-    @extend_schema(request=PolicyTransferOwnershipCommand, responses=PolicyTransferOwnershipResult)
+    @extend_schema(
+        request=PolicyTransferOwnershipCommand,
+        responses=PolicyTransferOwnershipResult,
+        operation_id="api_v1_administer_users_transfer_ownership",
+    )
     def post(self, request: Request, pk: int) -> Response:
         command = PolicyTransferOwnershipCommand(data=request.data)
         command.is_valid(raise_exception=True)
@@ -91,23 +96,32 @@ class PolicyAdministerGrantOrganizerView(PolicyAdminView):
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(
-            exc, (AccountScopeError, AuthorizationMutationConflict, identities.PrincipalConflictError, ValueError)
+            exc,
+            (
+                AccountScopeError,
+                AuthorizationMutationConflict,
+                identities.PrincipalConflictError,
+                PrincipalResolutionError,
+                ValueError,
+            ),
         ):
             return api_error_response(
                 code="administration_denied", message="Administration denied", status_code=403, request=self.request
             )
         return super().handle_exception(exc)
 
-    @extend_schema(request=ScopedOrganizerCommand, responses={202: AuthorizationMutationSerializer})
-    def post(self, request: Request, pk: int) -> Response:
+    @extend_schema(
+        request=ScopedOrganizerCommand,
+        responses={202: AuthorizationMutationSerializer},
+        operation_id="api_v1_administer_principals_event_creation_grants",
+    )
+    def post(self, request: Request, principal_uuid: UUID) -> Response:
         command = ScopedOrganizerCommand(data=request.data)
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
         provider = configured_authorization_provider()
         require_principal_administration(actor, provider)
-        user = identities.get_admin_user(pk)
-        if user is None:
-            raise PermissionError("Administration denied")
+        subject = identities.resolve_principal_uuid(principal_uuid)
         values = command.validated_data
         target_uuid: UUID = values["target_uuid"]
         kind = values["target_type"]
@@ -117,7 +131,7 @@ class PolicyAdministerGrantOrganizerView(PolicyAdminView):
             PolicyMutationRequest(
                 actor=actor.principal,
                 credential=actor.ceiling,
-                subject=RelationshipSubject("principal", identities.principal_for_user(user).uuid),
+                subject=RelationshipSubject("principal", subject.uuid),
                 action=f"{kind}.create_event",
                 target=target,
                 scope=scope,

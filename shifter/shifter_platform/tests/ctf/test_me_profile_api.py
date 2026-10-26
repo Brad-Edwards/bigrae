@@ -30,13 +30,13 @@ def me(ctf_event_active, participant_user, authenticated_participant_client):
 
 
 @pytest.fixture
-def isolated_me(ctf_event_active, monkeypatch):
+def isolated_me(ctf_event_active, organizer_credential, monkeypatch):
     """A participant on an isolated (#1206) account, logged in on a fresh client."""
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
     from ctf.services.participant import create_participant_accounts
     from management.services import set_active_ctf_event
 
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     set_active_ctf_event(participant.user, ctf_event_active.pk)
     profile = participant.user.profile
     profile.must_change_password = False
@@ -86,11 +86,13 @@ class TestSelfUsername:
         participant.user.refresh_from_db()
         assert participant.user.username == "range-my-handle"
 
-    def test_change_rejects_invalid_and_duplicate(self, isolated_me, ctf_event_active, monkeypatch):
+    def test_change_rejects_invalid_and_duplicate(
+        self, isolated_me, ctf_event_active, organizer_credential, monkeypatch
+    ):
         monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
         from ctf.services.participant import create_participant_accounts
 
-        other = create_participant_accounts(ctf_event_active.id, count=1)[0]
+        other = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
         _participant, client = isolated_me
 
         assert call_json(client, "post", "api_me_username", body={"username": "bad handle"}).status_code == 400

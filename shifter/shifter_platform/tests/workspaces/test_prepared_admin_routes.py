@@ -1,9 +1,9 @@
-"""Prepared HTTP integration exercises admission without activating production routes."""
+"""Account-administration HTTP integration for the coordinated S8 activation."""
 
 from uuid import uuid4
 
 import pytest
-from django.urls import Resolver404, resolve
+from django.urls import resolve
 from rest_framework.test import APIClient
 
 from tests.workspaces.test_account_policy_admin import Provider, _actor
@@ -13,14 +13,14 @@ from workspaces.models import Organization, Workspace, WorkspaceMembership
 pytestmark = pytest.mark.django_db
 
 
-def test_prepared_routes_are_unreachable_from_production():
-    with pytest.raises(Resolver404):
-        resolve("/api/v1/accounts/")
+def test_account_administration_routes_are_mounted_in_production():
+    match = resolve("/api/v1/accounts/")
+
+    assert match.route == "api/v1/accounts/"
 
 
 @pytest.mark.parametrize("kind", ["human", "service"])
-@pytest.mark.urls("config.account_admin_urls")
-def test_prepared_http_profile_membership_and_quota_operations(monkeypatch, kind):
+def test_production_http_profile_membership_and_quota_operations(monkeypatch, kind):
     from django.contrib.auth import get_user_model
 
     actor = _actor(
@@ -32,7 +32,10 @@ def test_prepared_http_profile_membership_and_quota_operations(monkeypatch, kind
     subject = _actor("service").principal
     client = APIClient()
     if kind == "human":
-        client.force_authenticate(get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid))
+        client.force_login(
+            get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid),
+            backend="config.auth.PlatformModelBackend",
+        )
     else:
 
         def authenticate(_self, request):
@@ -71,7 +74,7 @@ def test_prepared_http_profile_membership_and_quota_operations(monkeypatch, kind
     )
 
 
-def test_prepared_contract_is_generated_from_dormant_routes():
+def test_account_admin_contract_matches_active_routes():
     import json
     from pathlib import Path
 
@@ -83,8 +86,7 @@ def test_prepared_contract_is_generated_from_dormant_routes():
 
 
 @pytest.mark.parametrize("kind", ["human", "service"])
-@pytest.mark.urls("config.account_admin_urls")
-def test_prepared_http_retained_workspace_commands_use_principal_facts(monkeypatch, kind):
+def test_production_http_retained_workspace_commands_use_principal_facts(monkeypatch, kind):
     from django.contrib.auth import get_user_model
 
     from shared.authorization import ACTION_CATALOG
@@ -93,7 +95,10 @@ def test_prepared_http_retained_workspace_commands_use_principal_facts(monkeypat
     subject = _actor("service").principal
     client = APIClient()
     if kind == "human":
-        client.force_authenticate(get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid))
+        client.force_login(
+            get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid),
+            backend="config.auth.PlatformModelBackend",
+        )
     else:
 
         def authenticate(_self, request):
@@ -111,29 +116,33 @@ def test_prepared_http_retained_workspace_commands_use_principal_facts(monkeypat
     assert created.status_code == 201
     workspace_uuid = created.data["uuid"]
     base = f"/api/v1/workspaces/{workspace_uuid}/"
+    account_base = f"/api/v1/account-workspaces/{workspace_uuid}/"
     for principal in (actor.principal, subject):
         assert (
             client.post(base + "memberships/", {"principal_uuid": str(principal.uuid)}, format="json").status_code
             == 204
         )
-    assert client.get(base + "membership/").data["principal_uuid"] == str(actor.principal.uuid)
+    assert client.get(account_base + "membership/").data["principal_uuid"] == str(actor.principal.uuid)
     assert (
         client.post(base + "owners/", {"principal_uuid": str(actor.principal.uuid)}, format="json").status_code == 204
     )
     assert (
         client.post(
-            base + "transfer/",
+            account_base + "ownership/transfer/",
             {"source_principal_uuid": str(actor.principal.uuid), "destination_principal_uuid": str(subject.uuid)},
             format="json",
         ).status_code
         == 204
     )
-    invitation = client.post(base + "invitations/", {"email": "recipient@example.test"}, format="json")
+    invitation = client.post(account_base + "invitations/", {"email": "recipient@example.test"}, format="json")
     assert invitation.status_code == 201
     invitation_uuid = invitation.data["invitation_uuid"]
-    assert client.get(base + "invitations/").data["count"] == 1
+    assert client.get(account_base + "invitations/").data["count"] == 1
     for operation in ("resend", "revoke"):
-        assert client.post(base + f"invitations/{invitation_uuid}/{operation}/", {}, format="json").status_code == 200
+        assert (
+            client.post(account_base + f"invitations/{invitation_uuid}/{operation}/", {}, format="json").status_code
+            == 200
+        )
     assert (
         client.put(
             base + "quota-policy/", {"resource": "member_seats", "mode": "enforcing", "limit": 10}, format="json"
@@ -142,7 +151,7 @@ def test_prepared_http_retained_workspace_commands_use_principal_facts(monkeypat
     )
     assert client.put(base + "egress-policy/", {"egress_policy": "none"}, format="json").status_code == 200
     assert client.post(base + "rename/", {"name": "Renamed"}, format="json").status_code == 200
-    assert client.post(base + "memberships/leave/", {}, format="json").status_code == 204
+    assert client.post(account_base + "memberships/leave/", {}, format="json").status_code == 204
     assert client.post(base + "archive/", {}, format="json").status_code == 200
     assert client.post(base + "restore/", {}, format="json").status_code == 200
 
@@ -161,7 +170,7 @@ def test_standalone_organization_operation_recovery_uses_persisted_ancestry(monk
     from django.contrib.auth import get_user_model
 
     from management.models import Principal
-    from tests.workspaces.test_authorization_api import FakeProvider
+    from tests.workspaces.test_authorization_policy import FakeProvider
 
     user = get_user_model().objects.create_user(username="organization-recovery", password="test-pass")
     subject = Principal.objects.create(kind="service", name="Synthetic subject")
@@ -172,7 +181,7 @@ def test_standalone_organization_operation_recovery_uses_persisted_ancestry(monk
     settings.OPENFGA_MODEL_ID = provider.model_id
     monkeypatch.setattr("shared.authorization.port._provider_factory", lambda: provider)
     client = APIClient()
-    client.force_authenticate(user)
+    client.force_login(user, backend="config.auth.PlatformModelBackend")
     mutation = client.post(
         f"/api/v1/accounts/{account.uuid}/organizations/{organization.uuid}/authorization/direct-assignments/",
         {

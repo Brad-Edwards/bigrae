@@ -66,6 +66,26 @@ def active_scoped_range(
     """Select the most recent visible active range in the requested customer scope."""
     from shared.enums import ResourceStatus
 
+    if scope is None:
+        try:
+            current = resolve_current_credential(credential)
+        except Exception:
+            raise CMSError(_RANGE_UNAVAILABLE) from None
+        candidate = (
+            RangeInstance.objects.defer(*PRIVATE_RANGE_FIELDS)
+            .filter(owner_principal_uuid=current.principal.uuid, range_source=range_source)
+            .exclude(status=ResourceStatus.DESTROYING.value)
+            .order_by("-created_at")
+            .first()
+        )
+        if candidate is None:
+            return None
+        try:
+            return require_range_action(current, candidate.uuid, _RANGE_READ)
+        except CMSError as exc:
+            if exc.details and exc.details.get("code") == "authority-unavailable":
+                raise
+            return None
     rows = list_scoped_ranges(credential, scope, range_source=range_source)
     return next((row for row in rows if row.status != ResourceStatus.DESTROYING.value), None)
 

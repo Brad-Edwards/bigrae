@@ -124,7 +124,7 @@ the executable evidence for that rule. Provider paths consume the same persisted
 deadline state and contain no lease-policy branch.
 
 Proposed ADR-059, ADR-060 and ADR-061 record the
-[#681 model-access design](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md): a
+[#681 model-access design](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/index.md): a
 deployment-owned broker, Engine-owned allocation and mandatory budgets,
 and evidence-based revocation/operation. Their registry entries are proposed
 design policy. Existing import and registry checks validate structure; they

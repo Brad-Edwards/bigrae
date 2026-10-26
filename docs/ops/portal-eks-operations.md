@@ -1,6 +1,6 @@
 # Portal on EKS operations runbook
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/188>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/188>
 Ownership and security model: [AWS EKS backend bundle](../technical/platform_infrastructure/aws-eks-bundle.md)
 Region: `us-east-2` (all AWS Portal resources)
 

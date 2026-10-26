@@ -97,6 +97,9 @@ class CTFEvent(ImmutableFieldsMixin, CTFBaseModel):
         help_text="Organizer-authored shared-resource demand hints declared to the engine (CTF-908)",
     )
     model_sources = models.JSONField(default=dict, blank=True)
+    model_source_authority = models.JSONField(null=True, blank=True, editable=False)
+    # Historical attribution retained for the cutover disposition only. Runtime
+    # source authority is the exact non-secret credential reference above.
     model_source_actor_id = models.PositiveIntegerField(null=True, blank=True)
     model_source_revision = models.PositiveIntegerField(default=0)
     model_demand = models.JSONField(
@@ -124,10 +127,24 @@ class CTFEvent(ImmutableFieldsMixin, CTFBaseModel):
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="ctf_events_created",
-        help_text="User who created this event",
+        help_text="Optional legacy human creator projection; never application authority",
     )
+    creator_principal_uuid = models.UUIDField(db_index=True, editable=False)
+    owner_principal_uuid = models.UUIDField(db_index=True, editable=False)
+    authorization_publication_state = models.CharField(
+        max_length=16,
+        choices=(("requested", "Requested"), ("confirmed", "Confirmed"), ("unresolved", "Unresolved")),
+        default="confirmed",
+        db_index=True,
+        editable=False,
+    )
+    authorization_provider_store_id = models.CharField(max_length=64, blank=True, default="", editable=False)
+    authorization_model_id = models.CharField(max_length=64, blank=True, default="", editable=False)
+    authorization_publication_reason = models.CharField(max_length=64, blank=True, default="", editable=False)
     workspace_id = models.IntegerField(
         null=True,
         blank=True,
@@ -145,6 +162,17 @@ class CTFEvent(ImmutableFieldsMixin, CTFBaseModel):
     )
     account_id = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
     organization_id = models.PositiveBigIntegerField(null=True, blank=True)
+
+    def save(self, *args, **kwargs) -> None:
+        """Populate legacy human attribution as principal facts on new rows only."""
+        if self._state.adding and self.created_by_id is not None:
+            from shared.principal_port import principal_for_user
+
+            principal_uuid = principal_for_user(self.created_by).uuid
+            self.creator_principal_uuid = self.creator_principal_uuid or principal_uuid
+            self.owner_principal_uuid = self.owner_principal_uuid or principal_uuid
+        super().save(*args, **kwargs)
+
     status = models.CharField(
         max_length=20,
         choices=EventStatus.choices(),

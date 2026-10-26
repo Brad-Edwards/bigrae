@@ -7,6 +7,7 @@ mapped HTTP status. DB fixtures from ``conftest.py``; services mocked at source.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -14,6 +15,7 @@ from uuid import uuid4
 import pytest
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.urls import reverse
+from django.utils import timezone
 
 from ctf.exceptions import (
     CTFNotFoundError,
@@ -486,9 +488,32 @@ class TestApiParticipantErrorPaths:
         assert resp.status_code == 403
 
     def test_timeline_self(self, authenticated_participant_client: Client, ctf_participant: CTFParticipant):
+        ctf_participant.event.status = "active"
+        ctf_participant.event.event_start = timezone.now() - timedelta(minutes=1)
+        ctf_participant.event.event_end = timezone.now() + timedelta(hours=1)
+        ctf_participant.event.save(update_fields=["status", "event_start", "event_end"])
         resp = _json(
             authenticated_participant_client, "get", "api_score_timeline", kwargs={"participant_id": ctf_participant.id}
         )
+        assert resp.status_code == 200
+
+    def test_temporary_participant_reads_own_timeline(
+        self,
+        client: Client,
+        participant_user,
+        ctf_participant: CTFParticipant,
+    ):
+        from management.temporary_accounts import configure_temporary_ctf_account
+
+        ctf_participant.event.status = "active"
+        ctf_participant.event.event_start = timezone.now() - timedelta(minutes=1)
+        ctf_participant.event.event_end = timezone.now() + timedelta(hours=1)
+        ctf_participant.event.save(update_fields=["status", "event_start", "event_end"])
+        configure_temporary_ctf_account(participant_user, ctf_participant.event_id)
+        client.force_login(participant_user)
+
+        resp = _json(client, "get", "api_score_timeline", kwargs={"participant_id": ctf_participant.id})
+
         assert resp.status_code == 200
 
     def test_timeline_forbidden_other(

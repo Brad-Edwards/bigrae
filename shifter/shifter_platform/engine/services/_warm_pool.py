@@ -63,7 +63,7 @@ __all__ = [
 ]
 
 
-def enqueue_range_activation(request_id: UUID | str) -> str:
+def enqueue_range_activation(request_id: UUID | str, *, credential=None) -> str:
     """Enqueue the ``raes-range activate`` operation for a claimed generation (#28).
 
     Called by the CMS claim path *after* the claim + ownership transfer commit, so
@@ -74,7 +74,10 @@ def enqueue_range_activation(request_id: UUID | str) -> str:
     """
     from engine.launch_intents import enqueue_provisioner_launch
 
-    return enqueue_provisioner_launch(["raes-range", "activate", "--request-id", str(request_id)])
+    return enqueue_provisioner_launch(
+        ["raes-range", "activate", "--request-id", str(request_id)],
+        credential=credential,
+    )
 
 
 def warm_capacity_scope_ref(deployment_name: str, bucket_id: str) -> UUID:

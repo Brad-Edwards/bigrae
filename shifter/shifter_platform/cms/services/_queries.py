@@ -12,6 +12,8 @@ from cms.models import RangeInstance
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+    from shared.credentials import CredentialContext
+
 
 def get_range_status_by_id(range_instance_id: int) -> str:
     """Get the current status of a RangeInstance by its PK.
@@ -110,6 +112,42 @@ def get_range_target_instances(user: User) -> list[dict[str, str]]:
                 )
                 targets = _select_participant_targets(instances)
     return targets
+
+
+def get_principal_range_target_instances(
+    credential: CredentialContext, range_instance_id: int
+) -> list[dict[str, str]]:
+    """Return targets for the exact assigned, principal-owned ready CTF range."""
+    from engine.services import get_principal_ready_range_instances
+    from shared.credentials import resolve_current_credential
+    from shared.enums import RangeSource, ResourceStatus
+
+    from ._unified_authorization import require_range_action
+
+    current = resolve_current_credential(credential)
+    cms_range = (
+        RangeInstance.objects.filter(
+            pk=range_instance_id,
+            owner_principal_uuid=current.principal.uuid,
+            range_source=RangeSource.CTF.value,
+            status=ResourceStatus.READY.value,
+            request__isnull=False,
+        )
+        .select_related("request")
+        .first()
+    )
+    if cms_range is None or cms_range.request is None:
+        return []
+    require_range_action(current, cms_range.uuid, "range.access")
+    instances = list(
+        get_principal_ready_range_instances(
+            current.principal.uuid,
+            request_id=cms_range.request.request_id,
+            cms_range_uuid=cms_range.uuid,
+            workspace_id=cms_range.workspace_id,
+        )
+    )
+    return _select_participant_targets(instances)
 
 
 def _select_participant_targets(instances: list[dict[str, str]]) -> list[dict[str, str]]:

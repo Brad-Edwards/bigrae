@@ -27,4 +27,4 @@ Range-integrated challenges often target specific services on specific VMs. Part
 - IMPLEMENTS → CODE_FILE `ctf/services/challenge.py` (_CHALLENGE_MUTABLE_FIELDS includes connection fields)
 - IMPLEMENTS → CODE_FILE `templates/ctf/participant/challenge_detail.html` (Connection info display in challenge detail template)
 - TESTS → TEST `tests/ctf/test_services/test_connection_info.py` (Connection info resolution tests (matching, no-target, unmatched, port handling))
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#548` (CTF-115: Per-Challenge Connection Info)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#548` (CTF-115: Per-Challenge Connection Info)

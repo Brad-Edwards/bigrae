@@ -42,6 +42,228 @@ if TYPE_CHECKING:
 User = get_user_model()
 
 
+def _map_legacy_test_event_scope(sender, instance, **kwargs):
+    """Translate old direct-model test setup into an explicit account scope."""
+    if (
+        instance._state.adding
+        and instance.created_by_id is not None
+        and not instance.scope_kind
+        and instance.account_id is None
+        and instance.organization_id is None
+        and instance.workspace_id is None
+    ):
+        for field, value in individual_event_scope(instance.created_by).items():
+            setattr(instance, field, value)
+
+
+def _legacy_decision(allowed: bool):
+    from shared.authorization import AuthorizationDecision, DecisionKind
+
+    return AuthorizationDecision(
+        DecisionKind.ALLOWED if allowed else DecisionKind.DENIED,
+        "policy_allowed" if allowed else "policy_denied",
+    )
+
+
+def _relationship_event_decision(request, relationships):
+    from ctf.models import CTFEvent, CTFParticipant
+    from management.models import Principal
+    from shared.authorization.model import grant_relation_for_action
+
+    event = CTFEvent.objects.filter(pk=request.target.uuid, deleted_at__isnull=True).first()
+    principal = Principal.objects.select_related("user").filter(uuid=request.principal.uuid, is_active=True).first()
+    if event is None or principal is None:
+        return _legacy_decision(False)
+    user = principal.user
+    if user is not None and user.is_superuser:
+        return _legacy_decision(True)
+    participates = CTFParticipant.objects.filter(
+        event=event, principal_uuid=principal.uuid, deleted_at__isnull=True
+    ).exists()
+    if request.action == "event.participate" or (request.action == "event.read" and participates):
+        return _legacy_decision(participates)
+    subject = f"principal:{principal.uuid}"
+    target = f"event:{event.pk}"
+    if (subject, "direct_administrator", target) in relationships:
+        return _legacy_decision(True)
+    return _legacy_decision((subject, grant_relation_for_action(request.action), target) in relationships)
+
+
+def _legacy_policy_check(request, relationships):
+    from management.models import Principal
+    from shared.authorization import AuthorizationRequest, TargetRef
+
+    if request.action == "installation.use_personal_tokens":
+        return _legacy_decision(True)
+    if request.target.type == "event":
+        return _relationship_event_decision(request, relationships)
+    if request.target.type == "range":
+        from cms.models import RangeInstance
+
+        event_uuid = (
+            RangeInstance.all_objects.filter(uuid=request.target.uuid).values_list("event_uuid", flat=True).first()
+        )
+        event_action = {
+            "range.manage": "event.manage_ranges",
+            "range.read": "event.participate",
+            "range.access": "event.participate",
+        }.get(request.action)
+        if event_uuid is not None and event_action is not None:
+            return _relationship_event_decision(
+                AuthorizationRequest(
+                    request.principal,
+                    event_action,
+                    TargetRef("event", event_uuid),
+                    request.scope,
+                    request.credential,
+                ),
+                relationships,
+            )
+        return _legacy_decision(False)
+    principal = Principal.objects.select_related("user").filter(uuid=request.principal.uuid, is_active=True).first()
+    user = None if principal is None else principal.user
+    if request.target.type == "organization" and request.action == "organization.manage_model_sources":
+        from workspaces.models import OrganizationMembership
+
+        legacy_member = (
+            user is not None
+            and OrganizationMembership.objects.filter(
+                organization__uuid=request.target.uuid, user=user, role__in=("owner", "admin")
+            ).exists()
+        )
+        principal_member = OrganizationMembership.objects.filter(
+            organization__uuid=request.target.uuid,
+            principal_uuid=request.principal.uuid,
+        ).exists()
+        if legacy_member or principal_member:
+            return _legacy_decision(True)
+    organizer = False
+    if (
+        request.action.endswith(".create_event")
+        and user is not None
+        and user.groups.filter(name=CTF_ORGANIZER_GROUP).exists()
+    ):
+        from workspaces.models import Account, AccountMembership, OrganizationMembership, WorkspaceMembership
+
+        if request.target.type == "account":
+            organizer = Account.objects.filter(
+                uuid=request.target.uuid,
+                individual_principal_uuid=request.principal.uuid,
+            ).exists() or AccountMembership.objects.filter(
+                account__uuid=request.target.uuid,
+                principal_uuid=request.principal.uuid,
+            ).exists()
+        elif request.target.type == "organization":
+            organizer = OrganizationMembership.objects.filter(
+                organization__uuid=request.target.uuid,
+                user=user,
+                role="admin",
+            ).exists() or OrganizationMembership.objects.filter(
+                organization__uuid=request.target.uuid,
+                principal_uuid=request.principal.uuid,
+            ).exists()
+        elif request.target.type == "workspace":
+            organizer = WorkspaceMembership.objects.filter(
+                workspace__uuid=request.target.uuid,
+                user=user,
+                role__in=("owner", "admin"),
+            ).exists() or WorkspaceMembership.objects.filter(
+                workspace__uuid=request.target.uuid,
+                principal_uuid=request.principal.uuid,
+            ).exists()
+    return _legacy_decision(bool(organizer or (user is not None and user.is_superuser)))
+
+
+@pytest.fixture
+def organizer_credential(client, organizer_user):
+    """Persist and return the organizer's live browser-session credential."""
+    from config.session_credentials import session_credential
+
+    client.force_login(organizer_user)
+    return session_credential(organizer_user, client.session, provider_check=False)
+
+
+@pytest.fixture(autouse=True)
+def legacy_ctf_matrix_through_policy(monkeypatch):
+    """Run retained CTF behavior tests through the post-cutover policy port.
+
+    These tests describe the incumbent permission matrix that S8 must preserve
+    deliberately.  The fixture is intentionally test-only: it translates the
+    old owner/staff/participant facts into policy decisions, while production
+    code has no Django-role fallback.  Tests which need a narrower decision or
+    evaluator failure replace the provider factory in their own fixture/body.
+    """
+    from types import SimpleNamespace
+
+    from django.db.models.signals import post_save, pre_save
+
+    from shared.authorization import port
+
+    pre_save.connect(
+        _map_legacy_test_event_scope,
+        sender=CTFEvent,
+        dispatch_uid="tests.ctf.explicit-legacy-event-scope",
+        weak=False,
+    )
+
+    relationships = set()
+
+    def seed_event_owner(sender, instance, created, **kwargs):
+        if created and instance.owner_principal_uuid:
+            relationships.add(
+                (f"principal:{instance.owner_principal_uuid}", "direct_administrator", f"event:{instance.pk}")
+            )
+
+    post_save.connect(
+        seed_event_owner,
+        sender=CTFEvent,
+        dispatch_uid="tests.ctf.explicit-event-owner-relationship",
+        weak=False,
+    )
+
+    def write_relationships(change):
+        grant = change.grant_tuple
+        deny = change.deny_tuple
+        grant_key = (grant.user, grant.relation, grant.object)
+        deny_key = (deny.user, deny.relation, deny.object)
+        if str(change.effect) == "grant":
+            relationships.add(grant_key)
+            if deny_key != grant_key:
+                relationships.discard(deny_key)
+        else:
+            relationships.add(deny_key)
+            relationships.discard(grant_key)
+
+    def read_relationships(change):
+        from shared.authorization import RelationshipState
+
+        grant = change.grant_tuple
+        deny_tuple = change.deny_tuple
+        return RelationshipState(
+            (grant.user, grant.relation, grant.object) in relationships,
+            (deny_tuple.user, deny_tuple.relation, deny_tuple.object) in relationships and deny_tuple != grant,
+        )
+
+    provider = SimpleNamespace(
+        store_id="test-store",
+        model_id="test-model",
+        check=lambda request: _legacy_policy_check(request, relationships),
+        batch_check=lambda requests: tuple(_legacy_policy_check(request, relationships) for request in requests),
+        write_relationships=write_relationships,
+        read_relationships=read_relationships,
+    )
+    monkeypatch.setattr(port, "_provider_factory", lambda: provider)
+    yield
+    pre_save.disconnect(
+        sender=CTFEvent,
+        dispatch_uid="tests.ctf.explicit-legacy-event-scope",
+    )
+    post_save.disconnect(
+        sender=CTFEvent,
+        dispatch_uid="tests.ctf.explicit-event-owner-relationship",
+    )
+
+
 # Explicit, clearly synthetic per-event shared credential for tests that need a
 # stable login value. Production events default to unique generated credentials;
 # individual tests clear the event override when exercising that path.
@@ -80,16 +302,25 @@ def make_ctf_event(**overrides) -> CTFEvent:
     return CTFEvent(**defaults)
 
 
-def personal_workspace_id(user) -> int:
-    """Resolve (creating if needed) a user's personal workspace id (ADR-051, #2048).
-
-    CTF events carry an immutable scalar ``workspace_id``; DB-backed event
-    fixtures use their organizer's personal workspace so campaign/confinement
-    tests see a real tenant the organizer belongs to.
-    """
+def individual_event_scope(user) -> dict[str, object]:
+    """Return the real direct-account placement for a synthetic individual."""
     import workspaces.services as workspace_services
+    from shared.principal_port import principal_for_user
+    from workspaces.models import Account
 
-    return workspace_services.resolve_personal_workspace(user).workspace_id
+    principal = principal_for_user(user)
+    Account.objects.get_or_create(
+        individual_principal_uuid=principal.uuid,
+        defaults={"kind": Account.Kind.INDIVIDUAL, "name": f"Test account {user.pk}"},
+    )
+    scope = workspace_services.individual_account_scope(principal)
+    binding = workspace_services.resolve_resource_scope(scope)
+    return {
+        "scope_kind": "account",
+        "account_id": binding.account_id,
+        "organization_id": None,
+        "workspace_id": None,
+    }
 
 
 def make_challenge(event=None, **overrides) -> CTFChallenge:
@@ -201,6 +432,7 @@ def organizer_user(db) -> User:
     profile = get_user_profile(user)
     profile.user_type = "ctf_organizer"
     profile.save(update_fields=["user_type"])
+    individual_event_scope(user)
     return user
 
 
@@ -281,7 +513,7 @@ def ctf_event(db, organizer_user) -> CTFEvent:
         name="Test CTF Event",
         description="A test CTF event for unit testing",
         created_by=organizer_user,
-        workspace_id=personal_workspace_id(organizer_user),
+        **individual_event_scope(organizer_user),
         status=EventStatus.REGISTRATION.value,
         event_start=timezone.now() + timedelta(days=1),
         event_end=timezone.now() + timedelta(days=1, hours=8),
@@ -300,7 +532,7 @@ def ctf_event_draft(db, organizer_user) -> CTFEvent:
         name="Draft CTF Event",
         description="A draft event",
         created_by=organizer_user,
-        workspace_id=personal_workspace_id(organizer_user),
+        **individual_event_scope(organizer_user),
         status=EventStatus.DRAFT.value,
         event_start=timezone.now() + timedelta(days=7),
         event_end=timezone.now() + timedelta(days=7, hours=8),
@@ -316,7 +548,7 @@ def ctf_event_active(db, organizer_user) -> CTFEvent:
         name="Active CTF Event",
         description="An active event",
         created_by=organizer_user,
-        workspace_id=personal_workspace_id(organizer_user),
+        **individual_event_scope(organizer_user),
         status=EventStatus.ACTIVE.value,
         event_start=timezone.now() - timedelta(hours=1),
         event_end=timezone.now() + timedelta(hours=7),
@@ -332,7 +564,7 @@ def ctf_event_team(db, organizer_user) -> CTFEvent:
         name="Team CTF Event",
         description="A team-based event",
         created_by=organizer_user,
-        workspace_id=personal_workspace_id(organizer_user),
+        **individual_event_scope(organizer_user),
         status=EventStatus.REGISTRATION.value,
         event_start=timezone.now() + timedelta(days=1),
         event_end=timezone.now() + timedelta(days=1, hours=8),
@@ -429,9 +661,12 @@ def ctf_team(db, ctf_event_team) -> CTFTeam:
 @pytest.fixture
 def ctf_participant(db, ctf_event, participant_user) -> CTFParticipant:
     """Create an active participant."""
+    from shared.principal_port import principal_for_user
+
     return CTFParticipant.objects.create(
         event=ctf_event,
         user=participant_user,
+        principal_uuid=principal_for_user(participant_user).uuid,
         email=participant_user.email,
         name="Test Participant",
         status=ParticipantStatus.ACTIVE.value,
@@ -454,9 +689,12 @@ def ctf_participant_no_account(db, ctf_event) -> CTFParticipant:
 @pytest.fixture
 def ctf_participant_team(db, ctf_event_team, ctf_team, participant_user) -> CTFParticipant:
     """Create a participant in a team."""
+    from shared.principal_port import principal_for_user
+
     return CTFParticipant.objects.create(
         event=ctf_event_team,
         user=participant_user,
+        principal_uuid=principal_for_user(participant_user).uuid,
         email=participant_user.email,
         name="Team Participant",
         team=ctf_team,

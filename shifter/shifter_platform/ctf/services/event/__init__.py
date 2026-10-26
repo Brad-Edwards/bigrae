@@ -43,6 +43,7 @@ from ctf.services.event.staff import (
 from ._crud import (
     _EVENT_MUTABLE_FIELDS,
     create_event,
+    create_event_for_credential,
     delete_event,
     event_pk_if_exists,
     force_delete_event,
@@ -63,6 +64,7 @@ from ._lifecycle import (
 )
 from ._queries import get_event_stats, get_organizer_events
 from ._update import update_event
+from .relationships import publish_event_relationships
 from .scheduling import _cancel_event_tasks, _schedule_event_tasks
 
 __all__ = (
@@ -78,6 +80,7 @@ __all__ = (
     "cancel_event",
     "complete_event",
     "create_event",
+    "create_event_for_credential",
     "delete_event",
     "end_event",
     "event_pk_if_exists",
@@ -88,6 +91,7 @@ __all__ = (
     "list_event_staff",
     "open_registration",
     "pause_event",
+    "publish_event_relationships",
     "resume_event",
     "revoke_event_staff",
     "schedule_event",

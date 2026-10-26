@@ -273,17 +273,17 @@ urlpatterns = [
         name="api_event_cleanup",
     ),
     path(
-        "events/<uuid:event_id>/staff/",
+        "events/<uuid:event_id>/staff-members/",
         organizer.EventStaffView.as_view(),
         name="api_event_staff",
     ),
     path(
-        "events/<uuid:event_id>/staff/<int:user_id>/",
+        "events/<uuid:event_id>/staff-members/<uuid:principal_uuid>/",
         organizer.EventStaffMemberView.as_view(),
         name="api_event_staff_member",
     ),
     path(
-        "events/<uuid:event_id>/transfer-ownership/",
+        "events/<uuid:event_id>/ownership/transfer/",
         organizer.EventOwnershipTransferView.as_view(),
         name="api_event_transfer_ownership",
     ),

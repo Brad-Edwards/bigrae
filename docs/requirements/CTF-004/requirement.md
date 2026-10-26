@@ -34,4 +34,4 @@ The scoreboard is the primary competitive interface, participants check it const
 - IMPLEMENTS → CODE_FILE `templates/ctf/includes/scoreboard_table.html` (Reusable participant scoreboard table rows include)
 - IMPLEMENTS → CODE_FILE `static/js/score-timeline.js` (Score timeline Chart.js visualization for competition progress)
 - TESTS → TEST `tests/ctf/test_scoring.py` (Tests for scoreboard ranking, freeze logic, and visibility controls)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#576` (CTF-004: Scoreboard & Rankings)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#576` (CTF-004: Scoreboard & Rankings)

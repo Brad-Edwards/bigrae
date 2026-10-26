@@ -16,9 +16,14 @@ from engine.services import record_model_observations
 
 from ..engine.services.test_model_allocation import allocation_inputs
 from ..engine.test_operation_input_raes import _plan
-from .test_model_allocation_dispatch import setup_launch
+from .test_model_allocation_dispatch import _launch_credential, setup_launch
 
 pytestmark = pytest.mark.django_db(transaction=True)
+
+
+@pytest.fixture(autouse=True)
+def _policy_provider(allow_all_policy):
+    """Exercise resume and replay through the mandatory policy boundary."""
 
 
 def paused_launch(django_user_model, settings, *, native=False):
@@ -41,21 +46,21 @@ def paused_launch(django_user_model, settings, *, native=False):
 
 
 def test_removed_overlay_does_not_erase_durable_preparation(django_user_model, settings):
-    from cms.services._model_allocation import resume_model_range
+    from cms.services import resume_range_by_request_id
 
     _, request, _ = paused_launch(django_user_model, settings)
     original = ModelLaunchPreparationRecord.objects.get().intent["needs"]
     ScenarioModelNeeds.objects.all().delete()
     assert needs_model_preparation(request.request_id)
-    assert resume_model_range(request.request_id)
+    resume_range_by_request_id(_launch_credential(request.request_id), str(request.request_id))
     assert ModelAllocation.objects.get().snapshot["need"] == original[0]
 
 
-def test_model_resume_uses_legacy_power_operation(django_user_model, settings):
-    from cms.services._model_allocation import resume_model_range
+def test_model_resume_uses_principal_authorized_power_operation(django_user_model, settings):
+    from cms.services import resume_range_by_request_id
 
     _, request, _ = paused_launch(django_user_model, settings)
-    assert resume_model_range(request.request_id)
+    resume_range_by_request_id(_launch_credential(request.request_id), str(request.request_id))
     intent = ProvisionerLaunchIntent.objects.get()
     assert intent.payload["resource"] == "range"
     assert intent.payload["operation"] == "resume"
@@ -91,7 +96,8 @@ def test_optional_policy_removal_cannot_reuse_old_catalog(django_user_model, set
         settings.MODEL_ACCESS_CATALOG = None
     prepare_model_access_for_dispatch(request.request_id, range_id=request.range_id)
     command = ["raes-range", "provision", "--request-id", str(request.request_id)]
-    first = enqueue_provisioner_launch(command)
+    credential = _launch_credential(request.request_id)
+    first = enqueue_provisioner_launch(command, credential=credential)
     assert not ModelAllocation.objects.exists()
     assert ModelOptionalAbsence.objects.get().reason == "allocation.policy_unavailable"
     assert needs_model_preparation(request.request_id)
@@ -101,15 +107,16 @@ def test_optional_policy_removal_cannot_reuse_old_catalog(django_user_model, set
     settings.MODEL_ACCESS_ENABLED = True
     settings.MODEL_ACCESS_CATALOG = catalog
     prepare_model_access_for_dispatch(request.request_id, range_id=request.range_id)
-    assert enqueue_provisioner_launch(command) == first
+    assert enqueue_provisioner_launch(command, credential=credential) == first
     assert not ModelAllocation.objects.exists()
 
 
 def test_native_model_resume_cannot_allocate_or_dispatch(django_user_model, settings):
-    from cms.services._model_allocation import resume_model_range
+    from cms.services import resume_range_by_request_id
 
     _, request, _ = paused_launch(django_user_model, settings, native=True)
-    assert resume_model_range(request.request_id) is False
+    with pytest.raises(CMSError):
+        resume_range_by_request_id(_launch_credential(request.request_id), str(request.request_id))
     assert Range.objects.get(uuid=request.range_id).status == "paused"
     assert not ProvisionerLaunchIntent.objects.exists()
     assert not ModelAllocation.objects.exists()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from ctf.exceptions import CTFError, CTFPermissionError
-from ctf.services.credential_scope import event_credential_scope
+from ctf.services.credential_scope import event_credential_scope, retained_event_delete_scope
 from shared.authorization import (
     AuthorizationContractError,
     AuthorizationRequest,
@@ -33,6 +33,24 @@ def require_event_action(credential: CredentialContext, event_uuid: UUID, action
             action,
             TargetRef("event", event_uuid),
             event_credential_scope(event_uuid),
+            credential.ceiling,
+        )
+    except (ValueError, PrincipalResolutionError, AuthorizationContractError) as exc:
+        raise CTFPermissionError(_DENIED) from exc
+    _require_policy(request)
+
+
+def require_retained_event_delete(credential: CredentialContext, event_uuid: UUID) -> None:
+    """Authorize only permanent deletion against retained tombstone ancestry."""
+    if credential.kind == "temporary":
+        raise CTFPermissionError(_DENIED)
+    try:
+        principal = resolve_principal(credential.principal)
+        request = AuthorizationRequest(
+            principal,
+            "event.delete",
+            TargetRef("event", event_uuid),
+            retained_event_delete_scope(event_uuid),
             credential.ceiling,
         )
     except (ValueError, PrincipalResolutionError, AuthorizationContractError) as exc:

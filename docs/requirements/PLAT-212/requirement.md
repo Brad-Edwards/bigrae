@@ -21,8 +21,8 @@ PLAT-205 covers experiment orchestration at a product-capability level. LilRAE (
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#399` (Experiment management / orchestration tracking)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#466` (Experiment run orchestration tracking)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#399` (Experiment management / orchestration tracking)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#466` (Experiment run orchestration tracking)
 - DOCUMENTS → SPEC `aptl:SCN-008` (LilRAE specification, former APTL identifier SCN-008: Append-Only Event Timeline)
 - DOCUMENTS → SPEC `aptl:EXP-002` (LilRAE specification, former APTL identifier EXP-002: Experiment Protocol Specification)
 - DOCUMENTS → SPEC `aptl:EXP-009` (LilRAE specification, former APTL identifier EXP-009: Structured Experiment Result Summary Export)

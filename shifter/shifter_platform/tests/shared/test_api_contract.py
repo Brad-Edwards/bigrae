@@ -166,34 +166,30 @@ class TestPublishedContract:
         assert "search" not in params
         assert "ordering" not in params
 
-    def test_audit_advertises_only_the_credential_it_accepts(self, openapi_document: dict[str, Any]) -> None:
-        # The runtime authenticates bearer-first to fail closed, but the audit
-        # permission rejects every API-token principal, so the published contract
-        # must advertise session-cookie auth only — never ApiTokenAuth as an
-        # accepted alternative for either audit operation.
+    def test_audit_advertises_every_supported_credential(self, openapi_document: dict[str, Any]) -> None:
         for path in ("/api/v1/audit/", "/api/v1/audit/{id}/"):
             security = openapi_document["paths"][path]["get"]["security"]
-            assert security == [{"cookieAuth": []}]
+            assert security == [{"ApiTokenAuth": []}, {"cookieAuth": []}]
 
-    def test_workspace_invitations_advertise_only_session_auth(self, openapi_document: dict[str, Any]) -> None:
-        collection = openapi_document["paths"]["/api/v1/workspaces/{workspace_uuid}/invitations/"]
-        resend = openapi_document["paths"]["/api/v1/workspaces/{workspace_uuid}/invitations/{invitation_uuid}/resend/"]
-        revoke = openapi_document["paths"]["/api/v1/workspaces/{workspace_uuid}/invitations/{invitation_uuid}/revoke/"]
+    def test_workspace_invitations_advertise_human_and_service_credentials(
+        self, openapi_document: dict[str, Any]
+    ) -> None:
+        collection = openapi_document["paths"]["/api/v1/account-workspaces/{workspace_uuid}/invitations/"]
+        resend = openapi_document["paths"][
+            "/api/v1/account-workspaces/{workspace_uuid}/invitations/{invitation_uuid}/resend/"
+        ]
+        revoke = openapi_document["paths"][
+            "/api/v1/account-workspaces/{workspace_uuid}/invitations/{invitation_uuid}/revoke/"
+        ]
 
         for operation in (collection["get"], collection["post"], resend["post"], revoke["post"]):
-            assert operation["security"] == [{"cookieAuth": []}]
+            assert operation["security"] == [{"ApiTokenAuth": []}, {"cookieAuth": []}]
 
-    def test_workspace_session_operations_advertise_only_session_auth(self, openapi_document: dict[str, Any]) -> None:
+    def test_legacy_workspace_context_and_profile_routes_are_retired(self, openapi_document: dict[str, Any]) -> None:
         paths = openapi_document["paths"]
-        operations = (
-            paths["/api/v1/workspaces/context/"]["get"],
-            paths["/api/v1/workspaces/organizations/"]["get"],
-            paths["/api/v1/workspaces/organizations/{organization_uuid}/"]["get"],
-            paths["/api/v1/workspaces/organizations/{organization_uuid}/"]["patch"],
-        )
-
-        for operation in operations:
-            assert operation["security"] == [{"cookieAuth": []}]
+        assert "/api/v1/workspaces/context/" not in paths
+        assert "/api/v1/workspaces/organizations/" not in paths
+        assert "/api/v1/workspaces/organizations/{organization_uuid}/" not in paths
 
     def test_range_launch_declares_validation_denial_and_quota_conflict(self, openapi_document: dict[str, Any]) -> None:
         responses = openapi_document["paths"]["/api/v1/mission-control/range/launch/"]["post"]["responses"]

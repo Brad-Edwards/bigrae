@@ -15,6 +15,7 @@ from ctf.forms import CTFParticipantBatchForm
 from ctf.services import get_event
 from ctf.services.participant.accounts import create_participant_accounts
 from ctf.views._access import ctf_organizer_required
+from shared.api.principals import authenticated_credential
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -40,7 +41,9 @@ def admin_participant_batch(request: HttpRequest, event_id: UUID) -> HttpRespons
     form = CTFParticipantBatchForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         try:
-            participants = create_participant_accounts(event_id, count=form.cleaned_data["count"])
+            participants = create_participant_accounts(
+                event_id, count=form.cleaned_data["count"], actor=authenticated_credential(request)
+            )
         except CTFValidationError as exc:
             form.add_error(None, str(exc))
         else:

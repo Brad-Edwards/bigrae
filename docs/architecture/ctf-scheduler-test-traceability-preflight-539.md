@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: `CTF-010` - Scheduled Tasks & Automation
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/539>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/539>
 
 This note is intentionally not an implementation plan. The issue is about
 meaningful automated coverage and Ground Control `TESTS` traceability for the

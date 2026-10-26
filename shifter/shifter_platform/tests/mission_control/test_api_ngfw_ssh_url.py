@@ -15,6 +15,7 @@ failure by a real invalid signing secret.
 
 import json
 import logging
+import sys
 
 import pytest
 from botocore.exceptions import ClientError
@@ -46,6 +47,19 @@ def user(db):
 @pytest.fixture
 def other_user(db):
     return User.objects.create_user(username="ngfw-other@example.com", email="ngfw-other@example.com")
+
+
+@pytest.fixture(autouse=True)
+def referenced_session_authentication(monkeypatch, live_session_credential):
+    """Make direct DRF view requests carry the same session proof as production."""
+    original = force_authenticate
+
+    def authenticate(request, user=None, token=None):
+        if isinstance(user, User) and token is None:
+            token = live_session_credential(user)
+        return original(request, user=user, token=token)
+
+    monkeypatch.setattr(sys.modules[__name__], "force_authenticate", authenticate)
 
 
 @pytest.fixture(autouse=True)
@@ -178,6 +192,7 @@ class TestApiNGFWSSHURL:
     def test_requires_post_method(self, rf, user, guac_secret):
         request = rf.get("/mc/ngfw/some-uuid/ssh-url/")
         request.user = user
+        force_authenticate(request, user=user)
 
         response = api_ngfw_ssh_url(request, "some-uuid")
 

@@ -24,7 +24,7 @@ uv run --project shifter/installation shifter-config doctor shifter.yaml
 `init` scaffolds local configuration; it does not create a cloud account,
 identity, cluster or secret. For a new foundation, follow the checked inputs and
 apply order in the
-[bootstrap guide](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/bootstrap/README.md).
+[bootstrap guide](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/bootstrap/README.md).
 The full setup also explains the backend Terraform overrides; stale tenant
 values in an existing override must not be reused for a new deployment.
 
@@ -60,9 +60,9 @@ an unknown cleanup state by deleting application records.
 ## Run a useful scenario
 
 The shipped synthetic
-[smoke-linux pack](https://github.com/Brad-Edwards/shifter/tree/dev/shifter/environment-packs/smoke-linux)
+[smoke-linux pack](https://github.com/Brad-Edwards/bigrae/tree/dev/shifter/environment-packs/smoke-linux)
 is the initial GCP RAES path. The
-[in-box manifest](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/cms/scenarios/inbox_packs/manifest.yaml)
+[in-box manifest](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/cms/scenarios/inbox_packs/manifest.yaml)
 registers it through the normal CMS validator during catalog bootstrap. It is a
 bootstrap seed, not a promise of a full production scenario catalog.
 

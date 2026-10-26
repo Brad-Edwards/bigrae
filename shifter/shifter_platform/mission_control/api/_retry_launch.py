@@ -32,6 +32,10 @@ from shared.audit import AuditAction
 from shared.exceptions import CMSError
 from shared.log_sanitize import safe_log_value
 
+if TYPE_CHECKING:
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,7 +65,13 @@ class RetrySafeLaunchMixin:
         def error_response(self, *, code: str, message: str, status_code: int) -> Response: ...
 
         def _launch_range(
-            self, request: Request, user: User, data: dict[str, Any], caller_key: str | None = ...
+            self,
+            request: Request,
+            user: User,
+            credential: CredentialContext,
+            scope: ResourceScope,
+            data: dict[str, Any],
+            caller_key: str | None = ...,
         ) -> Response: ...
 
         def _launch_failure_response(self, exc: CMSError, user: User, scenario: str) -> Response: ...
@@ -83,22 +93,31 @@ class RetrySafeLaunchMixin:
             return {"agents": {str(key): int(value) for key, value in sorted(agents.items())}}
         return {"agent_id": data.get("agent_id")}
 
-    def _dispatch_launch(self, request: Request, user: User, data: dict[str, Any]) -> Response:
+    def _dispatch_launch(
+        self, request: Request, user: User, credential: CredentialContext, scope: ResourceScope, data: dict[str, Any]
+    ) -> Response:
         """Route a validated launch: recover a retry key before catalog validation, else create."""
         caller_key = self._retry_key(request)
         if isinstance(caller_key, Response):
             return caller_key
         if caller_key is not None:
-            recovered = self._try_recover(user, data, caller_key)
+            recovered = self._try_recover(user, credential, scope, data, caller_key)
             if recovered is not None:
                 return recovered
-        return self._launch_range(request, user, data, caller_key)
+        return self._launch_range(request, user, credential, scope, data, caller_key)
 
-    def _try_recover(self, user: User, data: dict[str, Any], caller_key: str) -> Response | None:
+    def _try_recover(
+        self,
+        user: User,
+        credential: CredentialContext,
+        scope: ResourceScope,
+        data: dict[str, Any],
+        caller_key: str,
+    ) -> Response | None:
         """Return a recovered/409 response, or ``None`` for first use (no catalog check)."""
         try:
             outcome = resolve_retry_recovery(
-                user,
+                credential,
                 scenario=str(data.get("scenario", "basic")),
                 agents_selection=self._agents_selection(data),
                 workspace_uuid=data.get("workspace_uuid"),
@@ -114,12 +133,14 @@ class RetrySafeLaunchMixin:
             )
         if outcome is None:
             return None
-        return self._bound_range_response(user, outcome, recovered=True)
+        return self._bound_range_response(credential, outcome, recovered=True)
 
     def _create_range_first_use(
         self,
         request: Request,
         user: User,
+        credential: CredentialContext,
+        scope: ResourceScope,
         scenario: str,
         agents_by_os: dict[str, int] | None,
         caller_key: str,
@@ -133,13 +154,14 @@ class RetrySafeLaunchMixin:
         """
         try:
             outcome = bind_first_use_launch(
-                user,
+                credential,
                 scenario=scenario,
                 agents_selection=choices.agents_selection,
                 agents_by_os=agents_by_os or {},
                 workspace_uuid=choices.workspace_uuid,
                 caller_key=caller_key,
                 model_sources=choices.model_sources,
+                scope=scope,
             )
         except RetryKeyConflict:
             logger.info("Retry key conflict: user=%s scenario=%s", user.pk, safe_log_value(scenario))
@@ -164,13 +186,15 @@ class RetrySafeLaunchMixin:
                 range_request_id=outcome.request_id,
                 extra_state={"scenario": scenario, "agents": agents_by_os, "retry_safe": True},
             )
-        return self._bound_range_response(user, outcome, recovered=not outcome.created)
+        return self._bound_range_response(credential, outcome, recovered=not outcome.created)
 
     @staticmethod
-    def _bound_range_response(user: User, outcome: RetrySafeLaunchOutcome, *, recovered: bool) -> Response:
+    def _bound_range_response(
+        credential: CredentialContext, outcome: RetrySafeLaunchOutcome, *, recovered: bool
+    ) -> Response:
         """Project the BOUND range (terminal-aware), never the caller's current active range."""
         try:
-            range_ctx = get_range_by_request_id(user, outcome.request_id, include_terminal=True)
+            range_ctx = get_range_by_request_id(credential, outcome.request_id, include_terminal=True)
             range_payload: dict[str, Any] | None = range_ctx.model_dump(mode="json")
         except CMSError:
             range_payload = None

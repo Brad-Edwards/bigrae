@@ -17,6 +17,7 @@ warm reconciler evaluate.
 from __future__ import annotations
 
 import os
+from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -26,6 +27,7 @@ __all__ = [
     "WARM_POOL_DEPLOYMENT_NAME",
     "WARM_POOL_METRICS_NAMESPACE",
     "WARM_POOL_POLICY",
+    "WARM_POOL_SERVICE_CREDENTIAL_UUID",
 ]
 
 #: Deployment identity used to derive the per-bucket capacity scope key so two
@@ -38,6 +40,20 @@ WARM_POOL_DEPLOYMENT_NAME = os.environ.get("WARM_POOL_DEPLOYMENT_NAME", "").stri
 WARM_POOL_METRICS_NAMESPACE = os.environ.get("WARM_POOL_METRICS_NAMESPACE", "Shifter/WarmPool").strip()
 
 
+def _service_credential_uuid() -> UUID | None:
+    """Parse the non-secret durable worker credential reference."""
+    raw = os.environ.get("WARM_POOL_SERVICE_CREDENTIAL_UUID", "").strip()
+    if not raw:
+        return None
+    try:
+        value = UUID(raw)
+    except ValueError as exc:
+        raise ImproperlyConfigured("WARM_POOL_SERVICE_CREDENTIAL_UUID must be a UUID") from exc
+    if not value.int or str(value) != raw:
+        raise ImproperlyConfigured("WARM_POOL_SERVICE_CREDENTIAL_UUID must be a canonical non-nil UUID")
+    return value
+
+
 def _load_policy() -> WarmPoolRuntimePolicy:
     """Parse the declared warm-pool policy, failing closed on malformed config."""
     try:
@@ -48,3 +64,6 @@ def _load_policy() -> WarmPoolRuntimePolicy:
 
 #: The deployment warm-pool policy. Disabled by default (empty projection).
 WARM_POOL_POLICY = _load_policy()
+WARM_POOL_SERVICE_CREDENTIAL_UUID = _service_credential_uuid()
+if WARM_POOL_POLICY.is_active() and WARM_POOL_SERVICE_CREDENTIAL_UUID is None:
+    raise ImproperlyConfigured("An active warm-pool policy requires WARM_POOL_SERVICE_CREDENTIAL_UUID")

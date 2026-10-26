@@ -46,7 +46,7 @@ from shared.audit.port import (
     get_audit_writer,
     reset_audit_writer,
 )
-from shared.audit.query import AuditReadDenied, authorized_audit_events
+from shared.audit.query import AuditReadDenied, authorized_audit_events, retained_audit_event_count
 from shared.audit.vocabulary import (
     API_KEY_LABEL,
     AuditAction,
@@ -87,5 +87,6 @@ __all__ = [
     "request_audit",
     "reset_audit_health",
     "reset_audit_writer",
+    "retained_audit_event_count",
     "select_trusted_client_ip",
 ]

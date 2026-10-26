@@ -294,10 +294,15 @@ class TestParticipantManagementApi:
             "api_participant_detail",
             kwargs={"participant_id": ctf_participant.id},
         )
-        # Deleting an existing participant must succeed (200).
-        assert resp.status_code == 200
+        assert resp.status_code == 204
 
-    def test_resend_invite(self, authenticated_organizer_client: Client, ctf_event: CTFEvent, recorded_email):
+    def test_resend_invite(
+        self,
+        authenticated_organizer_client: Client,
+        ctf_event: CTFEvent,
+        organizer_credential,
+        recorded_email,
+    ):
         """Resend runs the real credential-delivery service end-to-end; only the
         external SMTP boundary is mocked (ADR-019-R1). A participant with a real
         isolated account and a delivery email receives fresh login info, so the
@@ -307,7 +312,12 @@ class TestParticipantManagementApi:
 
         from ctf.services.participant import add_participant
 
-        participant = add_participant(event_id=ctf_event.id, email="resend@test.com", name="Resend Target")
+        participant = add_participant(
+            event_id=ctf_event.id,
+            email="resend@test.com",
+            name="Resend Target",
+            actor=organizer_credential,
+        )
         message_cls, delivered, messages = recorded_email
         with (
             override_settings(CTF_FROM_EMAIL="ctf@test.com", SITE_URL="https://example.com"),
@@ -429,7 +439,7 @@ class TestNotificationApi:
             "api_event_email_template",
             kwargs={"event_id": ctf_event.id, "notification_type": ntype},
         )
-        assert delete.status_code == 200
+        assert delete.status_code == 204
         assert not CTFEmailTemplate.objects.filter(event=ctf_event, notification_type=ntype).exists()
 
     def test_email_template_put_rejects_template_tags(
@@ -542,7 +552,13 @@ class TestRangeApi:
         )
         assert resp.status_code == 404
 
-    def test_send_invitations(self, authenticated_organizer_client: Client, ctf_event: CTFEvent, recorded_email):
+    def test_send_invitations(
+        self,
+        authenticated_organizer_client: Client,
+        ctf_event: CTFEvent,
+        organizer_credential,
+        recorded_email,
+    ):
         """Real ``send_login_info`` runs end-to-end; only the external SMTP
         boundary is mocked (ADR-019-R1). One participant with a delivery email
         means the endpoint sends one invitation and returns 200.
@@ -551,7 +567,12 @@ class TestRangeApi:
 
         from ctf.services.participant import add_participant
 
-        add_participant(event_id=ctf_event.id, email="invitee@test.com", name="Invitee")
+        add_participant(
+            event_id=ctf_event.id,
+            email="invitee@test.com",
+            name="Invitee",
+            actor=organizer_credential,
+        )
         message_cls, delivered, messages = recorded_email
         with (
             override_settings(CTF_FROM_EMAIL="ctf@test.com", SITE_URL="https://example.com"),

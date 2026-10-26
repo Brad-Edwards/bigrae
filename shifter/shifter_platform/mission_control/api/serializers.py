@@ -344,6 +344,23 @@ class ScenarioListResponseSerializer(serializers.Serializer):
     scenarios = ScenarioListItemSerializer(many=True)
 
 
+class LaunchWorkspaceItemSerializer(serializers.Serializer):
+    """One policy-authorized active workspace offered before catalog loading."""
+
+    uuid = serializers.UUIDField()
+    name = serializers.CharField()
+    organization_uuid = serializers.UUIDField()
+    organization_name = serializers.CharField()
+
+
+class LaunchWorkspaceListResponseSerializer(serializers.Serializer):
+    """Independent range-launch workspace discovery response."""
+
+    count = serializers.IntegerField()
+    personal_available = serializers.BooleanField()
+    workspaces = LaunchWorkspaceItemSerializer(many=True)
+
+
 class RangeHistorySerializer(serializers.Serializer):
     """One entry in the range-history list (``GET .../ranges/``, #1370).
 

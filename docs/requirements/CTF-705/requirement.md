@@ -21,4 +21,4 @@ Organizers often need to know participant counts before an event starts to provi
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#661` (CTF-705: Registration Deadline)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#661` (CTF-705: Registration Deadline)

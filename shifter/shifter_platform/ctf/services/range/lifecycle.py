@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -17,52 +17,62 @@ from django.conf import settings
 from ctf.exceptions import CTFNotFoundError, CTFRangeError
 from ctf.models import CTFEvent, CTFParticipant
 from ctf.services.range.status import _get_participant_with_range
+from shared.credentials import CredentialContext
 from shared.log_sanitize import safe_log_value
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
 
 logger = logging.getLogger(__name__)
 
 
-def stop_participant_range(participant_id: UUID) -> dict[str, Any]:
+def _authorize_participant_range(participant: CTFParticipant, actor: object) -> CredentialContext:
+    """Return the exact credential after event range authorization."""
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import assert_event_action
+
+    credential = event_actor_credential(actor)
+    assert_event_action(credential, participant.event, "event.manage_ranges")
+    return credential
+
+
+def stop_participant_range(participant_id: UUID, *, actor: object) -> dict[str, Any]:
     """Stop (pause) a participant's range."""
     logger.info("Stopping range for participant %s", safe_log_value(participant_id))
     participant = _get_participant_with_range(participant_id)
+    credential = _authorize_participant_range(participant, actor)
 
     from ctf.bridges import cms_stop_range
 
     # guaranteed by _get_participant_with_range
     assert participant.range_instance_id is not None
-    cms_stop_range(participant.user, participant.range_instance_id)
+    cms_stop_range(credential, participant.event_id, participant.range_instance_id)
     participant.range_status = "stopping"
     participant.save(update_fields=["range_status", "updated_at"])
     return {"participant_id": str(participant_id), "status": "stopping"}
 
 
-def start_participant_range(participant_id: UUID) -> dict[str, Any]:
+def start_participant_range(participant_id: UUID, *, actor: object) -> dict[str, Any]:
     """Start (resume) a participant's stopped range."""
     logger.info("Starting range for participant %s", safe_log_value(participant_id))
     participant = _get_participant_with_range(participant_id)
+    credential = _authorize_participant_range(participant, actor)
 
     from ctf.bridges import cms_start_range
 
     # guaranteed by _get_participant_with_range
     assert participant.range_instance_id is not None
-    cms_start_range(participant.user, participant.range_instance_id)
+    cms_start_range(credential, participant.event_id, participant.range_instance_id)
     participant.range_status = "resuming"
     participant.save(update_fields=["range_status", "updated_at"])
     return {"participant_id": str(participant_id), "status": "resuming"}
 
 
-def restart_participant_range(participant_id: UUID) -> dict[str, Any]:
+def restart_participant_range(participant_id: UUID, *, actor: object) -> dict[str, Any]:
     """Restart a participant's range (stop then start)."""
     logger.info("Restarting range for participant %s", safe_log_value(participant_id))
-    stop_participant_range(participant_id)
-    return start_participant_range(participant_id)
+    stop_participant_range(participant_id, actor=actor)
+    return start_participant_range(participant_id, actor=actor)
 
 
-def destroy_participant_range(participant_id: UUID) -> dict[str, Any]:
+def destroy_participant_range(participant_id: UUID, *, actor: object) -> dict[str, Any]:
     """Destroy range for a single participant.
 
     Args:
@@ -85,13 +95,15 @@ def destroy_participant_range(participant_id: UUID) -> dict[str, Any]:
             details={"participant_id": str(participant_id)},
         ) from None
 
+    credential = _authorize_participant_range(participant, actor)
+
     if not participant.range_instance_id:
         raise CTFRangeError(
             "No range assigned to participant",
             details={"participant_id": str(participant_id)},
         )
 
-    _destroy_single_range(participant, participant.user)
+    _destroy_single_range(participant, credential)
 
     # Truthful outcome (ADR-063-R4): the destroy is dispatched, not verified gone.
     # The terminal DESTROYED projection is what confirms teardown.
@@ -101,7 +113,7 @@ def destroy_participant_range(participant_id: UUID) -> dict[str, Any]:
     }
 
 
-def cleanup_event_ranges(event_id: UUID) -> dict[str, Any]:
+def cleanup_event_ranges(event_id: UUID, *, actor: object) -> dict[str, Any]:
     """Cleanup (destroy) all ranges for an event.
 
     Args:
@@ -123,6 +135,12 @@ def cleanup_event_ranges(event_id: UUID) -> dict[str, Any]:
             details={"event_id": str(event_id)},
         ) from None
 
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import assert_event_action
+
+    credential = event_actor_credential(actor)
+    assert_event_action(credential, event, "event.manage_ranges")
+
     participants = list(
         CTFParticipant.objects.filter(
             event=event,
@@ -142,7 +160,7 @@ def cleanup_event_ranges(event_id: UUID) -> dict[str, Any]:
             time.sleep(batch_pause)
         for participant in participants[start : start + batch_size]:
             try:
-                if _destroy_single_range(participant, participant.user):
+                if _destroy_single_range(participant, credential):
                     dispatched += 1
             except Exception:
                 failed += 1
@@ -151,7 +169,7 @@ def cleanup_event_ranges(event_id: UUID) -> dict[str, Any]:
                     participant.pk,
                 )
 
-    _cleanup_event_spares_best_effort(event_id)
+    _cleanup_event_spares_best_effort(event_id, credential)
 
     # Counts are teardowns *dispatched*, not verified destroyed: terminal cleanup
     # is confirmed later by scoped provider inventory/readback (ADR-063-R4).
@@ -163,7 +181,7 @@ def cleanup_event_ranges(event_id: UUID) -> dict[str, Any]:
     }
 
 
-def _cleanup_event_spares_best_effort(event_id: UUID) -> None:
+def _cleanup_event_spares_best_effort(event_id: UUID, credential: CredentialContext) -> None:
     """Tear down the event's spare pool alongside participant-range cleanup (#1018).
 
     Best-effort: a spare-cleanup failure must never abort the participant-range
@@ -172,7 +190,7 @@ def _cleanup_event_spares_best_effort(event_id: UUID) -> None:
     from ctf.services.range.spares import cleanup_event_spares
 
     try:
-        cleanup_event_spares(event_id)
+        cleanup_event_spares(event_id, actor=credential)
     except Exception:
         logger.exception(
             "cleanup_event_ranges: spare-pool cleanup failed for event %s",
@@ -180,7 +198,7 @@ def _cleanup_event_spares_best_effort(event_id: UUID) -> None:
         )
 
 
-def _destroy_single_range(participant: CTFParticipant, user: User | None) -> bool:
+def _destroy_single_range(participant: CTFParticipant, credential: CredentialContext) -> bool:
     """Dispatch a participant range destroy without pre-empting terminal cleanup (#1919).
 
     ``cms_destroy_range`` only *dispatches* the asynchronous destroy; the range is
@@ -194,7 +212,7 @@ def _destroy_single_range(participant: CTFParticipant, user: User | None) -> boo
     projection never arrives.
 
     Returns the dispatch disposition: ``True`` when a destroy was dispatched,
-    ``False`` when skipped (no range or no owner). It is a dispatch signal, never a
+    ``False`` when skipped (no range). It is a dispatch signal, never a
     "destroyed" or verified-cleanup signal -- callers must not report completion
     from it.
     """
@@ -203,10 +221,7 @@ def _destroy_single_range(participant: CTFParticipant, user: User | None) -> boo
     if participant.range_instance_id is None:
         logger.warning("No range_instance_id for participant %s, skipping destroy", participant.pk)
         return False
-    if user is None:
-        logger.warning("No user for participant %s, skipping destroy", participant.pk)
-        return False
-    cms_destroy_range(user, participant.range_instance_id)
+    cms_destroy_range(credential, participant.event_id, participant.range_instance_id)
     participant.range_status = "destroying"
     participant.save(update_fields=["range_status", "updated_at"])
     return True

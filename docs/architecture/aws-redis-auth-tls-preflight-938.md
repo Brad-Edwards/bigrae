@@ -5,7 +5,7 @@
 
 Status: pre-implementation guidance
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/938>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/938>
 
 ## Scope Boundary
 

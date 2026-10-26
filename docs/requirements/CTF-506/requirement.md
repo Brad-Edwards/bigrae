@@ -23,4 +23,4 @@ Password-based joining is simpler than invite codes for casual events where secu
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py (CTFTeam model)` (CTFTeam model - has invite_code but no password field)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py (team_join view)` (team_join view - uses invite_code only, no password mechanism)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#649` (CTF-506: Team Password Joining)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#649` (CTF-506: Team Password Joining)

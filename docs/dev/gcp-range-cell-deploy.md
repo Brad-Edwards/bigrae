@@ -439,7 +439,7 @@ deploy also creates the tenant CA once and renews the pool server certificate
 30 days before it expires; private keys never enter Terraform state.
 
 Warm-pool generations carry no VPN; a claim mints the claimant's profile. A CTF
-spare is provisioned with a profile for its managed spare identity, and recovery
+spare is provisioned for the event principal without a fabricated login identity, and recovery
 hands the binding to the participant, because that identity can never
 authenticate and so could never have downloaded the profile. A range whose owner
 could have downloaded the profile never changes owner in place. EC2 is tracked

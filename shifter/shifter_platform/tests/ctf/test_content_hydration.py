@@ -168,10 +168,10 @@ def _configured_references():
 
 
 @pytest.mark.django_db
-def test_both_activation_paths_require_pristine_receipt(organizer_user) -> None:
+def test_both_activation_paths_require_pristine_receipt(organizer_user, organizer_credential) -> None:
     event = _event(organizer_user)
     with override_settings(CTF_CONTENT_REFERENCES=_configured_references()):
-        assert open_registration(event) is True
+        assert open_registration(event, actor=organizer_credential) is True
         event.refresh_from_db()
         with pytest.raises(CTFStateError) as error:
             start_event(event.pk)
@@ -182,10 +182,10 @@ def test_both_activation_paths_require_pristine_receipt(organizer_user) -> None:
 
 
 @pytest.mark.django_db
-def test_removed_reference_does_not_authorize_managed_content(organizer_user) -> None:
+def test_removed_reference_does_not_authorize_managed_content(organizer_user, organizer_credential) -> None:
     event = _event(organizer_user)
     hydrate_event_ctf_content(event.pk, _resolved(), actor_id=organizer_user.pk)
-    assert open_registration(event) is True
+    assert open_registration(event, actor=organizer_credential) is True
     event.refresh_from_db()
 
     with override_settings(CTF_CONTENT_REFERENCES=load_ctf_content_references_json("", prefix="ctf/content-bundles")):
@@ -198,11 +198,11 @@ def test_removed_reference_does_not_authorize_managed_content(organizer_user) ->
 
 
 @pytest.mark.django_db
-def test_resume_re_enforces_content_readiness(organizer_user) -> None:
+def test_resume_re_enforces_content_readiness(organizer_user, organizer_credential) -> None:
     event = _event(organizer_user)
     hydrate_event_ctf_content(event.pk, _resolved(), actor_id=organizer_user.pk)
     with override_settings(CTF_CONTENT_REFERENCES=_configured_references()):
-        assert open_registration(event) is True
+        assert open_registration(event, actor=organizer_credential) is True
         event.refresh_from_db()
         assert activate_event(event) is True
         event.refresh_from_db()
@@ -228,7 +228,7 @@ def test_resume_re_enforces_content_readiness(organizer_user) -> None:
 @pytest.mark.django_db
 def test_event_creation_composes_hydration_atomically(organizer_user, monkeypatch) -> None:
     resolved = _resolved()
-    monkeypatch.setattr("ctf.bridges.cms_list_scenarios", lambda _user: [("scenario-one", "Scenario One")])
+    monkeypatch.setattr("ctf.bridges.cms_list_scenarios", lambda _user, **_kwargs: [("scenario-one", "Scenario One")])
     monkeypatch.setattr(
         "ctf.services.content_resolution.resolve_scenario_ctf_content",
         lambda scenario_id: resolved if scenario_id == "scenario-one" else None,
@@ -254,7 +254,7 @@ def test_event_creation_authorizes_configured_scenario_before_resolution(organiz
         "ctf.services.content_resolution.resolve_scenario_ctf_content",
         lambda _scenario_id: pytest.fail("resolver must not run"),
     )
-    monkeypatch.setattr("ctf.bridges.cms_list_scenarios", lambda _user: [])
+    monkeypatch.setattr("ctf.bridges.cms_list_scenarios", lambda _user, **_kwargs: [])
     now = timezone.now()
     event_data = {
         "name": "Unauthorized Content",

@@ -20,7 +20,7 @@ The accepted decision is ADR-055 in `docs/adr/index.yaml`. Its closed
 `accessibility-enforcement/v1` interface contract is validated by
 `adr-registry`; that structural check prevents the architecture contract from
 silently weakening, but it does not claim that the browser, audit, or release
-gates have shipped. [Issue #1526](https://github.com/Brad-Edwards/shifter/issues/1526)
+gates have shipped. [Issue #1526](https://github.com/Brad-Edwards/bigrae/issues/1526)
 owns that follow-up implementation.
 
 ## Boundary and conformance meaning

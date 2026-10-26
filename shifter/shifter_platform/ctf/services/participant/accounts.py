@@ -18,7 +18,7 @@ from django.utils import timezone
 from django.views.decorators.debug import sensitive_variables
 
 from ctf.enums import ParticipantStatus
-from ctf.exceptions import CTFNotFoundError, CTFValidationError
+from ctf.exceptions import CTFNotFoundError, CTFPermissionError, CTFValidationError
 from ctf.models import CTFEvent, CTFParticipant, CTFTeam
 from ctf.services.range import request_event_provisioning
 from management.services import configure_temporary_ctf_account
@@ -212,6 +212,7 @@ def create_participant_accounts(
     count: int,
     email: str = "",
     display_name: str = "",
+    actor: object,
 ) -> list[CTFParticipant]:
     """Create isolated participant seats and enqueue canonical provisioning."""
     _validate_account_request(count, email)
@@ -219,6 +220,13 @@ def create_participant_accounts(
     created: list[CTFParticipant] = []
     with transaction.atomic():
         event, active_count = _event_for_account_creation(event_id, count)
+        # Reject an invalid event-wide credential before accepting any
+        # provisioning work. The subsequent seat writes share this transaction.
+        _event_shared_participant_password(event)
+        with suppress(CTFPermissionError):
+            request_event_provisioning(event_id, source="participant_accounts", actor_id=actor)
+            # Participant-only delegates may create seats but cannot request a
+            # range wave; the organizer can enqueue provisioning separately.
         for index in range(count):
             participant = provision_participant_seat(
                 event,
@@ -226,7 +234,6 @@ def create_participant_accounts(
                 name=display_name.strip() or f"Participant {active_count + index + 1}",
             )
             created.append(participant)
-        transaction.on_commit(lambda: request_event_provisioning(event.pk, source="participant_accounts"))
     return created
 
 
@@ -242,7 +249,7 @@ def _locked_rename_target(participant_id: UUID) -> CTFParticipant:
         raise CTFNotFoundError("Participant not found", details={"participant_id": str(participant_id)}) from None
 
 
-def _apply_username_rename(participant: CTFParticipant, normalized: str, actor: User | AnonymousUser) -> None:
+def _apply_username_rename(participant: CTFParticipant, normalized: str, actor: object) -> None:
     """Write and audit a username change on an isolated CTF account."""
     if participant.user is None or not participant.user.profile.is_ctf_account:
         raise CTFValidationError("Participant has no isolated CTF account", code="CTF_ACCOUNT_REQUIRED")
@@ -252,9 +259,9 @@ def _apply_username_rename(participant: CTFParticipant, normalized: str, actor: 
         participant.user.save(update_fields=["username"])
     except IntegrityError as exc:
         raise CTFValidationError("Username is already in use", code="CTF_DUPLICATE_USERNAME") from exc
+    from ctf.services.audit import _actor_fields
     from shared.audit import (
         AuditAction,
-        AuditActorType,
         AuditEntityType,
         AuditEvent,
         audit_log,
@@ -265,8 +272,7 @@ def _apply_username_rename(participant: CTFParticipant, normalized: str, actor: 
             entity_type=AuditEntityType.USER,
             entity_id=participant.user.pk,
             action=AuditAction.UPDATE,
-            actor_type=AuditActorType.USER,
-            actor_id=actor.pk,
+            **_actor_fields(actor),
             previous_state={"username": old_username},
             new_state={"username": normalized},
             context="CTF participant username rename",
@@ -279,16 +285,20 @@ def rename_participant_username(
     participant_id: UUID,
     username: str,
     *,
-    actor: User | AnonymousUser,
+    actor: object,
 ) -> CTFParticipant:
     """Rename a marked participant account (organizer or delegated moderator)."""
-    from ctf.services.event import actor_has_event_capability
+    from ctf.services.authorization import assert_event_action
 
     normalized = normalize_participant_username(username)
     with transaction.atomic():
         participant = _locked_rename_target(participant_id)
-        if not actor_has_event_capability(actor, participant.event, "participants"):
-            raise CTFValidationError("Only the event organizer may rename this account", code="CTF_PERMISSION_DENIED")
+        try:
+            assert_event_action(actor, participant.event, "event.manage_participants")
+        except CTFPermissionError:
+            raise CTFValidationError(
+                "Only the event organizer may rename this account", code="CTF_PERMISSION_DENIED"
+            ) from None
         _apply_username_rename(participant, normalized, actor)
     return participant
 

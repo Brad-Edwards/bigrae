@@ -10,6 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods, require_POST
 
+from shared.api.principals import authenticated_credential
 from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
@@ -76,7 +77,7 @@ def _handle_participant_invite_post(request: HttpRequest, event_id: UUID) -> Jso
         return _json_error(e, _INVALID_PARTICIPANT_REQUEST, 400)
 
     try:
-        participant = add_participant(event_id, email, name)
+        participant = add_participant(event_id, email, name, actor=authenticated_credential(request))
     except CTFValidationError as e:
         return _json_error(e, _INVALID_PARTICIPANT_REQUEST, 400)
 
@@ -158,7 +159,7 @@ def api_participant_import(request: HttpRequest, event_id: UUID) -> JsonResponse
             continue
 
         try:
-            participant = add_participant(event_id, email, name)
+            participant = add_participant(event_id, email, name, actor=authenticated_credential(request))
             imported.append(
                 {
                     "id": str(participant.id),

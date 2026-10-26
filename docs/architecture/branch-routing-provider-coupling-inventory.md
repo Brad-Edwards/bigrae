@@ -4,8 +4,8 @@ Status: current-state inventory for #1111
 
 Tracking:
 
-- Parent issue: <https://github.com/Brad-Edwards/shifter/issues/1109>
-- Issue: <https://github.com/Brad-Edwards/shifter/issues/1111>
+- Parent issue: <https://github.com/Brad-Edwards/bigrae/issues/1109>
+- Issue: <https://github.com/Brad-Edwards/bigrae/issues/1111>
 - Architecture decision: `ADR-011` in [the ADR registry](../adr/index.yaml)
 
 ## Purpose

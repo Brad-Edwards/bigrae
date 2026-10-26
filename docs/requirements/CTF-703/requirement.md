@@ -28,4 +28,4 @@ Forgotten range instances after events are the primary source of unnecessary AWS
 - IMPLEMENTS → CODE_FILE `ctf/services/range.py` (CTF Range service - cleanup_event_ranges(), _destroy_single_range())
 - IMPLEMENTS → CODE_FILE `ctf/management/commands/run_ctf_scheduler.py` (CTF scheduler - _handle_cleanup_ranges() dispatches cleanup_event_ranges())
 - TESTS → TEST `ctf/tests/test_services/test_range.py` (Range service tests - TestCleanupEventRanges, TestDestroyParticipantRange)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#660` (CTF-703: Event Auto-Cleanup)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#660` (CTF-703: Event Auto-Cleanup)

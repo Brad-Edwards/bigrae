@@ -22,4 +22,4 @@ Webhooks enable real-time integration with external systems like Slack (solve an
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF models - no WebhookConfig or webhook-related model exists)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#635` (CTF-1203: Webhooks)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#635` (CTF-1203: Webhooks)

@@ -80,7 +80,7 @@ The earlier per-user personal organization/workspace compatibility rule in ADR-0
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/api/principals.py` (Neutral active principal resolution for session and token requests)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services/_range_workspace.py` (CMS workspace authorization seam for range operations)
 - TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_memberships.py` (Workspace membership lifecycle, authority, invariants, and audit tests)
-- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_api.py` (Workspace membership API authorization, scope, and error-contract tests)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_account_policy_admin.py` (Policy-native account, organization, workspace, and membership HTTP boundary)
 - TESTS → TEST `shifter/shifter_platform/tests/integration/engine/test_consumers_integration.py` (Range consumer and CMS correlation integration tests)
 - TESTS → TEST `shifter/shifter_platform/tests/cms/test_queries.py` (CTF range correlation and membership-revocation query tests)
 - TESTS → TEST `shifter/shifter_platform/tests/mission_control/test_vpn_profile_api.py` (Workspace membership revocation at VPN secret-delivery boundary)
@@ -101,3 +101,9 @@ The earlier per-user personal organization/workspace compatibility rule in ADR-0
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services/_policy_range_scope.py` (S4 prepared administration; activation remains coordinated)
 
 - TESTS → TEST `shifter/shifter_platform/tests/cms/test_policy_range_scope.py` (S4 prepared administration; activation remains coordinated)
+- IMPLEMENTS → GITHUB_ISSUE `2321` (Coordinated S8 identity and account-authority activation)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/models/_identity_cutover.py` (Durable fail-closed S8 cutover state and policy journal)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_identity_cutover.py` (Deterministic account mapping, relationship publication, verification, and activation)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/config/management/commands/identity_cutover.py` (Deployment-owned S8 cutover command)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_identity_cutover.py` (Cutover blockers, idempotency, verification, and activation tests)
+- TESTS → TEST `shifter/shifter_platform/tests/config/test_identity_cutover_command.py` (Composed cutover command contract tests)

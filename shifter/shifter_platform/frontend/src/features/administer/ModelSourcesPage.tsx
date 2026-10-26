@@ -21,7 +21,7 @@ export function ModelSourcesPage() {
   const rows = organizations.data?.results ?? [];
   const organization = rows.find((row) => row.uuid === selected)?.uuid ?? rows[0]?.uuid ?? "";
   return <>
-    <PageHeader title="Model sources" description="Connect model accounts and choose who may use them in scenarios and CTFs." />
+    <PageHeader title="Model sources" description="Connect model accounts for organizations you are authorized to manage." />
     {organizations.error ? <Alert variant="destructive"><AlertDescription>{describeMutationError(organizations.error, "Organizations could not be loaded.")}</AlertDescription></Alert> : null}
     {organizations.isPending ? <output>Loading organizations…</output> : null}
     {organizations.isSuccess && !rows.length ? <p>Organization administrator access is required to manage sources.</p> : null}
@@ -102,7 +102,7 @@ function SourceCard({ source, onEdit, onToggle, onRetire }: Readonly<{
   return <article className="space-y-2 rounded border p-4">
         <h2 className="font-semibold">{source.configuration.name}</h2>
         <p>{source.configuration.model} · {source.configuration.region} · Revision {source.revision}</p>
-        <p>{source.state === "ready" ? "Configured" : source.state}. {source.configuration.allow_organization_members ? "Organization members may use this source." : "Use is restricted to explicitly authorized users."}</p>
+        <p>{source.state === "ready" ? "Configured" : source.state}. Access is controlled by organization policy.</p>
         <div className="flex gap-2"><Button variant="outline" onClick={onEdit}>Edit {source.configuration.name}</Button>
           <Button variant="outline" onClick={onToggle}>{source.enabled ? "Disable" : "Enable"} {source.configuration.name}</Button>
           <Button variant="outline" onClick={onRetire}>Retire unused credentials for {source.configuration.name}</Button></div>

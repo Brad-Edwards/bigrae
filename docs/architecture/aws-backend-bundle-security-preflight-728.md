@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-13
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/728>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/728>
 
 ## Decision Boundary
 

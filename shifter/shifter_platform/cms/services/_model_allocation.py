@@ -8,6 +8,7 @@ from django.db import transaction
 
 from cms.models import RangeInstance
 from cms.scenarios.model_needs import project_scenario_model_needs
+from shared.credentials import CredentialContext, resolve_current_credential
 from shared.model_access import ContractError, EventModelDemand, ModelAccessCatalog, OwnedReference
 from shared.model_access.core_models import ScenarioNeed
 from shared.model_access.reservation import (
@@ -16,6 +17,7 @@ from shared.model_access.reservation import (
     SystemPreparationAuthority,
     WarmPreparationAuthority,
 )
+from shared.operation_authority import credential_reference_from_record
 
 _SCENARIO_UNAVAILABLE = "allocation.scenario_unavailable"
 
@@ -83,7 +85,7 @@ def _standalone_scope(
         window_end = warm.window_end
         revisions = warm.authority_revisions
         system = WarmPreparationAuthority(
-            owner_ref=OwnedReference(owner="management", reference=f"user:{instance.user_id}"),
+            owner_ref=_owner_reference(instance),
             generation_id=warm.generation_id,
         )
     else:
@@ -132,33 +134,81 @@ def _resolve_model_catalog(
     return None
 
 
+def _owner_reference(instance: RangeInstance) -> OwnedReference:
+    """Use the durable principal identity; a contact user is never authority."""
+    if instance.owner_principal_uuid is None:
+        raise ContractError(_AUTHORITY_UNAVAILABLE)
+    return OwnedReference(owner="management", reference=f"principal:{instance.owner_principal_uuid}")
+
+
 def _authorize_preparation(
     instance: RangeInstance,
     owner: OwnedReference,
     system: SystemPreparationAuthority | WarmPreparationAuthority | None,
-) -> None:
-    """Authenticate active claimants or narrowly authorized inactive system owners."""
-    from management.services import resolve_model_access_users, resolve_model_preparation_user
-    from workspaces.services import WorkspaceOperation, authorize_launch_workspace_locked
-
+) -> CredentialContext:
+    """Revalidate the exact initiating credential before delayed provider work."""
     assert instance.request is not None
-    actor = instance.request.user
-    if actor is None or instance.user_id is None:
-        raise ContractError(_AUTHORITY_UNAVAILABLE)
     try:
-        if system is None:
-            resolve_model_access_users(actor, (instance.user_id,))
-        elif (
-            system.owner_ref != owner
-            or actor.pk != instance.user_id
-            or actor.is_active
-            or actor.has_usable_password()
-            or (system.kind == "warm_pool" and not actor.email.endswith("@warm-pool.invalid"))
-        ):
-            raise ContractError("allocation.system_owner_unavailable")
-        else:
-            resolve_model_preparation_user(instance.user_id)
-        authorize_launch_workspace_locked(actor, instance.workspace_id, WorkspaceOperation.LAUNCH_RANGE)
+        original = credential_reference_from_record(instance.request)
+        current = resolve_current_credential(original)
+        if current.principal.uuid != instance.owner_principal_uuid:
+            if instance.range_source != "ctf" or instance.event_uuid is None:
+                raise ContractError(_AUTHORITY_UNAVAILABLE)
+            from shared.authorization import (
+                AuthorizationRequest,
+                TargetRef,
+                configured_authorization_provider,
+            )
+            from workspaces.services import resource_scope_from_ids
+
+            scope = resource_scope_from_ids(
+                kind=instance.scope_kind,
+                account_id=instance.account_id,
+                organization_id=instance.organization_id,
+                workspace_id=instance.workspace_id,
+            )
+            decision = configured_authorization_provider().check(
+                AuthorizationRequest(
+                    current.principal,
+                    "event.manage_ranges",
+                    TargetRef("event", instance.event_uuid),
+                    scope,
+                    current.ceiling,
+                )
+            )
+            if not decision.allowed:
+                raise ContractError(_AUTHORITY_UNAVAILABLE)
+        if system is not None:
+            warm = (
+                system.owner_ref == owner
+                and system.kind == "warm_pool"
+                and current.principal.kind == "service"
+                and instance.user_id is None
+                and instance.request.user_id is None
+                and instance.scope_kind == "installation"
+                and instance.request.scope_kind == "installation"
+                and all(
+                    value is None
+                    for value in (
+                        instance.account_id,
+                        instance.organization_id,
+                        instance.workspace_id,
+                        instance.request.account_id,
+                        instance.request.organization_id,
+                        instance.request.workspace_id,
+                    )
+                )
+            )
+            ctf_spare = (
+                system.owner_ref == owner
+                and system.kind == "ctf_spare"
+                and instance.range_source == "ctf"
+                and instance.event_uuid is not None
+                and instance.request.scope_kind == instance.scope_kind == "account"
+            )
+            if not (warm or ctf_spare):
+                raise ContractError("allocation.system_owner_unavailable")
+        return current
     except Exception:
         raise ContractError(_AUTHORITY_UNAVAILABLE) from None
 
@@ -178,31 +228,33 @@ def _source_authority_refs(
 ) -> tuple[OwnedReference, ...]:
     """Include sponsor or launch-tenant authority in the admission fence vector."""
     if scope.source_sponsorship:
-        sponsor = OwnedReference(owner="management", reference=f"user:{scope.source_sponsorship.actor_id}")
+        sponsor = OwnedReference(
+            owner="management",
+            reference=f"principal:{scope.source_sponsorship.credential_reference.principal_uuid}",
+        )
         sponsor_workspace = OwnedReference(
-            owner="workspaces", reference=f"workspace-id:{scope.source_sponsorship.workspace_id}"
+            owner="workspaces", reference=f"workspace:{scope.source_sponsorship.workspace_uuid}"
         )
         sponsor_organization = OwnedReference(
             owner="workspaces", reference=f"organization:{scope.source_sponsorship.organization_uuid}"
         )
         refs = tuple(dict.fromkeys((*refs, sponsor, sponsor_workspace, sponsor_organization)))
     elif has_sources:
-        if instance.request is None or instance.request.user is None:
+        if instance.workspace_id is None:
             raise ContractError(_AUTHORITY_UNAVAILABLE)
-        from workspaces.services import WorkspaceOperation, authorize_bound_workspace
+        from cms.services._model_source_selection import _workspace_ancestry
 
-        membership = authorize_bound_workspace(
-            instance.request.user, instance.workspace_id, WorkspaceOperation.LAUNCH_RANGE
-        )
-        refs += (OwnedReference(owner="workspaces", reference=f"organization:{membership.organization_uuid}"),)
+        organization_uuid, _ = _workspace_ancestry(instance.workspace_id)
+        refs += (OwnedReference(owner="workspaces", reference=f"organization:{organization_uuid}"),)
     return refs
 
 
 def prepare_model_access_for_dispatch(request_id: UUID, *, range_id: UUID, renew: bool = False) -> None:
     """Authenticate current persisted ownership, then hand closed facts downward.
 
-    Called after Range creation invalidates selectors and before enqueue, inside
-    the same transaction. Missing policy, scope or authority denies required use.
+    Called after Range creation invalidates selectors and before enqueue. The
+    caller does not hold range-row locks during policy-provider work. Missing
+    policy, scope, or authority denies required use.
     """
     from engine.services import get_model_launch_preparation, prepare_model_launch, project_model_launch_authority
 
@@ -216,7 +268,7 @@ def prepare_model_access_for_dispatch(request_id: UUID, *, range_id: UUID, renew
             # The first operation's optional absence is immutable. A later
             # lifecycle generation may explicitly renew against current policy.
             return
-        owner = OwnedReference(owner="management", reference=f"user:{instance.user_id}")
+        owner = _owner_reference(instance)
         catalog = _resolve_model_catalog(request_id, owner, needs)
         if catalog is None:
             return
@@ -228,22 +280,21 @@ def prepare_model_access_for_dispatch(request_id: UUID, *, range_id: UUID, renew
 
         scope = _source_policy_scope(instance, scope)
         system = scope.system_preparation
-        _authorize_preparation(instance, owner, system)
+        credential = _authorize_preparation(instance, owner, system)
         from cms.services._model_source_selection import resolve_launch_sources, resolve_sponsored_sources
 
         if scope.source_sponsorship:
             catalog, source_revisions = resolve_sponsored_sources(scope.source_sponsorship, catalog=catalog)
         else:
             catalog, source_revisions = resolve_launch_sources(
-                instance.request.user,
+                credential,
                 instance.workspace_id,
                 instance.model_sources,
                 catalog=catalog,
             )
-        refs = (() if system else (owner,)) + (
-            OwnedReference(owner="workspaces", reference=f"workspace-id:{instance.workspace_id}"),
-            OwnedReference(owner="engine", reference=f"model-launch:{range_id}"),
-        )
+        refs = (() if system else (owner,)) + (OwnedReference(owner="engine", reference=f"model-launch:{range_id}"),)
+        if instance.workspace_id is not None:
+            refs += (OwnedReference(owner="workspaces", reference=f"workspace-id:{instance.workspace_id}"),)
         refs = _source_authority_refs(instance, scope, refs, bool(source_revisions))
         from shared.model_access.projection_port import refresh_launch_projections
 

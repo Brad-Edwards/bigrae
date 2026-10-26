@@ -232,6 +232,37 @@ class TestExtendRangeLease:
 # ---------------------------------------------------------------------------
 
 
+class TestLaunchWorkspaceDiscovery:
+    def test_requires_login(self):
+        response = Client().get(reverse("v1:mission_control:launch-workspaces-list"))
+        assert response.status_code == 401
+
+    def test_lists_policy_authorized_shared_workspace_independently(self, authenticated_client):
+        from shared.principal_port import principal_for_user
+        from workspaces.models import Account, Workspace
+        from workspaces.services import add_account_member, create_account
+
+        client, user = authenticated_client(email="workspace-options@example.com")
+        account = create_account(kind=Account.Kind.TEAM, name="Launch account")
+        add_account_member(account.uuid, principal_for_user(user))
+        workspace = Workspace.objects.get(organization__account_id=account.id, is_default=True)
+
+        response = client.get(reverse("v1:mission_control:launch-workspaces-list"))
+
+        assert response.status_code == 200
+        payload = _json(response)
+        assert payload["personal_available"] is True
+        assert payload["count"] == 1
+        assert payload["workspaces"] == [
+            {
+                "uuid": str(workspace.uuid),
+                "name": workspace.name,
+                "organization_uuid": str(workspace.organization.uuid),
+                "organization_name": workspace.organization.name,
+            }
+        ]
+
+
 class TestLaunchRange:
     def _launch(self, client, body):
         return client.post(
@@ -326,13 +357,14 @@ class TestLaunchRange:
 
     @staticmethod
     def _member_workspace(user):
-        from workspaces.models import Organization, Workspace, WorkspaceMembership
-        from workspaces.roles import WorkspaceRole
+        from shared.principal_port import principal_for_user
+        from workspaces.models import Account, Workspace
+        from workspaces.services import add_account_member, create_account
 
-        organization = Organization.objects.create(name="API Shared Org")
-        workspace = Workspace.objects.create(organization=organization, name="API Shared")
-        WorkspaceMembership.objects.create(workspace=workspace, user=user, role=WorkspaceRole.MEMBER.value)
-        return workspace
+        principal = principal_for_user(user)
+        account = create_account(kind=Account.Kind.TEAM, name="API Shared Account")
+        add_account_member(account.uuid, principal)
+        return Workspace.objects.get(organization__account_id=account.id, is_default=True)
 
     def test_launch_with_member_workspace_uuid_binds_that_workspace(
         self, authenticated_client, make_agent, hydratable_scenario

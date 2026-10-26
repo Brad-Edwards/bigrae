@@ -94,6 +94,16 @@ from ._credentials import (
     get_credential,
     list_credentials,
 )
+from ._identity_cutover import (
+    apply_identity_cutover_resources as apply_identity_cutover_resources,
+)
+from ._identity_cutover import identity_cutover_contract_gaps as identity_cutover_contract_gaps
+from ._identity_cutover import (
+    identity_cutover_resource_disposition as identity_cutover_resource_disposition,
+)
+from ._identity_cutover import (
+    pending_identity_cutover_work as pending_identity_cutover_work,
+)
 from ._model_access_sharing import (
     ModelAccessSelectorError,
     find_model_access_selected_ranges,
@@ -120,8 +130,11 @@ from ._pack_conformance import validate_registered_pack_conformance
 from ._pack_fence import fence_pack_reference
 from ._policy_offboarding import policy_reassign_range_owner, policy_transfer_user_ownership
 from ._policy_range_scope import policy_list_range_scope_bindings, policy_rebind_range_workspace
+from ._principal_scopes import AccountScopeError as AccountScopeError
+from ._principal_scopes import mission_control_range_scope as mission_control_range_scope
 from ._queries import (
     find_range_instance_id_by_request,
+    get_principal_range_target_instances,
     get_range_spec_by_id,
     get_range_status_by_id,
     get_range_target_instances,
@@ -183,6 +196,7 @@ from ._range_queries import (
 )
 from ._range_reassign import (
     range_egress_compatible_with_event,
+    range_egress_compatible_with_scope,
     range_owner_reassignment_available,
     reassign_range_owner,
 )
@@ -215,6 +229,8 @@ from ._scenarios import (
     validate_scenario_requirements,
 )
 from ._scoped_devices import admit_device_remote_authority as admit_device_remote_authority
+from ._scoped_range_lifecycle import run_event_range_lifecycle
+from ._scoped_range_owner import reassign_event_range_owner
 from ._tenant_pack_removal import (
     PackRemovalConflict,
     PackRemovalView,
@@ -359,6 +375,7 @@ __all__ = (
     "get_mission_control_openvpn_profile",
     "get_mission_control_range_lease",
     "get_ngfw",
+    "get_principal_range_target_instances",
     "get_range",
     "get_range_by_request_id",
     "get_range_model_policy_status_for_instance",
@@ -398,8 +415,10 @@ __all__ = (
     "project_scenario_model_demands",
     "range_credential_scope",
     "range_egress_compatible_with_event",
+    "range_egress_compatible_with_scope",
     "range_owner_reassignment_available",
     "range_status_changed",
+    "reassign_event_range_owner",
     "reassign_range_owner",
     "rebind_range_workspace",
     "reconcile_ctf_range_leases",
@@ -425,6 +444,7 @@ __all__ = (
     "resume_range",
     "resume_range_by_request_id",
     "revoke_range_model_sources",
+    "run_event_range_lifecycle",
     "set_catalog_publication",
     "transfer_user_ownership",
     "validate_registered_pack_conformance",

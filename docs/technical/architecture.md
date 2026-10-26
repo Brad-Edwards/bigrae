@@ -5,8 +5,8 @@ plane and separately isolated guest workloads. Start here for the current
 architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
-[CODEOWNERS](https://github.com/Brad-Edwards/shifter/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-17 against integration revision `6b1c88082`.
+[CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
+**Reviewed:** 2026-10-25 for the issue #2321 S8 identity cutover.
 This describes source behavior, not a certificate of a live deployment.
 
 ## System context and trust boundaries
@@ -37,11 +37,17 @@ CMS services. Event membership, organization/workspace membership, range
 ownership, application administration and cloud administration remain distinct.
 
 [ADR-066](../adr/066-account-principal-resource-scope.md) defines Accounts,
-independent Principals and explicit ResourceScope. Its S1–S7 adapters are staged;
-S8 is the coordinated runtime cutover. Current human entry points retain their
-incumbent authority until activation; principal-owned entry points require live
-credentials. Do not infer multi-customer isolation or S8 activation from prepared
-code. [Content/range authority](shifter_platform/content-range-authority.md) and
+independent Principals and explicit ResourceScope. Issue #2321 implements S8 as
+one coordinated hard cut: referenced credentials and the pinned OpenFGA model
+become mandatory, retained SQL state is converted through owning-domain service
+facades, and runtime admission remains closed until the cutover journal reaches
+its verified terminal state. There is no legacy authorization fallback or mixed
+runtime mode. The one-time converter preserves stable resource identifiers,
+stops on ambiguous ownership/provider facts, verifies relationship readback,
+bootstraps one exact provider-bound administrator, and invalidates pre-cutover
+sessions and API tokens before activation. No live deployment currently exists,
+so repository and clean/legacy fixture evidence is not live-cloud acceptance.
+[Content/range authority](shifter_platform/content-range-authority.md) and
 [account administration](shifter_platform/account-administration.md) explain the
 implemented slices. ADR-054's dedicated-customer model is superseded by ADR-066;
 it is not the current target for all installations.
@@ -129,10 +135,10 @@ a client-owned generation. Destroyed status alone is not verified absence:
 cleanup readback, residual obligations and retained recovery records matter.
 See [retry-safe operations](shifter_platform/retry-safe-range-operations.md).
 
-[Range-event delivery](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/range-event-delivery-preflight-476.md)
+[Range-event delivery](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/range-event-delivery-preflight-476.md)
 is an implementation record. The current input/result definitions are
-[Engine operation models](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/engine/models/_operation_io.py),
-with shared [wire envelopes](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/shared/operation_envelope.py).
+[Engine operation models](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/engine/models/_operation_io.py),
+with shared [wire envelopes](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/shared/operation_envelope.py).
 Reconciliation, bounded retries and dead-letter handling repair delivery;
 WebSocket notifications are projections and can be recovered by an authorized read.
 
@@ -156,7 +162,7 @@ Backup existence is not evidence of a successful restore rehearsal.
 ## Package and dependency ownership
 
 The authoritative dependency map is
-[layer_imports.yaml](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/check_layer_imports/layer_imports.yaml),
+[layer_imports.yaml](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/check_layer_imports/layer_imports.yaml),
 backed by `.importlinter` and model-boundary checks. The following is its reader's map.
 
 | Package/root | Owns | Supported dependency seam |
@@ -184,14 +190,14 @@ allowlists remain authoritative when a table entry is broader.
 
 The versioned application API is `/api/v1/`, composed by `config/api_urls.py`.
 Authenticated `/api/v1/schema/` and `/api/v1/docs/` expose OpenAPI and Swagger;
-the [published contract](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/openapi/v1.json)
+the [published contract](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/openapi/v1.json)
 is generated. Schema filtering means it is not a complete inventory of mounted
 routes. [API development](dev/api.md) describes serializers, scopes, session/CSRF
 and sanitized errors. Credential migration is subject to ADR-066 activation;
 clients must use the deployed credential contract and service authorization.
 Public static documentation does not make API access anonymous.
 
-Use the [client transport](https://github.com/Brad-Edwards/shifter/tree/dev/shifter/shifter_client)
+Use the [client transport](https://github.com/Brad-Edwards/bigrae/tree/dev/shifter/shifter_client)
 for its documented native-Google service use case. It does not authorize
 application or cloud effects, and does not automatically replay mutations after
 a credential failure. Use the API's operation/retry contract where provided.
@@ -206,7 +212,7 @@ a credential failure. Use the API's operation/retry contract where provided.
 
 See [artifact preparation](../ops/artifact-preparation.md),
 [verification plugins](shifter_platform/scenario-verification.md) and the
-[adapter SDK](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_adapter_sdk/README.md).
+[adapter SDK](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_adapter_sdk/README.md).
 Pack content never authorizes executable installation. Private content, adapters,
 image recipes, answers and acceptance evidence stay in their owner's repository.
 A compatibility probe, buildable SDK, or accepted manifest proves neither a
@@ -223,7 +229,7 @@ advertising scenario support; #2080's review did not perform a fresh live deploy
 
 The documentation maintainer reviews this page when an architecture boundary
 changes. `documentation-coverage` enforces the `drift_sources` associations in
-[the coverage manifest](https://github.com/Brad-Edwards/shifter/blob/dev/docs/adr/documentation-coverage.yaml).
+[the coverage manifest](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/adr/documentation-coverage.yaml).
 Mapped dependency, wire, authority, persistence, backend, deployable and extension
 changes must include review/update of the associated handbook page. Record a
 review date and the inspected source revision when wording remains accurate.
@@ -233,5 +239,5 @@ The guard checks structure and paired changes; maintainers review accuracy and
 support claims. New boundaries extend the manifest. Run the
 [ADR guard](dev/adr-enforcement.md) and `mkdocs build --strict`, then inspect
 links and diagrams. Historical
-[preflights and reviews](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/index.md)
+[preflights and reviews](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/index.md)
 explain implementation decisions; they are not prerequisites or current authority.

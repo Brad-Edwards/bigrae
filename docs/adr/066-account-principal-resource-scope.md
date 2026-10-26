@@ -132,6 +132,38 @@ read fallback, customer-specific deployment requirement, feature-flagged
 policy fork, rollback to the personal-workspace model, or partial production
 cutover. S8 is the activation point after all mappings and constraints pass.
 
+The [S8 integration preflight](../architecture/integrated-identity-cutover-preflight-2321.md)
+and [cutover proposal](../design/identity-cutover-2321-proposal.md) define the
+single-authority activation, retained-data dispositions, first-grant bootstrap,
+credential/session invalidation, complete effect-surface inventory and the
+durable journaled boundary between SQL and OpenFGA. A fresh installation starts
+only in the post-cutover state. A legacy-data upgrade uses the narrow existing
+migration and deployment seams and remains stopped until terminal verification;
+it does not restore legacy authority on failure.
+
+Cutover readiness must not prevent deployment-owned migration/bootstrap commands
+from running before the new schema or policy is available. Preserve the existing
+authorization journal, domain outbox/inbox, strict audit and bounded cleanup
+contracts rather than adding parallel workflow machinery. The 2026-10-25 owner
+approval authorizes C6 source work but does not waive live acceptance evidence.
+
+The `config` composition root coordinates this cross-domain cutover only through
+explicit public service symbols. Management owns principal/provider/session and
+token changes; workspaces owns account mapping, hierarchy relationships and the
+durable cutover journal; CMS, CTF and Engine inventory and convert only their own
+retained resources. Direct domain-model imports and pass-through services remain
+forbidden. Engine's four cutover symbols (apply, disposition, pending-work and
+contract-gap inventory) are the narrow exception that lets the composition root
+reach Engine-owned rows without making CMS a false owner.
+
+S8 verifies default existence as well as uniqueness throughout the retained
+business hierarchy. It reconciles legacy and prepared membership facts against
+their database identity constraints, preserving valid durable rows without
+creating implicit grants. Final scope constraints are conditional on explicit
+scope kind; account-only resources must pass the existing operation parsers,
+SQL-owned descendant inventories and owning-domain projections without invented
+workspaces or users. The preflight records these integration boundaries.
+
 ### Hosting and policy boundaries
 
 One deployment may host unrelated B2C and B2B accounts. Account scope is an
@@ -208,6 +240,33 @@ entries do not prove mounted-operation coverage. Provider failure cannot become
 an empty authorized result; transfer summaries must preserve blocked outcomes
 and must not claim atomicity across independently committed resources.
 
+PLAT-232 retains its UUID-only, four-field organization profile contract,
+PATCH mask, owning validation, locked writer and strict field-name-only audit.
+Its S1 session-only role/superuser rules do not survive S8 as either a grant or
+a second veto: the canonical profile commands enforce `organization.read` or
+`organization.update` with live principal policy and the credential ceiling.
+Profile reads must not become authorization for pack, adapter, model-source or
+workspace writes that previously borrowed the legacy org-admin helper. Those
+effects use their own registered actions. Browser discovery distinguishes read
+from edit authority and requires no staff flag or workspace membership.
+The [PLAT-232 activation guidance](../architecture/integrated-identity-cutover-preflight-2321.md#plat-232-organization-profile-activation)
+records the prepared credential/commit, evaluator-error, route, client and
+cross-domain integration gaps; preparation alone is not activation evidence.
+
+PLAT-233 activates the prepared workspace commands at the same S8 boundary.
+`organization.manage_workspaces` authorizes creation; exact `workspace` actions
+authorize discovery and lifecycle effects. Membership and multiple-owner facts
+remain distinct from policy grants: transfer does not grant or revoke policy,
+and neither full human nor service administrators require a legacy owner role.
+Keep active defaults, ownerless creation, last-owner protection, authorized
+archive/restore no-ops, strict audit and model-access invalidation without
+deleting or rehoming bound ranges. Creation also needs confirmed SQL-owned
+parent projection through the incumbent authorization boundary; structural
+parent relations are not grants, and SQL/OpenFGA writes are not atomic.
+The [workspace activation guidance](../architecture/workspace-lifecycle-preflight-1940.md#s8-activation-boundary-2321)
+records the shared credential/commit, ancestry, error, parsing and live-route
+gaps; the historical S1 role/session rules are not additional S8 vetoes.
+
 Per-resource membership, ownership, policy and projection rejection must retain
 earlier committed offboarding counts. The prepared summary reports all blocked
 workspaces separately from confirmed missing-membership cases. Credential
@@ -221,6 +280,17 @@ The prepared OpenAPI TypeScript declaration follows the incumbent generated
 schema analysis exclusion under the exact, owned, time-bounded ADR-003-R7
 exception. DRF contract drift and TypeScript consumer checks remain mandatory;
 handwritten administration code retains the ordinary analysis gates.
+
+S8 is also the published v1 hard-cut boundary. The retirement manifest records
+the removed user-keyed event staff, organization model-source-user, personal
+workspace, workspace membership-role, and workspace-local authorization paths.
+It also records the removed integer `workspace_id` and user/email policy fields.
+Their replacements use stable principal UUIDs, explicit account ancestry, and
+the mounted scoped authorization routes. Incompatible commands use explicit
+principal, `account-workspaces`, event `staff-members`/ownership, range
+`model-access`, or range `scope` paths. Retained operations keep their published
+operation IDs; the cutover does not silently repurpose a removed path or field
+as a compatibility adapter.
 
 The OpenFGA application-policy boundary, supported SDK operations, durable
 write semantics, deployment contract, and cutover constraints are clarified by

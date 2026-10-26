@@ -22,5 +22,5 @@ Invite codes provide a simple, shareable mechanism for team formation without re
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFTeam.invite_code - unique field with auto-generation on save)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#647` (CTF-504: Team Invite Codes)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#647` (CTF-504: Team Invite Codes)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (team_join view - join via invite code with is_full check)

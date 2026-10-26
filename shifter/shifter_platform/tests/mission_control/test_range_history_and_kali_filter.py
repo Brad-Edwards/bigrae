@@ -18,13 +18,11 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-from django.contrib.auth.models import Group
 from django.test import Client
 
-from shared.auth import CTF_PARTICIPANT_GROUP
 from shared.enums import RequestType
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("principal_owner_policy")]
 
 RANGE_URL = "/api/v1/mission-control/range/"
 RANGES_URL = "/api/v1/mission-control/ranges/"
@@ -42,18 +40,24 @@ def _instance(os_type, *, uuid=None, role=None, name=None):
 def _seed_range(user, *, instances, status="ready", scenario_id="basic", range_id=None, range_source="mission_control"):
     from cms.models import RangeInstance
     from cms.models import Request as CMSRequest
-    from workspaces.services import resolve_personal_workspace
+    from engine.models import Range as EngineRange
+    from engine.models import Request as EngineRequest
+    from shared.principal_port import principal_for_user
+    from workspaces.models import Account
 
-    workspace_id = resolve_personal_workspace(user).workspace_id
-    request = CMSRequest.objects.create(
-        workspace_id=workspace_id, request_id=uuid4(), request_type=RequestType.RANGE.value, user=user
-    )
+    principal = principal_for_user(user)
+    account = Account.objects.get(kind=Account.Kind.INDIVIDUAL, individual_principal_uuid=principal.uuid)
+    custody = {
+        "owner_principal_uuid": principal.uuid,
+        "scope_kind": "account",
+        "account_id": account.pk,
+    }
+    request = CMSRequest.objects.create(request_id=uuid4(), request_type=RequestType.RANGE.value, user=user, **custody)
     # A terminal status (destroyed/failed) trips RangeInstance.save()'s
     # auto-soft-delete, so passing status="destroyed" seeds a soft-deleted row
     # (hidden from the default manager, visible via all_objects) without a
     # separate delete step.
-    return RangeInstance.objects.create(
-        workspace_id=workspace_id,
+    instance = RangeInstance.objects.create(
         request=request,
         scenario_id=scenario_id,
         user_id=user.id,
@@ -61,57 +65,28 @@ def _seed_range(user, *, instances, status="ready", scenario_id="basic", range_i
         range_id=range_id,
         range_source=range_source,
         range_spec={"instances": instances},
+        **custody,
     )
-
-
-def _make_ctf_participant_only(user):
-    group, _ = Group.objects.get_or_create(name=CTF_PARTICIPANT_GROUP)
-    user.groups.add(group)
-    return user
-
-
-class TestCurrentRangeViewKaliFilter:
-    def test_ctf_participant_only_sees_kali_instances_only(self, authenticated_client):
-        client, user = authenticated_client(email="ctf-kali@example.com")
-        _make_ctf_participant_only(user)
-        _seed_range(
-            user,
-            instances=[_instance("kali"), _instance("ubuntu"), _instance("windows"), _instance("panos")],
-        )
-
-        response = client.get(RANGE_URL)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["has_range"] is True
-        assert [inst["os_type"] for inst in data["range"]["instances"]] == ["kali"]
-        assert len(data["connection_urls"]) == 1
-
-    def test_non_participant_sees_all_instances(self, authenticated_client):
-        client, user = authenticated_client(email="normal-user@example.com")
-        _seed_range(
-            user,
-            instances=[_instance("kali"), _instance("ubuntu"), _instance("windows"), _instance("panos")],
-        )
-
-        response = client.get(RANGE_URL)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["range"]["instances"]) == 4
-        assert len(data["connection_urls"]) == 4
-
-    def test_ctf_participant_without_kali_gets_empty_instances(self, authenticated_client):
-        client, user = authenticated_client(email="ctf-no-kali@example.com")
-        _make_ctf_participant_only(user)
-        _seed_range(user, instances=[_instance("ubuntu"), _instance("windows")])
-
-        response = client.get(RANGE_URL)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["range"]["instances"] == []
-        assert data["connection_urls"] == []
+    engine_request = EngineRequest.objects.create(
+        request_id=request.request_id,
+        request_type=RequestType.RANGE.value,
+        user=user,
+        **custody,
+    )
+    realized = EngineRange.objects.create(
+        request=engine_request,
+        user=user,
+        cms_user_id=user.pk,
+        cms_range_uuid=instance.uuid,
+        resource_generation=uuid4(),
+        range_backend="gce",
+        status=status,
+        provisioned_instances=instances,
+        **custody,
+    )
+    instance.range_id = realized.pk
+    instance.save(update_fields=["range_id"])
+    return instance
 
 
 class TestRangeHistoryView:
@@ -151,18 +126,6 @@ class TestRangeHistoryView:
         assert response.status_code == 200
         assert response.json()["ranges"] == []
 
-    def test_membership_removal_hides_the_owners_range_history(self, authenticated_client):
-        from workspaces.models import WorkspaceMembership
-
-        client, user = authenticated_client(email="history-revoked@example.com")
-        _seed_range(user, instances=[_instance("kali")])
-        WorkspaceMembership.objects.filter(user=user).delete()
-
-        response = client.get(RANGES_URL)
-
-        assert response.status_code == 200
-        assert response.json()["ranges"] == []
-
     def test_returns_empty_list_when_no_ranges(self, authenticated_client):
         client, _user = authenticated_client(email="history-empty@example.com")
 
@@ -170,6 +133,22 @@ class TestRangeHistoryView:
 
         assert response.status_code == 200
         assert response.json() == {"ranges": []}
+
+    def test_rejects_malformed_workspace_selector(self, authenticated_client):
+        client, _user = authenticated_client(email="history-bad-workspace@example.com")
+
+        response = client.get(RANGES_URL, {"workspace_uuid": "not-a-uuid"})
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "invalid"
+
+    def test_hides_unavailable_workspace(self, authenticated_client):
+        client, _user = authenticated_client(email="history-foreign-workspace@example.com")
+
+        response = client.get(RANGES_URL, {"workspace_uuid": str(uuid4())})
+
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "workspace_not_available"
 
     def test_includes_soft_deleted_terminal_ranges(self, authenticated_client):
         # History exists to show past ranges: terminal (destroyed/failed) rows

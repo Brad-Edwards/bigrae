@@ -49,6 +49,7 @@ from .communication_cutover import CommunicationCutover, LegacyCommunication
 from .communication_delivery import DeliveryAttempt, ParticipantReceipt
 from .content_hydration import CTFContentHydrationReceipt
 from .event import CTFEvent
+from .event_authority_transition import CTFEventAuthorityTransition
 from .event_page import CTFEventPage
 from .event_staff import CTFEventStaff
 from .flag import CTFFlag
@@ -81,6 +82,7 @@ __all__ = [
     "CTFContentHydrationReceipt",
     "CTFEmailTemplate",
     "CTFEvent",
+    "CTFEventAuthorityTransition",
     "CTFEventPage",
     "CTFEventStaff",
     "CTFFlag",

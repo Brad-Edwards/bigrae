@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.authentication import SessionAuthentication
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -352,7 +353,7 @@ class _PreparedLeasePolicyMixin:
     """Dormant service-capable admission; activation belongs to S8."""
 
     permission_classes = [IsAuthenticatedSessionOrApiToken]
-    parser_classes = [ClosedJSONParser]
+    parser_classes = [ClosedJSONParser, FormParser, MultiPartParser]
     policy_administration = True
 
 

@@ -62,6 +62,9 @@ def prepared_creation_fields(
         or prepared.bindings.credential != bindings.credential
         or prepared.bindings.resource_scope != bindings.resource_scope
         or prepared.bindings.cms_range_uuid != bindings.cms_range_uuid
+        or prepared.bindings.owner_principal != bindings.owner_principal
+        or prepared.bindings.authority_action != bindings.authority_action
+        or prepared.bindings.authority_target != bindings.authority_target
     ):
         raise ValueError("Range creation admission changed")
     return dict(prepared.fields)
@@ -69,9 +72,6 @@ def prepared_creation_fields(
 
 def admitted_creation_authority(prepared: PreparedRaesRangeCreation, runtime: Range) -> dict[str, object]:
     """Fence the prepared parent before atomically queuing the new generation."""
-    from shared.authorization import TargetRef
-    from shared.credentials import resolve_credential_scope
-
     from ._launch_authority import admitted_range_authority_fields
     from ._range_authority import project_range_authority
 
@@ -82,18 +82,47 @@ def admitted_creation_authority(prepared: PreparedRaesRangeCreation, runtime: Ra
     assert_principal_range_creation(bindings, fields)
     if any(getattr(runtime, name) != value for name, value in fields.items()):
         raise ValueError("Range creation custody changed")
+    if bindings.resource_scope is not None and bindings.resource_scope.kind == "installation":
+        return _installation_creation_authority(bindings.credential, runtime)
     projection = project_range_authority(runtime.request.request_id)
-    if (
-        projection.scope != bindings.resource_scope
-        or resolve_credential_scope(TargetRef("range", runtime.cms_range_uuid)) != projection.scope
-    ):
+    if projection.scope != bindings.resource_scope:
         raise ValueError("Range creation projections changed")
-    parent = scope_parent(projection.scope)
+    parent = (
+        bindings.authority_target
+        if bindings.authority_target is not None and bindings.authority_target.type == "event"
+        else scope_parent(projection.scope)
+    )
     if parent != projection.parent:
         raise ValueError("Range creation parent changed")
-    return admitted_range_authority_fields(
-        bindings.credential, projection, runtime, action=f"{parent.type}.launch_range", target=parent
-    )
+    action = bindings.authority_action or f"{parent.type}.launch_range"
+    target = bindings.authority_target or parent
+    return admitted_range_authority_fields(bindings.credential, projection, runtime, action=action, target=target)
+
+
+def _installation_creation_authority(credential: CredentialContext, runtime: Range) -> dict[str, object]:
+    """Bind an admitted installation-owned warm preparation to its exact runtime."""
+    from shared.operation_authority import credential_reference_fields
+
+    from ._launch_authority import range_runtime_binding_digest
+
+    if runtime.cms_range_uuid is None or runtime.owner_principal_uuid != credential.principal.uuid:
+        raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
+    return {
+        **credential_reference_fields(credential),
+        "authority_kind": "warm_pool",
+        "authority_action": "installation.launch_range",
+        "authority_target_type": "installation",
+        "authority_target_uuid": None,
+        "authority_parent_type": "installation",
+        "authority_parent_uuid": None,
+        "authority_scope_kind": "installation",
+        "authority_account_uuid": None,
+        "authority_organization_uuid": None,
+        "authority_workspace_uuid": None,
+        "authority_owner_uuid": credential.principal.uuid,
+        "authority_resource_uuid": runtime.cms_range_uuid,
+        "authority_binding_digest": range_runtime_binding_digest(runtime),
+    }
 
 
 def prepare_principal_range_fields(
@@ -109,34 +138,49 @@ def prepare_principal_range_fields(
     if bindings.credential is None:
         raise ValueError("Range creation credential unavailable")
     current = resolve_current_credential(bindings.credential)
-    if scope is None or scope.kind != "account" or not isinstance(bindings.cms_range_uuid, UUID):
+    if scope is None or not isinstance(bindings.cms_range_uuid, UUID):
         raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
     if not bindings.cms_range_uuid.int:
         raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
-    _assert_historical_user(current, user_id)
-    resolved = resolve_range_scope_binding(scope, member=current.principal)
+    owner = bindings.owner_principal or current.principal
+    if scope.kind == "installation":
+        if current.principal.kind != "service" or user_id is not None or workspace_id is not None:
+            raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
+        resolved = resolve_range_scope_binding(scope)
+    else:
+        _assert_historical_user(owner, user_id)
+        resolved = (
+            resolve_range_scope_binding(scope)
+            if bindings.authority_target is not None
+            else resolve_range_scope_binding(scope, member=current.principal)
+        )
     if resolved.workspace_id != workspace_id:
         raise ValueError("Range scope conflicts")
     parent = scope_parent(scope)
-    require_authorization(
-        AuthorizationRequest(current.principal, f"{parent.type}.launch_range", parent, scope, current.ceiling)
-    )
+    action = bindings.authority_action or f"{parent.type}.launch_range"
+    target = bindings.authority_target or parent
+    require_authorization(AuthorizationRequest(current.principal, action, target, scope, current.ceiling))
     if resolve_current_credential(current) != current:
         raise ValueError("Range authority changed")
     return {
-        "owner_principal_uuid": current.principal.uuid,
+        "owner_principal_uuid": owner.uuid,
         "cms_range_uuid": bindings.cms_range_uuid,
         "scope_kind": resolved.kind,
         "account_id": resolved.account_id,
         "organization_id": resolved.organization_id,
+        "event_uuid": (
+            bindings.authority_target.uuid
+            if bindings.authority_target is not None and bindings.authority_target.type == "event"
+            else None
+        ),
     }
 
 
-def _assert_historical_user(current: CredentialContext, user_id: int | None) -> None:
+def _assert_historical_user(owner, user_id: int | None) -> None:
     """Human attribution cannot substitute for the admitted principal owner."""
     from management.services import human_principal_user_id
 
-    expected_user = human_principal_user_id(current.principal) if current.principal.kind == "human" else None
+    expected_user = human_principal_user_id(owner) if owner.kind == "human" else None
     if expected_user != user_id:
         raise ValueError("Range historical attribution conflicts")
 
@@ -148,10 +192,16 @@ def assert_principal_range_creation(bindings: RangeBindings, fields: dict[str, o
     if bindings.credential is None or bindings.resource_scope is None:
         raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
     current = resolve_local_credential(bindings.credential)
-    resolved = resolve_range_scope_binding(bindings.resource_scope, member=current.principal, for_update=True)
+    owner = bindings.owner_principal or current.principal
+    resolved = (
+        resolve_range_scope_binding(bindings.resource_scope)
+        if bindings.resource_scope.kind == "installation" or bindings.authority_target is not None
+        else resolve_range_scope_binding(bindings.resource_scope, member=current.principal, for_update=True)
+    )
     if (
         current != bindings.credential
-        or current.principal.uuid != fields["owner_principal_uuid"]
+        or (bindings.resource_scope.kind == "installation" and current.principal.kind != "service")
+        or owner.uuid != fields["owner_principal_uuid"]
         or resolved.kind != fields["scope_kind"]
         or resolved.account_id != fields["account_id"]
         or resolved.organization_id != fields["organization_id"]

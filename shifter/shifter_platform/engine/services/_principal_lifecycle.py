@@ -12,6 +12,7 @@ from uuid import UUID
 from django.db import transaction
 
 from shared.audit import AuditActorType, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
+from shared.authorization import TargetRef
 from shared.credentials import CredentialContext
 from shared.raes.runtime_target import is_raes_provisioning_plan
 
@@ -30,7 +31,14 @@ class PreparedRangeLifecycle:
     credential: CredentialContext
 
 
-def prepare_range_lifecycle(credential: CredentialContext, request_id: UUID, operation: str) -> PreparedRangeLifecycle:
+def prepare_range_lifecycle(
+    credential: CredentialContext,
+    request_id: UUID,
+    operation: str,
+    *,
+    authority_action: str | None = None,
+    authority_target: TargetRef | None = None,
+) -> PreparedRangeLifecycle:
     """Resolve the actual range and common action without holding row locks."""
     from engine.ecs._config import _get_engine_task_config
     from engine.models import Range
@@ -48,7 +56,12 @@ def prepare_range_lifecycle(credential: CredentialContext, request_id: UUID, ope
             raise ValueError("Provision generation cannot be safely interrupted")
         operation = "cancel"
     payload = {"version": 1, "resource": resource, "operation": operation, "request_id": str(request_id)}
-    authority = admit_launch_authority(payload, credential)
+    authority = admit_launch_authority(
+        payload,
+        credential,
+        authority_action=authority_action,
+        authority_target=authority_target,
+    )
     return PreparedRangeLifecycle(request_id, operation, row.pk, row.status, tuple(authority.items()), credential)
 
 

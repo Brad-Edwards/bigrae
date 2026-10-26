@@ -12,6 +12,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
+from shared.api.principals import authenticated_credential
 from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
@@ -108,7 +109,7 @@ def admin_participant_rename(request: HttpRequest, participant_id: UUID) -> Http
             participant = rename_participant_username(
                 participant_id,
                 form.cleaned_data["username"],
-                actor=request.user,
+                actor=authenticated_credential(request),
             )
         except CTFNotFoundError:
             raise Http404(_PARTICIPANT_NOT_FOUND_MSG) from None
@@ -236,6 +237,7 @@ def admin_participant_add(request: HttpRequest, event_id: UUID) -> HttpResponse:
                     event_id=event_id,
                     email=form.cleaned_data["email"],
                     name=form.cleaned_data["name"],
+                    actor=authenticated_credential(request),
                 )
                 logger.info(
                     "User %s added participant %s to event %s",

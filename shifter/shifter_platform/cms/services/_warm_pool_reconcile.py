@@ -15,13 +15,13 @@ deployment policy, it:
 The ledger is an Engine-owned model, so every generation query/mutation goes
 through the ``engine.services`` seam (ADR-001); this module owns only the CMS
 reservation + RAES warm-prepare dispatch that the Engine cannot perform, plus the
-policy-driven decisions. A warm generation is a system-owned RAES range reserved
-under a managed, inactive warm-pool user; its ledger row is created at reservation
+policy-driven decisions. A warm generation is an installation-scoped RAES range
+owned by the configured service principal; its ledger row is created at reservation
 time so the provision suppresses participant access (quarantine). No provider I/O
 happens in a transaction: provision and destroy travel through durable RAES intents.
 
-The reconciler prepares for the v1 warm target class (personal-workspace Mission
-Control live-fire launches) and builds its compatibility digest from the same
+The reconciler prepares for the account-scoped Mission Control live-fire target
+class and builds its compatibility digest from the same
 :class:`shared.warm_pool.compatibility.CompatibilityKey` dimensions the launch
 claim path uses, so a generation it prepares is claimable by exactly those launches.
 """
@@ -29,17 +29,17 @@ claim path uses, so a generation it prepares is claimable by exactly those launc
 from __future__ import annotations
 
 import logging
-import secrets
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.contrib.auth.models import User
+from django.db import transaction
 from django.utils import timezone
 
-from cms.services._warm_pool_claim import ISOLATION_PERSONAL
+from cms.services._warm_pool_claim import ISOLATION_ACCOUNT
 from shared.enums import RangeSource, ResourceStatus
+from shared.identity_scope import ResourceScope
 from shared.operation_envelope import canonical_payload_digest
 from shared.range_instantiation_policy import InstantiationPurpose, backend_supports_warm_activation
 from shared.warm_pool.compatibility import CompatibilityKey, compatibility_digest
@@ -50,12 +50,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# The v1 warm target class the reconciler prepares for; the launch claim path must
+# The warm target class the reconciler prepares for; the launch claim path must
 # derive the same values for a claim to match (documented in _warm_pool_claim).
 WARM_RANGE_SOURCE = RangeSource.MISSION_CONTROL
 WARM_PURPOSE = InstantiationPurpose.LIVE_FIRE
-_WARM_USER_EMAIL_DOMAIN = "warm-pool.invalid"
-_WARM_EGRESS_MODE = "status-quo"
+_WARM_EGRESS_MODE = "none"
 
 
 def _policy_fingerprint(policy: WarmPoolRuntimePolicy, bucket: WarmPoolBucketPolicy) -> str:
@@ -87,7 +86,7 @@ def _bucket_compatibility_digest(bucket: WarmPoolBucketPolicy, *, package_digest
             backend=bucket.backend,
             instantiation_purpose=WARM_PURPOSE.value,
             range_source=WARM_RANGE_SOURCE.value,
-            workspace_isolation_class=ISOLATION_PERSONAL,
+            workspace_isolation_class=ISOLATION_ACCOUNT,
             egress_mode=_WARM_EGRESS_MODE,
             scenario=bucket.scenario,
             package_digest=package_digest,
@@ -96,20 +95,14 @@ def _bucket_compatibility_digest(bucket: WarmPoolBucketPolicy, *, package_digest
     )
 
 
-def create_managed_warm_user() -> User:
-    """Create an inactive, machine-marked system user that owns a warm generation.
+def _warm_pool_credential():
+    """Resolve the configured service credential's current lifecycle state."""
+    from management.services import resolve_service_credential_reference
 
-    The ``@warm-pool.invalid`` email domain is the machine-checkable marker (mirrors
-    the CTF spare managed-user pattern -- a shared low-level mechanism, not the CTF
-    recovery policy). The user is inactive so it can never authenticate; it exists
-    only to satisfy the ``(user_id, range_source)`` active-range uniqueness while the
-    generation is system-owned, and is removed when the generation is claimed or
-    retired.
-    """
-    token = secrets.token_hex(16)
-    return User.objects.create_user(
-        username=f"warm-{token}", email=f"{token}@{_WARM_USER_EMAIL_DOMAIN}", is_active=False
-    )
+    reference = settings.WARM_POOL_SERVICE_CREDENTIAL_UUID
+    if reference is None:
+        raise ValueError("Warm-pool service credential unavailable")
+    return resolve_service_credential_reference(reference, audience=settings.GCP_SERVICE_TOKEN_AUDIENCE)
 
 
 def reconcile_warm_pool(*, now: datetime | None = None) -> dict[str, int]:
@@ -311,18 +304,10 @@ def _warm_prepare_dispatch(
     """Reserve, draw capacity, and dispatch one warm-prepare (helper of ``_provision_warm_generation``).
 
     Returns True on a dispatched preparation, False on a capacity refusal or any
-    failure. All allocated resources (managed user, capacity draw, reservation) are
-    cleaned up on the non-dispatch paths.
+    failure. All allocated capacity and reservation state is cleaned up on the
+    non-dispatch paths.
     """
-    from cms.models import RangeInstance, Request
-    from cms.services._pack_fence import fence_pack_reference
-    from cms.services._raes_range_create import (
-        _audit_raes_range_provision,
-        _dispatch_raes_package,
-        _load_raes_source_or_raise,
-    )
-    from cms.services._range_launch_common import _reserve_active_range_slot
-    from cms.services._range_workspace import admit_workspace_launch, resolve_launch_workspace
+    from cms.services._raes_range_create import _load_raes_source_or_raise
     from engine.services import (
         WarmGenerationDraft,
         admit_warm_generation_capacity,
@@ -330,39 +315,13 @@ def _warm_prepare_dispatch(
         warm_capacity_scope_ref,
     )
 
-    system_user = create_managed_warm_user()
     draw_key = uuid4()
     scope_ref = warm_capacity_scope_ref(settings.WARM_POOL_DEPLOYMENT_NAME, bucket.id)
     request_id: UUID | None = None
     try:
         source = _load_raes_source_or_raise(bucket.scenario)
         request_id = uuid4()
-        workspace_id = resolve_launch_workspace(system_user, None)
-        admit_workspace_launch(
-            workspace_id=workspace_id,
-            user=system_user,
-            range_source=WARM_RANGE_SOURCE,
-            instantiation_purpose=WARM_PURPOSE,
-            correlation_key=request_id,
-        )
-
-        def _persist(cms_request: Request) -> RangeInstance:
-            """Create the system-owned CMS RangeInstance row for the warm generation."""
-            # Admission fence (ADR-034-R13): a removed or revised pack admits no new generation.
-            fence_pack_reference(bucket.scenario, expected_digest=source.package_digest)
-            return RangeInstance.objects.create(
-                request=cms_request,
-                scenario_id=bucket.scenario,
-                user_id=system_user.id,
-                workspace_id=cms_request.workspace_id,
-                range_source=WARM_RANGE_SOURCE.value,
-                range_spec=None,
-                model_package_digest=source.package_digest,
-            )
-
-        _rid, _req, _ri, egress_mode = _reserve_active_range_slot(
-            system_user, WARM_RANGE_SOURCE, _persist, workspace_id, request_id
-        )
+        credential = _reserve_warm_intent(_warm_pool_credential(), source, request_id)
 
         # Create the ledger row BEFORE dispatch so the provision suppresses
         # participant access (quarantine), and draw capacity before provider work.
@@ -386,32 +345,86 @@ def _warm_prepare_dispatch(
         admission = admit_warm_generation_capacity(scope_ref=scope_ref, draw_key=draw_key)
         if admission.blocking:
             logger.warning("warm-pool: capacity refused for bucket=%s; skipping preparation", bucket.id)
-            _abandon_preparation(request_id, system_user, draw_key)
+            _abandon_preparation(request_id, draw_key)
             return False
 
-        _dispatch_raes_package(request_id, system_user, source, backend_admission, workspace_id, egress_mode)
-        _audit_raes_range_provision(
+        from cms.services._raes_dispatch import (
+            RaesDispatchOptions,
+            dispatch_object_raes_package,
+            dispatch_repo_raes_package,
+        )
+
+        dispatch = dispatch_object_raes_package if source.source_kind == "object" else dispatch_repo_raes_package
+        dispatch(
             request_id,
-            bucket.scenario,
-            system_user,
-            WARM_RANGE_SOURCE,
-            egress_policy_workspace_id=workspace_id,
-            egress_mode=egress_mode,
+            credential,
+            source,
+            RaesDispatchOptions(
+                backend_admission,
+                None,
+                _WARM_EGRESS_MODE,
+                principal_scope=ResourceScope("installation"),
+            ),
         )
         return True
     except Exception:
         logger.exception("warm-pool: failed to prepare a generation for bucket=%s", bucket.id)
-        _abandon_preparation(request_id, system_user, draw_key)
+        _abandon_preparation(request_id, draw_key)
         return False
 
 
-def _abandon_preparation(request_id: UUID | None, system_user: User | None, draw_key: UUID) -> None:
+def _reserve_warm_intent(credential, source, request_id: UUID):
+    """Persist one installation-scoped service-owned intent before provider work."""
+    from cms.models import RaesPackageSource, RangeInstance, Request
+    from cms.services._pack_fence import fence_pack_reference
+    from cms.services._scoped_range_launch import revalidate_scoped_launch, source_launch_binding
+    from shared.credentials import resolve_local_credential
+    from shared.operation_authority import credential_reference_fields
+
+    scope = ResourceScope("installation")
+    current = revalidate_scoped_launch(credential, scope, source)
+    with transaction.atomic():
+        if (
+            resolve_local_credential(current) != current
+            or not RaesPackageSource.objects.filter(pk=source.pk, **source_launch_binding(source)).exists()
+        ):
+            raise ValueError("Warm-pool authority changed")
+        fence_pack_reference(source.scenario_id, expected_digest=source.package_digest)
+        fields = {
+            "scope_kind": "installation",
+            "account_id": None,
+            "organization_id": None,
+            "workspace_id": None,
+            "owner_principal_uuid": current.principal.uuid,
+        }
+        request = Request.objects.create(
+            request_id=request_id,
+            request_type="range",
+            user=None,
+            **credential_reference_fields(current),
+            **fields,
+        )
+        RangeInstance.objects.create(
+            request=request,
+            scenario_id=source.scenario_id,
+            user_id=None,
+            range_source=WARM_RANGE_SOURCE.value,
+            status=ResourceStatus.PROVISIONING.value,
+            range_spec=None,
+            model_sources={"aliases": []},
+            model_package_digest=source.package_digest,
+            **fields,
+        )
+    return current
+
+
+def _abandon_preparation(request_id: UUID | None, draw_key: UUID) -> None:
     """Clean up a warm preparation that was refused or failed before/at dispatch (#28).
 
     Releases the capacity draw, moves any created ledger row to a reconciler-owned
     retiring state and fails the CMS reservation so no stranded PROVISIONING row
-    keeps counting toward the pool ceiling, and deletes the managed system user.
-    Every step is best-effort and idempotent so cleanup never raises out of the pass.
+    keeps counting toward the pool ceiling. Every step is best-effort and
+    idempotent so cleanup never raises out of the pass.
     """
     from cms.models import RangeInstance
     from engine.services import release_warm_generation_capacity, retire_generations_for_request
@@ -429,17 +442,3 @@ def _abandon_preparation(request_id: UUID | None, system_user: User | None, draw
             RangeInstance.objects.filter(request__request_id=request_id).update(status=ResourceStatus.FAILED.value)
         except Exception:
             logger.exception("warm-pool cleanup: range-instance fail-mark failed")
-    _delete_managed_warm_user(system_user)
-
-
-def _delete_managed_warm_user(system_user: User | None) -> None:
-    """Delete the managed warm-pool system user, best-effort and marker-checked."""
-    if system_user is None:
-        return
-    try:
-        if str(getattr(system_user, "email", "")).endswith(f"@{_WARM_USER_EMAIL_DOMAIN}"):
-            from management.services import delete_managed_pool_user
-
-            delete_managed_pool_user(system_user, domain=_WARM_USER_EMAIL_DOMAIN)
-    except Exception:
-        logger.exception("warm-pool cleanup: managed user delete failed")

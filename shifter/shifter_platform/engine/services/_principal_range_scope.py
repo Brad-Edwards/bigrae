@@ -54,11 +54,13 @@ def prepare_range_scope_move(
     return PreparedRangeScopeMove(source, target, row.status, current)
 
 
-def _assert_move_supported(row: Range) -> None:
+def _assert_move_supported(row: Range, *, allow_event: bool = False, allow_principal_vpn: bool = False) -> None:
     """Reject scope changes for runtime states that cannot safely move."""
-    if row.status not in {"ready", "paused", "failed"} or row.event_uuid is not None:
+    if row.status not in {"ready", "paused", "failed"} or (row.event_uuid is not None and not allow_event):
         raise ValueError("Range scope move unavailable")
-    if row.vpn_access_binding is not None or row.vpn_profiles.filter(secret_removed_at__isnull=True).exists():
+    if not allow_principal_vpn and (
+        row.vpn_access_binding is not None or row.vpn_profiles.filter(secret_removed_at__isnull=True).exists()
+    ):
         raise ValueError("Range VPN custody must be retired first")
 
 

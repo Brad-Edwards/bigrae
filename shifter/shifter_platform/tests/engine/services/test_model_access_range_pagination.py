@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -39,7 +41,10 @@ def test_automatic_owner_expansions_are_not_treated_as_explicit_selector_ids():
     owner = User.objects.create_user("expanded-owner-pagination@test")
     range_obj = Range.objects.create(user=owner, workspace_id=1, status=Range.Status.READY)
 
-    users = resolve_model_access_range_page(user_ids=tuple(range(owner.pk, owner.pk + 1001)))
+    users = resolve_model_access_range_page(
+        user_ids=tuple(range(owner.pk, owner.pk + 1001)),
+        user_principal_uuids=tuple(uuid4() for _ in range(1001)),
+    )
     workspaces = resolve_model_access_range_page(workspace_ids=tuple(range(1, 1002)))
 
     assert [item.range_uuid for item in users.items] == [range_obj.uuid]

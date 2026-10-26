@@ -4,7 +4,7 @@
 
 **Superseded by [ADR-068](068-model-access-broker-parked.md) (2026-10-05):** the broker is parked and not supported for use; keyless-direct (ADR-064) is the only live model path. This record is kept as history of the parked implementation.
 
-Proposed for [#681](https://github.com/Brad-Edwards/shifter/issues/681),
+Proposed for [#681](https://github.com/Brad-Edwards/bigrae/issues/681),
 PLAT-202, 2026-09-06. Depends on ADR-059; runtime implementation is pending.
 
 ## Context
@@ -42,7 +42,7 @@ settles the set of applicable account IDs once. Shared-only budgets need no
 equal per-range partition; optional individual caps tighten the common pool.
 Membership changes cannot reset spend, transfer unresolved liability, bypass
 authorization or leave old grants usable while reassessment runs. The
-[sharing contract](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/sharing.md)
+[sharing contract](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/sharing.md)
 defines selectors, bounded resolution, precedence and management behavior.
 
 Model-required launches need successful enforcing model admission even when
@@ -73,7 +73,7 @@ Provider capacity remains external and non-atomic. Application budgets bound
 approved requests at validated price bounds; they do not promise an exact
 cloud invoice cap. Unknown billable features and models without a defensible
 upper bound are disabled. The
-[accounting contract](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/architecture.md#request-admission-and-accounting)
+[accounting contract](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/architecture.md#request-admission-and-accounting)
 defines race, retry, stream, and reconciliation behavior.
 
 ## Alternatives and consequences
@@ -106,7 +106,7 @@ references. The M02 admit/deny verdict is a deterministic recompute (no persiste
 decision yet); the zero-egress admitted-broker exception and the
 demand-strategy/allocation threading are revisited when the broker capability
 lands. See
-[architecture § Launch-time model admission](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/architecture.md#launch-time-model-admission-m02-2119).
+[architecture § Launch-time model admission](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/architecture.md#launch-time-model-admission-m02-2119).
 
 The [M03 allocation preflight](../architecture/model-access/allocation-preflight-2120.md)
 records the current repository gaps and applies this decision to atomic

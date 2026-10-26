@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from cms.exceptions import CMSError
 from cms.services._range_launch_common import LaunchOptions
 from shared.credentials import CredentialContext
-from shared.identity_scope import ResourceScope
+from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.range_instantiation_policy import InstantiationPurpose
 
 if TYPE_CHECKING:
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from django.contrib.auth.models import User
 
+    from shared.authorization import TargetRef
     from shared.enums import RangeSource
     from shared.model_access import OwnedReference
     from shared.model_access.reservation import ModelLaunchScope
@@ -62,6 +63,9 @@ def create_range_dispatch(  # NOSONAR -- stable cross-service facade retained fo
     ctf_policy_workspace_id: int | None = None,
     *,
     scope: ResourceScope | None = None,
+    owner_principal: PrincipalRef | None = None,
+    authority_action: str | None = None,
+    authority_target: TargetRef | None = None,
 ) -> RangeContext:
     """Launch a registered RAES scenario through the authoritative path.
 
@@ -76,24 +80,23 @@ def create_range_dispatch(  # NOSONAR -- stable cross-service facade retained fo
     from cms.services._raes_range_create import create_raes_native_range
 
     if isinstance(user, CredentialContext):
-        if (
-            any(
-                value is not None
-                for value in (
-                    remote_access_teardown_at,
-                    model_admission_subject,
-                    model_launch_scope,
-                    content_authorizer,
-                    ctf_policy_workspace_id,
-                )
-            )
-            or model_sources
-        ):
+        if content_authorizer is not None or ctf_policy_workspace_id is not None:
             raise CMSError("Range launch inputs unavailable")
         return create_raes_native_range(
-            user, scenario, range_source=range_source, workspace_uuid=workspace_uuid, scope=scope
+            user,
+            scenario,
+            range_source=range_source,
+            workspace_uuid=workspace_uuid,
+            scope=scope,
+            model_sources=model_sources,
+            owner_principal=owner_principal,
+            authority_action=authority_action,
+            authority_target=authority_target,
+            remote_access_teardown_at=remote_access_teardown_at,
+            model_admission_subject=model_admission_subject,
+            model_launch_scope=model_launch_scope,
         )
-    if scope is not None:
+    if scope is not None or owner_principal is not None or authority_action is not None or authority_target is not None:
         raise CMSError("Range launch scope unavailable")
     return dispatch_range_launch(
         user,

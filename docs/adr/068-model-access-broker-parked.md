@@ -46,7 +46,7 @@ no controls.
 3. No work hardens or extends the parked broker. Changes to its code are limited
    to keeping CI reliable for everyone until it is removed or replaced. Model
    access control is taken up again under the AI Gateway milestone
-   ([#2274](https://github.com/Brad-Edwards/shifter/issues/2274)).
+   ([#2274](https://github.com/Brad-Edwards/bigrae/issues/2274)).
 4. Any future model access control path is a transparent proxy by default:
    - Spend, rate, concurrency, token limits, and detections are optional
      controls a deployment can attach. The default is no controls, and a missing

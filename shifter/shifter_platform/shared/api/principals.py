@@ -33,13 +33,20 @@ def authenticated_credential(request: Request) -> CredentialContext:
     if isinstance(credential, CredentialContext):
         resolve_principal(credential.principal)
         return credential
-    if getattr(request, "auth", None) is not None:
+    request_auth = getattr(request, "auth", None)
+    if isinstance(request_auth, CredentialContext):
+        resolve_principal(request_auth.principal)
+        return request_auth
+    if request_auth is not None:
         raise ValueError("Credential context unavailable")
     user = active_actor_user(request)
     if user is None:
         raise ValueError("Unrestricted human session unavailable")
-    candidate = _human_session_credential(user)
-    reference = getattr(getattr(request, "session", None), "credential_uuid", None)
+    candidate = human_session_credential(user)
+    try:
+        reference = getattr(getattr(request, "session", None), "credential_uuid", None)
+    except (AttributeError, ValueError):
+        raise ValueError("Credential context unavailable") from None
     if reference is not None:
         if not isinstance(reference, UUID):
             raise ValueError("Credential context unavailable")
@@ -53,12 +60,12 @@ def authenticated_credential(request: Request) -> CredentialContext:
                 candidate.event_uuid,
             )
         )
-    # S8 selects the reference-bearing backend. Legacy admission is never a
-    # durable reference: the operation resolver cannot resolve a principal UUID.
-    return candidate
+    # S8 requires the reference-bearing backend. A framework-authenticated user
+    # without a live session reference is not an operation credential.
+    raise ValueError("Credential context unavailable")
 
 
-def _human_session_credential(user: User) -> CredentialContext:
+def human_session_credential(user: User) -> CredentialContext:
     """Build the same canonical ceiling before composing a live session reference."""
     if getattr(getattr(user, "profile", None), "is_ctf_account", False):
         return temporary_credential(user)

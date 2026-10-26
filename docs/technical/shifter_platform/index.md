@@ -10,7 +10,7 @@ Django application architecture for the Shifter cyber range platform.
 The [current-state handbook](../architecture.md) owns the package/dependency,
 trust, deployment and command/result/event views. The canonical layer
 classification and per-symbol service allowances live in
-[layer_imports.yaml](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/check_layer_imports/layer_imports.yaml).
+[layer_imports.yaml](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/check_layer_imports/layer_imports.yaml).
 
 CMS owns content and desired lifecycle; Engine owns realized state and operation
 application; CTF owns event/participant behavior; Management owns identity;
@@ -70,7 +70,7 @@ new authority model or feature flag.
 
 ## Artifact preparation
 
-The [artifact preparation design](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/raes-in-tenant-artifact-preparation-design-1583.md)
+The [artifact preparation design](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/raes-in-tenant-artifact-preparation-design-1583.md)
 defines adapter ownership, private registration, worker isolation, independent
 verification and inventory admission before ordinary range launch.
 
@@ -80,7 +80,7 @@ The shared platform layer owns the durable audit store and writer. Audit rows
 are visible through Django admin and the staff-session-only `/api/v1/audit/`
 read API.
 
-- [Audit system architecture](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/audit-system-architecture.md)
+- [Audit system architecture](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/audit-system-architecture.md)
 - [Administrator audit and activity history](admin-audit-activity.md): the
   hardened `/api/v1/audit/` read API, its typed filters, and the staff-facing
   `/administer/audit` SPA surface.

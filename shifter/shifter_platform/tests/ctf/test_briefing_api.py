@@ -77,7 +77,7 @@ class TestBriefingRead:
         assert call_json(reader, "get", "api_me_briefing").status_code == 200
 
         gone = call_json(authenticated_organizer_client, "delete", "api_event_page_detail", kwargs={"page_id": page_id})
-        assert gone.status_code == 200
+        assert gone.status_code == 204
         assert call_json(reader, "get", "api_me_briefing").status_code == 404
 
     def test_source_stored_verbatim_not_sanitized_on_write(

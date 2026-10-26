@@ -20,7 +20,7 @@ it("applies the displayed revision and makes blocked replacement visible", async
   renderRoute(<RangeModelSources organization="org-1" />);
   fireEvent.click(await screen.findByRole("button", { name: "Manage model sources" }));
   fireEvent.click(await screen.findByRole("button", { name: "Apply source policy" }));
-  await waitFor(() => expect(api).toHaveBeenCalledWith("/cms/ranges/range-1/model-sources/", {
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/cms/ranges/range-1/model-access/", {
     method: "PUT", body: { expected_revision: 4, selection: { aliases: [] } },
   }));
   expect(await screen.findByText(/The old grant remains revoked/)).toBeInTheDocument();
@@ -41,5 +41,5 @@ it("revokes a range's model access through the revoke endpoint", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Manage model sources" }));
   fireEvent.click(await screen.findByRole("button", { name: "Revoke model access" }));
   await waitFor(() =>
-    expect(api).toHaveBeenCalledWith("/cms/ranges/range-1/model-sources/revoke/", { method: "POST", body: {} }));
+    expect(api).toHaveBeenCalledWith("/cms/ranges/range-1/model-access/revoke/", { method: "POST", body: {} }));
 });

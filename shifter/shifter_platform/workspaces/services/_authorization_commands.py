@@ -18,6 +18,26 @@ from shared.authorization import (
 )
 from shared.identity_scope import PrincipalRef, ResourceScope
 
+AUTHORIZATION_MUTATION_CONFIRMED = "confirmed"
+
+_EVENT_STAFF_HANDOFF_ACTIONS = frozenset(
+    {
+        "event.delete",
+        "event.manage_awards",
+        "event.manage_challenges",
+        "event.manage_communications",
+        "event.manage_config",
+        "event.manage_content",
+        "event.manage_lifecycle",
+        "event.manage_participants",
+        "event.manage_ranges",
+        "event.manage_scoring",
+        "event.manage_submissions",
+        "event.manage_teams",
+        "event.read",
+    }
+)
+
 
 class AuthorizationMutationConflict(RuntimeError):
     """A different or unresolved mutation owns the serialization fence."""
@@ -46,6 +66,23 @@ class PolicyMutationRequest:
             raise ValueError("authorization model id is required")
         if not isinstance(self.audit, RequestAudit):
             raise ValueError("trusted audit attribution is required")
+
+
+@dataclass(frozen=True, slots=True)
+class EventOwnershipHandoffPolicyMutationRequest(PolicyMutationRequest):
+    """Trusted former-owner staff grant emitted only by the ownership command."""
+
+    def __post_init__(self) -> None:
+        super(EventOwnershipHandoffPolicyMutationRequest, self).__post_init__()
+        if (
+            self.target.type != "event"
+            or self.target.uuid is None
+            or self.subject.kind != "principal"
+            or self.subject.uuid != self.actor.uuid
+            or self.effect != PolicyEffect.GRANT
+            or self.action not in _EVENT_STAFF_HANDOFF_ACTIONS
+        ):
+            raise ValueError("event ownership handoff must grant a closed staff action set to the former owner")
 
 
 @dataclass(frozen=True, slots=True)

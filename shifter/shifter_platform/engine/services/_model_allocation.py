@@ -43,7 +43,11 @@ def _lock_range(request: ModelAllocationRequest) -> Range:
         raise ContractError("allocation.generation_mismatch")
     if row.model_source_policy_revision != request.source_policy_revision:
         raise ContractError("allocation.policy_revision_mismatch")
-    if request.owner_ref.owner != "management" or request.owner_ref.reference != f"user:{row.user_id}":
+    if (
+        row.owner_principal_uuid is None
+        or request.owner_ref.owner != "management"
+        or request.owner_ref.reference != f"principal:{row.owner_principal_uuid}"
+    ):
         raise ContractError("allocation.owner_mismatch")
     if row.status not in (Range.Status.PENDING, Range.Status.PROVISIONING, Range.Status.READY, Range.Status.RESUMING):
         raise ContractError("allocation.range_unavailable")

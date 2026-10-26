@@ -10,7 +10,7 @@ Use this alongside the authoritative runbooks:
 [`aws-terraform-apply-order.md`](aws-terraform-apply-order.md),
 [`aws-runner-provisioning-runbook.md`](aws-runner-provisioning-runbook.md),
 [`aws-ami-seeding-runbook.md`](aws-ami-seeding-runbook.md), and
-[`scripts/bootstrap/README.md`](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/bootstrap/README.md).
+[`scripts/bootstrap/README.md`](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/bootstrap/README.md).
 
 ## Re-pointing an existing tenant at a new account ("moved account")
 

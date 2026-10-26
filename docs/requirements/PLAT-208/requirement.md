@@ -21,7 +21,7 @@ The RDS module and CI now distinguish dev/prod database apply behavior and verif
 
 ## Traceability
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#703` (RDS module: apply_immediately defaults to false, queues changes for maintenance window)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#703` (RDS module: apply_immediately defaults to false, queues changes for maintenance window)
 - IMPLEMENTS → CONFIG `platform/terraform/modules/portal/rds/main.tf` (RDS apply_immediately input and maintenance-window default)
 - IMPLEMENTS → CONFIG `platform/terraform/modules/portal/rds/variables.tf` (RDS apply_immediately variable contract)
 - IMPLEMENTS → CODE_FILE `scripts/check_rds_pending_modifications/check_rds_pending_modifications.py` (RDS pending modification CI checker)

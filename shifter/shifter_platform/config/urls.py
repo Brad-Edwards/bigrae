@@ -1,7 +1,6 @@
 """Root URL configuration for the Shifter platform Django project."""
 
 from django.conf import settings
-from django.contrib import admin
 from django.http import HttpRequest, HttpResponse
 from django.urls import include, path, re_path
 from django.views.decorators.http import require_safe
@@ -14,6 +13,7 @@ from config.password_reset_views import (
     PlatformPasswordResetCompleteView,
     PlatformPasswordResetConfirmView,
 )
+from config.policy_admin_site import policy_admin_site
 from config.views import (
     dashboard_router,
     identity_platform_session,
@@ -82,7 +82,7 @@ urlpatterns = [
     re_path(r"^administer/.*$", _administer_page),
     path("api/v1/", include((api_urls.urlpatterns, api_urls.app_name), namespace="v1")),
     path("ctf/", include("ctf.urls")),
-    path("admin/", admin.site.urls),
+    path("admin/", policy_admin_site.urls),
     # /health and /health/ both resolve to the same dependency-aware probe
     # view. The no-trailing-slash variant is for the AWS ALB target group
     # (``platform/terraform/environments/{dev,prod}/portal/terraform.tfvars``

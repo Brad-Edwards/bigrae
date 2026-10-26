@@ -4,7 +4,7 @@ Status: implemented
 
 Date: 2026-05-31
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/847>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/847>
 
 Companion: [terminal-websocket-capacity-preflight-847.md](terminal-websocket-capacity-preflight-847.md)
 

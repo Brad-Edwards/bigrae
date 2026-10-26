@@ -338,7 +338,7 @@ class TestEnqueue:
         seen: list = []
         monkeypatch.setattr(
             "engine.launch_intents.enqueue_provisioner_launch",
-            lambda command: seen.append(command) or "intent-123",
+            lambda command, **_kwargs: seen.append(command) or "intent-123",
             raising=True,
         )
         rid = uuid4()

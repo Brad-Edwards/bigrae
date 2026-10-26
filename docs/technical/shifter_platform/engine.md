@@ -113,7 +113,10 @@ Key seams:
   and unhealthy generations through canonical `destroy`, and releases capacity only
   after provider absence is observed. Capacity is drawn through the Engine ledger
   (`engine.services.admit_warm_generation_capacity`); warm ranges are first-class
-  capacity consumers.
+  capacity consumers. An active policy requires the non-secret
+  `WARM_POOL_SERVICE_CREDENTIAL_UUID` reference. The referenced active service
+  admission supplies the installation-scoped `installation.launch_range` authority;
+  no dummy human, personal workspace, or stored cloud key owns preparation.
 - **Observability.** `shared.warm_pool.metrics` publishes gauges and claim outcomes
   to the `Shifter/WarmPool` namespace; warm lifecycle events are audited under the
   `warm_*` `AuditAction` vocabulary.

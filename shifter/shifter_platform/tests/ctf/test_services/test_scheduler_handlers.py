@@ -234,17 +234,19 @@ class TestHandleSpinUpRanges:
     throttled loop is a no-op, which keeps this test free of CMS-boundary
     mocking."""
 
-    def test_returns_throttled_result(self, ctf_event):
+    def test_returns_throttled_result(self, ctf_event, organizer_credential):
         from django.utils import timezone
 
         from ctf.enums import ScheduledTaskType
         from ctf.management.commands.run_ctf_scheduler import _handle_spin_up_ranges
         from ctf.models import CTFScheduledTask
+        from shared.operation_authority import credential_reference_fields
 
         task = CTFScheduledTask.objects.create(
             event=ctf_event,
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
             scheduled_for=timezone.now(),
+            **credential_reference_fields(organizer_credential),
         )
 
         result = _handle_spin_up_ranges(task, shutdown_check=lambda: False, heartbeat=MagicMock())

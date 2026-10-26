@@ -32,7 +32,10 @@ def test_event_public_registration_is_off_by_default(ctf_event):
     assert ctf_event.public_registration_enabled is False
 
 
-def test_enabled_public_registration_requires_workspace(ctf_event):
+def test_enabled_public_registration_requires_customer_scope(ctf_event):
+    ctf_event.scope_kind = ""
+    ctf_event.account_id = None
+    ctf_event.organization_id = None
     ctf_event.workspace_id = None
     ctf_event.public_registration_enabled = True
 
@@ -45,6 +48,9 @@ def test_enabled_public_registration_requires_workspace(ctf_event):
 def test_database_rejects_enabled_unbound_event(ctf_event):
     with pytest.raises(IntegrityError), transaction.atomic():
         CTFEvent.objects.filter(pk=ctf_event.pk).update(
+            scope_kind="",
+            account_id=None,
+            organization_id=None,
             workspace_id=None,
             public_registration_enabled=True,
         )
@@ -107,6 +113,9 @@ def test_public_projection_fails_closed_for_a_legacy_unbound_instance(ctf_event)
     from ctf.services.public_registration import PublicEventUnavailable, _project_eligible_event
 
     ctf_event.public_registration_enabled = True
+    ctf_event.scope_kind = ""
+    ctf_event.account_id = None
+    ctf_event.organization_id = None
     ctf_event.workspace_id = None
 
     with pytest.raises(PublicEventUnavailable):

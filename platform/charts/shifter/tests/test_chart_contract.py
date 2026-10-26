@@ -51,9 +51,10 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2320: dedicated Guacamole/guacd KSAs and bounded native SQL admission.
 # Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
+# Regenerated for #2321: every Python runtime receives the pinned OpenFGA binding.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "fa57a30ab197ac14f0f93f03b76ee47737b5211a2c57a1b878108c01b700fe5b",
-    "gcp-prod": "996af9585bf6fb957f5fc6aab5c18d0371883b19c28d2b42461ccc075e12edeb",
+    "gcp-dev": "6b221b4fe9a9c43b97cab7c6c37ee014dfdfbb6c490f8a8b1f83900e71d71f59",
+    "gcp-prod": "31176eef17edb3794ca33d434606c0983b24f0a6d5a89ca0b4ddde6428349623",
 }
 
 
@@ -95,7 +96,8 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         accounts = [doc for doc in documents if _identity(doc) == ("ServiceAccount", "guacamole-client")]
         self.assertEqual(len(accounts), 1)
         env = {value["name"]: value for value in pod["containers"][0]["env"]}
-        for name in ("OPENFGA_ENABLED", "GUACAMOLE_CONTROL_URL", "GUACAMOLE_CONTROL_AUDIENCE"):
+        self.assertEqual(env["OPENFGA_ENABLED"]["value"], "true")
+        for name in ("GUACAMOLE_CONTROL_URL", "GUACAMOLE_CONTROL_AUDIENCE"):
             ref = env[name]["valueFrom"]["configMapKeyRef"]
             self.assertEqual(ref["name"], "platform-runtime")
             self.assertEqual(ref["key"], name)

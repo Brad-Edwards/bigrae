@@ -10,6 +10,7 @@ from typing import Literal, Protocol
 from uuid import UUID
 
 from .catalog import (
+    ACTION_CATALOG,
     AuthorizationContractError,
     PredefinedPolicyDefinition,
     action_definition,
@@ -30,6 +31,18 @@ RelationshipObjectType = Literal[
     "event",
     "range",
 ]
+
+_CUTOVER_PARENT_RELATIONS = {
+    ("installation", "account"),
+    ("account", "organization"),
+    ("organization", "workspace"),
+    ("account", "event"),
+    ("organization", "event"),
+    ("workspace", "event"),
+}
+_CUTOVER_EVENT_GRANTS = {
+    grant_relation_for_action(action.code) for action in ACTION_CATALOG if action.target_type == "event"
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +69,116 @@ class RelationshipTuple:
     user: str
     relation: str
     object: str
+
+
+@dataclass(frozen=True, slots=True)
+class HierarchyRelationshipChange:
+    """One SQL-owned parent relationship published by a runtime command."""
+
+    user: str
+    relation: str
+    object: str
+
+    def __post_init__(self) -> None:
+        user_type, user_id = _cutover_object(self.user)
+        object_type, _ = _cutover_object(self.object)
+        if (
+            (user_type, object_type) not in _CUTOVER_PARENT_RELATIONS
+            or self.relation != user_type
+            or (user_type == "installation" and user_id != "root")
+        ):
+            raise AuthorizationContractError("Invalid hierarchy relationship")
+
+    @property
+    def effect(self) -> PolicyEffect:
+        return PolicyEffect.GRANT
+
+    @property
+    def grant_tuple(self) -> RelationshipTuple:
+        return RelationshipTuple(self.user, self.relation, self.object)
+
+    @property
+    def deny_tuple(self) -> RelationshipTuple:
+        return self.grant_tuple
+
+    @property
+    def writes(self) -> tuple[RelationshipTuple, ...]:
+        return (self.grant_tuple,)
+
+    @property
+    def deletes(self) -> tuple[RelationshipTuple, ...]:
+        return ()
+
+
+@dataclass(frozen=True, slots=True)
+class CutoverRelationshipChange:
+    """One closed, grant-only relationship replayed by the S8 cutover.
+
+    This is deliberately narrower than the provider tuple API. It accepts only
+    hierarchy parents and explicit administrator dispositions produced by the
+    cutover planner.
+    """
+
+    user: str
+    relation: str
+    object: str
+
+    def __post_init__(self) -> None:
+        user_type, user_id = _cutover_object(self.user)
+        object_type, _ = _cutover_object(self.object)
+        valid_parent = (user_type, object_type) in _CUTOVER_PARENT_RELATIONS and self.relation == user_type
+        valid_administrator = (
+            user_type == "principal"
+            and self.relation == "direct_administrator"
+            and object_type in {"organization", "workspace", "event"}
+        )
+        valid_event_grant = (
+            user_type == "principal" and object_type == "event" and self.relation in _CUTOVER_EVENT_GRANTS
+        )
+        if user_type == "installation" and user_id != "root":
+            valid_parent = False
+        if not valid_parent and not valid_administrator and not valid_event_grant:
+            raise AuthorizationContractError("Invalid cutover relationship")
+
+    @property
+    def effect(self) -> PolicyEffect:
+        return PolicyEffect.GRANT
+
+    @property
+    def grant_tuple(self) -> RelationshipTuple:
+        return RelationshipTuple(self.user, self.relation, self.object)
+
+    @property
+    def deny_tuple(self) -> RelationshipTuple:
+        return self.grant_tuple
+
+    @property
+    def writes(self) -> tuple[RelationshipTuple, ...]:
+        return (self.grant_tuple,)
+
+    @property
+    def deletes(self) -> tuple[RelationshipTuple, ...]:
+        return ()
+
+
+def _cutover_object(value: str) -> tuple[str, str]:
+    """Parse one cutover object without admitting arbitrary provider syntax."""
+    try:
+        object_type, object_id = value.split(":", 1)
+    except ValueError as exc:
+        raise AuthorizationContractError("Invalid cutover relationship") from exc
+    if object_type == "installation":
+        if object_id != "root":
+            raise AuthorizationContractError("Invalid cutover relationship")
+    elif object_type in {"principal", "account", "organization", "workspace", "event"}:
+        try:
+            if UUID(object_id).int == 0:
+                raise ValueError
+        except ValueError as exc:
+            raise AuthorizationContractError("Invalid cutover relationship") from exc
+    else:
+        raise AuthorizationContractError("Invalid cutover relationship")
+    return object_type, object_id
 
 
 class AuthorizationProviderError(RuntimeError):
@@ -259,7 +382,12 @@ class AdministrativeRoleChange(_MonotonicChange):
 
 
 type AuthorizationRelationshipChange = (
-    PolicyRelationshipChange | GroupMembershipChange | RoleAssignmentChange | AdministrativeRoleChange
+    PolicyRelationshipChange
+    | GroupMembershipChange
+    | RoleAssignmentChange
+    | AdministrativeRoleChange
+    | HierarchyRelationshipChange
+    | CutoverRelationshipChange
 )
 
 

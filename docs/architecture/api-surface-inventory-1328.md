@@ -2,10 +2,10 @@
 
 Status: active
 
-Issue: [#1328](https://github.com/Brad-Edwards/shifter/issues/1328) (part of the Workspaces and Platform API Program, [#1321](https://github.com/Brad-Edwards/shifter/issues/1321))
+Issue: [#1328](https://github.com/Brad-Edwards/bigrae/issues/1328) (part of the Workspaces and Platform API Program, [#1321](https://github.com/Brad-Edwards/bigrae/issues/1321))
 
 Companion: the versioned surface is published as a committed contract by
-[#1329](https://github.com/Brad-Edwards/shifter/issues/1329)
+[#1329](https://github.com/Brad-Edwards/bigrae/issues/1329)
 (`shifter/shifter_platform/openapi/v1.json`, ADR-040).
 
 This document classifies every HTTP route the platform exposes so app-local
@@ -56,7 +56,7 @@ those consumers move to `/api/v1/` or the legacy UI is retired.
 - **CTF (39)**: every `/ctf/api/*` route except the two Class B endpoints. Same
   underlying `ctf.views.api.*` functions; `/api/v1/ctf/*` adds token scopes.
   Consumers: `static/js/ctf-ranges.js`, `static/js/admin-participant-detail.js`,
-  `templates/ctf/admin/participant_list.html`. CTF is not SPA-ported ([#1372](https://github.com/Brad-Edwards/shifter/issues/1372)).
+  `templates/ctf/admin/participant_list.html`. CTF is not SPA-ported ([#1372](https://github.com/Brad-Edwards/bigrae/issues/1372)).
 - **Scenario editor (2)**: `/scenario-editor/validate-yaml/` and
   `/scenario-editor/<id>/export/`. Twins live under `/api/v1/cms/scenario-editor/`;
   the SPA already uses the `/api/v1/` versions, so these have no remaining

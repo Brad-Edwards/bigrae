@@ -21,4 +21,4 @@ Multiple platform contexts (CTF events, training sessions, demo environments) be
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#678` (PLAT-104: Extensible Profile Fields)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#678` (PLAT-104: Extensible Profile Fields)

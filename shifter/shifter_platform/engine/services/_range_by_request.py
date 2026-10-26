@@ -79,7 +79,26 @@ def range_owner_reassignment_available_by_request(request_id: UUID) -> bool:
     from engine.models import Range
 
     range_obj = Range.objects.select_related("user").filter(request__request_id=request_id).first()
-    return range_obj is not None and (range_obj.vpn_access_binding is None or _vpn_custody_never_left(range_obj.user))
+    return range_obj is not None and (
+        principal_range_owner_reassignment_available(range_obj) or _vpn_custody_never_left(range_obj.user)
+    )
+
+
+def principal_range_owner_reassignment_available(range_obj) -> bool:
+    """Return whether principal-native VPN custody is still wholly server-side."""
+    binding = range_obj.vpn_access_binding
+    if binding is None:
+        return True
+    try:
+        from engine.models import VpnAccessProfile
+        from shared.remote_access import parse_openvpn_binding
+
+        parsed = parse_openvpn_binding(binding)
+        if parsed.owner_principal_uuid != range_obj.owner_principal_uuid:
+            return False
+        return not VpnAccessProfile.objects.filter(range=range_obj, revoked_at__isnull=True).exists()
+    except Exception:
+        return False
 
 
 def get_pinned_range_egress_mode_by_request(request_id: UUID) -> str | None:

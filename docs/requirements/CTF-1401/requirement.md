@@ -22,4 +22,4 @@ Extensibility allows the platform to support custom challenge types (for example
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/apps.py` (CTF AppConfig - would host plugin loading)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#638` (CTF-1401: Plugin System)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#638` (CTF-1401: Plugin System)

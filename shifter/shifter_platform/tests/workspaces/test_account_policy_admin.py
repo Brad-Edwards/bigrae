@@ -4,11 +4,18 @@ from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from management.models import Principal
 from shared.audit import RequestAudit
-from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind, TargetRef
+from shared.authorization import (
+    AuthorizationDecision,
+    CredentialCeiling,
+    DecisionKind,
+    RelationshipState,
+    TargetRef,
+)
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.models import AuditLog
@@ -19,10 +26,15 @@ pytestmark = pytest.mark.django_db
 
 
 class Provider:
+    model_id = "01J00000000000000000000000"
+    store_id = "01J00000000000000000000001"
+
     def __init__(self, *, allowed: bool = True, allowed_targets: frozenset | None = None):
         self.allowed = allowed
         self.allowed_targets = allowed_targets
         self.requests = []
+        self.changes = []
+        self.relationships = set()
 
     def check(self, request):
         self.requests.append(request)
@@ -35,6 +47,13 @@ class Provider:
     def batch_check(self, requests):
         return tuple(self.check(request) for request in requests)
 
+    def write_relationships(self, change):
+        self.changes.append(change)
+        self.relationships.add(change.grant_tuple)
+
+    def read_relationships(self, change):
+        return RelationshipState(change.grant_tuple in self.relationships, False)
+
 
 def _actor(kind="human", actions=frozenset({"installation.manage_accounts", "account.manage_organizations"})):
     if kind == "human":
@@ -46,6 +65,16 @@ def _actor(kind="human", actions=frozenset({"installation.manage_accounts", "acc
     return CredentialContext(
         ref, "session" if kind == "human" else "service", uuid4(), CredentialCeiling(actions), frozenset()
     )
+
+
+def _force_actor(request, actor, live_session_credential):
+    """Authenticate an APIRequestFactory request with S8 credential evidence."""
+    if actor.kind == "session":
+        user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
+        force_authenticate(request, user=user, token=live_session_credential(user))
+        return
+    request.credential_context = actor
+    force_authenticate(request, token=actor)
 
 
 @pytest.mark.parametrize("kind", ["human", "service"])
@@ -63,9 +92,70 @@ def test_full_administrator_creates_business_account_without_implicit_grants(kin
     assert request.principal == actor.principal
     assert request.action == "installation.manage_accounts"
     assert request.target.type == "installation"
+    organization = Organization.objects.get(account_id=account.id, is_default=True)
+    workspace = Workspace.objects.get(organization=organization, is_default=True)
+    assert {
+        (change.grant_tuple.user, change.grant_tuple.relation, change.grant_tuple.object) for change in provider.changes
+    } == {
+        ("installation:root", "installation", f"account:{account.uuid}"),
+        (f"account:{account.uuid}", "account", f"organization:{organization.uuid}"),
+        (f"organization:{organization.uuid}", "organization", f"workspace:{workspace.uuid}"),
+    }
     assert (
         AuditLog.objects.get(entity_type="account", entity_id=account.id).actor_principal_uuid == actor.principal.uuid
     )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_account_hierarchy_publication_recovers_lost_acknowledgement_outside_sql_transaction():
+    from workspaces.models import HierarchyPublication
+
+    actor = _actor("service")
+
+    class LostAcknowledgementProvider(Provider):
+        def write_relationships(self, change):
+            assert not transaction.get_connection().in_atomic_block
+            super().write_relationships(change)
+            raise TimeoutError
+
+    provider = LostAcknowledgementProvider()
+
+    account = services.admin_create_account(actor, provider, kind="team", name="Customer")
+
+    assert account.uuid
+    assert HierarchyPublication.objects.filter(state="confirmed").count() == 3
+
+
+@pytest.mark.django_db(transaction=True)
+def test_partial_hierarchy_publication_stays_unresolved_and_reruns_exact_intent():
+    from shared.authorization import AuthorizationProviderBindingError
+    from workspaces.models import HierarchyPublication
+
+    actor = _actor("service")
+
+    class PartialProvider(Provider):
+        failing = True
+
+        def write_relationships(self, change):
+            assert not transaction.get_connection().in_atomic_block
+            self.changes.append(change)
+            if not self.failing or change.grant_tuple.object.startswith("account:"):
+                self.relationships.add(change.grant_tuple)
+
+    provider = PartialProvider()
+
+    with pytest.raises(AuthorizationProviderBindingError):
+        services.admin_create_account(actor, provider, kind="team", name="Customer")
+
+    account = Account.objects.get(name="Customer")
+    assert HierarchyPublication.objects.filter(state="confirmed").count() == 1
+    assert HierarchyPublication.objects.filter(state="unresolved").count() == 1
+    assert HierarchyPublication.objects.filter(state="requested").count() == 1
+
+    provider.failing = False
+    services.publish_hierarchy_relationships("account", account.uuid, provider)
+
+    assert HierarchyPublication.objects.filter(state="confirmed").count() == 3
 
 
 def test_account_creation_carries_request_attribution_into_structural_defaults():
@@ -262,7 +352,9 @@ def test_account_membership_list_and_remove_use_parent_policy_and_strict_audit()
 
 
 @pytest.mark.parametrize("kind", ["human", "service"])
-def test_account_http_adapter_admits_policy_admin_and_rejects_unknown_fields(monkeypatch, kind):
+def test_account_http_adapter_admits_policy_admin_and_rejects_unknown_fields(
+    monkeypatch, kind, live_session_credential
+):
     from workspaces.api.account_admin_views import AccountCollectionView
 
     actor = _actor(kind)
@@ -270,12 +362,7 @@ def test_account_http_adapter_admits_policy_admin_and_rejects_unknown_fields(mon
     monkeypatch.setattr("workspaces.api.account_admin_views.configured_authorization_provider", lambda: provider)
     view = AccountCollectionView.as_view()
     request = APIRequestFactory().post("/api/v1/accounts/", {"kind": "team", "name": "Customer"}, format="json")
-    if kind == "human":
-        user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
-        force_authenticate(request, user=user)
-    else:
-        request.credential_context = actor
-        force_authenticate(request, token=actor)
+    _force_actor(request, actor, live_session_credential)
 
     response = view(request)
 
@@ -288,15 +375,11 @@ def test_account_http_adapter_admits_policy_admin_and_rejects_unknown_fields(mon
     invalid = APIRequestFactory().post(
         "/api/v1/accounts/", {"kind": "team", "name": "Other", "is_superuser": True}, format="json"
     )
-    if kind == "human":
-        force_authenticate(invalid, user=user)
-    else:
-        invalid.credential_context = actor
-        force_authenticate(invalid, token=actor)
+    _force_actor(invalid, actor, live_session_credential)
     assert view(invalid).status_code == 400
 
 
-def test_account_http_adapter_checks_parent_scope_for_workspace_creation(monkeypatch):
+def test_account_http_adapter_checks_parent_scope_for_workspace_creation(monkeypatch, live_session_credential):
     from workspaces.api.account_admin_views import AccountWorkspaceCollectionView
 
     actor = _actor(actions=frozenset({"organization.manage_workspaces"}))
@@ -305,8 +388,7 @@ def test_account_http_adapter_checks_parent_scope_for_workspace_creation(monkeyp
     organization = Organization.objects.get(account_id=second.id, is_default=True)
     monkeypatch.setattr("workspaces.api.account_admin_views.configured_authorization_provider", Provider)
     request = APIRequestFactory().post("/api/v1/accounts/workspaces/", {"name": "Nope"}, format="json")
-    user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
-    force_authenticate(request, user=user)
+    _force_actor(request, actor, live_session_credential)
 
     response = AccountWorkspaceCollectionView.as_view()(
         request, account_uuid=first.uuid, organization_uuid=organization.uuid
@@ -316,29 +398,30 @@ def test_account_http_adapter_checks_parent_scope_for_workspace_creation(monkeyp
     assert not Workspace.objects.filter(organization=organization, name="Nope").exists()
 
 
-def test_account_http_adapter_creates_real_organization_but_no_individual_subdivision(monkeypatch):
+def test_account_http_adapter_creates_real_organization_but_no_individual_subdivision(
+    monkeypatch, live_session_credential
+):
     from workspaces.api.account_admin_views import AccountOrganizationCollectionView
 
     actor = _actor(actions=frozenset({"account.manage_organizations"}))
     team = services.create_account(kind="team", name="Team")
     individual = services.create_account(kind="individual", name="Person", owner=actor.principal)
     monkeypatch.setattr("workspaces.api.account_admin_views.configured_authorization_provider", Provider)
-    user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
     view = AccountOrganizationCollectionView.as_view()
 
     valid = APIRequestFactory().post("/api/v1/accounts/organizations/", {"name": "Division"}, format="json")
-    force_authenticate(valid, user=user)
+    _force_actor(valid, actor, live_session_credential)
     created = view(valid, account_uuid=team.uuid)
     assert created.status_code == 201
     assert Organization.objects.filter(uuid=created.data["uuid"], account_id=team.id).exists()
 
     invalid = APIRequestFactory().post("/api/v1/accounts/organizations/", {"name": "Nope"}, format="json")
-    force_authenticate(invalid, user=user)
+    _force_actor(invalid, actor, live_session_credential)
     assert view(invalid, account_uuid=individual.uuid).status_code == 403
     assert not Organization.objects.filter(account_id=individual.id).exists()
 
 
-def test_account_http_adapter_adds_active_member_without_policy_grant(monkeypatch):
+def test_account_http_adapter_adds_active_member_without_policy_grant(monkeypatch, live_session_credential):
     from workspaces.api.account_admin_views import AccountMemberCollectionView
 
     actor = _actor(actions=frozenset({"account.manage_members"}))
@@ -348,8 +431,7 @@ def test_account_http_adapter_adds_active_member_without_policy_grant(monkeypatc
     request = APIRequestFactory().post(
         "/api/v1/accounts/members/", {"principal_uuid": str(subject.uuid), "principal_kind": "service"}, format="json"
     )
-    user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
-    force_authenticate(request, user=user)
+    _force_actor(request, actor, live_session_credential)
 
     response = AccountMemberCollectionView.as_view()(request, account_uuid=account.uuid)
 
@@ -357,7 +439,7 @@ def test_account_http_adapter_adds_active_member_without_policy_grant(monkeypatc
     assert AccountMembership.objects.filter(account_id=account.id, principal_uuid=subject.uuid).exists()
 
 
-def test_organization_http_list_count_excludes_denied_sibling(monkeypatch):
+def test_organization_http_list_count_excludes_denied_sibling(monkeypatch, live_session_credential):
     from workspaces.api.account_admin_views import AccountOrganizationCollectionView
 
     actor = _actor(actions=frozenset({"organization.read"}))
@@ -366,9 +448,8 @@ def test_organization_http_list_count_excludes_denied_sibling(monkeypatch):
     services.create_account_organization(account.uuid, "Hidden")
     provider = Provider(allowed_targets=frozenset({visible.uuid}))
     monkeypatch.setattr("workspaces.api.account_admin_views.configured_authorization_provider", lambda: provider)
-    user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
     request = APIRequestFactory().get("/api/v1/accounts/organizations/")
-    force_authenticate(request, user=user)
+    _force_actor(request, actor, live_session_credential)
 
     response = AccountOrganizationCollectionView.as_view()(request, account_uuid=account.uuid)
 

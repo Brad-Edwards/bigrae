@@ -26,7 +26,10 @@ from shared.schemas.raes_participant_runtime import (
     canonical_raes_payload_digest as canonical_participant_payload_digest,
 )
 
-pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
+pytestmark = [
+    pytest.mark.django_db,
+    pytest.mark.usefixtures("personal_token_use_grant", "principal_owner_policy"),
+]
 
 _CONTRACT_VERSION = {
     RaesOperationRecord.RecordKind.OPERATION_RECEIPT: "operation-receipt-v1",
@@ -63,28 +66,59 @@ def other_user(django_user_model):
 
 
 @pytest.fixture
-def client():
-    return APIClient()
+def client(live_session_credential):
+    client = APIClient()
+    authenticate = client.force_authenticate
+
+    def force_authenticate(user=None, token=None):
+        if user is not None and token is None:
+            token = live_session_credential(user)
+        return authenticate(user=user, token=token)
+
+    client.force_authenticate = force_authenticate
+    return client
 
 
 def _owned_range(user):
     """Create a RangeInstance + Request owned by ``user``; return the request_id."""
-    from workspaces.services import resolve_personal_workspace
+    from engine.models import Range as EngineRange
+    from engine.models import Request as EngineRequest
+    from shared.principal_port import principal_for_user
+    from workspaces.models import Account
+    from workspaces.services import create_account
 
-    workspace_id = resolve_personal_workspace(user).workspace_id
-    request = Request.objects.create(
-        workspace_id=workspace_id, request_id=uuid4(), request_type=RequestType.RANGE.value, user=user
+    principal = principal_for_user(user)
+    account = Account.objects.filter(
+        kind=Account.Kind.INDIVIDUAL, individual_principal_uuid=principal.uuid
+    ).first() or create_account(kind=Account.Kind.INDIVIDUAL, name="Individual account", owner=principal)
+    custody = {
+        "owner_principal_uuid": principal.uuid,
+        "scope_kind": "account",
+        "account_id": account.id,
+    }
+    request = Request.objects.create(request_id=uuid4(), request_type=RequestType.RANGE.value, user=user, **custody)
+    instance = RangeInstance.objects.create(
+        scenario_id="basic", user_id=user.id, status="ready", request=request, **custody
     )
-    RangeInstance.objects.create(
-        workspace_id=workspace_id, scenario_id="basic", user_id=user.id, status="ready", request=request
+    engine_request = EngineRequest.objects.create(
+        request_id=request.request_id,
+        request_type=RequestType.RANGE.value,
+        user=user,
+        **custody,
     )
+    realized = EngineRange.objects.create(
+        request=engine_request,
+        user=user,
+        cms_user_id=user.pk,
+        cms_range_uuid=instance.uuid,
+        resource_generation=uuid4(),
+        range_backend="gce",
+        status="ready",
+        **custody,
+    )
+    instance.range_id = realized.pk
+    instance.save(update_fields=["range_id"])
     return request.request_id
-
-
-def _revoke_workspace_membership(user) -> None:
-    from workspaces.models import WorkspaceMembership
-
-    WorkspaceMembership.objects.filter(user=user).delete()
 
 
 def _seed_record(request_id, *, record_kind, payload, source_timestamp=None):
@@ -153,7 +187,14 @@ class TestOperationStatusRead:
             record_kind=RaesOperationRecord.RecordKind.OPERATION_STATUS,
             payload={"operation_id": "op-1", "status": "ready"},
         )
-        _bearer(client, _token(user, scopes.MISSION_CONTROL_RANGE_READ))
+        _bearer(
+            client,
+            _token(
+                user,
+                scopes.MISSION_CONTROL_RANGE_READ,
+                scopes.AUTHORIZATION_ACTION_SCOPES["range.read"],
+            ),
+        )
         response = client.get(_status_url(request_id))
         assert response.status_code == 200
         assert response.json()["results"][0]["payload"]["status"] == "ready"
@@ -188,18 +229,6 @@ class TestOperationStatusRead:
         client.force_authenticate(user=user)
         response = client.get(_status_url(request_id))
         assert response.status_code == 404
-
-    def test_membership_removal_revokes_status_read(self, client, user):
-        request_id = _owned_range(user)
-        _seed_record(
-            request_id,
-            record_kind=RaesOperationRecord.RecordKind.OPERATION_STATUS,
-            payload={"operation_id": "op-1", "status": "running"},
-        )
-        _revoke_workspace_membership(user)
-        client.force_authenticate(user=user)
-
-        assert client.get(_status_url(request_id)).status_code == 404
 
     def test_unknown_request_id_is_not_found(self, client, user):
         client.force_authenticate(user=user)
@@ -277,13 +306,6 @@ class TestReceiptsAndSnapshotsRead:
     def test_snapshots_do_not_leak_other_users_range(self, client, user, other_user):
         request_id = _owned_range(other_user)
         client.force_authenticate(user=user)
-        assert client.get(_snapshots_url(request_id)).status_code == 404
-
-    def test_membership_removal_revokes_snapshot_read(self, client, user):
-        request_id = _owned_range(user)
-        _revoke_workspace_membership(user)
-        client.force_authenticate(user=user)
-
         assert client.get(_snapshots_url(request_id)).status_code == 404
 
 

@@ -36,6 +36,7 @@ from ctf.enums_communication import (
     IntentStatus,
     TriggerKind,
 )
+from shared.db.operation_authority import RecordedAuthorityFields
 from shared.field_encryption import EncryptedStringField
 
 from ._base import CTFBaseModel, ImmutableFieldsMixin
@@ -75,10 +76,13 @@ class CommunicationCampaign(CTFBaseModel):
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="ctf_communication_campaigns",
-        help_text="Session actor who authored the campaign",
+        help_text="Optional legacy human author projection; never application authority",
     )
+    creator_principal_uuid = models.UUIDField(db_index=True, editable=False)
     actor_token_id = models.IntegerField(
         null=True,
         blank=True,
@@ -149,6 +153,14 @@ class CommunicationCampaign(CTFBaseModel):
                 name="ctf_comm_campaign_origin_valid",
             ),
         ]
+
+    def save(self, *args, **kwargs) -> None:
+        """Project retained human attribution to its stable principal on create."""
+        if self._state.adding and self.created_by_id is not None and not self.creator_principal_uuid:
+            from shared.principal_port import principal_for_user
+
+            self.creator_principal_uuid = principal_for_user(self.created_by).uuid
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         """Return the campaign title."""
@@ -254,7 +266,7 @@ class MessageRevision(ImmutableFieldsMixin, CTFBaseModel):
             raise ValidationError(errors)
 
 
-class CommunicationIntent(CTFBaseModel):
+class CommunicationIntent(RecordedAuthorityFields, CTFBaseModel):
     """Immutable normalized occurrence produced at release (ADR-051).
 
     Static, manual, timed, and RAES/range sources converge here. It pins campaign,

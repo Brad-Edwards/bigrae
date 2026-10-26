@@ -43,6 +43,8 @@ REQUEST_ID_NONE_MSG = "request_id cannot be None"
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from shared.credentials import CredentialContext
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,7 +64,7 @@ def _validate_start_ecs_task_args(range_id: int, user_id: int, command: str) -> 
         raise ValueError("command must be a non-empty string")
 
 
-def _enqueue_provisioner_launch(command: list[str]) -> str | None:
+def _enqueue_provisioner_launch(command: list[str], *, credential: CredentialContext | None = None) -> str | None:
     """Persist one durable ``ProvisionerLaunchIntent`` for the launcher worker and
     return its reserved task ref.
 
@@ -79,7 +81,7 @@ def _enqueue_provisioner_launch(command: list[str]) -> str | None:
         return None
     from engine.launch_intents import enqueue_provisioner_launch, task_ref_for_intent
 
-    intent_id = enqueue_provisioner_launch(command)
+    intent_id = enqueue_provisioner_launch(command, credential=credential)
     return task_ref_for_intent(intent_id)
 
 
@@ -228,17 +230,29 @@ def start_teardown(range_id: int, user_id: int) -> str | None:
 # =============================================================================
 
 
-def _dispatch_remote_provisioner_task(command: list[str], request_id: UUID, resource: str) -> str | None:
+def _dispatch_remote_provisioner_task(
+    command: list[str],
+    request_id: UUID,
+    resource: str,
+    *,
+    credential: CredentialContext | None = None,
+) -> str | None:
     """Enqueue a durable launch intent for a request-based remote operation.
 
     The ``drain_provisioner_launch_outbox`` worker later submits the provider
     task; nothing here calls ``TaskRunner.run_task`` directly (ADR-043-R2).
     """
     logger.info("Enqueuing %s launch intent for request_id=%s", resource, request_id)
-    return _enqueue_provisioner_launch(command)
+    return _enqueue_provisioner_launch(command, credential=credential)
 
 
-def _start_range_ecs_task(request_id: UUID, command: str, resource: str = "range") -> str | None:
+def _start_range_ecs_task(
+    request_id: UUID,
+    command: str,
+    resource: str = "range",
+    *,
+    credential: CredentialContext | None = None,
+) -> str | None:
     """Start an ECS Fargate task for Range operations using request_id.
 
     Matches NGFW pattern - provisioner fetches all data from DB using request_id.
@@ -279,12 +293,12 @@ def _start_range_ecs_task(request_id: UUID, command: str, resource: str = "range
         )
         from engine.launch_intents import enqueue_provisioner_launch, task_ref_for_intent
 
-        intent_id = enqueue_provisioner_launch(command_list)
+        intent_id = enqueue_provisioner_launch(command_list, credential=credential)
         return task_ref_for_intent(intent_id) or f"local-pending:{intent_id}"
-    return _dispatch_remote_provisioner_task(command_list, request_id, resource)
+    return _dispatch_remote_provisioner_task(command_list, request_id, resource, credential=credential)
 
 
-def start_range_provisioning(request_id: UUID) -> str | None:
+def start_range_provisioning(request_id: UUID, *, credential: CredentialContext | None = None) -> str | None:
     """Start provisioning a range via ECS Fargate using request_id.
 
     Args:
@@ -297,10 +311,10 @@ def start_range_provisioning(request_id: UUID) -> str | None:
         TypeError: If request_id is None or not a UUID
         ValueError: If current domain state does not authorize the operation
     """
-    return _start_range_ecs_task(request_id, "provision")
+    return _start_range_ecs_task(request_id, "provision", credential=credential)
 
 
-def start_raes_range_provisioning(request_id: UUID) -> str | None:
+def start_raes_range_provisioning(request_id: UUID, *, credential: CredentialContext | None = None) -> str | None:
     """Start provisioning an RAES-native range via the provisioner ``raes-range``
     command using request_id (ADR-031, feature-flagged parallel path).
 
@@ -311,10 +325,10 @@ def start_raes_range_provisioning(request_id: UUID) -> str | None:
     Returns:
         Task ARN / local handle if dispatched, None if ECS is not configured.
     """
-    return _start_range_ecs_task(request_id, "provision", resource="raes-range")
+    return _start_range_ecs_task(request_id, "provision", resource="raes-range", credential=credential)
 
 
-def start_raes_range_teardown(request_id: UUID) -> str | None:
+def start_raes_range_teardown(request_id: UUID, *, credential: CredentialContext | None = None) -> str | None:
     """Start teardown of an RAES-native range via the provisioner ``raes-range``
     command using request_id (ADR-031, feature-flagged parallel path).
 
@@ -325,10 +339,10 @@ def start_raes_range_teardown(request_id: UUID) -> str | None:
     Returns:
         Task ARN / local handle if dispatched, None if ECS is not configured.
     """
-    return _start_range_ecs_task(request_id, "destroy", resource="raes-range")
+    return _start_range_ecs_task(request_id, "destroy", resource="raes-range", credential=credential)
 
 
-def start_range_teardown(request_id: UUID) -> str | None:
+def start_range_teardown(request_id: UUID, *, credential: CredentialContext | None = None) -> str | None:
     """Start teardown of a range via ECS Fargate using request_id.
 
     Args:
@@ -341,10 +355,12 @@ def start_range_teardown(request_id: UUID) -> str | None:
         TypeError: If request_id is None or not a UUID
         ValueError: If current domain state does not authorize the operation
     """
-    return _start_range_ecs_task(request_id, "destroy")
+    return _start_range_ecs_task(request_id, "destroy", credential=credential)
 
 
-def start_range_operation(request_id: UUID, operation: str) -> str | None:
+def start_range_operation(
+    request_id: UUID, operation: str, *, credential: CredentialContext | None = None
+) -> str | None:
     """Start a range runtime operation (pause/resume) via ECS Fargate.
 
     Args:
@@ -368,7 +384,7 @@ def start_range_operation(request_id: UUID, operation: str) -> str | None:
     if operation not in ("pause", "resume"):
         raise ValueError(f"Invalid operation: {operation}. Must be 'pause' or 'resume'.")
 
-    return _start_range_ecs_task(request_id, operation)
+    return _start_range_ecs_task(request_id, operation, credential=credential)
 
 
 def _start_ngfw_ecs_task(request_id: UUID, command: list[str]) -> str | None:

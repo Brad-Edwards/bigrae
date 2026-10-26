@@ -8,7 +8,7 @@
 > provisioning (an event-owned pool of prewarmed ranges, each held by a
 > managed system user until consumed) instead of a retention/disposition
 > choice on the old range. See the
-> [revised plan](https://github.com/Brad-Edwards/shifter/issues/1018#issuecomment-4884742322).
+> [revised plan](https://github.com/Brad-Edwards/bigrae/issues/1018#issuecomment-4884742322).
 > The rest of this document is kept for historical context only and does not
 > describe the shipped behavior.
 
@@ -16,7 +16,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-05
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1018>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1018>
 
 This is a requirement-free run. The GitHub issue title, body, and acceptance
 criteria are the contract. This note is intentionally not an implementation

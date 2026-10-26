@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.operation_results import ResultStep
 from shared.raes.operation_input import RaesInputBindings, RaesRangeIdentity, build_raes_operation_input
 from shared.warm_pool.activation_input import (
@@ -38,7 +39,10 @@ def _activation():
         identity=RaesRangeIdentity(1001, None),
     )
     payload = build_activation_input(
-        claimant=ActivationClaimant(user_id=42, username="claimant@example.com", workspace_id=7),
+        claimant=ActivationClaimant(
+            PrincipalRef(uuid4(), "service"),
+            ResourceScope("account", uuid4()),
+        ),
         generation=ActivationGeneration(
             range_source="mission-control",
             instantiation_purpose="live_fire",
@@ -474,8 +478,13 @@ class TestGetActivationOperationInput:
     def test_returns_parsed_activation_run(self, monkeypatch):
         import provisioner_db_operation_input as dbin
 
+        principal_uuid = uuid4()
+        account_uuid = uuid4()
         payload = build_activation_input(
-            claimant=ActivationClaimant(user_id=42, username="claimant@example.com", workspace_id=7),
+            claimant=ActivationClaimant(
+                PrincipalRef(principal_uuid, "service"),
+                ResourceScope("account", account_uuid),
+            ),
             generation=ActivationGeneration(
                 range_source="mission-control",
                 instantiation_purpose="live_fire",
@@ -496,7 +505,8 @@ class TestGetActivationOperationInput:
         run = dbin.get_activation_operation_input("op-1", request_id="rid-1")
         assert run.operation_id == "op-1"
         assert run.request_id == "rid-1"
-        assert run.input.claimant_user_id == 42
+        assert run.input.claimant == PrincipalRef(principal_uuid, "service")
+        assert run.input.scope == ResourceScope("account", account_uuid)
 
     def test_invalid_payload_raises_operation_input_error(self, monkeypatch):
         import provisioner_db_operation_input as dbin
