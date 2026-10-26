@@ -16,10 +16,7 @@ _DOCS_EXCLUDED_PART = "_deprecated"
 
 def _doc_path_is_excluded(slug: str) -> bool:
     """A doc under a deprecated or hidden path part is not serveable."""
-    return any(
-        part == _DOCS_EXCLUDED_PART or part.startswith(".")
-        for part in slug.split("/") if part
-    )
+    return any(part == _DOCS_EXCLUDED_PART or part.startswith(".") for part in slug.split("/") if part)
 
 
 def _drift_violation(message: str) -> Violation:
@@ -79,7 +76,8 @@ def _base_drift_associations(repo_root: Path) -> tuple[list[dict[str, object]], 
         try:
             base = json.loads(raw)
             associations = [
-                _association(feature) for feature in base["features"]
+                _association(feature)
+                for feature in base["features"]
                 if isinstance(feature, dict) and "drift_sources" in feature
             ]
         except (ValueError, KeyError, TypeError):
@@ -92,7 +90,9 @@ def _relative_drift_path(value: object) -> bool:
     if not isinstance(value, str) or not value.strip() or value != value.strip():
         return False
     return not (
-        value.startswith("/") or ".." in PurePosixPath(value).parts or "\\" in value
+        value.startswith("/")
+        or ".." in PurePosixPath(value).parts
+        or "\\" in value
         or any(ord(char) < 32 for char in value)
     )
 
@@ -122,13 +122,12 @@ def _target_is_excluded(target: str, excludes: list[str]) -> bool:
     """Match hidden paths and the current MkDocs exclusion patterns."""
     return _doc_path_is_excluded(target) or any(
         fnmatchcase(target, pattern.strip()) or target.startswith(pattern.strip().rstrip("/") + "/")
-        for pattern in excludes if pattern.strip()
+        for pattern in excludes
+        if pattern.strip()
     )
 
 
-def _check_drift_targets(
-    repo_root: Path, docs_root: str, feature: dict[str, object]
-) -> list[Violation]:
+def _check_drift_targets(repo_root: Path, docs_root: str, feature: dict[str, object]) -> list[Violation]:
     """Require contained public pages, using this site's exclusion patterns."""
     targets = feature.get("technical_docs")
     if not isinstance(targets, list) or not targets or not all(isinstance(target, str) for target in targets):
@@ -145,9 +144,7 @@ def _check_drift_targets(
     return errors
 
 
-def _read_documentation_diff(
-    repo_root: Path, reference: str, enforce: bool
-) -> tuple[set[str], list[Violation]]:
+def _read_documentation_diff(repo_root: Path, reference: str, enforce: bool) -> tuple[set[str], list[Violation]]:
     """Read NUL-delimited changed and untracked paths without a shell."""
     diff = _git_text(repo_root, ["diff", "--name-only", "-z", "--no-renames", reference, "--"])
     untracked = _git_text(repo_root, ["ls-files", "--others", "--exclude-standard", "-z"])
@@ -173,25 +170,26 @@ def _documentation_changed_paths(
     return result
 
 
-def _check_feature_drift(
-    feature: dict[str, object], docs_root: str, changed: set[str]
-) -> list[Violation]:
+def _check_feature_drift(feature: dict[str, object], docs_root: str, changed: set[str]) -> list[Violation]:
     """Require review of the mapped technical page when its boundary changes."""
     if "drift_sources" not in feature:
         return []
     sources = feature["drift_sources"]
     errors: list[Violation] = []
     if not isinstance(sources, list) or not sources or not all(_relative_drift_path(source) for source in sources):
-        errors.append(_drift_violation(
-            f"feature {feature.get('id')} drift_sources must be nonempty repo-relative globs"
-        ))
+        errors.append(
+            _drift_violation(f"feature {feature.get('id')} drift_sources must be nonempty repo-relative globs")
+        )
     else:
         affected = any(fnmatchcase(path, source) for path in changed for source in sources)
         targets = {f"{docs_root}/{rel}" for rel in (feature.get("technical_docs") or [])}
         if affected and not targets.intersection(changed):
-            errors.append(_drift_violation(
-                f"feature {feature.get('id')} boundary drift requires review/update of: {', '.join(sorted(targets))}"
-            ))
+            errors.append(
+                _drift_violation(
+                    f"feature {feature.get('id')} boundary drift requires review/update of: "
+                    f"{', '.join(sorted(targets))}"
+                )
+            )
     return errors
 
 
@@ -199,9 +197,7 @@ def _coverage_manifest_shape_error(manifest: object) -> str | None:
     """Return the shape error for a loaded coverage manifest, or None when valid."""
     if not isinstance(manifest, dict):
         return "documentation coverage manifest must be a JSON object"
-    if not isinstance(manifest.get("docs_root"), str) or not isinstance(
-        manifest.get("features"), list
-    ):
+    if not isinstance(manifest.get("docs_root"), str) or not isinstance(manifest.get("features"), list):
         return "manifest must define a string 'docs_root' and a list of 'features'"
     return None
 

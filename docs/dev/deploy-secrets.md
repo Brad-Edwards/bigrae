@@ -1,6 +1,6 @@
 # Deploy secrets and repository variables
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 The committed `terraform.tfvars` files in `platform/terraform/environments/...`
 and `platform/terraform/gcp/environments/...` ship account-neutral baselines
@@ -56,7 +56,7 @@ missing required secret fails the deploy up front rather than mid-run.
 | `TF_VARS_DEV_RANGE` | `scripts/sync-deploy-secrets.sh --env dev` | yes | Range stack `local.auto.tfvars` payload (`agent_s3_bucket`, `vm_series_ami_id`). |
 | `TF_VARS_DEV_PORTAL` | `scripts/sync-deploy-secrets.sh --env dev` | yes | Portal stack `local.auto.tfvars` payload (domain, email, buckets, capacity). |
 | `TF_VARS_DEV_EKS` | protected environment secret | yes for EKS | JSON var-file for the isolated EKS root, including the closed pinned `addon_versions` object, `edge_client_cidrs`, provider API CIDRs, cluster inputs, and the canonical non-secret runtime projection. It does not carry a Load Balancer Controller policy ARN; that policy is module-owned. Prod/proof use the matching environment suffix. Apply the matching `platform/terraform/global/iam` stack before enabling EKS. The EKS job remains disabled until the matching repository variable (`AWS_EKS_DEV_ENABLED`, `AWS_EKS_PROOF_ENABLED`, or `AWS_EKS_PROD_ENABLED`) is set to `true` for a controlled migration or EKS-native standup. |
-| `SHIFTER_CONFIG_DEV_RANGE` | `scripts/sync-deploy-secrets.sh --env dev --stack config --shifter-config ./shifter.yaml` | yes | Deployment `shifter.yaml`; its `settings.range_egress` renders the range egress allowlist. |
+| `SHIFTER_CONFIG_DEV_RANGE` | `scripts/sync-deploy-secrets.sh --env dev --stack config --bigrae-config ./bigrae.yaml` | yes | Deployment `bigrae.yaml`; its `settings.range_egress` renders the range egress allowlist. |
 | `SMOKE_TEST_USER_EMAIL` | manual | no | Post-deploy smoke user. See [Post-deploy smoke secrets](#post-deploy-smoke-secrets-dev). |
 | `PLATFORM_BOOTSTRAP_STAFF_EMAILS` | manual | no | Comma-separated emails elevated to Django `is_staff` on first sign-in. Shared across all environments including prod. |
 | `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS` | manual | no | Comma-separated emails elevated to `is_superuser`. Shared across all environments including prod. |
@@ -112,7 +112,7 @@ The `TF_VARS_<ENV>_PORTAL` / `_RANGE` / `_CORE` and `SHIFTER_CONFIG_<ENV>_RANGE`
 / `SHIFTER_CONFIG_GCP_DEV` entries are whole-file payloads. Operators keep the
 same values as gitignored `local.auto.tfvars` overlays (also used for local
 `terraform` and symlinked into worktrees by `scripts/setup-worktree.sh`) and a
-deployment `shifter.yaml`. `scripts/sync-deploy-secrets.sh` pushes those local
+deployment `bigrae.yaml`. `scripts/sync-deploy-secrets.sh` pushes those local
 files into the matching GitHub secrets with `gh secret set`, so the secret and
 the local overlay stay in step instead of the secret being hand-edited in the
 GitHub UI:
@@ -124,8 +124,8 @@ scripts/sync-deploy-secrets.sh --env dev --dry-run
 # Sync the dev tfvars overlays (portal, range, core):
 scripts/sync-deploy-secrets.sh --env dev
 
-# Include the SHIFTER_CONFIG_* payloads rendered from a shifter.yaml:
-scripts/sync-deploy-secrets.sh --env dev --stack config --shifter-config ./shifter.yaml
+# Include the SHIFTER_CONFIG_* payloads rendered from a bigrae.yaml:
+scripts/sync-deploy-secrets.sh --env dev --stack config --bigrae-config ./bigrae.yaml
 ```
 
 The script fails loud when a selected overlay file is missing and never prints
@@ -150,7 +150,7 @@ Consumed by `.github/workflows/_gcp-dev.yml`.
 | Name | Kind | Required | Notes |
 |---|---|---|---|
 | `GCP_PROJECT_ID` | secret | yes | The Google Cloud project the platform deploys to. |
-| `SHIFTER_CONFIG_GCP_DEV` | secret | yes | Full validated deployment `shifter.yaml`. It is the sole source of `dynamic_secret_project_id`, exact provisioner static-secret refs, and range egress policy for deploy and destroy. |
+| `SHIFTER_CONFIG_GCP_DEV` | secret | yes | Full validated deployment `bigrae.yaml`. It is the sole source of `dynamic_secret_project_id`, exact provisioner static-secret refs, and range egress policy for deploy and destroy. |
 | `SHIFTER_CONFIG_OVERLAY_JSON` | variable | no | Optional bounded JSON overlay for `settings.model_access`, `settings.model_broker`, and `settings.model_broker_runtime`. A reviewed `platform/deploy/gcp/<environment>/model-broker-overlay.template.json` takes precedence when present; the workflow binds its project and public CA, then applies it only to ephemeral configuration files. Arbitrary settings, root keys, and secrets are rejected. The broker is parked and not supported for use; leave this unset. See "Optional: model access broker" in `docs/technical/dev/setup.md`. |
 | `GCP_REGION` | variable | no | Default `us-central1`. |
 | `GCP_PUBLIC_HOSTNAME` | secret | yes | DNS name the platform serves on (for example, `shifter.your-domain.example`). |
@@ -252,10 +252,15 @@ not the whole cutover - the live activation is a **fail-closed operator step wit
 readback**:
 
 1. **Verify the OIDC subject format first.** `gh api
-   repos/Brad-Edwards/shifter/actions/oidc/customization/sub` must return
-   `use_default: true`, `use_immutable_subject: false`. A different result means
-   the subjects in `local.federated_subjects` and the provider condition must be
-   redesigned before applying - do not change the customization to fit the code.
+   repos/Brad-Edwards/bigrae/actions/oidc/customization/sub` must return
+   `use_default: true`, `use_immutable_subject: true` for the renamed canonical
+   repository. The subject prefix must contain the observed owner and repository
+   IDs. AWS and GCP inputs now default to `github_subject_format = "immutable"`.
+   Other repositories must supply their own `github_org`, `github_repo`,
+   `github_owner_id` and `github_repository_id`. AWS bootstrap passes these same
+   identity inputs to its Terraform role. A repository that still uses the old
+   subject shape must explicitly select `github_subject_format = "default"`.
+   Do not change GitHub customization or admit both formats to fit a stale policy.
 2. **Create and protect the purpose Environments.** An `environment:` subject
    does not carry the source branch. Configure `gcp-build-dev`,
    `gcp-build-proof`, `gcp-validate-dev`, `gcp-validate-proof`,
@@ -460,7 +465,7 @@ Standup runbooks for the phases referenced below:
 For a new AWS account, bootstrap the backend and CI identity before trying
 run an AWS dev deploy (`gh workflow run deploy.yml --ref <branch> -f environment=aws-dev`):
 
-If the account was **re-used** (a prior Shifter tenant was torn down here), first run
+If the account was **re-used** (a prior BigRAE tenant was torn down here), first run
 `./scripts/bootstrap/deploy.py account-recovery --env dev --profile <profile>` to detect
 orphaned control-plane leftovers that would otherwise fail `terraform apply` one
 collision at a time, and add `--sweep` to delete the owned ones. It refuses on a live
@@ -498,10 +503,10 @@ bootstrap commands below so their confirmation prompts proceed without a termina
    names, alarm email, SSH allowlists, and bucket names. Review
    `TF_VARS_DEV_RANGE` for range deployment values such as the agent S3 bucket
    and the regional PAN-OS VM-Series AMI, and set `SHIFTER_CONFIG_DEV_RANGE` to
-   the deployment's `shifter.yaml` (its `settings.range_egress` is rendered into
+   the deployment's `bigrae.yaml` (its `settings.range_egress` is rendered into
    the range egress allowlist). Bootstrap configures the AWS role secret and
    backend files; the deploy workflows fail loud when the active portal or range
-   tfvars secret, or the range `shifter.yaml`, is missing.
+   tfvars secret, or the range `bigrae.yaml`, is missing.
 5. For the first deploy in a moved or fresh account, run the `Deploy` workflow
    with `gh workflow run deploy.yml --ref <branch> -f environment=aws-dev`
    (add `-f aws_first_deploy=true` for the first-ever engine deploy, before the
@@ -623,7 +628,7 @@ matching whole-file secret into `local.auto.tfvars`, and fails loud
 |---|---|---|---|
 | `TF_VARS_DEV_RANGE` | secret | yes (dev) | Whole-file `local.auto.tfvars` payload for the dev range root, rendered verbatim over the committed baseline before `terraform plan` / `apply`. Carries only the non-egress overrides below, **not** `victim_allowed_cidrs`. |
 | `TF_VARS_PROD_RANGE` | secret | yes (prod) | As above, for the prod range root. |
-| `SHIFTER_CONFIG_DEV_RANGE` | secret | yes (dev) | Full deployment `shifter.yaml` (root installation config) for dev. The workflow renders its `settings.range_egress` into `victim_allowed_cidrs.auto.tfvars` before `terraform plan` / `apply`, so the egress allowlist is sourced once from `shifter.yaml` (#1015). |
+| `SHIFTER_CONFIG_DEV_RANGE` | secret | yes (dev) | Full deployment `bigrae.yaml` (root installation config) for dev. The workflow renders its `settings.range_egress` into `victim_allowed_cidrs.auto.tfvars` before `terraform plan` / `apply`, so the egress allowlist is sourced once from `bigrae.yaml` (#1015). |
 | `SHIFTER_CONFIG_PROD_RANGE` | secret | yes (prod) | As above, for the prod range. |
 
 `.github/workflows/deploy.yml` also forwards `TF_VARS_PROOF_RANGE` and
@@ -645,8 +650,8 @@ values stripped from the committed baseline:
 
 The range egress allowlist (`victim_allowed_cidrs`) is **not** part of
 `TF_VARS_<ENV>_RANGE`. The workflow's `Render range egress allowlist from
-shifter.yaml` step (in both the `plan` and `apply` jobs) writes
-`SHIFTER_CONFIG_<ENV>_RANGE` to an ephemeral file and runs `shifter-config
+bigrae.yaml` step (in both the `plan` and `apply` jobs) writes
+`SHIFTER_CONFIG_<ENV>_RANGE` to an ephemeral file and runs `bigrae-config
 render` to generate `victim_allowed_cidrs.auto.tfvars`, so the configured policy
 and the deployed firewall cannot drift (#958 / #1015). Putting
 `victim_allowed_cidrs` in `TF_VARS_<ENV>_RANGE` re-creates that drift; keep it
@@ -671,18 +676,18 @@ For the PLAT-220 range egress allowlist:
 | `platform/terraform/environments/{dev,prod}/range/terraform.tfvars`                  | committed; empty `victim_allowed_cidrs` baseline      |
 | `platform/terraform/environments/{dev,prod}/range/local.auto.tfvars.example`         | committed; shape reference                            |
 | `platform/terraform/environments/{dev,prod}/range/local.auto.tfvars`                 | gitignored; operator's non-egress account overrides (NOT `victim_allowed_cidrs`) |
-| `platform/terraform/environments/{dev,prod}/range/victim_allowed_cidrs.auto.tfvars`  | gitignored; rendered by `shifter-config render` (CI: from `SHIFTER_CONFIG_<ENV>_RANGE`; local: from your `shifter.yaml`) |
+| `platform/terraform/environments/{dev,prod}/range/victim_allowed_cidrs.auto.tfvars`  | gitignored; rendered by `bigrae-config render` (CI: from `SHIFTER_CONFIG_<ENV>_RANGE`; local: from your `bigrae.yaml`) |
 
 Source for the PANW Cortex XSIAM/XDR allowlist:
 <https://docs-cortex.paloaltonetworks.com/r/Cortex-XSIAM/Cortex-XSIAM-Administrator-Guide/Resources-Required-to-Enable-Access>.
 
 See `docs/architecture/range-egress-ip-allowlist.md` for the full mapping
-between `shifter.yaml.settings.range_egress` and the Terraform inputs.
+between `bigrae.yaml.settings.range_egress` and the Terraform inputs.
 
 ## GCP range (`gcp-dev`)
 
 The GCP range network egress allowlist is rendered from the deployment's
-`shifter.yaml` into a dedicated `range_egress.auto.tfvars`, separate from the
+`bigrae.yaml` into a dedicated `range_egress.auto.tfvars`, separate from the
 `gcp-dev` `local.auto.tfvars` (which carries project / hostname / identity /
 control-plane inputs). Two Terraform variables expose the platform contract:
 
@@ -693,25 +698,25 @@ control-plane inputs). Two Terraform variables expose the platform contract:
 
 The committed `terraform.tfvars` baseline sets `range_egress_mode =
 "status-quo"`. Deployments that want enforcement set
-`settings.range_egress` in `shifter.yaml`; the deploy renders it into
+`settings.range_egress` in `bigrae.yaml`; the deploy renders it into
 `range_egress.auto.tfvars` (gitignored), which Terraform auto-loads alongside
 the baseline.
 
 | Name | Kind | Required | Notes |
 |---|---|---|---|
-| `SHIFTER_CONFIG_GCP_DEV` | secret | yes | Full deployment `shifter.yaml` (root installation config) for `gcp-dev`. The `_gcp-dev.yml` `Render range egress allowlist from shifter.yaml` step writes it to an ephemeral file and runs `shifter-config render` to generate `${TF_DIR}/range_egress.auto.tfvars` before `terraform apply`; the step fails loud when the secret is empty. |
+| `SHIFTER_CONFIG_GCP_DEV` | secret | yes | Full deployment `bigrae.yaml` (root installation config) for `gcp-dev`. The `_gcp-dev.yml` `Render range egress allowlist from bigrae.yaml` step writes it to an ephemeral file and runs `bigrae-config render` to generate `${TF_DIR}/range_egress.auto.tfvars` before `terraform apply`; the step fails loud when the secret is empty. |
 
 - **CI (`_gcp-dev.yml`)** renders `range_egress.auto.tfvars` from
   `SHIFTER_CONFIG_GCP_DEV`.
 - **`scripts/bootstrap/deploy.py gdc-bootstrap`** renders the same file from
-  the resolved `shifter.yaml` (`--shifter-config` → `$SHIFTER_CONFIG` →
-  repo-root `shifter.yaml`) before the control-plane apply, failing loud if no
+  the resolved `bigrae.yaml` (`--bigrae-config` → `$SHIFTER_CONFIG` →
+  repo-root `bigrae.yaml`) before the control-plane apply, failing loud if no
   root config is found.
 - **Local `terraform` runs** use the operator workflow in
-  `docs/architecture/range-egress-ip-allowlist.md` (run `shifter-config render`
+  `docs/architecture/range-egress-ip-allowlist.md` (run `bigrae-config render`
   by hand, then `terraform apply`).
 
-`shifter.yaml` holds secret *references*, not values, but it is the
+`bigrae.yaml` holds secret *references*, not values, but it is the
 deployment's authoritative config; carry it as a GitHub secret so CI does not
 read a second, drift-prone copy of the allowlist. Do **not** also set
 `range_egress_mode` / `range_egress_allowed_cidrs` in `local.auto.tfvars`;

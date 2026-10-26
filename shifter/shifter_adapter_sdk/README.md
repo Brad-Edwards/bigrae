@@ -1,28 +1,44 @@
-# Shifter adapter SDK
+# BigRAE adapter SDK
 
-Public contracts for independently packaged Shifter adapters. The SDK contains
-no scenario implementation and imports no Shifter application modules.
+The wheel is `bigrae-adapter-sdk`. Its canonical imports use
+`bigrae_adapter_sdk`; legacy `shifter_adapter_sdk` imports remain available in
+the same wheel and expose the same classes. The runtime protocol accepts both
+versioned names, and the worker accepts either exact input key, rejecting
+conflicting values. A request, manifest and response must use the same protocol.
+New entry points use `bigrae.runtime.plugins` and
+`bigrae.scenario_verification.adapters`; legacy groups remain discoverable.
+Declare one group per installed selection to avoid ambiguous metadata.
+
+The `legacy/` project prepares the `shifter-adapter-sdk` deprecation distribution
+with a dependency on the matching BigRAE wheel. Build and verify both candidates
+before any publisher cutover. This tree does not claim that either new
+coordinate has been published. See the
+[rename ledger](../../docs/architecture/bigrae-rename-inventory.md) for the
+consumer-evidence and removal gate.
+
+Public contracts for independently packaged BigRAE adapters. The SDK contains
+no scenario implementation and imports no BigRAE application modules.
 
 The verification API is available under
-`shifter_adapter_sdk.verification`. Installations select a distribution version
+`bigrae_adapter_sdk.verification`. Installations select a distribution version
 and entry point explicitly; discovery does not execute adapter code.
 
 The optional `preparation` extra provides the closed artifact preparation result
-protocol under `shifter_adapter_sdk.preparation`. Successful receipts must carry
+protocol under `bigrae_adapter_sdk.preparation`. Successful receipts must carry
 phase-specific evidence; a failure carries only a bounded reason code. Receipt
 validation does not authorize execution or admit an artifact.
 
 Build with `uv build`. Test installation in a separate environment against the
-built wheel, without adding the Shifter checkout to `PYTHONPATH`.
+built wheel, without adding the BigRAE checkout to `PYTHONPATH`.
 
 The optional `runtime` extra provides the independent runtime-plugin protocol.
 An author image installs this extra and its own distribution, exposing a
-zero-argument factory in `shifter.runtime.plugins`. The returned object implements
+zero-argument factory in `bigrae.runtime.plugins`. The returned object implements
 `plan(RuntimeInput) -> RuntimePlan`. Its container entrypoint is
-`python -m shifter_adapter_sdk.worker`; installation selects the exact distribution,
+`python -m bigrae_adapter_sdk.worker`; installation selects the exact distribution,
 version and entry point and pins the image by digest.
 
-The worker receives `SHIFTER_PLUGIN_INPUT`, checks packaging compatibility for an
+The worker receives `BIGRAE_PLUGIN_INPUT`, checks packaging compatibility for an
 `inspect` request, and otherwise emits a bounded guest-action plan. It needs no
 network, cloud credentials, platform modules, root privileges, or writable root
 filesystem. It runs as UID/GID 65532 and may write only to its bounded `/tmp` mount.
@@ -47,7 +63,7 @@ the exact realized guest bindings and supplies bounded base64 JSON in
 before the first action; participant keys require declared SSH access and a
 verified account credential. The management key is never a fallback. The isolated
 worker does not receive these values. Guest Python code can use the standard
-library-only `shifter_adapter_sdk.guest.read_runtime_values()` helper when the SDK
+library-only `bigrae_adapter_sdk.guest.read_runtime_values()` helper when the SDK
 is installed, or decode the documented JSON transport directly. Treat values as
 data rather than interpolating them into shell source.
 
@@ -64,11 +80,11 @@ that a package release has been published.
 Local wheel builds are sufficient for independent adapter development and runtime
 qualification. SDK publication is not a prerequisite. The release and distribution
 model, its implementation and author documentation belong to
-[issue #2241](https://github.com/Brad-Edwards/shifter/issues/2241).
+[issue #2241](https://github.com/Brad-Edwards/bigrae/issues/2241).
 
 Pull-request CI retains the tested wheel, source distribution and `SHA256SUMS`
 in the `adapter-sdk-candidate-<revision>` artifact. Pack authors can build and test
-their adapter against that exact wheel before Shifter merges. Download the
+their adapter against that exact wheel before BigRAE merges. Download the
 artifact from the successful run for the reviewed revision, verify it with
 `sha256sum --check SHA256SUMS`, and install the wheel in an isolated environment.
 Record the exact SDK wheel hash with the adapter build inputs and the
@@ -85,8 +101,8 @@ runs the SDK checks, builds the wheel and source distribution, and verifies the
 built wheel in a fresh environment. Its publishing job downloads the exact build
 artifact by ID; it does not check out or rebuild source.
 
-If the agreed model retains this scaffold, configure `shifter-adapter-sdk` with
-the GitHub trusted publisher for `Brad-Edwards/shifter`, workflow
+If the agreed model retains this scaffold, configure `bigrae-adapter-sdk` with
+the GitHub trusted publisher for `Brad-Edwards/bigrae`, workflow
 `adapter-sdk-release.yml`, environment `adapter-sdk-pypi`. Configure that GitHub
 environment's release reviewers and restrict it to `main`. The workflow uses
 short-lived OIDC authorization and has no package-index token fallback.
@@ -94,7 +110,7 @@ short-lived OIDC authorization and has no package-index token fallback.
 Only after agreeing the release model and merging an approved SDK version,
 dispatch the workflow from `main` with
 the exact committed version. A successful publication makes
-`pip install 'shifter-adapter-sdk[runtime]==<version>'` available to pack authors.
+`pip install 'bigrae-adapter-sdk[runtime]==<version>'` available to pack authors.
 Preparing this workflow does not create the publisher or publish a package.
 
 ### Guest model access

@@ -1,16 +1,16 @@
 # GCP tenant standup gotchas
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 A running log of operator gotchas hit while standing up or re-pointing a GCP
-Shifter tenant that are **not** fixed in code, only in operator procedure. Fixes
+BigRAE tenant that are **not** fixed in code, only in operator procedure. Fixes
 that belong in the scripts, workflows, or Terraform go into the code, not here.
 Use this alongside the authoritative runbooks:
 [`deploy-secrets.md`](deploy-secrets.md),
 [`gcp-range-cell-deploy.md`](gcp-range-cell-deploy.md),
 [`setup.md`](../technical/dev/setup.md),
 [`gcp-guest-images.md`](../architecture/gcp-guest-images.md), and
-[`scripts/bootstrap/README.md`](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/bootstrap/README.md).
+[`scripts/bootstrap/README.md`](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/bootstrap/README.md).
 
 The local `gdc-bootstrap` path (`--environment <tenant>`) is the fresh-tenant
 bring-up. It runs Terraform under operator Application Default Credentials, so a

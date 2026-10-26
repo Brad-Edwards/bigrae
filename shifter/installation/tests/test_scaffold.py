@@ -58,8 +58,8 @@ class TestScaffoldConfig:
     def test_default_destination_is_shifter_yaml_in_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)
         result = scaffold_config("aws")
-        assert result.destination == Path("shifter.yaml")
-        assert (tmp_path / "shifter.yaml").is_file()
+        assert result.destination == Path("bigrae.yaml")
+        assert (tmp_path / "bigrae.yaml").is_file()
 
     def test_nul_byte_in_destination_is_rejected(self) -> None:
         with pytest.raises(ScaffoldError) as exc:

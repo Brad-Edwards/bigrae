@@ -5,7 +5,7 @@
       "args": ["${env:GROUND_CONTROL_DIR}/mcp/ground-control/index.js"],
       "env": {
         "GC_BASE_URL": "http://red-dragon:8000",
-        "GH_REPO": "Brad-Edwards/shifter"
+        "GH_REPO": "Brad-Edwards/bigrae"
       }
     }
   }

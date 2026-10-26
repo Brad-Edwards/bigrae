@@ -12,7 +12,7 @@
       <h1>{% trans "Accept workspace invitation" %}</h1>
       {% if outcome.status == "accepted" %}
         <p id="invitation-status">{% trans "Invitation accepted. Your workspace is ready." %}</p>
-        <p><a href="{% url 'dashboard_router' %}">{% trans "Continue to Shifter" %}</a></p>
+        <p><a href="{% url 'dashboard_router' %}">{% trans "Continue to BigRAE" %}</a></p>
       {% elif outcome.status == "failed" %}
         {% if outcome.code == "membership_exists" %}
           <p id="invitation-status">{% trans "This account is already a member of the workspace." %}</p>

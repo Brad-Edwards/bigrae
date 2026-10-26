@@ -67,7 +67,7 @@ Please use clear commit messages so we can understand what each commit does.
 We'll review every PR and might offer feedback or request changes before
 merging.
 
-## Shifter project specifics
+## BigRAE project specifics
 
 Local dev loop, quality gates, and per-package test commands are documented in
 [`docs/technical/dev/setup.md`](docs/technical/dev/setup.md).

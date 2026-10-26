@@ -1,7 +1,7 @@
 # GCP event capacity profiles
 
 Use a versioned shared-service capacity profile before a scheduled GCP event.
-The profile is selected once in `shifter.yaml`; the installation renderer then
+The profile is selected once in `bigrae.yaml`; the installation renderer then
 projects the same identity into Terraform, Helm, the event gate, and drift
 inspection. Do not maintain an event-only tfvars or Helm override.
 
@@ -67,10 +67,10 @@ request increases ahead of the event:
 2. Validate and render the generated inputs:
 
    ```sh
-   uv run --project shifter/installation shifter-config validate shifter.yaml
-   uv run --project shifter/installation shifter-config render shifter.yaml \
+   uv run --project shifter/installation bigrae-config validate bigrae.yaml
+   uv run --project shifter/installation bigrae-config render bigrae.yaml \
      --output /tmp/shifter-event.auto.tfvars
-   uv run --project shifter/installation shifter-config render-capacity shifter.yaml \
+   uv run --project shifter/installation bigrae-config render-capacity bigrae.yaml \
      --projection desired-state --output /tmp/shifter-event-capacity.json
    ```
 
@@ -151,7 +151,7 @@ Scale-down is deliberately separate from event qualification.
 
 1. Preserve the gate report and confirm no active event or long-lived RDP
    sessions depend on the event capacity.
-2. Select the normal lower profile in `shifter.yaml` and run the same reviewed
+2. Select the normal lower profile in `bigrae.yaml` and run the same reviewed
    deployment workflow. Never use `kubectl scale` or provider-console edits.
 3. Allow the 300-second load-balancer drain and 330-second pod termination
    window to complete. HPA scale-down stabilization is 900 seconds.

@@ -230,7 +230,7 @@ jobs:
               exit 1
             fi
             echo "Verifying provenance for ${label} (${repo}@${digest})"
-            gh attestation verify "oci://${REGISTRY}/${repo}@${digest}" --repo Brad-Edwards/shifter
+            gh attestation verify "oci://${REGISTRY}/${repo}@${digest}" --repo Brad-Edwards/bigrae
           }
           verify "$GUACD_REPO" "$GUAC_IMAGE_TAG" "guacd"
           verify "$GUACAMOLE_CLIENT_REPO" "$GUAC_IMAGE_TAG" "guacamole-client"

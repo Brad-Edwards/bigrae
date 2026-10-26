@@ -15,16 +15,16 @@ operator credential as described in [setup](../dev/setup.md#gcp-deployment) and
 commands, source control or examples. Configuration stores secret references.
 
 ```bash
-uv run --project shifter/installation shifter-config init --backend gcp
-# Edit the generated shifter.yaml for the selected deployment.
-uv run --project shifter/installation shifter-config validate shifter.yaml
-uv run --project shifter/installation shifter-config doctor shifter.yaml
+uv run --project shifter/installation bigrae-config init --backend gcp
+# Edit the generated bigrae.yaml for the selected deployment.
+uv run --project shifter/installation bigrae-config validate bigrae.yaml
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml
 ```
 
 `init` scaffolds local configuration; it does not create a cloud account,
 identity, cluster or secret. For a new foundation, follow the checked inputs and
 apply order in the
-[bootstrap guide](https://github.com/Brad-Edwards/shifter/blob/dev/scripts/bootstrap/README.md).
+[bootstrap guide](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/bootstrap/README.md).
 The full setup also explains the backend Terraform overrides; stale tenant
 values in an existing override must not be reused for a new deployment.
 
@@ -35,7 +35,7 @@ operator bootstrap command is:
 ./scripts/bootstrap/deploy.py gdc-bootstrap \
   --project-id YOUR_PROJECT --environment YOUR_ENVIRONMENT \
   --region YOUR_REGION --zone YOUR_ZONE \
-  --shifter-config ./shifter.yaml --import-public-base-images --yes
+  --bigrae-config ./bigrae.yaml --import-public-base-images --yes
 ```
 
 Replace the uppercase placeholders. Despite its name, the default range backend
@@ -49,7 +49,7 @@ not an independent hosting path.
 After rollout and DNS/TLS convergence, run:
 
 ```bash
-uv run --project shifter/installation shifter-config doctor shifter.yaml --checks cloud
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml --checks cloud
 ```
 
 This checks configured health probes, not scenario acceptance. For failed
@@ -60,9 +60,9 @@ an unknown cleanup state by deleting application records.
 ## Run a useful scenario
 
 The shipped synthetic
-[smoke-linux pack](https://github.com/Brad-Edwards/shifter/tree/dev/shifter/environment-packs/smoke-linux)
+[smoke-linux pack](https://github.com/Brad-Edwards/bigrae/tree/dev/shifter/environment-packs/smoke-linux)
 is the initial GCP RAES path. The
-[in-box manifest](https://github.com/Brad-Edwards/shifter/blob/dev/shifter/shifter_platform/cms/scenarios/inbox_packs/manifest.yaml)
+[in-box manifest](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/cms/scenarios/inbox_packs/manifest.yaml)
 registers it through the normal CMS validator during catalog bootstrap. It is a
 bootstrap seed, not a promise of a full production scenario catalog.
 

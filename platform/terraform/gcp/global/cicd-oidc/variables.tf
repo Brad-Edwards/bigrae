@@ -23,7 +23,7 @@ variable "github_org" {
 variable "github_repo" {
   description = "GitHub repository allowed to federate into the build service account."
   type        = string
-  default     = "shifter"
+  default     = "bigrae"
 }
 
 variable "promotion_reader_service_account_email" {
@@ -56,7 +56,7 @@ variable "platform_external_bucket_names" {
 variable "github_subject_format" {
   description = "Reviewed GitHub default subject format: legacy names or immutable owner/repository IDs."
   type        = string
-  default     = "default"
+  default     = "immutable"
   validation {
     condition     = contains(["default", "immutable"], var.github_subject_format)
     error_message = "github_subject_format must be default or immutable."

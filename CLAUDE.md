@@ -35,12 +35,12 @@ All resources are in `us-east-2`.
 
 ## Platform Elements
 
-Shifter consists of four major elements:
+BigRAE consists of four major elements:
 
 1. **Mission Control** - Presentation layer (user-facing UI)
-2. **Shifter Engine** - Range management (provisioning, lifecycle, infrastructure)
-3. **Shifter CMS** - Content management (scenarios, catalog, templates)
-4. **Shifter Admin** - Platform management (users, cost tracking, administration)
+2. **BigRAE Engine** - Range management (provisioning, lifecycle, infrastructure)
+3. **BigRAE CMS** - Content management (scenarios, catalog, templates)
+4. **BigRAE Admin** - Platform management (users, cost tracking, administration)
 
 
 ## Lessons Learned

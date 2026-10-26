@@ -62,6 +62,9 @@ RUN rm -rf /opt/guacamole/extensions/guacamole-auth-sso/cas \
     /opt/guacamole/environment/DUO_ \
     /opt/guacamole/environment/LDAP_
 
+# The base image is pinned by digest. The client package version floats so a
+# rebuild gets the current Ubuntu security fixes.
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
@@ -72,6 +75,10 @@ COPY authority-entrypoint.sh /opt/guacamole/entrypoint.d/600-shifter-authority.s
 RUN chmod +x /opt/guacamole/bin/custom-entrypoint.sh
 
 USER guacamole
+
+# Same check as the Kubernetes probes: the web application answers on 8080.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
+    CMD curl -fsS -o /dev/null http://127.0.0.1:8080/guacamole/ || exit 1
 
 # custom-entrypoint.sh runs idempotent schema init then `exec "$@"` to hand off
 # to the base image's start command. Guacamole 1.6.0's image starts via

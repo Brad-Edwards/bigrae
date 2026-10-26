@@ -194,7 +194,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
             <div className="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/[0.05]">
               <ShifterMark className="size-5" />
             </div>
-            <span className="text-sm font-semibold tracking-tight">Shifter</span>
+            <span className="text-sm font-semibold tracking-tight">BigRAE</span>
           </div>
           <nav className="flex flex-col gap-6" aria-label="Primary">
             {groups.map((group) => (
@@ -212,7 +212,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-white/10 bg-background/70 px-4 backdrop-blur-xl md:px-8">
-            <span className="text-sm font-semibold md:hidden">Shifter</span>
+            <span className="text-sm font-semibold md:hidden">BigRAE</span>
             <ModeSwitch />
             <div className="flex-1" />
             <span className="hidden text-sm text-muted-foreground sm:inline">

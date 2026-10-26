@@ -4,6 +4,7 @@ Split out of ``layer_imports.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 import ast
@@ -80,11 +81,7 @@ def _is_installed_apps_add(node: ast.AugAssign) -> bool:
 
 def _is_installed_apps_attribute(func: ast.expr) -> bool:
     """True for an ``INSTALLED_APPS.<attr>`` call target."""
-    return (
-        isinstance(func, ast.Attribute)
-        and isinstance(func.value, ast.Name)
-        and func.value.id == _INSTALLED_APPS
-    )
+    return isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == _INSTALLED_APPS
 
 
 def _installed_apps_append_entries(node: ast.Call) -> tuple[list[str], list[str]]:

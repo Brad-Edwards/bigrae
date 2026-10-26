@@ -31,18 +31,18 @@ The API accepts the workspace's public UUID, never its internal database ID.
 
 - `GET membership/` returns your own membership.
 - `GET memberships/` returns the roster to an owner or admin.
-- `POST memberships/` adds an existing active Shifter account by email.
+- `POST memberships/` adds an existing active BigRAE account by email.
 - `POST memberships/{user_id}/role/` changes a member's role.
 - `POST memberships/{user_id}/remove/` removes another member.
 - `POST memberships/leave/` removes your own membership.
 
-Session requests use the normal Shifter login and CSRF protection. API tokens
+Session requests use the normal BigRAE login and CSRF protection. API tokens
 need `workspaces:membership:read` for reads and
 `workspaces:membership:write` for changes. Token scopes do not replace role
 checks: the token's active owner must also hold the required workspace role.
 
 Adding a member does not send an invitation or create an account. The target
-must already have an active Shifter account. Exact duplicate additions are
+must already have an active BigRAE account. Exact duplicate additions are
 safe to retry; adding the same account with a different role returns a
 conflict, and the role-change endpoint must be used instead.
 

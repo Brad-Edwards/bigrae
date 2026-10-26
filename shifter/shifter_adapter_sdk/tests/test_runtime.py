@@ -50,7 +50,7 @@ def request_input(manifest):
 
 def plan(request, **changes):
     data = dict(
-        protocol=PROTOCOL,
+        protocol=request.protocol,
         invocation_id=request.invocation_id,
         input_digest=request.digest,
         phase=request.phase,
@@ -70,7 +70,9 @@ def install_entry(monkeypatch, plugin, *, version="1.0", duplicate=False):
     entries = [entry, entry] if duplicate else [entry]
     monkeypatch.setattr(
         "shifter_adapter_sdk.worker.importlib.metadata.entry_points",
-        lambda: SimpleNamespace(select=lambda **kwargs: entries),
+        lambda: SimpleNamespace(
+            select=lambda **kwargs: entries if kwargs["group"] == "shifter.runtime.plugins" else []
+        ),
     )
 
 
@@ -79,6 +81,48 @@ def test_round_trip_keeps_host_target_and_input_identity(request_input):
     response = parse_result(plan(request).model_dump_json(), request)
     assert response.status == "planned"
     assert response.actions[0].binding == "server"
+
+
+def test_bigrae_protocol_is_accepted_without_changing_input_identity(request_input):
+    payload = request_input.model_dump(mode="json")
+    payload["protocol"] = "bigrae.runtime-plugin/v1"
+    payload["manifest"]["protocol"] = payload["protocol"]
+    request = parse_input(json.dumps(payload))
+    response = parse_result(plan(request).model_dump_json(), request)
+    assert response.protocol == "bigrae.runtime-plugin/v1"
+
+
+def test_request_and_manifest_protocols_must_agree(request_input):
+    payload = request_input.model_dump(mode="json")
+    payload["manifest"]["protocol"] = "bigrae.runtime-plugin/v1"
+    with pytest.raises(ValueError):
+        RuntimeInput.model_validate(payload)
+    with pytest.raises(ValueError):
+        InspectionInput(
+            protocol=PROTOCOL,
+            invocation_id=uuid4(),
+            phase="inspect",
+            manifest=payload["manifest"],
+        )
+
+
+def test_response_cannot_switch_protocol_inside_one_invocation(request_input):
+    response = plan(request_input, protocol="bigrae.runtime-plugin/v1")
+    with pytest.raises(ValueError, match="authorized invocation"):
+        parse_result(response.model_dump_json(), request_input)
+
+
+def test_worker_rejects_conflicting_product_input_aliases(monkeypatch, capsys, request_input):
+    monkeypatch.setenv("SHIFTER_PLUGIN_INPUT", request_input.model_dump_json())
+    monkeypatch.setenv("BIGRAE_PLUGIN_INPUT", "private-conflict")
+    assert main() == 2
+    error = capsys.readouterr().err
+    assert "invalid plugin input" in error
+    assert "private-conflict" not in error
+    import os
+
+    assert "SHIFTER_PLUGIN_INPUT" not in os.environ
+    assert "BIGRAE_PLUGIN_INPUT" not in os.environ
 
 
 @pytest.mark.parametrize("changed", ["invocation_id", "operation_id", "pack_digest", "range_id", "phase", "targets"])

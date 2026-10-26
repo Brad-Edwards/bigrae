@@ -155,6 +155,7 @@ roots:
       - registry.terraform.io/hashicorp/google
   - id: aws-global-iam
     path: platform/terraform/global/iam
+    test: tests/github-subject.tftest.hcl
     owner: "@Brad-Edwards"
     toolchain: aws-1.13.3
     providers:

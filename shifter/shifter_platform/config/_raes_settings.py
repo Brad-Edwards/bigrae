@@ -21,10 +21,10 @@ The design contract lives in
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from config._cloud import STORAGE_BUCKET_NAME
+from config._product_env import product_env
 
 __all__ = [
     "RAES_CONTENT_DELIVERY_PREFIX",
@@ -56,7 +56,7 @@ __all__ = [
 # only a starting point anyway — override SHIFTER_RAES_PACKAGE_ROOT per env.
 _raes_settings_parents = Path(__file__).resolve().parents
 _raes_default_package_root = _raes_settings_parents[3] if len(_raes_settings_parents) > 3 else _raes_settings_parents[1]
-RAES_PACKAGE_ROOT = os.environ.get("SHIFTER_RAES_PACKAGE_ROOT", str(_raes_default_package_root))
+RAES_PACKAGE_ROOT = product_env("SHIFTER_RAES_PACKAGE_ROOT", str(_raes_default_package_root))
 
 # Object-storage location for object-backed RAES packages (#1567, ADR-034-R5).
 # An ``object`` source row's ``package_ref`` names a single immutable archive
@@ -66,16 +66,16 @@ RAES_PACKAGE_ROOT = os.environ.get("SHIFTER_RAES_PACKAGE_ROOT", str(_raes_defaul
 # explicit bucket overrides the tenant assets bucket used by default for
 # runtime uploads. Both absent keeps object-backed packs non-launchable. Read via the literal
 # os.environ.get form so config/env-manifest.json picks it up.
-RAES_PACKAGE_BUCKET = os.environ.get("SHIFTER_RAES_PACKAGE_BUCKET", "") or STORAGE_BUCKET_NAME
-RAES_PACKAGE_PREFIX = os.environ.get("SHIFTER_RAES_PACKAGE_PREFIX", "")
+RAES_PACKAGE_BUCKET = product_env("SHIFTER_RAES_PACKAGE_BUCKET", "") or STORAGE_BUCKET_NAME
+RAES_PACKAGE_PREFIX = product_env("SHIFTER_RAES_PACKAGE_PREFIX", "")
 
 # Fail-closed bounds for object-backed package retrieval and extraction (defense
 # in depth against oversized downloads and archive bombs). Non-secret integers;
 # override per environment. Defaults: 256 MiB archive, 1 GiB total uncompressed,
 # 20000 members.
-RAES_PACKAGE_MAX_ARCHIVE_BYTES = int(os.environ.get("SHIFTER_RAES_PACKAGE_MAX_ARCHIVE_BYTES", "268435456"))
-RAES_PACKAGE_MAX_UNCOMPRESSED_BYTES = int(os.environ.get("SHIFTER_RAES_PACKAGE_MAX_UNCOMPRESSED_BYTES", "1073741824"))
-RAES_PACKAGE_MAX_ENTRIES = int(os.environ.get("SHIFTER_RAES_PACKAGE_MAX_ENTRIES", "20000"))
+RAES_PACKAGE_MAX_ARCHIVE_BYTES = int(product_env("SHIFTER_RAES_PACKAGE_MAX_ARCHIVE_BYTES", "268435456"))
+RAES_PACKAGE_MAX_UNCOMPRESSED_BYTES = int(product_env("SHIFTER_RAES_PACKAGE_MAX_UNCOMPRESSED_BYTES", "1073741824"))
+RAES_PACKAGE_MAX_ENTRIES = int(product_env("SHIFTER_RAES_PACKAGE_MAX_ENTRIES", "20000"))
 
 # Object-storage delivery of source-backed RAES content (#1564, ADR-032-R3,
 # ADR-034-R6). While a registered, digest-verified pack is live, materialized
@@ -86,22 +86,20 @@ RAES_PACKAGE_MAX_ENTRIES = int(os.environ.get("SHIFTER_RAES_PACKAGE_MAX_ENTRIES"
 # stream with constant memory and have no size cap (ADR-032-R9). Non-secret;
 # override per environment. Read via the literal os.environ.get form so
 # config/env-manifest.json picks it up.
-RAES_CONTENT_DELIVERY_PREFIX = os.environ.get("SHIFTER_RAES_CONTENT_DELIVERY_PREFIX", "raes/content-delivery")
+RAES_CONTENT_DELIVERY_PREFIX = product_env("SHIFTER_RAES_CONTENT_DELIVERY_PREFIX", "raes/content-delivery")
 
 # Longest a range launch waits for an in-flight recipe acquisition of a declared
 # feature artifact before failing that range's materialization (ADR-034-R12).
 # Acquisition is triggered at deploy and pack registration, so a launch normally
 # finds the artifact ready; the bound stays under typical load-balancer idle
 # timeouts because the launch runs inside the user's request. Non-secret.
-RAES_FEATURE_ARTIFACT_WAIT_SECONDS = int(os.environ.get("SHIFTER_RAES_FEATURE_ARTIFACT_WAIT_SECONDS", "45"))
+RAES_FEATURE_ARTIFACT_WAIT_SECONDS = int(product_env("SHIFTER_RAES_FEATURE_ARTIFACT_WAIT_SECONDS", "45"))
 
 # Days a runtime snapshot / operation-record row is retained before it becomes
 # eligible for pruning. Measured from the row's source_timestamp so idempotent
 # replay is deterministic. Non-positive disables the expiry stamp (never pruned).
-RAES_OPERATION_RECORD_RETENTION_DAYS = int(os.environ.get("RAES_OPERATION_RECORD_RETENTION_DAYS", "30"))
+RAES_OPERATION_RECORD_RETENTION_DAYS = int(product_env("RAES_OPERATION_RECORD_RETENTION_DAYS", "30"))
 # Cadence and bounded batch size for the dedicated RAES operation-record pruning
 # service (run_raes_operation_record_prune). Non-secret integers.
-RAES_OPERATION_RECORD_PRUNE_INTERVAL_SECONDS = int(
-    os.environ.get("RAES_OPERATION_RECORD_PRUNE_INTERVAL_SECONDS", "3600")
-)
-RAES_OPERATION_RECORD_PRUNE_BATCH_SIZE = int(os.environ.get("RAES_OPERATION_RECORD_PRUNE_BATCH_SIZE", "500"))
+RAES_OPERATION_RECORD_PRUNE_INTERVAL_SECONDS = int(product_env("RAES_OPERATION_RECORD_PRUNE_INTERVAL_SECONDS", "3600"))
+RAES_OPERATION_RECORD_PRUNE_BATCH_SIZE = int(product_env("RAES_OPERATION_RECORD_PRUNE_BATCH_SIZE", "500"))

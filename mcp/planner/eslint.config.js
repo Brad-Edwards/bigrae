@@ -13,20 +13,4 @@ export default [
       "security/detect-object-injection": "off",
     },
   },
-  {
-    files: ["lib.js"],
-    rules: {
-      // Plan IDs are validated as eight lowercase hex characters and resolved
-      // beneath the configured plan directory before filesystem access. Other
-      // paths come from readdir of that same directory.
-      "security/detect-non-literal-fs-filename": "off",
-    },
-  },
-  {
-    files: ["**/*.test.js"],
-    rules: {
-      // Tests use node:test temporary directories and repository fixtures.
-      "security/detect-non-literal-fs-filename": "off",
-    },
-  },
 ];

@@ -4,6 +4,7 @@ Split out of ``k8s_security.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -140,9 +141,7 @@ def _destination_ip_block_cidr(destination: object) -> object:
     return ip_block.get("cidr")
 
 
-def _broad_egress_network_policy_violations(
-    policies: list[tuple[dict[str, object], str]], rel: str
-) -> list[Violation]:
+def _broad_egress_network_policy_violations(policies: list[tuple[dict[str, object], str]], rel: str) -> list[Violation]:
     """Flag egress rules that allow an unrestricted IPv4/IPv6 CIDR (ADR-006-R3)."""
     violations: list[Violation] = []
     broad_cidrs = {"0.0.0.0/0", "::/0"}

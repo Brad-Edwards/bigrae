@@ -1,15 +1,15 @@
 # Registering content packs
 
-Shifter has one way to add scenario content: register a pack. It does not matter
+BigRAE has one way to add scenario content: register a pack. It does not matter
 whether the pack shipped in-box, came from a public source, was licensed and
 private, or was authored by the operator. The platform never asks how the pack
 was obtained. Acquisition and any entitlement are handled out-of-band, before the
-pack reaches Shifter (ADR-034).
+pack reaches BigRAE (ADR-034).
 
-A pack is registered as a provenance-only reference: Shifter records where the
+A pack is registered as a provenance-only reference: BigRAE records where the
 pack lives (`package_ref`), its version and digest, its contract and profile, and
 bounded provenance. It does not copy the pack body into the catalog. Pack content
-is defined by the `raes-env-packs` contract. Shifter pins
+is defined by the `raes-env-packs` contract. BigRAE pins
 `raes-env-packs==5.2.0` with its required `raes==3.5.0`, and delegates
 validation, canonical content identity, and the artifact-requirement publication
 profile to those released libraries. A broken, malformed, or non-conformant pack
@@ -24,7 +24,7 @@ corresponding `cms:authoring:write` token scope).
 
 Open **Administer → Adapters → Install packs and assign adapters**. Select the
 organization, enter the author's pack name and upload its `.tar` or `.tar.gz`
-archive. Review and confirm installation. Shifter validates the archive and pack
+archive. Review and confirm installation. BigRAE validates the archive and pack
 contract before registering it for that organization. The content pack and its
 executable adapter are installed independently; assign an adapter if required.
 No cloud-console or command-line step is needed.
@@ -51,9 +51,9 @@ previous registered revisions are retained for in-flight operations.
 
 Open **Administer → Adapters → Install packs and assign adapters** and select
 **Remove** for a pack that your organization installed. Confirm the removal.
-Packs that Shifter installs for every organization are not removable here.
+Packs that BigRAE installs for every organization are not removable here.
 
-Shifter refuses the removal while one of these still uses the pack:
+BigRAE refuses the removal while one of these still uses the pack:
 
 - a range that is not destroyed or failed;
 - a CTF event that is not ended, cancelled or archived;
@@ -83,7 +83,7 @@ cleanup is complete and `202` while cleanup is pending. It returns `409` with
 run `python manage.py reconcile_tenant_pack_removals` once to retry cleanup.
 
 Packs installed before removal support have no recorded location for earlier
-revisions. Shifter infers the current bucket and prefix, and deletes such an
+revisions. BigRAE infers the current bucket and prefix, and deletes such an
 archive only after it finds the object there. If it does not find the object,
 the removal stays `pending` with `legacy_location_unverified`. Find the archive
 in storage, then run one of these commands:
@@ -119,7 +119,7 @@ envelope.
 To move a registered scenario to a new package version, include
 `expected_package_digest` with its current digest and supply the new version,
 reference and digest. The CLI accepts the same precondition as
-`--expected-package-digest`. Shifter locks the current registration, rejects a
+`--expected-package-digest`. BigRAE locks the current registration, rejects a
 stale precondition or a changed identity under the same version, and audits the
 previous and new references together. The replacement starts with pending
 conformance; it must pass the trusted conformance process again. Existing range
@@ -139,7 +139,7 @@ python manage.py register_pack \
 
 ## In-box bootstrap seed
 
-The packs Shifter registers into the tenant by default (an in-box bootstrap
+The packs BigRAE registers into the tenant by default (an in-box bootstrap
 seed, not a shipped distribution catalog) are declared in
 `cms/scenarios/inbox_packs/manifest.yaml` and registered through the same service
 by `python manage.py bootstrap_inbox_catalog --actor <username>`. There is no
@@ -168,7 +168,7 @@ unexpected tenant digest remains a visible conflict.
 `repo` packs resolve under `RAES_PACKAGE_ROOT` with containment enforcement, and
 `package_ref` names the pack root, not an SDL file. The root directory name,
 catalog id, and `pack.yaml` name must agree, so one immutable pack cannot be
-registered under arbitrary aliases. The current Shifter profile requires
+registered under arbitrary aliases. The current BigRAE profile requires
 exactly one direct `sdl/*.sdl.yaml` entry; zero or multiple entries fail closed
 until an explicit variant selector is part of the contract.
 
@@ -237,7 +237,7 @@ Image-bearing is optional (ADR-034). A pack whose SDL declares no VM image
 appears in the catalog, and is not failed by realizability merely for lacking
 images. Image count is never a realizability proxy.
 
-For each artifact concern, Shifter preserves the RAES author posture:
+For each artifact concern, BigRAE preserves the RAES author posture:
 
 - an exact artifact must resolve to that artifact and cannot be replaced by a
   "close enough" catalog entry or a newly built image;
@@ -256,7 +256,7 @@ supply a base OS at realization, and a scenario whose plan requires an
 unsupported backend term still fails closed.
 
 A scenario's runs may be parameterized through RAES SDL `variables`: the
-multi-run experiment unit over one scenario/profile. Shifter represents a
+multi-run experiment unit over one scenario/profile. BigRAE represents a
 parameterized run as `scenario_id + profile + parameter binding identity`,
 validated against the scenario's declared variables (via the RAES SDL
 instantiation contract) before planning. Parameter values are never persisted:

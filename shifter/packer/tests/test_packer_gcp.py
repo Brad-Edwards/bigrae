@@ -215,7 +215,7 @@ class TestGcpBuildEvidenceBinding:
     def _run_verifier(self, tmp_path, *, evidence_updates=None, env_updates=None):
         evidence = {
             "schema_version": 1,
-            "repository": "Brad-Edwards/shifter",
+            "repository": "Brad-Edwards/bigrae",
             "workflow": ".github/workflows/packer-gcp.yml",
             "source_ref": "refs/heads/dev",
             "source_revision": "a" * 40,
@@ -234,7 +234,7 @@ class TestGcpBuildEvidenceBinding:
         env.update(
             {
                 "BUILD_EVIDENCE_FILE": str(evidence_file),
-                "EXPECTED_REPOSITORY": "Brad-Edwards/shifter",
+                "EXPECTED_REPOSITORY": "Brad-Edwards/bigrae",
                 "EXPECTED_SOURCE_REF": "refs/heads/dev",
                 "EXPECTED_SOURCE_REVISION": "a" * 40,
                 "EXPECTED_IMAGE_NAME": "shifter-example-stack-123",
@@ -486,7 +486,7 @@ class TestGcpPromotionEvidenceBinding:
         guest_sbom_sha256 = hashlib.sha256(guest_sbom_file.read_bytes()).hexdigest()
         evidence = {
             "schema_version": 3,
-            "repository": "Brad-Edwards/shifter",
+            "repository": "Brad-Edwards/bigrae",
             "workflow": ".github/workflows/packer-gcp-validate.yml",
             "source_ref": "refs/heads/dev",
             "candidate_image": "shifter-example-stack-123",
@@ -519,7 +519,7 @@ class TestGcpPromotionEvidenceBinding:
             "head_branch": "dev",
             "head_sha": "a" * 40,
             "conclusion": "success",
-            "repository": {"full_name": "Brad-Edwards/shifter"},
+            "repository": {"full_name": "Brad-Edwards/bigrae"},
         }
         evidence.update(evidence_updates or {})
         run.update(run_updates or {})
@@ -582,7 +582,7 @@ class TestGcpPromotionEvidenceBinding:
                 "VALIDATED_VERDICT_ID": "67890",
                 "VALIDATED_EVIDENCE_SHA": evidence_sha[:63],
                 "VALIDATED_REVISION": "a" * 40,
-                "EXPECTED_REPOSITORY": "Brad-Edwards/shifter",
+                "EXPECTED_REPOSITORY": "Brad-Edwards/bigrae",
                 "EVIDENCE_FILE": str(evidence_file),
                 "GUEST_SBOM_FILE": str(guest_sbom_file),
                 "VERDICT_FILE": str(verdict_file),

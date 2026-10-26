@@ -89,7 +89,7 @@ class _GcpBootstrapProcess:
 
     def _run_gh(self, cmd):
         if cmd[:4] == ["gh", "repo", "view", "--json"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="Brad-Edwards/shifter\n", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="Brad-Edwards/bigrae\n", stderr="")
         if cmd[:2] == ["gh", "api"] and "--paginate" in cmd:
             return subprocess.CompletedProcess(
                 cmd,
@@ -659,7 +659,7 @@ class TestMainCLI:
         def fake_run(cmd, dry_run=False, **_kwargs):
             calls.append((cmd, dry_run))
             if cmd[:4] == ["gh", "repo", "view", "--json"]:
-                return subprocess.CompletedProcess(cmd, 0, stdout="Brad-Edwards/shifter\n", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="Brad-Edwards/bigrae\n", stderr="")
             if cmd[:2] == ["gh", "api"] and "--paginate" in cmd:
                 return subprocess.CompletedProcess(
                     cmd,

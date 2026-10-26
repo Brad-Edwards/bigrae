@@ -29,7 +29,7 @@ readback:
 
 ```bash
 uv run --project scripts/gcp python scripts/gcp/probe_model_broker.py \
-  --config shifter.yaml \
+  --config bigrae.yaml \
   --broker-gsa '<applied-broker-gsa>' \
   --output model-project-onboarding.json
 ```

@@ -87,7 +87,7 @@ The GCP CI path:
 2. applies GCP Terraform
 3. builds and pushes control-plane images
 4. renders secure Helm values from Terraform outputs and Secret Manager
-5. installs or upgrades the Shifter Helm release
+5. installs or upgrades the BigRAE Helm release
 
 Every deploy dispatch runs the quality gate first as the safety gate before an apply.
 

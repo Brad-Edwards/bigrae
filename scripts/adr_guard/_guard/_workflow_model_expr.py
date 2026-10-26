@@ -4,6 +4,7 @@ Split out of ``_workflow_model.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 import re
@@ -24,7 +25,7 @@ _DW_EXPR_WRAPPER = re.compile(r"^\$\{\{(?P<body>.*)\}\}$", re.DOTALL)
 # The one repository whose runs are the canonical CI. Steps that must not
 # silently no-op compare `github.repository` against this literal rather than
 # testing whether their configuration variables happen to be set (ADR-003-R7).
-_DW_CANONICAL_REPOSITORY = "Brad-Edwards/shifter"
+_DW_CANONICAL_REPOSITORY = "Brad-Edwards/bigrae"
 
 
 class _DwShapeError(Exception):
@@ -116,9 +117,7 @@ def _dw_tokenize(expr: str) -> list[tuple[str, str]]:
 class _DwParser:
     """Recursive-descent evaluator: `!` > comparison > `&&` > `||`."""
 
-    def __init__(
-        self, tokens: list[tuple[str, str]], resolve: Callable[[str], object]
-    ) -> None:
+    def __init__(self, tokens: list[tuple[str, str]], resolve: Callable[[str], object]) -> None:
         self._toks = tokens
         self._i = 0
         self._resolve = resolve
@@ -206,6 +205,8 @@ class _DwScenario:
     ref: str = "refs/heads/aws-dev"
     base_ref: str = ""
     repository: str = _DW_CANONICAL_REPOSITORY
+    repository_id: str = "1241599684"
+    repository_owner_id: str = "56809295"
     inputs_true: bool = True
     vars_set: bool = True
     fork_pr: bool = False
@@ -250,6 +251,8 @@ def _dw_resolve_github(path: str, parts: list[str], scenario: _DwScenario) -> st
         "ref": scenario.ref,
         "base_ref": scenario.base_ref,
         "repository": scenario.repository,
+        "repository_id": scenario.repository_id,
+        "repository_owner_id": scenario.repository_owner_id,
     }.get(field, "")
 
 
@@ -280,9 +283,7 @@ def _dw_evaluate_scenario(if_expr: object, scenario: _DwScenario) -> bool:
     if not expr:
         # no `if:` at all is always eligible
         return True
-    parser = _DwParser(
-        _dw_tokenize(expr), lambda path: _dw_resolve_operand(path, scenario)
-    )
+    parser = _DwParser(_dw_tokenize(expr), lambda path: _dw_resolve_operand(path, scenario))
     return _dw_truthy(parser.evaluate())
 
 

@@ -1,6 +1,6 @@
 # AWS environment teardown
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 This is the runbook for tearing an AWS environment down to zero: the Terraform
 stacks, the resources that block `terraform destroy`, the bootstrap-created
@@ -395,7 +395,7 @@ double-quoted shell string does not trigger backtick command substitution.
 ```bash
 # Deregister each runner from GitHub first (from the EC2 via SSM):
 #   cd /home/ec2-user/actions-runner
-#   TOKEN=$(gh api -X POST /repos/Brad-Edwards/shifter/actions/runners/remove-token --jq .token)
+#   TOKEN=$(gh api -X POST /repos/Brad-Edwards/bigrae/actions/runners/remove-token --jq .token)
 #   sudo ./svc.sh stop && sudo ./svc.sh uninstall
 #   sudo -u ec2-user ./config.sh remove --token "$TOKEN"
 ./scripts/runner-deploy.sh --destroy
