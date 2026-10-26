@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PLATFORM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "_shifter-platform.yml"
 GCP_DEV_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "_gcp-dev.yml"
@@ -52,17 +54,15 @@ def test_gcp_smoke_uses_an_ephemeral_job_instead_of_remote_exec() -> None:
 
 
 def test_gcp_dev_workflow_declares_post_deploy_smoke_job() -> None:
-    text = GCP_DEV_WORKFLOW.read_text(encoding="utf-8")
-    assert "post-deploy-smoke:" in text
-    assert "continue-on-error: true" in text
-    assert "scripts/smoke-test-gcp.sh" in text
-    start = text.index("post-deploy-smoke:")
-    block = text[start : start + 1200]
-    assert "needs: deploy" in block or "needs: [deploy]" in block
-    assert "needs.deploy.result == 'success'" in block
-    assert "inputs.deploy_changes" in block
-    assert "github.event_name != 'pull_request'" in block
-    assert "SMOKE_TEST_USER_EMAIL" in block
+    workflow = yaml.safe_load(GCP_DEV_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["post-deploy-smoke"]
+    assert job["continue-on-error"] is True
+    assert any("scripts/smoke-test-gcp.sh" in step.get("run", "") for step in job["steps"])
+    assert job["needs"] in ("deploy", ["deploy"])
+    assert "needs.deploy.result == 'success'" in job["if"]
+    assert "inputs.deploy_changes" in job["if"]
+    assert "github.event_name != 'pull_request'" in job["if"]
+    assert job["env"]["SMOKE_TEST_USER_EMAIL"] == "${{ secrets.SMOKE_TEST_USER_EMAIL }}"
 
 
 def test_gcp_migration_job_applies_and_waits_for_the_canonical_bootstrap_manifest() -> None:

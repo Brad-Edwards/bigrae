@@ -9,9 +9,10 @@ from contextlib import contextmanager
 from urllib.parse import quote
 
 from account_recovery import account_recovery
-from aws_bootstrap import AWS_ENVIRONMENTS, BootstrapConfig, bootstrap_account
+from aws_bootstrap import BootstrapConfig, bootstrap_account
 from aws_eks import deploy_eks, teardown_eks
 from bootstrap_core import (
+    AWS_ENVIRONMENTS,
     HELP_AWS_PROFILE,
     HELP_DRY_RUN,
     GDCBootstrapConfig,
