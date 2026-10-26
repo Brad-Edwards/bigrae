@@ -51,6 +51,7 @@ SENSITIVE_NAMES: frozenset[str] = frozenset(
         "DC_DOMAIN_PASSWORD",
         "PREPARATION_TOKEN",
         "SHIFTER_PLUGIN_INPUT",
+        "BIGRAE_PLUGIN_INPUT",
     }
 )
 

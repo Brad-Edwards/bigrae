@@ -1,6 +1,6 @@
 # Secrets rotation runbook
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 Operator procedures for the mechanisms defined in
 [`../architecture/secrets-rotation-strategy.md`](../architecture/secrets-rotation-strategy.md).

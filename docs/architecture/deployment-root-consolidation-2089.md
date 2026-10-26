@@ -66,6 +66,7 @@ The operator-confirmed GitHub rename changes canonical repository routing to `Br
 The repository connection must restart to capture that origin.
 The Sonar admission and artifact provenance checks use the same canonical repository.
 Bootstrap defaults and foundation trust inputs use that repository.
+Repository trust and scanner admission retain the immutable owner and repository IDs from the integration branch.
 Reusable workflow trust retains its exact repository, workflow path and immutable revision checks.
 Cloud drift remains possible and requires a live plan for each environment.
 

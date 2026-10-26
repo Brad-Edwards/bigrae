@@ -224,6 +224,36 @@ class CheckTfImageRoleTest(unittest.TestCase):
             tf = _write(Path(tmp), "github-oidc.tf", body)
             return [v.reason for v in check_file(tf)]
 
+    def test_current_shared_subject_prefix_passes(self) -> None:
+        source = Path("platform/terraform/global/iam/github-oidc.tf").read_text()
+        reasons = self._oidc(source)
+        self.assertFalse(any("image-pipeline" in reason for reason in reasons), reasons)
+
+    def test_shared_subject_prefix_cannot_change_identity_fields(self) -> None:
+        source = Path("platform/terraform/global/iam/github-oidc.tf").read_text()
+        for field in ("github_owner_id", "github_repository_id"):
+            with self.subTest(field=field):
+                mutated = source.replace("${var." + field + "}", "999")
+                reasons = self._oidc(mutated)
+                self.assertTrue(any("image-pipeline" in reason for reason in reasons), reasons)
+
+    def test_shared_subject_prefix_rejects_extra_branch(self) -> None:
+        source = Path("platform/terraform/global/iam/github-oidc.tf").read_text()
+        mutated = source.replace(
+            '"${local.github_subject_prefix}:ref:refs/heads/main"',
+            '"${local.github_subject_prefix}:ref:refs/heads/main",\n'
+            '              "${local.github_subject_prefix}:ref:refs/heads/feature"',
+        )
+        self.assertTrue(any("image-pipeline" in reason for reason in self._oidc(mutated)))
+
+    def test_shared_subject_prefix_rejects_wildcard(self) -> None:
+        source = Path("platform/terraform/global/iam/github-oidc.tf").read_text()
+        mutated = source.replace(
+            '"${local.github_subject_prefix}:ref:refs/heads/main"',
+            '"${local.github_subject_prefix}:*"',
+        )
+        self.assertTrue(any("wildcard" in reason for reason in self._oidc(mutated)))
+
     def test_image_role_exact_subject_and_passrole_pass(self) -> None:
         reasons = self._oidc(
             """

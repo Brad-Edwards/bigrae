@@ -58,7 +58,7 @@ class ChallengeExportView(APIView):
         try:
             _resolve_owned_event(request, event_id, capability=EventCapability.CHALLENGES)
             fmt = request.query_params.get("fmt", "shifter")
-            if fmt not in {"shifter", "ctfd"}:
+            if fmt not in {"bigrae", "shifter", "ctfd"}:
                 _raise_bad_request("Unknown export format")
             return Response(export_challenges(event_id, fmt=fmt))
         except _CtfApiError as exc:

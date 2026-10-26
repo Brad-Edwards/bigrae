@@ -145,7 +145,8 @@ async function main() {
   const server = new McpServer({ name: "shifter-ops", version: "1.0.0" });
   installToolSchemaDialectNormalizer(server);
   const policy = loadPolicy({
-    path: path.join(_REPO_ROOT, ".shifter.yaml"),
+    path: path.join(_REPO_ROOT, ".bigrae.yaml"),
+    compatibilityPath: path.join(_REPO_ROOT, ".shifter.yaml"),
     profile: profileFromEnv(process.env),
   });
   registerAllOpsTools({ server, policy });

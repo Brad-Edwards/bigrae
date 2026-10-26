@@ -39,7 +39,7 @@ Do not put environment values or credentials in the shared root.
 
 ## Verification before reuse
 
-The operator confirmed no deployed Shifter instances during this cleanup.
+The operator confirmed no deployed BigRAE instances during this cleanup.
 The retired AWS environment and standalone workshop resources were confirmed drained.
 No cloud apply, destroy or state mutation is part of the source cleanup.
 Backendless validation and identical rendered manifests check configuration compatibility.
@@ -95,4 +95,5 @@ Use the canonical repository in bootstrap, workflow trust inputs and artifact ve
 Use attestations bound to that identity.
 Rebuild images if their earlier attestations name the former identity.
 Keep exact repository and immutable workflow checks in place.
+Retain the immutable owner and repository IDs in trust inputs and scanner admission.
 A redirect is not an additional trusted signing identity.

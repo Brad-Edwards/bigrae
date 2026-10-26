@@ -189,7 +189,7 @@ deployment-level **warm pool** for faster *initial* launches (see
 [Ranges](ranges.md)). Recovery spares replace a participant range that **fails
 mid-event** via **Reassign spare**; the warm pool speeds up the *first* launch by
 handing out a pre-provisioned range. They are configured separately (recovery
-spares per event here; the warm pool in `shifter.yaml`), accounted separately
+spares per event here; the warm pool in `bigrae.yaml`), accounted separately
 against capacity, and never share generations; a recovery spare is never claimed
 as an initial-launch warm range, and vice versa.
 

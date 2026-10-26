@@ -21,6 +21,20 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 
 ## Traceability
 
+- IMPLEMENTS → GITHUB_ISSUE `2555` (Repair blocking quality coverage during the BigRAE rename)
+- IMPLEMENTS → CONFIG `scripts/adr_guard/ruff.toml` (Blocking lint and security rules for architecture tooling)
+- IMPLEMENTS → CONFIG `scripts/quality_ownership/ruff.toml` (Reuse the architecture tooling policy)
+- IMPLEMENTS → CONFIG `scripts/stack-smoke/ruff.toml` (Blocking smoke helper lint and security rules)
+- TESTS → TEST `scripts/stack-smoke/test_page_smoke.py` (Reject non-HTTP smoke transports before file access)
+- TESTS → TEST `scripts/adr_guard/tests/test_deploy_secret_sync.py` (Compatible config options and conflict rejection without GitHub writes)
+- TESTS → TEST `scripts/bootstrap/tests/test_github_oidc_subjects.py` (Immutable and explicit legacy bootstrap subjects; reject invalid identities)
+- TESTS → TEST `platform/terraform/global/iam/tests/github-subject.tftest.hcl` (Native AWS trust subjects retain exact repository IDs and protected refs)
+- IMPLEMENTS → CODE_FILE `scripts/check_checkov_invocation_parity/compat/immutable_subjects.py` (Version-bound scanner syntax compatibility without a policy waiver)
+- TESTS → TEST `scripts/check_checkov_invocation_parity/test_immutable_subjects.py` (Native scanner decisions and fatal compatibility drift)
+- TESTS → TEST `scripts/bootstrap/tests/test_cli.py` (CLI behavior without internal orchestration mocks)
+- TESTS → TEST `scripts/bootstrap/tests/test_gcp_control_plane.py` (Process-boundary bootstrap and GDC ordering behavior)
+- DOCUMENTS → DOCUMENTATION `docs/architecture/bigrae-rename-quality-design-2555.md` (CI data flows and protection controls)
+
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#1583` (In-tenant artifact preparation and dependency compatibility)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/cloud/preparation_policy.py` (Executable preparation Job authority and exact-image admission)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/cloud/preparation_installation_readback.py` (Fail-closed verification of installed Kubernetes authority)
@@ -91,5 +105,4 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 - TESTS → TEST `scripts/bootstrap/tests/test_gcp_control_plane.py` (Terraform/GDC orchestration through operation ports)
 - IMPLEMENTS → CONFIG `scripts/adr_guard/boundary_mock_baseline.json` (Reduced repository boundary-mock ratchet with no replacement exception)
 - TESTS → TEST `scripts/adr_guard/tests/test_quality_path_ownership.py` (Bandit ownership and root portal-image-context routing)
-- TESTS → TEST `scripts/adr_guard/tests/test_cloudformation_connectors.py` (CloudTrail notification key policy and versioned-bucket cleanup parity)
 - TESTS → TEST `shifter/shifter_platform/tests/platform/test_stack_smoke_job.py` (Authenticated smoke redirects cannot forward session cookies)

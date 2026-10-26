@@ -1,4 +1,5 @@
 """Command-line interface: argument parsing and the main() entry point."""
+
 from __future__ import annotations
 
 import argparse

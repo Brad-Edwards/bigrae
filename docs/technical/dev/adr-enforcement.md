@@ -4,7 +4,7 @@ Architecture rules in this repo are enforced by tooling, not just prose.
 
 ## What Exists
 
-The [model-access design for #681](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md)
+The [model-access design for #681](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/index.md)
 adds proposed ADR-059 through ADR-061 and documentation coverage for the
 planned feature. Registry/import validation applies now. Runtime enforcement
 of broker authorization, atomic budgets, revocation and provider isolation
@@ -12,7 +12,7 @@ must land with the owning implementation issues and their behavioral/cloud
 tests; a passing documentation check is not evidence of those guarantees.
 ADR-060-R3 also requires independently configurable sharing, explicit overlap
 and membership rules, deduplicated pool accounting and separately revocable
-range grants. The [sharing contract](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/sharing.md)
+range grants. The [sharing contract](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/sharing.md)
 is consumed by #2139/#2140 and the downstream implementation/evidence issues;
 it adds no waiver or claim of existing runtime enforcement.
 
@@ -80,6 +80,55 @@ There is also agent-specific wiring:
 - `.ground-control.yaml` is validated as a whole by the Ground Control context reader, so an unrecognized key fails the entire file closed rather than being ignored: the reader returns `invalid_ground_control_yaml`, and `/implement` loses the project, SonarCloud, and plan-rules context along with the offending block. The `routing:` block accepts only `enabled`, `default_provider`, and `stages`. Routing is advisory under ADR-036, annotating a stage's capability tier for telemetry without selecting an executor, so a stale routing key is worth deleting rather than reinterpreting.
 
 Review controls:
+
+The #2555 quality repair uses the existing path contract and workflow model.
+Ruff enables security rules for the guard, ownership tooling and smoke helpers.
+The integration branch's Bandit jobs also cover these tools and the three
+inspection scripts. ShellCheck covers smoke and container scripts.
+MCP lint jobs reject security warnings, and the shared package has a test-matrix
+entry. The existing kube-linter job supplies blocking Kubernetes security policy.
+Checkov's separate Kubernetes recommendations remain advisory under ADR-004-R11.
+Helm lint and rendered kube-linter checks run together, including when optional
+tests are skipped. BuildKit and Trivy validate container build inputs. A local guacd
+container proves non-root execution, drive permissions and listener readiness.
+The unused root branding assets have been removed after a consumer search.
+The user also retired the two unused vendor CloudFormation installers.
+Their quality owner and identifier exception have been removed.
+
+Bootstrap regression tests use process boundaries for the affected CLI and GDC
+flows. Their legacy mock allowance decreases from 256 to 175. No new allowance
+or exception renewal is part of this repair.
+
+The BigRAE rename (#2555) preserves the existing gates. After the same-owner
+repository cutover, the Sonar condition permits only `Brad-Edwards/bigrae` with
+the same immutable repository and owner IDs. Its expression-model tests deny the
+old slug, a recreated slug, another owner and fork-origin PRs. Future GCP deployments use
+one exact configured repository identity with the same purpose, Environment,
+ref and workflow restrictions. Under the user's no-deployments decision,
+no cloud-trust overlap or live migration is required. No cloud resource name
+or state location is derived from branding.
+
+GitHub's rename changes the default OIDC subject to include immutable owner and
+repository IDs. AWS and GCP templates and AWS bootstrap must construct that
+format from their explicit identity inputs. Canonical defaults use the observed
+IDs. Other repositories supply their own IDs. The explicit legacy format selects
+only the old subject shape; a policy never accepts both shapes as a fallback.
+Existing audience, purpose, branch and Environment restrictions retain their scope.
+The image-role guard requires exactly the `dev` and `main` subjects. It checks
+the selected prefix expression when the policy uses a shared prefix, and rejects
+wildcards, extra subjects and changes to the owner or repository ID fields.
+The pinned Checkov action loads a version-bound compatibility adapter for the
+immutable repository subject syntax. The adapter changes only the repository
+parser; CKV_GCP_125 and the native WIF guard remain blocking. CI parity checks
+require the adapter path, and tests reject unsupported versions and parser changes.
+
+Plugin admission accepts exactly one invocation key, `BIGRAE_PLUGIN_INPUT` or
+its legacy alias, through a matching Secret key reference. The static and Helm
+policies share the same restriction and behavioral admission tests. Settings,
+installation and MCP policy aliases reject conflicting inputs at their owning
+parsers; package aliases re-export existing contract types. Both compatibility
+distribution roots remain owned by Dependabot. Local source validation does not
+prove a live repository, publisher or workload-identity cutover.
 
 - `.github/CODEOWNERS` requires review on guardrail files and shared/public architecture seams.
 - `.github/pull_request_template.md` requires an ADR impact section on PRs.
@@ -637,11 +686,11 @@ The first slice intentionally stays small:
 - `k8s-network-policy-coverage`
   Enforces ADR-006-R3 against the base manifest snapshots under
   `platform/k8s/gcp/base/` and the rendered Helm chart output for
-  each supported values file. Every Shifter namespace discovered in
+  each supported values file. Every BigRAE namespace discovered in
   those manifests must have a default-deny `NetworkPolicy` with an
   empty pod selector and both `Ingress` and `Egress` policy types.
   The check also rejects broad egress `ipBlock` CIDRs (`0.0.0.0/0`
-  and `::/0`) in Shifter NetworkPolicies, forcing policies to use
+  and `::/0`) in BigRAE NetworkPolicies, forcing policies to use
   explicit GCLB, Google API, private service, and in-cluster service
   ranges. Runs in the `ci` level and shares the Helm-rendered
   validation boundary with `k8s-deployment-security-context`.
@@ -872,7 +921,7 @@ The first slice intentionally stays small:
   Pre-commit hook AND CI step rejecting mutable EC2 instance lifecycle
   actions (`TerminateInstances`, `StopInstances`, `StartInstances`,
   `ModifyInstanceAttribute`, `ModifyInstanceMetadataOptions`) on a
-  wildcard resource, and requiring the Shifter ownership resource-tag
+  wildcard resource, and requiring the BigRAE ownership resource-tag
   conditions. Previously it ran in pre-commit and as a unit test in CI,
   but never against the live Terraform, unlike its `check-tf-iam-elb-scope`
   and `check-tf-iam-ssm-scope` siblings; a commit that bypassed pre-commit
@@ -1006,10 +1055,9 @@ share a blocking Bandit lane, MCP security rules are errors and the shared
 package has its own test matrix member, and Kubernetes and Helm inputs use
 kube-linter. Container inputs use BuildKit checks/ShellCheck/Trivy; the root
 Docker context is separately routed through the portal build and stack smoke.
-Root `assets/**` is a typed docs
-exclusion because no build context, template, static-collection path, or deploy
-bundle consumes it. The expired ADR-004-R24 exceptions were removed rather
-than extended.
+Unused root branding assets were removed after the consumer search in #2555.
+A new production input needs an explicit quality owner.
+The expired ADR-004-R24 exceptions were removed without renewal.
 
 The unused CloudFormation connectors retired with their dedicated validation
 and security jobs. Their quality unit, template-specific tests and live-identifier
@@ -1057,7 +1105,7 @@ To add a production path:
   have `moved` blocks. The guard allowlists only the cross-module
   `terraform_data.network_topology_invariant`, which creates no cloud resource.
 - **GCP deploy overlay consumers (`scripts/adr_guard/tests/test_deploy_workflow.py`)**:
-  #2535 adds a fourth ephemeral `shifter.yaml` consumer to `_gcp-dev.yml`, the
+  #2535 adds a fourth ephemeral `bigrae.yaml` consumer to `_gcp-dev.yml`, the
   range telemetry env render. It applies `SHIFTER_CONFIG_OVERLAY_JSON` like the
   other three consumers, so the exact consumer count changes from 3 to 4. The
   invariant does not change: every consumer applies the overlay.
@@ -1117,7 +1165,7 @@ migration complete.
 
 ### Independent SDK publication (ADR-041, ADR-042)
 
-`adapter-sdk-release.yml` publishes Shifter's own adapter contract package,
+`adapter-sdk-release.yml` publishes BigRAE's own adapter contract package,
 independently versioned from the platform. It accepts only the protected `main`
 ref and a version matching the source, tests and builds without an OIDC release
 identity, then publishes the exact build artifact from the `adapter-sdk-pypi`

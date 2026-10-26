@@ -17,7 +17,7 @@ Time: ~45 minutes (mostly waiting for provisioning)
 
 The deployment profile contains the authcode that licenses your NGFW.
 
-1. Go to **Assets > Credentials** in Shifter
+1. Go to **Assets > Credentials** in BigRAE
 2. Click **Add Credential**
 3. Select **Deployment Profile**
 4. Enter:
@@ -73,7 +73,7 @@ The SCM credential enables automatic device registration.
 
 When provisioning reaches "Action Required":
 
-1. Note the **Serial Number** shown in Shifter
+1. Note the **Serial Number** shown in BigRAE
 2. Go to **Strata Cloud Manager**
 3. Navigate to **Configuration > Device Associations**
 4. Click **Add Device**
@@ -87,9 +87,9 @@ When provisioning reaches "Action Required":
 3. Click **Add New Instance**
 4. Follow the prompts to connect the firewall
 
-## Step 6: Complete Setup in Shifter
+## Step 6: Complete Setup in BigRAE
 
-1. Return to Shifter's NGFW wizard
+1. Return to BigRAE's NGFW wizard
 2. Click **Complete Setup**
 3. Wait for final configuration (up to 15 minutes)
 4. Success message appears when ready

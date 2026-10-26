@@ -4,6 +4,8 @@
 # (.pre-commit-config.yaml) and the GitHub Actions security-iac job
 # (.github/workflows/_quality.yml). soft-fail is OFF: first-party
 # Terraform under platform/terraform/ is a blocking Checkov path.
+# The pinned CI scanner loads the immutable-subject syntax adapter from
+# scripts/check_checkov_invocation_parity/compat; CKV_GCP_125 remains active.
 #
 # Module inline skips (issue #147): place `# checkov:skip=CKV_X:reason`
 # on the resource block inside `platform/terraform/modules/**`. Checkov

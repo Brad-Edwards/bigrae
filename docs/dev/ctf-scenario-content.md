@@ -1,11 +1,11 @@
 # Native CTF scenario content
 
-Shifter can populate a native CTF event from a private, digest-pinned content
+BigRAE can populate a native CTF event from a private, digest-pinned content
 bundle when the event's scenario is selected. The platform creates the
 challenges, flags, hints, and prerequisite graph in the same database
 transaction as the event. No content import or plugin is required.
 
-This is an operator publication flow. Shifter deliberately does not expose an
+This is an operator publication flow. BigRAE deliberately does not expose an
 upload API for challenge bodies or flag material.
 
 ## Contracts
@@ -86,7 +86,7 @@ deployment profile, callback, key lifecycle, replay, and failure contracts.
 ## Publish an immutable object
 
 1. Produce UTF-8 JSON using the bundle contract. Keep the source and generated
-   object outside the Shifter repository when it contains private content.
+   object outside the BigRAE repository when it contains private content.
 2. Compute the SHA-256 digest over the exact bytes that will be uploaded.
 3. Put the digest in the object name and in the deployment reference.
 4. Upload with the provider's create-only generation/version precondition.
@@ -132,7 +132,7 @@ is malformed or references are configured without a bucket.
 ## Create and verify an event
 
 Create an event normally and select the bound scenario. Before the database
-transaction starts, Shifter reads the object with a provider identity
+transaction starts, BigRAE reads the object with a provider identity
 precondition, checks its size and declared SHA-256 digest, and validates the
 complete bundle. The event, native challenge graph, and hydration receipt then
 commit atomically.
@@ -153,7 +153,7 @@ storage, integrity, validation, native writes, or strict audit recording fails.
 
 An exact retry against a pristine receipt is a no-op. Any organizer mutation
 of managed challenges, flags, hints, or prerequisites marks the receipt
-drifted. Activation then fails closed. Shifter never silently merges,
+drifted. Activation then fails closed. BigRAE never silently merges,
 overwrites, or restores drifted content.
 
 To publish a revision:

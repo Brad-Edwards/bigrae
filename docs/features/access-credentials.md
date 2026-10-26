@@ -37,7 +37,7 @@ automation credentials with independent native service identities as appropriate
 ## Independent service identities
 
 An authorized administrator registers the Google service account's immutable
-numeric unique ID, an independent Shifter principal and a credential action
+numeric unique ID, an independent BigRAE principal and a credential action
 ceiling. To obtain the non-secret ID:
 
 ```bash

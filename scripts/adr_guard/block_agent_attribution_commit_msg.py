@@ -11,7 +11,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-from agent_attribution import find_agent_attribution_matches
+from agent_attribution import find_agent_attribution_matches  # noqa: E402 - needs the sys.path entry above
 
 
 def _read_commit_message(raw_path: str) -> str:
@@ -40,9 +40,7 @@ def _read_commit_message(raw_path: str) -> str:
     resolved = candidate.resolve()
 
     if resolved != git_dir and git_dir not in resolved.parents:
-        raise ValueError(
-            f"refusing to read commit-message file outside the git directory: {raw_path}"
-        )
+        raise ValueError(f"refusing to read commit-message file outside the git directory: {raw_path}")
     if not resolved.is_file():
         raise FileNotFoundError(f"commit-message file not found: {raw_path}")
 

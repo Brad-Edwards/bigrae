@@ -1,6 +1,6 @@
 # Setup
 
-Deploy Shifter from a cloud account to a running environment.
+Deploy BigRAE from a cloud account to a running environment.
 
 ## Before You Start
 
@@ -67,16 +67,16 @@ for the authoritative order.
 
 ## Root Installation Config
 
-Scaffold, edit, then validate `shifter.yaml` before deployment. `init` copies the
-checked example for your backend to `./shifter.yaml` (local-only: it writes no
+Scaffold, edit, then validate `bigrae.yaml` before deployment. `init` copies the
+checked example for your backend to `./bigrae.yaml` (local-only: it writes no
 secrets and calls no cloud API):
 
 ```bash
-# Scaffold ./shifter.yaml (run `init` with no --backend to list the available backends).
-uv run --project shifter/installation shifter-config init --backend aws
+# Scaffold ./bigrae.yaml (run `init` with no --backend to list the available backends).
+uv run --project shifter/installation bigrae-config init --backend aws
 
-# Edit shifter.yaml for your deployment, then validate its shape.
-uv run --project shifter/installation shifter-config validate shifter.yaml
+# Edit bigrae.yaml for your deployment, then validate its shape.
+uv run --project shifter/installation bigrae-config validate bigrae.yaml
 ```
 
 Use `--backend gcp` for GCP. See [Installation Config](installation-config) for the
@@ -84,7 +84,7 @@ field reference.
 
 ## Doctor
 
-Once `shifter.yaml` is filled in, run `doctor` to validate the *selected backend* (not
+Once `bigrae.yaml` is filled in, run `doctor` to validate the *selected backend* (not
 just the config shape) before applying infrastructure. It runs the checks the backend
 bundle declares (required tools on PATH, secret references, generated outputs, owned
 repository paths, and the bundle's credential-free validation checks) and labels each
@@ -94,10 +94,10 @@ workflow's branch logic to understand a failure.
 
 ```bash
 # Local-only checks (default): config, tools, secret references, non-mutating validation.
-uv run --project shifter/installation shifter-config doctor shifter.yaml
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml
 
 # Additionally run read-only health probes of the deployment endpoint (post-deploy).
-uv run --project shifter/installation shifter-config doctor shifter.yaml --checks cloud
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml --checks cloud
 ```
 
 `doctor` exits `1` when any blocking check fails. It is a pre-mutation readiness signal;
@@ -282,7 +282,7 @@ GCP provisions with Terraform (`platform/terraform/gcp/`, rooted at `environment
 ### 1. GCP Project Setup
 
 Create a GCP project. Before starting bootstrap, enable every Google Cloud API
-required by the selected Shifter configuration. If the configuration uses AI
+required by the selected BigRAE configuration. If the configuration uses AI
 models, also enable every configured model in Vertex AI Model Garden: an
 authorized project administrator must open each model, accept any provider or
 Marketplace terms, and confirm that it is available in the configured region.
@@ -339,7 +339,7 @@ Treat an existing `local.auto.tfvars` as deployment state, not as a reusable
 sample. Before bootstrap, replace every tenant-bound value left by an earlier
 project, especially `project_id`, `dynamic_secret_project_id`, and
 `public_hostname`. Bootstrap loads the selected file and its values drive the
-ingress and managed certificate; selecting a different `shifter.yaml` does not
+ingress and managed certificate; selecting a different `bigrae.yaml` does not
 override a stale hostname here. Confirm the hostname in both inputs agrees
 before applying so bootstrap does not stop at DNS/TLS for the previous tenant.
 
@@ -421,7 +421,7 @@ Then run:
 ./scripts/bootstrap/deploy.py gdc-bootstrap \
   --project-id <your-gcp-project-id> --environment <environment> \
   --region <region> --zone <zone> \
-  --shifter-config /path/to/shifter.yaml \
+  --bigrae-config /path/to/bigrae.yaml \
   --import-public-base-images --yes
 ```
 
@@ -447,7 +447,7 @@ Credentials, creating no service account or key. The flow:
 5. seeds the first Identity Platform operator
 6. builds and pushes control-plane images
 7. renders secure Helm values from Terraform outputs and Secret Manager
-8. installs or upgrades the Shifter Helm release
+8. installs or upgrades the BigRAE Helm release
 
 For an existing platform, refresh only the public base set with
 `./scripts/bootstrap/deploy.py gcp-images --project-id <project> --environment

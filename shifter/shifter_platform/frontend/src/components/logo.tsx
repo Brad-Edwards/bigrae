@@ -1,7 +1,7 @@
 import type { SVGProps } from "react";
 
 /**
- * Shifter brand mark: two offset chevrons stepping forward — displacement /
+ * BigRAE brand mark: two offset chevrons stepping forward — displacement /
  * "shift" as motion. Blue gradient on transparent so it sits inside the dark
  * brand tile (see AppShell). viewBox matches the source mark (32x32).
  */

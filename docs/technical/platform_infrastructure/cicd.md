@@ -87,7 +87,7 @@ The GCP CI path:
 2. applies GCP Terraform
 3. builds and pushes control-plane images
 4. renders Helm settings and secret references from Terraform outputs
-5. installs or upgrades the Shifter Helm release
+5. installs or upgrades the BigRAE Helm release
 
 Every deploy dispatch runs the quality gate before an apply.
 The GCP jobs use one shared Terraform root with selected environment var-files.

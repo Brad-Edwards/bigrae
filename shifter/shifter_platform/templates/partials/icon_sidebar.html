@@ -38,7 +38,7 @@
         <div class="nav-header nav-header-main" id="navHeaderMain">
             <a href="{% url 'mission_control:dashboard' %}"
                class="header-link"
-               aria-label='{% trans "Shifter home" %}'>
+               aria-label='{% trans "BigRAE home" %}'>
                 <span class="logo-mark" aria-hidden="true">{% trans "S" %}</span>
                 <span class="logo-text hide-when-minimized hide-when-submenu">
                     <span class="logo-text-main">{% trans "SHIFTER" %}</span>
@@ -99,7 +99,7 @@
                               active-link
                           {% endif %}">
                     <span class="nav-icon">
-                        <svg width="24"
+                        <svg aria-hidden="true" focusable="false" width="24"
                              height="24"
                              viewBox="0 0 24 24"
                              fill="none"
@@ -143,7 +143,7 @@
                             data-submenu="assets"
                             data-submenu-title='{% trans "Assets" %}'>
                         <span class="nav-icon">
-                            <svg width="24"
+                            <svg aria-hidden="true" focusable="false" width="24"
                                  height="24"
                                  viewBox="0 0 24 24"
                                  fill="none"
@@ -172,7 +172,7 @@
                               active-link
                           {% endif %}">
                     <span class="nav-icon">
-                        <svg width="24"
+                        <svg aria-hidden="true" focusable="false" width="24"
                              height="24"
                              viewBox="0 0 24 24"
                              fill="none"
@@ -203,7 +203,7 @@
                                   active-link
                               {% endif %}">
                         <span class="nav-icon">
-                            <svg width="24"
+                            <svg aria-hidden="true" focusable="false" width="24"
                                  height="24"
                                  viewBox="0 0 24 24"
                                  fill="none"
@@ -232,7 +232,7 @@
                                   active-link
                               {% endif %}">
                         <span class="nav-icon">
-                            <svg width="24"
+                            <svg aria-hidden="true" focusable="false" width="24"
                                  height="24"
                                  viewBox="0 0 24 24"
                                  fill="none"
@@ -260,7 +260,7 @@
                                   active-link
                               {% endif %}">
                         <span class="nav-icon">
-                            <svg width="24"
+                            <svg aria-hidden="true" focusable="false" width="24"
                                  height="24"
                                  viewBox="0 0 24 24"
                                  fill="none"
@@ -291,7 +291,7 @@
                                   active-link
                               {% endif %}">
                         <span class="nav-icon">
-                            <svg width="24"
+                            <svg aria-hidden="true" focusable="false" width="24"
                                  height="24"
                                  viewBox="0 0 24 24"
                                  fill="none"
@@ -418,7 +418,7 @@
                     <form method="post" action="{% url 'logout' %}" class="m-0">
                         {% csrf_token %}
                         <button type="submit" class="nav-user-menu-item">
-                            <svg width="20"
+                            <svg aria-hidden="true" focusable="false" width="20"
                                  height="20"
                                  viewBox="0 0 24 24"
                                  fill="none"

@@ -13,7 +13,8 @@
 // docs/architecture/mcp-ops-privileged-surface-preflight-777.md for
 // the threat model and mcp/ops/SECURITY.md for the operational rules.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import yaml from "yaml";
 import { z } from "zod";
 
@@ -338,12 +339,24 @@ export function parsePolicy(raw, opts = {}) {
 // Load `.shifter.yaml` from disk and parse the `mcp_ops:` namespace.
 // `profile` overrides `mcp_ops.session_profile.default` (typically
 // from the `SHIFTER_OPS_PROFILE` env var at server startup).
-export function loadPolicy({ path, profile } = {}) {
+export function loadPolicy({ path, compatibilityPath, profile } = {}) {
   if (!path) {
     throw new PolicyError("loadPolicy: 'path' is required");
   }
-  const text = readFileSync(path, "utf-8");
+  // Both paths are administrator-supplied startup configuration, never tool input.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed startup policy paths
+  const selected = !existsSync(path) && compatibilityPath ? compatibilityPath : path;
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- selected startup policy path
+  const text = readFileSync(selected, "utf-8");
   const doc = yaml.parse(text);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed legacy startup policy path
+  if (selected === path && compatibilityPath && existsSync(compatibilityPath)) {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed legacy startup policy path
+    const legacy = yaml.parse(readFileSync(compatibilityPath, "utf-8"));
+    if (!isDeepStrictEqual(doc, legacy)) {
+      throw new PolicyError("conflicting canonical and legacy policy files");
+    }
+  }
   if (!doc || typeof doc !== "object" || !("mcp_ops" in doc)) {
     throw new PolicyError(
       `loadPolicy: ${path} is missing required 'mcp_ops:' namespace`,
@@ -356,7 +369,12 @@ export function loadPolicy({ path, profile } = {}) {
 // server's main entrypoint uses this so the policy module stays
 // pure.
 export function profileFromEnv(env = process.env) {
-  const raw = env.SHIFTER_OPS_PROFILE;
+  const canonical = env.BIGRAE_OPS_PROFILE;
+  const legacy = env.SHIFTER_OPS_PROFILE;
+  if (canonical !== undefined && legacy !== undefined && canonical.trim() !== legacy.trim()) {
+    throw new PolicyError("conflicting BIGRAE_OPS_PROFILE and SHIFTER_OPS_PROFILE");
+  }
+  const raw = canonical ?? legacy;
   if (!raw) return undefined;
   const trimmed = raw.trim();
   if (!trimmed) return undefined;

@@ -1,6 +1,6 @@
 # Platform Infrastructure
 
-Shifter platform workloads use the shared Helm chart on EKS or GKE.
+BigRAE platform workloads use the shared Helm chart on EKS or GKE.
 Terraform owns the supporting cloud infrastructure and workload identity grants.
 
 - [AWS EKS backend bundle](aws-eks-bundle.md)

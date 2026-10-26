@@ -2,7 +2,7 @@
 
 Which range backend may realize a range, for which kind of launch.
 
-Normal Shifter scenarios are live-fire: participants and agents run arbitrary
+Normal BigRAE scenarios are live-fire: participants and agents run arbitrary
 commands, exploit services, pivot, and attempt escape. ADR-030 decides that a
 live-fire range must be contained by an approved boundary outside the Kubernetes
 management plane, and that the retained Kubernetes/GDC plumbing may serve only

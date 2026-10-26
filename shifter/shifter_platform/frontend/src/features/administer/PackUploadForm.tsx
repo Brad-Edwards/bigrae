@@ -18,7 +18,7 @@ export function PackUploadForm({ organization, packs }: Readonly<{ organization:
   const valid = (!replacement || Boolean(previous)) && /^[A-Za-z0-9_-]{1,100}$/.test(packName) && archive !== null && archive.size > 0;
   return <section className="mb-6 space-y-3" aria-label="Install a content pack">
     <h2 className="text-lg font-semibold">Install a content pack</h2>
-    <p>Upload the pack author’s archive. Shifter validates the content before making it available to your organization.
+    <p>Upload the pack author’s archive. BigRAE validates the content before making it available to your organization.
       Install and assign its adapter separately.</p>
     <Label htmlFor="pack-upload-revision">Installation</Label>
     <select id="pack-upload-revision" value={replacement} disabled={upload.isPending}

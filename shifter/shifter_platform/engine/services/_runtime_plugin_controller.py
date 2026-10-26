@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.utils import timezone
-from shifter_adapter_sdk.runtime import PROTOCOL, InspectionInput, InspectionResult, PluginManifest, RuntimeInput
+from shifter_adapter_sdk.runtime import InspectionInput, InspectionResult, PluginManifest, RuntimeInput
 
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.cloud.exceptions import CloudTaskError
@@ -101,7 +101,9 @@ def _reconcile(row: RuntimePluginInstallation) -> None:
             from ._runtime_plugin_authority import reauthorize_plugin_initiator
 
             reauthorize_plugin_initiator(row)
-        request = InspectionInput(protocol=PROTOCOL, phase="inspect", invocation_id=row.probe_id, manifest=manifest)
+        request = InspectionInput(
+            protocol=manifest.protocol, phase="inspect", invocation_id=row.probe_id, manifest=manifest
+        )
         if row.probe_expires_at <= timezone.now():
             state, failure_code = "failed", "installation-timeout"
             interrupt_plugin(request)

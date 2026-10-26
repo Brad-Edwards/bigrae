@@ -92,7 +92,7 @@ command below.
    instead of the standard managed runner VPC (ADR-004-R20, #1437). Registration tokens
    are never written to Terraform state, user data, a secret store, or logs.
 3. Confirm the fleet is online (the `runners` path already verifies this):
-   `gh api repos/Brad-Edwards/shifter/actions/runners --jq '.runners[] | {name, status}'`.
+   `gh api repos/Brad-Edwards/bigrae/actions/runners --jq '.runners[] | {name, status}'`.
 4. Seed or build the `/shifter/ami/{kali,ubuntu,windows,dc}` SSM
    parameters required by portal Terraform. The Kali build requires the target
    account to accept the free AWS Marketplace terms for product code

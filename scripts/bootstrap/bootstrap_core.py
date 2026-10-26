@@ -495,10 +495,25 @@ class BootstrapConfig:
     # Default GitHub target; forked deployments can override the config object.
     github_org: str = "Brad-Edwards"
     github_repo: str = "bigrae"
+    github_repository_id: str = "1241599684"
+    github_owner_id: str = "56809295"
+    github_subject_format: str = "immutable"
 
     def __post_init__(self) -> None:
         if self.env not in AWS_ENVIRONMENTS:
             raise ValueError("AWS environment must be dev or prod")
+
+    @property
+    def github_subject_prefix(self) -> str:
+        """Select the exact repository subject format without accepting both."""
+        if self.github_subject_format == "default":
+            return f"repo:{self.github_org}/{self.github_repo}"
+        if self.github_subject_format != "immutable":
+            raise ValueError("github_subject_format must be default or immutable")
+        for key in ("github_owner_id", "github_repository_id"):
+            if not re.fullmatch(r"[1-9]\d*", getattr(self, key), flags=re.ASCII):
+                raise ValueError(f"{key} must be a positive numeric GitHub ID")
+        return f"repo:{self.github_org}@{self.github_owner_id}/{self.github_repo}@{self.github_repository_id}"
 
     @property
     def bucket_prefix(self) -> str:

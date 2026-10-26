@@ -15,7 +15,7 @@ from .doctor import CheckScope
 # Output description shared by the single-line runtime env renderers.
 _ENV_LINE = "env line"
 
-DEFAULT_CONFIG_FILENAME = "shifter.yaml"
+DEFAULT_CONFIG_FILENAME = "bigrae.yaml"
 
 
 def _add_config_path_argument(parser: argparse.ArgumentParser) -> None:
@@ -23,7 +23,7 @@ def _add_config_path_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "path",
         nargs="?",
-        default=DEFAULT_CONFIG_FILENAME,
+        default=None,
         help=f"Path to the config file (default: ./{DEFAULT_CONFIG_FILENAME}).",
     )
 
@@ -275,8 +275,8 @@ def _add_contract_parser(subcommands: argparse._SubParsersAction) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Build the ``shifter-config`` argument parser with every subcommand wired."""
     parser = argparse.ArgumentParser(
-        prog="shifter-config",
-        description="Inspect and validate the root Shifter installation config.",
+        prog="bigrae-config",
+        description="Inspect and validate the root BigRAE installation config.",
     )
     subcommands = parser.add_subparsers(dest="command", metavar="<command>")
     _add_validate_parser(subcommands)

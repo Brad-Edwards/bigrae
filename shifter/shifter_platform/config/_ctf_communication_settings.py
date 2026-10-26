@@ -10,10 +10,11 @@ carries a campaign, recipient, body, or secret.
 
 from __future__ import annotations
 
-import os
 import re
 
 from django.core.exceptions import ImproperlyConfigured
+
+from config._product_env import product_env
 
 __all__ = [
     "CTF_COMMUNICATION_ALLOWED_LINK_HOSTS",
@@ -85,7 +86,7 @@ def _parse_allowed_link_hosts(raw: str) -> frozenset[str]:
 
 def _parse_int(env_name: str, default: int, minimum: int, maximum: int) -> int:
     """Parse and bound an integer env var (fail-loud)."""
-    raw = os.environ.get(env_name, str(default))
+    raw = product_env(env_name, str(default))
     try:
         value = int(str(raw).strip())
     except (ValueError, AttributeError) as exc:
@@ -97,7 +98,7 @@ def _parse_int(env_name: str, default: int, minimum: int, maximum: int) -> int:
 
 def _parse_float(env_name: str, default: float, minimum: float, maximum: float) -> float:
     """Parse and bound a float env var (fail-loud)."""
-    raw = os.environ.get(env_name, str(default))
+    raw = product_env(env_name, str(default))
     try:
         value = float(str(raw).strip())
     except (ValueError, AttributeError) as exc:
@@ -118,10 +119,10 @@ def _parse_metrics_namespace(raw: str) -> str:
 
 
 CTF_COMMUNICATION_RETENTION_DAYS = _parse_retention_days(
-    os.environ.get("SHIFTER_CTF_COMMUNICATION_RETENTION_DAYS", str(_DEFAULT_RETENTION_DAYS))
+    product_env("SHIFTER_CTF_COMMUNICATION_RETENTION_DAYS", str(_DEFAULT_RETENTION_DAYS))
 )
 CTF_COMMUNICATION_ALLOWED_LINK_HOSTS = _parse_allowed_link_hosts(
-    os.environ.get("SHIFTER_CTF_COMMUNICATION_ALLOWED_LINK_HOSTS", "")
+    product_env("SHIFTER_CTF_COMMUNICATION_ALLOWED_LINK_HOSTS", "")
 )
 
 # --- Delivery-engine worker policy (#2098) -------------------------------------
@@ -166,7 +167,7 @@ CTF_COMMUNICATION_RELEASE_GRACE_MINUTES = _parse_int("SHIFTER_CTF_COMMUNICATION_
 
 # --- Metrics -------------------------------------------------------------------
 CTF_COMMUNICATION_METRICS_NAMESPACE = _parse_metrics_namespace(
-    os.environ.get("SHIFTER_CTF_COMMUNICATION_METRICS_NAMESPACE", "Shifter/CtfCommunication")
+    product_env("SHIFTER_CTF_COMMUNICATION_METRICS_NAMESPACE", "Shifter/CtfCommunication")
 )
 
 

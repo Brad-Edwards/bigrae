@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PROTOCOL: Final = "shifter.runtime-plugin/v1"
 ENTRY_POINT_GROUP = "shifter.runtime.plugins"
+ENTRY_POINT_GROUPS = (ENTRY_POINT_GROUP, "bigrae.runtime.plugins")
 # Fits one injected environment value on Linux, including its name and terminator.
 MAX_INPUT_BYTES = 65_536
 MAX_OUTPUT_BYTES = 1_048_576
@@ -67,7 +68,7 @@ def canonical_digest(value: object) -> str:
 class PluginManifest(ClosedModel):
     """Executable identity and capabilities requested by an author-provided plugin."""
 
-    protocol: Literal["shifter.runtime-plugin/v1"]
+    protocol: Literal["shifter.runtime-plugin/v1", "bigrae.runtime-plugin/v1"]
     plugin_id: Identifier
     version: Version
     distribution: Identifier
@@ -106,10 +107,16 @@ class GuestTarget(ClosedModel):
 class InspectionInput(ClosedModel):
     """Installation probe with no range, guest, credential, or operation context."""
 
-    protocol: Literal["shifter.runtime-plugin/v1"]
+    protocol: Literal["shifter.runtime-plugin/v1", "bigrae.runtime-plugin/v1"]
     invocation_id: UUID
     phase: Literal["inspect"]
     manifest: PluginManifest
+
+    @model_validator(mode="after")
+    def validate_protocol(self) -> Self:
+        if self.protocol != self.manifest.protocol:
+            raise ValueError("plugin input and manifest protocols must agree")
+        return self
 
     @property
     def digest(self) -> str:
@@ -119,21 +126,25 @@ class InspectionInput(ClosedModel):
 class InspectionResult(ClosedModel):
     """Checks packaging compatibility, never claims guest readiness."""
 
-    protocol: Literal["shifter.runtime-plugin/v1"]
+    protocol: Literal["shifter.runtime-plugin/v1", "bigrae.runtime-plugin/v1"]
     invocation_id: UUID
     phase: Literal["inspect"]
     input_digest: Digest
     status: Literal["compatible", "failed"]
 
     def authorize(self, request: InspectionInput) -> None:
-        if self.invocation_id != request.invocation_id or self.input_digest != request.digest:
+        if (
+            self.protocol != request.protocol
+            or self.invocation_id != request.invocation_id
+            or self.input_digest != request.digest
+        ):
             raise ValueError("plugin inspection does not match its invocation")
 
 
 class RuntimeInput(ClosedModel):
     """Exactly one operation and phase; values are never taken from plugin output."""
 
-    protocol: Literal["shifter.runtime-plugin/v1"]
+    protocol: Literal["shifter.runtime-plugin/v1", "bigrae.runtime-plugin/v1"]
     invocation_id: UUID
     operation_id: UUID
     pack_digest: Digest
@@ -146,6 +157,8 @@ class RuntimeInput(ClosedModel):
 
     @model_validator(mode="after")
     def validate_bindings(self) -> Self:
+        if self.protocol != self.manifest.protocol:
+            raise ValueError("plugin input and manifest protocols must agree")
         if set(self.targets) != set(self.manifest.required_bindings):
             raise ValueError("target bindings must exactly match the installed declaration")
         if set(self.parameters) != set(self.manifest.required_parameters):
@@ -183,7 +196,7 @@ class GuestAction(ClosedModel):
 class RuntimePlan(ClosedModel):
     """Untrusted worker response. Core must bind it to input before execution."""
 
-    protocol: Literal["shifter.runtime-plugin/v1"]
+    protocol: Literal["shifter.runtime-plugin/v1", "bigrae.runtime-plugin/v1"]
     invocation_id: UUID
     input_digest: Digest
     phase: Phase
@@ -213,7 +226,8 @@ class RuntimePlan(ClosedModel):
     def authorize(self, request: RuntimeInput) -> None:
         """Reject replay, another phase or operation, and undeclared guest targets."""
         if (
-            self.invocation_id != request.invocation_id
+            self.protocol != request.protocol
+            or self.invocation_id != request.invocation_id
             or self.input_digest != request.digest
             or self.phase != request.phase
             or any(action.binding not in request.targets for action in self.actions)

@@ -1,4 +1,5 @@
 """Deterministic check registry: CHECKS and CHECK_LEVELS."""
+
 from __future__ import annotations
 
 from .checks.accessibility_baseline import check_accessibility_baseline

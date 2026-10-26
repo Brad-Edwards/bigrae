@@ -6,14 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="same-origin" />
     <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}" />
-    <title>{% trans "Shifter" %}</title>
+    <title>{% trans "BigRAE" %}</title>
     {% for href in spa_css %}
     <link rel="stylesheet" href="{{ href }}" />
     {% endfor %}
   </head>
   <body>
     <div id="root"></div>
-    <noscript>{% trans "The Shifter workspace requires JavaScript." %}</noscript>
+    <noscript>{% trans "The BigRAE workspace requires JavaScript." %}</noscript>
     {% if spa_js %}
     <script type="module" src="{{ spa_js }}"></script>
     {% endif %}

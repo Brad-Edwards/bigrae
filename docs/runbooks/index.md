@@ -1,6 +1,6 @@
 # Operations runbooks
 
-These runbooks are the operational handoff for the current Shifter control
+These runbooks are the operational handoff for the current BigRAE control
 plane. GCP with GCE range cells is the primary supported release path. AWS
 procedures are called out only where the repository and a deployed AWS tenant
 provide an equivalent surface. GDC VM Runtime remains an operator-validation

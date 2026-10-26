@@ -17,15 +17,9 @@ CTF_COMMUNICATION_SOURCES = frozenset(
         "range-signal",
     }
 )
-CTF_COMMUNICATION_AUDIENCES = frozenset(
-    {"participant", "participant-set", "teams", "event", "events"}
-)
-CTF_COMMUNICATION_RAES_KINDS = frozenset(
-    {"disclosure", "external-direction", "intervention"}
-)
-CTF_COMMUNICATION_RANGE_REQUEST_FIELDS = frozenset(
-    {"protocol_version", "declaration_id", "occurrence", "nonce"}
-)
+CTF_COMMUNICATION_AUDIENCES = frozenset({"participant", "participant-set", "teams", "event", "events"})
+CTF_COMMUNICATION_RAES_KINDS = frozenset({"disclosure", "external-direction", "intervention"})
+CTF_COMMUNICATION_RANGE_REQUEST_FIELDS = frozenset({"protocol_version", "declaration_id", "occurrence", "nonce"})
 CTF_COMMUNICATION_RANGE_FORBIDDEN_AUTHORITY = frozenset(
     {
         "workspace",
@@ -109,12 +103,8 @@ DEDICATED_CUSTOMER_AUTHORITY_VERIFICATION = frozenset(
     }
 )
 
-ACCESSIBILITY_WCAG_TAGS = frozenset(
-    {"wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"}
-)
-ACCESSIBILITY_SURFACE_KINDS = frozenset(
-    {"spa-route", "django-html-route", "mkdocs-page", "enabled-third-party-ui"}
-)
+ACCESSIBILITY_WCAG_TAGS = frozenset({"wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"})
+ACCESSIBILITY_SURFACE_KINDS = frozenset({"spa-route", "django-html-route", "mkdocs-page", "enabled-third-party-ui"})
 ACCESSIBILITY_FIXED_SECTIONS: dict[str, dict[str, object]] = {
     "standard": {
         "target": "wcag-2.2-aa",
@@ -178,16 +168,12 @@ ACCESSIBILITY_STRING_SET_SECTIONS = {
 }
 
 
-def _contract_key_errors(
-    contract: dict[str, object], adr_id: str, expected_keys: set[str]
-) -> list[str]:
+def _contract_key_errors(contract: dict[str, object], adr_id: str, expected_keys: set[str]) -> list[str]:
     """Report an interface contract whose top-level keys differ from its schema."""
     actual_keys = set(contract)
     if actual_keys == expected_keys:
         return []
-    return [
-        f"{adr_id} interface_contract must contain exactly {sorted(expected_keys)}; got {sorted(actual_keys)}"
-    ]
+    return [f"{adr_id} interface_contract must contain exactly {sorted(expected_keys)}; got {sorted(actual_keys)}"]
 
 
 def _validate_ctf_sections(contract: dict[str, object], prefix: str) -> list[str]:
@@ -227,9 +213,7 @@ def _validate_ctf_sections(contract: dict[str, object], prefix: str) -> list[str
     return errors
 
 
-def _validate_ctf_ingress_content_delivery(
-    contract: dict[str, object], prefix: str
-) -> list[str]:
+def _validate_ctf_ingress_content_delivery(contract: dict[str, object], prefix: str) -> list[str]:
     """Validate CTF range ingress, content controls, and delivery semantics."""
     errors = validate_closed_mapping(
         contract.get("range_ingress"),
@@ -280,9 +264,7 @@ def _validate_ctf_ingress_content_delivery(
     return errors
 
 
-def validate_ctf_communications_contract(
-    contract: dict[str, object], adr_id: str
-) -> list[str]:
+def validate_ctf_communications_contract(contract: dict[str, object], adr_id: str) -> list[str]:
     """Validate ADR-051's closed communications security and realization contract."""
     expected_keys = {
         "kind",
@@ -316,9 +298,7 @@ def validate_ctf_communications_contract(
     return errors
 
 
-def validate_dedicated_customer_authority_contract(
-    contract: dict[str, object], adr_id: str
-) -> list[str]:
+def validate_dedicated_customer_authority_contract(contract: dict[str, object], adr_id: str) -> list[str]:
     """Validate ADR-054's dedicated-customer and internal-authority contract."""
     expected_keys = {
         "kind",
@@ -406,13 +386,9 @@ def validate_dedicated_customer_authority_contract(
     return errors
 
 
-def validate_accessibility_enforcement_contract(
-    contract: dict[str, object], adr_id: str
-) -> list[str]:
+def validate_accessibility_enforcement_contract(contract: dict[str, object], adr_id: str) -> list[str]:
     """Validate ADR-055's closed accessibility governance contract."""
-    errors = _contract_key_errors(
-        contract, adr_id, set(ACCESSIBILITY_FIXED_SECTIONS) | {"kind"}
-    )
+    errors = _contract_key_errors(contract, adr_id, set(ACCESSIBILITY_FIXED_SECTIONS) | {"kind"})
     prefix = f"{adr_id} interface_contract"
     for section, fixed in ACCESSIBILITY_FIXED_SECTIONS.items():
         errors.extend(

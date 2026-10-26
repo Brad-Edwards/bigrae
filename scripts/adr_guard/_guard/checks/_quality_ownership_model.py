@@ -4,6 +4,7 @@ Split out of ``quality_ownership.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 import sys

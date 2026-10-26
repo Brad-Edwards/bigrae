@@ -1,7 +1,7 @@
 # GitHub Actions Self-Hosted Runners
 
 EC2-based runners that pick up `runs-on: self-hosted` jobs from
-`Brad-Edwards/shifter`. Lives in the dev account; cross-account roles
+`Brad-Edwards/bigrae`. Lives in the dev account; cross-account roles
 let it deploy to both dev and prod.
 
 ## Architecture
@@ -164,7 +164,7 @@ export AWS_PAGER=""
 
 INSTANCE=i-xxxxxxxxxxxxxxxxx
 NAME=shifter-github-runner-N
-TOKEN=$(gh api -X POST /repos/Brad-Edwards/shifter/actions/runners/registration-token --jq .token)
+TOKEN=$(gh api -X POST /repos/Brad-Edwards/bigrae/actions/runners/registration-token --jq .token)
 
 aws ssm send-command \
   --instance-ids "$INSTANCE" \
@@ -173,7 +173,7 @@ aws ssm send-command \
   --parameters "commands=[
     \"set -ex\",
     \"cd /home/ec2-user/actions-runner\",
-    \"sudo -u ec2-user ./config.sh --url https://github.com/Brad-Edwards/shifter --token $TOKEN --labels self-hosted,linux,X64 --unattended --replace --name $NAME\",
+    \"sudo -u ec2-user ./config.sh --url https://github.com/Brad-Edwards/bigrae --token $TOKEN --labels self-hosted,linux,X64 --unattended --replace --name $NAME\",
     \"./svc.sh install ec2-user\",
     \"./svc.sh start\"
   ]"
@@ -182,7 +182,7 @@ aws ssm send-command \
 Verify:
 
 ```bash
-gh api repos/Brad-Edwards/shifter/actions/runners --jq '.runners[] | {name, status}'
+gh api repos/Brad-Edwards/bigrae/actions/runners --jq '.runners[] | {name, status}'
 ```
 
 ## Gotchas
@@ -226,7 +226,7 @@ plain EC2; nothing in `main.tf` references them. Deleted in 3.95.3.
 ```bash
 # From the EC2 (via SSM):
 cd /home/ec2-user/actions-runner
-TOKEN=$(gh api -X POST /repos/Brad-Edwards/shifter/actions/runners/remove-token --jq .token)
+TOKEN=$(gh api -X POST /repos/Brad-Edwards/bigrae/actions/runners/remove-token --jq .token)
 sudo ./svc.sh stop
 sudo ./svc.sh uninstall
 sudo -u ec2-user ./config.sh remove --token "$TOKEN"

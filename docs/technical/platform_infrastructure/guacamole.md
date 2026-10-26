@@ -52,6 +52,12 @@ The shared Helm chart hosts them on EKS or GKE.
 Guacamole uses RDS PostgreSQL on AWS and Cloud SQL PostgreSQL on GCP.
 The Django integration and JSON-auth flow are shared across clouds.
 
+The BigRAE client image removes the unused upstream CAS, client-certificate SSO,
+and Keeper Secrets Manager extensions, including their activation links. Those
+extensions bundle vulnerable Bouncy Castle providers; BigRAE's JSON-auth and
+PostgreSQL integration does not use them. Enabling any of those upstream
+extensions requires a separately reviewed image change with patched dependencies.
+
 ## Components
 
 | Component | Location | Purpose |
