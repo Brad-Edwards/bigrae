@@ -14,7 +14,6 @@ from .._common import (
     _repo_relative,
 )
 
-
 _TFVARS_SCOPE = (
     "platform/terraform/environments",
     "platform/terraform/global",

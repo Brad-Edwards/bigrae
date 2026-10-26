@@ -10,11 +10,10 @@ import subprocess
 from pathlib import Path
 
 from .._common import (
-    Violation,
     _ADR_GUARD_PATH,
+    Violation,
     _repo_relative,
 )
-
 
 K8S_BASE_DEPLOYMENT_DIR = "platform/k8s/gcp/base"
 HELM_CHART_DIR = "platform/charts/shifter"

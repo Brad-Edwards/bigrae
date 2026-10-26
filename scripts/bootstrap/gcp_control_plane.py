@@ -1326,7 +1326,14 @@ def resolve_helm_values_path(config: GDCBootstrapConfig, chart_path: Path) -> Pa
     return chart_path / f"values-gcp-{profile}.yaml"
 
 
-def render_range_egress_tfvars(repo_root: Path, config_path: Path, output_path: Path, dry_run: bool = False) -> None:
+def render_range_egress_tfvars(
+    repo_root: Path,
+    config_path: Path,
+    output_path: Path,
+    dry_run: bool = False,
+    *,
+    command_runner: Callable[..., object] | None = None,
+) -> None:
     """Render the range egress bridge tfvars from ``config_path`` via ``shifter-config render``.
 
     Reuses the installation package's CLI (loader + RangeEgressPolicy + renderer) so the
@@ -1334,7 +1341,7 @@ def render_range_egress_tfvars(repo_root: Path, config_path: Path, output_path: 
     (ADR-017-R4). The config path and output path are passed as argv; the config contents
     are never read, echoed, or logged here.
     """
-    run_cmd(
+    (command_runner or run_cmd)(
         [
             "uv",
             "run",
@@ -1438,11 +1445,30 @@ def ensure_gcp_artifact_registry_service_identity(config: GDCBootstrapConfig, dr
         raise RuntimeError(f"Failed to provision {service} service identity: {message}") from exc
 
 
+@dataclass(frozen=True)
+class _GCPControlPlaneTerraformOperations:
+    """External operation ports for the Terraform control-plane transaction."""
+
+    repo_root: Callable[[], Path] = get_repo_root
+    resource_exists: Callable[[list[str]], bool] = gcloud_resource_exists
+    command_runner: Callable[..., object] = run_cmd
+    render_range_egress: Callable[..., None] = render_range_egress_tfvars
+    ensure_service_identity: Callable[..., None] = ensure_gcp_artifact_registry_service_identity
+    bootstrap_credentials: Callable[..., object] = gcp_terraform_bootstrap_credentials
+    terraform_init: Callable[..., None] = run_gcp_terraform_init_with_retry
+    wait_for_access: Callable[..., None] = wait_for_gcp_terraform_bootstrap_access
+    terraform_apply: Callable[..., None] = run_gcp_terraform_apply_with_retry
+
+
 def apply_gcp_control_plane_terraform(
-    config: GDCBootstrapConfig, dry_run: bool = False
+    config: GDCBootstrapConfig,
+    dry_run: bool = False,
+    *,
+    operations: _GCPControlPlaneTerraformOperations | None = None,
 ) -> dict[str, dict[str, object]]:
     """Apply the GCP control-plane Terraform environment for the active project."""
-    repo_root = get_repo_root()
+    operations = operations or _GCPControlPlaneTerraformOperations()
+    repo_root = operations.repo_root()
     tf_dir = repo_root / "platform" / "terraform" / "gcp" / "environments" / config.environment
     if not tf_dir.exists():
         error(f"GCP Terraform directory not found: {tf_dir}")
@@ -1459,10 +1485,10 @@ def apply_gcp_control_plane_terraform(
     shifter_config_path = resolve_shifter_config_path(config, repo_root)
 
     tf_state_bucket = config.terraform_state_bucket_name
-    if not gcloud_resource_exists(
+    if not operations.resource_exists(
         ["gcloud", "storage", "buckets", "describe", f"gs://{tf_state_bucket}", "--project", config.project_id]
     ):
-        run_cmd(
+        operations.command_runner(
             [
                 "gcloud",
                 "storage",
@@ -1478,24 +1504,30 @@ def apply_gcp_control_plane_terraform(
             dry_run=dry_run,
         )
 
-    run_cmd(
+    operations.command_runner(
         ["gcloud", "storage", "buckets", "update", f"gs://{tf_state_bucket}", "--versioning"],
         dry_run=dry_run,
     )
 
     # Render the range egress bridge tfvars from shifter.yaml before Terraform consumes
     # the variables, so the deployed firewall matches settings.range_egress (#1015).
-    render_range_egress_tfvars(repo_root, shifter_config_path, tf_dir / RANGE_EGRESS_BRIDGE_FILENAME, dry_run=dry_run)
+    operations.render_range_egress(
+        repo_root,
+        shifter_config_path,
+        tf_dir / RANGE_EGRESS_BRIDGE_FILENAME,
+        dry_run=dry_run,
+        command_runner=operations.command_runner,
+    )
 
     # Provision the Artifact Registry service agent before Terraform grants it
     # CMEK permissions; fresh projects do not have the identity yet.
-    ensure_gcp_artifact_registry_service_identity(config, dry_run=dry_run)
+    operations.ensure_service_identity(config, dry_run=dry_run)
 
     original_dir = os.getcwd()
     os.chdir(tf_dir)
     try:
         if dry_run:
-            run_cmd(
+            operations.command_runner(
                 [
                     "terraform",
                     "init",
@@ -1505,7 +1537,7 @@ def apply_gcp_control_plane_terraform(
                 ],
                 dry_run=dry_run,
             )
-            run_cmd(
+            operations.command_runner(
                 [
                     "terraform",
                     "apply",
@@ -1547,14 +1579,14 @@ def apply_gcp_control_plane_terraform(
             # credentials (#1738).
             os.environ["USER_PROJECT_OVERRIDE"] = "true"
             os.environ["GOOGLE_BILLING_PROJECT"] = config.project_id
-            run_gcp_terraform_init_with_retry(config, tf_state_bucket, None)
-            run_gcp_terraform_apply_with_retry(config)
+            operations.terraform_init(config, tf_state_bucket, None)
+            operations.terraform_apply(config)
             return _capture_terraform_outputs()
 
-        with gcp_terraform_bootstrap_credentials(config) as credentials_path:
-            run_gcp_terraform_init_with_retry(config, tf_state_bucket, credentials_path)
-            wait_for_gcp_terraform_bootstrap_access(config, credentials_path)
-            run_gcp_terraform_apply_with_retry(config)
+        with operations.bootstrap_credentials(config) as credentials_path:
+            operations.terraform_init(config, tf_state_bucket, credentials_path)
+            operations.wait_for_access(config, credentials_path)
+            operations.terraform_apply(config)
             return _capture_terraform_outputs()
     finally:
         os.chdir(original_dir)
@@ -2453,27 +2485,50 @@ def _announce_gdc_bootstrap_plan(config: GDCBootstrapConfig, builds_substrate: b
     return "Create or reconcile these Shifter GCP control-plane resources?"
 
 
-def _build_gdc_substrate(config: GDCBootstrapConfig, dry_run: bool = False) -> None:
+@dataclass(frozen=True)
+class _GDCSubstrateOperations:
+    """Explicit operation ports for the GDC substrate orchestration."""
+
+    ensure_apis: Callable[..., None] = ensure_gdc_apis
+    ensure_service_account: Callable[..., None] = ensure_gdc_service_account
+    stage_assets: Callable[..., dict[str, Path]] = stage_gdc_bootstrap_assets
+    ensure_network: Callable[..., None] = ensure_gdc_network
+    ensure_instances: Callable[..., None] = ensure_gdc_instances
+    sync_ssh_metadata: Callable[..., None] = sync_gdc_instance_ssh_metadata
+    wait_for_ssh: Callable[..., None] = wait_for_gdc_ssh
+    upload_assets: Callable[..., None] = upload_gdc_assets
+    run_workstation_script: Callable[..., None] = run_gdc_workstation_script
+    sync_access_secret: Callable[..., None] = sync_gdc_access_secret
+    sync_vm_image_secret: Callable[..., None] = sync_gdc_vm_image_secret
+
+
+def _build_gdc_substrate(
+    config: GDCBootstrapConfig,
+    dry_run: bool = False,
+    *,
+    operations: _GDCSubstrateOperations | None = None,
+) -> None:
     """Create the ABM/GDC VM Runtime substrate (only required for the gdc range backend)."""
-    ensure_gdc_apis(config, dry_run=dry_run)
-    ensure_gdc_service_account(config, dry_run=dry_run)
+    operations = operations or _GDCSubstrateOperations()
+    operations.ensure_apis(config, dry_run=dry_run)
+    operations.ensure_service_account(config, dry_run=dry_run)
 
     with tempfile.TemporaryDirectory(prefix="shifter-gdc-bootstrap-") as staging_dir_name:
-        staged_assets = stage_gdc_bootstrap_assets(config, Path(staging_dir_name), dry_run=dry_run)
-        ensure_gdc_network(config, dry_run=dry_run)
-        ensure_gdc_instances(config, staged_assets["ssh_metadata"], dry_run=dry_run)
-        sync_gdc_instance_ssh_metadata(config, staged_assets["ssh_metadata"], dry_run=dry_run)
+        staged_assets = operations.stage_assets(config, Path(staging_dir_name), dry_run=dry_run)
+        operations.ensure_network(config, dry_run=dry_run)
+        operations.ensure_instances(config, staged_assets["ssh_metadata"], dry_run=dry_run)
+        operations.sync_ssh_metadata(config, staged_assets["ssh_metadata"], dry_run=dry_run)
 
         for host in config.all_hosts:
-            wait_for_gdc_ssh(config, host, dry_run=dry_run)
+            operations.wait_for_ssh(config, host, dry_run=dry_run)
 
-        upload_gdc_assets(config, staged_assets["assets_dir"], dry_run=dry_run)
-        run_gdc_workstation_script(config, "prepare-workstation.sh", dry_run=dry_run)
-        run_gdc_workstation_script(config, "prepare-hosts.sh", dry_run=dry_run)
-        run_gdc_workstation_script(config, "create-cluster.sh", dry_run=dry_run)
-        run_gdc_workstation_script(config, "install-helper.sh", dry_run=dry_run)
-        sync_gdc_access_secret(config, dry_run=dry_run)
-        sync_gdc_vm_image_secret(config, staged_assets["service_account_key"], dry_run=dry_run)
+        operations.upload_assets(config, staged_assets["assets_dir"], dry_run=dry_run)
+        operations.run_workstation_script(config, "prepare-workstation.sh", dry_run=dry_run)
+        operations.run_workstation_script(config, "prepare-hosts.sh", dry_run=dry_run)
+        operations.run_workstation_script(config, "create-cluster.sh", dry_run=dry_run)
+        operations.run_workstation_script(config, "install-helper.sh", dry_run=dry_run)
+        operations.sync_access_secret(config, dry_run=dry_run)
+        operations.sync_vm_image_secret(config, staged_assets["service_account_key"], dry_run=dry_run)
 
 
 def _report_gdc_bootstrap_success(config: GDCBootstrapConfig, builds_substrate: bool) -> None:
@@ -2675,14 +2730,39 @@ def check_gce_range_preconditions(
     sys.exit(1)
 
 
+def _resolve_gdc_bootstrap_operations(
+    confirmation: Callable[[str], bool] | None,
+    substrate_builder: Callable[..., None] | None,
+    control_plane_bootstrapper: Callable[..., dict[str, dict[str, object]]] | None,
+) -> tuple[
+    Callable[[str], bool],
+    Callable[..., None],
+    Callable[..., dict[str, dict[str, object]]],
+]:
+    """Resolve injectable GDC orchestration ports without burdening the coordinator."""
+    return (
+        confirmation or confirm,
+        substrate_builder or _build_gdc_substrate,
+        control_plane_bootstrapper or bootstrap_gcp_control_plane,
+    )
+
+
 def gdc_bootstrap_cluster(
     config: GDCBootstrapConfig,
     dry_run: bool = False,
     *,
     allow_missing_range_images: bool = False,
     confirmation_obtained: bool = False,
+    confirmation: Callable[[str], bool] | None = None,
+    substrate_builder: Callable[..., None] | None = None,
+    control_plane_bootstrapper: Callable[..., dict[str, dict[str, object]]] | None = None,
 ) -> dict[str, str]:
     """Bootstrap the repeatable GDC-on-Compute-Engine VM Runtime cluster."""
+    confirmation, substrate_builder, control_plane_bootstrapper = _resolve_gdc_bootstrap_operations(
+        confirmation,
+        substrate_builder,
+        control_plane_bootstrapper,
+    )
     if not config.project_id:
         error("GDC bootstrap requires a GCP project ID. Set PANW_GCP_DEV or pass --project-id.")
         sys.exit(1)
@@ -2698,14 +2778,14 @@ def gdc_bootstrap_cluster(
 
     confirm_prompt = _announce_gdc_bootstrap_plan(config, builds_substrate)
 
-    if not dry_run and not confirmation_obtained and not confirm(confirm_prompt):
+    if not dry_run and not confirmation_obtained and not confirmation(confirm_prompt):
         warn("Aborted by user")
         sys.exit(0)
 
     if builds_substrate:
-        _build_gdc_substrate(config, dry_run=dry_run)
+        substrate_builder(config, dry_run=dry_run)
 
-    control_plane_outputs = bootstrap_gcp_control_plane(config, dry_run=dry_run)
+    control_plane_outputs = control_plane_bootstrapper(config, dry_run=dry_run)
 
     _report_gdc_bootstrap_success(config, builds_substrate)
 

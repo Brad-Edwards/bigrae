@@ -19,7 +19,6 @@ from .._workflow_model import (
 )
 from ._deploy_workflow_text import _workflow_job_block
 
-
 _TFVARS_RENDER_CHECK = "aws-platform-renders-deploy-tfvars"
 _TFVARS_RENDER_RULE = "ADR-011-R7"
 # Jobs in `_shifter-platform.yml` that run Terraform against the portal root

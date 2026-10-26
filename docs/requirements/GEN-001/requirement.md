@@ -39,3 +39,6 @@ As the platform grows, undocumented features become a liability for onboarding, 
 - IMPLEMENTS → CODE_FILE `scripts/quality_ownership/classify_paths.py` (Always-run CI documentation pairing before path routing)
 - TESTS → TEST `scripts/adr_guard/tests/test_quality_path_ownership.py` (Source-only handbook enforcement and deletion-aware diff regression)
 - IMPLEMENTS → CODE_FILE `scripts/adr_guard/_guard/checks/_documentation_drift.py` (Focused handbook pairing, base associations and manifest validation helpers)
+- IMPLEMENTS → DOCUMENTATION `docs/runbooks/index.md` (GCP/GCE-first operations handoff and stable RB001-RB022 catalog)
+- TESTS → TEST `scripts/adr_guard/tests/test_operations_runbooks.py` (Stable runbook inventory, structure, discoverability and read-only command safety)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#202` (Current deployed-infrastructure operations runbooks)

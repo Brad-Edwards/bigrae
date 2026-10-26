@@ -10,7 +10,6 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-
 _DW_RESULT_REF = re.compile(r"needs\.([A-Za-z0-9_-]+)\.result")
 _DW_EXPR_TOKEN = re.compile(
     r"""\s+

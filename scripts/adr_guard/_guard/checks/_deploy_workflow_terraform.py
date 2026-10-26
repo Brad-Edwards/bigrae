@@ -12,7 +12,6 @@ from .._common import Violation
 from ._deploy_workflow_plan_scope import _plan_scope_violation
 from ._deploy_workflow_text import _workflow_job_block
 
-
 _TERRAFORM_PLAN_FILE = "tfplan"
 _RUN_STEP_PREFIX = "- run:"
 _LOCK_TIMEOUT_FLAG = "-lock-timeout=5m"

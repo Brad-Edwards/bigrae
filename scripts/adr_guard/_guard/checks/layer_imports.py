@@ -38,7 +38,6 @@ from ._layer_imports_policy import (
     load_classification,
 )
 
-
 IMPORT_PATTERN = re.compile(
     r"^\s*(?:from|import)\s+"
     r"((?:shared|engine|cms|management|mission_control|ctf|config|workspaces)(?:\.\w+)*)",

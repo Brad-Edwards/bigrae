@@ -15,7 +15,6 @@ from typing import Protocol
 from .._common import Violation
 from .._workflow_model import _DwShapeError
 
-
 _QUALITY_CONTRACT_REL = ".github/quality-path-filters.yaml"
 _QUALITY_WORKFLOW_REL = ".github/workflows/_quality.yml"
 

@@ -1,4 +1,4 @@
-# OSV-Scanner suppressions.
+# OSV-Scanner policy.
 #
 # Policy: entries here are ONLY for advisories with NO upstream fix available
 # (the latest published release is still the last-affected version) AND that are
@@ -7,32 +7,5 @@
 # still has no fix at the review date. Do NOT add entries for findings that have
 # a patched version — bump the dependency instead.
 
-# Upstream: https://github.com/twisted/twisted/security/advisories/GHSA-8pqf-f4m5-798g
-[[IgnoredVulns]]
-id = "GHSA-8pqf-f4m5-798g"
-ignoreUntil = 2026-11-15T00:00:00Z
-reason = """Twisted IMAP LIST/LSUB wildcard regular-expression denial of service. \
-Twisted 26.4.0 is the latest PyPI release and is affected; upstream lists no patched \
-release (verified 2026-10-15). The dependency serves HTTP/WebSocket through Daphne. \
-Shifter does not import twisted.mail or configure an IMAP server or mailbox; no \
-application input reaches wildcardToRegexp. Re-evaluate when upstream publishes a fix."""
-
-[[IgnoredVulns]]
-id = "GHSA-vfj7-8cjw-p6xm"
-ignoreUntil = 2026-11-03T00:00:00Z
-reason = """braces stack-exhaustion DoS via deeply-nested glob patterns. No upstream fix: \
-braces 3.0.3 (the latest published release, verified against the npm registry 2026-10-03) \
-is the last-affected version and no patched version exists. Transitive via micromatch in the \
-shifter_platform build/test toolchain (devDependency); micromatch matches globs from \
-first-party config, never untrusted runtime input, so the DoS is not reachable. \
-Re-evaluate when braces publishes a fix."""
-
-[[IgnoredVulns]]
-id = "GHSA-86w9-cpqp-85rv"
-ignoreUntil = 2026-11-03T00:00:00Z
-reason = """node-forge RSA PKCS#1 v1.5 signature verification accepts extra nested \
-DigestAlgorithm elements. No upstream fix: node-forge 1.4.0 (the latest published release, \
-verified 2026-10-03) is the last-affected version and no patched version exists. Transitive \
-via gcip-cloud-functions in the Identity Platform beforeCreate Cloud Function, which only \
-enforces the sign-up domain allowlist and does not verify attacker-controlled RSA signatures \
-with node-forge. Re-evaluate when node-forge publishes a fix."""
+# No active suppressions. Previously time-boxed entries were removed once the
+# corresponding dependency graphs stopped reporting those advisories.

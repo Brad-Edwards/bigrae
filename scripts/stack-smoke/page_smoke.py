@@ -36,20 +36,39 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 _STATIC_REF = re.compile(r'(?:src|href)="(/static/[^"]+)"')
 _SOURCEMAP = re.compile(rb"//[#@]\s*sourceMappingURL=([^\s'\")]+)")
 _LANG_ATTR = re.compile(r"<html[^>]*\blang=", re.IGNORECASE)
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Fail closed instead of forwarding an authenticated request."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201, ARG002
+        return None
+
+
+_LOOPBACK_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
 def _fetch(url: str, session: str, cookie_name: str) -> tuple[int, bytes]:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }:
+        raise ValueError("stack-smoke HTTP targets must use HTTP(S) on loopback")
     req = urllib.request.Request(url)
     req.add_header("Cookie", f"{cookie_name}={session}")
     # Mirror the ALB's forwarded proto so SECURE_PROXY_SSL_HEADER marks the
     # request secure and the production image serves instead of 301-redirecting.
     req.add_header("X-Forwarded-Proto", "https")
-    with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 - local loopback only
+    # The allowlist excludes file/custom schemes and non-loopback hosts. Redirects
+    # are rejected so urllib cannot forward the session cookie to another origin.
+    with _LOOPBACK_OPENER.open(req, timeout=15) as resp:  # nosec B310
         return resp.status, resp.read()
 
 

