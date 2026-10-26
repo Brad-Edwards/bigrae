@@ -42,7 +42,7 @@ variable "create_runner_network" {
     Provision a dedicated, ADR-004-R20-compliant runner VPC (non-default, NAT-only
     egress, no private-DNS interface endpoints) via modules/github-runner-network
     and place the runner in it. This is the standard placement (issue #1437): the
-    tracked dev/proof tfvars and the bootstrap `runners` path set it true. When
+    tracked dev tfvars and the bootstrap `runners` path set it true. When
     true, its outputs take precedence over vpc_id/subnet_id and allow_default_vpc.
     The false default is deliberate, so supplying vpc_id/subnet_id never also
     creates a VPC; opting out of the standard stays a visible, explicit input.

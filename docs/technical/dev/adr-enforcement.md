@@ -162,7 +162,7 @@ prove a live repository, publisher or workload-identity cutover.
   bounds peak memory (each worker loads the Django app), so it is raised only
   with headroom in mind given the suite's documented OOM history at high worker
   counts.
-- `.github/workflows/_gcp-dev.yml` now pins `platform/k8s/gcp/overlays/gcp-dev/kustomization.yaml` image `newTag` values to `${SHORT_SHA}` before `kubectl apply -k`, preventing mutable `:latest` restarts from drifting to a different image than the commit being deployed.
+- `.github/workflows/_gcp-dev.yml` now pins the selected GCP overlay’s `kustomization.yaml` image `newTag` values to `${SHORT_SHA}` before `kubectl apply -k`, preventing mutable `:latest` restarts from drifting to a different image than the commit being deployed.
 
 Deploy-time enforcement (ADR-035):
 
@@ -486,7 +486,7 @@ The first slice intentionally stays small:
 
   The manual-deploy invariant (`TestManualDeployDispatch`, #730) asserts that
   environment deploys are a `workflow_dispatch` naming the `environment` input
-  (a closed `choice` of `aws-dev` / `aws-proof` / `gcp-dev` / `nazgul` /
+  (a closed `choice` of `aws-dev` / `gcp-dev` /
   `orthanc` / `sauron` / `balrog`), that the `Set
   environment` step keys on that input rather than a branch-name `case` router,
   and that `push` / `pull_request` run validation only (no run/apply flags).
@@ -503,12 +503,12 @@ The first slice intentionally stays small:
   The GCP teardown guardrail
   (`test_gcp_workflows_keep_sensitive_tfvars_out_of_the_checkout`) asserts that
   `gcp-dev-destroy.yml` is parameterized over the tenant: `GCP_ENVIRONMENT`,
-  `TF_DIR`, `TF_BACKEND_PREFIX`, and the destroy `environment`
+  `TF_DATA_DIR`, `TF_BACKEND_PREFIX`, and the destroy `environment`
   (`<environment>-destroy`) all derive from the `environment` dispatch input
   rather than being hardcoded to gcp-dev, so every GCP tenant
-  (gcp-dev / nazgul / orthanc / sauron / balrog) tears down through the one workflow. It
+  (gcp-dev / orthanc / sauron / balrog) tears down through the one workflow. It
   runs on `ubuntu-latest` because teardown deletes resources through the GCP
-  APIs over WIF and needs no in-VPC or self-hosted runner access. Each GCP env
+  APIs over WIF and needs no in-VPC or self-hosted runner access. The shared GCP
   root declares `cloud_sql_deletion_protection` (default true) so the workflow's
   rendered `false` actually lifts deletion protection at teardown instead of
   being dropped as an undeclared `-var-file` entry. The `packer-gcp.yml` and
@@ -542,33 +542,12 @@ The first slice intentionally stays small:
   instance is checked for the new portal image tag.
 
 - `deploy-verification-fail-loud`
-  Enforces ADR-003-R3: deploy-verification steps must fail the run when the
-  thing they verify did not happen, instead of warning and exiting 0. The
-  `Wait for Guacamole ECS services to stabilize` step in
-  `_shifter-platform.yml` must `exit 1` on stabilization timeout (the FAILED
-  circuit-breaker branch already does); raise the poll timeout if first boot
-  legitimately needs longer rather than downgrading the timeout to a warning.
-  The `Verify` job after portal deploy must fail when portal target-group
-  health, the public `/health/` probe, Guacamole ECS rollouts, Guacamole
-  target-group health, or the `/guacamole/` smoke probe are not satisfied;
-  `scripts/portal_deploy/portal_deploy.py verify-post-deploy` must treat a
-  non-`ACTIVE` Guacamole cluster as failure when Guacamole Terraform outputs
-  are present. The `Update ECS task definition` step in `_shifter-engine.yml`
-  must `exit 1` when the ECS task-definition family cannot be described, so a
-  missing or typo'd family fails the deploy instead of silently skipping it
-  forever; the only permitted skip is gated on the explicit `first_deploy`
-  bootstrap input, surfaced as the `aws_first_deploy` `workflow_dispatch` input
-  in `deploy.yml` (strict by default, settable to `true` only on a manual
-  dispatch for the first-ever deploy to a fresh AWS environment).
-
-  Enforces ADR-003-R6: after successful AWS dev portal deploy verification,
-  `_shifter-platform.yml` may run an advisory `post-deploy-smoke` job that
-  executes `scripts/smoke-test.sh` via `portal_deploy.py run-manage-on-portal`.
-  The job must stay dev-only (`inputs.is_dev`), use `continue-on-error: true`,
-  request `issues: write` only for failure issue creation, declare `SMOKE_*`
-  secrets on the reusable workflow, and poll SSM command status until the
-  requested manage timeout rather than using the fixed-limit
-  `aws ssm wait command-executed` waiter.
+  Enforces ADR-003-R3: required verification failures fail deployment.
+  AWS application workloads use EKS, Kubernetes rollout/readiness checks and
+  the shared Helm chart. The retained range-image path keeps its explicit
+  bootstrap input and existing failure behavior. GCP verifies the selected
+  environment's rendered workloads and authenticated application endpoints.
+  Older ECS portal rollout checks do not describe the current application path.
 
 - `workflow-action-sha-pinning`
   Enforces ADR-037-R1: every non-local `uses:` action in a cloud-credentialed
@@ -891,8 +870,7 @@ The first slice intentionally stays small:
   `fnmatch`, so `kms:*` and `kms:De*` also satisfy); Resource is
   `var.secrets_manager_kms_key_arn` or `var.secrets_kms_key_arn`
   (both module-input names refer to the same physical portal CMK in
-  the environment modules: engine-provisioner and portal/ec2 use
-  the first, guacamole uses the second) or `"*"` / `["*"]` (accepted
+  retained modules) or `"*"` / `["*"]` (accepted
   when the same statement carries the service condition); Condition
   `StringEquals` or `StringLike` with
   `"kms:ViaService" = "secretsmanager.<region>.amazonaws.com"`. The
@@ -905,15 +883,8 @@ The first slice intentionally stays small:
   Existence is gated on `secretsmanager:GetSecretValue` (not file
   layout) so unrelated roles that happen to live in the same file
   are not forced to acquire unnecessary KMS grants. Scoped via the
-  pre-commit `files:` regex (and the matching CI invocation list) to
-  every `.tf` in `platform/terraform/modules/engine-provisioner/`,
-  `platform/terraform/modules/portal/ec2/`, and
-  `platform/terraform/modules/guacamole/`; expand both when a new
-  module starts reading portal Secrets Manager secrets. These are
-  module-directory globs rather than three individual filenames
-  (#1846): the previous list scanned only `iam.tf` / `main.tf`, so a
-  role defined elsewhere in those modules was never checked -
-  `guacamole/rds_kms.tf` defines one.
+  matching CI invocation list. Retired module paths do not establish
+  current coverage. The checker and tests below define the retained rule.
 
   Because the role/grant pairing is evaluated **within a single
   file** (cross-file aggregation is deliberately out of scope; see
@@ -944,10 +915,7 @@ The first slice intentionally stays small:
   ingress (Django:8000, Guacamole client:8080) sources only from a
   security-group reference or `module.vpc.alb_ingress_subnet_cidrs`,
   never the whole public tier where standalone public workloads live.
-  Scoped to the `dev`, `proof` and `prod` portal roots. `proof` was
-  absent from the original `dev|prod` regex and CI list despite
-  deploying the same portal composition, so the #911 NET-2 / #933
-  invariant went unenforced there (#1846). Enforces ADR-004-R11.
+  Scoped to the retained `dev` and `prod` portal roots. Enforces ADR-004-R11.
 
 - `check-tf-iam-ec2-scope`
   Pre-commit hook AND CI step rejecting mutable EC2 instance lifecycle
@@ -1087,11 +1055,13 @@ share a blocking Bandit lane, MCP security rules are errors and the shared
 package has its own test matrix member, and Kubernetes and Helm inputs use
 kube-linter. Container inputs use BuildKit checks/ShellCheck/Trivy; the root
 Docker context is separately routed through the portal build and stack smoke.
-The user retired the unused vendor CloudFormation installers in #2555.
-Their checks and identifier exception were removed with the templates.
-Unused root branding assets were also removed after the consumer search.
+Unused root branding assets were removed after the consumer search in #2555.
 A new production input needs an explicit quality owner.
 The expired ADR-004-R24 exceptions were removed without renewal.
+
+The unused CloudFormation connectors retired with their dedicated validation
+and security jobs. Their quality unit, template-specific tests and live-identifier
+exception retired in the same change. Maintained IaC keeps its existing gates.
 
 To add a production path:
 
@@ -1303,3 +1273,12 @@ shell examples as read-only. The same test rejects command examples that read
 secret values or directly mutate Kubernetes, cloud resources, Terraform, or
 Helm. This is focused GEN-001 evidence within the existing test estate, not a
 new documentation schema, manifest, or adr_guard runtime check.
+
+The deployment cleanup uses one GCP Terraform execution root, explicit selected
+var-files and per-environment backend metadata. The shared Kustomize component
+preserves rendered behavior. The [ADR enforcement record](../../adr/README.md)
+and [recovery procedure](../../dev/deployment-configuration.md) describe retained
+owners, callers and the evidence limit for undeployed environments.
+
+Canonical GitHub routing and the workflow expression model now use
+`Brad-Edwards/bigrae`, matching the operator-confirmed repository rename.

@@ -6,8 +6,7 @@ architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-23 against integration revision `a80fbc061` and the
-prepared product-name compatibility changes in #2555.
+**Reviewed:** 2026-10-26 against integration revision `5e3b4a470` and the deployment configuration cleanup.
 This describes source behavior, not a certificate of a live deployment.
 
 BigRAE is the current product name. Public BigRAE config, SDK, client and plugin
@@ -74,6 +73,8 @@ it is not the current target for all installations.
 The canonical control-plane package is the shared Helm chart, hosted on GKE for
 GCP or EKS for AWS. Provisioner Jobs use the selected cluster; CI runner placement
 is a separate concern. Older ECS files do not define the current AWS package.
+GCP uses one Terraform execution root with separate environment values and state metadata.
+See [deployment configuration](../dev/deployment-configuration.md) for selection and recovery.
 GCP bootstrap and CI consume generated configuration from Terraform and Secret
 Manager; keep platform hosting separate from the range guest backend.
 

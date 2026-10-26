@@ -27,13 +27,12 @@ tags. Teardown is explicit and scoped to the isolated EKS root:
 
 | Backend | Profiles | Required secrets | Settings validation |
 | --- | --- | --- | --- |
-| `aws` | `prod`, `dev`, `proof` | `django_secret_key`, `db_password` | Closed model: `region` (required). |
-| `gcp` | `prod`, `dev` | `django_secret_key` | Any mapping (provisional until #729). |
+| `aws` | `prod`, `dev` | `django_secret_key`, `db_password` | Closed model: `region` (required). |
+| `gcp` | `prod`, `dev` | `django_secret_key` | Closed model: `project_id` and `region` (required). |
 
 Both the `aws` (#728) and `gcp` (#729) entries validate their `settings` against a closed
 model and each secret reference against a machine-readable grammar; unknown keys fail fast.
-For AWS, `region` is required (`proof` is an internal new-tenant readiness tier alongside
-`prod`/`dev`). For GCP, `project_id` and `region` are required.
+For AWS, `region` is required. For GCP, `project_id` and `region` are required.
 
 ### GCP settings
 

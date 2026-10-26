@@ -47,7 +47,6 @@ platform/terraform/
     ├── iam/                  # GitHub OIDC, roles
     ├── github-runner/        # Self-hosted runners (+ runner-health)
     ├── se-admins/            # SE administrator access
-    ├── ctfd-workshop/        # Standalone CTFd workshop stack
     ├── tssummit/             # Technical Summit event stack
     ├── tssummit-ranges/      # Technical Summit event ranges
     └── dev-box/              # Windows dev instance
@@ -111,13 +110,13 @@ AWS_PROFILE=$PANW_SHIFTER_DEV_PROFILE terraform init
 For the staged GCP tree, local validation still runs without a remote backend:
 
 ```bash
-cd platform/terraform/gcp/environments/gcp-dev
-terraform init -backend=false
+cd platform/terraform/gcp/environments/platform
+terraform init -backend=false -lockfile=readonly
 terraform validate
 ```
 
 CI bootstraps a GCS backend bucket named `${project_id}-terraform-state` for
-`gcp-dev` pushes before running `terraform init`.
+the selected environment on manual deployment before running `terraform init`.
 
 The `gcp-dev` tfvars file carries the public edge and operator-access settings:
 
@@ -332,7 +331,7 @@ terraform fmt -recursive
 For GCP work:
 
 1. Add reusable modules under `platform/terraform/gcp/modules/`
-2. Wire them into `platform/terraform/gcp/environments/gcp-dev/`
+2. Wire them into `platform/terraform/gcp/environments/platform/`
 3. Provision provider-native shared services there first: Pub/Sub, GCS, Secret Manager, Cloud SQL, Memorystore, ingress IPs
 4. Stage matching chart or generated deployment assets under `platform/charts/shifter/` and `platform/k8s/gcp/` as appropriate
 5. Keep the remote backend, deploy credentials, and rendered runtime config aligned with the Terraform outputs

@@ -27,7 +27,7 @@ matching GitHub Actions secrets with `gh secret set`.
 
 Required:
   --env ENV            Environment to sync. Repeatable. One of:
-                       dev, prod, proof, gcp-dev, or `all` (= dev prod proof).
+                       dev, prod, gcp-dev, or `all` (= dev prod).
                        gcp-dev must be named explicitly; it is not in `all`.
 
 Options:
@@ -71,16 +71,12 @@ EOF
 KNOWN_RECORDS=(
   "dev   portal TF_VARS_DEV_PORTAL        tfvars"
   "prod  portal TF_VARS_PROD_PORTAL       tfvars"
-  "proof portal TF_VARS_PROOF_PORTAL      tfvars"
   "dev   range  TF_VARS_DEV_RANGE         tfvars"
   "prod  range  TF_VARS_PROD_RANGE        tfvars"
-  "proof range  TF_VARS_PROOF_RANGE       tfvars"
   "dev   core   TF_VARS_DEV_CORE          tfvars"
   "prod  core   TF_VARS_PROD_CORE         tfvars"
-  "proof core   TF_VARS_PROOF_CORE        tfvars"
   "dev     config SHIFTER_CONFIG_DEV_RANGE   shifter"
   "prod    config SHIFTER_CONFIG_PROD_RANGE  shifter"
-  "proof   config SHIFTER_CONFIG_PROOF_RANGE shifter"
   "gcp-dev config SHIFTER_CONFIG_GCP_DEV     shifter"
 )
 
@@ -97,7 +93,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --env)
       [[ $# -ge 2 ]] || { echo "error: --env needs a value" >&2; exit 2; }
-      if [[ "$2" == "all" ]]; then ENVS+=(dev prod proof); else ENVS+=("$2"); fi
+      if [[ "$2" == "all" ]]; then ENVS+=(dev prod); else ENVS+=("$2"); fi
       shift 2 ;;
     --stack)
       [[ $# -ge 2 ]] || { echo "error: --stack needs a value" >&2; exit 2; }
@@ -121,7 +117,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#ENVS[@]} -eq 0 ]]; then
-  echo "error: at least one --env is required (dev, prod, proof, gcp-dev, or all)" >&2
+  echo "error: at least one --env is required (dev, prod, gcp-dev, or all)" >&2
   usage >&2
   exit 2
 fi

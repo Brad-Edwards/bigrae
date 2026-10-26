@@ -57,7 +57,10 @@ jobs:
       id-token: write
     env:
       GCP_ENVIRONMENT: ${{ inputs.environment }}
-      TF_DIR: platform/terraform/gcp/environments/${{ inputs.environment }}
+      TF_DIR: platform/terraform/gcp/environments/platform
+      TF_VALUES_FILE: ${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/terraform.tfvars
+      TF_DATA_DIR: ${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/.terraform
+      TF_CLI_ARGS_import: -var-file=${{ github.workspace }}/platform/terraform/gcp/environments/${{ inputs.environment }}/terraform.tfvars
       TF_BACKEND_PREFIX: shifter/${{ inputs.environment }}/platform-core
       GCP_DESTROY_SERVICE_ACCOUNT: ${{ secrets.GCP_DESTROY_SERVICE_ACCOUNT }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -225,8 +228,8 @@ jobs:
           chmod 600 "${RANGE_EGRESS_TFVARS_FILE}"
           {
             echo "RANGE_EGRESS_TFVARS_FILE=${RANGE_EGRESS_TFVARS_FILE}"
-            echo "TF_CLI_ARGS_apply=-var-file=${TF_VARS_FILE} -var-file=${RANGE_EGRESS_TFVARS_FILE}"
-            echo "TF_CLI_ARGS_destroy=-var-file=${TF_VARS_FILE} -var-file=${RANGE_EGRESS_TFVARS_FILE}"
+            echo "TF_CLI_ARGS_apply=-var-file=${TF_VALUES_FILE} -var-file=${TF_VARS_FILE} -var-file=${RANGE_EGRESS_TFVARS_FILE}"
+            echo "TF_CLI_ARGS_destroy=-var-file=${TF_VALUES_FILE} -var-file=${TF_VARS_FILE} -var-file=${RANGE_EGRESS_TFVARS_FILE}"
           } >> "${GITHUB_ENV}"
 
       - name: Resolve Terraform state bucket

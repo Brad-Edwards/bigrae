@@ -4,6 +4,9 @@ kind: Kustomization
 resources:
   - ../../base
 
+components:
+  - ../../components/runtime
+
 generatorOptions:
   disableNameSuffixHash: true
 
@@ -30,19 +33,4 @@ images:
     newTag: 0.0.0
 
 patches:
-  - path: patch-runtime-secretref.patch
   - path: patch-serviceaccounts.patch
-  - target:
-      kind: ConfigMap
-      name: platform-runtime
-    patch: |-
-      - op: add
-        path: /metadata/namespace
-        value: shifter-platform
-  - target:
-      kind: Secret
-      name: platform-runtime-secrets
-    patch: |-
-      - op: add
-        path: /metadata/namespace
-        value: shifter-platform

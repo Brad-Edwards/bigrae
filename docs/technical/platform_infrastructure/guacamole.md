@@ -47,10 +47,10 @@ decisions that produced the current behaviour:
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-On AWS, `guacd` and `guacamole-client` run as ECS Fargate services with an RDS
-PostgreSQL backend; the Portal and the bootstrap prune worker run on EC2. On GCP,
-all of them run as Kubernetes Deployments with Cloud SQL. The Django integration
-and JSON-auth flow are identical on both clouds.
+On AWS and GCP, `guacd`, `guacamole-client` and the prune worker run as Kubernetes Deployments.
+The shared Helm chart hosts them on EKS or GKE.
+Guacamole uses RDS PostgreSQL on AWS and Cloud SQL PostgreSQL on GCP.
+The Django integration and JSON-auth flow are shared across clouds.
 
 The BigRAE client image removes the unused upstream CAS, client-certificate SSO,
 and Keeper Secrets Manager extensions, including their activation links. Those
@@ -62,8 +62,8 @@ extensions requires a separately reviewed image change with patched dependencies
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| **guacamole-client** | ECS service (AWS) / K8s Deployment (GCP) | HTML5 web app; hosts the JSON-auth extension and serves `/guacamole`. |
-| **guacd** | ECS service (AWS) / K8s Deployment (GCP) | Protocol proxy; translates the Guacamole protocol to RDP/SSH/VNC and dials the range host. |
+| **guacamole-client** | Kubernetes Deployment (EKS / GKE) | HTML5 web app; hosts the JSON-auth extension and serves `/guacamole`. |
+| **guacd** | Kubernetes Deployment (EKS / GKE) | Protocol proxy; translates the Guacamole protocol to RDP/SSH/VNC and dials the range host. |
 | **Guacamole PostgreSQL** | RDS (AWS) / Cloud SQL (GCP) | Guacamole session and connection state. |
 | **Token broker** | Portal Django, `mission_control/guacamole.py` | Signs the JSON-auth payload, exchanges it at `/api/tokens`, builds the client URL. |
 | **Bootstrap runner** | Portal Django, `mission_control/guacamole_bootstrap.py` | Bounded worker pool that runs the blocking token exchange off the request thread and persists a pollable result. |
@@ -270,17 +270,11 @@ that issued it (issue #928); `guacd` scales independently. This is enforced by
 
 ### AWS
 
-- `guacd` and `guacamole-client` run on ECS Fargate (`platform/terraform/modules/guacamole/`).
-  The client task's `desired_count` is hard-pinned to 1 with a validation block;
-  client autoscaling is removed; only `guacd` autoscales.
-- The ALB path-routes `/guacamole` to guacamole-client (8080) and everything else
-  to the Portal.
-- `JSON_SECRET_KEY` is injected from Secrets Manager into the client task; the
-  Portal reads the same value via `GUACAMOLE_JSON_AUTH_SECRET`.
-- The Portal and the `guacamole-bootstrap-prune` container run on EC2; the prune
-  container is launched from `platform/terraform/modules/portal/ec2/user_data.sh`
-  (and the SSM redeploy path `scripts/portal-deploy/deploy_portal.sh`) and is
-  supervised by the worker-health agent.
+- The shared chart deploys `guacd`, `guacamole-client` and the prune worker on EKS.
+- `guacamoleClient.replicas` remains 1; `guacd` has independent capacity settings.
+- The EKS ingress routes `/guacamole` to the client and application traffic to the Portal.
+- Workload identities and secret references select the required Secrets Manager payloads.
+- Follow the [AWS EKS bundle](aws-eks-bundle.md) for ingress, runtime hydration and deployment checks.
 
 ### GCP
 

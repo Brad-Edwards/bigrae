@@ -306,7 +306,7 @@ def test_actual_actions_policies_are_narrowed_and_control_rolls_with_runtime():
     ).stdout
     base_docs = list(yaml.safe_load_all(base))
     patches = list(
-        yaml.safe_load_all((root / "platform/k8s/gcp/overlays/gcp-dev/patch-runtime-secretref.patch").read_text())
+        yaml.safe_load_all((root / "platform/k8s/gcp/components/runtime/patch-runtime-secretref.patch").read_text())
     )
     worker_patch = next(doc for doc in patches if doc["metadata"]["name"] == "worker-engine")
     worker = next(

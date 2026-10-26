@@ -883,7 +883,7 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertEqual(destroy_env["GCP_ENVIRONMENT"], "${{ inputs.environment }}")
         self.assertEqual(
             destroy_env["TF_DIR"],
-            "platform/terraform/gcp/environments/${{ inputs.environment }}",
+            "platform/terraform/gcp/environments/platform",
         )
         self.assertEqual(
             destroy_env["TF_BACKEND_PREFIX"],

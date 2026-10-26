@@ -7,8 +7,9 @@ and `platform/terraform/gcp/environments/...` ship account-neutral baselines
 that are intentionally broken-on-deploy where real account values are
 required. Each environment provides its real deployment values via GitHub
 secrets, repository variables, or a local operator overlay; deploy workflows
-write them into a gitignored `local.auto.tfvars` that Terraform auto-loads
-alongside the baseline (the `.local`/`.auto` overrides win).
+write them into private temporary var-files. AWS retains its local override flow.
+GCP passes the selected environment baseline first and generated overrides last
+to the shared root. The overrides take precedence.
 
 This file lists values that must be configured before a fresh deploy. Set values
 under **Settings → Secrets and variables → Actions**, separated by:
@@ -39,7 +40,7 @@ repository variable is set (CI); the skip is logged, never silent.
 
 This is the single authoritative checklist of every secret a fresh AWS
 environment standup needs, and how each one is populated. `dev` names are shown;
-substitute `_PROOF` / `_PROD` (or the unsuffixed prod name) for the other AWS
+substitute `_PROD` (or the unsuffixed prod name) for the other AWS
 environments. `.github/workflows/deploy.yml` forwards all of these to the
 reusable deploy workflows. The GCP (`gcp-dev`) secrets are separate and listed
 under [GCP (gcp-dev)](#gcp-gcp-dev).
@@ -55,22 +56,20 @@ missing required secret fails the deploy up front rather than mid-run.
 | `TF_VARS_DEV_CORE` | `scripts/sync-deploy-secrets.sh --env dev` | yes | Core stack `local.auto.tfvars` payload (`budget_alert_email`). |
 | `TF_VARS_DEV_RANGE` | `scripts/sync-deploy-secrets.sh --env dev` | yes | Range stack `local.auto.tfvars` payload (`agent_s3_bucket`, `vm_series_ami_id`). |
 | `TF_VARS_DEV_PORTAL` | `scripts/sync-deploy-secrets.sh --env dev` | yes | Portal stack `local.auto.tfvars` payload (domain, email, buckets, capacity). |
-| `TF_VARS_DEV_EKS` | protected environment secret | yes for EKS | JSON var-file for the isolated EKS root, including the closed pinned `addon_versions` object, `edge_client_cidrs`, provider API CIDRs, cluster inputs, and the canonical non-secret runtime projection. It does not carry a Load Balancer Controller policy ARN; that policy is module-owned. Prod/proof use the matching environment suffix. Apply the matching `platform/terraform/global/iam` stack before enabling EKS. The EKS job remains disabled until the matching repository variable (`AWS_EKS_DEV_ENABLED`, `AWS_EKS_PROOF_ENABLED`, or `AWS_EKS_PROD_ENABLED`) is set to `true` for a controlled migration or EKS-native standup. |
+| `TF_VARS_DEV_EKS` | protected environment secret | yes for EKS | JSON var-file for the isolated EKS root, including the closed pinned `addon_versions` object, `edge_client_cidrs`, provider API CIDRs, cluster inputs, and the canonical non-secret runtime projection. It does not carry a Load Balancer Controller policy ARN; that policy is module-owned. Prod uses the matching environment suffix. Apply the matching `platform/terraform/global/iam` stack before enabling EKS. The EKS job remains disabled until the matching repository variable (`AWS_EKS_DEV_ENABLED` or `AWS_EKS_PROD_ENABLED`) is set to `true` for a controlled migration or EKS-native standup. |
 | `SHIFTER_CONFIG_DEV_RANGE` | `scripts/sync-deploy-secrets.sh --env dev --stack config --bigrae-config ./bigrae.yaml` | yes | Deployment `bigrae.yaml`; its `settings.range_egress` renders the range egress allowlist. |
 | `SMOKE_TEST_USER_EMAIL` | manual | no | Post-deploy smoke user. See [Post-deploy smoke secrets](#post-deploy-smoke-secrets-dev). |
 | `PLATFORM_BOOTSTRAP_STAFF_EMAILS` | manual | no | Comma-separated emails elevated to Django `is_staff` on first sign-in. Shared across all environments including prod. |
 | `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS` | manual | no | Comma-separated emails elevated to `is_superuser`. Shared across all environments including prod. |
 | `SONAR_TOKEN` | manual | no | SonarCloud analysis token for the PR quality gate. Repository-wide, not per-environment. The project key and organization are not secrets and come from repository variables instead: see [SonarCloud project identity](#sonarcloud-project-identity). |
-| `AWS_IMAGE_ROLE_ARN_DEV` | manual (from global-IAM output) | no | OIDC role the `packer.yml` base-image `build` job assumes (issue #1656), separate from the deploy `AWS_ROLE_ARN_*`. Least-privilege: its trust is pinned to the `dev`/`main` subjects and its `iam:PassRole` is scoped to the exact range instance role. Not checked by the deploy preflight, but the base build fails closed without it. Prod is `AWS_IMAGE_ROLE_ARN` (base builds target dev/proof); proof is `AWS_IMAGE_ROLE_ARN_PROOF`. Set from `terraform output -raw github_actions_image_role_arn` in `platform/terraform/global/iam`. See the [AWS AMI seeding runbook](aws-ami-seeding-runbook.md). |
+| `AWS_IMAGE_ROLE_ARN_DEV` | manual (from global-IAM output) | no | OIDC role the `packer.yml` base-image `build` job assumes (issue #1656), separate from the deploy `AWS_ROLE_ARN_*`. Least-privilege: its trust is pinned to the `dev`/`main` subjects and its `iam:PassRole` is scoped to the exact range instance role. Not checked by the deploy preflight, but the base build fails closed without it. Prod is `AWS_IMAGE_ROLE_ARN` (base builds target dev). Set from `terraform output -raw github_actions_image_role_arn` in `platform/terraform/global/iam`. See the [AWS AMI seeding runbook](aws-ami-seeding-runbook.md). |
 
 "Populated by bootstrap" secrets are set once per account. "Populated by
 `sync-deploy-secrets.sh`" secrets are re-pushed whenever the matching local
 overlay changes. "Manual" secrets are set once under **Settings → Secrets and
 variables → Actions** and are not written by either script.
 
-Proof range standup needs `TF_VARS_PROOF_RANGE` and `SHIFTER_CONFIG_PROOF_RANGE`
-as well, but `sync-deploy-secrets.sh` has no proof-range record yet, so set those
-two by hand (see [AWS range](#aws-range-dev--prod)).
+Dev and prod range payloads are covered by the secret-sync script.
 
 ### SonarCloud project identity
 
@@ -138,10 +137,9 @@ the new values rather than a stale secret.
 Both bootstrap-owned secret names are env-suffixed for every non-prod
 environment and unsuffixed only for prod, matching what the deploy workflows
 read: prod uses `AWS_ROLE_ARN` / `TF_INFRA_STATE_BUCKET`, while dev uses
-`AWS_ROLE_ARN_DEV` / `TF_INFRA_STATE_BUCKET_DEV` and proof uses
-`AWS_ROLE_ARN_PROOF` / `TF_INFRA_STATE_BUCKET_PROOF`. A fresh non-prod bootstrap
+`AWS_ROLE_ARN_DEV` / `TF_INFRA_STATE_BUCKET_DEV`. A fresh non-prod bootstrap
 sets the suffixed names automatically; do not set the unsuffixed
-`TF_INFRA_STATE_BUCKET` for a dev or proof standup.
+`TF_INFRA_STATE_BUCKET` for a dev standup.
 
 ## GCP (gcp-dev)
 
@@ -434,7 +432,7 @@ For AWS local deploys, write the same HCL to a gitignored
 `terraform apply` from a workstation that has the target role (see
 **Local development** below).
 
-## AWS core (`dev` / `proof` / `prod`)
+## AWS core (`dev` / `prod`)
 
 Consumed by `.github/workflows/_core.yml`. The committed
 `platform/terraform/environments/<env>/main.tf` defines shared ECR repos and
@@ -447,7 +445,6 @@ the active environment's secret is empty.
 | Name | Kind | Required | Notes |
 |---|---|---|---|
 | `TF_VARS_DEV_CORE` | secret | yes (dev) | Whole-file `local.auto.tfvars` payload for the dev core root. Must set `budget_alert_email` to a real operations address. |
-| `TF_VARS_PROOF_CORE` | secret | yes (proof) | As above, for the proof core root. |
 | `TF_VARS_PROD_CORE` | secret | yes (prod) | As above, for the prod core root. |
 
 See `platform/terraform/environments/<env>/local.auto.tfvars.example` for the
@@ -575,7 +572,7 @@ encrypted portal messaging SQS queues. If range provisioner tasks exit 0 but
 CMS or CTF rows remain `pending`, check `docker logs worker-cms` on the portal
 EC2 instance. `KMS.AccessDeniedException` on the portal messaging CMK means the
 portal EC2 role is missing the SQS KMS decrypt/data-key grant; the
-`portal/ec2` module must receive `module.messaging.kms_key_arn` and attach its
+retained portal services must receive `module.messaging.kms_key_arn` and attach its
 `sqs-kms-access` policy.
 
 When portal inspection is enabled, ALB health checks and user traffic route
@@ -631,12 +628,7 @@ matching whole-file secret into `local.auto.tfvars`, and fails loud
 | `SHIFTER_CONFIG_DEV_RANGE` | secret | yes (dev) | Full deployment `bigrae.yaml` (root installation config) for dev. The workflow renders its `settings.range_egress` into `victim_allowed_cidrs.auto.tfvars` before `terraform plan` / `apply`, so the egress allowlist is sourced once from `bigrae.yaml` (#1015). |
 | `SHIFTER_CONFIG_PROD_RANGE` | secret | yes (prod) | As above, for the prod range. |
 
-`.github/workflows/deploy.yml` also forwards `TF_VARS_PROOF_RANGE` and
-`SHIFTER_CONFIG_PROOF_RANGE` for a proof range deploy, but
-`scripts/sync-deploy-secrets.sh` has no proof-range record in its
-`KNOWN_RECORDS`, so a proof range standup must set those two secrets by hand (or
-add the records to the script first). Dev and prod range secrets are covered by
-the sync script.
+Dev and prod range secrets are covered by the sync script.
 
 At minimum, each `TF_VARS_<ENV>_RANGE` payload must set the deployment-specific
 values stripped from the committed baseline:
@@ -875,9 +867,14 @@ identity_allowed_email_domain = "your-domain.example"
 gke_master_authorized_cidrs   = []
 EOF
 
-cd platform/terraform/gcp/environments/gcp-dev
-terraform init -backend=false
-terraform plan
+values_dir="$PWD/platform/terraform/gcp/environments/gcp-dev"
+export TF_DATA_DIR="$values_dir/.terraform"
+root=platform/terraform/gcp/environments/platform
+terraform -chdir="$root" init -reconfigure \
+  -backend-config="bucket=<existing-state-bucket>" \
+  -backend-config="prefix=shifter/gcp-dev/platform-core"
+terraform -chdir="$root" plan \
+  -var-file="$values_dir/terraform.tfvars" -var-file="$values_dir/local.auto.tfvars"
 ```
 
 `local.auto.tfvars` is gitignored; never commit one.

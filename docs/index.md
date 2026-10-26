@@ -50,3 +50,5 @@ enforces the prerequisites documented here before any Terraform apply.
 |---|---|
 | [Technical docs](technical/index.md) | You are developing the platform: setup, secrets, Terraform, CI/CD, architecture, and subsystem docs. |
 | [ADR enforcement](adr/README.md) | You need how architecture decisions are recorded and enforced in CI. |
+
+- [Deployment configuration and recovery](dev/deployment-configuration.md)

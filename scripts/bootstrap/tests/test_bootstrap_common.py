@@ -747,8 +747,8 @@ class TestBootstrapConfig:
 
     def test_role_name_includes_env(self):
         """Config generates IAM role name with environment."""
-        config = deploy.BootstrapConfig(env="staging")
-        assert config.role_name == "github-actions-shifter-staging"
+        config = deploy.BootstrapConfig(env="dev")
+        assert config.role_name == "github-actions-shifter-dev"
 
     def test_secret_name_for_prod_env(self):
         """Config generates GitHub secret name for prod."""
@@ -769,11 +769,6 @@ class TestBootstrapConfig:
         """Dev uses the suffixed state-bucket secret name the dev deploy reads."""
         config = deploy.BootstrapConfig(env="dev")
         assert config.state_bucket_secret_name == "TF_INFRA_STATE_BUCKET_DEV"
-
-    def test_state_bucket_secret_name_for_proof_env(self):
-        """Proof uses the suffixed state-bucket secret name the proof deploy reads."""
-        config = deploy.BootstrapConfig(env="proof")
-        assert config.state_bucket_secret_name == "TF_INFRA_STATE_BUCKET_PROOF"
 
     # ---------------------------------------------------------------------
     # Input validation

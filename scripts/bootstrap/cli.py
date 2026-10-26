@@ -11,9 +11,10 @@ from urllib.parse import quote
 from installation.loader import default_root_config_path
 
 from account_recovery import account_recovery
-from aws_bootstrap import AWS_ENVIRONMENTS, BootstrapConfig, bootstrap_account
+from aws_bootstrap import BootstrapConfig, bootstrap_account
 from aws_eks import deploy_eks, teardown_eks
 from bootstrap_core import (
+    AWS_ENVIRONMENTS,
     HELP_AWS_PROFILE,
     HELP_DRY_RUN,
     GDCBootstrapConfig,
@@ -210,7 +211,8 @@ def gcp_runners_deployment(
         error("GCP runner provisioning requires --project-id (or PANW_GCP_DEV / repo-root .env)")
         sys.exit(1)
 
-    defaults = BootstrapConfig(env=env)
+    # Reuse repository defaults without treating the GCP environment as an AWS tier.
+    defaults = BootstrapConfig(env="dev")
     runner_config = get_gcp_runner_config(
         env=env,
         project_id=project_id,
@@ -414,7 +416,7 @@ def _add_runners_subparser(subparsers: argparse._SubParsersAction) -> None:
     runners_parser.add_argument(
         "--env",
         required=True,
-        help="Environment (AWS: dev/proof/prod; GCP: e.g. gcp-dev). Validated per --cloud.",
+        help="Environment (AWS: dev/prod; GCP: e.g. gcp-dev). Validated per --cloud.",
     )
     runners_parser.add_argument("--profile", help=HELP_AWS_PROFILE + " (AWS only)")
     runners_parser.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
@@ -468,10 +470,10 @@ def _add_gdc_bootstrap_subparser(subparsers: argparse._SubParsersAction) -> None
         "--environment",
         default="gcp-dev",
         help=(
-            "Deployment environment name (default gcp-dev). Selects the Terraform root "
-            "(platform/terraform/gcp/environments/<env>), the state prefix "
+            "Deployment environment name (default gcp-dev). Selects Terraform "
+            "values (platform/terraform/gcp/environments/<env>), the state prefix "
             "(shifter/<env>/platform-core), the Helm values override (values-<env>.yaml), and the "
-            "operator-creds overlay. Use a per-tenant name (e.g. nazgul) to stand up an additional tenant."
+            "operator-creds overlay. Use a per-tenant name (e.g. sample) to stand up an additional tenant."
         ),
     )
     gdc_parser.add_argument("--cluster-id", default="cluster1", help="Cluster name / prefix")
@@ -630,7 +632,7 @@ def _add_preflight_and_recovery_subparsers(subparsers: argparse._SubParsersActio
         "preflight", help="Validate deploy prerequisites (tools, secrets, config) without making changes"
     )
     preflight_parser.add_argument("--cloud", required=True, choices=[c.value for c in Cloud], help="Target cloud")
-    preflight_parser.add_argument("--env", required=True, help="Environment (e.g. dev, proof, prod, gcp-dev)")
+    preflight_parser.add_argument("--env", required=True, help="Environment (e.g. dev, prod, gcp-dev)")
     preflight_parser.add_argument(
         "--component",
         choices=sorted(_PREFLIGHT_COMPONENTS),

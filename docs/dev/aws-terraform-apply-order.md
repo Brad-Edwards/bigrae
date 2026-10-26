@@ -57,12 +57,13 @@ state (`shifter/<env>/terraform.tfstate`) and the Range state
 (`<env>/range/terraform.tfstate`) as remote-state data sources, so these keys
 must match exactly.
 
-There is no separate `engine` Terraform stack: the engine provisioner is an ECS
-task defined by the `engine-provisioner` module consumed inside the Portal
-stack. Its container image is built and pushed by the `_shifter-engine.yml`
-reusable workflow before the Portal deploy, which is why "Engine" appears in the
-CI chain (`Core -> Range -> Engine -> Portal`) even though it applies no
-Terraform of its own.
+There is no separate Engine Terraform stack.
+The provisioner image is built before the control-plane release.
+Provisioner workloads run as Kubernetes Jobs on EKS.
+The isolated `environments/<env>/eks` root owns cluster infrastructure.
+The shared Helm chart owns application workloads.
+Follow the [AWS EKS bundle](../technical/platform_infrastructure/aws-eks-bundle.md) after preparing the data-plane stacks.
+The retained production roots have owner @Brad-Edwards and a local `terraform`/`full` bootstrap caller.
 
 ## Per-stack first-apply overrides
 
@@ -109,18 +110,9 @@ The Portal stack also depends on the `/shifter/ami/*` SSM parameters and the
 engine image digest existing before plan; both come from the prerequisites
 above.
 
-> **First-boot image ordering (retained ASG path).** On a fresh account the
-> portal `image-tag` parameter defaults to `latest`, but no `latest` image
-> exists in ECR yet, so ASG instances that boot before a real portal image is
-> published fail bootstrap (`manifest unknown`) and the instance refresh then
-> stalls on never-healthy targets. Build and push a portal image, and set the
-> `/shifter/<env>/portal/image-tag` (and `image-digest` for digest-pinned
-> deploys) parameters to that real image before the fleet is expected to be
-> healthy; if instances already bootstrap-failed, run
-> `scripts/portal-deploy/deploy_portal.sh` against them (or replace them) once
-> the image and pointers exist, before starting the instance refresh. The
-> active EKS portal path is digest-first and unaffected. See
-> [`../architecture/aws-portal-first-image-ordering-preflight-1030.md`](../architecture/aws-portal-first-image-ordering-preflight-1030.md).
+The application deployment is digest-first through EKS.
+Publish the attested images before invoking `eks-deploy`.
+The retained Portal stack supplies persistent services; it does not start application containers on EC2.
 
 ## Applying
 

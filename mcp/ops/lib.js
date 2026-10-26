@@ -39,7 +39,6 @@ export const BASE_AMI_TYPES = Object.freeze([
   "ubuntu",
   "windows",
   "dc",
-  "brokenbk",
 ]);
 
 /** Protected integration branch for prod GCE image promotion workflows. */
@@ -50,7 +49,6 @@ export const PROMOTE_GCE_IMAGE_REF = "dev";
 // `image_type` choices in .github/workflows/packer-gcp.yml.
 export const GCE_IMAGE_TYPES = Object.freeze([
   "ubuntu",
-  "brokenbk",
   "kali",
   "windows",
   "dc",

@@ -187,11 +187,7 @@ AWS_BUNDLE = BackendBundle(
         "Shifter on AWS: platform workloads run on EKS through the shared Helm chart, while ECS remains "
         "the private range task transport alongside RDS, SQS, S3, Secrets Manager, and Cognito/OIDC."
     ),
-    # prod / dev are the OSS profiles; proof is the internal new-tenant readiness tier that
-    # has its own Terraform root (platform/terraform/environments/proof) and aws-proof
-    # deploy path (.github/workflows/deploy.yml, _core.yml, _range.yml). Admit it explicitly
-    # rather than strand a real environment the deploy paths already target (preflight #728).
-    supported_profiles=frozenset({"prod", "dev", "proof"}),
+    supported_profiles=frozenset({"prod", "dev"}),
     # Migrated by #1116 / GH #728: the closed operator-intent schema, no longer None.
     settings_model=AwsSettings,
     deploy=CommandSpec(
@@ -230,7 +226,7 @@ AWS_BUNDLE = BackendBundle(
     health_checks=(PORTAL_HEALTH_CHECK,),
     capabilities=AWS_AND_GCP_CAPABILITIES,
     owned_files=OwnedFiles(
-        infrastructure=("platform/terraform/modules", "platform/terraform/environments", "platform/cloudformation"),
+        infrastructure=("platform/terraform/modules", "platform/terraform/environments"),
         kubernetes=(SHIFTER_CHART_PATH,),
         scripts=("scripts/bootstrap",),
         workflows=(".github/workflows/deploy.yml",),
