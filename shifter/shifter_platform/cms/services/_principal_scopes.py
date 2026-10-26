@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from shared.identity_scope import PrincipalRef, ResourceScope
 from workspaces.services import AccountScopeError, hierarchy_target_scope, individual_account_scope
+
+if TYPE_CHECKING:
+    from shared.authorization import AuthorizationProvider
+    from shared.credentials import CredentialContext
+    from workspaces.services import LaunchWorkspacePage
 
 
 def mission_control_range_scope(principal: PrincipalRef, workspace_uuid: UUID | None = None) -> ResourceScope:
@@ -15,4 +21,14 @@ def mission_control_range_scope(principal: PrincipalRef, workspace_uuid: UUID | 
     return hierarchy_target_scope("workspace", workspace_uuid)
 
 
-__all__ = ["AccountScopeError", "mission_control_range_scope"]
+def mission_control_launch_workspaces(
+    credential: CredentialContext,
+    provider: AuthorizationProvider,
+) -> LaunchWorkspacePage:
+    """Return exact policy-admitted launch workspaces for Mission Control."""
+    from workspaces.services import list_launch_workspace_options
+
+    return list_launch_workspace_options(credential, provider)
+
+
+__all__ = ["AccountScopeError", "mission_control_launch_workspaces", "mission_control_range_scope"]

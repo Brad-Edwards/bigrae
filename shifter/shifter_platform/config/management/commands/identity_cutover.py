@@ -9,7 +9,12 @@ from collections.abc import Mapping
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 
-from cms.services import apply_identity_cutover_resources as apply_cms_cutover_resources
+from cms.services import (
+    apply_identity_cutover_resources as apply_cms_cutover_resources,
+)
+from cms.services import (
+    verify_identity_cutover_hierarchy,
+)
 from config.identity_cutover import (
     IdentityCutoverFacts,
     build_identity_cutover_plan,
@@ -42,7 +47,6 @@ from workspaces.services import (
     get_identity_cutover_state,
     identity_cutover_resource_mappings,
     record_identity_cutover_policy_intent,
-    verify_identity_cutover_hierarchy,
 )
 from workspaces.services import (
     identity_cutover_relationships as workspace_cutover_relationships,

@@ -39,6 +39,9 @@ from cms.services import (
 from cms.services import (
     max_agent_file_size_bytes as cms_max_agent_file_size_bytes,
 )
+from cms.services import (
+    mission_control_launch_workspaces as cms_mission_control_launch_workspaces,
+)
 from mission_control.api._base import (
     MissionControlAPIView,
     MissionControlReadAPIView,
@@ -532,10 +535,9 @@ class LaunchWorkspaceListView(MissionControlReadAPIView):
     def get(self, request: Request) -> Response:
         """Return active workspaces admitted by exact launch-range policy."""
         from shared.authorization import configured_authorization_provider
-        from workspaces.services import AccountScopeError, list_launch_workspace_options
 
         try:
-            page = list_launch_workspace_options(
+            page = cms_mission_control_launch_workspaces(
                 authenticated_credential(request),
                 configured_authorization_provider(),
             )
