@@ -17,13 +17,11 @@ variable "region" {
 variable "github_org" {
   description = "GitHub organization that owns the repository allowed to federate."
   type        = string
-  default     = "Brad-Edwards"
 }
 
 variable "github_repo" {
   description = "GitHub repository allowed to federate into the build service account."
   type        = string
-  default     = "bigrae"
 }
 
 variable "promotion_reader_service_account_email" {

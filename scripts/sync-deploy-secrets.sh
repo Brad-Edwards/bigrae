@@ -38,7 +38,8 @@ Options:
   --bigrae-config P    Path to the deployment bigrae.yaml. Required when a
                        `config` stack is selected. Falls back to $SHIFTER_CONFIG.
   --shifter-config P   Legacy alias for --bigrae-config.
-  --repo OWNER/NAME    Target repository. Default: current repo (`gh repo view`).
+  --repo OWNER/NAME    Target repository. Default: the clone's gh default repository
+                       (`gh repo set-default --view`, ADR-069).
   --dry-run            Print what would be set (name, source, size) and exit 0
                        without writing any secret.
   -h, --help           Show this help.
@@ -133,8 +134,14 @@ command -v gh >/dev/null 2>&1 || { echo "error: the 'gh' CLI is required" >&2; e
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
+# Never fall back to `gh repo view`: without a gh default it selects the upstream
+# remote of a clone that has one, which is not the deployment repository.
 if [[ -z "$REPO" ]]; then
-  REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+  REPO="$(gh repo set-default --view 2>/dev/null || true)"
+fi
+if [[ -z "$REPO" ]]; then
+  echo "error: no target repository. Pass --repo OWNER/NAME or run 'gh repo set-default OWNER/NAME'." >&2
+  exit 2
 fi
 
 contains() {

@@ -47,10 +47,10 @@ After Terraform creates the instance, connect via SSM and complete these steps:
 ```bash
 sudo -u ec2-user bash
 cd /home/ec2-user/actions-runner
-./config.sh --url https://github.com/Brad-Edwards/bigrae --token <TOKEN>
+./config.sh --url https://github.com/<REPO> --token <TOKEN>
 ```
 
-Generate the registration token at: Settings > Actions > Runners > New self-hosted runner.
+Get `<REPO>` from `gh repo set-default --view` in your clone. Generate the registration token at: Settings > Actions > Runners > New self-hosted runner.
 
 ### 2. Add the runner service user to the docker group
 

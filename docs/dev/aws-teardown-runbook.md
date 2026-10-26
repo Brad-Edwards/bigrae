@@ -393,9 +393,11 @@ double-quoted shell string does not trigger backtick command substitution.
 ## 4. Destroy the runner root and deregister runners
 
 ```bash
-# Deregister each runner from GitHub first (from the EC2 via SSM):
+# Deregister each runner from GitHub first. Mint the remove token in your clone:
+#   REPO="$(gh repo set-default --view)"
+#   TOKEN=$(gh api -X POST "/repos/$REPO/actions/runners/remove-token" --jq .token)
+# Then run these commands on the EC2 via SSM with that token:
 #   cd /home/ec2-user/actions-runner
-#   TOKEN=$(gh api -X POST /repos/Brad-Edwards/bigrae/actions/runners/remove-token --jq .token)
 #   sudo ./svc.sh stop && sudo ./svc.sh uninstall
 #   sudo -u ec2-user ./config.sh remove --token "$TOKEN"
 ./scripts/runner-deploy.sh --destroy

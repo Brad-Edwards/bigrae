@@ -108,8 +108,7 @@ def _ensure_tf_infra_state_bucket_secret(
     """Ensure the state-bucket secret exists when reusing an existing role secret.
 
     ``state_bucket_setting_name`` is the env-suffixed name the deploy workflow reads
-    (``TF_INFRA_STATE_BUCKET`` for prod, ``TF_INFRA_STATE_BUCKET_DEV`` / ``_PROOF``
-    otherwise).
+    (``TF_INFRA_STATE_BUCKET`` for prod, ``TF_INFRA_STATE_BUCKET_DEV`` for dev).
     """
     if github_secret_exists(state_bucket_setting_name, github_org, github_repo):
         info(f"{state_bucket_setting_name} already configured")

@@ -28,12 +28,14 @@ owns both the changelog and the version (see below).
 ## Promoting dev to main
 
 Open the promotion PR with `make devmain`. The target runs one `gh pr create`
-against `Brad-Edwards/bigrae` with `dev` as the head branch, `main` as the
-base, a Conventional Commit title, and a body that restates the merge strategy.
-It pins the repository explicitly because this checkout is a fork of
-`PaloAltoNetworks/shifter`: an unpinned `gh pr create` resolves the base
-repository to the fork parent and opens the promotion PR against the upstream
-OSS repo.
+against the clone's `gh` default repository (`gh repo set-default --view`). It
+uses `dev` as the head branch, `main` as the base, a Conventional Commit title,
+and a body that restates the merge strategy. It passes the repository
+explicitly because a clone can have an upstream remote. Then an unpinned
+`gh pr create` resolves the base repository to the fork parent and opens the
+promotion PR against the upstream project. When no default is set, the target
+stops. Run `gh repo set-default <owner>/<repo>` once in the clone, or set
+`DEVMAIN_REPO=<owner>/<repo>`.
 
 Merge the promotion PR with a merge commit. Never squash it. A squash collapses
 every Conventional Commit subject in the promotion into one, so release-please

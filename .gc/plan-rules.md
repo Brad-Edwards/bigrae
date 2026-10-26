@@ -9,10 +9,15 @@ architectural defaults, and Kubernetes-specific validators previously in
   before declaring completion.
 - Plans MUST use `.ground-control.yaml`'s `github_repo` as the canonical
   GitHub repository for all `gh`, GitHub API, PR, issue, CI, Ground
-  Control, and traceability operations. In this repo that is
-  `Brad-Edwards/bigrae`; extra remotes, fork history, or user-level
-  skills do not override it. Target `PaloAltoNetworks/shifter` only when
-  the user explicitly requests that repository in the current turn.
+  Control, and traceability operations. Extra remotes, fork history, or
+  user-level skills do not override it. Target `PaloAltoNetworks/shifter`
+  only when the user explicitly requests that repository in the current turn.
+- Plans MUST follow ADR-069 for repository identity: runtime context for
+  self-identity, `docs/adr/repository-identity.json` for upstream-only job
+  guards, deployment configuration for trust anchors, and the clone's `gh`
+  default repository for tooling. Do not add a repository name, ID, or
+  registry owner namespace literal to code, workflows, Terraform modules, or
+  tests.
 - Plans MUST respect the ADR index at `docs/adr/index.yaml` and
   exceptions at `docs/adr/exceptions.yaml`. New or changed guardrails
   require matching ADR/registry updates in the same change.
@@ -21,9 +26,10 @@ architectural defaults, and Kubernetes-specific validators previously in
   `sonar-project.properties`: the scan step consumes `SONAR_PROJECT_KEY` and
   `SONAR_ORGANIZATION` from non-secret repository variables, while shared
   analysis configuration stays committed. The scan attempt MUST be gated on
-  the canonical `github.repository`, never on either variable being non-empty,
-  so a missing or renamed variable fails loudly on `Brad-Edwards/bigrae` and
-  forks skip deliberately. Preserve the `SONAR_TOKEN` secret boundary, PR
+  the upstream `github.repository_id` and `github.repository_owner_id` from
+  `docs/adr/repository-identity.json` (ADR-069), never on either variable being
+  non-empty, so a missing or renamed variable fails loudly in the upstream
+  repository and forks skip deliberately. Preserve the `SONAR_TOKEN` secret boundary, PR
   `sonar.qualitygate.wait=true`, action SHA pinning, and same-delivery
   repository-variable activation/readback.
 - Plans that touch Terraform under `platform/terraform/` MUST pass

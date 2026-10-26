@@ -180,7 +180,7 @@ def administrator_access_policy_document() -> str:
     )
 
 
-AWS_ENVIRONMENTS = ("dev", "proof", "prod")
+AWS_ENVIRONMENTS = ("dev", "prod")
 
 
 def _ensure_state_bucket(bucket_name: str, config: BootstrapConfig, profile: str, dry_run: bool) -> None:

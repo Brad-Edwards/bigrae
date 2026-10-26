@@ -6,8 +6,19 @@
 
 set -e
 
-REPO="Brad-Edwards/bigrae"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Target repository (ADR-069 rule 4): GH_REPO when set, else the clone's gh
+# default repository. A clone with an upstream remote has no safe implicit
+# target, so stop when neither is set. Do not use `gh repo view` here: without
+# a default it selects the upstream remote.
+resolve_repo() {
+    REPO="${GH_REPO:-$(gh repo set-default --view)}"
+    if [[ -z "$REPO" ]]; then
+        echo "Error: no target repository. Run 'gh repo set-default <owner>/<repo>' or set GH_REPO=<owner>/<repo>." >&2
+        exit 1
+    fi
+}
 
 # Base/DC builds and prod promotions run only from a protected ref: a
 # feature-branch copy of the workflow could otherwise weaken its own inline
@@ -45,6 +56,7 @@ AMI_TYPE=$2
 
 case $ACTION in
     -b)
+        resolve_repo
         echo "Building $AMI_TYPE AMI in dev..."
         echo "Ref: $WORKFLOW_REF"
         gh workflow run packer.yml \
@@ -54,6 +66,7 @@ case $ACTION in
         echo "Workflow triggered. View at: https://github.com/$REPO/actions/workflows/packer.yml"
         ;;
     -p)
+        resolve_repo
         echo "Promoting $AMI_TYPE AMI to prod..."
         echo "Ref: $WORKFLOW_REF"
         gh workflow run packer-promote.yml \

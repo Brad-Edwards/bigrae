@@ -44,8 +44,8 @@ from bootstrap_core import (
 # empty-secret accident (contrast the old silent ``if: secrets != ''`` skip).
 SKIP_OPERATOR_ENV = "SHIFTER_SKIP_OPERATOR_BOOTSTRAP"
 
-_AWS_ENVIRONMENTS = ("dev", "proof", "prod")
-_AWS_ENV_SUFFIX = {"dev": "DEV", "proof": "PROOF", "prod": "PROD"}
+_AWS_ENVIRONMENTS = ("dev", "prod")
+_AWS_ENV_SUFFIX = {"dev": "DEV", "prod": "PROD"}
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
@@ -412,6 +412,8 @@ def run_preflight(
     environment), ``repo_root`` (defaults to :func:`get_repo_root`), and
     ``tool_exists`` (defaults to :func:`shutil.which`).
     """
+    if cloud is Cloud.AWS and environment not in _AWS_ENVIRONMENTS:
+        raise ValueError(f"unsupported AWS environment {environment!r}; allowed: {', '.join(_AWS_ENVIRONMENTS)}")
     env = os.environ if env is None else env
     repo_root = get_repo_root() if repo_root is None else repo_root
     tool_exists = shutil.which if tool_exists is None else tool_exists
@@ -456,7 +458,11 @@ def preflight_gate(
     repository, and ``PATH``. Unit tests drive the pure :func:`run_preflight`
     directly (which takes injectable ``env`` / ``repo_root`` / ``tool_exists``).
     """
-    report = run_preflight(cloud, mode, environment, component=component)
+    try:
+        report = run_preflight(cloud, mode, environment, component=component)
+    except ValueError as exc:
+        error(f"Preflight failed: {exc}")
+        raise SystemExit(1) from exc
     header(f"Deploy preflight ({cloud.value} / {environment})")
     for result in report.results:
         _emit_result(result)

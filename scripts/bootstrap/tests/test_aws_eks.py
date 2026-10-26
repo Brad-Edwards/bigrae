@@ -836,10 +836,12 @@ def test_validate_config_rejects_non_aws_backend():
         aws_eks._validate_config(config)
 
 
-def test_validate_config_rejects_unsupported_profile():
+# The proof environment is retired, so its profile is now rejected.
+@pytest.mark.parametrize("profile", ["staging", "proof"])
+def test_validate_config_rejects_unsupported_profile(profile):
     config = _config()
-    config.deployment.profile = "staging"
-    with pytest.raises(ValueError, match="supports only dev, proof, and prod"):
+    config.deployment.profile = profile
+    with pytest.raises(ValueError, match="supports only dev and prod"):
         aws_eks._validate_config(config)
 
 

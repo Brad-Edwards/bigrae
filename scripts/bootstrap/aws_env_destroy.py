@@ -22,7 +22,7 @@ Pre-destroy handling (per the runbook):
 - Lift deletion protection on the Portal RDS surfaces by writing a
   ``teardown-*.auto.tfvars`` override (protection off) that lexically overrides
   the rendered ``local.auto.tfvars``, then a targeted ``terraform apply`` on the
-  protection-bearing resources before the Portal destroy. dev/proof already ship
+  protection-bearing resources before the Portal destroy. dev already ships
   these ``false`` (secure default ``true`` is prod-only), so the lift is a
   no-op there but defends any env that enabled them.
 - Empty S3 buckets the stack owns (discovered from its Terraform state, then
@@ -70,10 +70,10 @@ from bootstrap_core import error, info, run_cmd, subheader, success, warn
 
 AWS_REGION = "us-east-2"
 
-# `dev` and `proof` are the only teardown targets. `prod` is deliberately not a
+# `dev` is the only teardown target. `prod` is deliberately not a
 # dispatch choice for this workflow; a production teardown is a separate,
 # higher-ceremony decision (see the runbook).
-ALLOWED_ENVS = ("dev", "proof")
+ALLOWED_ENVS = ("dev",)
 
 _LOCK_TIMEOUT = "-lock-timeout=5m"
 _NONINTERACTIVE = "-input=false"
@@ -116,7 +116,7 @@ _PROTECTION_OVERRIDE_FILE = "teardown-protection-override.auto.tfvars"
 
 # Portal root deletion-protection inputs, all declared in
 # environments/<env>/portal/variables.tf. ALB and Cognito protection are
-# hardcoded false for dev/proof, so only the RDS surfaces are var-driven.
+# hardcoded false for dev, so only the RDS surfaces are var-driven.
 _PORTAL_PROTECTION_TFVARS = (
     "db_deletion_protection            = false",
     "db_skip_final_snapshot            = true",
@@ -206,7 +206,9 @@ def _layers(env: str, state_bucket: str) -> tuple[Layer, ...]:
         # destroy time (managed, default opt-in, or explicit external), so
         # destroy reproduces the applied topology rather than a fixed guess.
         Layer("github-runner", "global/github-runner", topology_from_state=True),
-        Layer("iam", "global/iam", var_flags=(f"-var=environment={env}",)),
+        # The env tfvars carry the deployment identity (ADR-069). Bootstrap apply
+        # and the drift check read the same file.
+        Layer("iam", "global/iam", var_flags=(f"-var-file={env}.tfvars", f"-var=environment={env}")),
     )
 
 
@@ -829,7 +831,7 @@ def _backend_dir_from_args(args: argparse.Namespace, env: str, bucket: str) -> P
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point: parse args, build the context, and run the teardown."""
     parser = argparse.ArgumentParser(description="Tear down an AWS Shifter environment (issue #1287).")
-    parser.add_argument("--env", required=True, help="Target environment (dev or proof)")
+    parser.add_argument("--env", required=True, help="Target environment (dev)")
     parser.add_argument("--state-bucket", required=True, help="Pinned Terraform state bucket for the environment")
     parser.add_argument("--region", default=AWS_REGION, help="AWS region (default us-east-2)")
     parser.add_argument("--repo-root", default="", help="Repository root (defaults to this checkout)")

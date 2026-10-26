@@ -17,12 +17,14 @@ from bootstrap_core import (
     HELP_AWS_PROFILE,
     HELP_DRY_RUN,
     GDCBootstrapConfig,
+    RepositoryIdentityError,
     code_block,
     confirm,
     error,
     get_default_gdc_project_id,
     header,
     info,
+    resolve_github_repository,
     run_cmd,
     set_assume_yes,
     success,
@@ -89,6 +91,7 @@ Automated steps will ask for confirmation:
 Estimated time: 30-45 minutes (mostly waiting for RDS and ACM)
 """)
 
+    config = BootstrapConfig(env=env, **resolve_github_repository())
     if not dry_run and not confirm("Ready to begin?"):
         warn("Deployment cancelled")
         return
@@ -97,7 +100,6 @@ Estimated time: 30-45 minutes (mostly waiting for RDS and ACM)
         info("[DRY-RUN] Showing what would happen...")
 
     # Phase 1: Bootstrap
-    config = BootstrapConfig(env=env)
     bootstrap_result = bootstrap_account(config, profile, dry_run=dry_run)
 
     # Phase 2: GitHub Secrets
@@ -168,7 +170,7 @@ def runners_deployment(
         error("Runner module not available - cannot provision runners")
         sys.exit(1)
 
-    config = BootstrapConfig(env=env)
+    config = BootstrapConfig(env=env, **resolve_github_repository())
     runner_config = get_runner_config(
         env=env,
         region=config.region,
@@ -210,14 +212,14 @@ def gcp_runners_deployment(
         error("GCP runner provisioning requires --project-id (or PANW_GCP_DEV / repo-root .env)")
         sys.exit(1)
 
-    defaults = BootstrapConfig(env=env)
+    repository = resolve_github_repository()
     runner_config = get_gcp_runner_config(
         env=env,
         project_id=project_id,
         region=region,
         zone=zone,
-        github_org=defaults.github_org,
-        github_repo=defaults.github_repo,
+        github_org=repository["github_org"],
+        github_repo=repository["github_repo"],
         labels=labels,
     )
     provision_and_register_gcp_runners(
@@ -232,6 +234,7 @@ def gcp_base_images_import(
     environment: str,
     region: str,
     *,
+    repository: dict[str, str],
     dry_run: bool = False,
 ) -> dict[str, str]:
     """Import the reusable GHCR base images as native GCE images and wire the refs.
@@ -241,15 +244,27 @@ def gcp_base_images_import(
     variables in the ``environment`` deployment Environment so deploy resolves
     them without a per-tenant Packer bake (#2309). The returned mapping is also
     the supported in-process handoff to the first local platform bootstrap.
+    ``repository`` is the resolved target identity (ADR-069). It selects the
+    GHCR owner and the repository that receives the variables.
     """
     if not project_id:
         error("gcp-images requires --project-id (the range project the images import into)")
         sys.exit(1)
     _validate_base_image_auth()
 
-    imported = discover_and_import(project=project_id, region=region, dry_run=dry_run)
+    imported = discover_and_import(
+        project=project_id,
+        ghcr_owner=repository["github_org"].lower(),
+        region=region,
+        dry_run=dry_run,
+    )
     range_image_env = render_range_image_env(imported)
-    _publish_range_image_env(range_image_env, environment, dry_run=dry_run)
+    _publish_range_image_env(
+        range_image_env,
+        environment,
+        repository=f"{repository['github_org']}/{repository['github_repo']}",
+        dry_run=dry_run,
+    )
     success(f"Wired {', '.join(sorted(range_image_env))} into the {environment} deployment environment")
     return range_image_env
 
@@ -270,28 +285,24 @@ def _publish_range_image_env(
     range_image_env: dict[str, str],
     environment: str,
     *,
+    repository: str,
     dry_run: bool,
     command_runner: Callable[..., object] = run_cmd,
 ) -> None:
-    """Publish one complete exact image mapping to a GitHub Environment."""
+    """Publish one complete exact image mapping to an Environment of ``repository``."""
     if set(range_image_env) != _RANGE_IMAGE_ENV_KEYS:
         raise BaseImageError("public base-image import did not return the complete range-image environment")
 
     if dry_run:
         for name, ref in sorted(range_image_env.items()):
-            command_runner(["gh", "variable", "set", name, "--env", environment, "--body", ref], dry_run=True)
+            command_runner(
+                ["gh", "variable", "set", name, "--repo", repository, "--env", environment, "--body", ref],
+                dry_run=True,
+            )
         return
 
-    repo_result = command_runner(
-        ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
-        capture=True,
-    )
-    repo = (getattr(repo_result, "stdout", "") or "").strip()
-    if not repo:
-        raise BaseImageError("could not resolve the current GitHub repository for Environment variable publication")
-
     environment_path = quote(environment, safe="")
-    collection = f"repos/{repo}/environments/{environment_path}/variables"
+    collection = f"repos/{repository}/environments/{environment_path}/variables"
     existing_result = command_runner(
         ["gh", "api", collection, "--paginate", "--jq", ".variables[].name"],
         capture=True,
@@ -363,7 +374,10 @@ def _required_tools(command: str | None, cloud: str | None, *, import_public_bas
         return {"git", "gh", "terraform"} | cloud_tools
     if command in {"eks-deploy", "eks-teardown"}:
         return {"git", "aws", "terraform", "kubectl", "helm"}
-    if command in {None, "bootstrap", "terraform", "full"}:
+    if command in {"bootstrap", "full"}:
+        # ADR-069: gh resolves the target repository identity.
+        return {"git", "aws", "terraform", "gh"}
+    if command in {None, "terraform"}:
         return {"git", "aws", "terraform"}
     return {"git"}
 
@@ -414,7 +428,7 @@ def _add_runners_subparser(subparsers: argparse._SubParsersAction) -> None:
     runners_parser.add_argument(
         "--env",
         required=True,
-        help="Environment (AWS: dev/proof/prod; GCP: e.g. gcp-dev). Validated per --cloud.",
+        help="Environment (AWS: dev/prod; GCP: e.g. gcp-dev). Validated per --cloud.",
     )
     runners_parser.add_argument("--profile", help=HELP_AWS_PROFILE + " (AWS only)")
     runners_parser.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
@@ -630,7 +644,7 @@ def _add_preflight_and_recovery_subparsers(subparsers: argparse._SubParsersActio
         "preflight", help="Validate deploy prerequisites (tools, secrets, config) without making changes"
     )
     preflight_parser.add_argument("--cloud", required=True, choices=[c.value for c in Cloud], help="Target cloud")
-    preflight_parser.add_argument("--env", required=True, help="Environment (e.g. dev, proof, prod, gcp-dev)")
+    preflight_parser.add_argument("--env", required=True, help="Environment (e.g. dev, prod, gcp-dev)")
     preflight_parser.add_argument(
         "--component",
         choices=sorted(_PREFLIGHT_COMPONENTS),
@@ -781,7 +795,7 @@ def _handle_eks_teardown(args: argparse.Namespace) -> None:
 
 def _handle_bootstrap(args: argparse.Namespace) -> None:
     """Bootstrap the selected AWS account and render operator handoffs."""
-    config = BootstrapConfig(env=args.env)
+    config = BootstrapConfig(env=args.env, **resolve_github_repository())
     result = bootstrap_account(config, args.profile, dry_run=args.dry_run)
     if not args.dry_run:
         walkthrough_github_secrets(result, dry_run=False)
@@ -835,6 +849,7 @@ def gcp_bootstrap_with_public_images(
     allow_missing_range_images: bool = False,
 ) -> None:
     """Import, publish, bind, and consume one exact public image mapping."""
+    repository = resolve_github_repository()
     if not dry_run:
         header("Foundation-ready Shifter GCP bootstrap")
         info(f"GCP Project: {config.project_id}")
@@ -849,6 +864,7 @@ def gcp_bootstrap_with_public_images(
         config.project_id,
         config.environment,
         config.region,
+        repository=repository,
         dry_run=dry_run,
     )
     with _temporary_environment_overlay(range_image_env):
@@ -889,7 +905,11 @@ _COMMAND_HANDLERS = {
     "runners": _dispatch_runners,
     "gdc-bootstrap": _handle_gdc_bootstrap,
     "gcp-images": lambda args: gcp_base_images_import(
-        args.project_id, args.environment, args.region, dry_run=args.dry_run
+        args.project_id,
+        args.environment,
+        args.region,
+        repository=resolve_github_repository(),
+        dry_run=args.dry_run,
     ),
 }
 
@@ -916,6 +936,6 @@ def main(
             _handle_gdc_bootstrap(args, bootstrapper=gdc_bootstrapper)
         else:
             handler(args)
-    except BaseImageError as exc:
+    except (BaseImageError, RepositoryIdentityError) as exc:
         error(str(exc))
         raise SystemExit(1) from None

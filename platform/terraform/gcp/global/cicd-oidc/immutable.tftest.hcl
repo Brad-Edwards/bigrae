@@ -49,22 +49,22 @@ run "renamed_repository_subjects" {
     source = "../../modules/cicd-oidc-identity"
   }
   variables {
-    github_repo = "bigrae"
+    github_repo = "renamed-product"
     purpose_contexts = {
       deploy = [{
         environment           = "customer-deploy"
         ref                   = "refs/heads/main"
-        workflow_ref          = "example/bigrae/.github/workflows/deploy.yml@refs/heads/main"
-        reusable_workflow_ref = "example/bigrae/.github/workflows/_gcp-dev.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        workflow_ref          = "example/renamed-product/.github/workflows/deploy.yml@refs/heads/main"
+        reusable_workflow_ref = "example/renamed-product/.github/workflows/_gcp-dev.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       }]
     }
   }
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.repository == 'example/bigrae'")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.repository == 'example/renamed-product'")
     error_message = "Trust must bind the exact configured repository name."
   }
   assert {
-    condition     = google_service_account_iam_member.deploy_wif["repo:example@456/bigrae@123:environment:customer-deploy"].member == "principal://iam.googleapis.com/projects/789/locations/global/workloadIdentityPools/cust-unseen-github/subject/repo:example@456/bigrae@123:environment:customer-deploy"
+    condition     = google_service_account_iam_member.deploy_wif["repo:example@456/renamed-product@123:environment:customer-deploy"].member == "principal://iam.googleapis.com/projects/789/locations/global/workloadIdentityPools/cust-unseen-github/subject/repo:example@456/renamed-product@123:environment:customer-deploy"
     error_message = "The new name must use the same purpose-scoped identity."
   }
 }

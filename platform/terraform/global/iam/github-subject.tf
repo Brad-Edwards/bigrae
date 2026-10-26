@@ -1,8 +1,7 @@
-# Public canonical GitHub IDs. Fork owners must override names and both IDs.
+# Deployment configuration supplies the immutable GitHub IDs (ADR-069). No default.
 variable "github_repository_id" {
   description = "Immutable GitHub repository ID verified before bootstrap."
   type        = string
-  default     = "1241599684"
   validation {
     condition     = can(regex("^[1-9][0-9]*$", var.github_repository_id))
     error_message = "github_repository_id must be a positive numeric GitHub ID."
@@ -11,7 +10,6 @@ variable "github_repository_id" {
 variable "github_owner_id" {
   description = "Immutable GitHub owner ID verified before bootstrap."
   type        = string
-  default     = "56809295"
   validation {
     condition     = can(regex("^[1-9][0-9]*$", var.github_owner_id))
     error_message = "github_owner_id must be a positive numeric GitHub ID."

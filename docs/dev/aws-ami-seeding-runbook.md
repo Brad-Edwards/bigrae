@@ -80,15 +80,18 @@ not apply IAM or set secrets. Complete the cutover once per AWS account (`dev`,
 
    ```bash
    ROLE_ARN=$(terraform -chdir=platform/terraform/global/iam output -raw github_actions_image_role_arn)
-   gh secret set AWS_IMAGE_ROLE_ARN_DEV --repo Brad-Edwards/bigrae --body "$ROLE_ARN"
+   REPO="$(gh repo set-default --view)"
+   gh secret set AWS_IMAGE_ROLE_ARN_DEV --repo "$REPO" --body "$ROLE_ARN"
    ```
 
 3. Confirm the repository's OIDC subject format and immutable IDs match the
    Terraform inputs. The renamed canonical repository uses immutable subjects:
 
    ```bash
-   gh api repos/Brad-Edwards/bigrae/actions/oidc/customization/sub
-   # expect use_default: true, use_immutable_subject: true
+   REPO="$(gh repo set-default --view)"
+   gh api "repos/$REPO/actions/oidc/customization/sub"
+   # expect use_default: true, use_immutable_subject: true,
+   # sub_claim_prefix: repo:<owner>@<owner_id>/<repo>@<repository_id>
    ```
 
    AWS trust defaults to `github_subject_format = "immutable"`. Other repositories

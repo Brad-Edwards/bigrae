@@ -2968,14 +2968,15 @@ jobs:
         run: mvn --batch-mode --no-transfer-progress -DskipTests compile
 
       - name: SonarQube Cloud scan
-        # Gated on repository identity, NOT on the variables below being set
-        # (ADR-003-R7). `vars.SONAR_PROJECT_KEY != ''` would look equivalent but
-        # makes a renamed or deleted variable skip the scan silently, taking the
-        # SonarCloud quality gate out of PR Gate with everything still green. The
-        # canonical repository therefore always attempts the scan and fails loud
-        # on misconfiguration. Anyone else running this workflow on their own
-        # copy skips it: SonarCloud is our tooling choice, not a dependency we
-        # impose on people who cloned the repo.
+        # Gated on the upstream repository's immutable IDs, NOT on the variables
+        # below being set (ADR-003-R7). `vars.SONAR_PROJECT_KEY != ''` would look
+        # equivalent but makes a renamed or deleted variable skip the scan
+        # silently, taking the SonarCloud quality gate out of PR Gate with
+        # everything still green. The upstream repository therefore always
+        # attempts the scan and fails loud on misconfiguration. The IDs do not
+        # change on a rename, and they equal docs/adr/repository-identity.json
+        # (ADR-069). A fork has other IDs and skips the scan: SonarCloud is our
+        # tooling choice, not a dependency we impose on people who cloned the repo.
         #
         # Fork-origin pull requests also skip. They run in the base repository's
         # context, so the identity test above passes, but GitHub withholds
@@ -2989,8 +2990,7 @@ jobs:
         # every canonical-repo PR (#1310). `push` events (dev branch runs) carry
         # no pull_request payload and always scan.
         if: >-
-          ${{ github.repository == 'Brad-Edwards/bigrae'
-          && github.repository_id == '1241599684'
+          ${{ github.repository_id == '1241599684'
           && github.repository_owner_id == '56809295'
           && (github.event_name != 'pull_request'
           || github.event.pull_request.head.repo.full_name == github.repository) }}

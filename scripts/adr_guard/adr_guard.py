@@ -51,6 +51,7 @@ _SOURCE_MODULES = (
     "_guard.checks.published_contract",
     "_guard.checks.quality_ownership",
     "_guard.checks.eks_cross_stack_sourcing",
+    "_guard.checks.repository_identity",
     "_guard._registry",
     "_guard._cli",
 )
@@ -96,6 +97,7 @@ from _guard.checks import (  # noqa: E402, F401 - re-exported for tests
     mcp_policy,
     published_contract,
     quality_ownership,
+    repository_identity,
     secret_hygiene,
 )
 
@@ -115,6 +117,7 @@ _SUBMODULES = (
     "mcp_policy",
     "published_contract",
     "quality_ownership",
+    "repository_identity",
     "secret_hygiene",
 )
 

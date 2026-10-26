@@ -25,13 +25,11 @@ variable "region" {
 variable "github_org" {
   description = "GitHub organization that owns the repository allowed to federate."
   type        = string
-  default     = "Brad-Edwards"
 }
 
 variable "github_repo" {
   description = "GitHub repository allowed to federate into the purpose identities."
   type        = string
-  default     = "bigrae"
 }
 
 variable "build_roles" {

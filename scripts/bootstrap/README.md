@@ -58,6 +58,13 @@ pager never blocks bootstrap under a non-TTY or PTY.
 
 ## Commands
 
+Bootstrap has no default GitHub repository (ADR-069). Commands that act on the
+repository read the target from the `gh` default repository of this clone. Set
+the default once in each clone with `gh repo set-default <owner>/<repo>`.
+Bootstrap reads the repository and owner IDs from the GitHub API and shows the
+identity before it writes. When no default is set, the command stops. The
+`gcp-foundation` command reads the repository from its inputs file instead.
+
 ## Fresh AWS Account Order
 
 For a new AWS account, run bootstrap-only first. Do not start with `full`.
@@ -87,7 +94,7 @@ command below.
    instead of the standard managed runner VPC (ADR-004-R20, #1437). Registration tokens
    are never written to Terraform state, user data, a secret store, or logs.
 3. Confirm the fleet is online (the `runners` path already verifies this):
-   `gh api repos/Brad-Edwards/bigrae/actions/runners --jq '.runners[] | {name, status}'`.
+   `REPO="$(gh repo set-default --view)"; gh api "repos/$REPO/actions/runners" --jq '.runners[] | {name, status}'`.
 4. Seed or build the `/shifter/ami/{kali,ubuntu,windows,dc}` SSM
    parameters required by portal Terraform. The Kali build requires the target
    account to accept the free AWS Marketplace terms for product code
@@ -199,8 +206,16 @@ foundation identity changes.
 
    ```bash
    cd platform/terraform/gcp/global/cicd-oidc
+   REPO="$(gh repo set-default --view)"   # Empty: run gh repo set-default <owner>/<repo> first.
+   mapfile -t GITHUB_IDS < <(gh api "repos/$REPO" --jq '.id, .owner.id')
    terraform init -backend-config="bucket=<project-id>-terraform-state" -backend-config="prefix=cicd-oidc"
-   terraform apply -var="project_id=<dev-project-id>" -var="environment=gcp-dev" \
+   terraform apply -var="project_id=<dev-project-id>" -var="project_number=<dev-project-number>" \
+     -var="environment=gcp-dev" -var="name_prefix=<name-prefix>" \
+     -var="github_org=${REPO%/*}" -var="github_repo=${REPO#*/}" \
+     -var="github_repository_id=${GITHUB_IDS[0]}" -var="github_owner_id=${GITHUB_IDS[1]}" \
+     -var="terraform_state_bucket_name=<project-id>-terraform-state" \
+     -var="release_evidence_bucket_name=<release-evidence-bucket>" \
+     -var-file=/path/to/purpose-contexts.tfvars.json \
      -var='build_read_bucket_names=["<platform-image-input-bucket>"]' \
      -var='platform_external_bucket_names=["<raes-package-bucket>","<ctf-content-bucket>"]'
    terraform output -raw workload_identity_provider          # GCP_WORKLOAD_IDENTITY_PROVIDER
@@ -211,10 +226,13 @@ foundation identity changes.
    terraform output -raw destroy_service_account_email          # GCP_DESTROY_SERVICE_ACCOUNT
    terraform output -raw release_evidence_bucket_name           # private raw evidence store
 
-   # In the prod project's separately initialized root/state:
-   terraform apply -var="project_id=<prod-project-id>" -var="environment=prod"
+   # In the prod project's separately initialized root/state, use the same
+   # variables with the prod project values and environment=prod:
+   terraform apply -var="project_id=<prod-project-id>" -var="environment=prod" ...
    terraform output -raw packer_promote_service_account_email   # GCP_PACKER_PROMOTE_SERVICE_ACCOUNT
    ```
+   `purpose-contexts.tfvars.json` holds only the `purpose_contexts` key, in
+   the shape of `gcp-foundation.example.tfvars.json`.
    Omit empty optional bucket entries. The external bucket set must exactly
    cover any non-empty `raes_package_bucket_name` and
    `ctf_content_bucket_name` used by platform-core so deploy/destroy can manage
@@ -451,7 +469,7 @@ repo-specific fixes from the live spike:
 
 ## Options
 
-- `--env` (required): `dev`, `proof`, or `prod` (`gcp-dev` for the `preflight --cloud gcp` path)
+- `--env` (required): `dev` or `prod` (`gcp-dev` for the `preflight --cloud gcp` path)
 - `--profile` (required): AWS CLI profile name
 - `--dry-run` (optional): Show what would happen without making changes
 - `--cloud` (preflight only): `aws` or `gcp`

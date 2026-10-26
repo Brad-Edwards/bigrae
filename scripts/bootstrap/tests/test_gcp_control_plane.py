@@ -198,9 +198,9 @@ def prevent_real_subprocess_calls():
 
 
 @pytest.fixture
-def bootstrap_config():
+def bootstrap_config(github_identity):
     """Return a valid BootstrapConfig for testing."""
-    return deploy.BootstrapConfig(env="dev")
+    return deploy.BootstrapConfig(env="dev", **github_identity)
 
 
 @pytest.fixture

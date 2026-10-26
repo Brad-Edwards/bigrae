@@ -53,7 +53,6 @@ class TestAwsSecretNames:
     def test_role_secret_is_unsuffixed_for_prod(self):
         assert preflight._aws_role_secret("prod") == "AWS_ROLE_ARN"
         assert preflight._aws_role_secret("dev") == "AWS_ROLE_ARN_DEV"
-        assert preflight._aws_role_secret("proof") == "AWS_ROLE_ARN_PROOF"
 
     def test_state_bucket_secret_is_unsuffixed_for_prod(self):
         assert preflight._aws_state_bucket_secret("prod") == "TF_INFRA_STATE_BUCKET"
@@ -64,10 +63,22 @@ class TestAwsSecretNames:
         assert preflight._tf_vars_secret("dev", "core") == "TF_VARS_DEV_CORE"
 
     def test_shifter_config_secret(self):
-        assert preflight._shifter_config_secret("proof") == "SHIFTER_CONFIG_PROOF_RANGE"
+        assert preflight._shifter_config_secret("dev") == "SHIFTER_CONFIG_DEV_RANGE"
 
 
 # --- run_preflight: CI (secret) mode ------------------------------------------
+
+
+class TestAwsEnvironmentValidation:
+    @pytest.mark.parametrize("environment", ["proof", "staging", ""])
+    def test_unknown_aws_environment_is_rejected(self, environment):
+        with pytest.raises(ValueError, match="unsupported AWS environment"):
+            preflight.run_preflight(Cloud.AWS, Mode.CI, environment, env={})
+
+    def test_gate_stops_cleanly_on_an_unknown_aws_environment(self):
+        with pytest.raises(SystemExit) as exc:
+            preflight.preflight_gate(Cloud.AWS, Mode.CI, "proof", headless=True)
+        assert exc.value.code == 1
 
 
 class TestRunPreflightGcpCi:
