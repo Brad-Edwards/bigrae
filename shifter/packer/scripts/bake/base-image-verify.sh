@@ -168,6 +168,7 @@ php_floor_check() {
         echo "::error::${AMI_TYPE} AMI ${AMI_ID} failed the PHP security floor: ${out}" >&2
         exit 1
         ;;
+      *) ;;  # Pending, InProgress, Delayed: keep polling until the deadline below
     esac
     if [[ "$(date +%s)" -ge "$deadline" ]]; then
       echo "::error::${AMI_TYPE} AMI ${AMI_ID} PHP floor check did not finish (status '${status}')" >&2

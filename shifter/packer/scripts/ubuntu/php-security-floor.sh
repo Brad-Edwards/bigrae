@@ -51,7 +51,8 @@ while IFS=$'\t' read -r state package source version || [[ -n "${state:-}" ]]; d
   # Every other state counts as present, so held (h*) and removal-selected
   # (r*, p*) packages are checked too.
   case "${state:1:1}" in
-    n | c) continue ;;
+    n | c) continue ;;  # not installed, or removed with config files: skip
+    *) ;;               # any present state (installed, held, partly configured) is checked
   esac
   case "${source}" in
     php[0-9]*) ;;
