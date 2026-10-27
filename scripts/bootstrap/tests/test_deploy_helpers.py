@@ -97,8 +97,8 @@ class TestMissingDependencyLines:
 class TestTerraformHelpersFailurePaths:
     # Mock subprocess (a process boundary, allowed by ADR-019) so the helpers'
     # failure/exit branches run without a real terraform invocation.
-    def test_apply_iam_exits_when_apply_fails(self):
-        cfg = deploy.BootstrapConfig(env="prod")
+    def test_apply_iam_exits_when_apply_fails(self, github_identity):
+        cfg = deploy.BootstrapConfig(env="prod", **github_identity)
         with (
             mock.patch.object(deploy.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)),
             pytest.raises(SystemExit),

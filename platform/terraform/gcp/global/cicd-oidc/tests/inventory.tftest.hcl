@@ -3,14 +3,14 @@ mock_provider "google" {}
 run "renamed_canonical_reusable_workflow" {
   command = plan
   variables {
-    github_org  = "Brad-Edwards"
-    github_repo = "bigrae"
+    github_org  = "example-org"
+    github_repo = "example-repo"
     purpose_contexts = {
       for purpose, workflow in { deploy = "deploy.yml", destroy = "gcp-dev-destroy.yml" } : purpose => [{
         environment           = "customer-${purpose}"
         ref                   = "refs/heads/main"
-        workflow_ref          = "Brad-Edwards/bigrae/.github/workflows/${workflow}@refs/heads/main"
-        reusable_workflow_ref = purpose == "deploy" ? "Brad-Edwards/bigrae/.github/workflows/_gcp-dev.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" : ""
+        workflow_ref          = "example-org/example-repo/.github/workflows/${workflow}@refs/heads/main"
+        reusable_workflow_ref = purpose == "deploy" ? "example-org/example-repo/.github/workflows/_gcp-dev.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" : ""
       }]
     }
   }

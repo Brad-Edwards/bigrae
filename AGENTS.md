@@ -29,10 +29,10 @@ The authoritative list of "plans MUST..." constraints for the
 
 ## Canonical GitHub Repository
 
-The canonical GitHub repository for this checkout is
-`Brad-Edwards/bigrae`, as configured by `.ground-control.yaml`
-(`github_repo`). Use that repository for all `gh`, GitHub API, PR, issue,
-CI, Ground Control, and traceability operations.
+The canonical GitHub repository for this checkout is the `github_repo` value
+in `.ground-control.yaml`. Use that repository for all `gh`, GitHub API, PR,
+issue, CI, Ground Control, and traceability operations. ADR-069 governs how
+code, workflows, Terraform, and tools get the repository identity.
 
 Do not use `PaloAltoNetworks/shifter` unless the user explicitly requests
 that repository in the current turn. Extra remotes, fork history, or

@@ -16,7 +16,12 @@ from shared.sftp_root import DEFAULT_SFTP_ROOT_BY_OS, SftpRootError, normalize_s
 from ._env import _get_int_env, _parse_csv_env
 from ._gcp_backend import _is_active_gdc_range_plane
 
-_GHCR_VM_DISK_REFERENCE = re.compile(r"^oci://ghcr\.io/brad-edwards/shifter-vm-(kali|ubuntu)@sha256:[0-9a-f]{64}$")
+# The GHCR owner is the deployment's own repository owner. Bootstrap writes the
+# digest-pinned reference from deployment configuration, so the reference itself
+# is the trust anchor; the code holds no owner literal (ADR-069).
+_GHCR_VM_DISK_REFERENCE = re.compile(
+    r"^oci://ghcr\.io/[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/shifter-vm-(kali|ubuntu)@sha256:[0-9a-f]{64}$"
+)
 
 
 def _normalize_registry_source_url(source_url: str) -> str | None:
@@ -161,7 +166,7 @@ def _load_gdc_vm_profile(
         if match is None or match.group(1) != role:
             raise RuntimeError(
                 f"{prefix}_IMAGE_URL must be a role-matched, digest-pinned GHCR VM disk "
-                "reference (oci://ghcr.io/brad-edwards/shifter-vm-<role>@sha256:<digest>)"
+                "reference (oci://ghcr.io/<owner>/shifter-vm-<role>@sha256:<digest>)"
             )
         source_url = normalized_registry_source
     sftp_root_directory = os.environ.get(f"{prefix}_SFTP_ROOT_DIRECTORY", default_sftp_root_directory).strip()

@@ -306,13 +306,14 @@ jobs:
           echo "${TRIVY_SHA256}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
           tar -xzf "${RUNNER_TEMP}/trivy.tar.gz" -C "${RUNNER_TEMP}/trivy-bin" trivy
           echo "${RUNNER_TEMP}/trivy-bin" >> "${GITHUB_PATH}"
+      # Every severity blocks (#1698).
       - name: Scan Dockerfile policy
         env:
           TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
         run: |
-          trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL shifter/engine/guacamole
-          trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL shifter/engine/guacd
-          trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL shifter/shifter_platform/Dockerfile
+          trivy config --skip-version-check --exit-code 1 shifter/engine/guacamole
+          trivy config --skip-version-check --exit-code 1 shifter/engine/guacd
+          trivy config --skip-version-check --exit-code 1 shifter/shifter_platform/Dockerfile
 
   chart-lint-security:
     permissions:
@@ -2405,7 +2406,10 @@ jobs:
           docker run --rm --network none --entrypoint /bin/sh guacd-quality -ec \
             'test "$(id -u)" -ne 0; test -w /var/lib/guacamole/drive; test "$(stat -c %a /var/lib/guacamole/drive)" = 750'
           trap 'docker rm -f guacd-quality >/dev/null 2>&1 || true' EXIT
-          docker run --detach --network none --name guacd-quality guacd-quality
+          # Run with the Kubernetes posture: read-only root, no capabilities.
+          docker run --detach --network none --read-only --cap-drop ALL --tmpfs /tmp \
+            --tmpfs /var/lib/guacamole/drive:uid=1000,gid=1000,mode=0750 \
+            --name guacd-quality guacd-quality
           for _attempt in $(seq 1 30); do
             if docker exec guacd-quality nc -z 127.0.0.1 4822; then
               exit 0
@@ -2812,7 +2816,10 @@ jobs:
       contents: read
     name: Stack smoke (built image)
     needs: [paths]
-    if: ${{ inputs.run_stack_smoke && !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true' || needs.paths.outputs.portal_image_context == 'true') }}
+    # The caller sets run_stack_smoke when the portal image inputs change. The
+    # inner gate must accept the same owners (shifter_platform, installation),
+    # or a portal-only change skips the built-image smoke (#1698).
+    if: ${{ inputs.run_stack_smoke && !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.stack_smoke == 'true' || needs.paths.outputs.portal_image_context == 'true' || needs.paths.outputs.shifter_platform == 'true' || needs.paths.outputs.installation == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -2969,14 +2976,15 @@ jobs:
         run: mvn --batch-mode --no-transfer-progress -DskipTests compile
 
       - name: SonarQube Cloud scan
-        # Gated on repository identity, NOT on the variables below being set
-        # (ADR-003-R7). `vars.SONAR_PROJECT_KEY != ''` would look equivalent but
-        # makes a renamed or deleted variable skip the scan silently, taking the
-        # SonarCloud quality gate out of PR Gate with everything still green. The
-        # canonical repository therefore always attempts the scan and fails loud
-        # on misconfiguration. Anyone else running this workflow on their own
-        # copy skips it: SonarCloud is our tooling choice, not a dependency we
-        # impose on people who cloned the repo.
+        # Gated on the upstream repository's immutable IDs, NOT on the variables
+        # below being set (ADR-003-R7). `vars.SONAR_PROJECT_KEY != ''` would look
+        # equivalent but makes a renamed or deleted variable skip the scan
+        # silently, taking the SonarCloud quality gate out of PR Gate with
+        # everything still green. The upstream repository therefore always
+        # attempts the scan and fails loud on misconfiguration. The IDs do not
+        # change on a rename, and they equal docs/adr/repository-identity.json
+        # (ADR-069). A fork has other IDs and skips the scan: SonarCloud is our
+        # tooling choice, not a dependency we impose on people who cloned the repo.
         #
         # Fork-origin pull requests also skip. They run in the base repository's
         # context, so the identity test above passes, but GitHub withholds
@@ -2990,8 +2998,7 @@ jobs:
         # every canonical-repo PR (#1310). `push` events (dev branch runs) carry
         # no pull_request payload and always scan.
         if: >-
-          ${{ github.repository == 'Brad-Edwards/bigrae'
-          && github.repository_id == '1241599684'
+          ${{ github.repository_id == '1241599684'
           && github.repository_owner_id == '56809295'
           && (github.event_name != 'pull_request'
           || github.event.pull_request.head.repo.full_name == github.repository) }}

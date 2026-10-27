@@ -55,6 +55,7 @@ from .checks.published_contract import (
 from .checks.quality_ownership import (
     check_quality_path_ownership,
 )
+from .checks.repository_identity import check_repository_identity_literals
 from .checks.secret_hygiene import (
     check_no_plaintext_secrets_in_tfvars,
     check_no_populated_secret_env_files,
@@ -94,6 +95,7 @@ CHECKS = {
     "no-agent-attribution": check_no_agent_attribution,
     "quality-path-ownership": check_quality_path_ownership,
     "eks-cross-stack-sourcing": check_eks_cross_stack_sourcing,
+    "repository-identity-literals": check_repository_identity_literals,
 }
 CHECK_LEVELS = {
     "fast": [
@@ -127,6 +129,7 @@ CHECK_LEVELS = {
         "no-agent-attribution",
         "quality-path-ownership",
         "eks-cross-stack-sourcing",
+        "repository-identity-literals",
     ],
     "ci": [
         "adr-registry",
@@ -160,6 +163,7 @@ CHECK_LEVELS = {
         "no-agent-attribution",
         "quality-path-ownership",
         "eks-cross-stack-sourcing",
+        "repository-identity-literals",
     ],
     "all": list(CHECKS),
 }

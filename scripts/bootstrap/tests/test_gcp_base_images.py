@@ -15,6 +15,8 @@ import pytest
 import gcp_base_images as gbi
 
 DIGEST = "sha256:" + "a" * 64
+# ADR-069: a synthetic GHCR owner. Bootstrap derives the real one from the resolved repository owner.
+OWNER = "example-org"
 _ROLE_ENV = {"kali": "GCP_RANGE_KALI_IMAGE", "ubuntu": "GCP_RANGE_LINUX_IMAGE", "dc": "GCP_RANGE_DC_IMAGE"}
 
 
@@ -123,8 +125,8 @@ def fake_run(monkeypatch):
 
 
 class TestPureHelpers:
-    def test_package_for_role_is_hard_coded_ghcr(self):
-        assert gbi.package_for_role("dc") == "ghcr.io/brad-edwards/shifter-gce-dc"
+    def test_package_for_role_uses_the_given_ghcr_owner(self):
+        assert gbi.package_for_role("dc", OWNER) == "ghcr.io/example-org/shifter-gce-dc"
 
     def test_newest_discovery_tag_picks_highest_numeric(self):
         assert gbi._newest_discovery_tag(["gce-2", "gce-10", "latest", "gce-3"]) == "gce-10"
@@ -173,30 +175,30 @@ class TestPureHelpers:
 
 class TestResolveArtifact:
     def test_resolve_discovers_newest_and_validates(self, fake_run):
-        artifact = gbi.resolve_artifact("kali")
-        assert artifact.package == "ghcr.io/brad-edwards/shifter-gce-kali"
+        artifact = gbi.resolve_artifact("kali", OWNER)
+        assert artifact.package == "ghcr.io/example-org/shifter-gce-kali"
         assert artifact.digest == DIGEST
         assert artifact.disk_digest == "sha256:" + "b" * 64
         assert artifact.revision == "c" * 40
-        assert artifact.pinned_reference == f"oci://ghcr.io/brad-edwards/shifter-gce-kali@{DIGEST}"
+        assert artifact.pinned_reference == f"oci://ghcr.io/example-org/shifter-gce-kali@{DIGEST}"
         assert fake_run.ran(["oras", "repo", "tags"])
 
     def test_resolve_missing_package_raises(self, fake_run):
         fake_run.fail_substr = "repo tags"
         with pytest.raises(gbi.BaseImageError):
-            gbi.resolve_artifact("kali")
+            gbi.resolve_artifact("kali", OWNER)
 
     def test_resolve_rejects_role_mismatch(self, fake_run, monkeypatch):
         monkeypatch.setattr(gbi, "_fetch_manifest", lambda pkg, digest: _manifest(role="ubuntu"))
         with pytest.raises(gbi.BaseImageError):
-            gbi.resolve_artifact("kali")
+            gbi.resolve_artifact("kali", OWNER)
 
 
 class TestImportBaseImage:
     def _artifact(self, role="kali"):
         return gbi.ResolvedArtifact(
             role=role,
-            package=f"ghcr.io/brad-edwards/shifter-gce-{role}",
+            package=f"ghcr.io/example-org/shifter-gce-{role}",
             digest=DIGEST,
             disk_digest="sha256:" + "b" * 64,
             revision="c" * 40,
@@ -214,15 +216,15 @@ class TestImportBaseImage:
         assert "--family" in create and "shifter-kali" in create
         assert create[create.index("--guest-os-features") + 1] == "UEFI_COMPATIBLE"
         # The full OCI reference is recorded so reuse can verify it (F6).
-        assert f"oci://ghcr.io/brad-edwards/shifter-gce-kali@{DIGEST}" in create
+        assert f"oci://ghcr.io/example-org/shifter-gce-kali@{DIGEST}" in create
         # Staging object is removed after a successful import (no drift).
         assert fake_run.ran(["gcloud", "storage", "rm"])
         fetch = next(c for c in fake_run.calls if c[:3] == ["oras", "blob", "fetch"])
-        assert fetch[-1] == "ghcr.io/brad-edwards/shifter-gce-kali@sha256:" + "b" * 64
+        assert fetch[-1] == "ghcr.io/example-org/shifter-gce-kali@sha256:" + "b" * 64
         assert Path(fetch[fetch.index("--output") + 1]).name == "kali-aaaaaaaaaaaa.tar.gz"
 
     def test_import_reuses_matching_existing_image(self, fake_run):
-        fake_run.existing_description = f"oci://ghcr.io/brad-edwards/shifter-gce-ubuntu@{DIGEST}"
+        fake_run.existing_description = f"oci://ghcr.io/example-org/shifter-gce-ubuntu@{DIGEST}"
         imported = gbi.import_base_image(self._artifact("ubuntu"), project="proj", staging_bucket="stage")
         assert imported.reused is True
         assert fake_run.ran(["gcloud", "compute", "images", "describe"])
@@ -230,7 +232,7 @@ class TestImportBaseImage:
         assert not fake_run.ran(["oras", "blob", "fetch"])
 
     def test_import_replaces_owned_ready_image_missing_uefi(self, fake_run):
-        fake_run.existing_description = f"oci://ghcr.io/brad-edwards/shifter-gce-ubuntu@{DIGEST}"
+        fake_run.existing_description = f"oci://ghcr.io/example-org/shifter-gce-ubuntu@{DIGEST}"
         fake_run.existing_guest_os_features = []
 
         imported = gbi.import_base_image(self._artifact("ubuntu"), project="proj", staging_bucket="stage")
@@ -241,7 +243,7 @@ class TestImportBaseImage:
         assert create[create.index("--guest-os-features") + 1] == "UEFI_COMPATIBLE"
 
     def test_import_reconciles_owned_failed_status(self, fake_run):
-        fake_run.existing_description = f"oci://ghcr.io/brad-edwards/shifter-gce-ubuntu@{DIGEST}"
+        fake_run.existing_description = f"oci://ghcr.io/example-org/shifter-gce-ubuntu@{DIGEST}"
         fake_run.status = "FAILED"
 
         imported = gbi.import_base_image(self._artifact("ubuntu"), project="proj", staging_bucket="stage")
@@ -251,7 +253,7 @@ class TestImportBaseImage:
         assert fake_run.ran(["gcloud", "compute", "images", "create"])
 
     def test_import_does_not_delete_owned_image_while_creation_is_pending(self, fake_run):
-        fake_run.existing_description = f"oci://ghcr.io/brad-edwards/shifter-gce-ubuntu@{DIGEST}"
+        fake_run.existing_description = f"oci://ghcr.io/example-org/shifter-gce-ubuntu@{DIGEST}"
         fake_run.status = "PENDING"
 
         with pytest.raises(gbi.BaseImageError, match="not READY"):
@@ -266,7 +268,7 @@ class TestImportBaseImage:
             gbi.import_base_image(self._artifact("ubuntu"), project="proj", staging_bucket="stage")
 
     def test_import_reuse_requires_exact_role_metadata(self, fake_run):
-        fake_run.existing_description = f"oci://ghcr.io/brad-edwards/shifter-gce-ubuntu@{DIGEST}"
+        fake_run.existing_description = f"oci://ghcr.io/example-org/shifter-gce-ubuntu@{DIGEST}"
         fake_run.existing_role = "kali"
 
         with pytest.raises(gbi.BaseImageError, match="refusing to reuse"):
@@ -275,7 +277,7 @@ class TestImportBaseImage:
     def test_import_refuses_existing_image_with_mismatched_digest(self, fake_run):
         # F6: a pre-existing image whose recorded source is not the resolved
         # digest is refused rather than blindly reused.
-        fake_run.existing_description = "oci://ghcr.io/brad-edwards/shifter-gce-kali@sha256:" + "e" * 64
+        fake_run.existing_description = "oci://ghcr.io/example-org/shifter-gce-kali@sha256:" + "e" * 64
         with pytest.raises(gbi.BaseImageError):
             gbi.import_base_image(self._artifact("kali"), project="proj", staging_bucket="stage")
         assert not fake_run.ran(["gcloud", "compute", "images", "create"])
@@ -308,7 +310,7 @@ class TestImportBaseImage:
 
 class TestDiscoverAndImport:
     def test_imports_all_roles_and_renders_env(self, fake_run):
-        imported = gbi.discover_and_import(project="proj")
+        imported = gbi.discover_and_import(project="proj", ghcr_owner=OWNER)
         assert set(imported) == set(gbi.BASE_IMAGE_ROLES)
         env = gbi.render_range_image_env(imported)
         assert set(env) == {"GCP_RANGE_KALI_IMAGE", "GCP_RANGE_LINUX_IMAGE", "GCP_RANGE_DC_IMAGE"}
@@ -318,17 +320,17 @@ class TestDiscoverAndImport:
     def test_missing_artifact_fails_loud(self, fake_run):
         fake_run.fail_substr = "repo tags"
         with pytest.raises(gbi.BaseImageError):
-            gbi.discover_and_import(project="proj")
+            gbi.discover_and_import(project="proj", ghcr_owner=OWNER)
 
     def test_dry_run_discovers_without_transfer(self, fake_run):
-        gbi.discover_and_import(project="proj", dry_run=True)
+        gbi.discover_and_import(project="proj", ghcr_owner=OWNER, dry_run=True)
         assert not fake_run.ran(["oras", "blob", "fetch"])
         assert not fake_run.ran(["gcloud", "compute", "images", "create"])
 
     def test_resolves_entire_base_set_before_first_cloud_mutation(self, fake_run, monkeypatch):
         monkeypatch.setattr(gbi.uuid, "uuid4", lambda: type("Nonce", (), {"hex": "a" * 32})())
 
-        gbi.discover_and_import(project="proj", region="us-central1")
+        gbi.discover_and_import(project="proj", ghcr_owner=OWNER, region="us-central1")
 
         first_mutation = next(
             index for index, call in enumerate(fake_run.calls) if call[:4] == ["gcloud", "storage", "buckets", "create"]
@@ -344,7 +346,7 @@ class TestDiscoverAndImport:
     def test_ephemeral_bucket_is_private_and_removed_after_success(self, fake_run, monkeypatch):
         monkeypatch.setattr(gbi.uuid, "uuid4", lambda: type("Nonce", (), {"hex": "b" * 32})())
 
-        gbi.discover_and_import(project="proj", region="us-central1")
+        gbi.discover_and_import(project="proj", ghcr_owner=OWNER, region="us-central1")
 
         create = next(c for c in fake_run.calls if c[:4] == ["gcloud", "storage", "buckets", "create"])
         assert create[4] == "gs://shifter-base-import-proj-bbbbbbbbbbbb"
@@ -362,7 +364,7 @@ class TestDiscoverAndImport:
         fake_run.fail_substr = "images create"
 
         with pytest.raises(SystemExit):
-            gbi.discover_and_import(project="proj", region="us-central1")
+            gbi.discover_and_import(project="proj", ghcr_owner=OWNER, region="us-central1")
 
         assert any(c[:3] == ["gcloud", "storage", "rm"] and "--recursive" in c for c in fake_run.calls)
 
@@ -383,7 +385,7 @@ class TestDiscoverAndImport:
         fake_run.status = status
 
         with pytest.raises(expected_error):
-            gbi.discover_and_import(project="proj", region="us-central1")
+            gbi.discover_and_import(project="proj", ghcr_owner=OWNER, region="us-central1")
 
         assert any(c[:3] == ["gcloud", "storage", "rm"] and "--recursive" in c for c in fake_run.calls)
 
@@ -392,10 +394,10 @@ class TestDiscoverAndImport:
         fake_run.fail_cleanup = True
 
         with pytest.raises(gbi.BaseImageError, match="cleanup"):
-            gbi.discover_and_import(project="proj", region="us-central1")
+            gbi.discover_and_import(project="proj", ghcr_owner=OWNER, region="us-central1")
 
     def test_dry_run_validates_all_artifacts_without_ephemeral_bucket(self, fake_run):
-        gbi.discover_and_import(project="proj", region="us-central1", dry_run=True)
+        gbi.discover_and_import(project="proj", ghcr_owner=OWNER, region="us-central1", dry_run=True)
 
         assert len(fake_run.ran(["oras", "repo", "tags"])) == len(gbi.BASE_IMAGE_ROLES)
         assert not fake_run.ran(["oras", "blob", "fetch"])

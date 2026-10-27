@@ -138,7 +138,7 @@
       },
       {
         "id": "ADR-003-R7",
-        "description": "SonarCloud scanner identity is repository deployment configuration, not shared source-analysis configuration. The SonarQube Cloud scan step in `.github/workflows/_quality.yml` consumes the project key and organization from the non-secret `SONAR_PROJECT_KEY` and `SONAR_ORGANIZATION` repository variables; `sonar-project.properties` retains shared sources, exclusions, report paths, suppressions, encoding, version, and file-header policy but no `sonar.projectKey`, `sonar.organization`, or `sonar.projectName`. The scan attempt is gated on the canonical `github.repository`, never on either variable being present, so missing or renamed variables fail the scanner loudly on `Brad-Edwards/shifter`. Runs under any other repository slug skip: SonarCloud is this project's tooling choice and is not imposed on anyone who cloned the repository. Fork-origin pull requests also skip, because they execute in the base repository's context (passing the identity test) but receive no secrets, and a scan that cannot be given `SONAR_TOKEN` would hand an outside contributor an unfixable red check; their code is analyzed on the `dev` run after merge. The existing `SONAR_TOKEN` reusable-workflow secret boundary, path/coverage routing, and action SHA pinning remain unchanged. Every canonical analysis that runs MUST set `sonar.qualitygate.wait=true`; scanner upload success without the terminal quality-gate verdict is not an accepted release result. Repository-variable activation and readback are part of the same delivery as the workflow change. The `.ground-control.yaml` `sonarcloud` block remains Ground Control integration metadata and is not a scanner runtime input or an alternative source for workflow arguments. Generated OpenAPI declarations follow the established generated-schema source-analysis exclusion, with any additional exact artifact recorded as an owned, time-bounded exception. Their DRF drift verification and TypeScript consumer checks remain mandatory; handwritten administration code retains all analysis gates. Rename amendment (#2555): after the observed same-owner rename, canonical analysis admits only Brad-Edwards/bigrae with immutable repository ID 1241599684 and owner ID 56809295. The old slug, recreated slugs, other owners and fork-origin pull requests are denied. Current repository tooling, source labels, attestation checks and future-deployment examples use the new slug; historical links, published provenance and pinned pack records retain original coordinates. New public SDK/client coordinates ship legacy import aliases and deprecation distributions; Dependabot owns each package root, including both compatibility distributions.",
+        "description": "SonarCloud scanner identity is repository deployment configuration, not shared source-analysis configuration. The SonarQube Cloud scan step in `.github/workflows/_quality.yml` consumes the project key and organization from the non-secret `SONAR_PROJECT_KEY` and `SONAR_ORGANIZATION` repository variables; `sonar-project.properties` retains shared sources, exclusions, report paths, suppressions, encoding, version, and file-header policy but no `sonar.projectKey`, `sonar.organization`, or `sonar.projectName`. The scan attempt is gated on the immutable `github.repository_id` and `github.repository_owner_id` of the upstream repository, which equal `docs/adr/repository-identity.json` (ADR-069), never on either variable being present, so missing or renamed variables fail the scanner loudly in the upstream repository. Runs in any other repository skip: SonarCloud is this project's tooling choice and is not imposed on anyone who cloned the repository. Fork-origin pull requests also skip, because they execute in the base repository's context (passing the identity test) but receive no secrets, and a scan that cannot be given `SONAR_TOKEN` would hand an outside contributor an unfixable red check; their code is analyzed on the `dev` run after merge. The existing `SONAR_TOKEN` reusable-workflow secret boundary, path/coverage routing, and action SHA pinning remain unchanged. Every canonical analysis that runs MUST set `sonar.qualitygate.wait=true`; scanner upload success without the terminal quality-gate verdict is not an accepted release result. Repository-variable activation and readback are part of the same delivery as the workflow change. The `.ground-control.yaml` `sonarcloud` block remains Ground Control integration metadata and is not a scanner runtime input or an alternative source for workflow arguments. Generated OpenAPI declarations follow the established generated-schema source-analysis exclusion, with any additional exact artifact recorded as an owned, time-bounded exception. Their DRF drift verification and TypeScript consumer checks remain mandatory; handwritten administration code retains all analysis gates. Rename amendment (#2555): after the observed same-owner rename, canonical analysis admits only Brad-Edwards/bigrae with immutable repository ID 1241599684 and owner ID 56809295. The old slug, recreated slugs, other owners and fork-origin pull requests are denied. Current repository tooling, source labels, attestation checks and future-deployment examples use the new slug; historical links, published provenance and pinned pack records retain original coordinates. New public SDK/client coordinates ship legacy import aliases and deprecation distributions; Dependabot owns each package root, including both compatibility distributions.",
         "checks": []
       },
       {
@@ -233,7 +233,7 @@
       },
       {
         "id": "ADR-004-R11",
-        "description": "Checkov is a blocking gate for first-party Terraform under `platform/terraform/`. The GitHub Actions security-iac job (`.github/workflows/_quality.yml`) consumes the canonical config at `platform/terraform/.checkov.yaml` with external module loading and soft_fail=false. The local Checkov hook is optional to keep commits fast; if installed, it must use the same config, directory and blocking policy. CI invocation validation remains mandatory. Accepted-risk waivers (Checkov `skip-check` entries in `.checkov.yaml` or inline `# checkov:skip=CKV_X:...` comments on individual resources) MUST have a matching entry in `docs/adr/exceptions.yaml` with `rule_id: ADR-004-R11`, owner, reason (containing the Checkov policy ID), `expires_on`, and the affected `paths`. `adr_guard.py` rejects expired exceptions, forcing owner re-review. GCP waivers MUST be placed inline on the exact Terraform resource; global `CKV_GCP_*` and `CKV2_GCP_*` skip lists are prohibited because they hide unrelated future resources. Terraform Checkov policy and Kubernetes Checkov policy are separate surfaces: the `security-k8s` job intentionally remains `soft_fail: true` while manifest hardening proceeds under a separate issue, and Kubernetes soft-fail debt does NOT justify Terraform soft-fail. If non-GCP rule-level policy grows beyond a flat skip list, centralize it in `platform/terraform/.checkov.yaml` only — do NOT duplicate skip semantics across pre-commit args and workflow inputs. Rename amendment (#2555): CI loads a narrow immutable-subject syntax adapter through the pinned Checkov external-check hook. It requires package 3.2.494 from the existing action image tag 3.2.495 and the known vendor repository grammar; incompatible initialization stops the scanner. Only repository syntax is extended. All CKV_GCP_125 policy decisions remain active, with native positive/negative and fatal-drift probes in the same digest-pinned image. CI invocation parity requires the adapter path. No rule skip or soft-fail exception is added.",
+        "description": "Checkov is a blocking gate for first-party Terraform under `platform/terraform/`. The GitHub Actions security-iac job (`.github/workflows/_quality.yml`) consumes the canonical config at `platform/terraform/.checkov.yaml` with external module loading and soft_fail=false. The local Checkov hook is optional to keep commits fast; if installed, it must use the same config, directory and blocking policy. CI invocation validation remains mandatory. Accepted-risk waivers (Checkov `skip-check` entries in `.checkov.yaml` or inline `# checkov:skip=CKV_X:...` comments on individual resources) MUST have a matching entry in `docs/adr/exceptions.yaml` with `rule_id: ADR-004-R11`, owner, reason (containing the Checkov policy ID), `expires_on`, and the affected `paths`. `adr_guard.py` rejects expired exceptions, forcing owner re-review. GCP waivers MUST be placed inline on the exact Terraform resource; global `CKV_GCP_*` and `CKV2_GCP_*` skip lists are prohibited because they hide unrelated future resources. Terraform Checkov policy and Kubernetes Checkov policy are separate surfaces: the `security-k8s` job intentionally remains `soft_fail: true` while manifest hardening proceeds under a separate issue, and Kubernetes soft-fail debt does NOT justify Terraform soft-fail. If non-GCP rule-level policy grows beyond a flat skip list, centralize it in `platform/terraform/.checkov.yaml` only \u2014 do NOT duplicate skip semantics across pre-commit args and workflow inputs. Rename amendment (#2555): CI loads a narrow immutable-subject syntax adapter through the pinned Checkov external-check hook. It requires package 3.2.494 from the existing action image tag 3.2.495 and the known vendor repository grammar; incompatible initialization stops the scanner. Only repository syntax is extended. All CKV_GCP_125 policy decisions remain active, with native positive/negative and fatal-drift probes in the same digest-pinned image. CI invocation parity requires the adapter path. No rule skip or soft-fail exception is added.",
         "checks": []
       },
       {
@@ -2133,7 +2133,7 @@
       },
       {
         "id": "ADR-037-R6",
-        "description": "Before mutating ECS/portal or Kubernetes rollout, deployment MUST verify the GitHub attestation for the fixed Brad-Edwards/shifter repository identity and the exact fully-qualified image@sha256 it will deploy. A valid signature for another repository, a tag resolving to a digest, or a digest merely matching the expected shape is insufficient. Any verifier failure, missing attestation, subject/repository mismatch, or digest mismatch is a hard ::error:: and non-zero exit; there is no first-deploy, continue-on-error, or other bypass.",
+        "description": "Before mutating ECS/portal or Kubernetes rollout, deployment MUST verify the GitHub attestation for the running repository identity (`GITHUB_REPOSITORY` as both the repository and the signer repository, ADR-069) and the exact fully-qualified image@sha256 it will deploy. A valid signature for another repository, a tag resolving to a digest, or a digest merely matching the expected shape is insufficient. Any verifier failure, missing attestation, subject/repository mismatch, or digest mismatch is a hard ::error:: and non-zero exit; there is no first-deploy, continue-on-error, or other bypass.",
         "checks": []
       },
       {
@@ -4378,6 +4378,66 @@
       "docs/adr/064-default-range-model-access.md",
       "docs/technical/dev/setup.md",
       "https://github.com/Brad-Edwards/shifter/issues/2274"
+    ]
+  },
+  {
+    "id": "ADR-069",
+    "title": "Repository identity comes from context or configuration, not literals",
+    "status": "accepted",
+    "scope": "repository",
+    "decision": "Self-identity uses the GitHub Actions runtime context. Upstream-only jobs compare the immutable repository and owner IDs declared in docs/adr/repository-identity.json, so forks skip them. Cloud trust and deployed validators get the trusted repository from deployment configuration and bind immutable IDs, with no default identity in code. Operator tooling resolves its target from the clone's gh default repository or an explicit argument. Documentation links, the documentation site, citation and package metadata, historical links, and provenance records may name the upstream project. The ADR guard enforces the rules.",
+    "rules": [
+      {
+        "id": "ADR-069-R1",
+        "description": "A workflow or build that refers to its own repository uses the runtime context (github.repository, github.repository_owner, github.repository_id, github.server_url, or the GITHUB_* environment values), never a literal. This includes attestation verification of artifacts the same repository built, image source labels, and registry namespaces derived from the owner.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      },
+      {
+        "id": "ADR-069-R2",
+        "description": "A job that must run only in the upstream repository compares github.repository_id and github.repository_owner_id, never the name, and the IDs equal docs/adr/repository-identity.json.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      },
+      {
+        "id": "ADR-069-R3",
+        "description": "Cloud trust (AWS IAM OIDC, GCP Workload Identity Federation) and deployed validators get the trusted repository from deployment configuration and bind immutable IDs. Terraform modules, roots, and bootstrap carry no default repository identity, except the GCP WIF trust module (gcp/modules/cicd-oidc-identity and gcp/global/cicd-oidc) keeps a github_org/github_repo default because the mandatory un-skippable CKV_GCP_125 static check must resolve the name; the immutable github_repository_id/github_owner_id remain default-less and are the binding anchor.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      },
+      {
+        "id": "ADR-069-R4",
+        "description": "Operator tooling resolves its target repository from the clone's gh default repository (gh repo set-default --view), an explicit argument, or a GH_REPO value, never from gh repo view, and stops with a clear message when none is set.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      },
+      {
+        "id": "ADR-069-R5",
+        "description": "Documentation links, the documentation site URL, citation and package metadata, historical issue and pull request links, and provenance records may name the upstream project.",
+        "checks": []
+      },
+      {
+        "id": "ADR-069-R6",
+        "description": "The repository-identity-literals check fails when an executable or configuration file contains the declared or a former repository name, the repository or owner ID, or the registry owner namespace outside the declaration and the ADR-069-R5 references, and when .ground-control.yaml github_repo differs from the declaration. Tests use synthetic identities.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      }
+    ],
+    "exceptions": [],
+    "enforcement": [
+      "ci",
+      "pre-commit",
+      "agent-policy"
+    ],
+    "evidence": [
+      "docs/adr/069-repository-identity.md",
+      "docs/adr/repository-identity.json",
+      "docs/architecture/repository-identity-design-1698.md"
     ]
   }
 ]

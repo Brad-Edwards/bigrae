@@ -23,7 +23,6 @@ import {
   buildSsmSendCommandArgs,
   buildRunManageArgs,
   buildPoolConfig,
-  DEFAULT_GITHUB_REPO,
   BASE_AMI_TYPES,
   PROMOTE_AMI_REF,
   BUILD_AMI_REF,
@@ -34,18 +33,16 @@ import {
   buildGhWorkflowRunArgs,
   resolveGhToken,
   ghExec,
+  resolveGithubRepo,
   resolveGitRef,
 } from "./lib.js";
+
+// Synthetic target repository (ADR-069: tests use synthetic identities).
+const SYNTHETIC_REPO = "example-org/example-repo";
 
 // ---------------------------------------------------------------------------
 // REGION constant
 // ---------------------------------------------------------------------------
-describe("DEFAULT_GITHUB_REPO", () => {
-  it("uses the canonical renamed repository", () => {
-    assert.equal(DEFAULT_GITHUB_REPO, "Brad-Edwards/bigrae");
-  });
-});
-
 describe("REGION", () => {
   it("is us-east-2", () => {
     assert.equal(REGION, "us-east-2");
@@ -1073,7 +1070,7 @@ describe("buildGhWorkflowRunArgs", () => {
     assert.deepEqual(
       buildGhWorkflowRunArgs({
         workflow: "packer.yml",
-        repo: DEFAULT_GITHUB_REPO,
+        repo: SYNTHETIC_REPO,
         ref: "dev",
         inputs: { ami_type: "kali" },
       }),
@@ -1082,7 +1079,7 @@ describe("buildGhWorkflowRunArgs", () => {
         "run",
         "packer.yml",
         "--repo",
-        DEFAULT_GITHUB_REPO,
+        SYNTHETIC_REPO,
         "--ref",
         "dev",
         "-f",
@@ -1094,7 +1091,7 @@ describe("buildGhWorkflowRunArgs", () => {
   it("preserves metacharacters in input values as literal argv elements", () => {
     const args = buildGhWorkflowRunArgs({
       workflow: "packer.yml",
-      repo: DEFAULT_GITHUB_REPO,
+      repo: SYNTHETIC_REPO,
       ref: "feature/foo; rm -rf /",
       inputs: { ami_type: "kali" },
     });
@@ -1146,6 +1143,61 @@ describe("ghExec", () => {
         }),
       /HTTP 403: forbidden/,
     );
+  });
+});
+
+describe("resolveGithubRepo (ADR-069)", () => {
+  it("uses an explicit GH_REPO without spawning gh", () => {
+    const runner = makeRecordingRunner({ stdout: "example-org/other-repo\n" });
+    assert.equal(
+      resolveGithubRepo({
+        runner,
+        token: "t",
+        env: { GH_REPO: ` ${SYNTHETIC_REPO} ` },
+      }),
+      SYNTHETIC_REPO,
+    );
+    assert.equal(runner.calls.length, 0);
+  });
+
+  it("falls back to the gh default repository read in the clone", () => {
+    const runner = makeRecordingRunner({ stdout: `${SYNTHETIC_REPO}\n` });
+    assert.equal(
+      resolveGithubRepo({ runner, token: "t", env: { GH_REPO: "" } }),
+      SYNTHETIC_REPO,
+    );
+    assert.equal(runner.calls.length, 1);
+    assert.deepEqual(runner.calls[0].argv, ["repo", "set-default", "--view"]);
+    assert.ok(runner.calls[0].options.cwd, "gh must run in the clone root");
+  });
+
+  it("fails closed when neither GH_REPO nor a gh default is set", () => {
+    // An unset gh default prints nothing on stdout and exits 0.
+    const runner = makeRecordingRunner({
+      stdout: "",
+      stderr: "no default repository has been set",
+    });
+    assert.throws(
+      () => resolveGithubRepo({ runner, token: "t", env: {} }),
+      /GitHub repository not configured.*gh repo set-default/,
+    );
+  });
+
+  it("fails closed when gh exits non-zero", () => {
+    const runner = makeRecordingRunner({ status: 1, stderr: "not a git repository" });
+    assert.throws(
+      () => resolveGithubRepo({ runner, token: "t", env: {} }),
+      /gh repo set-default: not a git repository/,
+    );
+  });
+
+  it("rejects a value that is not <owner>/<repo>", () => {
+    for (const bad of ["example-repo", "ghe.example.com/example-org/example-repo", "org/repo; rm -rf /"]) {
+      assert.throws(
+        () => resolveGithubRepo({ runner: makeRecordingRunner(), token: "t", env: { GH_REPO: bad } }),
+        /must be <owner>\/<repo>/,
+      );
+    }
   });
 });
 
@@ -1235,7 +1287,7 @@ describe("buildGhWorkflowRunArgs for GCE image builds", () => {
     assert.deepEqual(
       buildGhWorkflowRunArgs({
         workflow: "packer-gcp.yml",
-        repo: DEFAULT_GITHUB_REPO,
+        repo: SYNTHETIC_REPO,
         ref: "dev",
         inputs: { image_type: "ubuntu" },
       }),
@@ -1244,7 +1296,7 @@ describe("buildGhWorkflowRunArgs for GCE image builds", () => {
         "run",
         "packer-gcp.yml",
         "--repo",
-        DEFAULT_GITHUB_REPO,
+        SYNTHETIC_REPO,
         "--ref",
         "dev",
         "-f",

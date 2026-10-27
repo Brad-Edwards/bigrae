@@ -219,7 +219,8 @@ jobs:
           # image@digest (resolved from its pinned GUAC_IMAGE_TAG) before the
           # apply job (which needs this one) deploys that same digest via the guac
           # module's data.aws_ecr_image lookup. Covers both freshly built and
-          # cached-but-already-attested images. No bypass.
+          # cached-but-already-attested images. The source and the signer must
+          # be the running repository (ADR-069). No bypass.
           set -euo pipefail
           verify() {
             repo="$1"; tag="$2"; label="$3"
@@ -230,7 +231,8 @@ jobs:
               exit 1
             fi
             echo "Verifying provenance for ${label} (${repo}@${digest})"
-            gh attestation verify "oci://${REGISTRY}/${repo}@${digest}" --repo Brad-Edwards/bigrae
+            gh attestation verify "oci://${REGISTRY}/${repo}@${digest}" \
+              --repo "${GITHUB_REPOSITORY}" --signer-repo "${GITHUB_REPOSITORY}"
           }
           verify "$GUACD_REPO" "$GUAC_IMAGE_TAG" "guacd"
           verify "$GUACAMOLE_CLIENT_REPO" "$GUAC_IMAGE_TAG" "guacamole-client"
@@ -515,6 +517,8 @@ jobs:
         with:
           context: ./shifter
           file: ./shifter/shifter_platform/Dockerfile
+          build-args: |
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.image.outputs.tag }}

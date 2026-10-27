@@ -26,8 +26,15 @@ def test_aws_teardown_rejects_retired_environment():
 
 
 def test_bootstrap_config_rejects_retired_environment():
+    # Supply a synthetic identity (ADR-069 requires it) so the env check is what fails.
     with pytest.raises(ValueError, match="AWS environment"):
-        bootstrap_core.BootstrapConfig(env="proof")
+        bootstrap_core.BootstrapConfig(
+            env="proof",
+            github_org="example-org",
+            github_repo="example-repo",
+            github_repository_id="123456789",
+            github_owner_id="12345678",
+        )
 
 
 @pytest.mark.parametrize("mode", [preflight.Mode.CI, preflight.Mode.LOCAL])
