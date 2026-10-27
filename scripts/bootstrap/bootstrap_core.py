@@ -459,8 +459,8 @@ def _gh_default_target(command_runner: Callable[..., object]) -> str:
     return target
 
 
-def _github_identity_fields(target: str, command_runner: Callable[..., object]) -> dict[str, str]:
-    """Read and validate the identity of target from the GitHub API."""
+def _gh_api_identity_rows(target: str, command_runner: Callable[..., object]) -> list[str]:
+    """Return the four identity rows from the GitHub API, or fail clearly."""
     result = command_runner(
         ["gh", "api", f"repos/{target}", "--jq", ".id, .owner.id, .full_name, .owner.login"],
         check=False,
@@ -471,10 +471,20 @@ def _github_identity_fields(target: str, command_runner: Callable[..., object]) 
     if not succeeded or len(fields) != 4:
         detail = (getattr(result, "stderr", "") or "").strip() or "unexpected response"
         raise RepositoryIdentityError(f"Cannot read repository {target} from the GitHub API: {detail}")
-    repository_id, owner_id, full_name, owner_login = fields
-    owner, _, name = full_name.partition("/")
+    return fields
+
+
+def _valid_github_identity(repository_id: str, owner_id: str, full_name: str, owner: str, owner_login: str) -> bool:
+    """True when the API identity is well-formed and self-consistent."""
     ids_valid = all(_GITHUB_ID_RE.fullmatch(value) for value in (repository_id, owner_id))
-    if not ids_valid or owner != owner_login or not _GH_REPOSITORY_RE.fullmatch(full_name):
+    return bool(ids_valid and owner == owner_login and _GH_REPOSITORY_RE.fullmatch(full_name))
+
+
+def _github_identity_fields(target: str, command_runner: Callable[..., object]) -> dict[str, str]:
+    """Read and validate the identity of target from the GitHub API."""
+    repository_id, owner_id, full_name, owner_login = _gh_api_identity_rows(target, command_runner)
+    owner, _, name = full_name.partition("/")
+    if not _valid_github_identity(repository_id, owner_id, full_name, owner, owner_login):
         raise RepositoryIdentityError(f"The GitHub API returned an invalid identity for repository {target}.")
     return {
         "github_org": owner_login,
