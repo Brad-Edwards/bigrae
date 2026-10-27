@@ -82,10 +82,13 @@ FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199
 
 # Image metadata. `maintainer` is the label SonarCloud docker:S7028 requires;
 # the org.opencontainers.image.* labels are the modern OCI equivalents.
+# CI sets the source URL from the running repository (ADR-069).
+# A local build leaves the label empty.
+ARG SOURCE_REPOSITORY_URL=""
 LABEL maintainer="Shifter maintainers" \
       org.opencontainers.image.title="shifter-portal" \
       org.opencontainers.image.description="Shifter platform portal (Django: Mission Control, CMS, CTF, Management)" \
-      org.opencontainers.image.source="https://github.com/Brad-Edwards/bigrae" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY_URL}" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.authors="Shifter maintainers"
 

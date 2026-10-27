@@ -249,11 +249,13 @@ pairwise-disjoint purpose subjects (never a repository-wide `principalSet`). App
 not the whole cutover - the live activation is a **fail-closed operator step with
 readback**:
 
-1. **Verify the OIDC subject format first.** `gh api
-   repos/Brad-Edwards/bigrae/actions/oidc/customization/sub` must return
+1. **Verify the OIDC subject format first.** Run
+   `REPO="$(gh repo set-default --view)"`. Then
+   `gh api "repos/$REPO/actions/oidc/customization/sub"` must return
    `use_default: true`, `use_immutable_subject: true` for the renamed canonical
-   repository. The subject prefix must contain the observed owner and repository
-   IDs. AWS and GCP inputs now default to `github_subject_format = "immutable"`.
+   repository. The `sub_claim_prefix` must be
+   `repo:<owner>@<owner_id>/<repo>@<repository_id>` with the observed owner and
+   repository IDs. AWS and GCP inputs now default to `github_subject_format = "immutable"`.
    Other repositories must supply their own `github_org`, `github_repo`,
    `github_owner_id` and `github_repository_id`. AWS bootstrap passes these same
    identity inputs to its Terraform role. A repository that still uses the old

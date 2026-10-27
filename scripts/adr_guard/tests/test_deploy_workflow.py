@@ -138,7 +138,7 @@ class TestExpressionOperandCoverage(unittest.TestCase):
         self.assertFalse(ADR_GUARD._dw_evaluate_if("${{ github.event_name == 'pull_request' }}", event_name="push"))
 
     def test_repository_identity_is_resolvable(self):
-        expr = "github.repository == 'Brad-Edwards/bigrae'"
+        expr = f"github.repository == '{ADR_GUARD._DW_CANONICAL_REPOSITORY}'"
         # The permissive default is the canonical repository, so only the
         # scenario under test flips the outcome.
         self.assertTrue(ADR_GUARD._dw_evaluate_if(expr))
@@ -453,7 +453,7 @@ class TestSonarScannerIdentity(unittest.TestCase):
     has not crept back in.
     """
 
-    CANONICAL_REPOSITORY = "Brad-Edwards/bigrae"
+    CANONICAL_REPOSITORY = ADR_GUARD._DW_CANONICAL_REPOSITORY
     IDENTITY_PROPERTIES = (
         "sonar.projectKey",
         "sonar.organization",
@@ -515,8 +515,12 @@ class TestSonarScannerIdentity(unittest.TestCase):
             "the canonical repository must always attempt the Sonar scan",
         )
 
-    def test_legacy_slug_is_not_trusted_after_cutover(self):
-        self.assertFalse(ADR_GUARD._dw_evaluate_if(self.scan_if, repository="Brad-Edwards/shifter"))
+    def test_rename_keeps_the_scan(self):
+        # The gate compares immutable IDs (ADR-069), so a renamed upstream still scans.
+        self.assertTrue(ADR_GUARD._dw_evaluate_if(self.scan_if, repository="example-org/renamed-repo"))
+
+    def test_gate_names_no_repository(self):
+        self.assertNotIn("github.repository ==", self.scan_if)
 
     def test_recreated_canonical_slug_is_not_trusted(self):
         self.assertFalse(
@@ -525,7 +529,7 @@ class TestSonarScannerIdentity(unittest.TestCase):
 
     def test_renamed_slug_under_wrong_owner_is_not_trusted(self):
         self.assertFalse(
-            ADR_GUARD._dw_evaluate_if(self.scan_if, repository="Brad-Edwards/bigrae", repository_owner_id="999")
+            ADR_GUARD._dw_evaluate_if(self.scan_if, repository=self.CANONICAL_REPOSITORY, repository_owner_id="999")
         )
 
     def test_unset_variables_do_not_skip_the_scan(self):
@@ -544,7 +548,12 @@ class TestSonarScannerIdentity(unittest.TestCase):
 
     def test_other_repositories_skip_the_scan(self):
         self.assertFalse(
-            ADR_GUARD._dw_evaluate_if(self.scan_if, repository="someone/shifter"),
+            ADR_GUARD._dw_evaluate_if(
+                self.scan_if,
+                repository="example-org/example-repo",
+                repository_id="123456789",
+                repository_owner_id="12345678",
+            ),
             "SonarCloud is this project's tooling choice, not a dependency "
             "imposed on anyone who cloned the repo — their runs must skip it",
         )

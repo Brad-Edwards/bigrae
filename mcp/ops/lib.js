@@ -9,6 +9,7 @@
 // see `mcp/ngfw/lib.js` and `mcp/ops/SECURITY.md` for context.
 
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { buildSsmSendCommandArgs } from "../shared/aws-helpers.js";
 
 export {
@@ -23,7 +24,11 @@ export {
 
 // --- GitHub Actions (gh CLI) ---
 
-export const DEFAULT_GITHUB_REPO = "Brad-Edwards/bigrae";
+/** Root of the clone that contains this server; gh reads its default repository there. */
+const CLONE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+
+/** github.com `<owner>/<repo>` shape that the dispatch argv and links expect. */
+const GITHUB_REPO_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 /** Protected integration branch for prod AMI promotion workflows. */
 export const PROMOTE_AMI_REF = "dev";
@@ -105,6 +110,7 @@ export function ghExec(args, options = {}) {
     );
   }
   const {
+    cwd,
     env = process.env,
     runner = defaultGhRunner,
     timeoutMs = 60000,
@@ -113,6 +119,7 @@ export function ghExec(args, options = {}) {
   const ghToken = token ?? resolveGhToken(env);
   const label = ghOperationLabel(args);
   const result = runner(args, {
+    cwd,
     encoding: "utf-8",
     timeout: timeoutMs,
     env: { ...env, GH_TOKEN: ghToken, GITHUB_TOKEN: ghToken },
@@ -128,6 +135,31 @@ export function ghExec(args, options = {}) {
     throw new Error(`${label}: ${detail}`);
   }
   return (result.stdout || "").trim();
+}
+
+/**
+ * Resolve the repository that workflow dispatches target (ADR-069 rule 4).
+ * An explicit GH_REPO in the MCP environment wins. Otherwise use the clone's
+ * gh default repository (`gh repo set-default --view`). Do not fall back to
+ * `gh repo view`: without a default it selects the upstream remote. When
+ * neither value is set, the dispatch fails closed. `options` are the ghExec
+ * options; `cwd` defaults to the clone root.
+ */
+export function resolveGithubRepo(options = {}) {
+  const { env = process.env, cwd = CLONE_ROOT } = options;
+  const explicit = (env.GH_REPO ?? "").trim();
+  const repo =
+    explicit ||
+    ghExec(["repo", "set-default", "--view"], { ...options, env, cwd });
+  if (!repo) {
+    throw new Error(
+      "GitHub repository not configured. Set GH_REPO=<owner>/<repo> in the MCP environment, or run `gh repo set-default <owner>/<repo>` in the clone.",
+    );
+  }
+  if (!GITHUB_REPO_PATTERN.test(repo)) {
+    throw new Error(`GitHub repository must be <owner>/<repo>; got '${repo}'`);
+  }
+  return repo;
 }
 
 function defaultGitRunner(argv, options) {

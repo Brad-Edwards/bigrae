@@ -52,9 +52,6 @@ BASE_IMAGE_ROLES = ("kali", "ubuntu", "dc")
 GCE_IMAGE_ARTIFACT_TYPE = "application/vnd.shifter.gce-image.v1"
 GCE_IMAGE_MEDIA_TYPE = "application/vnd.shifter.gce-image.tar.gz"
 
-# GHCR owner the base-image packages are published under.
-GHCR_OWNER = "brad-edwards"
-
 # Each base role maps to the GCE range-cell image env var the runtime consumes.
 # ubuntu is the default unkeyed Linux/host profile (GCP_RANGE_LINUX_IMAGE).
 _ROLE_TO_RANGE_ENV = {
@@ -85,7 +82,7 @@ class ResolvedArtifact:
     """A validated, digest-pinned base-image artifact ready to import."""
 
     role: str
-    package: str  # e.g. ghcr.io/brad-edwards/shifter-gce-kali
+    package: str  # e.g. ghcr.io/<owner>/shifter-gce-kali
     digest: str  # sha256:<64 hex>
     disk_digest: str  # sha256:<64 hex> for the validated GCE disk layer
     revision: str  # provenance: the protected build source revision
@@ -112,11 +109,15 @@ class ImportedImage:
     reused: bool
 
 
-def package_for_role(role: str) -> str:
-    """Return the GHCR package path for a base role."""
+def package_for_role(role: str, ghcr_owner: str) -> str:
+    """Return the GHCR package path for a base role.
+
+    ``ghcr_owner`` is the lowercase owner of the resolved target repository
+    (ADR-069). packer-gcp.yml publishes under that owner.
+    """
     if role not in BASE_IMAGE_ROLES:
         raise BaseImageError(f"unsupported public base-image role {role!r}")
-    return f"ghcr.io/{GHCR_OWNER}/shifter-gce-{role}"
+    return f"ghcr.io/{ghcr_owner}/shifter-gce-{role}"
 
 
 # --- Pure parsing / validation -----------------------------------------------
@@ -270,9 +271,9 @@ def _fetch_manifest(package: str, digest: str) -> dict[str, object]:
     )
 
 
-def resolve_artifact(role: str) -> ResolvedArtifact:
+def resolve_artifact(role: str, ghcr_owner: str) -> ResolvedArtifact:
     """Discover, digest-pin, and validate the GHCR base-image artifact for a role."""
-    package = package_for_role(role)
+    package = package_for_role(role, ghcr_owner)
     digest = _fetch_digest(package, _discover_newest_tag(package))
     manifest = _fetch_manifest(package, digest)
     revision = validate_artifact_manifest(manifest, role=role)
@@ -514,6 +515,7 @@ def _delete_transfer_bucket(project: str, bucket: str) -> None:
 def discover_and_import(
     *,
     project: str,
+    ghcr_owner: str,
     region: str = "us-central1",
     roles: tuple[str, ...] = BASE_IMAGE_ROLES,
     dry_run: bool = False,
@@ -528,7 +530,7 @@ def discover_and_import(
     header("Reusable GCE base images (GHCR -> native GCE)")
     artifacts: list[ResolvedArtifact] = []
     for role in roles:
-        artifact = resolve_artifact(role)
+        artifact = resolve_artifact(role, ghcr_owner)
         info(f"Resolved '{role}' -> {artifact.pinned_reference} (build {artifact.revision[:12]})")
         artifacts.append(artifact)
 

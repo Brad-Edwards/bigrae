@@ -36,7 +36,8 @@ class _StopAfterImageHandoff(RuntimeError):
 class _GcpBootstrapProcess:
     """Simulate the public-image and first-platform process boundaries."""
 
-    def __init__(self, *, fail_publication: bool = False):
+    def __init__(self, gh_identity, *, fail_publication: bool = False):
+        self.gh_identity = gh_identity
         self.calls: list[list[str]] = []
         self.observed_image_env: dict[str, str | None] = {}
         self.fail_publication = fail_publication
@@ -88,8 +89,9 @@ class _GcpBootstrapProcess:
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     def _run_gh(self, cmd):
-        if cmd[:4] == ["gh", "repo", "view", "--json"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="Brad-Edwards/bigrae\n", stderr="")
+        identity = self.gh_identity(cmd)
+        if identity is not None:
+            return identity
         if cmd[:2] == ["gh", "api"] and "--paginate" in cmd:
             return subprocess.CompletedProcess(
                 cmd,
@@ -254,9 +256,9 @@ def prevent_real_subprocess_calls():
 
 
 @pytest.fixture
-def bootstrap_config():
+def bootstrap_config(github_identity):
     """Return a valid BootstrapConfig for testing."""
-    return deploy.BootstrapConfig(env="dev")
+    return deploy.BootstrapConfig(env="dev", **github_identity)
 
 
 @pytest.fixture
@@ -386,6 +388,18 @@ class TestMainCLI:
         ):
             deploy.main()
 
+    @pytest.mark.parametrize("command", ["bootstrap", "terraform", "full", "account-recovery"])
+    def test_aws_commands_reject_retired_proof_env(self, command, capsys):
+        """The AWS proof environment is retired, so --env proof is not a valid choice."""
+        with (
+            patch("sys.argv", ["deploy.py", command, "--env", "proof", "--profile", "test"]),
+            pytest.raises(SystemExit) as exc,
+        ):
+            deploy.main()
+
+        assert exc.value.code == 2
+        assert "invalid choice: 'proof'" in capsys.readouterr().err
+
     # ---------------------------------------------------------------------
     # Dependency checking
     # ---------------------------------------------------------------------
@@ -412,8 +426,8 @@ class TestMainCLI:
     # Command execution
     # ---------------------------------------------------------------------
 
-    def test_executes_bootstrap_command(self):
-        """CLI executes bootstrap_account when bootstrap command given."""
+    def test_executes_bootstrap_command(self, gh_default_repository, github_identity):
+        """CLI executes bootstrap_account with the resolved repository identity."""
         with (
             patch("sys.argv", ["deploy.py", "bootstrap", "--env", "dev", "--profile", "test"]),
             patch("shutil.which", return_value="/usr/bin/tool"),
@@ -425,7 +439,9 @@ class TestMainCLI:
 
             deploy.main(dependency_checker=_skip_dependency_check)
 
-            mock_bootstrap.assert_called_once_with(deploy.BootstrapConfig(env="dev"), "test", dry_run=False)
+            mock_bootstrap.assert_called_once_with(
+                deploy.BootstrapConfig(env="dev", **github_identity), "test", dry_run=False
+            )
 
     def test_executes_terraform_command(self):
         """CLI executes terraform_deploy when terraform command given."""
@@ -500,7 +516,7 @@ class TestMainCLI:
     # Dry-run mode
     # ---------------------------------------------------------------------
 
-    def test_passes_dry_run_flag_to_bootstrap(self):
+    def test_passes_dry_run_flag_to_bootstrap(self, gh_default_repository):
         """CLI passes --dry-run flag to bootstrap_account."""
         with (
             patch("sys.argv", ["deploy.py", "bootstrap", "--env", "dev", "--profile", "test", "--dry-run"]),
@@ -553,8 +569,10 @@ class TestMainCLI:
 
             assert mock_gdc_bootstrap.call_args[1]["dry_run"] is True
 
-    def test_gdc_bootstrap_imports_public_images_and_hands_exact_refs_to_platform(self, tmp_path):
-        runner = _GcpBootstrapProcess()
+    def test_gdc_bootstrap_imports_public_images_and_hands_exact_refs_to_platform(
+        self, tmp_path, gh_identity_responder
+    ):
+        runner = _GcpBootstrapProcess(gh_identity_responder)
         keys = ("GCP_RANGE_LINUX_IMAGE", "GCP_RANGE_KALI_IMAGE", "GCP_RANGE_DC_IMAGE")
         expected = {
             "GCP_RANGE_LINUX_IMAGE": "projects/proj/global/images/shifter-ubuntu-aaaaaaaaaaaa",
@@ -590,14 +608,24 @@ class TestMainCLI:
                 assert {key: os.environ.get(key) for key in keys} == dict.fromkeys(keys, "before")
                 assert runner.publication_count == 3
                 assert any(call[:3] == ["gcloud", "storage", "rm"] and "--recursive" in call for call in runner.calls)
+                # ADR-069: the GHCR owner and the published repository come from the resolved identity.
+                assert any("ghcr.io/example-org/shifter-gce-kali" in token for call in runner.calls for token in call)
+                published = [call for call in runner.calls if call[:3] == ["gh", "api", "--method"]]
+                assert all(
+                    "repos/example-org/example-repo/environments/gcp-dev/variables" in call[4] for call in published
+                )
         finally:
             deploy.set_assume_yes(False)
 
-    def test_combined_image_bootstrap_rejects_before_any_external_command(self):
+    def test_combined_image_bootstrap_rejects_before_any_external_command(self, gh_identity_responder):
         deploy.set_assume_yes(False)
 
-        def unexpected_command(*_args, **_kwargs):
-            raise AssertionError("external command ran before combined bootstrap confirmation")
+        def unexpected_command(cmd, *_args, **_kwargs):
+            # Only the read-only identity lookup runs, so that the operator can confirm it (ADR-069).
+            identity = gh_identity_responder(cmd)
+            if identity is None:
+                raise AssertionError("external command ran before combined bootstrap confirmation")
+            return identity
 
         with (
             patch("sys.stdin.isatty", return_value=False),
@@ -611,8 +639,8 @@ class TestMainCLI:
 
         assert exc.value.code == 0
 
-    def test_gdc_bootstrap_does_not_start_platform_after_image_publication_failure(self):
-        runner = _GcpBootstrapProcess(fail_publication=True)
+    def test_gdc_bootstrap_does_not_start_platform_after_image_publication_failure(self, gh_identity_responder):
+        runner = _GcpBootstrapProcess(gh_identity_responder, fail_publication=True)
         deploy.set_assume_yes(True)
         try:
             with patch("subprocess.run", side_effect=runner), pytest.raises(SystemExit):
@@ -658,8 +686,6 @@ class TestMainCLI:
 
         def fake_run(cmd, dry_run=False, **_kwargs):
             calls.append((cmd, dry_run))
-            if cmd[:4] == ["gh", "repo", "view", "--json"]:
-                return subprocess.CompletedProcess(cmd, 0, stdout="Brad-Edwards/bigrae\n", stderr="")
             if cmd[:2] == ["gh", "api"] and "--paginate" in cmd:
                 return subprocess.CompletedProcess(
                     cmd,
@@ -669,9 +695,15 @@ class TestMainCLI:
                 )
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-        deploy._publish_range_image_env(refs, "tenant", dry_run=False, command_runner=fake_run)
+        deploy._publish_range_image_env(
+            refs, "tenant", repository="example-org/example-repo", dry_run=False, command_runner=fake_run
+        )
         variable_calls = [call for call, dry_run in calls if call[:3] == ["gh", "api", "--method"]]
         assert len(variable_calls) == 3
+        assert all(
+            call[4].startswith("repos/example-org/example-repo/environments/tenant/variables")
+            for call in variable_calls
+        )
         assert {
             (
                 call[call.index("--method") + 1],
@@ -933,7 +965,7 @@ class TestMainCLI:
         assert "--cloud" in help_text
         assert "--project-id" in help_text
 
-    def test_runners_cloud_gcp_dispatches_to_gcp_path(self, capsys):
+    def test_runners_cloud_gcp_dispatches_to_gcp_path(self, capsys, gh_default_repository):
         """--cloud gcp dry-run plans the GCP runner root, never the AWS SSM path.
 
         Asserts observable behavior (ADR-019) rather than patching first-party
@@ -962,7 +994,28 @@ class TestMainCLI:
         ):
             deploy.main()
 
+    def test_stops_with_clear_message_without_gh_default_repository(self, capsys):
+        """Without a gh default repository the command stops before any work (ADR-069)."""
+        calls = []
 
+        def run(cmd, *_args, **_kwargs):
+            calls.append(cmd)
+            # gh prints nothing on stdout and exits 0 when no default is set.
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="no default repository has been set")
+
+        with (
+            patch("sys.argv", ["deploy.py", "runners", "--env", "dev", "--profile", "test", "--dry-run"]),
+            patch("subprocess.run", side_effect=run),
+            pytest.raises(SystemExit) as exc,
+        ):
+            deploy.main(dependency_checker=_skip_dependency_check)
+
+        assert exc.value.code == 1
+        assert "No gh default repository is set" in capsys.readouterr().out
+        assert calls == [["gh", "repo", "set-default", "--view"]]
+
+
+@pytest.mark.usefixtures("gh_default_repository")
 class TestRunnersDeployment:
     """Observable behavior of the runners_deployment handler in dry-run."""
 

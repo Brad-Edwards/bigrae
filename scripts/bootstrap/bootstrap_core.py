@@ -7,10 +7,10 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 from pathlib import Path
 
 # SonarCloud S1192: extracted duplicated string literals.
@@ -437,6 +437,79 @@ def get_repo_root() -> Path:
     return Path(__file__).parent.parent.parent
 
 
+class RepositoryIdentityError(RuntimeError):
+    """The target GitHub repository cannot be resolved (ADR-069)."""
+
+
+_GH_REPOSITORY_RE = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", re.ASCII)
+_GITHUB_ID_RE = re.compile(r"[1-9]\d*", re.ASCII)
+
+
+def _gh_default_target(command_runner: Callable[..., object]) -> str:
+    """Return the clone's gh default repository, or fail with a clear message."""
+    default = command_runner(["gh", "repo", "set-default", "--view"], check=False, capture=True)
+    target = (getattr(default, "stdout", "") or "").strip()
+    if not target:
+        raise RepositoryIdentityError(
+            "No gh default repository is set for this clone. "
+            "Run 'gh repo set-default <owner>/<repo>', then run bootstrap again."
+        )
+    if not _GH_REPOSITORY_RE.fullmatch(target):
+        raise RepositoryIdentityError(f"The gh default repository {target!r} is not in the form <owner>/<repo>.")
+    return target
+
+
+def _gh_api_identity_rows(target: str, command_runner: Callable[..., object]) -> list[str]:
+    """Return the four identity rows from the GitHub API, or fail clearly."""
+    result = command_runner(
+        ["gh", "api", f"repos/{target}", "--jq", ".id, .owner.id, .full_name, .owner.login"],
+        check=False,
+        capture=True,
+    )
+    succeeded = result is not None and getattr(result, "returncode", 1) == 0
+    fields = [line.strip() for line in (getattr(result, "stdout", "") or "").splitlines() if line.strip()]
+    if not succeeded or len(fields) != 4:
+        detail = (getattr(result, "stderr", "") or "").strip() or "unexpected response"
+        raise RepositoryIdentityError(f"Cannot read repository {target} from the GitHub API: {detail}")
+    return fields
+
+
+def _valid_github_identity(repository_id: str, owner_id: str, full_name: str, owner: str, owner_login: str) -> bool:
+    """True when the API identity is well-formed and self-consistent."""
+    ids_valid = all(_GITHUB_ID_RE.fullmatch(value) for value in (repository_id, owner_id))
+    return bool(ids_valid and owner == owner_login and _GH_REPOSITORY_RE.fullmatch(full_name))
+
+
+def _github_identity_fields(target: str, command_runner: Callable[..., object]) -> dict[str, str]:
+    """Read and validate the identity of target from the GitHub API."""
+    repository_id, owner_id, full_name, owner_login = _gh_api_identity_rows(target, command_runner)
+    owner, _, name = full_name.partition("/")
+    if not _valid_github_identity(repository_id, owner_id, full_name, owner, owner_login):
+        raise RepositoryIdentityError(f"The GitHub API returned an invalid identity for repository {target}.")
+    return {
+        "github_org": owner_login,
+        "github_repo": name,
+        "github_repository_id": repository_id,
+        "github_owner_id": owner_id,
+    }
+
+
+def resolve_github_repository(command_runner: Callable[..., object] = run_cmd) -> dict[str, str]:
+    """Resolve the target repository from the clone's gh default and the GitHub API (ADR-069).
+
+    Returns the BootstrapConfig identity fields. The owner and name come from the
+    API, so a renamed repository resolves to its current owner and name. The
+    identity is shown so that the operator can confirm it before a write.
+    """
+    target = _gh_default_target(command_runner)
+    identity = _github_identity_fields(target, command_runner)
+    info(
+        f"Target GitHub repository: {identity['github_org']}/{identity['github_repo']} "
+        f"(repository ID {identity['github_repository_id']}, owner ID {identity['github_owner_id']})"
+    )
+    return identity
+
+
 GDC_API_SERVICES = [
     "anthos.googleapis.com",
     "anthosaudit.googleapis.com",
@@ -492,11 +565,13 @@ class BootstrapConfig:
     # Default AWS bootstrap region. Multi-region support is outside issue #687.
     env: str
     region: str = "us-east-2"
-    # Default GitHub target; forked deployments can override the config object.
-    github_org: str = "Brad-Edwards"
-    github_repo: str = "bigrae"
-    github_repository_id: str = "1241599684"
-    github_owner_id: str = "56809295"
+    # ADR-069: the GitHub target has no default. Callers give the values from
+    # resolve_github_repository() or explicit operator values.
+    _: KW_ONLY
+    github_org: str
+    github_repo: str
+    github_repository_id: str
+    github_owner_id: str
     github_subject_format: str = "immutable"
 
     def __post_init__(self) -> None:

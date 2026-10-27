@@ -1080,6 +1080,36 @@ To add a production path:
    `.github/quality-path-filters.yaml#<unit>:<responsibility>` anchor. There is
    no in-contract escape hatch for an owned production path.
 
+## Repository identity (ADR-069)
+
+`docs/adr/repository-identity.json` declares the upstream repository name,
+owner, immutable repository and owner IDs, and former names. The
+`repository-identity-literals` check (ADR-069-R6) reads it at the `fast` and
+`ci` levels.
+
+- The check fails on the declared or a former repository name, either ID, or
+  the `ghcr.io/<owner>/` namespace in a tracked file.
+- These places are allowed: the declaration, Markdown, `docs/**`, `mkdocs.yml`,
+  committed Terraform `.tfvars` (deployment configuration), and the pack
+  provenance records.
+- In `.github/workflows/*.yml`, the only allowed form is the upstream-only
+  guard comparison `github.repository_id == '<id>'` or
+  `github.repository_owner_id == '<id>'`.
+- The check also fails when `.ground-control.yaml` `github_repo` differs from
+  the declaration.
+
+The workflow expression model reads the same declaration for its canonical
+scenario. A rename changes the declaration, `.ground-control.yaml`, and the
+deployment configuration only.
+
+The check is split for reuse: `scripts/adr_guard/_guard/_repository_identity.py`
+loads and validates the declaration, and
+`scripts/adr_guard/_guard/checks/repository_identity.py` runs the scan. The
+GCP WIF trust module keeps a repository-name default so the mandatory
+CKV_GCP_125 check resolves the trust subject; the identity-literals check does
+not flag it, because it matches the `owner/repo` pair and the IDs, not a bare
+org or repo string.
+
 ## Design Constraints
 
 - Keep the default local gate fast.

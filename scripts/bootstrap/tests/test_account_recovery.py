@@ -30,12 +30,12 @@ from account_recovery import (
 _OWNER_TAGS = [
     {"Key": "Project", "Value": "shifter"},
     {"Key": "ManagedBy", "Value": "terraform"},
-    {"Key": "Environment", "Value": "proof"},
+    {"Key": "Environment", "Value": "dev"},
 ]
 _FOREIGN_TAGS = [
     {"Key": "Project", "Value": "shifter"},
     {"Key": "ManagedBy", "Value": "terraform"},
-    {"Key": "Environment", "Value": "dev"},  # different env -> not owned
+    {"Key": "Environment", "Value": "prod"},  # different env -> not owned
 ]
 
 # Empty liveness responses: a torn-down account (no portal ASG, no RDS) so the
@@ -106,8 +106,8 @@ class TestDetection:
                     {
                         "DBParameterGroups": [
                             {"DBParameterGroupName": "default.postgres16", "DBParameterGroupArn": "arn:default"},
-                            {"DBParameterGroupName": "shifter-proof-portal", "DBParameterGroupArn": "arn:owned"},
-                            {"DBParameterGroupName": "shifter-dev-portal", "DBParameterGroupArn": "arn:foreign"},
+                            {"DBParameterGroupName": "shifter-dev-portal", "DBParameterGroupArn": "arn:owned"},
+                            {"DBParameterGroupName": "shifter-prod-portal", "DBParameterGroupArn": "arn:foreign"},
                         ]
                     }
                 ),
@@ -115,12 +115,12 @@ class TestDetection:
                 "list-tags-for-resource --resource-name arn:foreign": json.dumps({"TagList": _FOREIGN_TAGS}),
             }
         )
-        report = detect_leftovers("proof", "proof")
+        report = detect_leftovers("dev", "dev")
         pgs = [f for f in report.findings if f.resource_class == "rds-db-parameter-group"]
         owned = [f for f in pgs if f.action is Action.WOULD_DELETE]
-        # Only the tag-owned, proof-env group is actionable; default.* and the
-        # dev-env group are excluded (name match alone is never ownership).
-        assert [f.identifier for f in owned] == ["shifter-proof-portal"]
+        # Only the tag-owned, dev-env group is actionable; default.* and the
+        # prod-env group are excluded (name match alone is never ownership).
+        assert [f.identifier for f in owned] == ["shifter-dev-portal"]
 
     def test_kms_alias_prefix_scoped_and_excludes_aws_managed(self, patched):
         patched(
@@ -129,29 +129,29 @@ class TestDetection:
                     {
                         "Aliases": [
                             {"AliasName": "alias/aws/s3"},  # AWS-managed -> skip
-                            {"AliasName": "alias/shifter-proof-portal-secrets"},  # owned
-                            {"AliasName": "alias/shifter-dev-portal-secrets"},  # other env -> skip
+                            {"AliasName": "alias/shifter-dev-portal-secrets"},  # owned
+                            {"AliasName": "alias/shifter-prod-portal-secrets"},  # other env -> skip
                             {"AliasName": "alias/some-unrelated-thing"},  # not ours -> skip
                         ]
                     }
                 )
             }
         )
-        report = detect_leftovers("proof", "proof")
+        report = detect_leftovers("dev", "dev")
         aliases = [
             f.identifier for f in report.findings if f.resource_class == "kms-alias" and f.action is Action.WOULD_DELETE
         ]
-        assert aliases == ["alias/shifter-proof-portal-secrets"]
+        assert aliases == ["alias/shifter-dev-portal-secrets"]
 
     def test_budget_is_reported_blocked_never_deletable(self, patched):
         patched(
             {
                 "budgets describe-budgets": json.dumps(
-                    {"Budgets": [{"BudgetName": "shifter-proof-s3-cost-alert"}, {"BudgetName": "unrelated"}]}
+                    {"Budgets": [{"BudgetName": "shifter-dev-s3-cost-alert"}, {"BudgetName": "unrelated"}]}
                 )
             }
         )
-        report = detect_leftovers("proof", "proof")
+        report = detect_leftovers("dev", "dev")
         budgets = [f for f in report.findings if f.resource_class == "budget"]
         actionable = [f for f in budgets if f.action is not Action.ABSENT]
         assert len(actionable) == 1
@@ -159,7 +159,7 @@ class TestDetection:
 
     def test_clean_account_reports_all_absent(self, patched):
         patched({})  # every read returns not-found
-        report = detect_leftovers("proof", "proof")
+        report = detect_leftovers("dev", "dev")
         assert report.actionable == []
         assert "clean" in report.render()
 
@@ -169,14 +169,14 @@ class TestSweepGating:
         deletes = patched(
             {
                 "ecr describe-repositories": json.dumps(
-                    {"repositories": [{"repositoryName": "shifter-proof-portal", "repositoryArn": "arn:ecr"}]}
+                    {"repositories": [{"repositoryName": "shifter-dev-portal", "repositoryArn": "arn:ecr"}]}
                 ),
                 "ecr list-tags-for-resource": json.dumps({"tags": _OWNER_TAGS}),
-                "budgets describe-budgets": json.dumps({"Budgets": [{"BudgetName": "shifter-proof-s3-cost-alert"}]}),
+                "budgets describe-budgets": json.dumps({"Budgets": [{"BudgetName": "shifter-dev-s3-cost-alert"}]}),
             }
         )
-        report = detect_leftovers("proof", "proof")
-        result = sweep_leftovers(report, "proof", dry_run=False)
+        report = detect_leftovers("dev", "dev")
+        result = sweep_leftovers(report, "dev", dry_run=False)
         deleted = [f for f in result.findings if f.action is Action.DELETED]
         # The tag-owned ECR repo is deleted; the budget stays BLOCKED.
         assert [f.resource_class for f in deleted] == ["ecr-repository"]
@@ -187,13 +187,13 @@ class TestSweepGating:
         deletes = patched(
             {
                 "ecr describe-repositories": json.dumps(
-                    {"repositories": [{"repositoryName": "shifter-proof-portal", "repositoryArn": "arn:ecr"}]}
+                    {"repositories": [{"repositoryName": "shifter-dev-portal", "repositoryArn": "arn:ecr"}]}
                 ),
                 "ecr list-tags-for-resource": json.dumps({"tags": _OWNER_TAGS}),
             }
         )
-        report = detect_leftovers("proof", "proof")
-        result = sweep_leftovers(report, "proof", dry_run=True)
+        report = detect_leftovers("dev", "dev")
+        result = sweep_leftovers(report, "dev", dry_run=True)
         assert [f.action for f in result.findings if f.resource_class == "ecr-repository"] == [Action.WOULD_DELETE]
         # dry_run short-circuits before any delete argv executes.
         assert deletes == []
@@ -203,12 +203,12 @@ class TestSweepGating:
             {
                 **_NOT_LIVE,
                 "ecr describe-repositories": json.dumps(
-                    {"repositories": [{"repositoryName": "shifter-proof-portal", "repositoryArn": "arn:ecr"}]}
+                    {"repositories": [{"repositoryName": "shifter-dev-portal", "repositoryArn": "arn:ecr"}]}
                 ),
                 "ecr list-tags-for-resource": json.dumps({"tags": _OWNER_TAGS}),
             }
         )
-        run_account_recovery("proof", "proof", sweep=False, dry_run=False)
+        run_account_recovery("dev", "dev", sweep=False, dry_run=False)
         # No --sweep -> nothing deleted even though an owned leftover exists.
         assert deletes == []
 
@@ -221,16 +221,16 @@ class TestLivenessGuard:
         deletes = patched(
             {
                 "autoscaling describe-auto-scaling-groups": json.dumps(
-                    {"AutoScalingGroups": [{"AutoScalingGroupName": "proof-portal-asg-abc", "Instances": [{"x": 1}]}]}
+                    {"AutoScalingGroups": [{"AutoScalingGroupName": "dev-portal-asg-abc", "Instances": [{"x": 1}]}]}
                 ),
                 # An owned ECR repo also exists, but liveness refusal fires first.
                 "ecr describe-repositories": json.dumps(
-                    {"repositories": [{"repositoryName": "shifter-proof-portal", "repositoryArn": "arn:ecr"}]}
+                    {"repositories": [{"repositoryName": "shifter-dev-portal", "repositoryArn": "arn:ecr"}]}
                 ),
                 "ecr list-tags-for-resource": json.dumps({"tags": _OWNER_TAGS}),
             }
         )
-        report = run_account_recovery("proof", "proof", sweep=True, dry_run=False)
+        report = run_account_recovery("dev", "dev", sweep=True, dry_run=False)
         assert report.findings == []  # refused: nothing presented as a leftover
         assert deletes == []  # and nothing deleted despite --sweep
 
@@ -241,12 +241,12 @@ class TestLivenessGuard:
             {
                 "autoscaling describe-auto-scaling-groups": "__ERROR__",
                 "ecr describe-repositories": json.dumps(
-                    {"repositories": [{"repositoryName": "shifter-proof-portal", "repositoryArn": "arn:ecr"}]}
+                    {"repositories": [{"repositoryName": "shifter-dev-portal", "repositoryArn": "arn:ecr"}]}
                 ),
                 "ecr list-tags-for-resource": json.dumps({"tags": _OWNER_TAGS}),
             }
         )
-        report = run_account_recovery("proof", "proof", sweep=True, dry_run=False)
+        report = run_account_recovery("dev", "dev", sweep=True, dry_run=False)
         assert report.findings == []
         assert deletes == []
 
@@ -255,7 +255,7 @@ class TestLivenessGuard:
             {
                 **_NOT_LIVE,
                 "ecr describe-repositories": json.dumps(
-                    {"repositories": [{"repositoryName": "shifter-proof-portal", "repositoryArn": "arn:ecr"}]}
+                    {"repositories": [{"repositoryName": "shifter-dev-portal", "repositoryArn": "arn:ecr"}]}
                 ),
                 "ecr list-tags-for-resource": json.dumps({"tags": _OWNER_TAGS}),
             }
@@ -263,7 +263,7 @@ class TestLivenessGuard:
         # Grant the destructive confirmation (the confirm()/--yes gate is covered
         # in test_bootstrap_core); here we exercise the torn-down sweep path.
         monkeypatch.setattr(account_recovery, "confirm", lambda *a, **k: True)
-        report = run_account_recovery("proof", "proof", sweep=True, dry_run=False)
+        report = run_account_recovery("dev", "dev", sweep=True, dry_run=False)
         # Torn-down account -> detection proceeds and the owned ECR repo is swept.
         assert any(f.action is Action.DELETED and f.resource_class == "ecr-repository" for f in report.findings)
         assert any("delete-repository" in " ".join(c) for c in deletes)
@@ -284,13 +284,13 @@ class TestSafetyInvariants:
         # A hand-constructed finding outside the exact portal prefix is refused
         # even on the delete path (defense-in-depth), so an AMI or cross-env
         # parameter can never be deleted.
-        for bad in ("/shifter/ami/kali", "/shifter/dev/portal/x", "/other/proof/portal/x"):
+        for bad in ("/shifter/ami/kali", "/shifter/prod/portal/x", "/other/dev/portal/x"):
             finding = LeftoverFinding("ssm-portal-parameter", bad, Action.WOULD_DELETE)
-            # /shifter/dev/portal/x actually starts with /shifter/ and has /portal/,
+            # /shifter/prod/portal/x actually starts with /shifter/ and has /portal/,
             # so ownership is enforced at detection (env prefix), not here; assert
             # only the clearly-outside ones are blocked at the delete guard.
             if not (bad.startswith("/shifter/") and "/portal/" in bad):
-                assert handler.delete(finding, "proof", dry_run=True) is Action.BLOCKED
+                assert handler.delete(finding, "dev", dry_run=True) is Action.BLOCKED
 
     def test_ssm_detection_lists_names_without_decryption(self, monkeypatch):
         """get-parameters-by-path must never pass WithDecryption (names only)."""
@@ -301,7 +301,7 @@ class TestSafetyInvariants:
             return _FakeResult(stdout=json.dumps({"Parameters": []}), returncode=0)
 
         monkeypatch.setattr(account_recovery, "run_cmd", fake)
-        PortalSsmParameterHandler().detect("proof", "123456789012", "proof")
+        PortalSsmParameterHandler().detect("dev", "123456789012", "dev")
         ssm_calls = [" ".join(c) for c in seen if "get-parameters-by-path" in " ".join(c)]
         assert ssm_calls, "expected a get-parameters-by-path call"
         assert all("with-decryption" not in c.lower() for c in ssm_calls)
@@ -315,7 +315,7 @@ class TestFailLoudDiscovery:
         # The RDS parameter-group list errors; that class must surface as FAILED,
         # not as an absent/clean row.
         patched({"describe-db-parameter-groups": "__ERROR__"})
-        report = detect_leftovers("proof", "proof")
+        report = detect_leftovers("dev", "dev")
         pgs = [f for f in report.findings if f.resource_class == "rds-db-parameter-group"]
         assert [f.action for f in pgs] == [Action.FAILED]
         assert report.failures
@@ -326,13 +326,13 @@ class TestFailLoudDiscovery:
                 **_NOT_LIVE,
                 "describe-db-parameter-groups": "__ERROR__",  # one discovery fails
                 "ecr describe-repositories": json.dumps(
-                    {"repositories": [{"repositoryName": "shifter-proof-portal", "repositoryArn": "arn:ecr"}]}
+                    {"repositories": [{"repositoryName": "shifter-dev-portal", "repositoryArn": "arn:ecr"}]}
                 ),
                 "ecr list-tags-for-resource": json.dumps({"tags": _OWNER_TAGS}),
             }
         )
         monkeypatch.setattr(account_recovery, "confirm", lambda *a, **k: True)
-        run_account_recovery("proof", "proof", sweep=True, dry_run=False)
+        run_account_recovery("dev", "dev", sweep=True, dry_run=False)
         # Incomplete detection -> refuse the sweep even though an owned repo exists.
         assert deletes == []
 
@@ -344,15 +344,15 @@ class TestNetworkFirewallAsyncDelete:
         deletes = patched(
             {
                 "network-firewall list-rule-groups": json.dumps(
-                    {"RuleGroups": [{"Name": "shifter-proof-victim", "Arn": "arn:nfw:rg/1"}]}
+                    {"RuleGroups": [{"Name": "shifter-dev-victim", "Arn": "arn:nfw:rg/1"}]}
                 ),
                 "network-firewall list-tags-for-resource": json.dumps({"Tags": _OWNER_TAGS}),
                 # describe-rule-group returns not-found once the group is gone -> converged.
                 "network-firewall describe-rule-group": "__NOTFOUND__",
             }
         )
-        report = detect_leftovers("proof", "proof")
-        result = sweep_leftovers(report, "proof", dry_run=False)
+        report = detect_leftovers("dev", "dev")
+        result = sweep_leftovers(report, "dev", dry_run=False)
         nfw = [f for f in result.findings if f.resource_class == "networkfirewall-rule-group"]
         assert [f.action for f in nfw] == [Action.DELETED]
         # The delete was issued and convergence confirmed via describe.
@@ -364,7 +364,7 @@ class TestNetworkFirewallAsyncDelete:
         patched(
             {
                 "network-firewall list-rule-groups": json.dumps(
-                    {"RuleGroups": [{"Name": "shifter-proof-victim", "Arn": "arn:nfw:rg/1"}]}
+                    {"RuleGroups": [{"Name": "shifter-dev-victim", "Arn": "arn:nfw:rg/1"}]}
                 ),
                 "network-firewall list-tags-for-resource": json.dumps({"Tags": _OWNER_TAGS}),
                 "network-firewall describe-rule-group": "__ERROR__",  # transient, not a not-found
@@ -373,8 +373,8 @@ class TestNetworkFirewallAsyncDelete:
         # Keep the bounded wait short and instant for the test.
         monkeypatch.setattr(account_recovery, "_NFW_DELETE_POLL_ATTEMPTS", 2)
         monkeypatch.setattr(account_recovery.time, "sleep", lambda *_: None)
-        report = detect_leftovers("proof", "proof")
-        result = sweep_leftovers(report, "proof", dry_run=False)
+        report = detect_leftovers("dev", "dev")
+        result = sweep_leftovers(report, "dev", dry_run=False)
         nfw = [f for f in result.findings if f.resource_class == "networkfirewall-rule-group"]
         # Never DELETED on a transient error; FAILED so the idempotent sweep re-runs.
         assert [f.action for f in nfw] == [Action.FAILED]
@@ -391,14 +391,14 @@ class TestNameAndOwnership:
                 "describe-db-parameter-groups": json.dumps(
                     {
                         "DBParameterGroups": [
-                            {"DBParameterGroupName": "shifter-proof-portal", "DBParameterGroupArn": "arn:conflict"}
+                            {"DBParameterGroupName": "shifter-dev-portal", "DBParameterGroupArn": "arn:conflict"}
                         ]
                     }
                 ),
                 "list-tags-for-resource --resource-name arn:conflict": json.dumps({"TagList": _FOREIGN_TAGS}),
             }
         )
-        report = detect_leftovers("proof", "proof")
+        report = detect_leftovers("dev", "dev")
         pgs = [f for f in report.findings if f.resource_class == "rds-db-parameter-group"]
         assert [f.action for f in pgs] == [Action.BLOCKED]
 
@@ -413,7 +413,7 @@ class TestNameAndOwnership:
                 "ecr list-tags-for-resource": json.dumps({"tags": _OWNER_TAGS}),
             }
         )
-        report = detect_leftovers("proof", "proof")
+        report = detect_leftovers("dev", "dev")
         ecr = [f for f in report.findings if f.resource_class == "ecr-repository"]
         # Not a candidate -> the class reports absent (no would-delete, no blocked).
         assert [f.action for f in ecr] == [Action.ABSENT]

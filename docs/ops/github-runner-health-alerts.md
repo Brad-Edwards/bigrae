@@ -85,8 +85,9 @@ applying.
    ```
    A stopped-but-recoverable service: `sudo systemctl restart 'actions.runner.*'`.
 
-4. **Verify GitHub's view.** Confirm the runner shows online at
-   <https://github.com/Brad-Edwards/bigrae/settings/actions/runners>. An active
+4. **Verify GitHub's view.** Run `REPO="$(gh repo set-default --view)"`.
+   Confirm the runner shows online at
+   `https://github.com/$REPO/settings/actions/runners`. An active
    local service with the runner showing offline on GitHub points at network or
    registration, not the host; re-register per the root README if needed.
 

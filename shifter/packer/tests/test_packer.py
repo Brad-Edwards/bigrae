@@ -1249,7 +1249,13 @@ class TestDcAmiProvenance:
         gh.chmod(0o755)
 
         def run(ref_env):
-            env = {**os.environ, "PATH": f"{fakebin}{os.pathsep}{os.environ['PATH']}"}
+            # GH_REPO makes the ADR-069 repository resolution deterministic, so the
+            # test exercises only the protected-ref gate.
+            env = {
+                **os.environ,
+                "PATH": f"{fakebin}{os.pathsep}{os.environ['PATH']}",
+                "GH_REPO": "example-org/example-repo",
+            }
             if ref_env is not None:
                 env["AMI_WORKFLOW_REF"] = ref_env
             return subprocess.run(  # noqa: S603

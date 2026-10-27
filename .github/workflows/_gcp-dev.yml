@@ -588,6 +588,8 @@ jobs:
         with:
           context: ./shifter
           file: ./shifter/shifter_platform/Dockerfile
+          build-args: |
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
             ${{ env.PORTAL_IMAGE_ROOT }}:${{ env.SHORT_SHA }}
@@ -601,6 +603,8 @@ jobs:
         with:
           context: ./shifter
           file: ./shifter/engine/provisioner/Dockerfile
+          build-args: |
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
             ${{ env.PROVISIONER_IMAGE_ROOT }}:${{ env.SHORT_SHA }}
@@ -634,6 +638,8 @@ jobs:
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
         with:
           context: ./shifter/engine/openvpn
+          build-args: |
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
             ${{ env.OPENVPN_IMAGE_ROOT }}:${{ env.SHORT_SHA }}
@@ -1205,10 +1211,10 @@ jobs:
           OPENVPN_DIGEST: ${{ needs.prepare.outputs.openvpn_digest }}
         run: |
           # ADR-037-R6: verify the GitHub OIDC-signed provenance attestation for
-          # each built image@digest and the fixed Brad-Edwards/bigrae identity
-          # before the GKE rollout. These are the same digests the overlay was
-          # just pinned to (and ENGINE_TASK_IMAGE), so the verified bytes are the
-          # deployed bytes. No bypass mode.
+          # each built image@digest before the GKE rollout. The source and the
+          # signer must be the running repository (ADR-069). These are the same
+          # digests the overlay was just pinned to (and ENGINE_TASK_IMAGE), so
+          # the verified bytes are the deployed bytes. No bypass mode.
           set -euo pipefail
           # `gh attestation verify oci://…` fetches the image from the private
           # Artifact Registry to read its provenance attestation, so the registry
@@ -1223,7 +1229,8 @@ jobs:
               exit 1
             fi
             echo "Verifying provenance for ${label} (${digest})"
-            gh attestation verify "oci://${root}@${digest}" --repo Brad-Edwards/bigrae
+            gh attestation verify "oci://${root}@${digest}" \
+              --repo "${GITHUB_REPOSITORY}" --signer-repo "${GITHUB_REPOSITORY}"
           }
           verify "${PORTAL_IMAGE_ROOT}" "${PORTAL_DIGEST}" "portal"
           verify "${PROVISIONER_IMAGE_ROOT}" "${PROVISIONER_DIGEST}" "provisioner"

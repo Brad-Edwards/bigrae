@@ -30,14 +30,14 @@ TEST_DJANGO_SECRET_KEY ?= shifter-local-make-test-key
 # collectstatic and pytest identical and self-contained.
 PLATFORM_ENV := TESTING=1 DJANGO_DEBUG=true TEST_DB_BACKEND=sqlite DJANGO_SECRET_KEY=$(TEST_DJANGO_SECRET_KEY)
 
-# Canonical repository for the `dev` -> `main` promotion PR. This checkout is a
-# fork of PaloAltoNetworks/shifter and carries a second `panw` remote, so an
-# unpinned `gh pr create` resolves its base repository to the fork parent and
-# would open the promotion PR against the upstream OSS repo. `.gc/plan-rules.md`
-# makes this value canonical regardless of remote configuration; `scripts/ami.sh`
-# pins the same way. Overridable only to target a different fork -- base, head,
-# title, and body are fixed because fixing them is the point of the target.
-DEVMAIN_REPO ?= Brad-Edwards/bigrae
+# Target repository for the `dev` -> `main` promotion PR (ADR-069 rule 4). A
+# clone can have an upstream remote. Then an unpinned `gh pr create` selects the
+# fork parent as the base repository and opens the PR against the upstream
+# project. The default is the clone's gh default repository. Make expands it only
+# when `devmain` runs, and `devmain` stops when it is empty. `scripts/ami.sh`
+# uses the same resolution. Set DEVMAIN_REPO=<owner>/<repo> to override it. Base,
+# head, title, and body are fixed because fixing them is the point of the target.
+DEVMAIN_REPO ?= $(shell gh repo set-default --view)
 DEVMAIN_TITLE := chore(main): promote dev
 DEVMAIN_BODY := Promotes dev to main. Merge this PR with a merge commit. Do not squash it: squashing collapses the Conventional Commit subjects release-please reads on main, so the release PR loses this release's version bump and CHANGELOG section. See docs/DEVELOPMENT_WORKFLOW.md.
 
@@ -153,8 +153,9 @@ policy: ## Run repository architecture, import, diff, and changed-doc policy
 # Not silenced with `@`: this is the one target that mutates the remote, so the
 # operator sees the exact command before it runs. `gh` owns authentication,
 # branch validation, and duplicate-PR rejection; its nonzero exit and stderr
-# propagate unchanged.
+# propagate unchanged. `$(or ...)` expands DEVMAIN_REPO once and stops make
+# before any command runs when no target repository is set.
 devmain: ## Open the dev -> main promotion PR on GitHub (merge it, never squash)
-	gh pr create --repo "$(DEVMAIN_REPO)" --base main --head dev \
+	gh pr create --repo "$(or $(DEVMAIN_REPO),$(error devmain: no target repository. Run gh repo set-default <owner>/<repo> or set DEVMAIN_REPO=<owner>/<repo>))" --base main --head dev \
 	  --title "$(DEVMAIN_TITLE)" \
 	  --body "$(DEVMAIN_BODY)"

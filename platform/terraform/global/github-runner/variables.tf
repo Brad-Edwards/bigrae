@@ -63,18 +63,6 @@ variable "instance_type" {
   default     = "t3.large"
 }
 
-variable "github_org" {
-  description = "GitHub organization or username"
-  type        = string
-  default     = "Brad-Edwards"
-}
-
-variable "github_repo" {
-  description = "GitHub repository name"
-  type        = string
-  default     = "bigrae"
-}
-
 # ------------------------------------------------------------------------------
 # Health monitoring (#292)
 # ------------------------------------------------------------------------------

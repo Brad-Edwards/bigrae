@@ -16,13 +16,11 @@ variable "environment" {
 variable "github_org" {
   description = "GitHub organization"
   type        = string
-  default     = "Brad-Edwards"
 }
 
 variable "github_repo" {
   description = "GitHub repository name"
   type        = string
-  default     = "bigrae"
 }
 
 locals {

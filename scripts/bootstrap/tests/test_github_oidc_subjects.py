@@ -17,8 +17,10 @@ def _subject(config):
     return condition["StringLike"]["token.actions.githubusercontent.com:sub"]
 
 
-def test_canonical_default_matches_observed_repository_subject():
-    assert _subject(BootstrapConfig(env="dev")) == "repo:Brad-Edwards@56809295/bigrae@1241599684:*"
+def test_immutable_subject_binds_the_resolved_identity(github_identity):
+    assert (
+        _subject(BootstrapConfig(env="dev", **github_identity)) == "repo:example-org@12345678/example-repo@123456789:*"
+    )
 
 
 @pytest.mark.parametrize(
@@ -51,9 +53,9 @@ def test_explicit_format_selects_one_subject(subject_format, expected):
         {"github_subject_format": "both"},
     ],
 )
-def test_invalid_identity_fails_before_policy_construction(overrides):
+def test_invalid_identity_fails_before_policy_construction(overrides, github_identity):
     with pytest.raises(ValueError, match="github_"):
-        _subject(BootstrapConfig(env="dev", **overrides))
+        _subject(BootstrapConfig(env="dev", **{**github_identity, **overrides}))
 
 
 def test_terraform_role_uses_the_bootstrap_identity(tmp_path, monkeypatch, capfd):

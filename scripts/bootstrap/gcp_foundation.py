@@ -74,7 +74,8 @@ def bootstrap_gcp_foundation(inputs_path: str, *, dry_run: bool = False) -> None
             str(inputs["github_owner_id"]),
         ):
             raise ValueError("Foundation repository IDs do not match GitHub")
-        if not confirm(f"Bootstrap foundation in {project}? Evidence retention locks for 90 days."):
+        trusted = f"{inputs['github_org']}/{inputs['github_repo']}"
+        if not confirm(f"Bootstrap foundation in {project} for {trusted}? Evidence retention locks for 90 days."):
             raise SystemExit("Foundation bootstrap cancelled")
     run_cmd(
         [
