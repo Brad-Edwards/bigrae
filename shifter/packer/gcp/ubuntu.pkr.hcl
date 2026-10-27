@@ -39,6 +39,7 @@ build {
     scripts = [
       "../scripts/ubuntu/base.sh",
       "../scripts/ubuntu/services.sh",
+      "../scripts/ubuntu/php-security-floor.sh",
       "../scripts/ubuntu/tools.sh",
     ]
     execute_command = "sudo -S bash -c '{{ .Vars }} {{ .Path }}'"

@@ -7,6 +7,8 @@ the execution suites below exercise script behavior against controlled shims.
 Run with: pytest shifter/packer/tests/test_packer.py -v
 """
 
+import base64
+import json
 import os
 import re
 import shutil
@@ -356,6 +358,143 @@ class TestUbuntuServices:
         assert "systemctl enable vsftpd" in services_content
 
 
+FIXED_PHP = "8.1.2-1ubuntu2.28"
+PHP81_PACKAGES = ("libapache2-mod-php8.1", "php8.1", "php8.1-cli", "php8.1-common", "php8.1-mysql")
+
+
+class TestUbuntuPhpSecurityFloor:
+    """php-security-floor.sh fails the bake on a vulnerable PHP (#2556).
+
+    A fake dpkg-query returns controlled package state, and a fake apache2ctl
+    lists the loaded modules. The real `dpkg --compare-versions` does the
+    Debian version ordering. The production script reads only /etc/os-release,
+    so the test runs a copy that reads a fixture file instead.
+    """
+
+    SCRIPT = SCRIPTS_DIR / "ubuntu" / "php-security-floor.sh"
+
+    @pytest.fixture
+    def run_floor(self, tmp_path):
+        if shutil.which("dpkg") is None:
+            pytest.skip("dpkg is required for Debian version ordering")
+        fakebin = tmp_path / "bin"
+        fakebin.mkdir()
+        fake = fakebin / "dpkg-query"
+        # Rows are: status<TAB>package<TAB>source<TAB>version.
+        fake.write_text(
+            "#!/bin/bash\n"
+            'last="${!#}"\n'
+            'if [[ "$last" == -f=* ]]; then cat "$FAKE_DPKG_ROWS"; exit "${FAKE_LIST_EXIT:-0}"; fi\n'
+            'row="$(grep -P "^[^\\t]*\\t${last}\\t" "$FAKE_DPKG_ROWS" || true)"\n'
+            '[[ -n "$row" ]] || exit 1\n'
+            'printf "%s" "${row%%$\'\\t\'*}"\n'
+        )
+        fake.chmod(0o755)
+        apache = fakebin / "apache2ctl"
+        apache.write_text(
+            '#!/bin/bash\necho "Loaded Modules:"\n[[ -n "$FAKE_PHP_MODULE" ]] && echo " php_module (shared)"\nexit 0\n'
+        )
+        apache.chmod(0o755)
+        os_release = tmp_path / "os-release"
+        script = tmp_path / "php-security-floor.sh"
+        script.write_text(self.SCRIPT.read_text().replace("/etc/os-release", str(os_release)))
+        script.chmod(0o755)
+
+        def run(rows, codename="jammy", php_module=True, list_exit=0):
+            rows_file = tmp_path / "rows.tsv"
+            rows_file.write_text("".join(f"{state}\t{pkg}\t{src}\t{ver}\n" for state, pkg, src, ver in rows))
+            os_release.write_text(f'VERSION_CODENAME="{codename}"\n')
+            env = {
+                **os.environ,
+                "PATH": f"{fakebin}{os.pathsep}{os.environ['PATH']}",
+                "FAKE_DPKG_ROWS": str(rows_file),
+                "FAKE_PHP_MODULE": "1" if php_module else "",
+                "FAKE_LIST_EXIT": str(list_exit),
+            }
+            return subprocess.run([str(script)], capture_output=True, text=True, env=env, check=False)  # noqa: S603
+
+        return run
+
+    @staticmethod
+    def _php81(version, state="ii "):
+        return [(state, pkg, "php8.1", version) for pkg in PHP81_PACKAGES] + [
+            ("ii ", "php-common", "php-defaults", "2:92ubuntu1"),
+            ("ii ", "apache2", "apache2", "2.4.52-1ubuntu4.12"),
+        ]
+
+    def test_production_script_reads_only_the_real_os_release(self):
+        content = self.SCRIPT.read_text()
+        assert content.count("/etc/os-release") == 1
+        assert "PHP_FLOOR_OS_RELEASE" not in content
+
+    def test_held_or_removal_selected_package_fails(self, run_floor):
+        for state in ("hi ", "ri ", "pi ", "iH "):
+            rows = self._php81(FIXED_PHP)
+            rows[2] = (state, "php8.1-cli", "php8.1", FIXED_PHP)
+            result = run_floor(rows)
+            assert result.returncode == 1, state
+            assert "php8.1-cli must be installed, configured, and not held" in result.stderr
+
+    def test_failed_inventory_query_fails_after_valid_rows(self, run_floor):
+        result = run_floor(self._php81(FIXED_PHP), list_exit=2)
+        assert result.returncode == 1
+        assert "dpkg-query could not list the installed packages" in result.stderr
+
+    def test_apache_without_php_module_fails(self, run_floor):
+        result = run_floor(self._php81(FIXED_PHP), php_module=False)
+        assert result.returncode == 1
+        assert "Apache does not load the PHP module" in result.stderr
+
+    def test_both_ubuntu_templates_run_the_floor_after_services(self):
+        for template, prefix in ((PACKER_DIR / "ubuntu.pkr.hcl", ""), (PACKER_DIR / "gcp" / "ubuntu.pkr.hcl", "../")):
+            content = template.read_text()
+            services = content.index(f'"{prefix}scripts/ubuntu/services.sh"')
+            floor = content.index(f'"{prefix}scripts/ubuntu/php-security-floor.sh"')
+            assert services < floor, template
+
+    def test_fixed_and_later_revisions_pass(self, run_floor):
+        # 2.28 and 2.100 sort differently as strings; Debian ordering must accept both.
+        for version in (FIXED_PHP, "8.1.2-1ubuntu2.100", "8.1.2-1ubuntu2.28.1"):
+            result = run_floor(self._php81(version))
+            assert result.returncode == 0, (version, result.stderr)
+            assert "OK (5 packages" in result.stdout
+
+    def test_below_floor_fails(self, run_floor):
+        for version in ("8.1.2-1ubuntu2.27", "8.1.2-1ubuntu2.3", "8.1.2-1build1"):
+            result = run_floor(self._php81(version))
+            assert result.returncode == 1, version
+            assert "below 8.1.2-1ubuntu2.28" in result.stderr
+
+    def test_one_stale_package_fails(self, run_floor):
+        rows = self._php81(FIXED_PHP)
+        rows[2] = ("ii ", "php8.1-cli", "php8.1", "8.1.2-1ubuntu2.20")
+        result = run_floor(rows)
+        assert result.returncode == 1
+        assert "php8.1-cli 8.1.2-1ubuntu2.20 is below" in result.stderr
+
+    def test_missing_or_unconfigured_module_fails(self, run_floor):
+        missing = [row for row in self._php81(FIXED_PHP) if row[1] != "libapache2-mod-php8.1"]
+        assert run_floor(missing).returncode == 1
+        unconfigured = run_floor(self._php81(FIXED_PHP, state="iU "))
+        assert unconfigured.returncode == 1
+        assert "not installed and configured" in unconfigured.stderr
+
+    def test_other_php_stream_fails(self, run_floor):
+        rows = [*self._php81(FIXED_PHP), ("ii ", "php8.3-common", "php8.3", "8.3.6-0ubuntu0.24.04.9")]
+        result = run_floor(rows)
+        assert result.returncode == 1
+        assert "comes from php8.3" in result.stderr
+
+    def test_removed_package_is_ignored(self, run_floor):
+        rows = [*self._php81(FIXED_PHP), ("rc ", "php8.1-gd", "php8.1", "8.1.2-1ubuntu2.3")]
+        assert run_floor(rows).returncode == 0
+
+    def test_other_release_fails(self, run_floor):
+        result = run_floor(self._php81(FIXED_PHP), codename="noble")
+        assert result.returncode == 1
+        assert "covers jammy only" in result.stderr
+
+
 class TestUbuntuTools:
     """Test that Ubuntu tools script includes required packages."""
 
@@ -434,6 +573,53 @@ class TestWindowsServices:
         """Script must check XAMPP exit code and call exit 1 on failure."""
         assert "ExitCode" in services_content
         assert "exit 1" in services_content
+
+
+class TestWindowsPhpSecurityOverlay:
+    """XAMPP's bundled PHP is replaced by the official security release (#2556)."""
+
+    @pytest.fixture
+    def services_content(self):
+        return (SCRIPTS_DIR / "windows" / "services.ps1").read_text()
+
+    def test_overlay_runs_after_install_and_before_apache_service(self, services_content):
+        install = services_content.index("--mode unattended")
+        overlay = services_content.index("PHP security overlay")
+        service = services_content.index('"-k install"')
+        assert install < overlay < service
+
+    def test_archive_is_pinned_and_hash_checked(self, services_content):
+        assert re.search(r'\$phpVersion = "8\.2\.(3[5-9]|[4-9]\d)"', services_content)
+        sha = re.search(r'\$phpSha256 = "([0-9A-F]{64})"', services_content)
+        assert sha, "the PHP archive SHA-256 must be pinned"
+        assert "Get-FileHash -Path $phpZipPath -Algorithm SHA256" in services_content
+        assert "-Win32-vs16-x64.zip" in services_content  # Thread Safe build for mod_php
+
+    def test_build_fails_below_floor_or_on_unclean_start(self, services_content):
+        assert '$phpFloor = [version]"8.2.35"' in services_content
+        assert "if ($installedPhp -lt $phpFloor)" in services_content
+        assert "Unable to load" in services_content
+        assert 'Invoke-NativeCheck $httpdExe "-t"' in services_content
+        assert '-notmatch "php_module"' in services_content
+
+    def test_bundled_php_tree_is_replaced_not_overlaid(self, services_content):
+        overlay = services_content[services_content.index("PHP security overlay") :]
+        # php.ini moves into the clean tree; the bundled tree moves aside and is
+        # removed only after every check passed.
+        assert overlay.index('Copy-Item -Path "$phpDir\\php.ini"') < overlay.index("Rename-Item -Path $phpDir")
+        assert overlay.index("Rename-Item -Path $phpDir") < overlay.index(
+            "Move-Item -Path $phpStage -Destination $phpDir"
+        )
+        assert overlay.index('-notmatch "php_module"') < overlay.index("Remove-Item -Path $phpBundled -Recurse")
+        assert 'Copy-Item -Path "$phpStage\\*"' not in overlay
+
+    def test_native_checks_avoid_winrm_stderr_errors(self, services_content):
+        overlay = services_content[
+            services_content.index("PHP security overlay") : services_content.index('"-k install"')
+        ]
+        assert "-RedirectStandardError" in overlay
+        assert "& $phpExe" not in overlay
+        assert '& "$xamppPath' not in overlay
 
 
 class TestBuilderLifecycle:
@@ -658,6 +844,105 @@ class TestAwsGuestDns:
             )
         for f in (PACKER_DIR / "gcp").glob("*.pkr.hcl"):
             assert "windows-ec2launch-dns.ps1" not in f.read_text()
+
+
+class TestBaseImageVerifyPhpFloor:
+    """base-image-verify.sh checks the PHP security floor on the booted candidate (#2556).
+
+    A fake `aws` CLI plays EC2 and SSM. The script sends the floor check through
+    SSM Run Command and gates on the command status and its success marker.
+    """
+
+    VERIFY = SCRIPTS_DIR / "bake" / "base-image-verify.sh"
+
+    @pytest.fixture
+    def run_verify(self, tmp_path):
+        fakebin = tmp_path / "bin"
+        fakebin.mkdir()
+        (fakebin / "sleep").write_text("#!/bin/bash\nexit 0\n")
+        (fakebin / "aws").write_text(
+            "#!/bin/bash\n"
+            'args=("$@"); value() { for ((i = 0; i < ${#args[@]}; i++)); do\n'
+            '  [[ "${args[i]}" == "$1" ]] && { echo "${args[i + 1]}"; return; }; done; }\n'
+            'case "$1 $2" in\n'
+            '  "ec2 run-instances") echo i-0synthetic ;;\n'
+            '  "ssm describe-instance-information") echo Online ;;\n'
+            '  "ssm send-command")\n'
+            '    if [[ "$(value --comment)" == *PHP* ]]; then\n'
+            '      value --parameters > "$TEST_STATE/php-params.json"; echo cmd-php\n'
+            "    else echo cmd-dns; fi ;;\n"
+            '  "ssm get-command-invocation")\n'
+            '    case "$(value --command-id):$(value --query)" in\n'
+            "      cmd-dns:StandardOutputContent) echo DNS_OK ;;\n"
+            '      cmd-php:Status) echo "$FAKE_PHP_STATUS" ;;\n'
+            '      cmd-php:StandardOutputContent) echo "$FAKE_PHP_OUT" ;;\n'
+            '      cmd-php:StandardErrorContent) echo "synthetic floor failure" ;;\n'
+            "    esac ;;\n"
+            "esac\n"
+            "exit 0\n"
+        )
+        for tool in fakebin.iterdir():
+            tool.chmod(0o755)
+
+        def run(ami_type, status="Success", out="PHP_FLOOR_OK"):
+            env = {
+                **os.environ,
+                "PATH": f"{fakebin}{os.pathsep}{os.environ['PATH']}",
+                "TEST_STATE": str(tmp_path),
+                "FAKE_PHP_STATUS": status,
+                "FAKE_PHP_OUT": out,
+                "AMI_ID": "ami-0synthetic",
+                "AMI_TYPE": ami_type,
+                "INSTANCE_TYPE": "t3.medium",
+                "SUBNET_ID": "subnet-synthetic",
+                "SECURITY_GROUP_ID": "sg-synthetic",
+                "INSTANCE_PROFILE": "synthetic-profile",
+            }
+            result = subprocess.run(  # noqa: S603
+                ["/bin/bash", str(self.VERIFY)], capture_output=True, text=True, env=env, check=False, timeout=30
+            )
+            params = tmp_path / "php-params.json"
+            return result, (json.loads(params.read_text()) if params.exists() else None)
+
+        return run
+
+    def test_ubuntu_candidate_runs_the_reviewed_floor_script(self, run_verify):
+        result, params = run_verify("ubuntu")
+        assert result.returncode == 0, result.stderr
+        assert "PHP security floor OK" in result.stdout
+        encoded = re.search(r"echo (\S+) \| base64 -d", params["commands"][0]).group(1)
+        assert base64.b64decode(encoded).decode() == (SCRIPTS_DIR / "ubuntu" / "php-security-floor.sh").read_text()
+
+    def test_failed_or_unmarked_floor_check_blocks_publication(self, run_verify):
+        failed, _ = run_verify("ubuntu", status="Failed")
+        assert failed.returncode == 1
+        assert "failed the PHP security floor: synthetic floor failure" in failed.stderr
+        unmarked, _ = run_verify("ubuntu", out="")
+        assert unmarked.returncode == 1
+        assert "gave no success marker" in unmarked.stderr
+
+    def test_windows_candidate_checks_the_same_floor_as_the_bake(self, run_verify):
+        result, params = run_verify("windows")
+        assert result.returncode == 0, result.stderr
+        bake_floor = re.search(
+            r'\$phpFloor = \[version\]"([\d.]+)"', (SCRIPTS_DIR / "windows" / "services.ps1").read_text()
+        )
+        script = "\n".join(params["commands"])
+        assert f'[version]"{bake_floor.group(1)}"' in script
+        assert "php_module" in script
+        # Each native command's exit code is checked before the success marker.
+        lines = params["commands"]
+        marker = lines.index("Write-Output PHP_FLOOR_OK")
+        checks = [i for i, line in enumerate(lines) if line.startswith("if ($LASTEXITCODE -ne 0)")]
+        natives = [i for i, line in enumerate(lines) if "php.exe" in line and line.startswith("$phpOut")]
+        natives += [i for i, line in enumerate(lines) if "httpd.exe" in line and line.startswith("$m =")]
+        assert len(natives) == 2
+        assert all(any(n < c < marker and c == n + 1 for c in checks) for n in natives)
+
+    def test_kali_candidate_has_no_php_floor(self, run_verify):
+        result, params = run_verify("kali")
+        assert result.returncode == 0, result.stderr
+        assert params is None
 
 
 class TestBaseImageValidationGate:

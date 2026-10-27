@@ -2173,6 +2173,8 @@
       "docs/architecture/gcp-guest-images.md",
       "docs/architecture/ghcr-vm-guest-image-preflight-2297.md",
       "docs/architecture/gcp-foundation-image-bootstrap-preflight-2338.md",
+      "docs/architecture/ubuntu-php-security-refresh-preflight-2556.md",
+      "docs/architecture/php-security-floor-design-2556.md",
       "shifter/engine/provisioner/config/_gdc.py",
       "shifter/packer/gcp/scripts/validate/verify-promotion-evidence.sh",
       "shifter/packer/tests/test_packer_gcp.py",

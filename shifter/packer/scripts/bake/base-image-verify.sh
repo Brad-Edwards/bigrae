@@ -10,7 +10,9 @@
 #   2. resolving the regional SSM endpoint through the system resolver via Run
 #      Command;
 #   3. rebooting and doing both again - the durable DNS fix must survive a
-#      reboot, not just a lucky first boot.
+#      reboot, not just a lucky first boot;
+#   4. for ubuntu and windows, the PHP security floor on the booted candidate
+#      (#2556). The runner sends the reviewed check from its own checkout.
 # Any failure or timeout exits non-zero so the caller leaves the previous
 # known-good SSM pointer untouched.
 #
@@ -25,6 +27,9 @@ set -euo pipefail
 : "${SECURITY_GROUP_ID:?SECURITY_GROUP_ID must be set}"
 : "${INSTANCE_PROFILE:?INSTANCE_PROFILE must be set}"
 RUN_ID="${RUN_ID:-manual}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Keep in step with $phpFloor in scripts/windows/services.ps1.
+WINDOWS_PHP_FLOOR="8.2.35"
 # All Shifter AWS resources live in us-east-2.
 PROBE_HOST="ssm.us-east-2.amazonaws.com"
 
@@ -111,9 +116,71 @@ resolve_check() {
   done
 }
 
+php_floor_check() {
+  local doc params cid status out deadline
+  case "$AMI_TYPE" in
+    ubuntu)
+      doc="AWS-RunShellScript"
+      local encoded
+      encoded="$(base64 -w0 "${SCRIPT_DIR}/../ubuntu/php-security-floor.sh")"
+      params="$(jq -cn --arg c "echo ${encoded} | base64 -d > /tmp/php-security-floor.sh && bash /tmp/php-security-floor.sh && echo PHP_FLOOR_OK" '{commands: [$c]}')"
+      ;;
+    windows)
+      doc="AWS-RunPowerShellScript"
+      params="$(jq -cn --arg floor "$WINDOWS_PHP_FLOOR" '{commands: [
+        "$phpOut = & \"C:\\xampp\\php\\php.exe\" -r \"echo PHP_VERSION;\"",
+        "if ($LASTEXITCODE -ne 0) { throw \"php.exe exited with code $LASTEXITCODE\" }",
+        "$v = [version]\"$phpOut\".Trim()",
+        ("if ($v -lt [version]\"" + $floor + "\") { throw \"PHP $v is below the security floor " + $floor + "\" }"),
+        "$m = & \"C:\\xampp\\apache\\bin\\httpd.exe\" -M 2>&1 | Out-String",
+        "if ($LASTEXITCODE -ne 0) { throw \"httpd.exe -M exited with code $LASTEXITCODE\" }",
+        "if ($m -notmatch \"php_module\") { throw \"Apache does not load the PHP module\" }",
+        "Write-Output PHP_FLOOR_OK"
+      ]}')"
+      ;;
+    *) return 0 ;;
+  esac
+  echo "checking the PHP security floor on the candidate..."
+  cid="$(aws ssm send-command --instance-ids "$VERIFY_INSTANCE_ID" \
+    --document-name "$doc" \
+    --comment "base-image PHP security floor verify" \
+    --parameters "$params" \
+    --query 'Command.CommandId' --output text)"
+  deadline=$(( $(date +%s) + 300 ))
+  while true; do
+    sleep 10
+    status="$(aws ssm get-command-invocation --command-id "$cid" \
+      --instance-id "$VERIFY_INSTANCE_ID" --query Status --output text 2>/dev/null || true)"
+    case "$status" in
+      Success)
+        out="$(aws ssm get-command-invocation --command-id "$cid" \
+          --instance-id "$VERIFY_INSTANCE_ID" --query StandardOutputContent --output text)"
+        if printf '%s' "$out" | grep -q PHP_FLOOR_OK; then
+          echo "PHP security floor OK"
+          return 0
+        fi
+        echo "::error::${AMI_TYPE} AMI ${AMI_ID} PHP floor check gave no success marker" >&2
+        exit 1
+        ;;
+      Failed | Cancelled | TimedOut | Cancelling)
+        out="$(aws ssm get-command-invocation --command-id "$cid" \
+          --instance-id "$VERIFY_INSTANCE_ID" --query StandardErrorContent --output text 2>/dev/null || true)"
+        echo "::error::${AMI_TYPE} AMI ${AMI_ID} failed the PHP security floor: ${out}" >&2
+        exit 1
+        ;;
+      *) ;;  # Pending, InProgress, Delayed: keep polling until the deadline below
+    esac
+    if [[ "$(date +%s)" -ge "$deadline" ]]; then
+      echo "::error::${AMI_TYPE} AMI ${AMI_ID} PHP floor check did not finish (status '${status}')" >&2
+      exit 1
+    fi
+  done
+}
+
 # Fresh boot.
 wait_for_ssm_online "fresh boot"
 resolve_check "fresh boot"
+php_floor_check
 
 # Reboot: the durable fix must survive a reboot, not just the first boot.
 echo "rebooting to confirm DNS determinism survives a reboot..."
