@@ -15,8 +15,8 @@ from pathlib import Path
 from ._common import REPO_ROOT
 
 REPOSITORY_IDENTITY_REL = "docs/adr/repository-identity.json"
-_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
-_ID_RE = re.compile(r"^[1-9][0-9]*$")
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$")
+_ID_RE = re.compile(r"^[1-9]\d*$")
 
 
 class RepositoryIdentityError(Exception):
@@ -34,7 +34,8 @@ class RepositoryIdentity:
     former_repositories: tuple[str, ...]
 
 
-def _required(data: dict, key: str, pattern: re.Pattern[str]) -> str:
+def _required(data: dict[str, object], key: str, pattern: re.Pattern[str]) -> str:
+    """Return the string value for key, or fail when it is missing or malformed."""
     value = data.get(key)
     if not isinstance(value, str) or not pattern.fullmatch(value):
         raise RepositoryIdentityError(f"{REPOSITORY_IDENTITY_REL}: '{key}' is missing or malformed")

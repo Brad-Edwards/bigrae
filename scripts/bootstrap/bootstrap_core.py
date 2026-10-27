@@ -445,13 +445,8 @@ _GH_REPOSITORY_RE = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", re.ASCII)
 _GITHUB_ID_RE = re.compile(r"[1-9]\d*", re.ASCII)
 
 
-def resolve_github_repository(command_runner: Callable[..., object] = run_cmd) -> dict[str, str]:
-    """Resolve the target repository from the clone's gh default and the GitHub API (ADR-069).
-
-    Returns the BootstrapConfig identity fields. The owner and name come from the
-    API, so a renamed repository resolves to its current owner and name. The
-    identity is shown so that the operator can confirm it before a write.
-    """
+def _gh_default_target(command_runner: Callable[..., object]) -> str:
+    """Return the clone's gh default repository, or fail with a clear message."""
     default = command_runner(["gh", "repo", "set-default", "--view"], check=False, capture=True)
     target = (getattr(default, "stdout", "") or "").strip()
     if not target:
@@ -461,7 +456,11 @@ def resolve_github_repository(command_runner: Callable[..., object] = run_cmd) -
         )
     if not _GH_REPOSITORY_RE.fullmatch(target):
         raise RepositoryIdentityError(f"The gh default repository {target!r} is not in the form <owner>/<repo>.")
+    return target
 
+
+def _github_identity_fields(target: str, command_runner: Callable[..., object]) -> dict[str, str]:
+    """Read and validate the identity of target from the GitHub API."""
     result = command_runner(
         ["gh", "api", f"repos/{target}", "--jq", ".id, .owner.id, .full_name, .owner.login"],
         check=False,
@@ -477,14 +476,28 @@ def resolve_github_repository(command_runner: Callable[..., object] = run_cmd) -
     ids_valid = all(_GITHUB_ID_RE.fullmatch(value) for value in (repository_id, owner_id))
     if not ids_valid or owner != owner_login or not _GH_REPOSITORY_RE.fullmatch(full_name):
         raise RepositoryIdentityError(f"The GitHub API returned an invalid identity for repository {target}.")
-
-    info(f"Target GitHub repository: {full_name} (repository ID {repository_id}, owner ID {owner_id})")
     return {
         "github_org": owner_login,
         "github_repo": name,
         "github_repository_id": repository_id,
         "github_owner_id": owner_id,
     }
+
+
+def resolve_github_repository(command_runner: Callable[..., object] = run_cmd) -> dict[str, str]:
+    """Resolve the target repository from the clone's gh default and the GitHub API (ADR-069).
+
+    Returns the BootstrapConfig identity fields. The owner and name come from the
+    API, so a renamed repository resolves to its current owner and name. The
+    identity is shown so that the operator can confirm it before a write.
+    """
+    target = _gh_default_target(command_runner)
+    identity = _github_identity_fields(target, command_runner)
+    info(
+        f"Target GitHub repository: {identity['github_org']}/{identity['github_repo']} "
+        f"(repository ID {identity['github_repository_id']}, owner ID {identity['github_owner_id']})"
+    )
+    return identity
 
 
 GDC_API_SERVICES = [

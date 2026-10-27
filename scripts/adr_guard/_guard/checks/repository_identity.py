@@ -49,16 +49,18 @@ _WORKFLOW_GLOB = ".github/workflows/*.yml"
 
 def _is_allowed_path(rel: str) -> bool:
     """True for paths where ADR-069-R5 or R3 allows the identity."""
-    if rel in (REPOSITORY_IDENTITY_REL, _GROUND_CONTROL_REL):
-        return True
-    if rel.startswith(_REFERENCE_PREFIXES) or rel.endswith(_REFERENCE_SUFFIXES) or rel in _REFERENCE_FILES:
-        return True
-    if rel.endswith(_DEPLOYMENT_CONFIG_SUFFIXES):
-        return True
-    return any(fnmatch.fnmatch(rel, pattern) for pattern in _PROVENANCE_GLOBS)
+    return (
+        rel in (REPOSITORY_IDENTITY_REL, _GROUND_CONTROL_REL)
+        or rel.startswith(_REFERENCE_PREFIXES)
+        or rel.endswith(_REFERENCE_SUFFIXES)
+        or rel in _REFERENCE_FILES
+        or rel.endswith(_DEPLOYMENT_CONFIG_SUFFIXES)
+        or any(fnmatch.fnmatch(rel, pattern) for pattern in _PROVENANCE_GLOBS)
+    )
 
 
 def _skip(rel: str) -> bool:
+    """True for binary or lock files the check must not scan."""
     return rel.rsplit("/", 1)[-1] in _SKIP_BASENAMES or rel.endswith(_SKIP_SUFFIXES)
 
 
@@ -70,10 +72,15 @@ def _patterns(identity: RepositoryIdentity) -> list[tuple[re.Pattern[str], str]]
         for name, kind in [(identity.repository, "repository name")]
         + [(former, "former repository name") for former in identity.former_repositories]
     ]
-    patterns.append((re.compile(rf"(?<![0-9]){identity.repository_id}(?![0-9])"), "repository ID"))
-    patterns.append((re.compile(rf"(?<![0-9]){identity.owner_id}(?![0-9])"), "owner ID"))
-    patterns.append(
-        (re.compile(r"ghcr\.io/" + re.escape(identity.owner.lower()) + r"/", re.IGNORECASE), "registry owner namespace")
+    patterns.extend(
+        [
+            (re.compile(rf"(?<!\d){identity.repository_id}(?!\d)"), "repository ID"),
+            (re.compile(rf"(?<!\d){identity.owner_id}(?!\d)"), "owner ID"),
+            (
+                re.compile(r"ghcr\.io/" + re.escape(identity.owner.lower()) + r"/", re.IGNORECASE),
+                "registry owner namespace",
+            ),
+        ]
     )
     return patterns
 
@@ -87,10 +94,12 @@ def _workflow_guard_mask(identity: RepositoryIdentity) -> re.Pattern[str]:
 
 
 def _violation(rel: str, message: str) -> Violation:
+    """Build an ADR-069-R6 violation for a path with a plain message."""
     return Violation(check=_CHECK, rule_id=_RULE_ID, path=rel, message=message)
 
 
 def _scan_file(path: Path, rel: str, identity: RepositoryIdentity) -> list[Violation]:
+    """Return every identity-literal violation in one tracked file."""
     text = _read_text_safe(path)
     if text is None:
         return []
@@ -111,6 +120,7 @@ def _scan_file(path: Path, rel: str, identity: RepositoryIdentity) -> list[Viola
 
 
 def _ground_control_violations(repo_root: Path, identity: RepositoryIdentity) -> list[Violation]:
+    """Fail when .ground-control.yaml github_repo differs from the declaration."""
     path = repo_root / _GROUND_CONTROL_REL
     if not path.is_file():
         return []
@@ -119,12 +129,13 @@ def _ground_control_violations(repo_root: Path, identity: RepositoryIdentity) ->
     except (OSError, yaml.YAMLError):
         return [_violation(_GROUND_CONTROL_REL, "cannot read the file to compare github_repo")]
     configured = data.get("github_repo") if isinstance(data, dict) else None
-    if configured is not None and configured != identity.repository:
-        return [_violation(_GROUND_CONTROL_REL, f"github_repo must equal 'repository' in {REPOSITORY_IDENTITY_REL}")]
-    return []
+    mismatch = configured is not None and configured != identity.repository
+    message = f"github_repo must equal 'repository' in {REPOSITORY_IDENTITY_REL}"
+    return [_violation(_GROUND_CONTROL_REL, message)] if mismatch else []
 
 
 def _candidates(repo_root: Path, files: list[str] | None) -> list[str]:
+    """The paths to scan: the given files, or every tracked file."""
     if files is not None:
         return list(files)
     tracked = _git_tracked_all(repo_root)
