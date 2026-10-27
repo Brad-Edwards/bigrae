@@ -24,7 +24,7 @@ fail() { # NOSONAR - terminates the script; an explicit return does not apply
 
 IMAGE_TYPE="${VALIDATE_IMAGE_TYPE:-}"
 case "$IMAGE_TYPE" in
-  ubuntu|brokenbk|kali) ;;
+  ubuntu|kali) ;;
   *) fail "unsupported image type: ${IMAGE_TYPE:-missing}" ;;
 esac
 log "validating image_type=${IMAGE_TYPE}"

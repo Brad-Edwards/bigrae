@@ -202,6 +202,7 @@ describe("appendAuditRecord", () => {
       duration_ms: 11,
     });
 
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const lines = readFileSync(auditPath, "utf-8").trim().split("\n");
     assert.equal(lines.length, 2);
 
@@ -235,6 +236,7 @@ describe("appendAuditRecord", () => {
 
     assert.equal(result.ok, false);
     assert.equal(result.error, "audit-disabled");
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     assert.equal(existsSync(auditPath), false);
   });
 
@@ -251,6 +253,7 @@ describe("appendAuditRecord", () => {
       duration_ms: 1,
     });
 
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     assert.ok(existsSync(nestedPath));
   });
 
@@ -258,6 +261,7 @@ describe("appendAuditRecord", () => {
     // Drop write permission on the dir so appendFileSync fails. The
     // call must not throw out to the caller — the tool response would
     // be lost otherwise.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     chmodSync(dir, 0o500);
     try {
       const policy = makeFakePolicy({ path: auditPath, redact: [] });
@@ -273,6 +277,7 @@ describe("appendAuditRecord", () => {
       assert.ok(typeof result.error === "string");
     } finally {
       // Restore so afterEach can clean up.
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
       chmodSync(dir, 0o700);
     }
   });
@@ -292,6 +297,7 @@ describe("appendAuditRecord", () => {
       result_class: "success",
       duration_ms: 1,
     });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const mode = statSync(auditPath).mode & 0o777;
     assert.equal(
       mode,
@@ -302,7 +308,9 @@ describe("appendAuditRecord", () => {
 
   it("tightens a pre-existing audit file's permissions on first append", () => {
     // Simulate a legacy run that left the file world-readable.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     writeFileSync(auditPath, "");
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     chmodSync(auditPath, 0o644);
     const policy = makeFakePolicy({ path: auditPath, redact: [] });
     appendAuditRecord(policy, {
@@ -313,6 +321,7 @@ describe("appendAuditRecord", () => {
       result_class: "success",
       duration_ms: 1,
     });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- test temp path from mkdtempSync
     const mode = statSync(auditPath).mode & 0o777;
     assert.equal(mode, 0o600);
   });

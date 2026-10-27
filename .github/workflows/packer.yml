@@ -13,7 +13,6 @@ on:
           - windows
           - dc
           - dc-prebaked
-          - brokenbk
       environment:
         description: 'AWS environment to build in'
         required: true

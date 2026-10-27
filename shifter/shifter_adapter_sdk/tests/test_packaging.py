@@ -16,7 +16,7 @@ def _run(argv, cwd):
     return subprocess.run(argv, cwd=cwd, env=environment, check=True, capture_output=True, text=True, timeout=90)
 
 
-def _synthetic_wheel(root):
+def _synthetic_wheel(root, prefix="shifter"):
     """Create an independently distributed fixture, without a source-path import."""
     wheel = root / "example_adapter-1.0-py3-none-any.whl"
     metadata = "example_adapter-1.0.dist-info"
@@ -50,8 +50,8 @@ def _synthetic_wheel(root):
         f"{metadata}/METADATA": "Metadata-Version: 2.1\nName: example-adapter\nVersion: 1.0\n",
         f"{metadata}/WHEEL": "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
         f"{metadata}/entry_points.txt": (
-            "[shifter.scenario_verification.adapters]\nexample = example_adapter:factory\n"
-            "[shifter.runtime.plugins]\nexample = example_runtime:factory\n"
+            f"[{prefix}.scenario_verification.adapters]\nexample = example_adapter:factory\n"
+            f"[{prefix}.runtime.plugins]\nexample = example_runtime:factory\n"
         ),
     }
     files[f"{metadata}/RECORD"] = "".join(f"{name},,\n" for name in [*files, f"{metadata}/RECORD"])
@@ -62,25 +62,46 @@ def _synthetic_wheel(root):
 
 
 @pytest.mark.integration
-def test_installed_sdk_and_external_adapter_need_no_application(tmp_path):
+@pytest.mark.parametrize("prefix", ["shifter", "bigrae"])
+def test_installed_sdk_and_external_adapter_need_no_application(tmp_path, prefix):
     uv = shutil.which("uv")
     assert uv, "Packaging conformance requires the repository's uv toolchain"
     source = Path(__file__).resolve().parents[1]
     dist = tmp_path / "dist"
     _run([uv, "build", "--wheel", "--out-dir", str(dist), str(source)], tmp_path)
     (wheel,) = dist.glob("*.whl")
+    legacy_dist = tmp_path / "legacy-dist"
+    _run([uv, "build", "--wheel", "--out-dir", str(legacy_dist), str(source / "legacy")], tmp_path)
+    (legacy_wheel,) = legacy_dist.glob("*.whl")
     environment = tmp_path / "runtime"
     _run([sys.executable, "-m", "venv", "--without-pip", str(environment)], tmp_path)
     python = environment / "bin" / "python"
-    external_wheel = _synthetic_wheel(tmp_path)
+    external_wheel = _synthetic_wheel(tmp_path, prefix)
     _run(
-        [uv, "pip", "install", "--python", str(python), "--no-index", "--no-deps", str(wheel), str(external_wheel)],
+        [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "--no-index",
+            "--no-deps",
+            str(wheel),
+            str(legacy_wheel),
+            str(external_wheel),
+        ],
         tmp_path,
     )
     script = textwrap.dedent("""\
         import importlib.util
         import sys
         from shifter_adapter_sdk.verification import discover_plugins, load_plugin, PluginSelection
+        from bigrae_adapter_sdk.verification import PluginSelection as BigRAESelection
+        from importlib.metadata import version
+
+        assert PluginSelection is BigRAESelection
+        assert version("bigrae-adapter-sdk") == "0.1.0"
+        assert version("shifter-adapter-sdk") == "0.2.0"
 
         assert importlib.util.find_spec("shared") is None
         assert importlib.util.find_spec("django") is None
@@ -102,7 +123,7 @@ def test_installed_sdk_and_external_adapter_need_no_application(tmp_path):
             "export",
             "--frozen",
             "--offline",
-            "--no-dev",
+            "--no-default-groups",
             "--extra",
             "runtime",
             "--no-emit-project",
@@ -146,4 +167,61 @@ def test_installed_sdk_and_external_adapter_need_no_application(tmp_path):
             assert parse_result(result.stdout, request).status == expected
             assert not result.stderr
     """)
+    if prefix == "bigrae":
+        runtime_script = runtime_script.replace("from shifter_adapter_sdk.runtime", "from bigrae_adapter_sdk.runtime")
+        runtime_script = runtime_script.replace("shifter_adapter_sdk.worker", "bigrae_adapter_sdk.worker")
+        runtime_script = runtime_script.replace("SHIFTER_PLUGIN_INPUT", "BIGRAE_PLUGIN_INPUT")
     _run([str(python), "-I", "-c", runtime_script], tmp_path)
+
+
+@pytest.mark.integration
+def test_native_client_alias_installs_as_one_transport(tmp_path):
+    uv = shutil.which("uv")
+    assert uv
+    source = Path(__file__).resolve().parents[2] / "shifter_client"
+    dist = tmp_path / "dist"
+    _run([uv, "build", "--wheel", "--out-dir", str(dist), str(source)], tmp_path)
+    (wheel,) = dist.glob("*.whl")
+    legacy_dist = tmp_path / "legacy-dist"
+    _run([uv, "build", "--wheel", "--out-dir", str(legacy_dist), str(source / "legacy")], tmp_path)
+    (legacy_wheel,) = legacy_dist.glob("*.whl")
+    environment = tmp_path / "client-runtime"
+    _run([sys.executable, "-m", "venv", "--without-pip", str(environment)], tmp_path)
+    python = environment / "bin" / "python"
+    runtime_lock = tmp_path / "pylock.client.toml"
+    _run(
+        [
+            uv,
+            "export",
+            "--frozen",
+            "--offline",
+            "--only-group",
+            "client-runtime",
+            "--no-emit-local",
+            "--format",
+            "pylock.toml",
+            "--output-file",
+            str(runtime_lock),
+        ],
+        Path(__file__).resolve().parents[1],
+    )
+    _run([uv, "pip", "install", "--offline", "--python", str(python), "-r", str(runtime_lock)], tmp_path)
+    _run(
+        [uv, "pip", "install", "--offline", "--no-deps", "--python", str(python), str(wheel), str(legacy_wheel)],
+        tmp_path,
+    )
+    _run([uv, "pip", "check", "--python", str(python)], tmp_path)
+    _run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            "from importlib.metadata import version\n"
+            "assert version('bigrae-client') == '0.1.0'\n"
+            "assert version('shifter-client') == '0.2.0'\n"
+            "from bigrae_client import ServiceClient\n"
+            "from shifter_client import ServiceClient as Old\n"
+            "assert ServiceClient is Old\n",
+        ],
+        tmp_path,
+    )

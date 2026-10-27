@@ -121,8 +121,9 @@ def _distribution_metadata(entry_point: object) -> tuple[str, str]:
 def discover_plugins() -> tuple[InstalledPlugin, ...]:
     """Enumerate fixed-group metadata without importing plugin code."""
     discovered: list[InstalledPlugin] = []
-    for entry_point in metadata.entry_points().select(group=ENTRY_POINT_GROUP):
-        if getattr(entry_point, "group", None) != ENTRY_POINT_GROUP:
+    groups = (ENTRY_POINT_GROUP, "bigrae.scenario_verification.adapters")
+    for entry_point in metadata.entry_points():
+        if getattr(entry_point, "group", None) not in groups:
             continue
         distribution, version = _distribution_metadata(entry_point)
         name = _metadata_value(getattr(entry_point, "name", None), _ENTRY_POINT_FIELD, _ENTRY_POINT_RE)

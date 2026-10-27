@@ -22,7 +22,12 @@ The `deploy.py` CLI provides an interactive walkthrough for bootstrapping a bare
   organizations that deny `iam:AttachRolePolicy` via SCP.
 - Optionally deploys Terraform infrastructure
 
-**GDC Bootstrap Creates:**
+**GCP Bootstrap:**
+
+The default control plane uses GKE and the shared Helm chart.
+GCE range cells are the default guest backend.
+The following GDC substrate operations apply only when that backend is explicitly selected:
+
 - required GDC/GKE/GCP APIs and IAM bindings
 - the custom VPC/subnet/firewall substrate for the eval cluster
 - the Compute Engine admin workstation and cluster nodes
@@ -87,7 +92,7 @@ command below.
    instead of the standard managed runner VPC (ADR-004-R20, #1437). Registration tokens
    are never written to Terraform state, user data, a secret store, or logs.
 3. Confirm the fleet is online (the `runners` path already verifies this):
-   `gh api repos/Brad-Edwards/shifter/actions/runners --jq '.runners[] | {name, status}'`.
+   `gh api repos/Brad-Edwards/bigrae/actions/runners --jq '.runners[] | {name, status}'`.
 4. Seed or build the `/shifter/ami/{kali,ubuntu,windows,dc}` SSM
    parameters required by portal Terraform. The Kali build requires the target
    account to accept the free AWS Marketplace terms for product code
@@ -115,12 +120,11 @@ command below.
    `alb_dns_name`; `ctfd_domain` A-records to `ctfd_elastic_ip`.
 
 The portal VPC creates private AWS service endpoints for the bootstrap-critical
-services used by EC2 user_data and Fargate task startup: ECR, S3, CloudWatch
+services used by EKS workloads and retained range infrastructure: ECR, S3, CloudWatch
 Logs, Secrets Manager, SSM, STS/KMS, ECS/EC2/ELB, SNS, SQS, and DynamoDB.
 These endpoints are expected in fresh accounts, especially when portal
 inspection is enabled, because the private default route traverses the
-firewall/NAT path while Docker install, image pulls, ECS secret resolution, and
-awslogs setup are all first-boot or task-initialization work.
+firewall/NAT path during image pulls, secret hydration and log delivery.
 
 ## Fresh GCP Account Order
 
@@ -189,9 +193,7 @@ foundation identity changes.
 2. Apply the foundational OIDC/WIF identity root
    (`platform/terraform/gcp/global/cicd-oidc`) to create the GitHub Actions
    Workload Identity pool/provider and purpose-scoped CI service accounts. Apply
-   the `gcp-dev` profile in the dev project; repeat with `environment=proof` in
-   the proof project and `environment=prod` in the prod project when those image
-   lanes are used. Each project keeps its own state bucket/prefix. Then set each
+   selected deployment values in each project. Each project keeps its own state bucket/prefix. Then set each
    purpose Environment's explicit service-account secret and
    `GCP_WORKLOAD_IDENTITY_PROVIDER` from the applicable profile outputs. This root has its own state prefix, separate from the
    platform root, so a `gcp-dev-destroy` never removes the credentials CI
@@ -219,8 +221,7 @@ foundation identity changes.
    cover any non-empty `raes_package_bucket_name` and
    `ctf_content_bucket_name` used by platform-core so deploy/destroy can manage
    workload IAM on those exact resources without project-wide Storage Admin.
-   Use `environment=proof` for the proof image lane and publish only its build
-   and validate outputs. Existing installations follow the staged, state-address
+   Publish each purpose output only to its matching protected Environment. Existing installations follow the staged, state-address
    preserving cutover in `docs/dev/deploy-secrets.md` rather than applying the
    strict identity split from the shared CI principal.
 3. Configure the GCP deployment secrets and variables in
@@ -451,7 +452,7 @@ repo-specific fixes from the live spike:
 
 ## Options
 
-- `--env` (required): `dev`, `proof`, or `prod` (`gcp-dev` for the `preflight --cloud gcp` path)
+- `--env` (required): `dev` or `prod` (`gcp-dev` for the `preflight --cloud gcp` path)
 - `--profile` (required): AWS CLI profile name
 - `--dry-run` (optional): Show what would happen without making changes
 - `--cloud` (preflight only): `aws` or `gcp`
@@ -477,3 +478,12 @@ repo-specific fixes from the live spike:
 ./scripts/bootstrap/deploy.py full --help
 ./scripts/bootstrap/deploy.py gdc-bootstrap --help
 ```
+
+## Shared deployment configuration and retained callers
+
+GCP platform Terraform runs from `platform/terraform/gcp/environments/platform`.
+Bootstrap passes the selected environment's values and local overrides explicitly.
+Each environment uses its own `TF_DATA_DIR` and existing state prefix.
+AWS production roots remain owned by @Brad-Edwards and are called by `terraform`/`full` and the EKS lifecycle.
+The optional portal CTFd module retains that owner and its portal-root caller.
+See `docs/dev/deployment-configuration.md` for state selection and archived cleanup procedures.

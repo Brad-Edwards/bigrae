@@ -59,9 +59,7 @@ def _check_adr_entry(
         return
     adr_id = entry["id"]
     if adr_id in adr_ids:
-        violations.append(
-            _registry_violation(_ADR_INDEX_PATH, f"Duplicate ADR id: {adr_id}")
-        )
+        violations.append(_registry_violation(_ADR_INDEX_PATH, f"Duplicate ADR id: {adr_id}"))
     adr_ids.add(adr_id)
     interface_contract = entry.get("interface_contract")
     if adr_id in REQUIRED_INTERFACE_CONTRACTS and interface_contract is None:
@@ -76,23 +74,15 @@ def _check_adr_entry(
             violations.append(_registry_violation(_ADR_INDEX_PATH, error))
     rules = entry.get("rules", [])
     if not isinstance(rules, list):
-        violations.append(
-            _registry_violation(_ADR_INDEX_PATH, f"{adr_id} rules must be a list")
-        )
+        violations.append(_registry_violation(_ADR_INDEX_PATH, f"{adr_id} rules must be a list"))
         return
     for rule in rules:
         rule_id = rule.get("id")
         if not rule_id:
-            violations.append(
-                _registry_violation(
-                    _ADR_INDEX_PATH, f"{adr_id} has a rule without an id"
-                )
-            )
+            violations.append(_registry_violation(_ADR_INDEX_PATH, f"{adr_id} has a rule without an id"))
             continue
         if rule_id in rule_ids:
-            violations.append(
-                _registry_violation(_ADR_INDEX_PATH, f"Duplicate rule id: {rule_id}")
-            )
+            violations.append(_registry_violation(_ADR_INDEX_PATH, f"Duplicate rule id: {rule_id}"))
         rule_ids.add(rule_id)
 
 

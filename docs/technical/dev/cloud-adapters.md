@@ -15,7 +15,7 @@ Defined in `shifter_platform/shared/cloud/types.py`. Obtained via factory functi
 | Protocol | Methods | AWS | GCP |
 |----------|---------|-----|-----|
 | **ObjectStorage** | `upload_file`, `delete_object`, `head_object`, `generate_presigned_upload_url`, `generate_presigned_download_url`, `tag_object` | S3 | GCS |
-| **TaskRunner** | `run_task`, `get_task_status` | ECS Fargate | Kubernetes Job |
+| **TaskRunner** | `run_task`, `get_task_status` | EKS Kubernetes Job | GKE Kubernetes Job |
 | **QueueConsumer** | `receive_messages`, `delete_message` | SQS | Pub/Sub |
 | **QueuePublisher** | `send_message` | SQS | Pub/Sub |
 | **SecretsStore** | `get_secret` | Secrets Manager | Secret Manager |
@@ -51,7 +51,7 @@ shifter_platform/shared/cloud/
 ├── types.py             # Platform protocol definitions
 ├── aws/                 # AWS implementations
 │   ├── storage.py       # S3
-│   ├── task_runner.py   # ECS Fargate
+│   ├── task_runner.py   # EKS Kubernetes Job
 │   ├── queue.py         # SQS
 │   └── secrets.py       # Secrets Manager
 └── gcp/                 # GCP implementations

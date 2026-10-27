@@ -5,11 +5,11 @@ Two artifacts have to agree for a promotion to work: the root Makefile's
 ``Lint PR title`` context is a required status check on ``main``.
 
 ``devmain`` pins ``--repo``. This checkout is a fork
-(``Brad-Edwards/shifter`` of ``PaloAltoNetworks/shifter``) and carries a second
+(``Brad-Edwards/bigrae`` of ``PaloAltoNetworks/shifter``) and carries a second
 ``panw`` remote, so ``gh pr create`` resolves its base repository to the fork
 parent by default; an unpinned invocation would open the promotion PR against
 the upstream OSS repository. ``.gc/plan-rules.md`` makes
-``Brad-Edwards/shifter`` canonical regardless of remote configuration, so the
+``Brad-Edwards/bigrae`` canonical regardless of remote configuration, so the
 pin is the load-bearing property of the recipe rather than a stylistic
 preference.
 
@@ -46,7 +46,7 @@ SPEC.loader.exec_module(ADR_GUARD)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAKEFILE = REPO_ROOT / "Makefile"
 
-CANONICAL_REPO = "Brad-Edwards/shifter"
+CANONICAL_REPO = "Brad-Edwards/bigrae"
 PROMOTION_TITLE = "chore(main): promote dev"
 # release-please's PR title shape (docs/DEVELOPMENT_WORKFLOW.md), which linting
 # `main` newly brings into scope.
@@ -68,8 +68,8 @@ def _make(*args: str) -> str:
     lane: a sub-make would otherwise interleave its own ``Entering directory``
     bookkeeping with the recipe under inspection.
     """
-    result = subprocess.run(  # noqa: S603
-        ["make", "--no-print-directory", *args],  # noqa: S607
+    result = subprocess.run(
+        ["make", "--no-print-directory", *args],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,

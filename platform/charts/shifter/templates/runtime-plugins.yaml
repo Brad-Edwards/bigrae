@@ -143,9 +143,9 @@ spec:
         (!has(variables.container.args) || variables.container.args.size() == 0) &&
         (!has(variables.container.envFrom) || variables.container.envFrom.size() == 0) &&
         variables.container.env.size() == 1 &&
-        variables.container.env[0].name == 'SHIFTER_PLUGIN_INPUT' &&
+        variables.container.env[0].name in ['SHIFTER_PLUGIN_INPUT', 'BIGRAE_PLUGIN_INPUT'] &&
         !has(variables.container.env[0].value) &&
-        variables.container.env[0].valueFrom.secretKeyRef.key == 'SHIFTER_PLUGIN_INPUT' &&
+        variables.container.env[0].valueFrom.secretKeyRef.key == variables.container.env[0].name &&
         variables.container.env[0].valueFrom.secretKeyRef.name.startsWith('runtime-plugin-secrets-')
       message: Plugin jobs may receive only their bounded invocation secret.
     - expression: >-

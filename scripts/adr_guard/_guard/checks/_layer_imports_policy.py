@@ -4,6 +4,7 @@ Split out of ``layer_imports.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -43,7 +44,7 @@ def _section_lines(config_path: Path, section: str) -> list[tuple[str, int]]:
     return lines
 
 
-def _iter_yaml_section(config_path: Path, section: str) -> "list[tuple[str, list[str]]]":
+def _iter_yaml_section(config_path: Path, section: str) -> list[tuple[str, list[str]]]:
     """Parse one top-level ``section:`` of the layer-policy YAML.
 
     Minimal, dependency-free reader for the two-level shape used by

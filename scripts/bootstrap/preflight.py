@@ -28,6 +28,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from bootstrap_core import (
+    AWS_ENVIRONMENTS,
     confirm,
     error,
     get_repo_root,
@@ -44,8 +45,8 @@ from bootstrap_core import (
 # empty-secret accident (contrast the old silent ``if: secrets != ''`` skip).
 SKIP_OPERATOR_ENV = "SHIFTER_SKIP_OPERATOR_BOOTSTRAP"
 
-_AWS_ENVIRONMENTS = ("dev", "proof", "prod")
-_AWS_ENV_SUFFIX = {"dev": "DEV", "proof": "PROOF", "prod": "PROD"}
+_AWS_ENVIRONMENTS = AWS_ENVIRONMENTS
+_AWS_ENV_SUFFIX = {"dev": "DEV", "prod": "PROD"}
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
@@ -412,6 +413,13 @@ def run_preflight(
     environment), ``repo_root`` (defaults to :func:`get_repo_root`), and
     ``tool_exists`` (defaults to :func:`shutil.which`).
     """
+    if cloud is Cloud.AWS and environment not in _AWS_ENVIRONMENTS:
+        return PreflightReport(
+            cloud.value,
+            mode.value,
+            environment,
+            [CheckResult("environment", Status.FAIL, "AWS environment must be dev or prod")],
+        )
     env = os.environ if env is None else env
     repo_root = get_repo_root() if repo_root is None else repo_root
     tool_exists = shutil.which if tool_exists is None else tool_exists

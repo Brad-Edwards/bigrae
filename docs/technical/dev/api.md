@@ -1,6 +1,6 @@
 # Platform API Development
 
-Shifter's non-public HTTP/JSON API is a Django REST Framework surface mounted
+BigRAE's non-public HTTP/JSON API is a Django REST Framework surface mounted
 under `/api/v1/`. New API endpoints should join that surface instead of adding
 ad-hoc `JsonResponse` function views.
 

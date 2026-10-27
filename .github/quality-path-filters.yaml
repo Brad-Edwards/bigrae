@@ -293,10 +293,10 @@ quality_units:
     responsibilities:
       lint: [stack-smoke-lint-security]
       security: [stack-smoke-lint-security]
-      test: [stack-smoke]
+      test: [stack-smoke-lint-security, stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
-  # exclusions (ADR-004-R23 forbids exempting shipped build/runtime material via
+  # exclusions (ADR-004-R24 forbids exempting shipped build/runtime material via
   # exclusions). Each responsibility resolves to a blocking job below.
   - id: container_images
     paths:
@@ -306,7 +306,7 @@ quality_units:
     responsibilities:
       lint: [container-images-lint-security]
       security: [container-images-lint-security]
-      test: [guacamole-authority-tests]
+      test: [guacamole-authority-tests, guacd-image-tests]
 
   - id: portal_image_context
     paths:
@@ -326,15 +326,6 @@ quality_units:
       security: [chart-lint-security]
       test: [chart-tests]
 
-  - id: cloudformation
-    paths:
-      - platform/cloudformation/**
-    sonar: false
-    responsibilities:
-      lint: [cloudformation-validate]
-      security: [cloudformation-security]
-      test: [cloudformation-validate]
-
 exclusions:
   - type: docs
     reason: >-
@@ -344,11 +335,6 @@ exclusions:
       are owned by the adr_guard unit via most-specific precedence.
     paths:
       - docs/**
-      # Reference artwork and the retired login-style sample are documentation
-      # inputs only. No build context, template, static-collection path, or
-      # deployment bundle consumes root assets/**; shipped UI assets live under
-      # shifter/shifter_platform/static/ and are owned by shifter_platform.
-      - assets/**
       - README.md
       - CHANGELOG.md
       - CODE_OF_CONDUCT.md
@@ -419,7 +405,6 @@ exclusions:
       - scripts/check_checkov_invocation_parity/**
       - scripts/post_deploy_smoke/**
       - scripts/terraform/**
-      - scripts/ctf-scenario/**
       - scripts/tests/**
       # Root-level helper scripts are enumerated (not a scripts/* wildcard) so a
       # new script package under scripts/ still fails closed as unclassified.

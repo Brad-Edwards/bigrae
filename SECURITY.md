@@ -1,13 +1,13 @@
 # Security
 
-Report suspected Shifter vulnerabilities privately to the repository maintainer,
+Report suspected BigRAE vulnerabilities privately to the repository maintainer,
 Brad Edwards, at [j.bradley.edwards@gmail.com](mailto:j.bradley.edwards@gmail.com).
 This is the contact published on the
 [maintainer's GitHub profile](https://github.com/Brad-Edwards).
 
 Do not report vulnerability details through public issues or pull requests.
 GitHub private vulnerability reporting is currently disabled for this repository;
-this policy does not assume that an advisory form is available. Shifter security
+this policy does not assume that an advisory form is available. BigRAE security
 response is maintainer managed and best effort, with no guaranteed response or
 remediation deadline.
 

@@ -64,7 +64,7 @@ describe("triggerAmiWorkflow protected-ref dispatch (#1656)", () => {
       "run",
       "packer.yml",
       "--repo",
-      "Brad-Edwards/shifter",
+      "Brad-Edwards/bigrae",
       "--ref",
       "dev",
       "-f",
@@ -72,7 +72,7 @@ describe("triggerAmiWorkflow protected-ref dispatch (#1656)", () => {
     ]);
     assert.equal(
       message,
-      "Triggered packer.yml for kali on ref dev. View at: https://github.com/Brad-Edwards/shifter/actions/workflows/packer.yml",
+      "Triggered packer.yml for kali on ref dev. View at: https://github.com/Brad-Edwards/bigrae/actions/workflows/packer.yml",
     );
   });
 });
@@ -112,7 +112,7 @@ describe("triggerGceImageWorkflow protected-ref dispatch", () => {
       "run",
       "packer-gcp-promote.yml",
       "--repo",
-      "Brad-Edwards/shifter",
+      "Brad-Edwards/bigrae",
       "--ref",
       "main",
       "-f",
@@ -122,7 +122,7 @@ describe("triggerGceImageWorkflow protected-ref dispatch", () => {
     ]);
     assert.equal(
       message,
-      "Triggered packer-gcp-promote.yml for ubuntu on ref main. View at: https://github.com/Brad-Edwards/shifter/actions/workflows/packer-gcp-promote.yml",
+      "Triggered packer-gcp-promote.yml for ubuntu on ref main. View at: https://github.com/Brad-Edwards/bigrae/actions/workflows/packer-gcp-promote.yml",
     );
   });
 });

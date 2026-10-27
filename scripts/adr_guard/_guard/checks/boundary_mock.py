@@ -1,4 +1,5 @@
 """Boundary-mock non-growth policy (ADR-019-R1)."""
+
 from __future__ import annotations
 
 import ast
@@ -129,10 +130,7 @@ def _first_party_python_roots(repo_root: Path) -> set[str]:
         if _is_boundary_mock_test_path(rel):
             continue
         path = Path(rel)
-        if path.name == "__init__.py":
-            root = path.parent.name
-        else:
-            root = path.stem
+        root = path.parent.name if path.name == "__init__.py" else path.stem
         if not root.isidentifier() or root in {"conftest", "tests"} or root.startswith("test_"):
             continue
         roots.add(root)
@@ -230,8 +228,10 @@ def _is_mock_patch_func(func: ast.AST, patch_names: set[str], mock_modules: set[
 
 def _is_mock_patch_object_func(func: ast.AST, patch_names: set[str], mock_modules: set[str]) -> bool:
     """Return True for patch.object(...) or mock/mocker.patch.object(...)."""
-    return isinstance(func, ast.Attribute) and func.attr == "object" and _is_mock_patch_func(
-        func.value, patch_names, mock_modules
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "object"
+        and _is_mock_patch_func(func.value, patch_names, mock_modules)
     )
 
 
@@ -334,8 +334,7 @@ def _boundary_mock_baseline_counts(
         count = record.get("count")
         if not isinstance(rel, str) or not isinstance(target, str) or not isinstance(count, int) or count < 0:
             return Counter(), (
-                f"baseline entry {index} in {source} must have string path/target "
-                "and non-negative integer count"
+                f"baseline entry {index} in {source} must have string path/target and non-negative integer count"
             )
         counts[(rel, target)] += count
     return counts, None

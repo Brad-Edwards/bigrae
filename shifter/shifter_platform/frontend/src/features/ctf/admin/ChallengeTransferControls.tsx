@@ -34,9 +34,9 @@ export function ChallengeTransferControls({ eventId }: Readonly<{ eventId: strin
   const result = importPack.data;
   const errorMessage = describeMutationError(importPack.error, "Import failed.");
 
-  async function exportPack(fmt: "shifter" | "ctfd") {
+  async function exportPack(fmt: "bigrae" | "ctfd") {
     const data = await exportCtfChallenges(eventId, fmt);
-    downloadJson(fmt === "ctfd" ? "challenges-ctfd.json" : "challenges-shifter.json", data);
+    downloadJson(fmt === "ctfd" ? "challenges-ctfd.json" : "challenges-bigrae.json", data);
   }
 
   function runImport() {
@@ -53,7 +53,7 @@ export function ChallengeTransferControls({ eventId }: Readonly<{ eventId: strin
 
   return (
     <div className="flex items-center gap-2">
-      <Button type="button" variant="outline" size="sm" onClick={() => void exportPack("shifter")}>
+      <Button type="button" variant="outline" size="sm" onClick={() => void exportPack("bigrae")}>
         Export
       </Button>
       <Button type="button" variant="outline" size="sm" onClick={() => void exportPack("ctfd")}>
@@ -79,7 +79,7 @@ export function ChallengeTransferControls({ eventId }: Readonly<{ eventId: strin
           <DialogHeader>
             <DialogTitle>Import challenge pack</DialogTitle>
             <DialogDescription>
-              Paste a Shifter or CTFd challenge export. Bad or duplicate entries are skipped and reported; the
+              Paste a BigRAE or CTFd challenge export. Bad or duplicate entries are skipped and reported; the
               rest import.
             </DialogDescription>
           </DialogHeader>

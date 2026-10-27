@@ -10,7 +10,7 @@ import re
 import sys
 
 from .runtime import (
-    ENTRY_POINT_GROUP,
+    ENTRY_POINT_GROUPS,
     InspectionInput,
     InspectionResult,
     PluginManifest,
@@ -25,9 +25,11 @@ def _normalize(name: str) -> str:
 
 
 def _load_plugin(selection: PluginManifest) -> object:
+    installed = importlib.metadata.entry_points()
     candidates = [
         entry
-        for entry in importlib.metadata.entry_points().select(group=ENTRY_POINT_GROUP)
+        for group in ENTRY_POINT_GROUPS
+        for entry in installed.select(group=group)
         if entry.dist is not None
         and _normalize(entry.dist.name) == _normalize(selection.distribution)
         and entry.dist.version == selection.version
@@ -79,9 +81,12 @@ def inspect_invocation(request: InspectionInput) -> InspectionResult:
 
 def main() -> int:
     """Read bounded injected input and emit only the versioned plan response."""
-    raw = os.environ.pop("SHIFTER_PLUGIN_INPUT", "")
+    raw = os.environ.pop("BIGRAE_PLUGIN_INPUT", None)
+    legacy = os.environ.pop("SHIFTER_PLUGIN_INPUT", None)
     try:
-        request = parse_input(raw)
+        if raw is not None and legacy is not None and raw != legacy:
+            raise ValueError("conflicting plugin input aliases")
+        request = parse_input(raw if raw is not None else legacy or "")
     except ValueError:
         # Invalid input cannot be safely bound to an invocation. No input values
         # or validation diagnostics are emitted, including Pydantic input echoes.

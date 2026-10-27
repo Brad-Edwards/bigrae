@@ -60,7 +60,6 @@ CLI flags) so secrets cannot appear in a process list. See
 | Type | Source | Notes |
 |------|--------|-------|
 | `ubuntu` | `ubuntu-2204-lts` (ubuntu-os-cloud) | Reuses `../scripts/ubuntu` |
-| `brokenbk` | `ubuntu-2204-lts` (ubuntu-os-cloud) | Reuses `../scripts/brokenbk` |
 | `kali` | `debian-12` (debian-cloud), converted to Kali | No public Kali GCP image |
 | `windows` | `windows-2022` (windows-cloud) | WinRM + GCESysprep |
 | `dc` | `windows-2022` (windows-cloud) | AD DS via `PACKER_ROLE=dc`, GCESysprep, first-boot promotion |

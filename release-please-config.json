@@ -4,7 +4,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "shifter",
+      "package-name": "bigrae",
       "changelog-path": "CHANGELOG.md"
     }
   }

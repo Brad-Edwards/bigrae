@@ -6,7 +6,7 @@
 
 set -e
 
-REPO="Brad-Edwards/shifter"
+REPO="Brad-Edwards/bigrae"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # Base/DC builds and prod promotions run only from a protected ref: a
@@ -31,7 +31,7 @@ usage() {
     echo "  -p <type>   Promote AMI to prod (runs packer-promote.yml)"
     echo ""
     echo "AMI types:"
-    echo "  Base: kali, ubuntu, windows, dc, brokenbk"
+    echo "  Base: kali, ubuntu, windows, dc"
     echo "Dispatch ref: $WORKFLOW_REF (current branch: $BRANCH; override with AMI_WORKFLOW_REF=main)"
     exit 1
 }

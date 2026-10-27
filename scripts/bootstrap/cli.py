@@ -8,10 +8,13 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from urllib.parse import quote
 
+from installation.loader import default_root_config_path
+
 from account_recovery import account_recovery
-from aws_bootstrap import AWS_ENVIRONMENTS, BootstrapConfig, bootstrap_account
+from aws_bootstrap import BootstrapConfig, bootstrap_account
 from aws_eks import deploy_eks, teardown_eks
 from bootstrap_core import (
+    AWS_ENVIRONMENTS,
     HELP_AWS_PROFILE,
     HELP_DRY_RUN,
     GDCBootstrapConfig,
@@ -69,7 +72,7 @@ def full_deployment(env: str, profile: str, dry_run: bool = False) -> None:
     header(f"Full {env.upper()} Deployment")
 
     print("""
-This will guide you through a complete Shifter deployment:
+This will guide you through a complete BigRAE deployment:
 
   1. Bootstrap AWS account (S3 state bucket with native locking, GitHub OIDC, IAM)
   2. Configure GitHub secrets (automated with gh CLI or manual)
@@ -208,7 +211,8 @@ def gcp_runners_deployment(
         error("GCP runner provisioning requires --project-id (or PANW_GCP_DEV / repo-root .env)")
         sys.exit(1)
 
-    defaults = BootstrapConfig(env=env)
+    # Reuse repository defaults without treating the GCP environment as an AWS tier.
+    defaults = BootstrapConfig(env="dev")
     runner_config = get_gcp_runner_config(
         env=env,
         project_id=project_id,
@@ -412,7 +416,7 @@ def _add_runners_subparser(subparsers: argparse._SubParsersAction) -> None:
     runners_parser.add_argument(
         "--env",
         required=True,
-        help="Environment (AWS: dev/proof/prod; GCP: e.g. gcp-dev). Validated per --cloud.",
+        help="Environment (AWS: dev/prod; GCP: e.g. gcp-dev). Validated per --cloud.",
     )
     runners_parser.add_argument("--profile", help=HELP_AWS_PROFILE + " (AWS only)")
     runners_parser.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
@@ -466,10 +470,10 @@ def _add_gdc_bootstrap_subparser(subparsers: argparse._SubParsersAction) -> None
         "--environment",
         default="gcp-dev",
         help=(
-            "Deployment environment name (default gcp-dev). Selects the Terraform root "
-            "(platform/terraform/gcp/environments/<env>), the state prefix "
+            "Deployment environment name (default gcp-dev). Selects Terraform "
+            "values (platform/terraform/gcp/environments/<env>), the state prefix "
             "(shifter/<env>/platform-core), the Helm values override (values-<env>.yaml), and the "
-            "operator-creds overlay. Use a per-tenant name (e.g. nazgul) to stand up an additional tenant."
+            "operator-creds overlay. Use a per-tenant name (e.g. sample) to stand up an additional tenant."
         ),
     )
     gdc_parser.add_argument("--cluster-id", default="cluster1", help="Cluster name / prefix")
@@ -477,11 +481,13 @@ def _add_gdc_bootstrap_subparser(subparsers: argparse._SubParsersAction) -> None
     gdc_parser.add_argument("--zone", default="us-central1-a", help="Compute Engine zone")
     gdc_parser.add_argument("--google-account-email", help="Optional Google identity to grant cluster-admin")
     gdc_parser.add_argument(
+        "--bigrae-config",
         "--shifter-config",
+        dest="shifter_config",
         help=(
-            "Path to the deployment's shifter.yaml; its settings.range_egress is rendered into "
+            "Path to the deployment's bigrae.yaml; its settings.range_egress is rendered into "
             "range_egress.auto.tfvars before the control-plane apply (#1015). Defaults to "
-            "$SHIFTER_CONFIG or ./shifter.yaml; a missing config fails the deploy."
+            "$BIGRAE_CONFIG or ./bigrae.yaml (legacy names remain accepted); a missing config fails the deploy."
         ),
     )
     gdc_parser.add_argument(
@@ -556,7 +562,7 @@ def _add_eks_subparsers(subparsers: argparse._SubParsersAction) -> None:
         "eks-deploy",
         help="Explicitly deploy backend: aws to EKS through the shared Helm chart",
     )
-    deploy_parser.add_argument("--config", default="shifter.yaml", help="Validated root installation config")
+    deploy_parser.add_argument("--config", help="Root installation config (default bigrae.yaml; legacy shifter.yaml)")
     deploy_parser.add_argument(
         "--images",
         default=".shifter/images.json",
@@ -579,7 +585,7 @@ def _add_eks_subparsers(subparsers: argparse._SubParsersAction) -> None:
         "eks-teardown",
         help="Explicitly tear down only the root-configured AWS EKS bundle",
     )
-    teardown_parser.add_argument("--config", default="shifter.yaml", help="Validated root installation config")
+    teardown_parser.add_argument("--config", help="Root installation config (default bigrae.yaml; legacy shifter.yaml)")
     teardown_parser.add_argument(
         "--backend-config",
         default=os.environ.get("SHIFTER_BACKEND_CONFIG_PATH", ""),
@@ -626,7 +632,7 @@ def _add_preflight_and_recovery_subparsers(subparsers: argparse._SubParsersActio
         "preflight", help="Validate deploy prerequisites (tools, secrets, config) without making changes"
     )
     preflight_parser.add_argument("--cloud", required=True, choices=[c.value for c in Cloud], help="Target cloud")
-    preflight_parser.add_argument("--env", required=True, help="Environment (e.g. dev, proof, prod, gcp-dev)")
+    preflight_parser.add_argument("--env", required=True, help="Environment (e.g. dev, prod, gcp-dev)")
     preflight_parser.add_argument(
         "--component",
         choices=sorted(_PREFLIGHT_COMPONENTS),
@@ -755,7 +761,7 @@ def _handle_account_recovery(args: argparse.Namespace) -> None:
 def _handle_eks_deploy(args: argparse.Namespace) -> None:
     """Deploy the root-configured AWS EKS bundle."""
     deploy_eks(
-        args.config,
+        str(args.config or default_root_config_path()),
         args.images,
         backend_config_path=args.backend_config,
         terraform_inputs_path=args.terraform_inputs,
@@ -767,7 +773,7 @@ def _handle_eks_deploy(args: argparse.Namespace) -> None:
 def _handle_eks_teardown(args: argparse.Namespace) -> None:
     """Tear down only the root-configured AWS EKS bundle."""
     teardown_eks(
-        args.config,
+        str(args.config or default_root_config_path()),
         backend_config_path=args.backend_config,
         terraform_inputs_path=args.terraform_inputs,
         aws_profile=args.profile,

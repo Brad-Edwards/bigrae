@@ -35,7 +35,7 @@ export const Ec2Id = z
 export const SsmCommandId = z
   .string()
   .regex(
-    /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     "Must be a valid SSM command ID (UUID)"
   );
 export const SafePath = z
@@ -44,16 +44,16 @@ export const SafePath = z
 export const SafeName = z.string().regex(/^[\w.*?-]+$/, MSG_INVALID_CHARACTERS);
 export const AmiTypeSchema = z
   .enum(BASE_AMI_TYPES)
-  .describe("AMI type (kali, ubuntu, windows, dc, brokenbk)");
+  .describe("AMI type (kali, ubuntu, windows, dc)");
 export const GceImageTypeSchema = z
   .enum(GCE_IMAGE_TYPES)
   .describe(
-    "GCE image type (ubuntu, brokenbk, kali, windows, dc, dc-prebaked)"
+    "GCE image type (ubuntu, kali, windows, dc, dc-prebaked)"
   );
 export const GceImageNameSchema = z
   .string()
   .regex(
-    /^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$/,
+    /^[a-z]$|^[a-z][-a-z0-9]{0,61}[a-z0-9]$/,
     "Must be an exact GCE image name",
   );
 export const SecretIdSchema = z

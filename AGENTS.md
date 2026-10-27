@@ -30,7 +30,7 @@ The authoritative list of "plans MUST..." constraints for the
 ## Canonical GitHub Repository
 
 The canonical GitHub repository for this checkout is
-`Brad-Edwards/shifter`, as configured by `.ground-control.yaml`
+`Brad-Edwards/bigrae`, as configured by `.ground-control.yaml`
 (`github_repo`). Use that repository for all `gh`, GitHub API, PR, issue,
 CI, Ground Control, and traceability operations.
 

@@ -31,6 +31,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
 
@@ -137,7 +138,7 @@ class TestExpressionOperandCoverage(unittest.TestCase):
         self.assertFalse(ADR_GUARD._dw_evaluate_if("${{ github.event_name == 'pull_request' }}", event_name="push"))
 
     def test_repository_identity_is_resolvable(self):
-        expr = "github.repository == 'Brad-Edwards/shifter'"
+        expr = "github.repository == 'Brad-Edwards/bigrae'"
         # The permissive default is the canonical repository, so only the
         # scenario under test flips the outcome.
         self.assertTrue(ADR_GUARD._dw_evaluate_if(expr))
@@ -217,7 +218,7 @@ class TestManualDeployDispatch(unittest.TestCase):
     environment). push and pull_request run validation only, and no branch name
     selects a deployment target."""
 
-    ENV_OPTIONS = {"aws-dev", "gcp-dev", "orthanc", "sauron", "balrog"}
+    ENV_OPTIONS: ClassVar[set[str]] = {"aws-dev", "gcp-dev", "orthanc", "sauron", "balrog"}
 
     @classmethod
     def setUpClass(cls):
@@ -452,7 +453,7 @@ class TestSonarScannerIdentity(unittest.TestCase):
     has not crept back in.
     """
 
-    CANONICAL_REPOSITORY = "Brad-Edwards/shifter"
+    CANONICAL_REPOSITORY = "Brad-Edwards/bigrae"
     IDENTITY_PROPERTIES = (
         "sonar.projectKey",
         "sonar.organization",
@@ -512,6 +513,19 @@ class TestSonarScannerIdentity(unittest.TestCase):
         self.assertTrue(
             ADR_GUARD._dw_evaluate_if(self.scan_if, repository=self.CANONICAL_REPOSITORY),
             "the canonical repository must always attempt the Sonar scan",
+        )
+
+    def test_legacy_slug_is_not_trusted_after_cutover(self):
+        self.assertFalse(ADR_GUARD._dw_evaluate_if(self.scan_if, repository="Brad-Edwards/shifter"))
+
+    def test_recreated_canonical_slug_is_not_trusted(self):
+        self.assertFalse(
+            ADR_GUARD._dw_evaluate_if(self.scan_if, repository=self.CANONICAL_REPOSITORY, repository_id="999")
+        )
+
+    def test_renamed_slug_under_wrong_owner_is_not_trusted(self):
+        self.assertFalse(
+            ADR_GUARD._dw_evaluate_if(self.scan_if, repository="Brad-Edwards/bigrae", repository_owner_id="999")
         )
 
     def test_unset_variables_do_not_skip_the_scan(self):
@@ -618,7 +632,7 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         configured = {
             update["directory"].lstrip("/") or "."
             for update in config["updates"]
-            if update["package-ecosystem"] == "uv"
+            if update["package-ecosystem"] in {"uv", "pip"}
         }
         discovered = {
             path.parent.relative_to(REPO_ROOT).as_posix()
@@ -679,10 +693,10 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertIn('resource "google_storage_bucket" "release_evidence"', identity)
         self.assert_hcl_assignment(identity, "role", '"roles/storage.objectCreator"')
         self.assert_hcl_assignment(identity, "role", '"roles/storage.objectViewer"')
-        self.assert_hcl_assignment(identity, 'public_access_prevention', '"enforced"')
-        self.assert_hcl_assignment(identity, 'uniform_bucket_level_access', 'true')
-        self.assert_hcl_assignment(identity, 'retention_period', '"7776000"')
-        self.assert_hcl_assignment(identity, 'is_locked', 'true')
+        self.assert_hcl_assignment(identity, "public_access_prevention", '"enforced"')
+        self.assert_hcl_assignment(identity, "uniform_bucket_level_access", "true")
+        self.assert_hcl_assignment(identity, "retention_period", '"7776000"')
+        self.assert_hcl_assignment(identity, "is_locked", "true")
 
     def test_gcp_guest_build_and_sbom_evidence_cross_trust_boundaries(self):
         build = (REPO_ROOT / ".github/workflows/packer-gcp.yml").read_text(encoding="utf-8")
@@ -869,7 +883,7 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertEqual(destroy_env["GCP_ENVIRONMENT"], "${{ inputs.environment }}")
         self.assertEqual(
             destroy_env["TF_DIR"],
-            "platform/terraform/gcp/environments/${{ inputs.environment }}",
+            "platform/terraform/gcp/environments/platform",
         )
         self.assertEqual(
             destroy_env["TF_BACKEND_PREFIX"],
@@ -882,13 +896,9 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         # A single upfront preflight fails with the full list of any secrets
         # missing from the selected <environment>-destroy Environment before
         # checkout/auth, rather than one render step at a time.
-        destroy_text = (REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(
-            encoding="utf-8"
-        )
+        destroy_text = (REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(encoding="utf-8")
         self.assertIn("Preflight - required destroy secrets present", destroy_text)
-        self.assertIn(
-            "-destroy' Environment is missing required secret(s)", destroy_text
-        )
+        self.assertIn("-destroy' Environment is missing required secret(s)", destroy_text)
 
     def test_gcp_bootstrap_secrets_never_reach_process_argv(self):
         workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
@@ -925,7 +935,7 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
 class TestGithubEnvironmentBinding(unittest.TestCase):
     """#935 / ADR-003-R5: mutating deploy jobs bind a GitHub Environment."""
 
-    EXPECTED = {
+    EXPECTED: ClassVar[dict[str, tuple[str, ...]]] = {
         "_core.yml": ("apply",),
         "_range.yml": ("apply",),
         "_shifter-engine.yml": ("build", "verify-provisioner-image"),

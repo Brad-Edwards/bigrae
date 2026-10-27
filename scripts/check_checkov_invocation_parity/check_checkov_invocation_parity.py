@@ -15,6 +15,7 @@ from pathlib import Path
 
 EXPECTED_CONFIG = "platform/terraform/.checkov.yaml"
 EXPECTED_DIRECTORY = "platform/terraform/"
+EXPECTED_EXTERNAL_CHECKS = "scripts/check_checkov_invocation_parity/compat"
 
 
 def _parse_precommit_checkov_args(precommit_text: str) -> list[str]:
@@ -149,6 +150,8 @@ def check_repo(repo_root: Path) -> list[str]:
                 "pre-commit checkov args must not include --soft-fail "
                 "(ADR-004-R11 blocking gate; parity with CI soft_fail: false)"
             )
+        if EXPECTED_EXTERNAL_CHECKS not in precommit_args:
+            violations.append("pre-commit Checkov must load the pinned immutable-subject compatibility adapter")
 
     if ci_inputs.get("config_file") != EXPECTED_CONFIG:
         violations.append(
@@ -167,6 +170,9 @@ def check_repo(repo_root: Path) -> list[str]:
         violations.append(
             f"CI Checkov soft_fail must be false (got {ci_inputs.get('soft_fail')!r})"
         )
+
+    if ci_inputs.get("external_checks_dirs") != EXPECTED_EXTERNAL_CHECKS:
+        violations.append("CI Checkov must load the pinned immutable-subject compatibility adapter")
 
     return violations
 

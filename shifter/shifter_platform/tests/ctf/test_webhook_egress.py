@@ -1,8 +1,22 @@
 """Webhook delivery obeys the CTF pinned-destination egress boundary."""
 
+import hashlib
+import hmac
 from uuid import uuid4
 
 import pytest
+
+
+def test_product_signature_matches_legacy_signature(monkeypatch):
+    from ctf.services import webhook
+
+    captured = []
+    monkeypatch.setattr(webhook, "_delivery_is_current", lambda *_args: True)
+    monkeypatch.setattr(webhook, "_record_delivery", lambda *_args: None)
+    monkeypatch.setattr(webhook, "_post_pinned", lambda _url, _body, headers: captured.append(headers) or 204)
+    webhook._deliver_with_retries(uuid4(), "https://hooks.example.test/hook", "test-key", b"{}")
+    expected = "sha256=" + hmac.new(b"test-key", b"{}", hashlib.sha256).hexdigest()
+    assert captured[0]["X-BigRAE-Signature"] == captured[0]["X-Shifter-Signature"] == expected
 
 
 def test_webhook_loopback_destination_never_reaches_transport(monkeypatch):

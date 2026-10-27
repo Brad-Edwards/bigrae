@@ -84,14 +84,12 @@ SYSTEMD
 systemctl daemon-reload
 systemctl enable ctfd
 
-cat > /root/ctfd-workshop-next-steps.txt <<NEXT
-CTFd workshop instance bootstrap completed.
+cat > /root/ctfd-next-steps.txt <<NEXT
+CTFd instance bootstrap completed.
 
 Manual next steps:
 1. Point ${domain} at the Elastic IP for this instance.
 2. Run: sudo certbot --nginx -d ${domain}
 3. Finish the CTFd setup wizard in the browser.
-4. Generate an admin API token.
-5. From your workstation checkout, seed challenges and flags:
-   python3 scripts/ctfd-workshop/seed_ctfd.py --base-url https://${domain} --token <token>
+4. Manage challenges through the upstream CTFd administration interface.
 NEXT

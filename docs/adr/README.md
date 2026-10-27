@@ -43,6 +43,15 @@ no SDK publication.
 
 The files use JSON syntax with a `.yaml` extension so they stay human-readable while remaining parseable by the standard library.
 
+The [#2555 rename preflight](../architecture/bigrae-product-repository-rename-preflight-2555.md)
+applies GEN-002 to repository identity, compatibility and future-deployment
+templates under the recorded no-deployments premise. It distinguishes registry
+validity from live enforcement, preserves fail-closed quality routing and names
+the existing config, secret-admission and provenance owners. It adds no ADR,
+check, exception or runtime support claim. Renaming cannot waive expired
+exceptions or missing blocking quality owners; Ground Control project and
+requirement identities remain independent of the GitHub slug.
+
 ADR-058 records the [participant-control realization design](../architecture/raes-participant-control-realization-envelope-1967.md)
 under GEN-2005. It is design policy, not a new executable interface contract.
 Existing registry, guardrail and import checks validate structure; they do not
@@ -124,7 +133,7 @@ the executable evidence for that rule. Provider paths consume the same persisted
 deadline state and contain no lease-policy branch.
 
 Proposed ADR-059, ADR-060 and ADR-061 record the
-[#681 model-access design](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md): a
+[#681 model-access design](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/index.md): a
 deployment-owned broker, Engine-owned allocation and mandatory budgets,
 and evidence-based revocation/operation. Their registry entries are proposed
 design policy. Existing import and registry checks validate structure; they
@@ -803,3 +812,36 @@ IAP/SSH/SCP transport; the role retains no project metadata write permission.
 The runner starts its IAP listener without a one-shot guest connection check;
 bounded SSH/LDAP probes still gate validation through first boot and reboot.
 An exited tunnel process fails promptly instead of consuming the boot timeout.
+
+## Deployment configuration cleanup
+
+GCP platform execution now uses one root with explicit environment var-files
+and separate `TF_DATA_DIR` metadata. State prefixes, resource addresses and
+provider locks remain unchanged. The Terraform validation inventory covers
+that common root. Kustomize runtime patches live in one component; the four
+rendered overlay streams remain identical.
+
+Unused connector templates and the drained standalone workshop root are
+removed with their dedicated CI responsibilities, structural tests and stale
+exception paths. Maintained Terraform, workflow, Kubernetes and secret checks
+remain in force. AWS production and optional portal CTFd retain their named
+owner and working callers. Retired AWS profile admission is removed from
+bootstrap and the installation registry; its published artifact is regenerated.
+See the [design](../architecture/deployment-root-consolidation-2089.md) and
+[operator recovery procedure](../dev/deployment-configuration.md).
+
+The operator-confirmed repository rename changes the canonical GitHub target
+in `.ground-control.yaml` to `Brad-Edwards/bigrae`. The local agent rules and
+Sonar scan admission match that target. This changes repository routing, not
+platform resource names or the Ground Control project identity. Existing
+Ground Control connections must restart after the origin changes; their launch
+identity remains immutable during a connection.
+
+Kubernetes quality jobs render standalone Kustomization roots and validate
+Components through their consuming overlays. A regression test executes each
+workflow discovery loop and rejects standalone Component rendering.
+
+Artifact provenance checks, bootstrap/tool defaults and foundation repository
+inputs follow the authorized rename. Reusable workflow trust still requires
+the exact canonical repository, workflow path and immutable revision; foreign
+libraries remain rejected by native Terraform tests.
