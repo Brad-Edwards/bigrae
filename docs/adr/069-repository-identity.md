@@ -51,7 +51,16 @@ commands.
    trusted repository from deployment configuration: Terraform variables,
    values that bootstrap resolves and the operator confirms, or deployment
    environment values. Trust binds the immutable IDs. Code and modules carry no
-   default repository identity.
+   default repository identity, with one narrow exception: the GCP Workload
+   Identity trust module (`platform/terraform/gcp/modules/cicd-oidc-identity`
+   and its `gcp/global/cicd-oidc` root) keeps a `github_org`/`github_repo`
+   default. A mandatory, un-skippable static check (CKV_GCP_125, enforced by
+   `scripts/check_tf_gcp_wif_trust`) must resolve the repository name to
+   validate the trust grammar, and checkov scans without deployment variables.
+   The immutable `github_repository_id`/`github_owner_id` still have no default
+   and are the binding anchor, so a fork or rename cannot federate. Real
+   deployments set the name through per-environment tfvars; the default is read
+   only by the scanner.
 4. **Operator tooling uses the `gh` default repository.** A script resolves its
    target from the clone's `gh` default repository (set with
    `gh repo set-default`, read with `gh repo set-default --view`), from an

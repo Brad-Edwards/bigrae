@@ -25,11 +25,23 @@ variable "region" {
 variable "github_org" {
   description = "GitHub organization that owns the repository allowed to federate."
   type        = string
+  # Default is read only by the static CKV_GCP_125 trust-grammar check, which is
+  # mandatory and un-skippable (check_tf_gcp_wif_trust). Real deployments set this
+  # in their per-environment tfvars. The immutable github_repository_id and
+  # github_owner_id are the binding anchor and have no default, so a fork or
+  # rename cannot federate even though this name has a default (ADR-069).
+  default = "Brad-Edwards"
 }
 
 variable "github_repo" {
   description = "GitHub repository allowed to federate into the purpose identities."
   type        = string
+  # Default is read only by the static CKV_GCP_125 trust-grammar check, which is
+  # mandatory and un-skippable (check_tf_gcp_wif_trust). Real deployments set this
+  # in their per-environment tfvars. The immutable github_repository_id and
+  # github_owner_id are the binding anchor and have no default, so a fork or
+  # rename cannot federate even though this name has a default (ADR-069).
+  default = "bigrae"
 }
 
 variable "build_roles" {

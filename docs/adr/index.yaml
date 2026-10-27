@@ -4403,7 +4403,7 @@
       },
       {
         "id": "ADR-069-R3",
-        "description": "Cloud trust (AWS IAM OIDC, GCP Workload Identity Federation) and deployed validators get the trusted repository from deployment configuration and bind immutable IDs. Terraform modules, roots, and bootstrap carry no default repository identity.",
+        "description": "Cloud trust (AWS IAM OIDC, GCP Workload Identity Federation) and deployed validators get the trusted repository from deployment configuration and bind immutable IDs. Terraform modules, roots, and bootstrap carry no default repository identity, except the GCP WIF trust module (gcp/modules/cicd-oidc-identity and gcp/global/cicd-oidc) keeps a github_org/github_repo default because the mandatory un-skippable CKV_GCP_125 static check must resolve the name; the immutable github_repository_id/github_owner_id remain default-less and are the binding anchor.",
         "checks": [
           "repository-identity-literals"
         ]

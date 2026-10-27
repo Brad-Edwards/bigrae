@@ -43,7 +43,8 @@ that uses the repository identity.
 
 | Root or module | Change |
 | --- | --- |
-| `global/iam`, `gcp/global/cicd-oidc`, `gcp/modules/cicd-oidc-identity` | Remove the `github_org`, `github_repo`, `github_repository_id`, and `github_owner_id` defaults. Each root requires them from its tfvars or from bootstrap. |
+| `global/iam` | Remove the `github_org`, `github_repo`, `github_repository_id`, and `github_owner_id` defaults. The root requires them from its tfvars or from bootstrap. |
+| `gcp/global/cicd-oidc`, `gcp/modules/cicd-oidc-identity` | Remove the `github_repository_id` and `github_owner_id` defaults (the binding anchor). Keep the `github_org`/`github_repo` default, because the mandatory CKV_GCP_125 static trust-grammar check must resolve the name and checkov scans without deployment variables. Real deployments set the name through per-environment tfvars. |
 | `global/github-runner` | Remove `github_org` and `github_repo`. The root did not use them. |
 | `global/iam/dev.tfvars`, `global/iam/prod.tfvars` | Add `github_repository_id` and `github_owner_id`. The values do not change, so the plans show no change to live trust. |
 
@@ -137,6 +138,6 @@ services.
 ## Policy and architecture as code
 
 - Policy as code: ADR-069 rule 6 and the `repository-identity-literals` check.
-- Architecture as code: the Terraform variable contracts with no identity default.
+- Architecture as code: the Terraform variable contracts with no identity default, except the GCP WIF trust module keeps a repository-name default for the mandatory CKV_GCP_125 static check (ADR-069).
 - ADRs: ADR-069 is new. The ADR-037 attestation rule text and the Sonar plan rule
   change to match it.
