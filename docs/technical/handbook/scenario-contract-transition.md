@@ -16,8 +16,8 @@ parser added for #2090, do not change these pins.
 The 2026-10-25 repository-wide dependency security refresh changed supporting
 framework and tool dependencies only. It did not change the RAES package pins,
 serialized plan versions, ownership boundary or migration contract described
-here. The 2026-10-28 CI change (#2582) added only the `pytest-split` test
-dependency, and it also did not change them.
+here. The 2026-10-28 CI change (#2582) added the `pytest-split` test dependency
+and raised the `autobahn` floor for CVE-2026-116579. It also did not change them.
 
 Only `shared.raes` imports the released RAES module family. It validates and
 compiles authored intent into the RAES ProvisioningPlan. The independent
