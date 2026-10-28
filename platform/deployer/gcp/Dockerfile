@@ -138,8 +138,8 @@ RUN find /opt/bigrae/platform/terraform/gcp -name .terraform.lock.hcl -printf '%
 # base image: golang:1.27.3-trixie
 FROM golang@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS gke-auth-plugin
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-# Tag v37.1.13.
-ARG CLOUD_PROVIDER_GCP_COMMIT=64c3c54aced1e312f850eadb7c5d22ce31c84dbc
+# The commit that tag v37.1.13 points to.
+ARG CLOUD_PROVIDER_GCP_COMMIT=8ee7ffa8eec98eb6e9a560a5276131516da1e359
 WORKDIR /src
 RUN git init -q . && \
     git fetch -q --depth 1 https://github.com/kubernetes/cloud-provider-gcp.git "${CLOUD_PROVIDER_GCP_COMMIT}" && \
