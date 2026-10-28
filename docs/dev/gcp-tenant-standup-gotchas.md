@@ -22,6 +22,51 @@ impersonation. The ADC quota-project note in `scripts/bootstrap/README.md`
 applies only to a manual Terraform run under your own Application Default
 Credentials.
 
+## Release from dev or a deploy-test branch
+
+`release-gcp.yml` publishes from `refs/heads/main`, `refs/heads/dev`, and
+`refs/heads/deploy-test`. GitHub dispatches a `workflow_dispatch`-only workflow
+only after the file is on the default branch. After `release-gcp.yml` is on
+`main` once, dispatch it on another release ref:
+
+```bash
+gh workflow run release-gcp.yml --ref deploy-test
+```
+
+The run uses the workflow file of that ref. Each release ref needs a `release`
+purpose context in the foundation and a deployment branch policy in the
+`gcp-release` Environment. Protect `deploy-test` against force pushes and
+deletion.
+
+`gcp-deploy` requires that its own revision equals the release revision. A deploy
+fix therefore needs a new release. Put the fixes on `deploy-test` and release
+from it, so that a test cycle does not wait for a merge to `dev`.
+
+## Release registry in the deployment project
+
+One project can hold the release registry and the deployment. Apply the
+foundation in GitHub mode with the `release` purpose contexts and also set
+`impersonation_principals` and `deployment_config_bucket_name`. The root then
+creates the release WIF trust, the purpose identities, and the config bucket in
+one state.
+
+## Manual Terraform runs and a stale ADC quota project
+
+`gcp-foundation` sets the quota project of its child processes. A manual run,
+for example the `release-registry` apply, uses the quota project in your ADC
+file. If that project is deleted, each call fails with "The requested project
+was not found". Set the quota project and a private data directory for the run:
+
+```bash
+export GOOGLE_CLOUD_QUOTA_PROJECT=<project> TF_DATA_DIR="$(mktemp -d)"
+```
+
+## Range images that are already in the project
+
+If the base guest images already exist in the project, record them with
+`gcp-config set-range-image` for the `linux`, `kali`, and `dc` roles. Then you
+do not need `gcp-images`.
+
 ## Use the deployer image for the tools
 
 The deployer image holds every deploy tool at the release version. Without it,
