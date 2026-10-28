@@ -85,6 +85,24 @@ run "impersonation_only_foundation" {
     error_message = "Deploy principals publish the inputs; destroy-only principals read them."
   }
   assert {
+    condition     = length(google_storage_bucket_iam_member.deployment_config_access_log_writer) == 0
+    error_message = "Usage-log delivery is off by default; Domain Restricted Sharing rejects the google.com group (#2585)."
+  }
+  assert {
+    condition     = join(",", module.storage_data_access_audit[0].enabled_log_types) == "DATA_READ,DATA_WRITE"
+    error_message = "Cloud Audit Logs must record every read and write of the deployment config bucket (#2585)."
+  }
+}
+
+run "usage_log_delivery_enabled" {
+  command = plan
+  module {
+    source = "../../modules/cicd-oidc-identity"
+  }
+  variables {
+    enable_gcs_usage_log_delivery = true
+  }
+  assert {
     condition     = google_storage_bucket_iam_member.deployment_config_access_log_writer[0].condition[0].expression == "resource.name.startsWith('projects/_/buckets/example-customer-evidence/objects/deployment-config-access')"
     error_message = "The usage-log writer may create objects under the access-log prefix only."
   }
