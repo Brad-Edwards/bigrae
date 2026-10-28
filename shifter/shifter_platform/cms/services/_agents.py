@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from cms.exceptions import CMSError
 from shared.identity_scope import ResourceScope
@@ -14,14 +14,14 @@ if TYPE_CHECKING:
     from shared.schemas.cms_projections import AgentListItem
 
 
-def create_agent(user: object, **kwargs: Any) -> AgentConfig:
+def create_agent(user: object, **kwargs: object) -> AgentConfig:
     """Install only bytes validated under a recorded native upload admission."""
     from ._scoped_uploads import complete_scoped_upload
 
     credential = require_native_content_credential(user)
     if set(kwargs) != {"upload_token"}:
         raise CMSError("A verified upload is required")
-    return complete_scoped_upload(credential, kwargs["upload_token"])
+    return complete_scoped_upload(credential, cast(str, kwargs["upload_token"]))
 
 
 def delete_agent(user: object, agent_id: int) -> None:

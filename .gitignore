@@ -55,6 +55,7 @@ htmlcov/
 nosetests.xml
 coverage.xml
 coverage-openfga.xml
+postgres-lane-evidence.json
 *.cover
 *.py,cover
 .hypothesis/

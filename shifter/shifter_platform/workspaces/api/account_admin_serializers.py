@@ -17,6 +17,7 @@ class AccountCommandSerializer(ClosedSerializer):
     publication_receipt = serializers.UUIDField(required=False)
 
     def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        """Require an individual principal only for individual account declarations."""
         if (attrs.get("kind") == "individual") != ("individual_principal_uuid" in attrs):
             raise serializers.ValidationError({"individual_principal_uuid": "Invalid account declaration."})
         return attrs

@@ -38,6 +38,7 @@ class HasMissionControlActionCeiling(permissions.BasePermission):
     """Reject missing action ceilings before validating or enumerating resources."""
 
     def has_permission(self, request: Request, view: APIView) -> bool:
+        """Require a live credential ceiling containing an action accepted by this view."""
         try:
             credential = resolve_current_credential(authenticated_credential(request))
         except ValueError:

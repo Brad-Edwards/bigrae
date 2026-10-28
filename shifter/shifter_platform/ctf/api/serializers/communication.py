@@ -207,6 +207,7 @@ class CommunicationCreateSerializer(CommunicationRevisionSerializer):
     acknowledgement_policy = serializers.ChoiceField(choices=[v.value for v in AcknowledgementPolicy], default="none")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Validate the draft and require one explicit native campaign parent."""
         attrs = super().validate(attrs)
         if sum(name in attrs for name in ("account", "organization", "workspace")) != 1:
             raise serializers.ValidationError(INVALID_VALUE)

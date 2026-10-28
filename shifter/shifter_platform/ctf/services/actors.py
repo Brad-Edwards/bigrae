@@ -35,6 +35,7 @@ class EventActionAdmission:
 
     @staticmethod
     def event_binding(event: CTFEvent) -> tuple[object, ...]:
+        """Capture the event custody and publication facts pinned by this admission."""
         return tuple(
             getattr(event, name)
             for name in (
@@ -49,6 +50,7 @@ class EventActionAdmission:
         )
 
     def validate(self, event: CTFEvent, action: str) -> None:
+        """Reject a different action, event binding or no longer current local proof."""
         if (
             event.pk != self.event_uuid
             or action not in self.actions

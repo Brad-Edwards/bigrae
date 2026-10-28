@@ -21,6 +21,9 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 
 ## Traceability
 
+- IMPLEMENTS → CODE_FILE `scripts/adr_guard/changed_python_quality.py` (Select changed owned Python paths for the existing static quality gate without traversing installed dependencies)
+- TESTS → TEST `scripts/adr_guard/tests/test_changed_python_quality.py` (Preserve source scope, Git diff coverage, filename handling and quality-gate failures)
+
 - IMPLEMENTS → GITHUB_ISSUE `2555` (Repair blocking quality coverage during the BigRAE rename)
 - IMPLEMENTS → CONFIG `scripts/adr_guard/ruff.toml` (Blocking lint and security rules for architecture tooling)
 - IMPLEMENTS → CONFIG `scripts/quality_ownership/ruff.toml` (Reuse the architecture tooling policy)

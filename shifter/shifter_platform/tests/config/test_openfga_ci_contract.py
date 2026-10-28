@@ -14,7 +14,7 @@ _POSTGRES_SELECTION = '-m "not redis and not openfga"'
 
 def test_bare_postgres_lane_selects_only_its_service_posture() -> None:
     """CI and the local entry point exclude the separately provisioned server tests."""
-    job = _QUALITY["jobs"]["shifter-platform-tests-postgres"]
+    job = _QUALITY["jobs"]["shifter-platform-tests"]
     run = next(step["run"] for step in job["steps"] if step.get("name") == "Run application suite against PostgreSQL")
     assert _POSTGRES_SELECTION in run
     assert _POSTGRES_SELECTION in (_ROOT / "Makefile").read_text()
@@ -25,7 +25,7 @@ def test_openfga_job_is_mandatory_for_the_same_platform_changes() -> None:
     """Excluding OpenFGA from the broad lane must preserve its blocking dedicated job."""
     jobs = _QUALITY["jobs"]
     job = jobs["shifter-platform-openfga"]
-    assert job["if"] == jobs["shifter-platform-tests-postgres"]["if"]
+    assert job["if"] == jobs["shifter-platform-tests"]["if"]
     assert job.get("continue-on-error", False) is False
     step = next(step for step in job["steps"] if step.get("name") == "Run released OpenFGA conformance")
     assert step["run"] == (

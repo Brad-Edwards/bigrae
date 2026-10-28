@@ -295,7 +295,7 @@ def _actor(
     }
 
 
-def _entry(kind: str, at: datetime, actor: dict[str, Any] | None, **extra: Any) -> dict[str, Any]:
+def _entry(kind: str, at: datetime, actor: dict[str, Any] | None, **extra: object) -> dict[str, Any]:
     """Build one timeline entry with every optional field present."""
     base = {"kind": kind, "at": at, "actor": actor, "revision_number": None, "intent_id": None}
     return {**base, "status": None, "due_at": None, **extra}

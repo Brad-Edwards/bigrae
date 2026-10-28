@@ -312,6 +312,14 @@ changes must include review/update of the associated handbook page. Record a
 review date and the inspected source revision when wording remains accurate.
 Internal changes outside those declared interfaces do not force prose edits.
 
+CI owns the full application and service verification. Six PostgreSQL shards
+feed one coverage gate; separate jobs prove Redis, released OpenFGA, browser
+and built-image behavior. Local changed-line checks use Git's changed paths
+to select owned Python files without walking installed dependencies. The same
+pinned quality checker, rule set and zero-violation threshold still apply.
+See the [test contract](../dev/testing.md) and
+[enforcement details](dev/adr-enforcement.md) for each gate's scope.
+
 The guard checks structure and paired changes; maintainers review accuracy and
 support claims. New boundaries extend the manifest. Run the
 [ADR guard](dev/adr-enforcement.md) and `mkdocs build --strict`, then inspect

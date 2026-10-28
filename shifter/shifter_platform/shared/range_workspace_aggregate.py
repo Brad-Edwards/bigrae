@@ -45,7 +45,9 @@ _event_resolver: RangeEventResolver | None = None
 class RangeAssociationValidator(Protocol):
     """Owner callback that can fence the association within an existing transaction."""
 
-    def __call__(self, request_id: UUID, event_uuid: UUID, *, for_update: bool = False) -> None: ...
+    def __call__(self, request_id: UUID, event_uuid: UUID, *, for_update: bool = False) -> None:
+        """Validate the exact range/event association with optional transaction locking."""
+        ...
 
 
 _event_association_validator: RangeAssociationValidator | None = None

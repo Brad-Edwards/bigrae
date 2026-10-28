@@ -159,7 +159,7 @@ class CTFEvent(ImmutableFieldsMixin, CTFBaseModel):
     account_id = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
     organization_id = models.PositiveBigIntegerField(null=True, blank=True)
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: object, **kwargs: object) -> None:
         """Populate legacy human attribution as principal facts on new rows only."""
         if self._state.adding and self.created_by_id is not None:
             creator = self.created_by

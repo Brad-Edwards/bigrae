@@ -10,7 +10,8 @@ class Command(BaseCommand):
 
     help = "Verify terminal identity cutover state before starting application runtime"
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args: object, **options: object) -> None:
+        """Refuse runtime startup until the retained identity cutover is ready."""
         try:
             require_identity_runtime_ready()
         except IdentityRuntimeNotReady as exc:

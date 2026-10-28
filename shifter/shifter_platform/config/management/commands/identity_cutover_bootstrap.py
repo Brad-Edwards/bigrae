@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 
@@ -24,15 +26,17 @@ class Command(BaseCommand):
     help = "Grant the one-time first application administrator for identity cutover"
 
     def add_arguments(self, parser: CommandParser) -> None:
+        """Require the bootstrap facts and accepted plan digest."""
         parser.add_argument("--facts", required=True)
         parser.add_argument("--plan-digest", required=True)
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args: object, **options: object) -> None:
+        """Grant and record the one-time administrator from verified bootstrap facts."""
         try:
-            facts = load_identity_bootstrap_facts(options["facts"])
+            facts = load_identity_bootstrap_facts(cast(str, options["facts"]))
         except ValueError as exc:
             raise CommandError("bootstrap facts document is invalid") from exc
-        state = get_identity_cutover_state(plan_digest=options["plan_digest"])
+        state = get_identity_cutover_state(plan_digest=cast(str, options["plan_digest"]))
         if state is None:
             raise CommandError("cutover policy state is unavailable")
         if state.state != "policy_pending":

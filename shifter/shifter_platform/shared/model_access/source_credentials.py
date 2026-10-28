@@ -14,11 +14,19 @@ class ModelSourceConfiguration(Protocol):
     """Structural source fields needed for transient credential validation."""
 
     @property
-    def provider(self) -> str: ...
+    def provider(self) -> str:
+        """Name the credential provider expected by this source."""
+        ...
+
     @property
-    def principal(self) -> str: ...
+    def principal(self) -> str:
+        """Identify the provider principal bound to this source."""
+        ...
+
     @property
-    def project(self) -> str: ...
+    def project(self) -> str:
+        """Identify the provider project bound to this source."""
+        ...
 
 
 INVALID_SERVICE_ACCOUNT = "invalid service account credential"

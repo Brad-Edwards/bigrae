@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Self-service cyber range platform"
 requires-python = ">=3.12"
 dependencies = [
-    # Daphne's WebSocket transport needs the decompression size-limit fixes
-    # for CVE-2026-77528 and CVE-2026-116579.
+    # Daphne installs Autobahn transitively; require the decompressed WebSocket
+    # message-size limit fixes (CVE-2026-77528, CVE-2026-116579) in the runtime image.
     "autobahn>=26.10.1",
     "asyncssh>=2.23.1",
     "bleach>=6.4.0",
@@ -100,6 +100,7 @@ dev = [
     "types-bleach>=6.3.0.20260508",
     "types-Markdown>=3.7.0",
     "cel-python>=0.5.0",
+    "pytest-split>=0.10.0",
 ]
 
 [tool.pytest.ini_options]

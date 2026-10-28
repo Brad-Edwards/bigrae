@@ -144,6 +144,7 @@ class AdministrationScopeCollectionView(_AccountAPIView):
 
     @extend_schema(parameters=[AdministrationScopeQuerySerializer], responses=AdministrationScopePageSerializer)
     def get(self, request: Request) -> Response:
+        """Page authorized descendant scopes without inferring a parent account."""
         query = AdministrationScopeQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         page = services.admin_list_descendant_scopes(

@@ -69,6 +69,7 @@ class CampaignQuerySerializer(ClosedSerializer):
     offset = serializers.IntegerField(min_value=0, max_value=100000, default=0)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Require exactly one account, organization or workspace parent selector."""
         if sum(name in attrs for name in ("account", "organization", "workspace")) != 1:
             raise serializers.ValidationError("Invalid value.")
         return attrs
@@ -110,6 +111,7 @@ class CommunicationView(APIView):
     parser_classes = [CommunicationJSONParser]
 
     def handle_exception(self, exc: Exception) -> Response:
+        """Map known communication failures to bounded public error responses."""
         if isinstance(exc, CTFError):
             return ctf_error_response(self.request, exc)
         if isinstance(exc, serializers.ValidationError):
@@ -119,11 +121,13 @@ class CommunicationView(APIView):
         return super().handle_exception(exc)
 
     def campaign(self, request: Request, campaign_id: UUID) -> CommunicationCampaign:
+        """Resolve the exact campaign under current read or write admission."""
         required_scope = CTF_COMMUNICATION_READ if request.method == "GET" else CTF_COMMUNICATION_WRITE
         with authorized_campaign(campaign_id, request_actor(request), required_scope=required_scope) as campaign:
             return campaign
 
     def input(self, request: Request, serializer_class: type[ClosedSerializer]) -> dict[str, Any]:
+        """Reject extra query fields and validate the closed command body."""
         validate_query(request, CommunicationEmptySerializer)
         serializer = serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -137,6 +141,7 @@ class CommunicationListView(CommunicationView):
         operation_id="ctf_communications_list", parameters=[CampaignQuerySerializer], responses=CampaignListSerializer
     )
     def get(self, request: Request) -> Response:
+        """Page authorized campaigns beneath one explicit native parent."""
         query = validate_query(request, CampaignQuerySerializer)
         parent_type = next(name for name in ("account", "organization", "workspace") if name in query)
         try:
@@ -184,6 +189,7 @@ class CommunicationListView(CommunicationView):
 
     @extend_schema(request=CommunicationCreateSerializer, responses={201: CommunicationCampaignSummarySerializer})
     def post(self, request: Request) -> Response:
+        """Create an immutable draft under the selected parent and live request proof."""
         data = self.input(request, CommunicationCreateSerializer)
         parent_type = next(name for name in ("account", "organization", "workspace") if name in data)
         parent_uuid = data.pop(parent_type)
@@ -203,6 +209,7 @@ class CommunicationDetailView(CommunicationView):
 
     @extend_schema(responses=CommunicationCampaignSummarySerializer)
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Read the campaign projection after complete current target admission."""
         validate_query(request, CommunicationEmptySerializer)
         return Response(CommunicationCampaignSummarySerializer(self.campaign(request, campaign_id)).data)
 
@@ -212,6 +219,7 @@ class CommunicationRevisionView(CommunicationView):
 
     @extend_schema(request=CommunicationRevisionSerializer, responses={201: CommunicationCampaignSummarySerializer})
     def post(self, request: Request, campaign_id: UUID) -> Response:
+        """Append a validated message revision to the admitted campaign."""
         data = self.input(request, CommunicationRevisionSerializer)
         campaign = self.campaign(request, campaign_id)
         revise_message(campaign, actor=request_actor(request), **data)
@@ -223,6 +231,7 @@ class CommunicationReleaseView(CommunicationView):
 
     @extend_schema(request=CommunicationReleaseSerializer, responses={202: CommunicationIntentSerializer})
     def post(self, request: Request, campaign_id: UUID) -> Response:
+        """Release a reviewed revision now or retain its scheduled declaration."""
         data = self.input(request, CommunicationReleaseSerializer)
         campaign = self.campaign(request, campaign_id)
         revision = None
@@ -250,6 +259,7 @@ class CommunicationCancelView(CommunicationView):
 
     @extend_schema(request=CommunicationEmptySerializer, responses=CommunicationCampaignSummarySerializer)
     def post(self, request: Request, campaign_id: UUID) -> Response:
+        """Cancel unclaimed campaign work under current communication authority."""
         self.input(request, CommunicationEmptySerializer)
         campaign = self.campaign(request, campaign_id)
         cancel_campaign(campaign, actor=request_actor(request))
@@ -266,6 +276,7 @@ class CommunicationTargetsView(CommunicationView):
         responses=CommunicationTargetsSerializer,
     )
     def get(self, request: Request) -> Response:
+        """Project authorized workspace targets through the shared discovery helper."""
         query = validate_query(request, CommunicationTargetQuerySerializer)
         data = reporting.list_targets(
             request_actor(request),
@@ -285,6 +296,7 @@ class CommunicationTargetOptionsView(CommunicationView):
         responses=CommunicationTargetOptionsSerializer,
     )
     def get(self, request: Request) -> Response:
+        """List current communication parents and events under the request credential."""
         query = validate_query(request, CommunicationTargetOptionsQuerySerializer)
         parent_type = next((name for name in ("account", "organization", "workspace") if name in query), None)
         data = reporting.list_target_options(
@@ -306,6 +318,7 @@ class CommunicationPreviewView(CommunicationView):
         responses=CommunicationPreviewSerializer,
     )
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Preview the reviewed revision and current audience without creating delivery work."""
         query = validate_query(request, CommunicationPreviewQuerySerializer)
         data = reporting.preview(campaign_id, query["revision_id"], actor=request_actor(request))
         return Response(CommunicationPreviewSerializer(data).data)
@@ -320,6 +333,7 @@ class CommunicationDeliveryView(CommunicationView):
         responses=CommunicationDeliveryReportSerializer,
     )
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Page admitted delivery state grouped by occurrence, event and channel."""
         query = validate_query(request, CommunicationPageQuerySerializer)
         data = reporting.delivery_report(
             campaign_id, actor=request_actor(request), limit=query["limit"], offset=query["offset"]
@@ -336,6 +350,7 @@ class CommunicationRecipientsView(CommunicationView):
         responses=CommunicationRecipientPageSerializer,
     )
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Page minimal recipient state for one admitted occurrence and target event."""
         query = validate_query(request, CommunicationRecipientQuerySerializer)
         data = reporting.recipient_rows(
             campaign_id,
@@ -353,6 +368,7 @@ class CommunicationActivityView(CommunicationView):
 
     @extend_schema(operation_id="ctf_communications_activity_retrieve", responses=CommunicationActivitySerializer)
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Return the body-free campaign timeline under current target authority."""
         validate_query(request, CommunicationEmptySerializer)
         data = reporting.activity_timeline(campaign_id, actor=request_actor(request))
         return Response(CommunicationActivitySerializer(data).data)

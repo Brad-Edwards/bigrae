@@ -64,7 +64,7 @@ class CTFEventStaff(CTFBaseModel):
         """Return the assignment as user@event with role."""
         return f"{self.principal_uuid}@{self.event_id}: {self.role}"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: object, **kwargs: object) -> None:
         """Populate the principal fact for legacy human callers on initial create."""
         if self._state.adding and self.user_id is not None and not getattr(self, "principal_uuid", None):
             actor_user = self.user

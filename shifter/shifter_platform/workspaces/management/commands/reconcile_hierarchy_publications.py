@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, Unpack
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -13,15 +13,23 @@ if TYPE_CHECKING:
     from django.core.management.base import CommandParser
 
 
+class _ReconcileOptions(TypedDict):
+    """Parsed batch bound supplied by the management command parser."""
+
+    limit: int
+
+
 class Command(BaseCommand):
     """Retry retained SQL hierarchy publication through the configured provider."""
 
     help = "Resume a bounded batch of previously authorized hierarchy publication intents."
 
     def add_arguments(self, parser: CommandParser) -> None:
+        """Declare the maximum number of retained publications to reconcile."""
         parser.add_argument("--limit", type=int, default=100)
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args: object, **options: Unpack[_ReconcileOptions]) -> None:
+        """Reconcile a bounded batch through the configured authorization provider."""
         try:
             count = reconcile_hierarchy_publications(configured_authorization_provider(), limit=options["limit"])
         except (AuthorizationProviderBindingError, ValueError):

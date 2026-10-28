@@ -52,7 +52,17 @@ The current enforcement stack has six parts:
 
 4. `.pre-commit-config.yaml`
    Fast local hygiene and secrets checks. Full architecture checks run in CI;
-   changed-file cloud identifier checks remain local.
+   changed-file cloud identifier checks remain local. The
+   `sonar-rules-changed-lines` hook runs pinned Ruff rules through `diff-quality`
+   for Python lines changed against `origin/dev`. It reports complexity,
+   argument/return counts, documentation, type annotations and line length
+   within the configured production source paths. It does not run tests or
+   measure coverage, and does not replace the blocking SonarCloud gate.
+   Its repository wrapper reads committed, staged and unstaged Git paths with
+   NUL delimiters and supplies escaped literal paths to `diff-quality`. Source
+   roots, exclusions and the 100% threshold remain unchanged. This avoids the
+   tool's repeated recursive include expansion through ignored `node_modules`
+   trees; those directories are not application quality inputs.
 
 5. `.github/workflows/_quality.yml`
    CI enforcement. ADR conformance runs as its own architecture gate.
@@ -140,7 +150,8 @@ prove a live repository, publisher or workload-identity cutover.
   the pinned local Vale binary when it is not already installed.
 - Local commits run file hygiene, secret scanning, changed-file cloud identifier
   checks, commit-message policy, Ruff, ShellCheck, actionlint, and Terraform
-  formatting. Full tests and coverage, type checks, Django checks, import and ADR
+  formatting, plus the changed-line Ruff/Sonar rule check above. Full tests and
+  coverage, type checks, Django checks, import and ADR
   checks, package-wide JavaScript/CSS lint, Checkov, Bandit, Terraform validation
   and TFLint, and Kubernetes/chart validation run in CI. These checks are removed
   from the commit hook, not moved to push hooks. This supersedes older references
@@ -162,6 +173,19 @@ prove a live repository, publisher or workload-identity cutover.
   bounds peak memory (each worker loads the Django app), so it is raised only
   with headroom in mind given the suite's documented OOM history at high worker
   counts.
+- CI runs the broad platform suite once against PostgreSQL, split into six
+  `shifter-platform-tests` shards. Each shard publishes coverage data and its
+  PostgreSQL marker evidence. `shifter-platform-coverage` requires all shards,
+  rejects missing or duplicate shard evidence and skipped PostgreSQL-marked
+  tests, and requires at least one PostgreSQL-marked test to have run across
+  the shards. It combines the data, enforces the unchanged 87% package floor,
+  and publishes `coverage.xml` for SonarCloud. Redis integration and adapter SDK
+  packaging retain their own blocking jobs. Released OpenFGA/PostgreSQL tests
+  still run in the dedicated mandatory job and contribute
+  `coverage-openfga.xml`; native browser and built-image smoke gates retain
+  their real service and image entrypoints. Sharding changes execution cost,
+  not the required evidence or coverage thresholds. Full suites and image
+  smoke run in CI; local development uses focused regressions.
 - `.github/workflows/_gcp-dev.yml` and `gcp-dev-destroy.yml` are thin wrappers
   over the GCP deploy commands (ADR-070). The deploy renders each image by its
   exact digest from the release manifest, so a mutable tag never selects a

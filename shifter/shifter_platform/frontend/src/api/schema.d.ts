@@ -31,7 +31,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Preserve the published resend operation identity. */
+        /** @description Resend the exact invitation through the current native authority boundary. */
         post: operations["api_v1_workspace_invitations_resend"];
         delete?: never;
         options?: never;
@@ -48,7 +48,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Preserve the published revoke operation identity. */
+        /** @description Revoke the exact invitation through the current native authority boundary. */
         post: operations["api_v1_workspace_invitations_revoke"];
         delete?: never;
         options?: never;
@@ -114,10 +114,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description List authorized accounts or create one under installation authority. */
+        /** @description Page accounts visible to the current native administration credential. */
         get: operations["prepared_accounts_list"];
         put?: never;
-        /** @description List authorized accounts or create one under installation authority. */
+        /** @description Create or resume an account declaration under installation authority. */
         post: operations["accounts_create"];
         delete?: never;
         options?: never;
@@ -132,7 +132,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Read/update the canonical account name without altering account identity. */
+        /** @description Read the exact account after its current policy decision. */
         get: operations["accounts_retrieve"];
         put?: never;
         post?: never;
@@ -150,10 +150,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Record an explicit principal membership after exact account authority. */
+        /** @description Page explicit principal memberships after current account authority. */
         get: operations["accounts_memberships_retrieve"];
         put?: never;
-        /** @description Record an explicit principal membership after exact account authority. */
+        /** @description Add one explicit principal membership through the owning native service. */
         post: operations["accounts_memberships_create"];
         delete?: never;
         options?: never;
@@ -171,7 +171,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** @description Remove one explicit account membership fact. */
+        /** @description Remove the exact principal membership under current account authority. */
         delete: operations["accounts_memberships_destroy"];
         options?: never;
         head?: never;
@@ -185,10 +185,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Create a real organization under an authorized business account. */
+        /** @description Page organizations under the authorized account. */
         get: operations["prepared_organizations_list"];
         put?: never;
-        /** @description Create a real organization under an authorized business account. */
+        /** @description Create or resume one organization under the admitted business account. */
         post: operations["accounts_organizations_create"];
         delete?: never;
         options?: never;
@@ -221,10 +221,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Create a workspace only beneath its authorized account and organization. */
+        /** @description Page authorized workspaces with validated search and archive filters. */
         get: operations["prepared_workspaces_list"];
         put?: never;
-        /** @description Create a workspace only beneath its authorized account and organization. */
+        /** @description Create or resume a workspace beneath its exact account and organization. */
         post: operations["accounts_organizations_workspaces_create"];
         delete?: never;
         options?: never;
@@ -239,7 +239,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Read an exact workspace beneath its persisted organization and account. */
+        /** @description Read the exact workspace beneath the selected account and organization. */
         get: operations["accounts_organizations_workspaces_retrieve"];
         put?: never;
         post?: never;
@@ -551,7 +551,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Resolve an individual's own account with no subdivision selector. */
+        /** @description Resolve the admitted human principal's individual account. */
         get: operations["accounts_current_retrieve"];
         put?: never;
         post?: never;
@@ -809,7 +809,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Discover organizations authorized for one integration administration action. */
+        /** @description Page organizations admitted for the requested integration action. */
         get: operations["prepared_integration_organizations_list"];
         put?: never;
         post?: never;
@@ -828,7 +828,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Replace global role writes with the existing bounded delegation journal. */
+        /** @description Record the scoped organizer grant through the current administrator credential. */
         post: operations["api_v1_administer_principals_event_creation_grants"];
         delete?: never;
         options?: never;
@@ -860,7 +860,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Discover descendant administration without a parent account selector. */
+        /** @description Page authorized descendant scopes without inferring a parent account. */
         get: operations["administer_scopes_retrieve"];
         put?: never;
         post?: never;
@@ -1116,7 +1116,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description List the canonical RAES-backed catalog projection. */
+        /** @description List the catalog visible to the current credential in its explicit content scope. */
         get: operations["cms_catalog_list"];
         put?: never;
         post?: never;
@@ -1133,7 +1133,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Return one canonical RAES-backed catalog projection. */
+        /** @description Read one visible catalog entry or return the opaque not-found response. */
         get: operations["cms_catalog_retrieve"];
         put?: never;
         post?: never;
@@ -1152,7 +1152,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Register an untrusted pack through the uniform ingestion service. */
+        /** @description Register a validated pack declaration under explicit native content authority. */
         post: operations["cms_catalog_packs_create"];
         delete?: never;
         options?: never;
@@ -1167,7 +1167,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Discover current content parents without directory-derived authority. */
+        /** @description List a bounded page of content scopes admitted for this credential. */
         get: operations["cms_content_scopes_retrieve"];
         put?: never;
         post?: never;
@@ -1537,7 +1537,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Return a read-only RAES scenario detail projection. */
+        /** @description Return the authorized RAES-backed scenario projection. */
         get: operations["cms_scenarios_retrieve"];
         put?: never;
         post?: never;
@@ -1560,7 +1560,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** @description Update the availability/audience overlay for a RAES package source. */
+        /** @description Update validated catalog metadata under the authenticated native proof. */
         patch: operations["cms_scenarios_metadata_partial_update"];
         trace?: never;
     };
@@ -1571,7 +1571,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Return the backend realizability assessment for one RAES source. */
+        /** @description Read realizability only after current authority admits the source scope. */
         get: operations["cms_scenarios_realizability_retrieve"];
         put?: never;
         post?: never;
@@ -1867,10 +1867,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Create or list campaigns within one explicit native parent. */
+        /** @description Page authorized campaigns beneath one explicit native parent. */
         get: operations["ctf_communications_list"];
         put?: never;
-        /** @description Create or list campaigns within one explicit native parent. */
+        /** @description Create an immutable draft under the selected parent and live request proof. */
         post: operations["ctf_communications_create"];
         delete?: never;
         options?: never;
@@ -1885,7 +1885,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Project a campaign only after complete-target authorization. */
+        /** @description Read the campaign projection after complete current target admission. */
         get: operations["ctf_communications_retrieve"];
         put?: never;
         post?: never;
@@ -1902,7 +1902,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description The body-free campaign timeline from ledger attribution. */
+        /** @description Return the body-free campaign timeline under current target authority. */
         get: operations["ctf_communications_activity_retrieve"];
         put?: never;
         post?: never;
@@ -1921,7 +1921,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Cancel unclaimed work for an authorized campaign. */
+        /** @description Cancel unclaimed campaign work under current communication authority. */
         post: operations["ctf_communications_cancel_create"];
         delete?: never;
         options?: never;
@@ -1936,7 +1936,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Aggregate delivery state per occurrence, event, and channel. */
+        /** @description Page admitted delivery state grouped by occurrence, event and channel. */
         get: operations["ctf_communications_delivery_retrieve"];
         put?: never;
         post?: never;
@@ -1953,7 +1953,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Project a reviewed revision and the current audience estimate; writes nothing. */
+        /** @description Preview the reviewed revision and current audience without creating delivery work. */
         get: operations["ctf_communications_preview_retrieve"];
         put?: never;
         post?: never;
@@ -1970,7 +1970,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Minimal recipient rows for one occurrence and one target event. */
+        /** @description Page minimal recipient state for one admitted occurrence and target event. */
         get: operations["ctf_communications_recipients_list"];
         put?: never;
         post?: never;
@@ -1989,7 +1989,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Accept a release or schedule declaration through the ledger. */
+        /** @description Release a reviewed revision now or retain its scheduled declaration. */
         post: operations["ctf_communications_release_create"];
         delete?: never;
         options?: never;
@@ -2006,7 +2006,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Append validated content to an authorized draft campaign. */
+        /** @description Append a validated message revision to the admitted campaign. */
         post: operations["ctf_communications_revisions_create"];
         delete?: never;
         options?: never;
@@ -2021,7 +2021,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Discover native direct campaign parents through exact event authority. */
+        /** @description List current communication parents and events under the request credential. */
         get: operations["ctf_communications_target_options_list"];
         put?: never;
         post?: never;
@@ -2038,7 +2038,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description List the workspaces and events where the actor may author a communication. */
+        /** @description Project authorized workspace targets through the shared discovery helper. */
         get: operations["ctf_communications_targets_list"];
         put?: never;
         post?: never;
@@ -4463,7 +4463,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Archive one non-default workspace after exact policy checks. */
+        /** @description Archive the exact workspace while retaining the owning lifecycle safeguards. */
         post: operations["api_v1_workspace_archive"];
         delete?: never;
         options?: never;
@@ -4479,7 +4479,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** @description Policy-authorized egress authoring for human and service administrators. */
+        /** @description Apply the validated egress policy through the owning workspace service. */
         put: operations["api_v1_workspace_set_egress_policy"];
         post?: never;
         delete?: never;
@@ -4547,7 +4547,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** @description Policy-authorized quota authoring for human and service administrators. */
+        /** @description Apply a validated quota policy under current workspace administration authority. */
         put: operations["workspaces_quota_policy_update"];
         post?: never;
         delete?: never;
@@ -4565,7 +4565,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Rename one workspace through its policy-authorized locked writer. */
+        /** @description Rename the admitted workspace with the validated declaration and request audit. */
         post: operations["workspaces_rename_create"];
         delete?: never;
         options?: never;
@@ -4582,7 +4582,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Restore one workspace under its persisted account ancestry. */
+        /** @description Restore the exact workspace under its persisted account ancestry. */
         post: operations["api_v1_workspace_restore"];
         delete?: never;
         options?: never;

@@ -68,6 +68,7 @@ class ContentAPIView(APIView):
     """Keep denied content authority behind the bounded public error envelope."""
 
     def handle_exception(self, exc: Exception) -> Response:
+        """Keep missing or denied content opaque while preserving other DRF errors."""
         if isinstance(exc, CMSError):
             if self.kwargs.get("scenario_id"):
                 return _not_found(self.request)
@@ -84,6 +85,7 @@ class CatalogListView(ContentAPIView):
 
     @extend_schema(parameters=[ContentScopeSerializer], responses=CatalogEntrySerializer(many=True))
     def get(self, request: Request) -> Response:
+        """List the catalog visible to the current credential in its explicit content scope."""
         query = ContentScopeSerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         return Response(
@@ -105,6 +107,7 @@ class CatalogDetailView(ContentAPIView):
 
     @extend_schema(responses=CatalogEntrySerializer)
     def get(self, request: Request, scenario_id: str) -> Response:
+        """Read one visible catalog entry or return the opaque not-found response."""
         entry = catalog_presentation.get_catalog_presentation(scenario_id, user=_actor_credential(request))
         if entry is None:
             return _not_found(request, "Catalog entry not found")
@@ -118,6 +121,7 @@ class PackRegisterView(ContentAPIView):
 
     @extend_schema(request=PackRegistrationSerializer, responses={201: PackRegistrationResultSerializer})
     def post(self, request: Request) -> Response:
+        """Register a validated pack declaration under explicit native content authority."""
         serializer = PackRegistrationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -169,6 +173,7 @@ class ScenarioResourceView(ContentAPIView):
 
     @extend_schema(responses=ScenarioDetailSerializer)
     def get(self, request: Request, scenario_id: str) -> Response:
+        """Return the authorized RAES-backed scenario projection."""
         payload = _raes_detail_payload(scenario_id, user=_actor_credential(request))
         if payload is None:
             return _not_found(request)
@@ -182,6 +187,7 @@ class ScenarioRealizabilityView(ContentAPIView):
 
     @extend_schema(responses=ScenarioRealizabilitySerializer)
     def get(self, request: Request, scenario_id: str) -> Response:
+        """Read realizability only after current authority admits the source scope."""
         from cms.models import RaesPackageSource
         from cms.services._content_authority import content_scope, require_content_scope
 
@@ -204,6 +210,7 @@ class ScenarioMetadataView(ContentAPIView):
 
     @extend_schema(request=ScenarioMetadataUpdateSerializer, responses=ScenarioMetadataStateSerializer)
     def patch(self, request: Request, scenario_id: str) -> Response:
+        """Update validated catalog metadata under the authenticated native proof."""
         serializer = ScenarioMetadataUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

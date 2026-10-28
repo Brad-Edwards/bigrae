@@ -126,7 +126,7 @@ class CTFRangeRecovery(CTFBaseModel):
     def __str__(self) -> str:
         return f"Recovery({self.participant_id}, {self.strategy}, {self.phase})"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: object, **kwargs: object) -> None:
         """Project retained human attribution to its stable principal on create."""
         if self._state.adding and self.created_by_id is not None and not self.initiated_by_principal_uuid:
             creator = self.created_by

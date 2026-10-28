@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from shared.identity_scope import ResourceScope
 
@@ -13,12 +13,15 @@ if TYPE_CHECKING:
     from shared.schemas.credentials import CredentialRef
 
 
-def create_credential(user: object, credential_type_slug: str, **kwargs: Any) -> CredentialRef:
+def create_credential(user: object, credential_type_slug: str, **kwargs: object) -> CredentialRef:
     """Create encrypted credentials in an explicitly authorized native scope."""
     from ._scoped_credentials import create_scoped_credential
 
     return create_scoped_credential(
-        require_native_content_credential(user), credential_type_slug, kwargs.pop("scope", None), kwargs
+        require_native_content_credential(user),
+        credential_type_slug,
+        cast(ResourceScope, kwargs.pop("scope", None)),
+        kwargs,
     )
 
 

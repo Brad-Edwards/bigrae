@@ -18,6 +18,7 @@ class ContentScopeSerializer(ClosedSerializer):
     workspace = serializers.UUIDField(required=False)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject malformed content placement and unavailable account ancestry."""
         try:
             scope = ResourceScope(
                 attrs["scope_kind"], attrs.get("account"), attrs.get("organization"), attrs.get("workspace")

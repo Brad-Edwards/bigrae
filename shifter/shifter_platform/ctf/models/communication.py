@@ -162,7 +162,7 @@ class CommunicationCampaign(CTFBaseModel):
             ),
         ]
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: object, **kwargs: object) -> None:
         """Project retained human attribution to its stable principal on create."""
         if self._state.adding and self.created_by_id is not None and not self.creator_principal_uuid:
             creator = self.created_by

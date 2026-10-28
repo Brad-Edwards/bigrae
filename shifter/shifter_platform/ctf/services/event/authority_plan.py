@@ -50,6 +50,7 @@ class AuthorityPlan:
     effects: tuple[EventAuthorityEffect, ...]
 
     def payload(self) -> dict[str, object]:
+        """Serialize the versioned effect plan, custody and exact provider binding."""
         return {
             "version": 1,
             "transition_uuid": str(self.transition_uuid),
@@ -81,9 +82,11 @@ class AuthorityPlan:
 
     @property
     def digest(self) -> str:
+        """Hash the canonical serialized plan to detect retained intent changes."""
         return hashlib.sha256(json.dumps(self.payload(), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
     def admission(self) -> RetainedEventAuthorityPlan:
+        """Project this exact plan into the typed cross-domain settlement contract."""
         return RetainedEventAuthorityPlan(
             transition_uuid=self.transition_uuid,
             event_uuid=self.event_uuid,

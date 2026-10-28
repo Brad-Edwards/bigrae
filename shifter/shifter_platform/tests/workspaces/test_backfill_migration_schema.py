@@ -14,6 +14,11 @@ path this migration exists for is only reachable through the historical schema.
 The suite is transactional and restores the database to the latest migration
 state on teardown so it cannot leave a half-migrated schema behind for other
 modules sharing the worker.
+
+Each migration round trip costs minutes on PostgreSQL, so the populated-upgrade
+scenarios share one round trip (#2582). Every scenario seeds its own users, so
+the assertions stay independent. The clean-install case needs an empty
+deployment and keeps its own round trip.
 """
 
 from __future__ import annotations
@@ -82,67 +87,52 @@ def _seed_unbound_range(apps, owner):
     return cms_request, instance, engine_range
 
 
-def test_pre_migration_rows_really_are_unbound(historical):
-    """Guard the premise: the historical schema must allow a NULL scope."""
-    owner = _seed_user(historical, "premise")
+def test_upgrade_of_a_populated_deployment(historical):
+    """One upgrade binds every pre-#1325 row, per owner, with no unbound rows left."""
+    # Premise: the historical schema must allow a NULL scope.
+    owner = _seed_user(historical, "owner")
     cms_request, instance, engine_range = _seed_unbound_range(historical, owner)
-
     assert cms_request.workspace_id is None
     assert instance.workspace_id is None
     assert engine_range.workspace_id is None
 
-
-def test_upgrade_binds_every_existing_range_to_its_owner_personal_workspace(historical):
-    owner = _seed_user(historical, "owner")
-    cms_request, instance, engine_range = _seed_unbound_range(historical, owner)
+    first = _seed_user(historical, "first")
+    second = _seed_user(historical, "second")
+    _, first_instance, _ = _seed_unbound_range(historical, first)
+    _, second_instance, _ = _seed_unbound_range(historical, second)
+    extra_owners = [_seed_user(historical, suffix) for suffix in ("a", "b", "c")]
+    for extra_owner in extra_owners:
+        _seed_unbound_range(historical, extra_owner)
+    idle = _seed_user(historical, "idle")
+    users = [owner, first, second, *extra_owners, idle]
 
     apps = _migrate(AFTER)
 
+    # Every existing range binds to its owner's personal workspace.
     workspace_model = apps.get_model("workspaces", "Workspace")
     membership_model = apps.get_model("workspaces", "WorkspaceMembership")
     workspace = workspace_model.objects.get(personal_for_user_id=owner.pk)
     assert membership_model.objects.filter(workspace_id=workspace.pk, user_id=owner.pk, role="owner").exists()
-
     expected = workspace.pk
     assert apps.get_model("cms", "Request").objects.get(pk=cms_request.pk).workspace_id == expected
     assert apps.get_model("cms", "RangeInstance").objects.get(pk=instance.pk).workspace_id == expected
     assert apps.get_model("engine", "Range").objects.get(pk=engine_range.pk).workspace_id == expected
 
-
-def test_two_owners_ranges_land_in_different_workspaces_after_upgrade(historical):
-    first = _seed_user(historical, "first")
-    second = _seed_user(historical, "second")
-    _, first_instance, _ = _seed_unbound_range(historical, first)
-    _, second_instance, _ = _seed_unbound_range(historical, second)
-
-    apps = _migrate(AFTER)
-
+    # Two owners' ranges land in different workspaces.
     instance_model = apps.get_model("cms", "RangeInstance")
     first_scope = instance_model.objects.get(pk=first_instance.pk).workspace_id
     second_scope = instance_model.objects.get(pk=second_instance.pk).workspace_id
     assert first_scope != second_scope
     # ADR-046-R4: per-user personal organizations, never one shared default.
-    assert apps.get_model("workspaces", "Organization").objects.count() == 2
+    assert apps.get_model("workspaces", "Organization").objects.count() == len(users)
 
-
-def test_upgrade_leaves_no_unbound_rows_behind(historical):
-    """After the upgrade the invariant is total, not partial."""
-    for suffix in ("a", "b", "c"):
-        _seed_unbound_range(historical, _seed_user(historical, suffix))
-
-    apps = _migrate(AFTER)
-
+    # After the upgrade the invariant is total, not partial.
     for app_label, model_name in (("cms", "Request"), ("cms", "RangeInstance"), ("engine", "Range")):
         model = apps.get_model(app_label, model_name)
         assert not model.objects.filter(workspace_id__isnull=True).exists()
 
-
-def test_a_user_with_no_ranges_still_gets_a_personal_workspace(historical):
-    owner = _seed_user(historical, "idle")
-
-    apps = _migrate(AFTER)
-
-    assert apps.get_model("workspaces", "Workspace").objects.filter(personal_for_user_id=owner.pk).exists()
+    # A user with no ranges still gets a personal workspace.
+    assert workspace_model.objects.filter(personal_for_user_id=idle.pk).exists()
 
 
 def test_clean_install_upgrade_creates_no_tenancy_rows(historical):

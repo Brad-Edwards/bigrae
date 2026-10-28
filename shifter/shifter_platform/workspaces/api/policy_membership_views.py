@@ -229,6 +229,7 @@ class PolicyInvitationResendView(PolicyInvitationMutationView):
         operation_id="api_v1_workspace_invitations_resend",
     )
     def post(self, request: Request, workspace_uuid: UUID, invitation_uuid: UUID, operation: str) -> Response:
+        """Resend the exact invitation through the current native authority boundary."""
         return super().post(request, workspace_uuid, invitation_uuid, operation)
 
 
@@ -241,6 +242,7 @@ class PolicyInvitationRevokeView(PolicyInvitationMutationView):
         operation_id="api_v1_workspace_invitations_revoke",
     )
     def post(self, request: Request, workspace_uuid: UUID, invitation_uuid: UUID, operation: str) -> Response:
+        """Revoke the exact invitation through the current native authority boundary."""
         return super().post(request, workspace_uuid, invitation_uuid, operation)
 
 

@@ -129,6 +129,7 @@ class PolicyAdministerGrantOrganizerView(PolicyAdminView):
         operation_id="api_v1_administer_principals_event_creation_grants",
     )
     def post(self, request: Request, principal_uuid: UUID) -> Response:
+        """Record the scoped organizer grant through the current administrator credential."""
         command = ScopedOrganizerCommand(data=request.data)
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)

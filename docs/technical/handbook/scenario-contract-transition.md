@@ -16,7 +16,8 @@ parser added for #2090, do not change these pins.
 The 2026-10-25 repository-wide dependency security refresh changed supporting
 framework and tool dependencies only. It did not change the RAES package pins,
 serialized plan versions, ownership boundary or migration contract described
-here.
+here. The 2026-10-28 CI change (#2582) added the `pytest-split` test dependency
+and raised the `autobahn` floor for CVE-2026-116579. It also did not change them.
 
 The 2026-10-28 WebSocket security update requires Autobahn 26.10.1 and its
 CPython `cbor2` dependency update. It changes transport dependencies only; the

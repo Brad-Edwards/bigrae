@@ -135,6 +135,7 @@ class ModelSourceCredentialReference(ClosedModel):
     @field_validator("ceiling_actions", "scopes")
     @classmethod
     def canonical_values(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Require sorted, unique retained credential limits."""
         if tuple(sorted(set(values))) != values:
             raise ValueError("credential values must be unique and sorted")
         return values

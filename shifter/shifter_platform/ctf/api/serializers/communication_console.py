@@ -36,6 +36,7 @@ class CommunicationTargetOptionsQuerySerializer(ClosedSerializer):
     offset = serializers.IntegerField(min_value=0, max_value=_MAX_OFFSET, default=0)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject ambiguous parent filters while allowing unfiltered discovery."""
         if sum(name in attrs for name in ("account", "organization", "workspace")) > 1:
             raise serializers.ValidationError("Invalid value.")
         return attrs

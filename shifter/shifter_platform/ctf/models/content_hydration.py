@@ -59,7 +59,7 @@ class CTFContentHydrationReceipt(CTFBaseModel):
         verbose_name = "CTF content hydration receipt"
         verbose_name_plural = "CTF content hydration receipts"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: object, **kwargs: object) -> None:
         """Project retained human attribution to its stable principal on create."""
         if self._state.adding and self.hydrated_by_id is not None and not self.hydrated_by_principal_uuid:
             actor_user = self.hydrated_by

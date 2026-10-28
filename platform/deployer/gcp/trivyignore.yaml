@@ -15,6 +15,9 @@
 # entry and the gate blocks the release again. When a vendor ships a fixed
 # build, bump the tool in platform/deployer/gcp/Dockerfile and remove its entry.
 #
+# A verified false positive can also have an entry. Its statement must say why
+# the finding does not apply to this image, with the advisory that proves it.
+#
 # The deployer is a one-shot command-line image. It runs one operator command,
 # opens no network listener, and exits.
 
@@ -32,7 +35,7 @@ vulnerabilities:
       Its verified binary reports go1.27.1, GOOS=linux and GOARCH=amd64;
       the Windows junction implementation is absent from this Linux build.
       Recheck the vendor artifact and advisory before expiry. Owner: @Brad-Edwards.
-      Tracking: #2321.
+      Tracking: #2321 and #2582.
     expired_at: 2026-11-30
 
   - id: CVE-2026-111943 # Go standard library

@@ -398,6 +398,7 @@ class CtfScenarioListQuerySerializer(ClosedSerializer):
     workspace = serializers.UUIDField(required=False)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Require content placement to match current owning account ancestry."""
         from shared.identity_scope import ResourceScope
         from workspaces.services import resolve_resource_scope
 

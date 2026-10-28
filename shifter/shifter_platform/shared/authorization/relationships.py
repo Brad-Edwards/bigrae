@@ -93,22 +93,27 @@ class HierarchyRelationshipChange:
 
     @property
     def effect(self) -> PolicyEffect:
+        """Represent this retained relationship as a grant."""
         return PolicyEffect.GRANT
 
     @property
     def grant_tuple(self) -> RelationshipTuple:
+        """Project the exact subject, relation and object tuple."""
         return RelationshipTuple(self.user, self.relation, self.object)
 
     @property
     def deny_tuple(self) -> RelationshipTuple:
+        """Expose the same tuple for the common grant-only change contract."""
         return self.grant_tuple
 
     @property
     def writes(self) -> tuple[RelationshipTuple, ...]:
+        """Return the single relationship to publish."""
         return (self.grant_tuple,)
 
     @property
     def deletes(self) -> tuple[RelationshipTuple, ...]:
+        """Keep existing relationships when publishing this grant."""
         return ()
 
 
@@ -137,22 +142,27 @@ class CutoverRelationshipChange:
 
     @property
     def effect(self) -> PolicyEffect:
+        """Represent this retained relationship as a grant."""
         return PolicyEffect.GRANT
 
     @property
     def grant_tuple(self) -> RelationshipTuple:
+        """Project the exact subject, relation and object tuple."""
         return RelationshipTuple(self.user, self.relation, self.object)
 
     @property
     def deny_tuple(self) -> RelationshipTuple:
+        """Expose the same tuple for the common grant-only change contract."""
         return self.grant_tuple
 
     @property
     def writes(self) -> tuple[RelationshipTuple, ...]:
+        """Return the single relationship to publish."""
         return (self.grant_tuple,)
 
     @property
     def deletes(self) -> tuple[RelationshipTuple, ...]:
+        """Keep existing relationships when publishing this grant."""
         return ()
 
 
@@ -378,6 +388,7 @@ class AdministrativeRoleChange(_MonotonicChange):
 
     @property
     def deny_tuple(self) -> RelationshipTuple:
+        """Project the explicit exclusion for this predefined administrative role."""
         return RelationshipTuple(
             self.subject.openfga_user,
             f"deny_{self._definition.relation}",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from typing import cast
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
@@ -59,6 +60,7 @@ class Command(BaseCommand):
     help = "Plan, apply, or verify the coordinated identity cutover"
 
     def add_arguments(self, parser: CommandParser) -> None:
+        """Declare the explicit cutover phase and fact inputs."""
         parser.add_argument("phase", choices=("status", "plan", "apply", "verify"))
         parser.add_argument("--facts")
         parser.add_argument("--plan-digest", default="")
@@ -66,23 +68,24 @@ class Command(BaseCommand):
             "--probe", action="store_true", help="Allow an absent legacy schema; verify activated runtime"
         )
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args: object, **options: object) -> None:
+        """Execute the requested cutover phase using the declared parser options."""
         phase = options["phase"]
         if phase == "status":
-            result = _status_result(options["probe"])
+            result = _status_result(cast(bool, options["probe"]))
             self.stdout.write(json.dumps(result, sort_keys=True, separators=(",", ":"), default=str))
             return
         if not options["facts"]:
             raise CommandError("facts document is required")
         try:
-            facts = load_identity_cutover_facts(options["facts"])
+            facts = load_identity_cutover_facts(cast(str, options["facts"]))
         except ValueError as exc:
             raise CommandError("facts document is invalid") from exc
         payload = build_identity_cutover_plan(facts)
         if phase == "plan":
             result = payload
         else:
-            payload = _accepted_plan(payload, options["plan_digest"])
+            payload = _accepted_plan(payload, cast(str, options["plan_digest"]))
             result = self._apply(payload, facts) if phase == "apply" else self._verify(payload)
         self.stdout.write(json.dumps(result, sort_keys=True, separators=(",", ":"), default=str))
 

@@ -44,6 +44,7 @@ class ContentScopeOptionsView(ContentAPIView):
 
     @extend_schema(parameters=[ContentScopePageQuerySerializer], responses=ContentScopePageSerializer)
     def get(self, request: Request) -> Response:
+        """List a bounded page of content scopes admitted for this credential."""
         query = ContentScopePageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         page = content_scope_options(cms_actor_credential(request), **query.validated_data)
