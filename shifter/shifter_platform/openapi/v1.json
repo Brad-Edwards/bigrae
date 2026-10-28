@@ -6722,6 +6722,77 @@
         ]
       }
     },
+    "/api/v1/ctf/content-images/{image_id}/": {
+      "get": {
+        "operationId": "ctf_content_images_retrieve",
+        "description": "Return the verified bytes, or 404 for any image the actor cannot read.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          }
+        }
+      }
+    },
     "/api/v1/ctf/events/": {
       "get": {
         "operationId": "ctf_events_list",
@@ -7479,6 +7550,66 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ScheduledTaskListResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          }
+        }
+      }
+    },
+    "/api/v1/ctf/events/{event_id}/content-images/": {
+      "get": {
+        "operationId": "ctf_events_content_images_retrieve",
+        "description": "Return every image row of the event, newest source first.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizerContentImagesResponse"
                 }
               }
             },
@@ -9913,6 +10044,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ParticipantChallengeDetail"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          }
+        }
+      }
+    },
+    "/api/v1/ctf/me/content-images/": {
+      "get": {
+        "operationId": "ctf_me_content_images_retrieve",
+        "description": "Return ready copies of images in content the participant can read now.",
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParticipantContentImages"
                 }
               }
             },
@@ -21645,6 +21825,23 @@
           "uuid"
         ]
       },
+      "ContentImageMapEntry": {
+        "type": "object",
+        "description": "One external image URL and its first-party copy.",
+        "properties": {
+          "source_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "url"
+        ]
+      },
       "CreateAuthorizationMetadata": {
         "type": "object",
         "description": "Closed custom group/policy creation command.",
@@ -24478,6 +24675,10 @@
             "type": "string",
             "readOnly": true
           },
+          "event_id": {
+            "type": "string",
+            "readOnly": true
+          },
           "name": {
             "type": "string",
             "readOnly": true
@@ -24582,6 +24783,7 @@
           "decay_solve_count",
           "description",
           "difficulty",
+          "event_id",
           "flag_format",
           "hints",
           "id",
@@ -24618,6 +24820,56 @@
         "required": [
           "average",
           "count"
+        ]
+      },
+      "OrganizerContentImage": {
+        "type": "object",
+        "description": "One external image of an event and its copy state.",
+        "properties": {
+          "source_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrganizerContentImageStatusEnum"
+          },
+          "failure_code": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "failure_code",
+          "source_url",
+          "status",
+          "url"
+        ]
+      },
+      "OrganizerContentImageStatusEnum": {
+        "enum": [
+          "pending",
+          "ready",
+          "failed"
+        ],
+        "type": "string",
+        "description": "* `pending` - pending\n* `ready` - ready\n* `failed` - failed"
+      },
+      "OrganizerContentImagesResponse": {
+        "type": "object",
+        "description": "Envelope for the organizer image map.",
+        "properties": {
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizerContentImage"
+            }
+          }
+        },
+        "required": [
+          "images"
         ]
       },
       "OrganizerGrantResult": {
@@ -25355,6 +25607,27 @@
           "solved",
           "tags",
           "topics"
+        ]
+      },
+      "ParticipantContentImages": {
+        "type": "object",
+        "description": "Ready image copies for content the participant can read (#2090).",
+        "properties": {
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentImageMapEntry"
+            }
+          },
+          "pending": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Visible images whose copies are not ready yet"
+          }
+        },
+        "required": [
+          "images",
+          "pending"
         ]
       },
       "ParticipantCurrentEvent": {

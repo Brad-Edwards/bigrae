@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:21.159679Z
-updated_at: 2026-09-05T00:00:00Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-008: Notifications & Communications
@@ -21,11 +21,11 @@ Communication keeps participants informed and engaged before, during, and after 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification.py` (CTF Notification service (email: invitations, credentials, reminders, announcements, scheduling))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py (CTFNotification)` (CTFNotification model (type, status, scheduling, recipient filtering, sent tracking))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py (notification views)` (Notification views: admin_notification_list, admin_notification_create, api_notification_list, api_notification_send, api_send_invitations)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (CTF Notification service (email: invitations, credentials, reminders, announcements, scheduling))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFNotification model (type, status, scheduling, recipient filtering, sent tracking))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Notification views: admin_notification_list, admin_notification_create, api_notification_list, api_notification_send, api_send_invitations)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/` (Email templates: invitation, credentials, reminder, announcement (HTML + text))
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_services/test_notification.py` (Notification service tests (invitations, credentials, reminders, announcements, scheduling, rendering))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Notification service tests (invitations, credentials, reminders, announcements, scheduling, rendering))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/communication.py` (Scoped communication domain models (ADR-051, #2048): campaigns, immutable message revisions, normalized intents, recipient snapshots, delivery attempts, participant receipts)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/communication/` (Communication service contracts: audience resolution, campaign authoring, atomic intent release, lifecycle, retention)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_services.py` (Cross-event confinement, audience resolution, and atomic-release idempotency tests)

@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:22.720536Z
-updated_at: 2026-03-26T06:38:26.495565Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-506: Team Password Joining
@@ -21,6 +21,6 @@ Password-based joining is simpler than invite codes for casual events where secu
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py (CTFTeam model)` (CTFTeam model - has invite_code but no password field)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py (team_join view)` (team_join view - uses invite_code only, no password mechanism)
+- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFTeam model - has invite_code but no password field)
+- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (team_join view - uses invite_code only, no password mechanism)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#649` (CTF-506: Team Password Joining)

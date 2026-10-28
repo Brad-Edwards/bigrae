@@ -1,12 +1,12 @@
 ---
 id: CTF-1402
 title: "Theming"
-status: DRAFT
+status: ACTIVE
 type: NON_FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:24.378268Z
-updated_at: 2026-03-26T06:35:12.052649Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1402: Theming
@@ -21,6 +21,6 @@ Event branding enables differentiated event experiences, important for events co
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF Event model - would need theming/branding fields)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/base.html` (CTF base template - would need dynamic theme selection)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent logo_url and theme_color branding fields)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/ctf/EventHomePage.tsx` (Participant event home applies the event theme color and logo)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#639` (CTF-1402: Theming)

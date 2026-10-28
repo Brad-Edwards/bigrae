@@ -1,12 +1,12 @@
 ---
 id: CTF-1302
 title: "Analytics Dashboard"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:24.239482Z
-updated_at: 2026-03-19T03:07:21.612010Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1302: Analytics Dashboard
@@ -21,8 +21,7 @@ Analytics transform raw event data into actionable insights for improving future
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py (admin_analytics)` (Analytics view - shows participant count, challenge count, submissions, per-challenge stats)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/analytics.html` (Analytics template - summary cards and challenge breakdown table)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py (get_event_statistics, get_challenge_statistics)` (Scoring service - basic stats (counts, solve rates, first blood) but no histograms/timelines/engagement)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Analytics view - shows participant count, challenge count, submissions, per-challenge stats)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Scoring service - get_event_analytics score histogram, solve timeline, challenge analysis and engagement)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py (admin_analytics route)` (URL route for analytics dashboard at admin/events/<uuid>/analytics/)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#636` (CTF-1302: Analytics Dashboard)

@@ -1,12 +1,15 @@
-"""Tests for the staged browser security policy baseline (#1520, ADR-036).
+"""Tests for the browser security policy (#1520, #2090, ADR-036).
 
 Covers the code-owned CSP candidate shape, the validated report-only|enforce
-mode seam, the global Referrer-Policy / Permissions-Policy / Reporting-Endpoints
-values, and that real middleware responses carry the report-only headers on a
-representative legacy view and the SPA host.
+mode seam and its enforce default, the global Referrer-Policy /
+Permissions-Policy / Reporting-Endpoints values, and that real middleware
+responses carry the enforced header. Only the SPA host reads the per-response
+style nonce, and that response is not cacheable.
 """
 
 from __future__ import annotations
+
+import re
 
 import pytest
 from django.core.exceptions import ImproperlyConfigured
@@ -64,8 +67,9 @@ def test_candidate_scripts_and_styles_deny_attribute_variants():
     candidate = bs.build_browser_csp()
     assert candidate["script-src-attr"] == [CSP.NONE]
     assert candidate["style-src-attr"] == [CSP.NONE]
-    # No nonce/unsafe-inline in report-only: inline debt is revealed, not allowed.
+    # Scripts never get a nonce; only script-created style elements do (#2090).
     assert CSP.NONCE not in candidate["script-src"]
+    assert candidate["style-src"] == [CSP.SELF, CSP.NONCE]
     assert str(CSP.UNSAFE_INLINE) not in _all_sources(candidate)
 
 
@@ -84,7 +88,7 @@ def test_candidate_allows_self_and_known_origins_only():
     for directive in ("script-src", "style-src", "connect-src"):
         for value in candidate[directive]:
             text = str(value)
-            if text in {str(CSP.SELF), str(CSP.NONE)}:
+            if text in {str(CSP.SELF), str(CSP.NONE), str(CSP.NONCE)}:
                 continue
             assert text.startswith("https://"), (directive, text)
 
@@ -149,10 +153,17 @@ def test_invalid_mode_raises_improperly_configured():
         bs.resolve_csp_mode("audit")
 
 
-def test_default_mode_is_report_only():
-    assert bs.BROWSER_CSP_MODE == "report-only"
-    assert bs.SECURE_CSP == {}
-    assert bs.build_browser_csp() == bs.SECURE_CSP_REPORT_ONLY
+def test_default_mode_is_enforce(monkeypatch):
+    monkeypatch.delenv("BROWSER_CSP_MODE", raising=False)
+    assert bs.configured_csp_mode() == "enforce"
+    assert bs.BROWSER_CSP_MODE == "enforce"
+    assert bs.build_browser_csp() == bs.SECURE_CSP
+    assert bs.SECURE_CSP_REPORT_ONLY == {}
+
+
+def test_report_only_remains_an_explicit_degraded_mode(monkeypatch):
+    monkeypatch.setenv("BROWSER_CSP_MODE", "report-only")
+    assert bs.configured_csp_mode() == "report-only"
 
 
 def test_referrer_policy_is_explicit_same_origin():
@@ -170,23 +181,45 @@ def test_reporting_endpoints_header_points_at_collector():
 
 
 @pytest.mark.django_db
-def test_legacy_response_carries_report_only_headers():
+def test_legacy_response_carries_enforced_headers_without_a_nonce():
     resp = Client().get("/privacy/")
     assert resp.status_code == 200
-    assert "Content-Security-Policy-Report-Only" in resp.headers
-    assert "Content-Security-Policy" not in resp.headers
+    policy = resp.headers["Content-Security-Policy"]
+    assert "default-src 'none'" in policy
+    assert "Content-Security-Policy-Report-Only" not in resp.headers
+    # A page that does not read the nonce sends none (Django lazy nonce).
+    assert "'nonce-" not in policy
     assert resp.headers["Referrer-Policy"] == "same-origin"
     assert resp.headers["Permissions-Policy"] == bs.PERMISSIONS_POLICY
     assert resp.headers["Reporting-Endpoints"] == bs.REPORTING_ENDPOINTS_HEADER
 
 
 @pytest.mark.django_db
-def test_spa_host_response_carries_report_only_headers(django_user_model):
+def test_spa_host_sends_its_template_nonce_and_is_not_cacheable(django_user_model):
     user = django_user_model.objects.create_user(username="op", email="op@example.com", password="pw", is_staff=True)
     client = Client()
     client.force_login(user)
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "Content-Security-Policy-Report-Only" in resp.headers
+    policy = resp.headers["Content-Security-Policy"]
+    assert "Content-Security-Policy-Report-Only" not in resp.headers
+    meta = re.search(r'<meta property="csp-nonce" nonce="([^"]+)"', resp.content.decode())
+    assert meta, "SPA host must expose the per-response nonce"
+    nonce = meta.group(1)
+    style_src = next(d for d in policy.split(";") if d.strip().startswith("style-src "))
+    script_src = next(d for d in policy.split(";") if d.strip().startswith("script-src "))
+    assert f"'nonce-{nonce}'" in style_src.split()
+    assert "'nonce-" not in script_src
+    assert "no-store" in resp.headers["Cache-Control"]
     assert resp.headers["Referrer-Policy"] == "same-origin"
     assert resp.headers["Permissions-Policy"] == bs.PERMISSIONS_POLICY
+
+
+@pytest.mark.django_db
+def test_spa_host_nonce_changes_per_response(django_user_model):
+    user = django_user_model.objects.create_user(username="op2", email="op2@example.com", password="pw")
+    client = Client()
+    client.force_login(user)
+    first = client.get("/").headers["Content-Security-Policy"]
+    second = client.get("/").headers["Content-Security-Policy"]
+    assert first != second

@@ -6,7 +6,7 @@ type: NON_FUNCTIONAL
 priority: MUST
 wave: 1
 created_at: 2026-05-09T05:11:30.016736Z
-updated_at: 2026-05-09T05:11:30.051524Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # GEN-002: Executable Architecture Governance
@@ -76,8 +76,6 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 - IMPLEMENTS → PULL_REQUEST `947` (ADR enforcement audit and guardrail backfill)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#915` (deploy: single source of truth for deployment mode and portal sizing)
 - IMPLEMENTS → CONFIG `.github/workflows/_shifter-platform.yml` (AWS portal deploy workflow topology enforcement)
-- IMPLEMENTS → CODE_FILE `scripts/portal_deploy/portal_deploy.py` (Terraform-sourced portal deploy topology helper)
-- TESTS → TEST `scripts/portal_deploy/tests/test_portal_deploy.py` (Portal deploy topology and ASG verification tests)
 - IMPLEMENTS → PULL_REQUEST `964` (fix: unify portal deploy mode source)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#927` (test: adopt a boundary-mock policy + lint to stop topology-coupled tests)
 - IMPLEMENTS → PULL_REQUEST `973` (test: add boundary mock policy guard)

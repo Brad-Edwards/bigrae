@@ -36,6 +36,7 @@ from config._cloud import *  # NOSONAR  # noqa: E402
 from config._credential_settings import *  # NOSONAR  # noqa: E402
 from config._ctf_communication_settings import *  # NOSONAR  # noqa: E402
 from config._ctf_content_settings import *  # NOSONAR  # noqa: E402
+from config._ctf_egress_settings import *  # NOSONAR  # noqa: E402
 from config._drf_settings import *  # NOSONAR  # noqa: E402
 from config._email import *  # NOSONAR  # noqa: E402
 from config._guacamole_settings import *  # NOSONAR  # noqa: E402
@@ -43,7 +44,6 @@ from config._logging_config import *  # NOSONAR  # noqa: E402
 from config._openfga_settings import *  # NOSONAR  # noqa: E402
 from config._rate_limit_settings import *  # NOSONAR  # noqa: E402
 from config._runtime_env import AUTH_PROVIDER, IS_TEST_RUN, require_environment, required_runtime_env  # noqa: E402
-from config._terminal_assets import *  # NOSONAR  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -121,12 +121,6 @@ CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(",") if o.strip()
 # Required in all environments - no default fallback
 SITE_URL = product_env("SITE_URL")
 
-# Public documentation site (ADR-038). Templates link out to the hosted mkdocs
-# site rather than the retired in-app docs reader; kept here (config, not
-# hardcoded in templates) and exposed via mission_control.context_processors.
-# docs_site_url. Trailing slash so template paths append directly.
-DOCS_SITE_URL = product_env("DOCS_SITE_URL", "https://brad-edwards.github.io/bigrae/")
-
 # Application definition
 INSTALLED_APPS = [
     "daphne",
@@ -201,13 +195,10 @@ TEMPLATES = [
             "context_processors": [
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
+                # Lazy per-response CSP nonce (ADR-036); only the SPA host reads it.
+                "django.template.context_processors.csp",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                "mission_control.context_processors.active_range",
-                "mission_control.context_processors.terminal_cdn_assets",
-                "mission_control.context_processors.docs_site_url",
-                "config.context_processors.user_permissions",
-                "ctf.context_processors.ctf_navigation",
             ],
         },
     },
@@ -375,13 +366,6 @@ from config._oidc_settings import *  # noqa: E402  # NOSONAR
 # Shifter Configuration
 # ------------------------------------------------------------------------------
 
-SHIFTER_SUPPORT_EMAIL = product_env("SHIFTER_SUPPORT_EMAIL", "noreply@shifter.local")  # NOSONAR
-
-# Provisioning timeout - how long dashboard waits before showing timeout error
-# UI fallback is 60 min if not provided (avoids long range standup issues during testing)
-# 30 minutes
-PROVISIONING_TIMEOUT_MS = 30 * 60 * 1000
-
 # Agent upload limits
 # 2GB max per file
 AGENT_MAX_FILE_SIZE_MB = 2048
@@ -467,7 +451,6 @@ VPN_CONTROLLER_SERVICE_ACCOUNT_ID: str = product_env("VPN_CONTROLLER_SERVICE_ACC
 CTF_FROM_EMAIL = product_env("CTF_FROM_EMAIL", "ctf@example.com")
 CTF_DEFAULT_RANGE_SPINUP_MINUTES = int(product_env("CTF_DEFAULT_RANGE_SPINUP_MINUTES", "30"))
 CTF_DEFAULT_CLEANUP_DELAY_HOURS = int(product_env("CTF_DEFAULT_CLEANUP_DELAY_HOURS", "24"))
-CTFD_PLATFORM_URL = product_env("CTFD_PLATFORM_URL", "https://ctf.shifter.example.com/login")
 
 # ------------------------------------------------------------------------------
 # Environment
