@@ -110,7 +110,7 @@ class CommunicationCampaignSummarySerializer(serializers.Serializer):
         """Return the newest immutable revision identity for an explicit reviewed release."""
         if hasattr(campaign, "latest_revision_id"):
             # Collection queries annotate the identity (``with_latest_revision``).
-            revision_id, number = campaign.latest_revision_id, campaign.latest_revision_number
+            revision_id, number = campaign.latest_revision_id, getattr(campaign, "latest_revision_number", None)
         else:
             latest = campaign.message_revisions.order_by("-revision_number").values("id", "revision_number").first()
             revision_id, number = (latest["id"], latest["revision_number"]) if latest else (None, None)

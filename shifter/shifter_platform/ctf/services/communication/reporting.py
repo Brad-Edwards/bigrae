@@ -83,9 +83,11 @@ def list_targets(user: User, *, workspace_uuid: UUID | None, limit: int, offset:
         .exclude(status=EventStatus.CANCELLED.value)
         .order_by("event_start", "pk")[offset : offset + limit + 1]
     )
-    return {
-        "workspaces": [{"id": uuid, "name": name} for uuid, name in sorted(bindings.values(), key=lambda v: v[1])],
-        "events": [
+    rows = []
+    for event in events[:limit]:
+        if event.workspace_id is None:  # excluded by the workspace filter; narrows the type
+            continue
+        rows.append(
             {
                 "id": event.pk,
                 "name": event.name,
@@ -95,8 +97,10 @@ def list_targets(user: User, *, workspace_uuid: UUID | None, limit: int, offset:
                 "event_end": event.event_end,
                 "workspace_id": bindings[event.workspace_id][0],
             }
-            for event in events[:limit]
-        ],
+        )
+    return {
+        "workspaces": [{"id": uuid, "name": name} for uuid, name in sorted(bindings.values(), key=lambda v: v[1])],
+        "events": rows,
         "next_offset": offset + limit if len(events) > limit else None,
     }
 
@@ -200,16 +204,16 @@ def delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int)
     channels = list(campaign.channels)
 
     attempts: dict[tuple[UUID, UUID, str], dict[str, int]] = {}
-    for row in (
+    for attempt in (
         DeliveryAttempt.objects.filter(intent_id__in=ids)
         .values("intent_id", "snapshot__event_id", "channel", "status")
         .annotate(total=Count("id"))
     ):
-        key = (row["intent_id"], row["snapshot__event_id"], row["channel"])
-        attempts.setdefault(key, {})[row["status"]] = row["total"]
+        key = (attempt["intent_id"], attempt["snapshot__event_id"], attempt["channel"])
+        attempts.setdefault(key, {})[attempt["status"]] = attempt["total"]
 
     receipts: dict[tuple[UUID, UUID], dict[str, int]] = {}
-    for row in (
+    for receipt_row in (
         RecipientSnapshot.objects.filter(intent_id__in=ids)
         .values("intent_id", "event_id")
         .annotate(
@@ -219,7 +223,7 @@ def delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int)
             acknowledged=Count("receipt__acknowledged_at"),
         )
     ):
-        receipts[(row["intent_id"], row["event_id"])] = row
+        receipts[(receipt_row["intent_id"], receipt_row["event_id"])] = receipt_row
 
     schedule = _schedule_states([intent.pk for intent in intents if intent.due_at is not None])
     results = []
@@ -282,14 +286,14 @@ def recipient_rows(
     rows = []
     for snapshot in snapshots[:limit]:
         participant = snapshot.participant
-        removed = participant is None or participant.deleted_at is not None
+        live = participant if participant is not None and participant.deleted_at is None else None
         receipt = getattr(snapshot, "receipt", None)
         rows.append(
             {
                 "participant_id": snapshot.participant_public_id,
-                "name": None if removed else participant.name,
-                "team": None if removed or participant.team is None else participant.team.name,
-                "removed": removed,
+                "name": live.name if live else None,
+                "team": live.team.name if live and live.team else None,
+                "removed": live is None,
                 "inbox_available": receipt is not None,
                 "read_at": receipt.read_at if receipt else None,
                 "acknowledged_at": receipt.acknowledged_at if receipt else None,
