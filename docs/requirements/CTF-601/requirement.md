@@ -28,4 +28,3 @@ Self-registration is the primary onboarding path for CTF participants. CTFd supp
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_auth.py` (Auth tests - TestCTFRegisterView magic link token validation)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Notification service tests - invitation sending, credentials, rendering)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#650` (CTF-601: Participant Registration)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF views - ctf_register (magic link auth, not self-registration), admin_participant_add)

@@ -25,5 +25,4 @@ Range-integrated challenges often target specific services on specific VMs. Part
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/bridges.py` (cms_get_target_instances() bridge function)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (challenge_detail() connection info resolution)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (_CHALLENGE_MUTABLE_FIELDS includes connection fields)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (Connection info display in challenge detail template)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#548` (CTF-115: Per-Challenge Connection Info)

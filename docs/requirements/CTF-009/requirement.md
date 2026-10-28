@@ -30,7 +30,6 @@ Range integration is what differentiates Shifter CTF from standalone CTFd. CTFd 
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (Tests for CTF models including range status and lifecycle fields)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/provision.py` (Per-participant range provisioning (provision_participant_range + retry))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/batch.py` (Event-level throttled range provisioning (provision_event_ranges_throttled))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/ranges.py` (Range access views and API endpoint (api_range_access) providing participants browser-based range URLs)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/_event_range_lease.py` (CTF event-to-range lease reconciliation)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services/_range_lease.py` (Server-owned range lease and expiry lifecycle)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_mid_event_operations.py` (CTF live-event lease rescheduling tests)
