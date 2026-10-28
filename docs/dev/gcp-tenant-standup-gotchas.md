@@ -42,6 +42,22 @@ deletion.
 fix therefore needs a new release. Put the fixes on `deploy-test` and release
 from it, so that a test cycle does not wait for a merge to `dev`.
 
+## Hand-patch a checkout deploy during a test cycle
+
+`gcp-deploy` reads `BIGRAE_SOURCE_REVISION` before it reads `git`. The deployer
+image sets it. To test a fix before the next release, cherry-pick the fix into
+a worktree of the release revision and set the variable to that revision:
+
+```bash
+BIGRAE_SOURCE_REVISION=<release revision> \
+  uv run --project scripts/bootstrap scripts/bootstrap/deploy.py gcp-deploy \
+  --store gs://<bucket> --release-manifest release.json
+```
+
+The release images and their provenance stay those of the release. Use this
+only for a fix that is already in a pull request, and release again after it
+merges to `deploy-test`.
+
 ## Release registry in the deployment project
 
 One project can hold the release registry and the deployment. Apply the
