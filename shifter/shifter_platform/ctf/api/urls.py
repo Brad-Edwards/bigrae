@@ -110,6 +110,11 @@ urlpatterns = [
     path("me/team/regenerate-code/", team_views.TeamRegenerateCodeView.as_view(), name="api_team_regenerate_code"),
     path("me/announcements/", participant_views.ParticipantAnnouncementsView.as_view(), name="api_me_announcements"),
     path("me/pages/", participant_views.ParticipantPagesView.as_view(), name="api_me_pages"),
+    path(
+        "me/content-images/",
+        participant_views.ParticipantContentImagesView.as_view(),
+        name="api_me_content_images",
+    ),
     path("me/briefing/", participant_views.ParticipantBriefingView.as_view(), name="api_me_briefing"),
     path("me/profile/", participant_views.ParticipantProfileView.as_view(), name="api_me_profile"),
     path("me/username/", participant_views.ParticipantUsernameSelfView.as_view(), name="api_me_username"),
@@ -423,6 +428,16 @@ urlpatterns = [
         name="api_challenge_file_delete",
     ),
     path("files/<uuid:file_id>/download/", organizer.FileDownloadView.as_view(), name="api_file_download"),
+    path(
+        "events/<uuid:event_id>/content-images/",
+        organizer.EventContentImagesView.as_view(),
+        name="api_event_content_images",
+    ),
+    path(
+        "content-images/<uuid:image_id>/",
+        organizer.ContentImageView.as_view(),
+        name="api_content_image",
+    ),
     path(
         "challenges/<uuid:challenge_id>/prerequisites/",
         organizer.ChallengePrerequisitesView.as_view(),

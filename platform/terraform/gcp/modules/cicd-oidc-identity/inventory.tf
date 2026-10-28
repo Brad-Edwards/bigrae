@@ -83,9 +83,9 @@ variable "purpose_contexts" {
   validation {
     condition = alltrue([
       for context in lookup(var.purpose_contexts, "release", []) :
-      context.ref == "refs/heads/main" && endswith(context.workflow_ref, "/release-gcp.yml@refs/heads/main") && context.reusable_workflow_ref == ""
+      contains(["refs/heads/main", "refs/heads/dev", "refs/heads/deploy-test"], context.ref) && endswith(context.workflow_ref, "/release-gcp.yml@${context.ref}") && context.reusable_workflow_ref == ""
     ])
-    error_message = "Release trust tuples must bind release-gcp.yml on protected refs/heads/main; the workflow rejects every other dispatch ref."
+    error_message = "Release trust tuples must bind release-gcp.yml on refs/heads/main, refs/heads/dev, or refs/heads/deploy-test; the workflow rejects every other dispatch ref."
   }
 }
 

@@ -799,7 +799,7 @@ the operator must authenticate after activation and use ordinary token issuance.
 
 ### Modules and validation after quality repair
 
-Public domain facades retain their contracts. Within CTF, staff admission,
+Public domain facades retain their authority and behavior contracts. Within CTF, staff admission,
 immutable transition recording and confirmed SQL projections have separate
 modules. Event deletion owns its retained range cleanup. Initialization prepares
 provider decisions before the SQL commit helper; launch binding keeps the event
@@ -837,3 +837,11 @@ Range-history helpers retain creation, scope-transfer and leaf-lifecycle action
 selection separately from receipt persistence. Internal range pagination groups
 its cursor and page bound in a frozen shared input. Existing query modes, exact
 identity rejection and keyset validation remain; this adds no sharing capability.
+
+The current development-branch merge adds first-party content-image storage.
+Its read boundary now uses native credentials: exact challenge-management policy
+for the complete collection, or exact eligible participation plus visible
+content for participant reads. An outage cannot fall back to legacy membership.
+Responses use `private, no-store`; previously downloaded content cannot be
+retracted. The existing CSP, destination pinning, byte limits and content hashes
+remain unchanged. The lifecycle contracts record this projection and its tests.

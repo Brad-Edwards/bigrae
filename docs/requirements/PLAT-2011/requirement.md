@@ -223,3 +223,7 @@ The earlier per-user personal organization/workspace compatibility rule in ADR-0
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/services/_warm_pool_retirement.py` (Retire stale warm allocations through bounded generation cleanup)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/mission_control/api/_range_launch.py` (Native Mission Control launch admission and response projection)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/services/_raes_range_bindings.py` (Closed native range bindings and immutable prepared range-reference contracts)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/_content_image_authority.py` (Current native policy and exact participant visibility for private image reads)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/organizer/content_images.py` (Native image transport, opaque denial and non-cacheable private bytes)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/migrations/0079_merge_content_images.py` (Join incoming image history and native communication attribution without data reinterpretation)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_native_content_images.py` (Human/service image proof, legacy-flag denial, participant eligibility and provider outage isolation)

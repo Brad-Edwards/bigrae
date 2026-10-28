@@ -1,5 +1,5 @@
 // Native account-administration lifecycle through real policy and DRF services.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/csp";
 
 import { ACTORS } from "../support/actors";
 

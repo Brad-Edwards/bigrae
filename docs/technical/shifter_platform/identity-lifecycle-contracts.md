@@ -293,6 +293,28 @@ The participants-only scoreboard uses the same distinction between current
 administrator policy and eligible participant facts. Its intentionally public
 publication mode remains separate from restricted access; hidden mode remains hidden.
 
+### Private content-image projection
+
+First-party image copies remain private event resources. Listing the complete
+collection and reading hidden content require current `event.manage_challenges`
+authority. The alternative read path requires the exact principal's current,
+viewing-eligible participation and `event.participate` permission, then checks
+whether the image appears in content that participant can read. A service never
+inherits its responsible human's participation. Legacy creator, staff and
+administrator flags grant no access.
+
+The image service revalidates proof after policy and visibility checks. Policy
+unavailability returns a bounded 503 and cannot fall back to participant rows;
+denied image reads use one opaque 404. The participant image map also requires
+current native admission before returning source URLs. Verified image bytes use
+`Cache-Control: private, no-store`: immutable content does not make permission
+immutable. This prevents normal HTTP cache reuse after revocation; it cannot
+retract bytes a previously authorized client has already saved.
+
+The copy worker retains the incoming CSP design's committed source reference,
+pinned public HTTPS destination, size/type limits and verified storage digest.
+Native read admission adds no outbound fetch or additional storage service.
+
 ## Launch and cancellation model
 
 The following phases are derived from existing records. They are not a new persisted state enumeration.

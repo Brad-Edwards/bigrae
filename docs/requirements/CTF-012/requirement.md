@@ -23,7 +23,6 @@ An API enables custom scoreboards, automated challenge deployment, integration w
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (CTF URL configuration - API route definitions)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#626` (CTF-012: API & Integration)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/__init__.py` (CTF Views - API endpoints for CTF operations)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/serializers/communication.py` (Bounded read-only DRF projections for the participant inbox and organizer campaign summary (ADR-051, #2048))
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2048` (API contract for scoped communications: bounded serializers and the CTFError -> shared.api.errors mapping)
 

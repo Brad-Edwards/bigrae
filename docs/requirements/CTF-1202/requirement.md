@@ -22,4 +22,3 @@ API authentication is a platform capability. CTF composes with PLAT-102, adding 
 ## Traceability
 
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#634` (CTF-1202: API Authentication)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/_access.py` (All API views use @login_required (session auth only) - NO token auth system)

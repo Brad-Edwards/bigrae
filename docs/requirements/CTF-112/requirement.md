@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:21.814466Z
-updated_at: 2026-03-26T23:58:51.054994Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-112: Challenge Attempt Limits
@@ -21,10 +21,10 @@ Attempt limits prevent brute-force flag guessing, which undermines the competiti
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFChallenge.max_attempts field and CTFSubmission.attempt_number field)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge.max_attempts field and CTFSubmission.attempt_number field)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/exceptions.py` (CTFRateLimitError exception for attempt limit exceeded)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (submit_flag() attempt limit enforcement with lockout and timeout modes)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (AttemptLimitMode enum (lockout/timeout))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event.py` (attempt_limit_mode and attempt_limit_cooldown_seconds in _EVENT_MUTABLE_FIELDS)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (attempt_limit_mode and attempt_limit_cooldown_seconds in _EVENT_MUTABLE_FIELDS)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_submission.py` (TestAttemptLimits: lockout, timeout, cooldown reset, unlimited, default mode tests)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#549` (CTF-112: Challenge Attempt Limits)

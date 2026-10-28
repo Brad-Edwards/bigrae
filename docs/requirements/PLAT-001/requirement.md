@@ -6,7 +6,7 @@ type: CONSTRAINT
 priority: MUST
 wave: 1
 created_at: 2026-03-19T02:57:48.639105Z
-updated_at: 2026-05-09T05:11:30.369057Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-001: Cloud Provider Abstraction
@@ -21,7 +21,7 @@ Shifter currently has hard dependencies on AWS services (S3, ECS, SSM, RDS, etc.
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/ecs.py` (ECS Fargate task orchestration - direct boto3/AWS coupling, no provider abstraction)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/ecs/__init__.py` (ECS Fargate task orchestration - direct boto3/AWS coupling, no provider abstraction)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/assets/s3.py` (S3 storage service - direct boto3 S3 client, no storage abstraction)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/secrets.py` (AWS Secrets Manager service - direct boto3 coupling, no secrets abstraction)
 - IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/executors/aws_executor.py` (AWS Executor - boto3 API wrapper for EC2/VPC, no GCP equivalent exists)

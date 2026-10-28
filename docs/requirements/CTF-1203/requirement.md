@@ -1,12 +1,12 @@
 ---
 id: CTF-1203
 title: "Webhooks"
-status: DRAFT
+status: ACTIVE
 type: INTERFACE
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:24.170296Z
-updated_at: 2026-03-19T03:07:20.316593Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1203: Webhooks
@@ -21,5 +21,5 @@ Webhooks enable real-time integration with external systems like Slack (solve an
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF models - no WebhookConfig or webhook-related model exists)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/notification.py` (CTFWebhook model)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#635` (CTF-1203: Webhooks)

@@ -15,10 +15,8 @@ import hmac
 import http.client
 import json
 import logging
-import ssl
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -83,35 +81,12 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ctf-webhook")
 
 def _post_pinned(url: str, body: bytes, headers: dict[str, str]) -> int:
     """POST over TLS to one validated IP; redirects never become new requests."""
-    from ctf.validators import _ssrf
-    from ctf.validators._http import _request_target
+    from ctf.validators._ssrf import pinned_https_response
 
-    parsed_tuple = _ssrf._safe_parse_url(url)
-    if parsed_tuple is None:
-        raise _ssrf._BlockedDestinationError("Invalid webhook destination")
-    parsed, hostname, port = parsed_tuple
-    if parsed.scheme != "https" or parsed.username or parsed.password or hostname in _ssrf._BLOCKED_HOSTNAMES:
-        raise _ssrf._BlockedDestinationError("Invalid webhook destination")
-    pinned_ips = _ssrf._resolve_and_validate(hostname, port)
-    context = ssl.create_default_context()
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    for pinned_ip in pinned_ips:
-        connection = _ssrf._build_https_connection(
-            hostname=hostname,
-            pinned_ip=pinned_ip,
-            port=port,
-            timeout=_DELIVERY_TIMEOUT_SECONDS,
-            context=context,
-        )
-        try:
-            connection.request("POST", _request_target(parsed), body=body, headers=headers)
-            return int(connection.getresponse().status)
-        except (OSError, http.client.HTTPException):
-            continue
-        finally:
-            with suppress(Exception):
-                connection.close()
-    raise OSError("Webhook transport unavailable")
+    with pinned_https_response(
+        url, method="POST", timeout=_DELIVERY_TIMEOUT_SECONDS, headers=headers, body=body
+    ) as response:
+        return int(response.status)
 
 
 def emit_webhook(event: CTFEvent, event_type: str, data: dict[str, Any]) -> int:

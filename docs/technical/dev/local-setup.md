@@ -2,77 +2,48 @@
 
 Run the BigRAE portal locally for development.
 
-## Quick Start
+## Prerequisites
 
-```bash
-cd shifter/shifter_platform
-source .venv/bin/activate
-TESTING=1 python manage.py runserver
-```
+- [uv](https://docs.astral.sh/uv/)
+- Node 20.19 or later, with npm
 
-Portal runs at `http://localhost:8000`
+## First run
 
-## Full Setup (First Time)
+1. Install the platform dependencies:
 
-### 1. Create Python Virtual Environment
+   ```bash
+   cd shifter/shifter_platform
+   uv sync --group dev
+   ```
 
-```bash
-cd shifter/shifter_platform
-python3.12 -m venv .venv
-source .venv/bin/activate
-```
+2. Build the SPA so that Django can serve it:
 
-### 2. Install Dependencies
+   ```bash
+   (cd frontend && npm ci && npm run build)
+   ```
 
-```bash
-pip install -e ".[dev]"
-```
+3. Prepare the local database and start the server:
 
-Dependencies defined in `pyproject.toml`. The `-e` flag installs in editable mode.
+   ```bash
+   TESTING=1 uv run python manage.py migrate
+   TESTING=1 uv run python manage.py runserver
+   ```
 
-### 3. Run Development Server
+The portal runs at `http://localhost:8000`. `TESTING=1` selects the test posture:
+`DEBUG` on and a SQLite database in `shifter/shifter_platform/db.sqlite3`.
 
-```bash
-TESTING=1 python manage.py runserver
-```
+Sign in at `http://localhost:8000/dev-login/`. Development login works only in a
+development posture and only from a loopback or allowed admin address.
 
-The `TESTING=1` flag uses an in-memory SQLite database, so no database setup is required. Migrations run automatically.
+## Tests and checks
 
-## Running Tests
-
-```bash
-# All tests
-TESTING=1 python -m pytest
-
-# With coverage
-TESTING=1 python -m pytest --cov=mission_control --cov-report=html
-
-# Specific test file
-TESTING=1 python -m pytest tests/test_views.py -v
-```
-
-## Code Quality
-
-```bash
-# Linting
-ruff check .
-
-# Formatting
-ruff format .
-```
-
-## Notes
-
-- `TESTING=1` uses SQLite in-memory, so data doesn't persist between restarts
-- Authentication is bypassed in test mode - you can access pages directly
-- The `.env` file contains settings for connecting to deployed environments, not local dev
+Use the [command matrix](../../dev/testing.md#command-matrix) for every test,
+lint and policy command. It names the local command and the CI job for each
+lane.
 
 ## Troubleshooting
 
-### Missing Dependencies
-- Ensure virtual environment is activated: `which python` should show `.venv/bin/python`
-- Reinstall: `pip install -e ".[dev]"`
-
-### Port Already in Use
-- Check what's using port 8000: `lsof -i :8000`
-- Use a different port: `TESTING=1 python manage.py runserver 8001`
+- Port in use: check with `lsof -i :8000`, or start on another port with
+  `TESTING=1 uv run python manage.py runserver 8001`.
+- Missing dependencies: run `uv sync --group dev` again from
+  `shifter/shifter_platform`.

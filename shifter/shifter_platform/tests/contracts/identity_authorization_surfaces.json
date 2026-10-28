@@ -1,5 +1,5 @@
 {
-  "current_operation_count": 313,
+  "current_operation_count": 316,
   "historical_baseline": {
     "commit": "8aee758331286293cdc837d94eb95fafa5674ae0",
     "operation_count": 220
@@ -1701,6 +1701,17 @@
     },
     {
       "authority": {
+        "decision": "event.manage_challenges|event.participate",
+        "scope": "sql:content_image;selector=content_image_audience",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_content_images_retrieve",
+      "path": "/api/v1/ctf/content-images/{image_id}/"
+    },
+    {
+      "authority": {
         "decision": "event.read",
         "scope": "sql:event_discovery",
         "target": "event"
@@ -1819,6 +1830,17 @@
       "method": "POST",
       "operation_id": "ctf_events_cleanup_create",
       "path": "/api/v1/ctf/events/{event_id}/cleanup/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_events_content_images_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/content-images/"
     },
     {
       "authority": {
@@ -2270,6 +2292,17 @@
       "method": "GET",
       "operation_id": "ctf_me_challenges_retrieve",
       "path": "/api/v1/ctf/me/challenges/{challenge_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_me_content_images_retrieve",
+      "path": "/api/v1/ctf/me/content-images/"
     },
     {
       "authority": {

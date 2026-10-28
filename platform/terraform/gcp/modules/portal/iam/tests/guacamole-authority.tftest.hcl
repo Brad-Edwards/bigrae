@@ -20,19 +20,19 @@ run "guacamole_identity_isolated_from_application_workers" {
   command = plan
 
   assert {
-    condition     = contains(keys(google_service_account.workload), "guacamole")
+    condition     = contains(keys(google_service_account.workload), "guacamole-client")
     error_message = "The gateway must have its own Google service account."
   }
   assert {
-    condition     = try(google_service_account_iam_member.workload_identity["guacamole"].member == "serviceAccount:synthetic-project.svc.id.goog[shifter-platform/guacamole]", false)
+    condition     = try(google_service_account_iam_member.workload_identity["guacamole-client"].member == "serviceAccount:synthetic-project.svc.id.goog[shifter-platform/guacamole-client]", false)
     error_message = "Only the dedicated gateway Kubernetes identity may use its Google identity."
   }
   assert {
-    condition     = try(length(local.workload_project_roles["guacamole"]) == 0, false)
+    condition     = try(length(local.workload_project_roles["guacamole-client"]) == 0, false)
     error_message = "Gateway renewal needs no project-level cloud role."
   }
   assert {
-    condition     = alltrue([for binding in values(local.workload_secret_bindings) : binding.workload != "guacamole"])
+    condition     = alltrue([for binding in values(local.workload_secret_bindings) : binding.workload != "guacamole-client"])
     error_message = "The gateway must not inherit platform runtime-secret access."
   }
 }

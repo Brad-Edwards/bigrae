@@ -32,9 +32,6 @@ from bootstrap_core import (
 from gcp_inputs import DeploymentInputs, private_workdir, write_private_file
 from gcp_process import GcpCommandError, ProcessRunner
 
-IDENTITY_PLATFORM_CONFIG_ADDRESS = (
-    "module.platform_core.module.portal_identity_platform.google_identity_platform_config.platform"
-)
 SQL_INSTANCE_SUFFIX = "google_sql_database_instance.platform"
 # Terraform also reads TF_INPUT=0; each command that prompts carries the flag too.
 _NO_INPUT = "-input=false"
@@ -211,19 +208,6 @@ def state_addresses(runner: ProcessRunner, ctx: TerraformContext) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def adopt_identity_platform_config(runner: ProcessRunner, ctx: TerraformContext, *, project_id: str) -> None:
-    """Import the initialized Identity Platform config singleton when state lacks it."""
-    if IDENTITY_PLATFORM_CONFIG_ADDRESS in state_addresses(runner, ctx):
-        info("Identity Platform config already managed by Terraform")
-        return
-    info("Importing the pre-provisioned Identity Platform config")
-    runner.run(
-        ctx.argv("import", _NO_INPUT, *ctx.var_file_args(), IDENTITY_PLATFORM_CONFIG_ADDRESS, project_id),
-        env=ctx.env,
-        capture=False,
-    )
-
-
 def _is_permission_propagation(text: str) -> bool:
     """Return True when ``text`` shows an IAM change that has not propagated yet."""
     lowered = text.lower()
@@ -248,6 +232,9 @@ def terraform_apply(
             return
         combined = f"{result.stdout}\n{result.stderr}"
         if attempt < max_attempts and _is_permission_propagation(combined):
+            # Show the error, so an operator can tell propagation from a real failure (#2601).
+            if result.stderr:
+                print(result.stderr, end="")
             warn(
                 f"Terraform apply hit an IAM propagation error; retrying in {sleep_seconds}s ({attempt}/{max_attempts})"
             )

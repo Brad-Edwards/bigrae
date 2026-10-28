@@ -1,12 +1,12 @@
 ---
 id: CTF-1101
 title: "Challenge Import"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:23.968994Z
-updated_at: 2026-03-19T03:06:45.142514Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1101: Challenge Import
@@ -21,5 +21,5 @@ Challenge import enables reuse of challenge sets across events and sharing betwe
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (Challenge service - has create_challenge() but no import_challenges() function)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/transfer.py` (import_challenges for native and CTFd formats)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#629` (CTF-1101: Challenge Import)

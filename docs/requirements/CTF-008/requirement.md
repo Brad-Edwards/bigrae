@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:21.159679Z
-updated_at: 2026-09-05T00:00:00Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-008: Notifications & Communications
@@ -21,9 +21,9 @@ Communication keeps participants informed and engaged before, during, and after 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (CTF notification services: email, scheduling and native real-time projections)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/notification.py` (Retained notification facts and sent tracking)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/organizer/communication.py` (Native communication authoring, release and reporting API)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (CTF Notification service (email: invitations, credentials, reminders, announcements, scheduling))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFNotification model (type, status, scheduling, recipient filtering, sent tracking))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Notification views: admin_notification_list, admin_notification_create, api_notification_list, api_notification_send, api_send_invitations)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/` (Email templates: invitation, credentials, reminder, announcement (HTML + text))
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Notification service tests (invitations, credentials, reminders, announcements, scheduling, rendering))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/communication.py` (Scoped communication domain models (ADR-051, #2048): campaigns, immutable message revisions, normalized intents, recipient snapshots, delivery attempts, participant receipts)
@@ -50,3 +50,5 @@ Communication keeps participants informed and engaged before, during, and after 
 - IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/targets.py` (Explicit account, organization and workspace target options)
 - IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/attribution.py` (Principal-safe communication attribution)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_native_console.py` (Native console authority and service isolation)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/notification.py` (Retained notification facts and sent tracking)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/organizer/communication.py` (Native communication authoring, release and reporting API)

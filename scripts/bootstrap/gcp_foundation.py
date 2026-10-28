@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 from bootstrap_core import confirm, gcloud_resource_exists, get_repo_root, run_cmd
+from gcp_process import scoped_environment
 
 # gcp-dev-destroy.yml rejects every other dispatch ref before auth; the
 # cicd-oidc purpose_contexts validation enforces the same set.
@@ -122,6 +123,23 @@ def bootstrap_gcp_foundation(inputs_path: str, *, dry_run: bool = False) -> None
     project = _require_gcp_name("project_id", inputs["project_id"], _PROJECT_ID_RE)
     bucket = _require_gcp_name("terraform_state_bucket_name", inputs["terraform_state_bucket_name"], _BUCKET_NAME_RE)
     region = _require_gcp_name("region", inputs.get("region", "us-central1"), _REGION_RE)
+    with tempfile.TemporaryDirectory(prefix="shifter-gcp-foundation-") as staging:
+        # Terraform, its gcs backend, and the Google client libraries run as the
+        # caller's ADC. Pin the quota project to the foundation project, so a stale
+        # ADC quota project cannot fail the run (#2584). A private TF_DATA_DIR keeps
+        # the backend configuration out of the checkout (#2586).
+        overlay = {"GOOGLE_CLOUD_QUOTA_PROJECT": project, "TF_DATA_DIR": str(Path(staging) / "terraform-data")}
+        with scoped_environment(overlay):
+            _apply_foundation(
+                inputs, path, Path(staging), project=project, bucket=bucket, region=region, dry_run=dry_run
+            )
+
+
+def _apply_foundation(
+    inputs: dict[str, object], path: Path, staging: Path, *, project: str, bucket: str, region: str, dry_run: bool
+) -> None:
+    """Enable the APIs, create the state bucket, and apply the cicd-oidc root from a saved plan."""
+    github_mode = bool(inputs.get("purpose_contexts"))
     root = get_repo_root() / "platform/terraform/gcp/global/cicd-oidc"
     tf = ["terraform", f"-chdir={root}"]
     if not dry_run:
@@ -175,17 +193,16 @@ def bootstrap_gcp_foundation(inputs_path: str, *, dry_run: bool = False) -> None
         [*tf, "init", "-reconfigure", f"-backend-config=bucket={bucket}", "-backend-config=prefix=cicd-oidc"],
         dry_run=dry_run,
     )
-    with tempfile.TemporaryDirectory(prefix="shifter-gcp-foundation-") as staging:
-        var_files = [f"-var-file={path}"]
-        if not github_mode:
-            # The federation inputs have no Terraform default (ADR-069), so the
-            # GitHub-less mode sets them to empty values explicitly.
-            federation_off = Path(staging) / "github-less.tfvars.json"
-            federation_off.write_text(
-                json.dumps({"purpose_contexts": {}, "github_repository_id": "", "github_owner_id": ""}),
-                encoding="utf-8",
-            )
-            var_files.append(f"-var-file={federation_off}")
-        plan = str(Path(staging) / "foundation.tfplan")
-        run_cmd([*tf, "plan", "-input=false", *var_files, f"-out={plan}"], dry_run=dry_run)
-        run_cmd([*tf, "apply", "-input=false", plan], dry_run=dry_run)
+    var_files = [f"-var-file={path}"]
+    if not github_mode:
+        # The federation inputs have no Terraform default (ADR-069), so the
+        # GitHub-less mode sets them to empty values explicitly.
+        federation_off = staging / "github-less.tfvars.json"
+        federation_off.write_text(
+            json.dumps({"purpose_contexts": {}, "github_repository_id": "", "github_owner_id": ""}),
+            encoding="utf-8",
+        )
+        var_files.append(f"-var-file={federation_off}")
+    plan = str(staging / "foundation.tfplan")
+    run_cmd([*tf, "plan", "-input=false", *var_files, f"-out={plan}"], dry_run=dry_run)
+    run_cmd([*tf, "apply", "-input=false", plan], dry_run=dry_run)

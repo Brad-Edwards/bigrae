@@ -1,12 +1,12 @@
 ---
 id: CTF-707
 title: "Event Metadata"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T07:23:16.931933Z
-updated_at: 2026-03-19T03:07:16.214511Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-707: Event Metadata
@@ -21,10 +21,6 @@ Event metadata is the minimum information needed to create and present a CTF eve
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFEvent model - name, description, scenario_id fields)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/event.html` (Participant event detail template - displays name and description)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/dashboard.html` (Participant dashboard template - displays event name)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/event_form.html` (Event form - scenario template selection dropdown)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFEvent model - name, description, scenario_id fields)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#663` (CTF-707: Event Metadata)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/provision.py` (Range provisioning uses event.scenario_id (provision_participant_range))
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (Participant views - event detail, dashboard display name/description)

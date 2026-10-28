@@ -230,17 +230,17 @@ the prune query. The `is_expired` property is `expires_at <= now`.
 
 ## Frontend
 
-`static/js/terminal-guacamole.js` drives the terminal page. It reads
-`{rdpUrl, sshUrl, csrfToken}` from a `json_script` block, POSTs `{instance_uuid}`
-with the CSRF token to the launch endpoint, then polls `status_url` once per
-second (up to 60 attempts) until it sees `data.url`, and opens the result in a new
-tab (with a same-tab fallback when the popup is blocked). It stops polling on the
-first delivered URL, so single-use delivery is transparent to the happy path.
+The SPA hook `useGuacamoleSession` in
+`frontend/src/features/mission-control/guacamole.ts` drives every launch. It
+POSTs to the launch endpoint to queue the bootstrap and gets a `request_id`. It
+then polls the bootstrap status endpoint once per second (up to 60 attempts)
+until the response carries `url` or `error`. It opens the URL in a new tab with
+`noopener,noreferrer` and stops polling on the first delivered URL, so
+single-use delivery is transparent to the happy path.
 
-The CTF participant page (`templates/ctf/participant/range.html`) uses an older
-inline launcher that consumes the `url` field from the launch response directly
-(the opener page) rather than running the status-polling loop. Both paths funnel
-through the same status endpoint as the delivery boundary.
+The Mission Control instance, terminal and NGFW pages and the CTF participant
+range page all use this hook. All launches pass through the same status
+endpoint as the delivery boundary.
 
 ## Settings
 
@@ -338,7 +338,7 @@ fails validation.
 | Prune service | `shifter/shifter_platform/mission_control/management/commands/run_guacamole_bootstrap_prune.py` |
 | URL routes | `shifter/shifter_platform/mission_control/urls.py` |
 | Settings | `shifter/shifter_platform/config/_guacamole_settings.py` |
-| Frontend | `shifter/shifter_platform/static/js/terminal-guacamole.js` |
+| Frontend | `shifter/shifter_platform/frontend/src/features/mission-control/guacamole.ts` |
 | AWS infra | `platform/terraform/modules/guacamole/` |
 | GCP infra | `platform/charts/shifter/templates/guac*` |
 | Topology invariant test | `shifter/shifter_platform/tests/platform/test_guacamole_topology.py` |

@@ -101,6 +101,27 @@ event to adopt a revised bundle instead of overwriting or merging the existing
 graph. The selected scenario also cannot be changed after managed content has
 been created.
 
+### Images in event content
+
+The event logo and images in Markdown (rules, challenge descriptions and
+solutions, event pages, and announcements) can point to another website. The
+platform copies each external image into its own storage after you save the
+content. Participants then load the copy from the portal. The CTF scheduler
+copies up to five images every 30 seconds.
+
+An image shows as a link to its original address until its copy is ready. It
+stays a link when the copy fails. A copy fails when the image:
+
+- is not HTTPS
+- redirects to another address
+- is larger than 5 MiB
+- is not a PNG, JPEG, GIF, or WebP image
+
+The organizer image list (`GET /api/v1/ctf/events/<event_id>/content-images/`)
+shows the state and failure reason of each image. To fix a failed image, change
+the content to a direct HTTPS link to a supported image. Participants see an
+image only while they can see the content that contains it.
+
 ## 3. Participant Briefing
 
 Give participants event-specific orientation: what environment they are in, how their

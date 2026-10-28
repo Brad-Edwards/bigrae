@@ -1,12 +1,12 @@
 ---
 id: CTF-1102
 title: "Challenge Export"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:24.002432Z
-updated_at: 2026-03-19T03:07:17.633591Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1102: Challenge Export
@@ -21,5 +21,5 @@ Challenge export enables backup, sharing, and migration of challenge content bet
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (Challenge service - no export_challenges() function exists)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/transfer.py` (export_challenges)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#630` (CTF-1102: Challenge Export)

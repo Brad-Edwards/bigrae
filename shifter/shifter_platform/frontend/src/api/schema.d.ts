@@ -1167,7 +1167,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Keep denied content authority behind the bounded public error envelope. */
+        /** @description Discover current content parents without directory-derived authority. */
         get: operations["cms_content_scopes_retrieve"];
         put?: never;
         post?: never;
@@ -2048,6 +2048,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ctf/content-images/{image_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Return the verified bytes, or 404 for any image the actor cannot read. */
+        get: operations["ctf_content_images_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ctf/events/": {
         parameters: {
             query?: never;
@@ -2177,6 +2194,23 @@ export interface paths {
         put?: never;
         /** @description Apply the control and return the refreshed task listing. */
         post: operations["ctf_events_cleanup_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ctf/events/{event_id}/content-images/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Return every image row of the event, newest source first. */
+        get: operations["ctf_events_content_images_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2721,6 +2755,23 @@ export interface paths {
         };
         /** @description Return the challenge detail, or 404/403 per the read-availability policy. */
         get: operations["ctf_me_challenges_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ctf/me/content-images/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Return ready copies of images in content the participant can read now. */
+        get: operations["ctf_me_content_images_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4732,6 +4783,7 @@ export interface components {
          * @enum {string}
          */
         AdministrationScopeKindEnum: "organization" | "workspace";
+        /** @description Bounded policy-filtered scope discovery page for administration clients. */
         AdministrationScopePage: {
             readonly count: number;
             readonly results: components["schemas"]["AdministrationScope"][];
@@ -5511,6 +5563,13 @@ export interface components {
             uuid: string | null;
             terminal_url: string;
         };
+        /** @description One external image URL and its first-party copy. */
+        ContentImageMapEntry: {
+            /** Format: uri */
+            source_url: string;
+            url: string;
+        };
+        /** @description Expose only authorized parent names and exact native scope. */
         ContentScopeOption: {
             kind: components["schemas"]["ContentScopeOptionKindEnum"];
             name: string;
@@ -5530,6 +5589,7 @@ export interface components {
          * @enum {string}
          */
         ContentScopeOptionKindEnum: "installation" | "account" | "organization" | "workspace";
+        /** @description Return authorized content parents with a bounded count. */
         ContentScopePage: {
             count: number;
             results: components["schemas"]["ContentScopeOption"][];
@@ -6703,6 +6763,7 @@ export interface components {
         /** @description Full organizer-facing challenge detail projection. */
         OrganizerChallengeDetail: {
             readonly id: string;
+            readonly event_id: string;
             readonly name: string;
             readonly description: string;
             readonly category: string;
@@ -6730,6 +6791,25 @@ export interface components {
             /** Format: double */
             readonly average: number | null;
             readonly count: number;
+        };
+        /** @description One external image of an event and its copy state. */
+        OrganizerContentImage: {
+            /** Format: uri */
+            source_url: string;
+            status: components["schemas"]["OrganizerContentImageStatusEnum"];
+            failure_code: string;
+            url: string | null;
+        };
+        /**
+         * @description * `pending` - pending
+         *     * `ready` - ready
+         *     * `failed` - failed
+         * @enum {string}
+         */
+        OrganizerContentImageStatusEnum: "pending" | "ready" | "failed";
+        /** @description Envelope for the organizer image map. */
+        OrganizerContentImagesResponse: {
+            images: components["schemas"]["OrganizerContentImage"][];
         };
         /**
          * @description Organizer monitoring scoreboard — always the full ranking payload.
@@ -6973,6 +7053,12 @@ export interface components {
             readonly solved: boolean;
             readonly tags: string[];
             readonly topics: string[];
+        };
+        /** @description Ready image copies for content the participant can read (#2090). */
+        ParticipantContentImages: {
+            images: components["schemas"]["ContentImageMapEntry"][];
+            /** @description Visible images whose copies are not ready yet */
+            pending: number;
         };
         /** @description The participant's current event plus their own participant state. */
         ParticipantCurrentEvent: {
@@ -15496,6 +15582,53 @@ export interface operations {
             };
         };
     };
+    ctf_content_images_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                image_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     ctf_events_list: {
         parameters: {
             query?: {
@@ -15947,6 +16080,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduledTaskListResponse"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    ctf_events_content_images_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizerContentImagesResponse"];
                 };
             };
             /** @description Authentication failed. */
@@ -17486,6 +17658,43 @@ export interface operations {
                 };
             };
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    ctf_me_content_images_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantContentImages"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

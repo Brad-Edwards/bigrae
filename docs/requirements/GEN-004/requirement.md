@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-05-09T05:11:30.106745Z
-updated_at: 2026-05-09T05:11:30.117438Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # GEN-004: Authenticated In-App Documentation Portal
@@ -23,9 +23,5 @@ The codebase ships a documentation Django app and a versioned documentation tree
 
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#60` (Portal: Add documentation section)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#463` (Any authenticated user can access internal technical documentation and infrastructure runbooks)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/documentation/views.py` (Markdown documentation rendering, navigation, sanitization, and access checks)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/documentation/urls.py` (Documentation route registration)
 - IMPLEMENTS → CONFIG `shifter/shifter_platform/config/urls.py` (docs/ route mounted in the platform)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/index.md` (Documentation portal index)
-- TESTS → TEST `shifter/shifter_platform/tests/documentation/test_helpers.py` (Documentation helper tests)
-- TESTS → TEST `shifter/shifter_platform/tests/documentation/test_views.py` (Documentation view tests)
+- DOCUMENTS → DOCUMENTATION `docs/product-overview.md` (Documentation portal index)

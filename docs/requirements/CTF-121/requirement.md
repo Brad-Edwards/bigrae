@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T20:39:01.445456Z
-updated_at: 2026-03-29T22:54:33.983378Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-121: Next Challenge Navigation
@@ -21,9 +21,7 @@ For training-focused events, guided progression is valuable, organizers can desi
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF Models - CTFChallenge lacks next_challenge FK)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms.py` (Challenge form - next_challenge field with event-scoped queryset)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (Participant template - next challenge link in solved alert)
-- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_challenges.py` (TestNextChallengeNavigation - form queryset and view integration tests)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/challenge.py` (CTFChallenge.next_challenge)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms/` (Challenge form - next_challenge field with event-scoped queryset)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (TestCTFChallengeModel - next_challenge validation tests)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#568` (CTF-121: Next Challenge Navigation)

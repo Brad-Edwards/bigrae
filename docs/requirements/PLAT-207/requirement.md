@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-05-09T05:11:30.280032Z
-updated_at: 2026-05-09T05:11:30.292192Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-207: Credential and Artifact Management
@@ -25,7 +25,7 @@ Credential and artifact management is implemented across CMS and Mission Control
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#34` (Infra: S3 bucket for user uploads)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#90` (Portal: Agent upload to S3)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#461` (SCM PINs and NGFW authcodes are stored in plaintext JSON despite the platform claiming encryption at rest)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services.py` (Credential and upload service layer)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services/` (Credential and upload service layer)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/assets/s3.py` (Object-storage asset helpers)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/assets/upload_token.py` (Signed upload completion tokens)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/models/assets.py` (Asset data model)

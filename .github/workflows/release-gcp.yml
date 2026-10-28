@@ -1,6 +1,6 @@
 name: Release (GCP)
 
-# Builds one GCP release from protected main (#2571, ADR-070).
+# Builds one GCP release from main, dev, or deploy-test (#2571, #2580, ADR-070).
 #
 # A GitHub-less GCP deployment consumes a release; it builds nothing itself. This
 # workflow builds the five control-plane images once, pushes each image by
@@ -17,8 +17,8 @@ name: Release (GCP)
 # GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_RELEASE_SERVICE_ACCOUNT (the release
 # purpose of the cicd-oidc-identity module) and the variable
 # GCP_RELEASE_REGISTRY (<location>-docker.pkg.dev/<project>/<repository>). The
-# WIF provider admits only this workflow on refs/heads/main in that
-# Environment (ADR-004-R23, ADR-037-R7).
+# WIF provider admits only this workflow on refs/heads/main, refs/heads/dev, or
+# refs/heads/deploy-test in that Environment (ADR-004-R23, ADR-037-R7).
 
 on:
   workflow_dispatch:
@@ -48,15 +48,15 @@ jobs:
       GCP_RELEASE_REGISTRY: ${{ vars.GCP_RELEASE_REGISTRY }}
       RELEASE_VERSION_INPUT: ${{ inputs.version }}
     steps:
-      # Reject every ref except protected main BEFORE checkout and cloud auth.
-      # The WIF attribute_condition admits only refs/heads/main for the release
-      # purpose, so this step is defense in depth (ADR-037-R7).
+      # Reject every ref except main, dev, and deploy-test BEFORE checkout and
+      # cloud auth. The WIF attribute_condition admits only these refs for the
+      # release purpose, so this step is defense in depth (ADR-037-R7).
       - name: Reject non-protected dispatch refs
         run: |
           case "${GITHUB_REF}" in
-            refs/heads/main) ;;
+            refs/heads/main|refs/heads/dev|refs/heads/deploy-test) ;;
             *)
-              echo "::error::release-gcp must run from refs/heads/main, not '${GITHUB_REF}'. The GCP WIF provider enforces the same rule. See ADR-037-R7."
+              echo "::error::release-gcp must run from refs/heads/main, refs/heads/dev, or refs/heads/deploy-test, not '${GITHUB_REF}'. The GCP WIF provider enforces the same rule. See ADR-037-R7."
               exit 1
               ;;
           esac

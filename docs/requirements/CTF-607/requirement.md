@@ -1,12 +1,12 @@
 ---
 id: CTF-607
 title: "Admin Roles (Moderator/Judge)"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:22.980327Z
-updated_at: 2026-03-26T06:38:37.230621Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-607: Admin Roles (Moderator/Judge)

@@ -1888,8 +1888,11 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
 
     def test_flags_architecture_job_gated_on_skip_tests(self) -> None:
         jobs = (
-            "adr-conformance", "chart-lint-security", "container-images-lint-security",
-            "adr-guard-lint-security", "stack-smoke-lint-security",
+            "adr-conformance",
+            "chart-lint-security",
+            "container-images-lint-security",
+            "adr-guard-lint-security",
+            "stack-smoke-lint-security",
         )
         for job in jobs:
             with self.subTest(job=job), tempfile.TemporaryDirectory() as tmp:
@@ -3341,6 +3344,83 @@ class K8sNetworkPolicyCoverageTests(unittest.TestCase):
             violations = self._run(repo_root)
 
             self.assertTrue(any("0.0.0.0/0" in v.message for v in violations))
+
+
+class K8sDesignatedEgressProxyPolicyTests(unittest.TestCase):
+    """ADR-006-R3 (#2090): the only public-egress exception is a designated
+    credential-less CONNECT egress proxy whose own boundary excludes every
+    private and special range, allows only TCP 443 and admits named clients."""
+
+    EXCEPT = (
+        "[0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, "
+        "172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4]"
+    )
+
+    def _policy(
+        self,
+        *,
+        component: str = "content-egress",
+        except_list: str | None = None,
+        ports: str = "[{protocol: TCP, port: 443}]",
+        ingress_peer: str = "podSelector: {matchLabels: {app.kubernetes.io/component: portal}}",
+        policy_types: str = "[Ingress, Egress]",
+    ) -> str:
+        return (
+            K8sNetworkPolicyCoverageTests.DEFAULT_DENY_PLATFORM
+            + "---\n"
+            + "apiVersion: networking.k8s.io/v1\n"
+            + "kind: NetworkPolicy\n"
+            + "metadata:\n"
+            + "  name: proxy-boundary\n"
+            + "  namespace: shifter-platform\n"
+            + "spec:\n"
+            + f"  podSelector: {{matchLabels: {{app.kubernetes.io/component: {component}}}}}\n"
+            + f"  policyTypes: {policy_types}\n"
+            + "  ingress:\n"
+            + f"    - from: [{{{ingress_peer}}}]\n"
+            + "      ports: [{protocol: TCP, port: 3128}]\n"
+            + "  egress:\n"
+            + "    - to:\n"
+            + "        - ipBlock:\n"
+            + "            cidr: 0.0.0.0/0\n"
+            + f"            except: {except_list or self.EXCEPT}\n"
+            + f"      ports: {ports}\n"
+            + "---\n"
+            + K8sNetworkPolicyCoverageTests.DEFAULT_DENY_JOBS
+        )
+
+    def _violations(self, body: str) -> list:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            for rel, text in (
+                ("manifests/namespaces.yaml", K8sNetworkPolicyCoverageTests.NAMESPACES),
+                ("manifests/networkpolicies.yaml", body),
+            ):
+                path = repo_root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            return _validate_k8s_fixture_network_policies(repo_root)
+
+    def test_designated_proxy_boundary_passes(self) -> None:
+        self.assertEqual(self._violations(self._policy()), [])
+        self.assertEqual(self._violations(self._policy(component="model-provider-egress")), [])
+
+    def test_weakened_proxy_boundaries_are_rejected(self) -> None:
+        cases = {
+            "undesignated component": self._policy(component="portal"),
+            "private range reachable": self._policy(
+                except_list="[0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 172.16.0.0/12, "
+                "192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4]"
+            ),
+            "port other than 443": self._policy(ports="[{protocol: TCP, port: 80}]"),
+            "any port": self._policy(ports="[]"),
+            "ingress from an address range": self._policy(ingress_peer="ipBlock: {cidr: 10.0.0.0/8}"),
+            "ingress not restricted": self._policy(policy_types="[Egress]"),
+        }
+        for label, body in cases.items():
+            with self.subTest(case=label):
+                violations = self._violations(body)
+                self.assertTrue(any("0.0.0.0/0" in v.message for v in violations), violations)
 
 
 class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):

@@ -86,9 +86,15 @@ launch; non-event sources reject those fields. Engine separates current policy
 admission from local credential, ancestry and generation checks. Prepared first
 dispatch and replay lock ancestry before the native range, then recheck exact
 membership, custody and the retained creation receipt under the final locks.
-The domain facades remain stable while focused modules own policy reads, durable
+The domain authority boundaries remain stable while focused modules own policy reads, durable
 receipts, locked projections and cleanup. See the lifecycle contracts for their
 module responsibilities and recovery invariants.
+
+Private content images follow the same native policy boundary. Staff collection
+access requires exact challenge-management permission; participant access also
+requires current eligible participation and visible content. Provider failure
+cannot become a membership fallback, and normal HTTP caches must not retain
+protected image responses after permission changes.
 
 ## Deployables and cloud boundaries
 
@@ -101,6 +107,7 @@ module responsibilities and recovery invariants.
 | Plugin/preparation Jobs | Explicitly installed, isolated executable images; separate administrator grants and pinned worker/verifier identities. |
 | Guacamole and guacd | Remote-access services; BigRAE authorizes the exact target/session and continuing access. Guacamole has separate database credentials. |
 | Optional access services | Deployment-selected VPN and other integrations have their own identities and support conditions. |
+| Content egress proxy | Credential-less CONNECT proxy; the only platform pod with public HTTPS egress. The CTF scheduler copies organizer images and the portal sends CTF webhooks through it. |
 
 The canonical control-plane package is the shared Helm chart, hosted on GKE for
 GCP or EKS for AWS. Provisioner Jobs use the selected cluster; CI runner placement
@@ -132,6 +139,13 @@ keyless, predict-only model access follows ADR-064. GDC VM Runtime and scenario
 Pods are operator validation paths, not participant containment boundaries.
 See [GCP deployment](../dev/gcp-range-cell-deploy.md) for exact supported modes
 and image prerequisites. GCE does not support the NGFW range capability.
+
+The platform namespace denies public egress. Under ADR-006-R3, designated
+egress proxies are the only exception: they admit DNS names on port 443, reject
+nonglobal addresses and carry no cloud identity. The portal enforces one
+code-owned Content Security Policy (ADR-036). Browsers load images only from the
+portal origin, so organizer images from other hosts are copied into platform
+storage first; see the [CSP enforcement design](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/browser-csp-enforcement-design-2090.md).
 
 ADR-056 defines provider-enforced guest containment. ADR-057 separates GKE
 Dataplane V2 NetworkPolicy reachability, Google Workload Identity, Job admission,

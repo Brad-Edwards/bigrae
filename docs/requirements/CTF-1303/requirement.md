@@ -1,12 +1,12 @@
 ---
 id: CTF-1303
 title: "Custom Pages"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:24.273081Z
-updated_at: 2026-03-19T03:07:30.082368Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1303: Custom Pages
@@ -21,5 +21,5 @@ Custom pages provide a place for event-specific information that does not fit in
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF models - no CustomPage or custom page model exists)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event_page.py` (CTFEventPage custom event pages)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#637` (CTF-1303: Custom Pages)

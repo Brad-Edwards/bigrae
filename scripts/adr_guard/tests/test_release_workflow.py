@@ -133,14 +133,17 @@ class ReleaseWorkflowProvenanceTests(unittest.TestCase):
         self.assertEqual(self.run_check(workflow(environment="    environment:\n      name: gcp-release\n")), [])
         self.assert_one(workflow(runs_on="[self-hosted, gcp-dev]"), "ADR-003-R5", "self-hosted")
 
-    def test_a_main_only_ref_guard_runs_before_authentication(self) -> None:
+    def test_a_release_ref_guard_runs_before_authentication(self) -> None:
         rest = CHECKOUT + AUTH + BUILD + ATTEST
+        release_refs = REF_GUARD.replace("refs/heads/main)", "refs/heads/main|refs/heads/dev|refs/heads/deploy-test)")
+        self.assertEqual(self.run_check(workflow(steps=release_refs + rest)), [])
         missing = rest
         late = CHECKOUT + AUTH + REF_GUARD + BUILD + ATTEST
-        dev = REF_GUARD.replace("refs/heads/main)", "refs/heads/dev|refs/heads/main)") + rest
+        feature = REF_GUARD.replace("refs/heads/main)", "refs/heads/feature|refs/heads/main)") + rest
+        wildcard = REF_GUARD.replace("refs/heads/main)", "refs/heads/*)") + rest
         skipped = REF_GUARD.replace("        run: |", "        if: false\n        run: |") + rest
         no_exit = REF_GUARD.replace("exit 1", "true") + rest
-        for steps in (missing, late, dev, skipped, no_exit):
+        for steps in (missing, late, feature, wildcard, skipped, no_exit):
             with self.subTest(steps=steps[:80]):
                 self.assert_one(workflow(steps=steps), "ADR-037-R7", "refs/heads/main")
 

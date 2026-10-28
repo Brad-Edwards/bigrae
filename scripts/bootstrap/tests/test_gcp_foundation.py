@@ -1,8 +1,10 @@
 """Fresh foundation ordering and fail-closed target binding."""
 
 import json
+import os
 import subprocess
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -51,9 +53,16 @@ def inputs(tmp_path):
 
 def test_new_foundation_creates_backend_before_saved_plan_apply(inputs, monkeypatch):
     calls = []
+    quota_projects = set()
+    data_dirs = set()
+    monkeypatch.setenv("GOOGLE_CLOUD_QUOTA_PROJECT", "stale-project")
 
     def run(argv, **kwargs):
         calls.append(argv)
+        env = kwargs.get("env") or os.environ
+        quota_projects.add(env.get("GOOGLE_CLOUD_QUOTA_PROJECT"))
+        if argv[0] == "terraform":
+            data_dirs.add(env.get("TF_DATA_DIR"))
         if argv[:3] == ["gcloud", "projects", "describe"]:
             return subprocess.CompletedProcess(argv, 0, "123\n")
         if argv[:2] == ["gh", "api"]:
@@ -75,6 +84,12 @@ def test_new_foundation_creates_backend_before_saved_plan_apply(inputs, monkeypa
     plan = calls[-2][-1].removeprefix("-out=")
     assert plan.startswith(tempfile.gettempdir())
     assert calls[-1][2:] == ["apply", "-input=false", plan]
+    # Every child uses the foundation project as its quota project (#2584).
+    assert quota_projects == {"example-project"}
+    assert os.environ["GOOGLE_CLOUD_QUOTA_PROJECT"] == "stale-project"
+    # Terraform keeps its backend configuration in a private data directory (#2586).
+    (data_dir,) = data_dirs
+    assert data_dir.startswith(tempfile.gettempdir()) and data_dir == str(Path(plan).parent / "terraform-data")
 
 
 def test_wrong_project_number_stops_before_mutation(inputs, monkeypatch):

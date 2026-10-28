@@ -24,6 +24,7 @@ Submodule layout:
   ``DeliveryAttempt``, ``ParticipantReceipt`` (ADR-051, #2048).
 * ``recovery``     — ``CTFRangeRecovery``.
 * ``spare_range``  — ``CTFSpareRange``.
+* ``content_image``— ``CTFContentImage``, ``ContentImageStatus`` (#2090).
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ from .communication import (
 from .communication_cutover import CommunicationCutover, LegacyCommunication
 from .communication_delivery import DeliveryAttempt, ParticipantReceipt
 from .content_hydration import CTFContentHydrationReceipt
+from .content_image import ContentImageStatus, CTFContentImage
 from .event import CTFEvent
 from .event_authority_transition import CTFEventAuthorityTransition
 from .event_page import CTFEventPage
@@ -81,6 +83,7 @@ __all__ = [
     "CTFChallengeTag",
     "CTFCohort",
     "CTFContentHydrationReceipt",
+    "CTFContentImage",
     "CTFEmailTemplate",
     "CTFEvent",
     "CTFEventAuthorityTransition",
@@ -105,6 +108,7 @@ __all__ = [
     "CommunicationCutover",
     "CommunicationIntent",
     "CommunicationTargetEvent",
+    "ContentImageStatus",
     "DeliveryAttempt",
     "LegacyCommunication",
     "MessageRevision",

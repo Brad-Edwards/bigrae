@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 1
 created_at: 2026-03-19T02:57:48.930387Z
-updated_at: 2026-05-09T05:11:30.442691Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-004: Independent Multi-Deployment

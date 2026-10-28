@@ -57,9 +57,12 @@ AWS_DEV_WAF_ACL_ARN = (
 # probes now match the retired Kustomize base, stale comments are removed, and
 # the two registered Checkov exceptions annotate their chart Deployments. The
 # portal-to-Guacamole token API policies moved from the retired base to the chart.
+# Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress.
+# Regenerated for #2321 integration: retain native policy/PDB delivery and catalog
+# initialization alongside the credential-less CTF image egress proxy.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "b9751d0e54fea9e15ef80060327ce5f888d29782413a31bc1eb7e37bed18e506",
-    "gcp-prod": "2519ac456b6ffb3a284ff143f21394db47e1675ab6e4a18edf31d4913070ac97",
+    "gcp-dev": "a9ecaa51d80c46e3bcc9d1ad149137475823302ae7dcb5d97f3f297429a1c86a",
+    "gcp-prod": "05e67ec605bdb15ea8db1d7a18f06beeaebbb043ebff530f1a16bd08cf613b24",
 }
 
 

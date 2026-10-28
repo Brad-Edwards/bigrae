@@ -51,6 +51,13 @@ When a command fails, use [RB023](../../runbooks/rb023-gcp-deployment.md).
    revision with no local changes. Install these tools on `PATH`: `gcloud`,
    `gke-gcloud-auth-plugin`, `terraform`, `kubectl`, `helm`, `oras`, `trivy`,
    `git`, and `uv`. The command stops when a tool is missing.
+8. From a checkout, run each command through the `scripts/bootstrap` uv
+   project. The project holds the Python dependencies of the commands. In this
+   guide, `./scripts/bootstrap/deploy.py` means:
+
+   ```bash
+   uv run --project scripts/bootstrap scripts/bootstrap/deploy.py <command>
+   ```
 
 The foundation needs project administration rights. `gcp-images` runs as your
 own identity: it creates Compute Engine images and a temporary transfer bucket
@@ -62,7 +69,9 @@ The repository maintainer does this procedure once for each release. A
 deployment operator only consumes the result.
 
 1. In the project that holds the release registry, apply the foundation in
-   GitHub mode with a `release` purpose context:
+   GitHub mode with one `release` purpose context for each release ref. The
+   release refs are `refs/heads/main`, `refs/heads/dev`, and
+   `refs/heads/deploy-test`. This example shows `main`:
 
    ```json
    "release": [
@@ -97,7 +106,8 @@ deployment operator only consumes the result.
    - `reader_members` must include the deploy and destroy identities of each
      deployment. The deploy identity copies the images. The destroy identity
      verifies the release before a teardown.
-3. Create the `gcp-release` GitHub Environment. Limit it to `main`.
+3. Create the `gcp-release` GitHub Environment. Limit it to the release refs
+   that have a `release` context. Each of these branches must be protected.
 4. Set these values in that Environment:
 
    | Name | Kind | Value |
@@ -106,8 +116,8 @@ deployment operator only consumes the result.
    | `GCP_RELEASE_SERVICE_ACCOUNT` | secret | The `release_service_account_email` output. |
    | `GCP_RELEASE_REGISTRY` | variable | The `release_registry` output, `<location>-docker.pkg.dev/<project>/<repository>`. |
 
-5. Dispatch the release from `main`. The `version` input is optional; an empty
-   value uses `version.txt`.
+5. Dispatch the release from a release ref. The `version` input is optional;
+   an empty value uses `version.txt`.
 
    ```bash
    gh workflow run release-gcp.yml --ref main

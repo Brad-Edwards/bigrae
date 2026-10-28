@@ -1,12 +1,12 @@
 ---
 id: CTF-1103
 title: "Event Export"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:24.036262Z
-updated_at: 2026-03-19T03:07:28.770558Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1103: Event Export
@@ -21,5 +21,5 @@ Event result export enables post-event reporting, analysis, and record-keeping. 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py (get_event_statistics)` (Event statistics service - computes stats but no CSV/JSON export function)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/transfer.py` (export_event_results and results_csv)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#631` (CTF-1103: Event Export)

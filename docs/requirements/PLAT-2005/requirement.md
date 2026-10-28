@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 1
 created_at: 2026-05-10T02:50:04.408765Z
-updated_at: 2026-07-13T06:43:48.468298Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-2005: Backend-derived runtime configuration
@@ -25,7 +25,7 @@ Runtime behavior should follow the same installation contract users configure an
 - CONSTRAINS → ADR `ADR-011` (OSS deployments use root-configured backend bundles)
 - CONSTRAINS → ADR `ADR-009` (AWS and GCP keep provider-specific identity stacks behind a shared auth seam)
 - DOCUMENTS → DOCUMENTATION `docs/architecture/branch-routing-provider-coupling-inventory.md` (Branch Routing and Provider Coupling Inventory)
-- DOCUMENTS → CODE_FILE `shifter/installation/contract.py` (installation.contract, names the per-backend runtime outputs (GeneratedOutput with process roles) and the backend discovery path that backend-derived runtime config (#1114) will consume)
+- DOCUMENTS → CODE_FILE `shifter/installation/contract/` (installation.contract, names the per-backend runtime outputs (GeneratedOutput with process roles) and the backend discovery path that backend-derived runtime config (#1114) will consume)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#721` (Architecture: root-configured backend bundles for OSS Shifter)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#722` (Draft requirements and ADR for root-configured backend bundles)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#724` (Inventory branch routing and provider coupling)

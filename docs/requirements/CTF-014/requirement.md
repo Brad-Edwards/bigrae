@@ -6,7 +6,7 @@ type: NON_FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:21.376085Z
-updated_at: 2026-03-26T06:34:25.081480Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-014: Customization & Extensibility
@@ -21,10 +21,9 @@ Extensibility enables the platform to serve diverse use cases without core code 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/apps.py` (CTF app config - would host plugin registry initialization)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF models - would need plugin/theme/i18n model fields)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/extensions.py` (Extension points: register_flag_validator and register_scoring_strategy for external Django apps)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent logo_url and theme_color branding fields)
 - CONSTRAINS → CONFIG `shifter/shifter_platform/config/settings.py` (Django settings - USE_I18N=True but no LOCALE_PATHS/LANGUAGES configured)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#627` (CTF-014: Customization & Extensibility)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF views - would need theme context and i18n rendering)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/communication_contracts.py` (Closed, versioned content/audience/trigger/channel profiles: the CommunicationIntent extensibility seam extended by application change, not a plugin/theme/translation engine (ADR-051, #2048))
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2048` (Communication extensibility realized as a closed seam that honors the shall-not-build-a-plugin-system constraint)

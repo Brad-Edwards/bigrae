@@ -36,6 +36,7 @@ def test_every_published_ctf_operation_has_one_registered_action_or_exemption() 
                 "file_audience",
                 "campaign_recipient_details",
                 "publication_or_current_policy_or_participation",
+                "content_image_audience",
             }
             for action in binding.actions:
                 definition = action_definition(action)

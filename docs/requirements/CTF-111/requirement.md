@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:21.776711Z
-updated_at: 2026-03-26T06:36:29.757418Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-111: Challenge Release Scheduling
@@ -21,8 +21,8 @@ Timed challenge releases maintain engagement throughout multi-hour or multi-day 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFChallenge.release_time field and is_released property (lines 468, 517-522))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (get_available_challenges release_time filter (line 282-284))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge.release_time field and is_released property (lines 468, 517-522))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (get_available_challenges release_time filter (line 282-284))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (submit_flag is_released gate (lines 90-97))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (RELEASE_CHALLENGE handler and TASK_HANDLERS registration)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (`ScheduledTaskType.RELEASE_CHALLENGE` enum value)

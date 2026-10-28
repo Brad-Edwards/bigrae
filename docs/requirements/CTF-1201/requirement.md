@@ -1,12 +1,12 @@
 ---
 id: CTF-1201
 title: "REST API"
-status: DRAFT
+status: ACTIVE
 type: INTERFACE
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:24.103929Z
-updated_at: 2026-03-26T06:34:41.334709Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1201: REST API
@@ -23,4 +23,3 @@ A REST API enables programmatic access for custom tooling, automation scripts, e
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (CTF URL patterns - API route definitions)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#633` (CTF-1201: REST API)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/__init__.py` (CTF Views - API endpoint implementations)
