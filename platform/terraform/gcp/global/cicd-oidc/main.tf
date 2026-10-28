@@ -58,4 +58,5 @@ module "cicd_oidc_identity" {
   platform_external_bucket_names         = var.platform_external_bucket_names
   impersonation_principals               = var.impersonation_principals
   deployment_config_bucket_name          = var.deployment_config_bucket_name
+  enable_gcs_usage_log_delivery          = var.enable_gcs_usage_log_delivery
 }

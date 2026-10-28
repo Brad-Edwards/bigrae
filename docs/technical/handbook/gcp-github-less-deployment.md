@@ -51,6 +51,13 @@ When a command fails, use [RB023](../../runbooks/rb023-gcp-deployment.md).
    revision with no local changes. Install these tools on `PATH`: `gcloud`,
    `gke-gcloud-auth-plugin`, `terraform`, `kubectl`, `helm`, `oras`, `trivy`,
    `git`, and `uv`. The command stops when a tool is missing.
+8. From a checkout, run each command through the `scripts/bootstrap` uv
+   project. The project holds the Python dependencies of the commands. In this
+   guide, `./scripts/bootstrap/deploy.py` means:
+
+   ```bash
+   uv run --project scripts/bootstrap scripts/bootstrap/deploy.py <command>
+   ```
 
 The foundation needs project administration rights. `gcp-images` runs as your
 own identity: it creates Compute Engine images and a temporary transfer bucket
