@@ -63,6 +63,8 @@ The current enforcement stack has six parts:
    roots, exclusions and the 100% threshold remain unchanged. This avoids the
    tool's repeated recursive include expansion through ignored `node_modules`
    trees; those directories are not application quality inputs.
+   The wrapper's regression tests use standard-library `unittest`, as required
+   by the Python 3.11 ADR test lane; they need no pytest dependency.
 
 5. `.github/workflows/_quality.yml`
    CI enforcement. ADR conformance runs as its own architecture gate.
