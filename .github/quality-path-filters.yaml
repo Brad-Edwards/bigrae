@@ -404,6 +404,7 @@ exclusions:
       - scripts/check_tf_gcp_runner_network/**
       - scripts/check_tf_gcp_iam_resource_scope/**
       - scripts/check_tf_gcp_wif_trust/**
+      - scripts/check_provisioner_locks/**
       - scripts/check_gcp_tf_modules/**
       - scripts/check_checkov_invocation_parity/**
       - scripts/post_deploy_smoke/**
