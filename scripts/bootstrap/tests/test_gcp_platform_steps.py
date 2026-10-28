@@ -139,13 +139,15 @@ class TestTerraformSteps:
         adopt_identity_platform_config(runner, ctx, project_id=PROJECT)
         assert not runner.find("terraform", f"-chdir={ctx.root}", "import")
 
-    def test_apply_retries_only_iam_propagation(self, inputs):
+    def test_apply_retries_only_iam_propagation(self, inputs, capsys):
         ctx = terraform_context(inputs, inputs.workdir, {})
         attempts = iter([ProcessResult(1, "", "Error 403: permission denied"), ProcessResult(0, "done")])
         runner = FakeRunner().on(["terraform", f"-chdir={ctx.root}", "apply"], lambda a, e, s: next(attempts))
         sleeps = []
         terraform_apply(runner, ctx, sleep=sleeps.append)
         assert sleeps == [10]
+        # The retried error stays visible to the operator (#2601).
+        assert "Error 403: permission denied" in capsys.readouterr().out
         hard = FakeRunner().on(["terraform", f"-chdir={ctx.root}", "apply"], ProcessResult(1, "", "invalid config"))
         with pytest.raises(TerraformStepError):
             terraform_apply(hard, ctx, sleep=sleeps.append)
