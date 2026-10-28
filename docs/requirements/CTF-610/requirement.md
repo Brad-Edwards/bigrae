@@ -26,4 +26,3 @@ Participant profiles add a social dimension to CTF events and help organizers id
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/profile.py` (update_own_profile)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Scoreboard service (shows name/score but not full profile or solve history))
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#658` (CTF-610: Participant Profile)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF views (no profile edit or public profile views exist))

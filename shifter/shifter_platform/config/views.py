@@ -24,15 +24,7 @@ from shared.audit import (
 from shared.errors import classify_user_message
 from shared.log_sanitize import safe_log_fingerprint
 
-# SonarCloud S1192: extracted duplicated string literals.
-DASHBOARD_URL = "mission_control:dashboard"
-
 logger = logging.getLogger(__name__)
-
-
-def home(request: HttpRequest) -> HttpResponse:
-    """Landing page - coming soon."""
-    return render(request, "coming_soon.html")
 
 
 @require_http_methods(["GET", "HEAD"])

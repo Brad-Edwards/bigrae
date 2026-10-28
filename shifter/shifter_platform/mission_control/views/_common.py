@@ -2,23 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
-from django.contrib.auth.models import User
 from django.http import HttpRequest
 
 from shared.audit import AuditEntityType, AuditTarget, audit_log_from_request
 
-GUAC_AUTH_NOT_CONFIGURED = "Guacamole JSON auth is not configured"
-GUACAMOLE_BASE_PATH = "/guacamole"
-INTERNAL_SERVER_ERROR = "Internal server error"
 NGFW_NOT_FOUND = "NGFW not found"
-
-
-def _get_user(request: HttpRequest) -> User:
-    """Get authenticated user from request. Use only in @login_required views."""
-    assert request.user.is_authenticated, "View must use @login_required"
-    return cast(User, request.user)
 
 
 def _audit_range_lifecycle(

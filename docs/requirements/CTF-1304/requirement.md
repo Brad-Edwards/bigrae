@@ -25,4 +25,3 @@ Event statistics provide the raw data that the organizer dashboard and analytics
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (get_event_stats() - additional event stats used in admin views)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring.py` (TestGetEventStatistics - tests for all event-level statistics)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#541` (CTF-1304: Complete Event Statistics implementation)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_events.py` (admin_analytics view - renders event_stats from get_event_statistics())

@@ -334,6 +334,27 @@ resource "google_project_iam_member" "destroy_roles" {
   member     = "serviceAccount:${local.service_account_emails.destroy}"
 }
 
+# identityPlatform:initializeAuth checks firebaseauth.configs.create and then
+# adds Firebase to the project, which needs firebase.projects.update. No
+# Identity Platform role holds that permission, so a fresh project fails with
+# INSUFFICIENT_PERMISSION without this role (#2594).
+resource "google_project_iam_custom_role" "deploy_identity_platform" {
+  count       = local.deploy_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "${replace(var.name_prefix, "-", "_")}_deploy_identity_platform"
+  title       = "Shifter platform deploy Identity Platform initialization"
+  description = "Add Firebase to the project when gcp-deploy initializes Identity Platform."
+  permissions = var.deploy_identity_platform_permissions
+}
+
+resource "google_project_iam_member" "deploy_identity_platform" {
+  depends_on = [google_service_account.deploy, google_project_iam_custom_role.deploy_identity_platform]
+  count      = local.deploy_enabled ? 1 : 0
+  project    = var.project_id
+  role       = "projects/${var.project_id}/roles/${replace(var.name_prefix, "-", "_")}_deploy_identity_platform"
+  member     = "serviceAccount:${local.service_account_emails.deploy}"
+}
+
 # Bucket lifecycle and object access are limited to the three deterministic
 # platform-core buckets. In particular, neither lifecycle identity receives a
 # project-wide Storage Admin grant that could alter retained release evidence.
@@ -667,9 +688,11 @@ resource "google_storage_bucket" "deployment_config" {
 }
 
 # Cloud Storage writes usage logs as this Google group. The grant is limited to
-# the access-log prefix, so the group can not create release evidence.
+# the access-log prefix, so the group can not create release evidence. A Domain
+# Restricted Sharing org policy (iam.allowedPolicyMemberDomains) rejects the
+# google.com group with Error 412, so the grant is optional (#2585).
 resource "google_storage_bucket_iam_member" "deployment_config_access_log_writer" {
-  count  = local.deployment_config_enabled ? 1 : 0
+  count  = local.deployment_config_enabled && var.enable_gcs_usage_log_delivery ? 1 : 0
   bucket = google_storage_bucket.release_evidence.name
   role   = "roles/storage.objectCreator"
   member = "group:cloud-storage-analytics@google.com"
@@ -679,6 +702,18 @@ resource "google_storage_bucket_iam_member" "deployment_config_access_log_writer
     description = "Cloud Storage may create usage-log objects for the deployment config bucket only."
     expression  = "resource.name.startsWith('projects/_/buckets/${google_storage_bucket.release_evidence.name}/objects/${local.deployment_config_log_prefix}')"
   }
+}
+
+# Cloud Audit Logs record every read and write of the deployment config bucket
+# also when usage-log delivery is off. No other root owns the storage audit
+# configuration of the foundation project (#2585).
+module "storage_data_access_audit" {
+  count  = local.deployment_config_enabled ? 1 : 0
+  source = "../project-audit-config"
+
+  project_id = var.project_id
+  service    = "storage.googleapis.com"
+  log_types  = ["DATA_READ", "DATA_WRITE"]
 }
 
 # The lifecycle identities read the inputs and manage only the deployment lock.

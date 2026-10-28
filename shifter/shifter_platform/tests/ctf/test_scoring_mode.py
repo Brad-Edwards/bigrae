@@ -20,13 +20,11 @@ from ctf.enums import (
     ScoringMode,
 )
 from ctf.exceptions import CTFValidationError
-from ctf.forms import CTFEventForm
 from ctf.models import CTFChallenge, CTFEvent, CTFFlag, CTFParticipant
 from ctf.services.event import create_event, update_event
 from ctf.services.scoring import calculate_solve_points, get_scoring_strategy
 from ctf.services.scoring._strategy import StandardScoringStrategy
 from ctf.services.submission import submit_flag
-from ctf.views.api.events import _event_detail_payload
 
 # ---------------------------------------------------------------------------
 # Model default / backward compatibility
@@ -190,18 +188,3 @@ def test_create_event_rejects_invalid_scoring_mode(organizer_user):
 def test_update_event_rejects_invalid_scoring_mode(ctf_event_draft):
     with pytest.raises(CTFValidationError):
         update_event(ctf_event_draft.id, {"scoring_mode": "nope"})
-
-
-# ---------------------------------------------------------------------------
-# Organizer visibility surfaces
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.django_db
-def test_event_detail_payload_exposes_scoring_mode(ctf_event):
-    payload = _event_detail_payload(ctf_event)
-    assert payload["scoring_mode"] == ctf_event.scoring_mode == "standard"
-
-
-def test_event_form_includes_scoring_mode():
-    assert "scoring_mode" in CTFEventForm().fields

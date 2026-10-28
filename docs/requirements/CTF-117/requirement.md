@@ -23,5 +23,4 @@ Solutions serve as training material after events, participants learn how challe
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge.solution TextField)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (solution in _CHALLENGE_MUTABLE_FIELDS for create/update)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (Conditional solution display (visible after event ends/archived))
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#551` (CTF-117: Challenge Solutions)

@@ -23,4 +23,3 @@ Not all CTF events should have public scoreboards, internal training events may 
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent.scoreboard_visibility)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#643` (CTF-404: Scoreboard Visibility Controls)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF Views - scoreboard view has no visibility access control)
