@@ -8,7 +8,11 @@ from django.db import DatabaseError, connection, transaction
 from psycopg import Error as PostgresError
 
 from shared.gcp_native_identity import validate_native_identity
-from shared.gcp_native_identity.database_duties import reconcile_application_duties, reconcile_policy_owner
+from shared.gcp_native_identity.database_duties import (
+    reconcile_application_duties,
+    reconcile_guacamole_owner,
+    reconcile_policy_owner,
+)
 
 
 class Command(BaseCommand):
@@ -37,6 +41,7 @@ class Command(BaseCommand):
                 users = native.database_users
             with transaction.atomic(), connection.cursor() as cursor:
                 reconcile_application_duties(cursor, users)
+            reconcile_guacamole_owner(connection.get_connection_params())
             reconcile_policy_owner(connection.get_connection_params(), users)
         except (ValueError, TypeError, AttributeError, DatabaseError, PostgresError):
             raise CommandError(
