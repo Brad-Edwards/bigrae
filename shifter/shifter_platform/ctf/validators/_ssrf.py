@@ -9,9 +9,13 @@ connection used to close the resolve-then-connect TOCTOU window.
 from __future__ import annotations
 
 import http.client
+import io
 import ipaddress
 import socket
 import ssl
+import time
+from collections.abc import Buffer, Iterator
+from contextlib import contextmanager, suppress
 from typing import Any
 from urllib.parse import urlparse
 
@@ -117,6 +121,49 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
             raise
 
 
+class _DeadlineReader(io.RawIOBase):
+    """Socket reader that ends every receive by one elapsed-time deadline.
+
+    A socket timeout bounds one receive, so a peer that sends a byte before
+    each timeout can keep a buffered read open without limit. Before each
+    receive, this reader sets the socket timeout to the time that remains.
+    """
+
+    def __init__(self, sock: socket.socket, raw: io.RawIOBase, deadline: float) -> None:
+        super().__init__()
+        self._sock = sock
+        self._raw = raw
+        self._deadline = deadline
+        self._timeout = sock.gettimeout()
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Buffer) -> int | None:
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("request deadline exceeded")
+        self._sock.settimeout(remaining if self._timeout is None else min(self._timeout, remaining))
+        return self._raw.readinto(buffer)
+
+    def close(self) -> None:
+        if not self.closed:
+            self._raw.close()
+        super().close()
+
+
+def _deadline_response_class(deadline: float) -> type[http.client.HTTPResponse]:
+    """Return an ``HTTPResponse`` class whose every receive ends by ``deadline``."""
+
+    class _DeadlineResponse(http.client.HTTPResponse):
+        def __init__(self, sock: socket.socket, *args: Any, **kwargs: Any) -> None:
+            super().__init__(sock, *args, **kwargs)
+            # Keep the stock socket file (and its socket reference); bound its receives.
+            self.fp = io.BufferedReader(_DeadlineReader(sock, self.fp.detach(), deadline))
+
+    return _DeadlineResponse
+
+
 def _build_https_connection(
     *,
     hostname: str,
@@ -133,6 +180,36 @@ def _build_https_connection(
         timeout=timeout,
         context=context,
     )
+
+
+def _build_tunnel_connection(
+    *,
+    proxy_host: str,
+    proxy_port: int,
+    hostname: str,
+    port: int,
+    timeout: float,
+    context: ssl.SSLContext,
+) -> http.client.HTTPSConnection:
+    """Factory seam for a CONNECT tunnel through the platform egress proxy.
+
+    TLS is negotiated inside the tunnel with ``hostname`` for SNI and certificate
+    verification, so the proxy relays opaque bytes and never sees the request.
+    """
+    connection = http.client.HTTPSConnection(proxy_host, proxy_port, timeout=timeout, context=context)
+    connection.set_tunnel(hostname, port)
+    return connection
+
+
+def _egress_proxy() -> tuple[str, int] | None:
+    """Return the configured ``(host, port)`` of the platform egress proxy, if any."""
+    from django.conf import settings
+
+    value = getattr(settings, "CTF_EGRESS_PROXY", "")
+    if not value:
+        return None
+    host, _, port = value.rpartition(":")
+    return host, int(port)
 
 
 def _safe_parse_url(url: str) -> tuple[Any, str, int] | None:
@@ -208,3 +285,76 @@ def is_blocked_url(url: str) -> bool:
         return _is_blocked_hostname_via_dns(hostname, port)
 
     return _is_blocked_address(addr)
+
+
+def _connections(
+    hostname: str, port: int, pinned_ips: list[str], *, timeout: float, context: ssl.SSLContext
+) -> Iterator[http.client.HTTPSConnection]:
+    """Yield the connections to try: one proxy tunnel, or each validated address."""
+    proxy = _egress_proxy()
+    if proxy is not None:
+        # Deployed pods have no public egress; the proxy re-checks and pins the address.
+        yield _build_tunnel_connection(
+            proxy_host=proxy[0], proxy_port=proxy[1], hostname=hostname, port=port, timeout=timeout, context=context
+        )
+        return
+    for pinned_ip in pinned_ips:
+        yield _build_https_connection(
+            hostname=hostname, pinned_ip=pinned_ip, port=port, timeout=timeout, context=context
+        )
+
+
+@contextmanager
+def pinned_https_response(
+    url: str,
+    *,
+    method: str,
+    timeout: float,
+    headers: dict[str, str] | None = None,
+    body: bytes | None = None,
+    deadline: float | None = None,
+) -> Iterator[http.client.HTTPResponse]:
+    """Send one request to an organizer-chosen URL and yield its response.
+
+    The single SSRF-guarded request path for webhooks and organizer image copies
+    (OWASP SSRF Case 2): HTTPS only, no URL credentials, every resolved address
+    public, the socket pinned to a validated address, and a redirect returned as
+    an ordinary response rather than followed. When ``CTF_EGRESS_PROXY`` is set
+    (deployed pods have no public egress), the request tunnels through the
+    platform egress proxy, which repeats the address check and pins the address. Raises ``_BlockedDestinationError``
+    for an unsafe URL and ``OSError`` when no validated address responds. The
+    connection closes when the context exits.
+
+    With ``deadline`` (a ``time.monotonic()`` value), every receive of the
+    response, including its status line and headers, ends by the deadline, and
+    a late read raises ``TimeoutError``.
+    """
+    from ctf.validators._http import _request_target
+
+    parsed_tuple = _safe_parse_url(url)
+    if parsed_tuple is None:
+        raise _BlockedDestinationError("Invalid destination")
+    parsed, hostname, port = parsed_tuple
+    if parsed.scheme != "https" or parsed.username or parsed.password or hostname in _BLOCKED_HOSTNAMES:
+        raise _BlockedDestinationError("Invalid destination")
+    pinned_ips = _resolve_and_validate(hostname, port)
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    response_class = None if deadline is None else _deadline_response_class(deadline)
+    for connection in _connections(hostname, port, pinned_ips, timeout=timeout, context=context):
+        try:
+            if response_class is not None:
+                connection.response_class = response_class
+            try:
+                connection.request(method, _request_target(parsed), body=body, headers=headers or {})
+                response = connection.getresponse()
+            except (OSError, http.client.HTTPException) as exc:
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("request deadline exceeded") from exc
+                continue
+            yield response
+            return
+        finally:
+            with suppress(Exception):
+                connection.close()
+    raise OSError("Destination transport unavailable")

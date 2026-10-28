@@ -908,3 +908,12 @@ def test_render_env_preserves_bootstrap_admin_lists_from_environment(monkeypatch
 
     assert "PLATFORM_BOOTSTRAP_STAFF_EMAILS=admin@example.com\n" in rendered
     assert "PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS=admin@example.com\n" in rendered
+
+
+def test_render_env_routes_ctf_egress_through_the_content_egress_proxy():
+    """Platform pods have no public egress; CTF image copies and webhooks use the proxy (#2090)."""
+    module = _load_module("render_runtime_env.py", "render_runtime_env")
+
+    rendered = module.render_env(_outputs(), engine_image=PINNED_ENGINE_DIGEST)
+
+    assert "CTF_EGRESS_PROXY=content-egress:3128\n" in rendered

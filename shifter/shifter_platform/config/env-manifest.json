@@ -228,7 +228,7 @@
       "source_file": "config/settings.py"
     },
     {
-      "default": "'report-only'",
+      "default": "'enforce'",
       "name": "BROWSER_CSP_MODE",
       "source_file": "config/_browser_security.py"
     },
@@ -286,6 +286,11 @@
       "default": "'30'",
       "name": "CTF_DEFAULT_RANGE_SPINUP_MINUTES",
       "source_file": "config/settings.py"
+    },
+    {
+      "default": "''",
+      "name": "CTF_EGRESS_PROXY",
+      "source_file": "config/_ctf_egress_settings.py"
     },
     {
       "default": "'ctf@example.com'",

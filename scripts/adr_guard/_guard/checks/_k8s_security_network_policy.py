@@ -141,6 +141,63 @@ def _destination_ip_block_cidr(destination: object) -> object:
     return ip_block.get("cidr")
 
 
+# ADR-006-R3 (#2090): the one public-egress exception. A designated credential-less
+# CONNECT egress proxy may reach public HTTPS only through its own boundary policy:
+# selected by exactly its component label, ingress restricted to pod peers, TCP 443
+# only, and every private, shared, loopback, link-local and special range excluded.
+DESIGNATED_EGRESS_PROXIES = frozenset({"content-egress", "model-provider-egress"})
+REQUIRED_PUBLIC_EGRESS_EXCEPT = frozenset(
+    {
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "224.0.0.0/4",
+        "240.0.0.0/4",
+    }
+)
+_COMPONENT_LABEL = "app.kubernetes.io/component"
+
+
+def _is_designated_proxy_boundary(spec: dict[str, object]) -> bool:
+    """Return whether ``spec`` selects only a designated proxy and restricts its ingress."""
+    selector = spec.get("podSelector")
+    if not isinstance(selector, dict) or set(selector) != {"matchLabels"}:
+        return False
+    labels = selector["matchLabels"]
+    if not isinstance(labels, dict) or set(labels) != {_COMPONENT_LABEL}:
+        return False
+    if labels[_COMPONENT_LABEL] not in DESIGNATED_EGRESS_PROXIES:
+        return False
+    policy_types = spec.get("policyTypes")
+    ingress = spec.get("ingress")
+    if not isinstance(policy_types, list) or "Ingress" not in policy_types or not isinstance(ingress, list):
+        return False
+    for rule in ingress:
+        peers = rule.get("from") if isinstance(rule, dict) else None
+        if not isinstance(peers, list) or not peers:
+            return False
+        if any(not isinstance(peer, dict) or set(peer) != {"podSelector"} for peer in peers):
+            return False
+    return True
+
+
+def _is_designated_public_rule(doc: dict[str, object], rule_index: int, destination: object) -> bool:
+    """Return whether one broad destination is the designated proxy's public HTTPS rule."""
+    spec = doc.get("spec")
+    if not isinstance(spec, dict) or not _is_designated_proxy_boundary(spec):
+        return False
+    rule = spec["egress"][rule_index]  # type: ignore[index]
+    if not isinstance(rule, dict) or rule.get("ports") != [{"protocol": "TCP", "port": 443}]:
+        return False
+    ip_block = destination.get("ipBlock") if isinstance(destination, dict) else None
+    excluded = ip_block.get("except") if isinstance(ip_block, dict) else None
+    return isinstance(excluded, list) and set(excluded) >= REQUIRED_PUBLIC_EGRESS_EXCEPT
+
+
 def _broad_egress_network_policy_violations(policies: list[tuple[dict[str, object], str]], rel: str) -> list[Violation]:
     """Flag egress rules that allow an unrestricted IPv4/IPv6 CIDR (ADR-006-R3)."""
     violations: list[Violation] = []
@@ -149,6 +206,8 @@ def _broad_egress_network_policy_violations(policies: list[tuple[dict[str, objec
         for rule_index, destination in _iter_egress_destinations(doc):
             cidr = _destination_ip_block_cidr(destination)
             if cidr not in broad_cidrs:
+                continue
+            if cidr == "0.0.0.0/0" and _is_designated_public_rule(doc, rule_index, destination):
                 continue
             violations.append(
                 _network_policy_violation(

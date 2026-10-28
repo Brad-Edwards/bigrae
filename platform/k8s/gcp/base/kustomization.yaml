@@ -27,3 +27,4 @@ resources:
   - ctf-communication-worker-deployment.yaml
   - guacamole-bootstrap-prune-deployment.yaml
   - raes-operation-record-prune-deployment.yaml
+  - content-egress.yaml

@@ -210,3 +210,17 @@ def test_render_rejects_invalid_range_network_cidr():
 
     with pytest.raises(ValueError):
         module.render_netpol(_outputs(range_network_cidr="not-a-cidr"))
+
+
+def test_platform_private_service_egress_excludes_the_content_egress_proxy():
+    """The credential-less content egress proxy never reaches private services (#2090)."""
+    module = _load_module("render_private_service_netpol.py", "render_private_service_netpol")
+    rendered = module.render_netpol(_outputs())
+    policy = next(
+        doc
+        for doc in yaml.safe_load_all(rendered)
+        if doc["metadata"]["name"] == "allow-platform-private-service-egress-generated"
+    )
+    assert policy["spec"]["podSelector"] == {
+        "matchExpressions": [{"key": "app.kubernetes.io/component", "operator": "NotIn", "values": ["content-egress"]}]
+    }

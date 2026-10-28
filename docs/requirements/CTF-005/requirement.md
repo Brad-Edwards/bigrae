@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:21.045742Z
-updated_at: 2026-03-26T06:35:58.597540Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-005: Team Management
@@ -21,9 +21,8 @@ Many CTF events are team-based, where collaboration is part of the learning exer
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFTeam model with name, captain, event FK, and unique constraint)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py` (Team scoreboard with get_team_scoreboard() aggregation)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_models.py` (TestCTFTeamModel - team creation, unique name constraint tests)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/conftest.py` (CTFTeam fixtures (ctf_team, ctf_event_team) for team tests)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_events.py` (Team mode event form validation tests)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFTeam model with name, captain, event FK, and unique constraint)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Team scoreboard with get_team_scoreboard() aggregation)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (TestCTFTeamModel - team creation, unique name constraint tests)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/conftest.py` (CTFTeam fixtures (ctf_team, ctf_event_team) for team tests)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (participant_team and team_join views for team membership UI)

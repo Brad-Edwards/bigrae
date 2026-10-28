@@ -3,7 +3,7 @@
 // console UI end to end through normal session/CSRF and DRF services; the staff
 // actor's administrable organization is established by the seed_e2e command.
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/csp";
 
 import { ACTORS } from "../support/actors";
 

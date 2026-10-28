@@ -100,6 +100,11 @@ locals {
     migrator             = "roles/storage.objectViewer"
   }
 
+  # CTF organizer image copies (#2090, ADR-036): the CTF scheduler copies external
+  # images into this prefix of the assets bucket and removes stale copies. The
+  # portal already holds object admin on the bucket for reads and removals.
+  ctf_content_image_object_prefix = "projects/_/buckets/${var.assets_bucket_name}/objects/ctf-content-images/"
+
   node_roles = toset([
     "roles/artifactregistry.reader",
     "roles/logging.logWriter",
@@ -321,6 +326,18 @@ resource "google_storage_bucket_iam_member" "feature_artifact_delivery" {
     title       = "feature-artifact-delivery-prefix"
     description = "Only objects under the content-addressed feature-artifact delivery prefix."
     expression  = "resource.name.startsWith(\"${local.feature_artifact_object_prefix}\")"
+  }
+}
+
+resource "google_storage_bucket_iam_member" "ctf_content_image_copies" {
+  bucket = var.assets_bucket_name
+  role   = "roles/storage.objectUser"
+  member = "serviceAccount:${google_service_account.workload["ctf-scheduler"].email}"
+
+  condition {
+    title       = "ctf-content-image-prefix"
+    description = "Only CTF organizer image copies."
+    expression  = "resource.name.startsWith(\"${local.ctf_content_image_object_prefix}\")"
   }
 }
 

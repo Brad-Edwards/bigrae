@@ -6,7 +6,7 @@ type: CONSTRAINT
 priority: SHOULD
 wave: 2
 created_at: 2026-06-23T00:41:58.002548Z
-updated_at: 2026-06-25T02:41:49.102085Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-106: Unified DRF API Surface
@@ -86,10 +86,8 @@ PLAT-102 establishes the token + scope authentication foundation, but the platfo
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/api/serializers.py` (CMS DRF request serializers for YAML and script upload API bodies)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/api/urls.py` (Canonical CMS DRF API route surface with experiment feature-flag gating)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/api/views.py` (CMS DRF views delegating scenario-editor and experiment API behavior to CMS services)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/scenario_editor/_validation.py` (Scenario-editor YAML validation with safe API-facing parse error text)
 - DOCUMENTS → DOCUMENTATION `docs/architecture/cms-drf-api-preflight-1122.md` (CMS DRF API migration preflight and binding architecture guidance)
 - DOCUMENTS → DOCUMENTATION `docs/technical/dev/api.md` (Developer guide for platform and CMS DRF API conventions)
-- TESTS → TEST `shifter/shifter_platform/tests/cms/test_drf_api_token_access.py` (CMS scoped API-token, session, feature-flag, YAML, and script upload DRF tests)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#1124` (PLAT-106: Retire deprecated risk_register APIKey in favor of platform ApiToken)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#1244` (PLAT-106: drop dead risk_register APIKey reference from access.py (follow-up to #1124))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/mission_control/api/_vpn.py` (Scoped Mission Control OpenVPN profile DRF endpoint)

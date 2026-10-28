@@ -54,11 +54,12 @@ Run tests for the packages you change, for example:
 ```shell
 make test-platform
 make test-provisioner
-python3 scripts/adr_guard/adr_guard.py --all --level ci
+make policy
 uv run --with-requirements docs/requirements.txt mkdocs build --strict
 ```
 
-See [testing](docs/dev/testing.md) and [ADR enforcement](docs/technical/dev/adr-enforcement.md).
+The [command matrix](docs/dev/testing.md#command-matrix) lists every lane and
+its CI job. See also [ADR enforcement](docs/technical/dev/adr-enforcement.md).
 CI owns the full quality matrix; local hooks also enforce architecture and
 secret hygiene. Architecture-boundary changes include handbook review.
 

@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 1
 created_at: 2026-03-19T02:57:48.822709Z
-updated_at: 2026-05-09T05:11:30.392223Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-002: GCP Platform Deployment
@@ -23,7 +23,7 @@ Supporting GCP as a first-class deployment target enables Shifter to run in orga
 
 - IMPLEMENTS → CONFIG `shifter/shifter_platform/config/settings.py` (Django settings - hardcoded AWS service dependencies (SES us-east-2, SQS queues, ECS clusters))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/management/commands/run_worker.py` (SQS worker - polls AWS SQS directly via boto3, no message queue abstraction)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/ecs.py` (ECS task launcher - uses AWS ECS Fargate for provisioner execution)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/ecs/__init__.py` (ECS task launcher - uses AWS ECS Fargate for provisioner execution)
 - IMPLEMENTS → CONFIG `platform/terraform/` (Terraform modules - 100% AWS provider (ECS, RDS, Cognito, SES, SNS, SQS, S3), no GCP modules)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#671` (PLAT-002: GCP Platform Deployment)
 - DOCUMENTS → ADR `ADR-007` (GCP control-plane deployments are Helm-packaged and bootstrap-managed)
@@ -31,10 +31,10 @@ Supporting GCP as a first-class deployment target enables Shifter to run in orga
 - DOCUMENTS → POLICY `docs/adr/index.yaml` (ADR registry - GCP Helm cutover and secure bootstrap decisions)
 - DOCUMENTS → DOCUMENTATION `platform/terraform/gcp/README.md` (GCP Terraform README - control-plane scope and hardened posture)
 - DOCUMENTS → DOCUMENTATION `platform/k8s/gcp/README.md` (GKE deployment assets README - Helm-based GCP rollout contract)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/platform_infrastructure/gcp-infrastructure.md` (GCP infrastructure technical architecture)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/dev/ci-cd.md` (Developer CI/CD docs - authoritative GCP bootstrap path)
+- DOCUMENTS → DOCUMENTATION `docs/technical/platform_infrastructure/gcp-infrastructure.md` (GCP infrastructure technical architecture)
+- DOCUMENTS → DOCUMENTATION `docs/technical/dev/ci-cd.md` (Developer CI/CD docs - authoritative GCP bootstrap path)
 - DOCUMENTS → ADR `ADR-009` (AWS and GCP keep provider-specific identity stacks behind a shared auth seam)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/architecture.md` (Shifter Architecture)
+- DOCUMENTS → DOCUMENTATION `docs/technical/architecture.md` (Shifter Architecture)
 - IMPLEMENTS → CONFIG `platform/charts/shifter/Chart.yaml` (GCP Shifter Helm chart)
 - IMPLEMENTS → CONFIG `platform/charts/shifter/values-gcp-dev.yaml` (GCP dev Helm values)
 - IMPLEMENTS → CONFIG `platform/terraform/gcp/modules/platform-core/main.tf` (GCP platform core Terraform module)

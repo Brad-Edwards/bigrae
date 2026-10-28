@@ -192,7 +192,13 @@ metadata:
     app.kubernetes.io/name: shifter
     app.kubernetes.io/part-of: shifter
 spec:
-  podSelector: {{}}
+  # The credential-less content egress proxy never reaches private services (#2090).
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values:
+          - content-egress
   policyTypes:
     - Egress
   egress:

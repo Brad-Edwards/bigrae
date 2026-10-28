@@ -1,12 +1,12 @@
 ---
 id: CTF-1104
 title: "CTFd Format Compatibility"
-status: DRAFT
+status: ACTIVE
 type: INTERFACE
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:24.069942Z
-updated_at: 2026-03-19T03:06:33.613384Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1104: CTFd Format Compatibility
@@ -21,8 +21,8 @@ CTFd is the de facto standard CTF platform. Many publicly available challenge pa
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (Challenge service - would need CTFd import/export functions)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFChallenge model - would need file references field for CTFd compat)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (CTF URL config - would need import/export URL routes)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/transfer.py` (Native and CTFd-format challenge import and export)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/taxonomy.py` (CTFChallengeFile challenge file references)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/organizer/transfer.py` (Organizer import and export API views)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#632` (CTF-1104: CTFd Format Compatibility)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_people.py` (CTF views - would need import/export endpoints)

@@ -52,9 +52,10 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
 # Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
+# Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "7c852a1d9a813fe4edce0f70e34bb46171136ad55836f9aaffe10dbed0427ed9",
-    "gcp-prod": "0b02cbfbac9e99953bf8af620a7ef805707028b534b96e2aadfb541c047c8c1b",
+    "gcp-dev": "0941d8714c87f25947c6bc9076bc857eb00cca5e344e66099a68282df22ad4da",
+    "gcp-prod": "1ce8e87ba99c0562a9df6ad6c842271be5954704d2fa91601ba1c9d8249edb25",
 }
 
 

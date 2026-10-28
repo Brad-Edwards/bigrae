@@ -5,6 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="same-origin" />
+    <meta property="csp-nonce" nonce="{{ csp_nonce }}" />
     <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}" />
     <title>{% trans "BigRAE" %}</title>
     {% for href in spa_css %}

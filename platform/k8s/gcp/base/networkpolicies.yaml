@@ -69,7 +69,12 @@ metadata:
     app.kubernetes.io/name: shifter
     app.kubernetes.io/part-of: shifter
 spec:
-  podSelector: {}
+  # The credential-less content egress proxy has no workload identity (#2090).
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values: [content-egress]
   policyTypes:
     - Egress
   egress:
@@ -263,7 +268,12 @@ metadata:
     app.kubernetes.io/name: shifter
     app.kubernetes.io/part-of: shifter
 spec:
-  podSelector: {}
+  # The credential-less content egress proxy needs no Google API access (#2090).
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values: [content-egress]
   policyTypes:
     - Egress
   egress:

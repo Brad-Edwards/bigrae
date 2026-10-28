@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T07:23:07.670977Z
-updated_at: 2026-03-26T06:36:41.569246Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-116: Flag Format Specification
@@ -21,11 +21,10 @@ Flag format prefixes help participants distinguish flags from other strings they
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFChallenge.flag_format field definition)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms.py` (Challenge form includes flag_format for organizer configuration)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge.flag_format field definition)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms/` (Challenge form includes flag_format for organizer configuration)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (Displays flag_format to participants on challenge page)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (verify_flag does not enforce flag_format prefix)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (verify_flag does not enforce flag_format prefix)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_form.html` (Admin challenge form with Flag Format Hint input)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_detail.html` (Admin challenge detail shows flag_format value)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_challenges.py` (Tests covering flag_format in challenge creation/retrieval)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/challenges.py` (API returns flag_format in challenge data for participant display)

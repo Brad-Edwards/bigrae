@@ -17,6 +17,7 @@ _RUNTIME_PREFIXES = ("containerd://", "docker-pullable://", "docker://")
 # of the three continuously running release images. Provisioner is deliberately
 # absent: it is an ephemeral task image verified by admission policy instead.
 _RELEASE_CONTAINERS: dict[str, dict[str, str]] = {
+    "content-egress": {"content-egress": "portal"},
     "ctf-communication-worker": {"ctf-communication-worker": "portal"},
     "ctf-scheduler": {"ctf-scheduler": "portal"},
     "guacamole-bootstrap-prune": {"guacamole-bootstrap-prune": "portal"},
@@ -40,6 +41,7 @@ _RELEASE_CONTAINERS: dict[str, dict[str, str]] = {
 # a new continuously running component cannot be added to verification without
 # also joining the rollout-convergence gate.
 _RELEASE_DEPLOYMENTS: dict[str, str] = {
+    "content-egress": "content-egress",
     "ctf-communication-worker": "ctf-communication-worker",
     "ctf-scheduler": "ctf-scheduler",
     "guacamole-bootstrap-prune": "guacamole-bootstrap-prune",

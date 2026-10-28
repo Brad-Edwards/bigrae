@@ -67,6 +67,7 @@ silently weakening containment, retention, admission, or cleanup checks.
 | Stuck, cancelled, or expired range | [RB001](rb001-range-provisioning-failed.md), [RB002](rb002-range-teardown-stuck.md), [RB017](rb017-stale-range-cleanup.md) |
 | Residual inventory | [RB003](rb003-orphaned-range-resources.md) |
 | Capacity or cost limit | [RB011](rb011-storage-quota-exceeded.md), [RB018](rb018-container-registry-cleanup.md), [RB019](rb019-check-system-health.md) |
+| Browser feature blocked by CSP | [RB023](rb023-browser-csp-violation.md) |
 | Escalation ownership | [Shared operating contract](#shared-operating-contract) and the Escalate condition in each runbook |
 
 ## Catalog
@@ -95,6 +96,7 @@ silently weakening containment, retention, admission, or cleanup checks.
 | [RB020](rb020-provisioner-timeout.md) | Provisioner timeout |
 | [RB021](rb021-high-database-connections.md) | High database connections |
 | [RB022](rb022-firehose-delivery-lag.md) | AWS Firehose delivery lag |
+| [RB023](rb023-browser-csp-violation.md) | Browser feature blocked by Content Security Policy |
 
 Detailed current-state ownership is in the [architecture
 handbook](../technical/architecture.md). Existing provider procedures under

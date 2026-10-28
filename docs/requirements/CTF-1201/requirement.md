@@ -1,12 +1,12 @@
 ---
 id: CTF-1201
 title: "REST API"
-status: DRAFT
+status: ACTIVE
 type: INTERFACE
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:24.103929Z
-updated_at: 2026-03-26T06:34:41.334709Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1201: REST API

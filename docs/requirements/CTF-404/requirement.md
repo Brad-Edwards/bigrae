@@ -1,12 +1,12 @@
 ---
 id: CTF-404
 title: "Scoreboard Visibility Controls"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:22.393914Z
-updated_at: 2026-03-26T06:37:47.063667Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-404: Scoreboard Visibility Controls
@@ -21,6 +21,6 @@ Not all CTF events should have public scoreboards, internal training events may 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF Models - CTFEvent lacks scoreboard_visibility field)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent.scoreboard_visibility)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#643` (CTF-404: Scoreboard Visibility Controls)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF Views - scoreboard view has no visibility access control)

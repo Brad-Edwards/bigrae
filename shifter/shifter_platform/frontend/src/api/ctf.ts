@@ -10,6 +10,7 @@ import { apiDownload, apiFetch } from "./client";
 import { ApiError } from "./errors";
 import type {
   CtfAnnouncementListResponse,
+  CtfContentImages,
   CtfChallengeDetail,
   CtfChallengeListItem,
   CtfCurrentEvent,
@@ -33,6 +34,9 @@ const BASE = "/ctf";
 /** Query-key segment for the organizer challenge lists (shared by the read key and its invalidations). */
 const ADMIN_CHALLENGES_KEY = "admin-challenges";
 
+/** Background image copies finish within a scheduler cycle or two (#2090). */
+export const CONTENT_IMAGE_POLL_MS = 30_000;
+
 export const ctfKeys = {
   all: ["ctf"] as const,
   currentEvent: () => ["ctf", "current-event"] as const,
@@ -42,6 +46,8 @@ export const ctfKeys = {
   profile: () => ["ctf", "profile"] as const,
   announcements: () => ["ctf", "announcements"] as const,
   pages: () => ["ctf", "pages"] as const,
+  contentImages: () => ["ctf", "content-images"] as const,
+  eventContentImages: (eventId: string) => ["ctf", "event-content-images", eventId] as const,
   briefing: () => ["ctf", "briefing"] as const,
   eventPages: (eventId: string) => ["ctf", "event-pages", eventId] as const,
   analytics: (eventId: string) => ["ctf", "analytics", eventId] as const,
@@ -166,6 +172,8 @@ function invalidatePlay(queryClient: ReturnType<typeof useQueryClient>, challeng
   queryClient.invalidateQueries({ queryKey: ctfKeys.challenges() });
   queryClient.invalidateQueries({ queryKey: ctfKeys.currentEvent() });
   queryClient.invalidateQueries({ queryKey: ctfKeys.submissions() });
+  // A solve or unlock can make more content, and its images, readable (#2090).
+  queryClient.invalidateQueries({ queryKey: ctfKeys.contentImages() });
 }
 
 export function useSubmitFlag(challengeId: string) {
@@ -269,6 +277,20 @@ export function useCtfAnnouncements() {
   return useQuery({
     queryKey: ctfKeys.announcements(),
     queryFn: ({ signal }) => apiFetch<CtfAnnouncementListResponse>(`${BASE}/me/announcements/`, { signal }),
+  });
+}
+
+/** Poll interval while visible image copies are still pending; no polling otherwise. */
+export function contentImagesRefetchInterval(data: CtfContentImages | undefined): number | false {
+  return data?.pending ? CONTENT_IMAGE_POLL_MS : false;
+}
+
+/** Ready first-party copies of external images in content the participant can read (#2090). */
+export function useCtfContentImages() {
+  return useQuery({
+    queryKey: ctfKeys.contentImages(),
+    queryFn: ({ signal }) => apiFetch<CtfContentImages>(`${BASE}/me/content-images/`, { signal }),
+    refetchInterval: (query) => contentImagesRefetchInterval(query.state.data),
   });
 }
 

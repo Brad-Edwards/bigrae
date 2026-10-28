@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T20:38:43.027671Z
-updated_at: 2026-03-28T21:20:43.365661Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-117: Challenge Solutions
@@ -21,8 +21,7 @@ Solutions serve as training material after events, participants learn how challe
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFChallenge.solution TextField)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (solution in _CHALLENGE_MUTABLE_FIELDS for create/update)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge.solution TextField)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (solution in _CHALLENGE_MUTABLE_FIELDS for create/update)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (Conditional solution display (visible after event ends/archived))
-- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_challenges.py` (TestChallengeSolutions: create, default, mutable fields, update tests)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#551` (CTF-117: Challenge Solutions)

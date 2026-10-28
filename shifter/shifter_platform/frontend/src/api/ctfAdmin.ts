@@ -11,7 +11,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "./client";
-import { ctfKeys } from "./ctf";
+import { CONTENT_IMAGE_POLL_MS, ctfKeys } from "./ctf";
 import type {
   CtfAssignBracketResult,
   CtfAward,
@@ -32,6 +32,7 @@ import type {
   CtfHintListResponse,
   CtfHintWrite,
   CtfOrganizerChallengeDetail,
+  CtfOrganizerContentImages,
   CtfOrganizerParticipantDetail,
   CtfParticipantImportResult,
   CtfParticipantAdd,
@@ -147,6 +148,21 @@ export function useCtfEventChallenges(eventId: string, enabled = true) {
     enabled: enabled && Boolean(eventId),
     queryFn: ({ signal }) =>
       apiFetch<CtfChallengeListResponse>(`${BASE}/events/${eventId}/challenges/`, { signal }),
+  });
+}
+
+/** Poll interval while any image copy of the event is pending; no polling otherwise. */
+export function eventContentImagesRefetchInterval(data: CtfOrganizerContentImages | undefined): number | false {
+  return data?.images.some((image) => image.status === "pending") ? CONTENT_IMAGE_POLL_MS : false;
+}
+
+/** Every external image of an event with its copy state (#2090). */
+export function useCtfEventContentImages(eventId: string | undefined) {
+  return useQuery({
+    queryKey: ctfKeys.eventContentImages(eventId ?? ""),
+    enabled: Boolean(eventId),
+    queryFn: ({ signal }) => apiFetch<CtfOrganizerContentImages>(`${BASE}/events/${eventId}/content-images/`, { signal }),
+    refetchInterval: (query) => eventContentImagesRefetchInterval(query.state.data),
   });
 }
 

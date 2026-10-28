@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:21.194389Z
-updated_at: 2026-03-19T03:55:47.759542Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-009: Range Integration
@@ -22,13 +22,12 @@ Range integration is what differentiates Shifter CTF from standalone CTFd. CTFd 
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/bridges.py` (Guacamole bridge providing browser-accessible RDP/SSH access to participant ranges)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFEvent and CTFParticipant models with range_status, lifecycle status, and event-bound range fields)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event.py` (Event lifecycle management: scheduling, task creation, teardown tied to event lifecycle)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFEvent and CTFParticipant models with range_status, lifecycle status, and event-bound range fields)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (Event lifecycle management: scheduling, task creation, teardown tied to event lifecycle)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (Scheduled task executor that polls and dispatches deploy/teardown tasks tying range lifecycle to events)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/signals.py` (Signal handler syncing CMS RangeInstance status changes to CTFParticipant.range_status)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_services/test_range.py` (Unit tests for range provisioning service)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_events.py` (Tests for event lifecycle management including scheduling and teardown)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_models.py` (Tests for CTF models including range status and lifecycle fields)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (Unit tests for range provisioning service)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (Tests for CTF models including range status and lifecycle fields)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/provision.py` (Per-participant range provisioning (provision_participant_range + retry))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/batch.py` (Event-level throttled range provisioning (provision_event_ranges_throttled))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/ranges.py` (Range access views and API endpoint (api_range_access) providing participants browser-based range URLs)

@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 1
 created_at: 2026-03-19T02:57:49.001248Z
-updated_at: 2026-05-09T05:11:30.464493Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-005: Per-Deployment Configuration
@@ -26,10 +26,10 @@ Externalized, per-deployment configuration is what makes the same application co
 - DOCUMENTS → ADR `ADR-007` (GCP control-plane deployments are Helm-packaged and bootstrap-managed)
 - DOCUMENTS → ADR `ADR-008` (GCP bootstrap fails closed and uses private operator access)
 - DOCUMENTS → POLICY `docs/adr/index.yaml` (ADR registry - GCP Helm cutover and secure bootstrap decisions)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/platform_infrastructure/manual-deployment.md` (Manual deployment runbook - secure GCP bootstrap prerequisites)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/dev/setup.md` (Developer setup - secure GCP bootstrap path)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/dev/secrets.md` (Secrets documentation - secure GCP portal/OIDC prerequisites)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/dev/terraform.md` (Terraform patterns - GCP secure tfvars and Helm deployment model)
+- DOCUMENTS → DOCUMENTATION `docs/technical/platform_infrastructure/manual-deployment.md` (Manual deployment runbook - secure GCP bootstrap prerequisites)
+- DOCUMENTS → DOCUMENTATION `docs/technical/dev/setup.md` (Developer setup - secure GCP bootstrap path)
+- DOCUMENTS → DOCUMENTATION `docs/technical/dev/secrets.md` (Secrets documentation - secure GCP portal/OIDC prerequisites)
+- DOCUMENTS → DOCUMENTATION `docs/technical/dev/terraform.md` (Terraform patterns - GCP secure tfvars and Helm deployment model)
 - DOCUMENTS → ADR `ADR-009` (AWS and GCP keep provider-specific identity stacks behind a shared auth seam)
 - IMPLEMENTS → CONFIG `platform/charts/shifter/templates/configmap-runtime.yaml` (Runtime configuration ConfigMap template)
 - IMPLEMENTS → CODE_FILE `scripts/gcp/render_runtime_env.py` (Generated runtime configuration renderer)

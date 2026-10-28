@@ -94,7 +94,12 @@ metadata:
   labels:
     {{- include "shifter.partOfLabels" . | nindent 4 }}
 spec:
-  podSelector: {}
+  # The credential-less content egress proxy has no workload identity (#2090).
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values: [content-egress]
   policyTypes:
     - Egress
   egress:
@@ -217,7 +222,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: NotIn
-        values: [model-broker, model-provider-egress]
+        values: [model-broker, model-provider-egress, content-egress]
   policyTypes:
     - Egress
   egress:
@@ -363,7 +368,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: NotIn
-        values: [model-broker, model-provider-egress]
+        values: [model-broker, model-provider-egress, content-egress]
   policyTypes:
     - Egress
   egress:

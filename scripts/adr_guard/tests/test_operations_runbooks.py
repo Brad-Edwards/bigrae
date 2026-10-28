@@ -40,7 +40,7 @@ class OperationsRunbookContractTests(unittest.TestCase):
         )
 
     def test_catalog_has_all_stable_ids_once(self) -> None:
-        expected = [f"{number:03d}" for number in range(1, 23)]
+        expected = [f"{number:03d}" for number in range(1, 24)]
         actual = [RUNBOOK_RE.fullmatch(path.name)["number"] for path in self.runbooks]
         self.assertEqual(expected, actual)
 

@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:21.341312Z
-updated_at: 2026-03-26T06:34:21.005018Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-013: Administration
@@ -21,14 +21,14 @@ Organizers need operational visibility into running events, who is stuck, which 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py::admin_dashboard` (Admin dashboard view - organizer overview with event stats)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py::admin_analytics` (Admin analytics view - per-event and per-challenge statistics)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py::admin_event_detail` (Event detail view - real-time stats, status controls, management links)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py::admin_scoreboard` (Admin scoreboard view - live rankings with participant/team scores)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py::admin_range_list` (Admin range list view - range provisioning status per participant)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py::get_event_statistics` (Event statistics service - participant count, submissions, points)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py::get_challenge_statistics` (Challenge statistics service - solve count, solve rate, first blood)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event.py::get_event_stats` (Event stats service - participants, challenges, submissions, points)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Admin dashboard view - organizer overview with event stats)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Admin analytics view - per-event and per-challenge statistics)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Event detail view - real-time stats, status controls, management links)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Admin scoreboard view - live rankings with participant/team scores)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Admin range list view - range provisioning status per participant)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Event statistics service - participant count, submissions, points)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Challenge statistics service - solve count, solve rate, first blood)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (Event stats service - participants, challenges, submissions, points)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/dashboard.html` (Admin dashboard template - stats cards and recent events table)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/analytics.html` (Analytics template - event stats and per-challenge breakdown table)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/event_detail.html` (Event detail template - stats sidebar, status actions, management links)
