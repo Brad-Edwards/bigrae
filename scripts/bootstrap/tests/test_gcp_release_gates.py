@@ -238,9 +238,11 @@ class TestReleaseScan:
         assert argv[argv.index("--severity") + 1] == "HIGH,CRITICAL"
         assert argv[argv.index("--exit-code") + 1] == "1"
         assert "--ignore-unfixed" in argv
-        assert argv[argv.index("--db-repository") + 1].startswith("mirror.gcr.io/")
-        assert argv[argv.index("--java-db-repository") + 1].startswith("mirror.gcr.io/")
-        assert not any("ghcr.io" in part or "github" in part for part in argv)
+        assert argv[argv.index("--db-repository") + 1] == "mirror.gcr.io/aquasec/trivy-db"
+        assert argv[argv.index("--java-db-repository") + 1] == "mirror.gcr.io/aquasec/trivy-java-db"
+        registry_hosts = {part.split("/", 1)[0] for part in argv}
+        assert "ghcr.io" not in registry_hosts
+        assert not any("github" in part for part in argv)
 
     def _runner(self, failing: set[str]) -> FakeRunner:
         def trivy(argv, env, stdin):
