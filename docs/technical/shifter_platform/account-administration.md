@@ -61,7 +61,9 @@ DRF/browser commands replace direct lifecycle, invitation and quota writes.
 S8 installs the policy-aware site and the retained registrations.
 
 The prepared OpenAPI artifact is derived from the same DRF serializers as the
-prepared routes. Regenerate it and its client with:
+prepared routes. Method docstrings appear in this artifact. After changing them,
+regenerate both this artifact and the ordinary API contract. Generate the
+prepared artifact and its client with:
 
 ```bash
 cd shifter/shifter_platform

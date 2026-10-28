@@ -166,7 +166,7 @@
         "/api/v1/account-workspaces/{workspace_uuid}/invitations/{invitation_uuid}/resend/": {
             "post": {
                 "operationId": "api_v1_workspace_invitations_resend",
-                "description": "Preserve the published resend operation identity.",
+                "description": "Resend the exact invitation through the current native authority boundary.",
                 "parameters": [
                     {
                         "in": "path",
@@ -235,7 +235,7 @@
         "/api/v1/account-workspaces/{workspace_uuid}/invitations/{invitation_uuid}/revoke/": {
             "post": {
                 "operationId": "api_v1_workspace_invitations_revoke",
-                "description": "Preserve the published revoke operation identity.",
+                "description": "Revoke the exact invitation through the current native authority boundary.",
                 "parameters": [
                     {
                         "in": "path",
@@ -490,7 +490,7 @@
         "/api/v1/accounts/": {
             "get": {
                 "operationId": "prepared_accounts_list",
-                "description": "List authorized accounts or create one under installation authority.",
+                "description": "Page accounts visible to the current native administration credential.",
                 "parameters": [
                     {
                         "in": "query",
@@ -567,7 +567,7 @@
             },
             "post": {
                 "operationId": "accounts_create",
-                "description": "List authorized accounts or create one under installation authority.",
+                "description": "Create or resume an account declaration under installation authority.",
                 "tags": [
                     "accounts"
                 ],
@@ -646,7 +646,7 @@
         "/api/v1/accounts/{account_uuid}/": {
             "get": {
                 "operationId": "accounts_retrieve",
-                "description": "Read/update the canonical account name without altering account identity.",
+                "description": "Read the exact account after its current policy decision.",
                 "parameters": [
                     {
                         "in": "path",
@@ -784,7 +784,7 @@
         "/api/v1/accounts/{account_uuid}/memberships/": {
             "get": {
                 "operationId": "accounts_memberships_retrieve",
-                "description": "Record an explicit principal membership after exact account authority.",
+                "description": "Page explicit principal memberships after current account authority.",
                 "parameters": [
                     {
                         "in": "path",
@@ -861,7 +861,7 @@
             },
             "post": {
                 "operationId": "accounts_memberships_create",
-                "description": "Record an explicit principal membership after exact account authority.",
+                "description": "Add one explicit principal membership through the owning native service.",
                 "parameters": [
                     {
                         "in": "path",
@@ -934,7 +934,7 @@
         "/api/v1/accounts/{account_uuid}/memberships/{principal_uuid}/": {
             "delete": {
                 "operationId": "accounts_memberships_destroy",
-                "description": "Remove one explicit account membership fact.",
+                "description": "Remove the exact principal membership under current account authority.",
                 "parameters": [
                     {
                         "in": "path",
@@ -996,7 +996,7 @@
         "/api/v1/accounts/{account_uuid}/organizations/": {
             "get": {
                 "operationId": "prepared_organizations_list",
-                "description": "Create a real organization under an authorized business account.",
+                "description": "Page organizations under the authorized account.",
                 "parameters": [
                     {
                         "in": "path",
@@ -1073,7 +1073,7 @@
             },
             "post": {
                 "operationId": "accounts_organizations_create",
-                "description": "Create a real organization under an authorized business account.",
+                "description": "Create or resume one organization under the admitted business account.",
                 "parameters": [
                     {
                         "in": "path",
@@ -1318,7 +1318,7 @@
         "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/workspaces/": {
             "get": {
                 "operationId": "prepared_workspaces_list",
-                "description": "Create a workspace only beneath its authorized account and organization.",
+                "description": "Page authorized workspaces with validated search and archive filters.",
                 "parameters": [
                     {
                         "in": "path",
@@ -1421,7 +1421,7 @@
             },
             "post": {
                 "operationId": "accounts_organizations_workspaces_create",
-                "description": "Create a workspace only beneath its authorized account and organization.",
+                "description": "Create or resume a workspace beneath its exact account and organization.",
                 "parameters": [
                     {
                         "in": "path",
@@ -1520,7 +1520,7 @@
         "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/workspaces/{workspace_uuid}/": {
             "get": {
                 "operationId": "accounts_organizations_workspaces_retrieve",
-                "description": "Read an exact workspace beneath its persisted organization and account.",
+                "description": "Read the exact workspace beneath the selected account and organization.",
                 "parameters": [
                     {
                         "in": "path",
@@ -3353,7 +3353,7 @@
         "/api/v1/accounts/current/": {
             "get": {
                 "operationId": "accounts_current_retrieve",
-                "description": "Resolve an individual's own account with no subdivision selector.",
+                "description": "Resolve the admitted human principal's individual account.",
                 "tags": [
                     "accounts"
                 ],
@@ -4464,7 +4464,7 @@
         "/api/v1/administer/organizations/": {
             "get": {
                 "operationId": "prepared_integration_organizations_list",
-                "description": "Discover organizations authorized for one integration administration action.",
+                "description": "Page organizations admitted for the requested integration action.",
                 "parameters": [
                     {
                         "in": "query",
@@ -4548,7 +4548,7 @@
         "/api/v1/administer/principals/{principal_uuid}/event-creation-grants/": {
             "post": {
                 "operationId": "api_v1_administer_principals_event_creation_grants",
-                "description": "Replace global role writes with the existing bounded delegation journal.",
+                "description": "Record the scoped organizer grant through the current administrator credential.",
                 "parameters": [
                     {
                         "in": "path",
@@ -4708,7 +4708,7 @@
         "/api/v1/administer/scopes/": {
             "get": {
                 "operationId": "administer_scopes_retrieve",
-                "description": "Discover descendant administration without a parent account selector.",
+                "description": "Page authorized descendant scopes without inferring a parent account.",
                 "parameters": [
                     {
                         "in": "query",
@@ -7579,7 +7579,7 @@
         "/api/v1/workspaces/{workspace_uuid}/archive/": {
             "post": {
                 "operationId": "api_v1_workspace_archive",
-                "description": "Archive one non-default workspace after exact policy checks.",
+                "description": "Archive the exact workspace while retaining the owning lifecycle safeguards.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7639,7 +7639,7 @@
         "/api/v1/workspaces/{workspace_uuid}/egress-policy/": {
             "put": {
                 "operationId": "api_v1_workspace_set_egress_policy",
-                "description": "Policy-authorized egress authoring for human and service administrators.",
+                "description": "Apply the validated egress policy through the owning workspace service.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7914,7 +7914,7 @@
         "/api/v1/workspaces/{workspace_uuid}/quota-policy/": {
             "put": {
                 "operationId": "workspaces_quota_policy_update",
-                "description": "Policy-authorized quota authoring for human and service administrators.",
+                "description": "Apply a validated quota policy under current workspace administration authority.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7994,7 +7994,7 @@
         "/api/v1/workspaces/{workspace_uuid}/rename/": {
             "post": {
                 "operationId": "workspaces_rename_create",
-                "description": "Rename one workspace through its policy-authorized locked writer.",
+                "description": "Rename the admitted workspace with the validated declaration and request audit.",
                 "parameters": [
                     {
                         "in": "path",
@@ -8074,7 +8074,7 @@
         "/api/v1/workspaces/{workspace_uuid}/restore/": {
             "post": {
                 "operationId": "api_v1_workspace_restore",
-                "description": "Restore one workspace under its persisted account ancestry.",
+                "description": "Restore the exact workspace under its persisted account ancestry.",
                 "parameters": [
                     {
                         "in": "path",
