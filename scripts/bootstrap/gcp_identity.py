@@ -37,6 +37,11 @@ _IMPERSONATION_KEYS = (
 )
 
 
+# The Google client libraries and Terraform read the quota project from this
+# variable before the ADC file.
+QUOTA_PROJECT_KEY = "GOOGLE_CLOUD_QUOTA_PROJECT"
+
+
 class IdentityError(ValueError):
     """A purpose identity is malformed or cannot be derived."""
 
@@ -70,6 +75,9 @@ class PurposeIdentities:
     deploy: str
     release_scan: str
     destroy: str
+    # The operator's ADC can name a stale quota project. The impersonation call
+    # (iamcredentials) then fails with USER_PROJECT_DENIED (#2596).
+    quota_project: str = ""
 
     @classmethod
     def resolve(
@@ -93,7 +101,7 @@ class PurposeIdentities:
                 if value
                 else derived_service_account(project_id, environment, purpose, name_prefix=name_prefix)
             )
-        return cls(mode=mode, **resolved)
+        return cls(mode=mode, quota_project=project_id, **resolved)
 
     def email(self, purpose: Purpose) -> str:
         """Return the identity email of one purpose."""
@@ -107,5 +115,7 @@ class PurposeIdentities:
         """
         if self.mode == "ambient":
             return dict.fromkeys(_IMPERSONATION_KEYS)
-        email = self.email(purpose)
-        return dict.fromkeys(_IMPERSONATION_KEYS, email)
+        overlay: dict[str, str | None] = dict.fromkeys(_IMPERSONATION_KEYS, self.email(purpose))
+        if self.quota_project:
+            overlay[QUOTA_PROJECT_KEY] = self.quota_project
+        return overlay
