@@ -104,6 +104,8 @@ class TestPurposeIdentities:
         assert identities.deploy == "custom-deploy@acme-shifter.iam.gserviceaccount.com"
         assert identities.release_scan == "shifteracme-scan@acme-shifter.iam.gserviceaccount.com"
         env = identities.env("release_scan")
+        # The deployment project is the quota project of the impersonation call (#2596).
+        assert env.pop("GOOGLE_CLOUD_QUOTA_PROJECT") == "acme-shifter"
         assert set(env.values()) == {identities.release_scan}
         assert set(env) == {
             "CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT",

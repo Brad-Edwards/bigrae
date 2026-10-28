@@ -21,9 +21,7 @@ from gcp_prereqs import (
 )
 from gcp_process import ProcessResult
 from gcp_terraform import (
-    IDENTITY_PLATFORM_CONFIG_ADDRESS,
     TerraformStepError,
-    adopt_identity_platform_config,
     backend_prefix,
     deployment_values,
     drop_unremovable_kms_resources,
@@ -118,26 +116,15 @@ class TestTerraformInputs:
 
 
 class TestTerraformSteps:
-    def test_init_import_apply_and_outputs(self, inputs):
+    def test_init_apply_and_outputs(self, inputs):
         ctx = terraform_context(inputs, inputs.workdir, {})
         runner = FakeRunner().on(["terraform", f"-chdir={ctx.root}", "output"], ProcessResult(0, '{"a": {"value": 1}}'))
         terraform_init(runner, ctx, state_bucket="b", prefix="p")
         assert runner.argvs()[0][-2:] == ["-backend-config=bucket=b", "-backend-config=prefix=p"]
-        adopt_identity_platform_config(runner, ctx, project_id=PROJECT)
-        imported = runner.find("terraform", f"-chdir={ctx.root}", "import")[0].argv
-        assert imported[-2:] == [IDENTITY_PLATFORM_CONFIG_ADDRESS, PROJECT]
-        assert all(f"-var-file={path}" in imported for path in ctx.var_files)
         terraform_apply(runner, ctx)
-        assert terraform_outputs(runner, ctx) == {"a": {"value": 1}}
-
-    def test_import_is_skipped_when_state_has_the_config(self, inputs):
-        ctx = terraform_context(inputs, inputs.workdir, {})
-        runner = FakeRunner().on(
-            ["terraform", f"-chdir={ctx.root}", "state", "list"],
-            ProcessResult(0, IDENTITY_PLATFORM_CONFIG_ADDRESS + "\n"),
-        )
-        adopt_identity_platform_config(runner, ctx, project_id=PROJECT)
+        # The platform root adopts the Identity Platform config with an import block (#2598).
         assert not runner.find("terraform", f"-chdir={ctx.root}", "import")
+        assert terraform_outputs(runner, ctx) == {"a": {"value": 1}}
 
     def test_apply_retries_only_iam_propagation(self, inputs, capsys):
         ctx = terraform_context(inputs, inputs.workdir, {})
