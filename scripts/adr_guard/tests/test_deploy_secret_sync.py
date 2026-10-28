@@ -15,15 +15,15 @@ class DeploySecretConfigTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         self.config = self.root / "bigrae.yaml"
-        self.config.write_text("version: 1\nbackend: gcp\n", encoding="utf-8")
+        self.config.write_text("version: 1\nbackend: aws\n", encoding="utf-8")
         gh = self.root / "gh"
         gh.write_text("#!/bin/sh\necho 'unexpected GitHub command' >&2\nexit 93\n", encoding="utf-8")
         gh.chmod(0o700)
 
-    def run_script(self, *options, repo=("--repo", "example-org/example-repo")):
+    def run_script(self, *options, repo=("--repo", "example-org/example-repo"), env="dev"):
         return subprocess.run(
             [
-                "bash", str(SCRIPT), "--env", "gcp-dev", "--stack", "config",
+                "bash", str(SCRIPT), "--env", env, "--stack", "config",
                 *repo, "--dry-run", *options,
             ],
             cwd=REPO_ROOT,
@@ -39,7 +39,7 @@ class DeploySecretConfigTests(unittest.TestCase):
             with self.subTest(option=option):
                 result = self.run_script(option, str(self.config))
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("would set SHIFTER_CONFIG_GCP_DEV", result.stdout)
+                self.assertIn("would set SHIFTER_CONFIG_DEV_RANGE", result.stdout)
                 self.assertNotIn("version: 1", result.stdout + result.stderr)
 
     def test_missing_target_repository_stops(self):
@@ -60,7 +60,14 @@ class DeploySecretConfigTests(unittest.TestCase):
     def test_equal_aliases_are_one_config(self):
         result = self.run_script("--bigrae-config", str(self.config), "--shifter-config", str(self.config))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count("would set SHIFTER_CONFIG_GCP_DEV"), 1)
+        self.assertEqual(result.stdout.count("would set SHIFTER_CONFIG_DEV_RANGE"), 1)
+
+    def test_gcp_environments_publish_to_the_config_bucket_instead(self):
+        """#2571: GCP inputs live in the deployment config bucket, not in GitHub secrets."""
+        result = self.run_script("--bigrae-config", str(self.config), env="gcp-dev")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("gcp-config publish", result.stderr)
+        self.assertNotIn("would set", result.stdout)
 
     def test_canonical_option_requires_a_value(self):
         result = self.run_script("--bigrae-config")

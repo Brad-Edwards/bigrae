@@ -57,7 +57,7 @@ shifter/
 │   │   ├── global/             # Cross-environment resources (IAM, OIDC, runners)
 │   │   └── gcp/               # GCP Terraform (modules/, environments/)
 │   ├── charts/shifter/        # Helm chart for the GCP control plane
-│   └── k8s/gcp/               # GCP deployment assets and base manifests
+│   └── deployer/gcp/          # GCP deployer image
 ├── scripts/                    # Bootstrap and utility scripts
 ├── shifter/installation/        # bigrae.yaml parser, validator, backend registry
 └── .github/workflows/          # CI/CD pipelines (AWS + GCP)

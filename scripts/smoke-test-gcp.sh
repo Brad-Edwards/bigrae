@@ -7,6 +7,8 @@
 # ``kubectl exec`` connection through GKE Connect Gateway.
 set -euo pipefail
 
+# The deploy command runs this script from any working directory.
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VARIANT="linux"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,7 +40,12 @@ if [[ ! "${SMOKE_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] ||
   exit 2
 fi
 
-run_identity="${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}"
+# The deploy command passes SMOKE_RUN_ID; CI falls back to its run identity.
+run_identity="${SMOKE_RUN_ID:-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}}"
+if [[ ! "${run_identity}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+  echo "::error::Smoke run identity must be a lowercase DNS label fragment" >&2
+  exit 2
+fi
 job_name="post-deploy-smoke-${run_identity}"
 secret_name="${job_name}-identity"
 if ((${#secret_name} > 63)); then
@@ -77,7 +84,7 @@ deployment_file="${temporary_directory}/portal-deployment.json"
 job_file="${temporary_directory}/smoke-job.json"
 kubectl -n "${namespace}" get deployment/portal-web -o json \
   --request-timeout="${KUBECTL_REQUEST_TIMEOUT}" > "${deployment_file}"
-python3 scripts/gcp/render_smoke_job.py \
+python3 "${script_directory}/gcp/render_smoke_job.py" \
   --deployment "${deployment_file}" \
   --output "${job_file}" \
   --name "${job_name}" \

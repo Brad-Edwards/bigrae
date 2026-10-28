@@ -36,7 +36,6 @@
         "shifter/shifter_adapter_sdk/preparation.py",
         "platform/charts/shifter/values.schema.json",
         "platform/charts/shifter/templates/*deployment*",
-        "platform/k8s/gcp/base/*deployment.yaml",
         "platform/terraform/gcp/modules/platform-core/main.tf",
         "platform/terraform/environments/dev/eks/main.tf",
         "shifter/shifter_platform/config/_oidc_settings.py",

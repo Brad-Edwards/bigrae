@@ -130,7 +130,7 @@ def render_migration_job(
                                 # The portal image declares USER as the name appuser (uid 10001);
                                 # the kubelet cannot verify a non-numeric user as non-root, so
                                 # pair runAsNonRoot with the numeric uid (matches every other
-                                # workload and the CI _gcp-dev.yml migrate Job).
+                                # workload).
                                 "runAsUser": 10001,
                             },
                             "volumeMounts": [{"name": "tmp", "mountPath": "/var/run/shifter-migrate"}],

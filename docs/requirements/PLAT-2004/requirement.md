@@ -30,3 +30,6 @@ Branch-targeted deployment is confusing for OSS users and makes backend expansio
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#730` (Replace branch-targeted deployment docs and CI routing)
 - IMPLEMENTS → CODE_FILE `.github/workflows/deploy.yml` (Manual workflow_dispatch deploy with environment input (#730))
 - TESTS → TEST `scripts/adr_guard/tests/test_deploy_workflow.py` (TestManualDeployDispatch: push/PR never deploy; environment input selects target)
+- IMPLEMENTS → CODE_FILE `scripts/bootstrap/gcp_cli.py` (GCP lifecycle commands select the deployment with a required --store or --inputs argument, #2571)
+- TESTS → TEST `scripts/bootstrap/tests/test_gcp_deploy_commands.py` (The parser maps the explicit deployment source to the deploy options, #2571)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2571` (GitHub-less GCP deployment)

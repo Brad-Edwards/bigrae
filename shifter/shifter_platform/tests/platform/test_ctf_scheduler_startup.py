@@ -11,7 +11,6 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-BASE_MANIFEST_DIR = REPO_ROOT / "platform" / "k8s" / "gcp" / "base"
 CHART_DIR = REPO_ROOT / "platform" / "charts" / "shifter"
 COMPOSE_FILE = REPO_ROOT / "shifter" / "shifter_platform" / "docker-compose.yml"
 SCHEDULER_COMMAND = ["python", "manage.py", "run_ctf_scheduler"]
@@ -20,13 +19,6 @@ SCHEDULER_NAME = "ctf-scheduler"
 
 def _load_yaml_documents(source: str) -> list[dict[str, Any]]:
     return [document for document in yaml.safe_load_all(source) if isinstance(document, dict)]
-
-
-def _load_base_documents() -> list[dict[str, Any]]:
-    documents: list[dict[str, Any]] = []
-    for path in BASE_MANIFEST_DIR.glob("*.yaml"):
-        documents.extend(_load_yaml_documents(path.read_text(encoding="utf-8")))
-    return documents
 
 
 def _load_helm_documents() -> list[dict[str, Any]]:
@@ -71,7 +63,6 @@ def test_local_compose_starts_ctf_scheduler_service() -> None:
 @pytest.mark.parametrize(
     ("source_name", "loader"),
     [
-        ("base", _load_base_documents),
         ("helm", _load_helm_documents),
     ],
 )

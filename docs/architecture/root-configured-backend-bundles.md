@@ -58,9 +58,10 @@ The root config owns:
 
 `.shifter.yaml` is a separate checked-in policy namespace for `mcp/ops`. It is
 not the public installation config and must not become a deployment secret
-store. Gitignored `.env` files remain local/operator inputs only; checked-in
-runtime env files are either static non-secret overlays or generated
-placeholders validated by the runtime inventory.
+store. Gitignored `.env` files remain local/operator inputs only; the checked-in
+runtime configuration is the chart values files, which the runtime inventory
+validates. A GCP deployment that runs without GitHub keeps its `bigrae.yaml`
+in its deployment input bundle, not in this repository (ADR-070).
 
 The root schema validates root shape. Backend bundles validate backend-owned
 settings and secret reference grammar when they declare those validators.
@@ -70,7 +71,7 @@ settings and secret reference grammar when they declare those validators.
 | Backend | Profiles | Required secrets | Settings validation |
 | --- | --- | --- | --- |
 | `aws` | `prod`, `dev`, `proof` | `django_secret_key`, `db_password` | Closed `AwsSettings` model: `region` (required); unknown keys rejected. Secret references validated against a machine-readable grammar (#728). |
-| `gcp` | `prod`, `dev` | `django_secret_key` | Closed `GcpBackendSettings` model: `project_id`, `region` (required); unknown keys rejected. Secret reference validated against a machine-readable grammar (#729). |
+| `gcp` | `prod`, `dev` | `django_secret_key` | Closed `GcpBackendSettings` model: `project_id`, `region` (required); unknown keys rejected. Secret reference validated against a machine-readable grammar (#729). The deployment inputs of a GitHub-less deploy are closed settings too: `range_cells`, `participant_openvpn`, `ctf_content_bucket`, `operator_bootstrap`, `post_deploy_smoke`, and `release_trust` (#2571). |
 
 `range_egress` under `settings` is the shared, cross-backend egress policy
 (PLAT-220); it is owned and validated by `installation.range_egress` for every
@@ -189,7 +190,7 @@ The derivation path must preserve these existing cross-cutting gates:
 | Django/worker startup | `config._runtime_env`, `config._cloud`, `django.core.exceptions.ImproperlyConfigured` | Resolve the normalized binding at the composition root, apply existing dev/test default policy, and fail deployed startup on missing or unsupported configuration. Workers reuse this exact path. |
 | Identity selection | ADR-009, `AUTH_PROVIDER`, `config._oidc_settings`, `config.identity_platform` | Keep identity-provider selection distinct from the cloud backend. If a backend renderer emits `AUTH_PROVIDER`, validate its allowlist and continue through the existing issuer, token, verified-email, immutable-subject, MFA, and bootstrap authorization gates; a matching cloud backend is not identity validation. |
 | Secret hydration | `entrypoint.sh`, provider secret stores | Pass references through deployment artifacts and fetch values at startup. Secret payloads flow through stdin/environment, never command argv, generated public files, or log messages. Preserve the current reference/value distinction and existing KMS/workload-identity controls. |
-| Provisioner task dispatch | `engine.ecs._GCP_PROVISIONER_ENV_KEYS`, `shared.cloud.sensitive_env`, `GCPTaskRunner`, `restrict-provisioner-jobs` admission policy | Keep explicit env-key forwarding, sensitive values in ephemeral Secret-backed `valueFrom` entries, pinned images/commands, and fail-closed literal/secret allowlists. Any binding change must keep the base and Helm admission policies plus their structural tests synchronized. |
+| Provisioner task dispatch | `engine.ecs._GCP_PROVISIONER_ENV_KEYS`, `shared.cloud.sensitive_env`, `GCPTaskRunner`, `restrict-provisioner-jobs` admission policy | Keep explicit env-key forwarding, sensitive values in ephemeral Secret-backed `valueFrom` entries, pinned images/commands, and fail-closed literal/secret allowlists. Any binding change must keep the Helm admission policy and its structural tests synchronized. |
 | Adapter errors and observability | `shared.cloud.exceptions`, `engine/provisioner/cloud/exceptions.py`, `config._posture`, `shared.log_sanitize` | Keep installation validation errors separate from cloud-operation errors. Log only normalized non-secret posture (backend, profile/environment, capability names) and bounded/sanitized diagnostics; never dump root config, env mappings, secret references, Terraform output payloads, or provider responses. |
 | Persistence and delivery | Engine resource state, `ProvisionerLaunchIntent`, range-event outbox/reconciler | The active installation backend is process configuration, not a new database row, request field, launch-intent field, or event field. Existing persisted `cloud_provider` values remain historical resource ownership/cleanup metadata, never a live selector. |
 | Public error surfaces | `shared.api.errors`, `shared.errors`, coarse health responses and status events | Configuration failures stop startup or task dispatch. They do not pass raw installation/provider exception text, config paths, references, or capability details into HTTP, WebSocket, health, or event envelopes. Reuse fixed or sanitized public messages. |
@@ -218,7 +219,7 @@ live process default.
 
 The host/config surfaces are also one contract: AWS portal/worker/provisioner Terraform
 environment declarations; the GCP renderer, static/generated env ownership,
-Kustomize/Helm ConfigMaps, task-runner forwarding, and both admission-policy copies;
+the Helm ConfigMaps, task-runner forwarding, and the chart admission policy;
 the portal and provisioner Docker build inputs; and CI/deploy path filters. If the
 provisioner image consumes `installation` as the portal image already does, an
 `installation/**` change must exercise and rebuild both consumers. Env-manifest,
@@ -238,10 +239,10 @@ are never auto-claimed by existing bundles.
 
 - `CLOUD_PROVIDER` is renderer-owned for both backends (PLAT-2005): GCP emits it from
   `scripts/gcp/render_runtime_env.py` (a generated key in the runtime inventory, not a
-  static overlay literal), and AWS derives it from `shifter.yaml` at deploy time via
+  static values literal), and AWS derives it from `shifter.yaml` at deploy time via
   `shifter-config render-runtime` into `cloud_provider.auto.tfvars`, which the portal and
   engine-provisioner modules receive as `var.cloud_provider`. Do not reintroduce a
-  hardcoded task-definition/overlay literal or an implicit AWS default; the deployed
+  hardcoded task-definition or values literal or an implicit AWS default; the deployed
   backend identity must come from the selected bundle.
 - Both AWS (#728) and GCP (#729) ship closed `settings_model`s. PLAT-2005 may use the
   validated backend identity and registry-declared capabilities, but must not make adapter

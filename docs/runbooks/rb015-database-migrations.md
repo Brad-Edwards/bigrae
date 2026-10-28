@@ -16,14 +16,18 @@ pods report schema mismatch.
    web and worker pods set `SKIP_MIGRATIONS=1`; they must not race the migrator.
 3. Confirm the Job uses the dedicated migrator service account/database duty,
    the same image digest as the release, and the provider renderer selected by
-   the deployment workflow.
+   the deployment workflow. On GCP, the `gcp-deploy` command renders and runs
+   the migration Job (`platform-migrate`) before the Helm upgrade, for the CI
+   path and for the path without GitHub.
 4. Check database health, locks, available storage, statement runtime, backward
    compatibility, and whether application rollout began.
 
 ## Resolution
 
 Repair the migration or dependency in source and rerun the protected deployment
-workflow, which renders and executes the single migration Job before rollout.
+workflow, which renders and executes the single migration Job before rollout. A
+GCP deployment without GitHub reruns `gcp-deploy` with the deployer image of the
+fixed release ([GitHub-less GCP deployment guide](../technical/handbook/gcp-github-less-deployment.md)).
 Do not run `manage.py migrate` from a web/worker pod, use runtime credentials,
 or start concurrent migration Jobs. Roll back application code only when the
 schema remains compatible; data/schema rollback requires an approved recovery

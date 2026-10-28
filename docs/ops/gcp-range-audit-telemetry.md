@@ -62,10 +62,12 @@ One policy applies to the whole deployment:
 
 ## Validate
 
-The bootstrap deploy (`bootstrap_gcp_control_plane`) and the GCP deploy workflow
-run `scripts/gcp/verify_range_audit_telemetry.py` after Terraform apply. It
-checks the Terraform range VPC and every per-range VPC (`shifter-range-<id>`) in
-the platform project and in the range-cell project (`GCP_RANGE_CELL_PROJECT_ID`).
+`gcp-deploy` runs `scripts/gcp/verify_range_audit_telemetry.py` after
+Terraform apply, for an operator and for the GCP deploy workflow. It checks the
+Terraform range VPC and every per-range VPC (`shifter-range-<id>`). It checks
+them in the platform project and in the range-cell project. The range-cell
+project is `settings.range_cells.project_id`, or the platform project when that
+setting is empty.
 You can run it yourself with read access to those projects:
 
 ```bash

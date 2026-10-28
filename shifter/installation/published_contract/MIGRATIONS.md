@@ -73,3 +73,15 @@ Existing configurations for that environment must select a maintained profile an
 The bundle schema and settings schema remain unchanged.
 The current artifact is regenerated; the version-1 frozen snapshot remains unchanged.
 Any archived cleanup uses the earlier release with its original backend, under operator control.
+
+## Contract version 1 GitHub-less GCP deployment (issue #2571)
+
+The GCP settings schema adds optional fields for the GitHub-less deploy command:
+`range_cells`, `participant_openvpn`, `ctf_content_bucket`, `operator_bootstrap`,
+`post_deploy_smoke`, and `release_trust`. Existing version-1 records remain valid because each new field is optional.
+The shared Helm chart is now the only GCP Kubernetes renderer.
+The GCP bundle no longer owns `platform/k8s/gcp` or its README, and the `kustomize-render` validation check is removed.
+The `helm-template` check renders the chart with the GCP profile values, and the `kube-linter` check lints the chart.
+The required tools replace `docker` with `oras` and `trivy`, because a deploy copies and scans release images and builds none.
+The GCP bundle also owns `platform/deployer/gcp`, `.github/workflows/gcp-dev-destroy.yml`, `.github/workflows/release-gcp.yml`, `docs/technical/handbook/gcp-github-less-deployment.md`, and `docs/runbooks/rb023-gcp-deployment.md`.
+The current artifact is regenerated; the version-1 frozen snapshot remains unchanged.

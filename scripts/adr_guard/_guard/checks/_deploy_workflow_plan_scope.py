@@ -46,7 +46,6 @@ _QUALITY_SKIP_TESTS_IMMUNE_JOB_NAMES = frozenset(
         "security-iac",
         "security-k8s",
         "secrets-gitleaks",
-        "k8s-lint",
         "k8s-schema",
         "mcp-lint",
         "chart-lint-security",

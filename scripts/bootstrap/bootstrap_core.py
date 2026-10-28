@@ -547,11 +547,6 @@ GDC_SERVICE_ACCOUNT_ROLES = [
     "roles/kubernetesmetadata.publisher",
 ]
 
-GCP_TERRAFORM_BOOTSTRAP_ROLES = [
-    "roles/owner",
-]
-
-GCP_TERRAFORM_BOOTSTRAP_BUCKET_ROLE = "roles/storage.objectAdmin"
 GCP_IAP_TCP_SOURCE_RANGE = "35.235.240.0/20"
 
 
@@ -682,28 +677,11 @@ class GDCBootstrapConfig:
     # default deploys the keyless GKE control plane straight through, so a tenant on
     # an org that enforces iam.managed.disableServiceAccountKeyCreation is not blocked.
     range_backend: str = "gce"
-    # Terraform identity for the control-plane apply (#1718). "operator-adc"
-    # (default) runs terraform directly under the caller's Application Default
-    # Credentials, minting no service account and no key. It is secure-by-default:
-    # the operator running gdc-bootstrap already holds the project roles terraform
-    # needs, so a dedicated roles/owner SA adds standing privilege and (on the
-    # bootstrap-sa path) a JSON key with no capability gain. It is also the only
-    # path that works on orgs enforcing custom.preventPrivilegedBasicRolesForServAccounts
-    # (no owner-on-SA) or iam.managed.disableServiceAccountKeyCreation (no SA keys).
-    # "bootstrap-sa" (opt-out) impersonates a dedicated shifter-<env>-tf-bootstrap
-    # service account granted roles/owner, for operators who cannot run terraform
-    # under their own ADC.
-    terraform_identity: str = "operator-adc"
 
     @property
     def builds_gdc_substrate(self) -> bool:
         """Whether this bootstrap builds the ABM/GDC VM Runtime substrate."""
         return self.range_backend == "gdc"
-
-    @property
-    def terraform_uses_operator_adc(self) -> bool:
-        """Whether terraform runs under the caller's ADC instead of the tf-bootstrap SA."""
-        return self.terraform_identity == "operator-adc"
 
     @property
     def resolved_network_name(self) -> str:
@@ -716,14 +694,6 @@ class GDCBootstrapConfig:
     @property
     def service_account_email(self) -> str:
         return f"{self.service_account_name}@{self.project_id}.iam.gserviceaccount.com"
-
-    @property
-    def terraform_bootstrap_service_account_name(self) -> str:
-        return f"shifter-{self.environment}-tf-bootstrap"
-
-    @property
-    def terraform_bootstrap_service_account_email(self) -> str:
-        return f"{self.terraform_bootstrap_service_account_name}@{self.project_id}.iam.gserviceaccount.com"
 
     @property
     def terraform_state_bucket_name(self) -> str:

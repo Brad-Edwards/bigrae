@@ -1,7 +1,10 @@
 # Installation Config
 
-`bigrae.yaml` is the root installation config. It lives at the repository root,
-selects one backend bundle, and provides deployment-level settings.
+`bigrae.yaml` is the root installation config. It selects one backend bundle
+and provides deployment-level settings. For local runs it lives at the
+repository root. A GCP deployment that runs without GitHub keeps it in its
+deployment input bundle (see the
+[GitHub-less GCP deployment guide](../handbook/gcp-github-less-deployment.md)).
 
 The authoritative parser is `shifter/installation`.
 
@@ -56,6 +59,21 @@ closed model: unknown keys are rejected, and the model broker, model access, ran
 egress, warm pool, and Mission Control lease blocks are each validated against
 their own schemas. See "Optional: model access broker" in
 [`setup.md`](setup.md) for the broker blocks.
+
+The GCP deploy inputs that GitHub variables and secrets held before #2571 are
+closed settings blocks too:
+
+| Block | Holds |
+| --- | --- |
+| `range_cells` | Range backend, zone and zone pool, range-cell project, host identity pool size, Private Google Access, and keyed guest image profiles |
+| `participant_openvpn` | The participant OpenVPN opt-in (`enabled`) |
+| `ctf_content_bucket` | The optional CTF content bucket name |
+| `operator_bootstrap` | The first operator (`enabled`, `admin_email`, `admin_password_secret_ref`) and the staff and superuser email lists |
+| `post_deploy_smoke` | The portal account of the post-deploy smoke (`user_email`) |
+| `release_trust` | The immutable repository and owner IDs that sign releases (`github_repository_id`, `github_owner_id`) |
+
+`operator_bootstrap.admin_password_secret_ref` is a versionless Secret Manager
+reference (`projects/<project>/secrets/<id>`), never the password.
 
 ## Fields
 

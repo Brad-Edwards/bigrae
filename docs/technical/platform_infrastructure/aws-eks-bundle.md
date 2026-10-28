@@ -110,9 +110,9 @@ credential-free checks doctor runs before touching infrastructure:
   the deploy lifecycle therefore share one prerequisite contract instead of
   drifting apart; the check invokes the shared spec rather than re-listing it.
 
-AWS has no `platform/k8s/aws` overlay; its Kubernetes surface is the shared
-chart, so `helm-template` is the Kubernetes front door rather than a kustomize
-overlay render or a raw-manifest kube-linter pass. The fuller pre-mutation suite
+The shared chart is the Kubernetes surface of both AWS and GCP; neither backend
+has a Kustomize overlay (#2571). `helm-template` is therefore the Kubernetes
+front door rather than an overlay render or a raw-manifest kube-linter pass. The fuller pre-mutation suite
 (tflint with init, Checkov, kube-linter and kubeconform on the rendered chart,
 and effective-values schema validation) stays enforced in CI and the deploy
 lifecycle.
