@@ -334,6 +334,27 @@ resource "google_project_iam_member" "destroy_roles" {
   member     = "serviceAccount:${local.service_account_emails.destroy}"
 }
 
+# identityPlatform:initializeAuth checks firebaseauth.configs.create and then
+# adds Firebase to the project, which needs firebase.projects.update. No
+# Identity Platform role holds that permission, so a fresh project fails with
+# INSUFFICIENT_PERMISSION without this role (#2594).
+resource "google_project_iam_custom_role" "deploy_identity_platform" {
+  count       = local.deploy_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "${replace(var.name_prefix, "-", "_")}_deploy_identity_platform"
+  title       = "Shifter platform deploy Identity Platform initialization"
+  description = "Add Firebase to the project when gcp-deploy initializes Identity Platform."
+  permissions = var.deploy_identity_platform_permissions
+}
+
+resource "google_project_iam_member" "deploy_identity_platform" {
+  depends_on = [google_service_account.deploy, google_project_iam_custom_role.deploy_identity_platform]
+  count      = local.deploy_enabled ? 1 : 0
+  project    = var.project_id
+  role       = "projects/${var.project_id}/roles/${replace(var.name_prefix, "-", "_")}_deploy_identity_platform"
+  member     = "serviceAccount:${local.service_account_emails.deploy}"
+}
+
 # Bucket lifecycle and object access are limited to the three deterministic
 # platform-core buckets. In particular, neither lifecycle identity receives a
 # project-wide Storage Admin grant that could alter retained release evidence.

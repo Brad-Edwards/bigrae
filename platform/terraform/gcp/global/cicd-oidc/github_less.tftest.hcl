@@ -85,6 +85,13 @@ run "impersonation_only_foundation" {
     error_message = "Deploy principals publish the inputs; destroy-only principals read them."
   }
   assert {
+    condition = (
+      toset(google_project_iam_custom_role.deploy_identity_platform[0].permissions) == toset(["firebase.projects.get", "firebase.projects.update"]) &&
+      google_project_iam_member.deploy_identity_platform[0].member == "serviceAccount:custunseen-deploy@example-project.iam.gserviceaccount.com"
+    )
+    error_message = "The deploy identity must be able to add Firebase when it initializes Identity Platform (#2594)."
+  }
+  assert {
     condition     = google_storage_bucket_iam_member.deployment_config_access_log_writer[0].condition[0].expression == "resource.name.startsWith('projects/_/buckets/example-customer-evidence/objects/deployment-config-access')"
     error_message = "The usage-log writer may create objects under the access-log prefix only."
   }
