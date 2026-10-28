@@ -10,7 +10,8 @@ properties. The check reads the workflow as data and fails closed:
 - every job that authenticates to GCP binds the ``gcp-release`` Environment
   (ADR-004-R23) and runs on a GitHub-hosted runner (ADR-003-R5);
 - in that job, a step before the authentication step rejects every ref except
-  ``refs/heads/main`` (ADR-037-R7);
+  ``refs/heads/main``, ``refs/heads/dev``, and ``refs/heads/deploy-test``
+  (ADR-037-R7);
 - every non-local action is pinned to a full commit SHA (ADR-037-R1);
 - every pushed image build produces an SBOM and maximum provenance, and an
   ``actions/attest-build-provenance`` step in the same job signs the exact
@@ -41,10 +42,11 @@ RELEASE_ENVIRONMENT = "gcp-release"
 _CHECK = "release-workflow-provenance"
 _BUILD_ACTION = "docker/build-push-action@"
 _ATTEST_ACTION = "actions/attest-build-provenance@"
-# The ref guard is a shell `case` on GITHUB_REF whose only admitted branch is
-# refs/heads/main and whose fallback branch exits non-zero.
-_MAIN_ONLY_CASE = re.compile(
-    r'case\s+"\$\{GITHUB_REF\}"\s+in\s+refs/heads/main\)\s*;;\s*\*\)(?P<fallback>.*?);;\s*esac',
+# The ref guard is a shell `case` on GITHUB_REF whose only admitted branch
+# lists release refs and whose fallback branch exits non-zero.
+RELEASE_REFS = frozenset({"refs/heads/main", "refs/heads/dev", "refs/heads/deploy-test"})
+_REF_GUARD_CASE = re.compile(
+    r'case\s+"\$\{GITHUB_REF\}"\s+in\s+(?P<refs>[^)\s]+)\)\s*;;\s*\*\)(?P<fallback>.*?);;\s*esac',
     re.DOTALL,
 )
 _STEP_DIGEST_REF = re.compile(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.digest\s*\}\}")
@@ -95,15 +97,19 @@ def _environment_name(job: dict[str, object]) -> str:
     return environment.strip() if isinstance(environment, str) else ""
 
 
-def _rejects_non_main_refs(step: object) -> bool:
-    """True when the step always runs and fails on every ref except refs/heads/main."""
+def _rejects_non_release_refs(step: object) -> bool:
+    """True when the step always runs and fails on every ref outside ``RELEASE_REFS``."""
     if not isinstance(step, dict) or "if" in step or _is_true(step.get("continue-on-error")):
         return False
     script = step.get("run")
     if not isinstance(script, str):
         return False
-    match = _MAIN_ONLY_CASE.search(script)
-    return bool(match and re.search(r"\bexit\s+1\b", match.group("fallback")))
+    match = _REF_GUARD_CASE.search(script)
+    return bool(
+        match
+        and set(match.group("refs").split("|")) <= RELEASE_REFS
+        and re.search(r"\bexit\s+1\b", match.group("fallback"))
+    )
 
 
 def _step_with(step: object) -> dict[str, object]:
@@ -138,12 +144,12 @@ def _auth_job_violations(job_id: str, job: dict[str, object], steps: list[object
         violations.append(
             _violation("ADR-003-R5", f"job '{job_id}' builds the release on a self-hosted runner; use GitHub-hosted")
         )
-    if not any(_rejects_non_main_refs(step) for step in steps[:first_auth]):
+    if not any(_rejects_non_release_refs(step) for step in steps[:first_auth]):
         violations.append(
             _violation(
                 "ADR-037-R7",
                 f"job '{job_id}' has no unconditional step before GCP authentication that rejects every ref "
-                "except refs/heads/main",
+                "except refs/heads/main, refs/heads/dev, and refs/heads/deploy-test",
             )
         )
     return violations
