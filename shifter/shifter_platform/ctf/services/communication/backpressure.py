@@ -72,6 +72,11 @@ class AdmissionRequest:
     channel_count: int
 
 
+def max_audience() -> int:
+    """Return the bounded fan-out cap that admission enforces (preview reports it)."""
+    return _setting("CTF_COMMUNICATION_MAX_AUDIENCE")
+
+
 def _deny(scope_class: str, code: str, message: str) -> None:
     """Emit a closed-label denial metric and raise a bounded, fail-closed error."""
     metrics.emit_admission_denied(scope_class=scope_class)
@@ -135,7 +140,7 @@ def enforce_admission(request: AdmissionRequest) -> None:
     projected = max(request.audience_size, 0) * max(request.channel_count, 1)
 
     # 1. Fan-out cost: reject an oversized intent before reporting acceptance.
-    if request.audience_size > _setting("CTF_COMMUNICATION_MAX_AUDIENCE"):
+    if request.audience_size > max_audience():
         _deny("global", "CTF_COMMUNICATION_AUDIENCE_TOO_LARGE", "Audience exceeds the per-intent fan-out limit")
 
     enforce_operation_rate(request.actor_user_id, request.workspace_id)

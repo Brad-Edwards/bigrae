@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 
 import { formatDateTime, titleCase } from "../format";
-import { ctfAdminEventCreatePath, ctfAdminEventPath, ctfAdminEventsPath } from "../routes";
+import { ctfAdminCommunicationsPath, ctfAdminEventCreatePath, ctfAdminEventPath, ctfAdminEventsPath } from "../routes";
 
 const ACTIVE_STATUSES = new Set(["registration", "active", "paused"]);
 
@@ -115,6 +115,9 @@ export function AdminDashboardPage() {
           <div className="flex items-center gap-2">
             <Link to={ctfAdminEventsPath()} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
               All events
+            </Link>
+            <Link to={ctfAdminCommunicationsPath()} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+              Communications
             </Link>
             <Link to={ctfAdminEventCreatePath()} className={cn(buttonVariants({ size: "sm" }))}>
               <Plus className="size-4" />
