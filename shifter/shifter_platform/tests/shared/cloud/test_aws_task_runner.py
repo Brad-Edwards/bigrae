@@ -100,6 +100,8 @@ class TestAWSKubernetesTaskRunnerRunTask:
         assert sc.run_as_group == 10001
         assert sc.allow_privilege_escalation is False
         assert sc.capabilities.drop == ["ALL"]
+        assert container.resources.requests == {"cpu": "250m", "memory": "512Mi", "ephemeral-storage": "1Gi"}
+        assert container.resources.limits == {"cpu": "2", "memory": "2Gi", "ephemeral-storage": "4Gi"}
 
         pod_sc = pod_spec.security_context
         assert pod_sc.seccomp_profile.type == "RuntimeDefault"
