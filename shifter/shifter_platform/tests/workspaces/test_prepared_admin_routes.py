@@ -334,16 +334,68 @@ def test_descendant_only_administrator_can_discover_and_enter_its_exact_scope(mo
     assert provider.requests and all(request.action == f"{kind}.read" for request in provider.requests)
 
 
-def test_lease_command_validates_an_incomplete_advertised_form_payload(django_user_model):
+@pytest.fixture
+def lease_validation_client(django_user_model):
+    """Authenticate the real lease routes without replacing native admission."""
     user = django_user_model.objects.create_superuser(
         username="json-lease-administrator", password="synthetic-test-password"
     )
     client = APIClient()
     client.force_login(user, backend="config.auth.PlatformModelBackend")
-    response = client.put(
+    return client
+
+
+def test_lease_command_validates_an_incomplete_advertised_form_payload(lease_validation_client):
+    response = lease_validation_client.put(
         "/api/v1/administer/mission-control/lease-policy/tenant/",
         "expected_revision=0&initial_days=1&maximum_days=3",
         content_type="application/x-www-form-urlencoded",
     )
     assert response.status_code == 400
     assert set(response.data["error"]["details"]) == {"extension_days", "extensions_enabled"}
+
+
+@pytest.mark.parametrize("encoding", ["form", "json"])
+@pytest.mark.parametrize(
+    "path,method,payload,required_fields",
+    [
+        ("tenant/reset/", "post", {}, {"expected_revision"}),
+        (
+            "groups/1/",
+            "put",
+            {"expected_revision": 0},
+            {"initial_days", "extension_days", "maximum_days", "extensions_enabled"},
+        ),
+        ("groups/1/reset/", "post", {}, {"expected_revision"}),
+    ],
+)
+def test_related_lease_commands_preserve_required_field_names(
+    lease_validation_client, encoding, path, method, payload, required_fields
+):
+    from urllib.parse import urlencode
+
+    url = f"/api/v1/administer/mission-control/lease-policy/{path}"
+    send = getattr(lease_validation_client, method)
+    response = (
+        send(url, urlencode(payload), content_type="application/x-www-form-urlencoded")
+        if encoding == "form"
+        else send(url, payload, format="json")
+    )
+
+    assert response.status_code == 400
+    # The strict form precheck returns scalar errors; JSON field errors are lists.
+    required_error = "This field is required." if encoding == "form" else ["This field is required."]
+    assert response.data["error"]["details"] == dict.fromkeys(required_fields, required_error)
+
+
+def test_lease_validation_does_not_reflect_unknown_request_keys(lease_validation_client):
+    secret = "private-backend-credential"
+    response = lease_validation_client.put(
+        "/api/v1/administer/mission-control/lease-policy/tenant/",
+        {secret: secret},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert secret not in str(response.data)
+    assert response.data["error"]["details"] == {"non_field_errors": ["Unknown field."]}

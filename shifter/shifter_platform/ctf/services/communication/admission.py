@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
 
@@ -325,7 +325,9 @@ def prepare_admission(
             else "CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
         )
         raise CTFCommunicationError("Communication credential unavailable", code=code) from None
-    admitted: AdmissionActor = replace(actor, event_admissions=admissions, campaign_binding=_campaign_binding(campaign))
+    admitted = cast(
+        AdmissionActor, replace(actor, event_admissions=admissions, campaign_binding=_campaign_binding(campaign))
+    )
     return admitted
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID, uuid4
 
 from django.db import transaction
@@ -208,7 +208,7 @@ def _prepare_launch(
     ):
         raise CMSError(_ACTIVE_RANGE_MESSAGE)
     egress = _initial_launch_egress(current, resolved, scenario, source, event.model_admission_subject)
-    prepared: PreparedScopedLaunch = replace(launch, egress=egress)
+    prepared = cast(PreparedScopedLaunch, replace(launch, egress=egress))
     return prepared
 
 

@@ -261,13 +261,15 @@ class MissionControlLeasePolicySettingsView(_LeasePolicyAdminView):
 class MissionControlTenantLeasePolicyView(_LeasePolicyAdminView):
     """Replace the complete runtime tenant policy under revision CAS."""
 
+    serializer_class = ReplaceLeasePolicySerializer
+
     @extend_schema(
         request=ReplaceLeasePolicySerializer,
         responses=MissionControlLeasePolicySettingsSerializer,
         operation_id="api_v1_administer_mission_control_lease_policy_tenant_replace",
     )
     def put(self, request: Request) -> Response:
-        serializer = ReplaceLeasePolicySerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
@@ -285,13 +287,15 @@ class MissionControlTenantLeasePolicyView(_LeasePolicyAdminView):
 class MissionControlTenantLeasePolicyResetView(_LeasePolicyAdminView):
     """Explicitly remove the runtime tenant replacement."""
 
+    serializer_class = ResetLeasePolicySerializer
+
     @extend_schema(
         request=ResetLeasePolicySerializer,
         responses=MissionControlLeasePolicySettingsSerializer,
         operation_id="api_v1_administer_mission_control_lease_policy_tenant_reset",
     )
     def post(self, request: Request) -> Response:
-        serializer = ResetLeasePolicySerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             reset_tenant_lease_policy(
@@ -307,13 +311,15 @@ class MissionControlTenantLeasePolicyResetView(_LeasePolicyAdminView):
 class MissionControlGroupLeasePolicyView(_LeasePolicyAdminView):
     """Replace one policy-eligible RBAC group's complete lease policy."""
 
+    serializer_class = ReplaceLeasePolicySerializer
+
     @extend_schema(
         request=ReplaceLeasePolicySerializer,
         responses=MissionControlLeasePolicySettingsSerializer,
         operation_id="api_v1_administer_mission_control_lease_policy_group_replace",
     )
     def put(self, request: Request, group_id: int) -> Response:
-        serializer = ReplaceLeasePolicySerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
@@ -332,13 +338,15 @@ class MissionControlGroupLeasePolicyView(_LeasePolicyAdminView):
 class MissionControlGroupLeasePolicyResetView(_LeasePolicyAdminView):
     """Explicitly remove one group policy so the group inherits tenant policy."""
 
+    serializer_class = ResetLeasePolicySerializer
+
     @extend_schema(
         request=ResetLeasePolicySerializer,
         responses=MissionControlLeasePolicySettingsSerializer,
         operation_id="api_v1_administer_mission_control_lease_policy_group_reset",
     )
     def post(self, request: Request, group_id: int) -> Response:
-        serializer = ResetLeasePolicySerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             reset_group_lease_policy(
