@@ -10,6 +10,7 @@ another event's roster.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -60,7 +61,8 @@ def _workspace_bindings(user: User) -> dict[int, tuple[UUID, str]]:
         try:
             authorization = workspace_services.authorize_bound_workspace(user, workspace_id, operation)
         except workspace_services.WorkspaceAuthorizationError:
-            continue  # archived or no longer a member
+            # Archived workspace or membership removed since the id query.
+            continue
         bindings[workspace_id] = (authorization.workspace_uuid, names.get(authorization.workspace_uuid, ""))
     return bindings
 
@@ -85,7 +87,8 @@ def list_targets(user: User, *, workspace_uuid: UUID | None, limit: int, offset:
     )
     rows = []
     for event in events[:limit]:
-        if event.workspace_id is None:  # excluded by the workspace filter; narrows the type
+        # The workspace filter already excludes null bindings; this narrows the type.
+        if event.workspace_id is None:
             continue
         rows.append(
             {
@@ -186,6 +189,65 @@ def _schedule_states(intent_ids: list[UUID]) -> dict[str, str]:
     return states
 
 
+def _attempt_counts(intent_ids: list[UUID]) -> dict[tuple[UUID, UUID, str], dict[str, int]]:
+    """Count delivery commands by (intent, event, channel) and status in one grouped query."""
+    counts: dict[tuple[UUID, UUID, str], dict[str, int]] = {}
+    for attempt in (
+        DeliveryAttempt.objects.filter(intent_id__in=intent_ids)
+        .values("intent_id", "snapshot__event_id", "channel", "status")
+        .annotate(total=Count("id"))
+    ):
+        key = (attempt["intent_id"], attempt["snapshot__event_id"], attempt["channel"])
+        counts.setdefault(key, {})[attempt["status"]] = attempt["total"]
+    return counts
+
+
+def _receipt_counts(intent_ids: list[UUID]) -> dict[tuple[UUID, UUID], dict[str, int]]:
+    """Count recipients and inbox receipts by (intent, event); one receipt per snapshot."""
+    return {
+        (row["intent_id"], row["event_id"]): row
+        for row in RecipientSnapshot.objects.filter(intent_id__in=intent_ids)
+        .values("intent_id", "event_id")
+        .annotate(
+            recipients=Count("id"),
+            inbox_available=Count("receipt"),
+            read=Count("receipt__read_at"),
+            acknowledged=Count("receipt__acknowledged_at"),
+        )
+    }
+
+
+_RECEIPT_FIELDS = ("recipients", "inbox_available", "read", "acknowledged")
+
+
+def _occurrence_events(
+    intent_id: UUID,
+    targets: Sequence[Mapping[str, Any]],
+    channels: list[str],
+    attempts: dict[tuple[UUID, UUID, str], dict[str, int]],
+    receipts: dict[tuple[UUID, UUID], dict[str, int]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return per-event rows and the occurrence totals for one intent."""
+    events = []
+    totals: dict[str, Any] = dict.fromkeys(_RECEIPT_FIELDS, 0)
+    total_channels = {channel: _empty_channel(channel) for channel in channels}
+    for target in targets:
+        counts = receipts.get((intent_id, target["id"]), {})
+        row: dict[str, Any] = {"event_id": target["id"], "name": target["name"], "channels": []}
+        for field in _RECEIPT_FIELDS:
+            row[field] = counts.get(field, 0)
+            totals[field] += row[field]
+        for channel in channels:
+            channel_row = _empty_channel(channel)
+            for status_value, total in attempts.get((intent_id, target["id"], channel), {}).items():
+                channel_row[status_value] = total
+                total_channels[channel][status_value] += total
+            row["channels"].append(channel_row)
+        events.append(row)
+    totals["channels"] = list(total_channels.values())
+    return events, totals
+
+
 def delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int) -> dict[str, Any]:
     """Aggregate delivery state per occurrence, event, and channel.
 
@@ -202,50 +264,11 @@ def delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int)
     ids = [intent.pk for intent in intents]
     targets = list(campaign.target_events.order_by("name", "pk").values("id", "name"))
     channels = list(campaign.channels)
-
-    attempts: dict[tuple[UUID, UUID, str], dict[str, int]] = {}
-    for attempt in (
-        DeliveryAttempt.objects.filter(intent_id__in=ids)
-        .values("intent_id", "snapshot__event_id", "channel", "status")
-        .annotate(total=Count("id"))
-    ):
-        key = (attempt["intent_id"], attempt["snapshot__event_id"], attempt["channel"])
-        attempts.setdefault(key, {})[attempt["status"]] = attempt["total"]
-
-    receipts: dict[tuple[UUID, UUID], dict[str, int]] = {}
-    for receipt_row in (
-        RecipientSnapshot.objects.filter(intent_id__in=ids)
-        .values("intent_id", "event_id")
-        .annotate(
-            recipients=Count("id"),
-            inbox_available=Count("receipt"),
-            read=Count("receipt__read_at"),
-            acknowledged=Count("receipt__acknowledged_at"),
-        )
-    ):
-        receipts[(receipt_row["intent_id"], receipt_row["event_id"])] = receipt_row
-
+    attempts, receipts = _attempt_counts(ids), _receipt_counts(ids)
     schedule = _schedule_states([intent.pk for intent in intents if intent.due_at is not None])
     results = []
     for intent in intents:
-        events = []
-        totals: dict[str, Any] = {"recipients": 0, "inbox_available": 0, "read": 0, "acknowledged": 0}
-        total_channels = {channel: _empty_channel(channel) for channel in channels}
-        for target in targets:
-            counts = receipts.get((intent.pk, target["id"]), {})
-            row: dict[str, Any] = {"event_id": target["id"], "name": target["name"]}
-            for field in ("recipients", "inbox_available", "read", "acknowledged"):
-                row[field] = counts.get(field, 0)
-                totals[field] += row[field]
-            row["channels"] = []
-            for channel in channels:
-                channel_row = _empty_channel(channel)
-                for status_value, total in attempts.get((intent.pk, target["id"], channel), {}).items():
-                    channel_row[status_value] = total
-                    total_channels[channel][status_value] += total
-                row["channels"].append(channel_row)
-            events.append(row)
-        totals["channels"] = list(total_channels.values())
+        events, totals = _occurrence_events(intent.pk, targets, channels, attempts, receipts)
         results.append(
             {
                 "intent_id": intent.pk,
@@ -313,6 +336,34 @@ def _actor(user_id: int | None, token_id: int | None, labels: dict[int, str], vi
     return {"label": labels.get(user_id, ""), "via": via or ("api_token" if token_id is not None else "session")}
 
 
+def _entry(kind: str, at: datetime, actor: dict[str, str] | None, **extra: Any) -> dict[str, Any]:
+    """Build one timeline entry with every optional field present."""
+    base = {"kind": kind, "at": at, "actor": actor, "revision_number": None, "intent_id": None}
+    return {**base, "status": None, "due_at": None, **extra}
+
+
+def _intent_entries(intent: CommunicationIntent, labels: dict[int, str]) -> list[dict[str, Any]]:
+    """Return the scheduled, released, and terminal entries for one occurrence."""
+    actor = _actor(intent.actor_user_id, intent.actor_token_id, labels)
+    extra = {
+        "intent_id": intent.pk,
+        "revision_number": intent.revision.revision_number,
+        "due_at": intent.due_at,
+        "status": intent.status,
+    }
+    entries = []
+    if intent.due_at is not None:
+        entries.append(_entry("scheduled", intent.created_at, actor, **extra))
+    if intent.released_at is not None:
+        # A timed occurrence is released by the scheduler on the author's authority.
+        via = "scheduler" if intent.due_at is not None else ""
+        release_actor = _actor(intent.actor_user_id, intent.actor_token_id, labels, via=via)
+        entries.append(_entry("released", intent.released_at, release_actor, **extra))
+    if intent.status in (IntentStatus.EXPIRED.value, IntentStatus.FENCED.value):
+        entries.append(_entry(intent.status, intent.updated_at, None, **extra))
+    return entries
+
+
 def activity_timeline(campaign: CommunicationCampaign) -> dict[str, Any]:
     """Return the body-free campaign timeline built from ledger attribution.
 
@@ -323,7 +374,9 @@ def activity_timeline(campaign: CommunicationCampaign) -> dict[str, Any]:
         MessageRevision.objects.filter(campaign=campaign).order_by("revision_number")[: MAX_TIMELINE_ROWS + 1]
     )
     intents = list(
-        CommunicationIntent.objects.filter(campaign=campaign).order_by("created_at", "pk")[: MAX_TIMELINE_ROWS + 1]
+        CommunicationIntent.objects.filter(campaign=campaign)
+        .select_related("revision")
+        .order_by("created_at", "pk")[: MAX_TIMELINE_ROWS + 1]
     )
     truncated = len(revisions) > MAX_TIMELINE_ROWS or len(intents) > MAX_TIMELINE_ROWS
     revisions, intents = revisions[:MAX_TIMELINE_ROWS], intents[:MAX_TIMELINE_ROWS]
@@ -332,28 +385,15 @@ def activity_timeline(campaign: CommunicationCampaign) -> dict[str, Any]:
     user_ids |= {revision.actor_user_id for revision in revisions} | {intent.actor_user_id for intent in intents}
     labels = dict(get_user_model().objects.filter(pk__in=user_ids - {None}).values_list("pk", "username"))
 
-    def entry(kind: str, at: datetime, actor: dict[str, str] | None, **extra: Any) -> dict[str, Any]:
-        base = {"kind": kind, "at": at, "actor": actor, "revision_number": None, "intent_id": None}
-        return {**base, "status": None, "due_at": None, **extra}
-
-    entries = [entry("created", campaign.created_at, _actor(campaign.created_by_id, campaign.actor_token_id, labels))]
+    entries = [_entry("created", campaign.created_at, _actor(campaign.created_by_id, campaign.actor_token_id, labels))]
     for revision in revisions:
         actor = _actor(revision.actor_user_id, revision.actor_token_id, labels)
-        entries.append(entry("revised", revision.created_at, actor, revision_number=revision.revision_number))
+        entries.append(_entry("revised", revision.created_at, actor, revision_number=revision.revision_number))
     for intent in intents:
-        actor = _actor(intent.actor_user_id, intent.actor_token_id, labels)
-        extra = {"intent_id": intent.pk, "revision_number": intent.revision.revision_number, "due_at": intent.due_at}
-        if intent.due_at is not None:
-            entries.append(entry("scheduled", intent.created_at, actor, status=intent.status, **extra))
-        if intent.released_at is not None:
-            via = "scheduler" if intent.due_at is not None else ""
-            release_actor = _actor(intent.actor_user_id, intent.actor_token_id, labels, via=via)
-            entries.append(entry("released", intent.released_at, release_actor, status=intent.status, **extra))
-        if intent.status in (IntentStatus.EXPIRED.value, IntentStatus.FENCED.value):
-            entries.append(entry(intent.status, intent.updated_at, None, status=intent.status, **extra))
+        entries.extend(_intent_entries(intent, labels))
     if campaign.cancelled_at is not None:
         actor = _actor(campaign.cancelled_by_user_id, campaign.cancelled_by_token_id, labels)
-        entries.append(entry("cancelled", campaign.cancelled_at, actor))
+        entries.append(_entry("cancelled", campaign.cancelled_at, actor))
     order = {id(item): index for index, item in enumerate(entries)}
     entries.sort(key=lambda item: (item["at"], order[id(item)]))
     return {"entries": entries, "truncated": truncated}

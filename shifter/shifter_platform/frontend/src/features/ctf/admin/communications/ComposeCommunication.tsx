@@ -11,6 +11,7 @@ import { useNavigate } from "react-router";
 import {
   type AcknowledgementPolicy,
   type Campaign,
+  type CommunicationPreview,
   type CommunicationTargets,
   useCancelCtfCommunication,
   useCommunicationPreview,
@@ -122,6 +123,167 @@ function PreviewPanel({ preview }: Readonly<{ preview: ReturnType<typeof useComm
   );
 }
 
+/** Release only the revision whose preview loaded successfully and is within limits. */
+function isReleasable(preview: CommunicationPreview | undefined, campaignId: string | undefined, revisionId: string) {
+  return Boolean(
+    preview &&
+      preview.campaign_id === campaignId &&
+      preview.revision.id === revisionId &&
+      !preview.exceeds_audience_cap &&
+      preview.channels.every((channel) => channel.available),
+  );
+}
+
+function firstWriteError(errors: [unknown, string][]): string | null {
+  for (const [error, fallback] of errors) {
+    const message = describeMutationError(error, fallback);
+    if (message) return message;
+  }
+  return null;
+}
+
+function EventPicker({
+  events,
+  selected,
+  onToggle,
+  disabled,
+  more,
+}: Readonly<{
+  events: TargetEvent[];
+  selected: string[];
+  onToggle: (eventId: string, checked: boolean) => void;
+  disabled: boolean;
+  more?: ReactNode;
+}>) {
+  return (
+    <fieldset disabled={disabled} className="space-y-2">
+      <legend className="text-sm font-medium">Events</legend>
+      {events.length === 0 ? (
+        <p className="text-sm text-muted-foreground">You cannot send communications to any event in this workspace.</p>
+      ) : null}
+      {events.map((event) => (
+        <div key={event.id} className="flex items-center gap-2">
+          <input
+            id={`target-${event.id}`}
+            type="checkbox"
+            checked={selected.includes(event.id)}
+            onChange={(change) => onToggle(event.id, change.target.checked)}
+          />
+          <Label htmlFor={`target-${event.id}`} className="font-normal">
+            {event.name} <span className="text-muted-foreground">({event.status}, {event.event_timezone})</span>
+          </Label>
+        </div>
+      ))}
+      {disabled ? null : more}
+    </fieldset>
+  );
+}
+
+function DeliverySettings({
+  disabled,
+  acknowledgement,
+  onAcknowledgement,
+}: Readonly<{
+  disabled: boolean;
+  acknowledgement: AcknowledgementPolicy;
+  onAcknowledgement: (policy: AcknowledgementPolicy) => void;
+}>) {
+  return (
+    <fieldset disabled={disabled} className="grid gap-4 sm:grid-cols-2">
+      <legend className="sr-only">Delivery settings</legend>
+      <div className="space-y-2">
+        <Label htmlFor="comm-ack">Acknowledgement</Label>
+        <select
+          id="comm-ack"
+          className={NATIVE_SELECT}
+          value={acknowledgement}
+          onChange={(change) => onAcknowledgement(change.target.value as AcknowledgementPolicy)}
+        >
+          <option value="none">None</option>
+          <option value="read">Read</option>
+          <option value="explicit">Explicit acknowledgement</option>
+        </select>
+      </div>
+      <div className="space-y-2">
+        <span className="text-sm font-medium">Channels</span>
+        <div className="flex items-center gap-2">
+          <input id="comm-in-app" type="checkbox" checked readOnly aria-describedby="comm-in-app-note" />
+          <Label htmlFor="comm-in-app" className="font-normal">In-app inbox</Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <input id="comm-email" type="checkbox" disabled aria-describedby="comm-email-note" />
+          <Label htmlFor="comm-email" className="font-normal">Email</Label>
+        </div>
+        <p id="comm-email-note" className="text-xs text-muted-foreground">Email is unavailable until the email transport is installed.</p>
+        <p id="comm-in-app-note" className="sr-only">The in-app inbox is always selected.</p>
+      </div>
+    </fieldset>
+  );
+}
+
+function ScheduleFields({
+  disabled,
+  schedule,
+  selectedEvents,
+}: Readonly<{ disabled: boolean; schedule: ReturnType<typeof useSchedule>; selectedEvents: TargetEvent[] }>) {
+  const { dueAt } = schedule;
+  return (
+    <fieldset disabled={disabled} className="space-y-3">
+      <legend className="text-sm font-medium">When to send</legend>
+      <div className="flex gap-6">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="radio" name="comm-timing" checked={schedule.mode === "now"} onChange={() => schedule.setMode("now")} />
+          <span>Send now</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name="comm-timing"
+            checked={schedule.mode === "schedule"}
+            onChange={() => schedule.setMode("schedule")}
+          />
+          <span>Schedule</span>
+        </label>
+      </div>
+      {schedule.mode === "schedule" ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="comm-date">Date</Label>
+            <Input id="comm-date" type="date" value={schedule.date} onChange={(e) => schedule.setDate(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="comm-time">Time</Label>
+            <Input id="comm-time" type="time" value={schedule.time} onChange={(e) => schedule.setTime(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="comm-zone">Time zone</Label>
+            <select id="comm-zone" className={NATIVE_SELECT} value={schedule.zone} onChange={(e) => schedule.setZone(e.target.value)}>
+              {schedule.zones.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-3" aria-live="polite">
+            {schedule.error ? <p className="text-sm text-destructive">{schedule.error}</p> : null}
+            {dueAt ? (
+              <ul className="text-sm">
+                <li>UTC: {dueAt.toISOString()}</li>
+                {selectedEvents.map((event) => (
+                  <li key={event.id}>
+                    {event.name}: {formatInZone(dueAt, event.event_timezone)}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </fieldset>
+  );
+}
+
 export function ComposeCommunication({
   workspaceId,
   events,
@@ -145,19 +307,18 @@ export function ComposeCommunication({
   const revisionId = campaign?.latest_revision?.id ?? "";
   const contentChanged = locked && (subject.trim() !== reviewed.subject || body.trim() !== reviewed.body);
   const preview = useCommunicationPreview(campaign?.id ?? "", revisionId);
-  // Release only the revision whose preview loaded successfully and is releasable.
-  const previewed =
-    preview.isSuccess &&
-    preview.data.campaign_id === campaign?.id &&
-    preview.data.revision.id === revisionId &&
-    !preview.data.exceeds_audience_cap &&
-    preview.data.channels.every((channel) => channel.available);
-  const canSave = selected.length > 0 && title.trim() && subject.trim() && body.trim() && !schedule.error;
-  const writeError =
-    describeMutationError(create.error, "Could not save the draft.") ??
-    describeMutationError(revise.error, "Could not update the draft.") ??
-    describeMutationError(release.error, "Could not send the communication. Retry sends the same message.") ??
-    describeMutationError(discard.error, "Could not discard the draft.");
+  const previewed = isReleasable(preview.data, campaign?.id, revisionId);
+  const canSave = Boolean(selected.length > 0 && title.trim() && subject.trim() && body.trim() && !schedule.error);
+  const writeError = firstWriteError([
+    [create.error, "Could not save the draft."],
+    [revise.error, "Could not update the draft."],
+    [release.error, "Could not send the communication. Retry sends the same message."],
+    [discard.error, "Could not discard the draft."],
+  ]);
+
+  function toggleEvent(eventId: string, checked: boolean) {
+    setSelected((current) => (checked ? [...current, eventId] : current.filter((id) => id !== eventId)));
+  }
 
   function reset() {
     setCampaign(null);
@@ -172,21 +333,25 @@ export function ComposeCommunication({
 
   function saveDraft() {
     const content = { subject: subject.trim(), body: body.trim() };
-    if (!locked) {
-      create.mutate(
-        {
-          workspaceId,
-          eventIds: selected,
-          title: title.trim(),
-          ...content,
-          acknowledgementPolicy: acknowledgement,
-          dueAt: schedule.dueAt?.toISOString(),
-        },
-        { onSuccess: (saved) => { setCampaign(saved); setReviewed(content); } },
-      );
-    } else {
-      revise.mutate(content, { onSuccess: (saved) => { setCampaign(saved); setReviewed(content); } });
+    const onSuccess = (saved: Campaign) => {
+      setCampaign(saved);
+      setReviewed(content);
+    };
+    if (locked) {
+      revise.mutate(content, { onSuccess });
+      return;
     }
+    create.mutate(
+      {
+        workspaceId,
+        eventIds: selected,
+        title: title.trim(),
+        ...content,
+        acknowledgementPolicy: acknowledgement,
+        dueAt: schedule.dueAt?.toISOString(),
+      },
+      { onSuccess },
+    );
   }
 
   return (
@@ -205,114 +370,11 @@ export function ComposeCommunication({
             if (canSave && (!locked || contentChanged)) saveDraft();
           }}
         >
-          <fieldset disabled={locked} className="space-y-2">
-            <legend className="text-sm font-medium">Events</legend>
-            {events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">You cannot send communications to any event in this workspace.</p>
-            ) : null}
-            {events.map((event) => (
-              <div key={event.id} className="flex items-center gap-2">
-                <input
-                  id={`target-${event.id}`}
-                  type="checkbox"
-                  checked={selected.includes(event.id)}
-                  onChange={(change) =>
-                    setSelected((current) =>
-                      change.target.checked ? [...current, event.id] : current.filter((id) => id !== event.id),
-                    )
-                  }
-                />
-                <Label htmlFor={`target-${event.id}`} className="font-normal">
-                  {event.name} <span className="text-muted-foreground">({event.status}, {event.event_timezone})</span>
-                </Label>
-              </div>
-            ))}
-            {locked ? null : moreEvents}
-          </fieldset>
+          <EventPicker events={events} selected={selected} onToggle={toggleEvent} disabled={locked} more={moreEvents} />
 
-          <fieldset disabled={locked} className="grid gap-4 sm:grid-cols-2">
-            <legend className="sr-only">Delivery settings</legend>
-            <div className="space-y-2">
-              <Label htmlFor="comm-ack">Acknowledgement</Label>
-              <select
-                id="comm-ack"
-                className={NATIVE_SELECT}
-                value={acknowledgement}
-                onChange={(change) => setAcknowledgement(change.target.value as AcknowledgementPolicy)}
-              >
-                <option value="none">None</option>
-                <option value="read">Read</option>
-                <option value="explicit">Explicit acknowledgement</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <span className="text-sm font-medium">Channels</span>
-              <div className="flex items-center gap-2">
-                <input id="comm-in-app" type="checkbox" checked readOnly aria-describedby="comm-in-app-note" />
-                <Label htmlFor="comm-in-app" className="font-normal">In-app inbox</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input id="comm-email" type="checkbox" disabled aria-describedby="comm-email-note" />
-                <Label htmlFor="comm-email" className="font-normal">Email</Label>
-              </div>
-              <p id="comm-email-note" className="text-xs text-muted-foreground">Email is unavailable until the email transport is installed.</p>
-              <p id="comm-in-app-note" className="sr-only">The in-app inbox is always selected.</p>
-            </div>
-          </fieldset>
+          <DeliverySettings disabled={locked} acknowledgement={acknowledgement} onAcknowledgement={setAcknowledgement} />
 
-          <fieldset disabled={locked} className="space-y-3">
-            <legend className="text-sm font-medium">When to send</legend>
-            <div className="flex gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="radio" name="comm-timing" checked={schedule.mode === "now"} onChange={() => schedule.setMode("now")} />
-                Send now
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="comm-timing"
-                  checked={schedule.mode === "schedule"}
-                  onChange={() => schedule.setMode("schedule")}
-                />
-                Schedule
-              </label>
-            </div>
-            {schedule.mode === "schedule" ? (
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="comm-date">Date</Label>
-                  <Input id="comm-date" type="date" value={schedule.date} onChange={(e) => schedule.setDate(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="comm-time">Time</Label>
-                  <Input id="comm-time" type="time" value={schedule.time} onChange={(e) => schedule.setTime(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="comm-zone">Time zone</Label>
-                  <select id="comm-zone" className={NATIVE_SELECT} value={schedule.zone} onChange={(e) => schedule.setZone(e.target.value)}>
-                    {schedule.zones.map((zone) => (
-                      <option key={zone} value={zone}>
-                        {zone}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="sm:col-span-3" aria-live="polite">
-                  {schedule.error ? <p className="text-sm text-destructive">{schedule.error}</p> : null}
-                  {schedule.dueAt ? (
-                    <ul className="text-sm">
-                      <li>UTC: {schedule.dueAt.toISOString()}</li>
-                      {selectedEvents.map((event) => (
-                        <li key={event.id}>
-                          {event.name}: {formatInZone(schedule.dueAt!, event.event_timezone)}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-          </fieldset>
+          <ScheduleFields disabled={locked} schedule={schedule} selectedEvents={selectedEvents} />
 
           <div className="space-y-2">
             <Label htmlFor="comm-title">Title (organizers only)</Label>
