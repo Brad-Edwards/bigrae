@@ -23,7 +23,3 @@ Categories are the primary organizational axis for CTF challenges. Participants 
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (ChallengeCategory enum - defines 9 named categories (web, forensics, crypto, reverse, pwn, misc, osint, hardware, network))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge model - category CharField with ChallengeCategory.choices(), indexed, ordered by category)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenges.html` (Participant challenges UI - category filter buttons and challenges grouped by category sections)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_list.html` (Admin challenge list UI - challenges grouped by category with headers and counts)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_form.html` (Challenge create/edit form - category select dropdown from ChallengeCategory.choices() for organizer selection)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant_challenges.py` (Challenge views - category_filter via query param, challenges_by_category grouping for participant and admin views)

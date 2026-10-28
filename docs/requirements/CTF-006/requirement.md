@@ -30,7 +30,6 @@ Participant management is the gatekeeping layer for CTF events. Isolated-account
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_unified_authorization.py` (Service and temporary event-authority boundaries)
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums_registration.py` (ParticipantStatus enum - registered/active/completed/disqualified/banned lifecycle states)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_people.py` (Organizer participant CRUD and role-based access control)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/lifecycle.py` (Participant lifecycle service - organizer add via immediate provisioning, resend login info, delete)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/accounts.py` (Isolated participant account provisioning - provision_participant_seat seam shared by add/import/generated-seat creation)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/credentials.py` (Volatile password issuance and non-secret ledger login notices; legacy dispatch retired by ADR-065)

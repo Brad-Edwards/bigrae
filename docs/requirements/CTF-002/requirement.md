@@ -30,7 +30,6 @@ Accurate, real-time score computation is essential for competitive integrity and
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/challenge.py` (CTFChallenge, points, hint penalty calculator, release/visibility validation (split from models.py in PR #856))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/submission.py` (CTFSubmission.points_awarded, stored net points (penalty already applied))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/team.py` (CTFParticipant.total_score, aggregated score property)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF views - scoreboard endpoints (participant scoreboard, admin scoreboard, api_scoreboard, api_submit_flag))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/_strategy.py` (Scoring-mode strategy dispatch, calculate_solve_points / get_scoring_strategy (configurable scoring mode))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent.scoring_mode, organizer-configurable scoring mode field (default standard))
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring_mode.py` (Scoring-mode behavior tests, default/backward-compat, strategy dispatch, submission scoring, organizer visibility, invalid-mode rejection)

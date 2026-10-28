@@ -25,4 +25,3 @@ Many CTF events are team-based, where collaboration is part of the learning exer
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Team scoreboard with get_team_scoreboard() aggregation)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (TestCTFTeamModel - team creation, unique name constraint tests)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/conftest.py` (CTFTeam fixtures (ctf_team, ctf_event_team) for team tests)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (participant_team and team_join views for team membership UI)

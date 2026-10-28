@@ -1,7 +1,6 @@
 """Canonical DRF organizer views for the CTF API.
 
-Proper DRF replacements for the transitional ``legacy_api_view`` wrappers: each
-view validates a request serializer, calls the authoritative ``ctf.services.*``
+Each view validates a request serializer, calls the authoritative ``ctf.services.*``
 facade, and returns a typed response serializer, so the ``/api/v1/ctf/`` surface
 carries real generated OpenAPI types for the SPA. Domain correctness
 (validation, ownership, state machine, range teardown) stays in the service

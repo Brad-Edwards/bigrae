@@ -25,5 +25,3 @@ Force delete is the nuclear option for events that need to be completely removed
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (force_delete_event() - service function for force-deleting events with cascade)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Admin view and API endpoint for force-deleting events)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (URL patterns for force-delete admin view and API endpoint)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/event_force_delete.html` (Force-delete confirmation page with name-typing confirmation)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/event_detail.html` (Danger zone section linking to force-delete page)

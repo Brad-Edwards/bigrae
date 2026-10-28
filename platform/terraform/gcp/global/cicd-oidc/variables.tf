@@ -84,3 +84,15 @@ variable "deployment_config_bucket_name" {
   type        = string
   default     = ""
 }
+
+variable "enable_gcs_usage_log_delivery" {
+  description = <<-EOT
+    Grant the Google-managed group cloud-storage-analytics@google.com objectCreator
+    on the access-log prefix of the release-evidence bucket for usage logs of the
+    deployment config bucket. A Domain Restricted Sharing org policy
+    (iam.allowedPolicyMemberDomains) forbids the google.com group and fails the
+    binding with Error 412. Cloud Audit Logs record config bucket access either way.
+  EOT
+  type        = bool
+  default     = false
+}

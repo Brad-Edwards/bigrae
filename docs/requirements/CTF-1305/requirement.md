@@ -27,5 +27,4 @@ Submission history is essential for organizers to detect cheating, debug flag is
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (api_submissions - Participant API to view own submission history)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (admin_participant_detail - Organizer views participant submission history)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (Submission service - get_participant_submissions, get_challenge_submissions, get_correct_submissions)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_people.py::admin_participant_detail` (Organizer participant detail view - submission history context)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)
