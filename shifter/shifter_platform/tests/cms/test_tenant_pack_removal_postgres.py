@@ -16,9 +16,10 @@ pytestmark = [pytest.mark.postgres, pytest.mark.django_db(transaction=True)]
 
 @pytest.fixture
 def tenant_pack(settings, monkeypatch, tenant):
+    settings.CLOUD_PROVIDER = "aws"
     settings.RAES_PACKAGE_BUCKET = "test-private-pack-storage"
     storage = PackStorage()
-    monkeypatch.setattr("shared.cloud.get_object_storage", lambda: storage)
+    monkeypatch.setattr("shared.cloud.aws.storage.AWSObjectStorage", lambda: storage)
     actor, organization = tenant
     ref = f"tenant-packs/{organization.uuid}/{uuid4()}.tar.gz"
     storage.objects[(settings.RAES_PACKAGE_BUCKET, ref)] = b"archive"

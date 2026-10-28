@@ -57,11 +57,11 @@ def _archive(root):
 def upload(tenant, make_pack, tmp_path, settings, monkeypatch):
     actor, organization = tenant
     root = make_pack(tmp_path / "example")
+    settings.CLOUD_PROVIDER = "aws"
     settings.RAES_PACKAGE_BUCKET = "test-private-pack-storage"
     settings.RAES_PACKAGE_PREFIX = "packs"
     storage = PackStorage()
-    monkeypatch.setattr("cms.services._tenant_pack_upload.get_object_storage", lambda: storage)
-    monkeypatch.setattr("shared.cloud.get_object_storage", lambda: storage)
+    monkeypatch.setattr("shared.cloud.aws.storage.AWSObjectStorage", lambda: storage)
     client = APIClient()
     client.force_authenticate(user=actor)
     return client, organization, root, storage
