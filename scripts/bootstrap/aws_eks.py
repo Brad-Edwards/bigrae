@@ -624,8 +624,8 @@ def _verify_effective_irsa(roles: Mapping[str, object], platform_image: str) -> 
                     "restartPolicy": "Never",
                     "securityContext": {
                         "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "runAsGroup": 1000,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
                         "seccompProfile": {"type": "RuntimeDefault"},
                     },
                     "containers": [
@@ -736,7 +736,7 @@ print("NETWORK_POLICY_OK:{workload}", flush=True)
             "capabilities": {"drop": ["ALL"]},
             "readOnlyRootFilesystem": True,
             "runAsNonRoot": True,
-            "runAsUser": 1000,
+            "runAsUser": 10001,
         },
     }
     if workload == "deployment":
@@ -790,8 +790,8 @@ def _networkpolicy_probe_manifests(
     job_name = "shifter-networkpolicy-job"
     pod_security_context = {
         "runAsNonRoot": True,
-        "runAsUser": 1000,
-        "runAsGroup": 1000,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
         "seccompProfile": {"type": "RuntimeDefault"},
     }
     labels = {
@@ -1499,8 +1499,8 @@ def _guacamole_provision_manifests(
                     # one-shot and non-serving.
                     "securityContext": {
                         "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "runAsGroup": 1000,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
                         "seccompProfile": {"type": "RuntimeDefault"},
                     },
                     "containers": [
@@ -1913,8 +1913,8 @@ def _migration_job(platform_image: str) -> dict[str, object]:
                     # guacamole provisioner Job). The pod is one-shot and non-serving.
                     "securityContext": {
                         "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "runAsGroup": 1000,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
                         "seccompProfile": {"type": "RuntimeDefault"},
                     },
                     "containers": [

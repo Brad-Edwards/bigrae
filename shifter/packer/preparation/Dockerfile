@@ -30,5 +30,5 @@ COPY shifter/shifter_platform/shared/raes/__init__.py shifter/shifter_platform/s
      shifter/shifter_platform/shared/raes/json_ingress.py ./shared/raes/
 COPY shifter/packer/preparation ./preparation
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-USER 1000:1000
+USER 10001:10001
 ENTRYPOINT ["/opt/venv/bin/python", "-m", "preparation.worker_client"]

@@ -104,6 +104,14 @@ and application authorization. These controls do not provide authenticated
 pod-to-pod mTLS; a service mesh remains unadopted. No documentation or unit-test
 result proves complete escape detection or live containment qualification.
 
+Control-plane workloads run as the non-root runtime identity UID 10001, with a
+read-only root filesystem, dropped capabilities, and the `RuntimeDefault` seccomp
+profile. The admission policies pin that identity for the provisioner,
+preparation, and acquisition Jobs. The Cloud SQL proxy keeps its own 65532
+identity. Kubernetes Checkov is a blocking gate for the manifests under
+`platform/k8s`; a scoped waiver uses a resource annotation with a matching
+`docs/adr/exceptions.yaml` entry (ADR-004-R11).
+
 The model-access broker is **parked and unsupported** under
 [ADR-068](../adr/068-model-access-broker-parked.md). Keep broker/model-access
 settings disabled. Keyless-direct is the supported guest model path; a proposed

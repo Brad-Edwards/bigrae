@@ -324,9 +324,12 @@ resource "aws_instance" "runner" {
   subnet_id              = local.runner_subnet_id
   iam_instance_profile   = aws_iam_instance_profile.runner.name
 
+  # Encrypt the root volume (AWS-0131). This attribute forces a new
+  # instance when it changes. A replaced runner must be registered again.
   root_block_device {
     volume_size = 50
     volume_type = "gp3"
+    encrypted   = true
   }
 
   # user_data is a first-boot-only path, so editing it does not run on an

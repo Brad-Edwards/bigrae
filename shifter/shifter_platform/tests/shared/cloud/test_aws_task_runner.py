@@ -96,14 +96,14 @@ class TestAWSKubernetesTaskRunnerRunTask:
         sc = container.security_context
         assert sc.read_only_root_filesystem is True
         assert sc.run_as_non_root is True
-        assert sc.run_as_user == 1000
-        assert sc.run_as_group == 1000
+        assert sc.run_as_user == 10001
+        assert sc.run_as_group == 10001
         assert sc.allow_privilege_escalation is False
         assert sc.capabilities.drop == ["ALL"]
 
         pod_sc = pod_spec.security_context
         assert pod_sc.seccomp_profile.type == "RuntimeDefault"
-        assert pod_sc.fs_group == 1000
+        assert pod_sc.fs_group == 10001
 
         # Same shared writable surface as GCP: the provisioner image is identical
         # cross-cloud, so both adapters build from the one cloud-neutral contract.

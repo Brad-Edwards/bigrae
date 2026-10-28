@@ -107,8 +107,8 @@ WORKDIR /app
 # docs/architecture/rev1-build-deployment-provenance.md; this in-layer upgrade is
 # the deterministic path to the security-suite versions regardless of the base
 # image's rebuild cadence.
-RUN groupadd --gid 1000 appgroup && \
-    useradd --uid 1000 --gid appgroup --create-home --home-dir /home/appuser --shell /bin/bash appuser && \
+RUN groupadd --gid 10001 appgroup && \
+    useradd --uid 10001 --gid appgroup --create-home --home-dir /home/appuser --shell /bin/bash appuser && \
     apt-get update && \
     apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \

@@ -559,8 +559,9 @@ class QualityOwnershipCheckTests(unittest.TestCase):
 
     def test_advisory_job_cannot_own_responsibility(self):
         data = json.loads(json.dumps(DEFAULT_CONTRACT))
-        # security-k8s is an evidence-only (advisory) job by name.
-        data["quality_units"][0]["responsibilities"]["security"] = ["security-k8s"]
+        # security-trivy-advisory is an evidence-only (advisory) job by name.
+        # (security-k8s became a blocking gate in #2558.)
+        data["quality_units"][0]["responsibilities"]["security"] = ["security-trivy-advisory"]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_repo(root, contract=data)

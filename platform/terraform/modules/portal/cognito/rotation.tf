@@ -24,7 +24,6 @@ resource "aws_cloudwatch_log_group" "rotation" {
 }
 
 resource "aws_lambda_function" "rotation" {
-  # checkov:skip=CKV_AWS_50:Operator-invoked rotation Lambda; CloudWatch logs are sufficient observability, no X-Ray.
   # checkov:skip=CKV_AWS_115:Reserved concurrency unnecessary; invoked on demand by an operator.
   # checkov:skip=CKV_AWS_116:DLQ does not apply to a synchronous operator-invoked function.
   # checkov:skip=CKV_AWS_117:Calls only public AWS APIs (Cognito, Secrets Manager, Auto Scaling); a VPC config needs interface endpoints for no security gain.
@@ -40,6 +39,11 @@ resource "aws_lambda_function" "rotation" {
 
   role = aws_iam_role.rotation.arn
 
+  # Send trace data to X-Ray (CKV_AWS_50, AWS-0066).
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       COGNITO_SECRET_ID = aws_secretsmanager_secret.cognito_client.arn
@@ -49,7 +53,7 @@ resource "aws_lambda_function" "rotation" {
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-cognito-rotation" })
 
-  depends_on = [aws_cloudwatch_log_group.rotation]
+  depends_on = [aws_cloudwatch_log_group.rotation, aws_iam_role_policy.rotation_xray]
 }
 
 # ------------------------------------------------------------------------------
@@ -82,6 +86,22 @@ resource "aws_iam_role_policy" "rotation_logs" {
       Effect   = "Allow"
       Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
       Resource = "${aws_cloudwatch_log_group.rotation.arn}:*"
+    }]
+  })
+}
+
+# X-Ray write access for active tracing. The X-Ray put actions do not
+# support resource-level permissions, so the resource is "*".
+resource "aws_iam_role_policy" "rotation_xray" {
+  name = "xray"
+  role = aws_iam_role.rotation.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
+      Resource = "*"
     }]
   })
 }
@@ -195,12 +215,21 @@ resource "aws_iam_role_policy" "reminder_publish" {
   name = "sns-publish"
   role = aws_iam_role.reminder[0].id
 
+  # Publishing to a topic encrypted with a customer managed key needs
+  # kms:GenerateDataKey and kms:Decrypt on that key.
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "sns:Publish"
-      Resource = var.alerts_topic_arn
-    }]
+    Statement = concat(
+      [{
+        Effect   = "Allow"
+        Action   = "sns:Publish"
+        Resource = var.alerts_topic_arn
+      }],
+      var.alerts_topic_kms_key_arn == "" ? [] : [{
+        Effect   = "Allow"
+        Action   = ["kms:GenerateDataKey", "kms:Decrypt"]
+        Resource = var.alerts_topic_kms_key_arn
+      }],
+    )
   })
 }

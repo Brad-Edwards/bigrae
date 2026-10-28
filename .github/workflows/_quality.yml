@@ -2598,11 +2598,10 @@ jobs:
     needs: [paths]
     if: ${{ (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.k8s == 'true') }}
     runs-on: ubuntu-latest
-    # K8s Checkov is intentionally a separate policy surface from Terraform
-    # Checkov (per ADR-004-R11). It stays soft-fail / continue-on-error
-    # while manifest remediation proceeds under a separate issue;
-    # Terraform soft-fail is NOT permitted to inherit from this.
-    continue-on-error: true
+    # K8s Checkov is a separate blocking policy surface from Terraform Checkov
+    # (per ADR-004-R11). Both fail closed. Do NOT reintroduce continue-on-error
+    # or soft_fail: fix the finding, or record a scoped, factual exception in
+    # docs/adr/exceptions.yaml with a resource annotation.
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -2621,7 +2620,7 @@ jobs:
           framework: kubernetes
           quiet: true
           compact: true
-          soft_fail: true
+          soft_fail: false
 
   # Repository configuration remains advisory here. Exact release OCI digests
   # are scanned as a blocking deploy gate in _gcp-dev.yml (#2084).
