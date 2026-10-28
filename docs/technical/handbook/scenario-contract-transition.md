@@ -18,6 +18,11 @@ framework and tool dependencies only. It did not change the RAES package pins,
 serialized plan versions, ownership boundary or migration contract described
 here.
 
+The 2026-10-28 WebSocket security update requires Autobahn 26.10.1 and its
+CPython `cbor2` dependency update. It changes transport dependencies only; the
+RAES pins, serialized plans, authoring contract and cleanup reader remain the
+same. The related Node adapter lock updates affect the MCP HTTP transport.
+
 Only `shared.raes` imports the released RAES module family. It validates and
 compiles authored intent into the RAES ProvisioningPlan. The independent
 provisioner validates and reads plain serialized data, not a second authored
