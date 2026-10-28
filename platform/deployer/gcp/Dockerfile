@@ -127,13 +127,12 @@ RUN find /opt/bigrae/platform/terraform/gcp -name .terraform.lock.hcl -printf '%
     done < /opt/bigrae/terraform-roots
 
 # ---------------------------------------------------------------------------
-# Runtime image.
-# ---------------------------------------------------------------------------
-# gke-gcloud-auth-plugin, built from source (#2618). The newest Google build
-# (gcloud 591.0.0, plugin 0.5.20) uses Go 1.27.1, which has the CRITICAL
-# CVE-2026-56857. The source is the exact commit of kubernetes/cloud-provider-gcp
-# below, and go.sum verifies each module. Bump the commit and the Go image
-# together, and move back to the Google build when it uses a fixed Go.
+# Build gke-gcloud-auth-plugin with fixed Go, x/net, and x/text dependencies so
+# the deployer scan needs no plugin-specific exceptions. CVE-2026-56857 affects
+# Windows only; the other Go and module findings apply to the vendor's Linux
+# binary. The Go image and upstream source commit are pinned, and go.sum
+# verifies each module. Keep both pins current. Return to the Google binary
+# when it passes the deployer scan without plugin-specific exceptions.
 # ---------------------------------------------------------------------------
 # base image: golang:1.27.3-trixie
 FROM golang@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS gke-auth-plugin
@@ -149,6 +148,8 @@ RUN git init -q . && \
       -o /out/gke-gcloud-auth-plugin ./cmd/gke-gcloud-auth-plugin && \
     /out/gke-gcloud-auth-plugin --help >/dev/null
 
+# ---------------------------------------------------------------------------
+# Runtime image.
 # ---------------------------------------------------------------------------
 # base image: python:3.12-slim-trixie
 FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS deployer
