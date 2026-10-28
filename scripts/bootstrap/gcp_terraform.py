@@ -232,6 +232,9 @@ def terraform_apply(
             return
         combined = f"{result.stdout}\n{result.stderr}"
         if attempt < max_attempts and _is_permission_propagation(combined):
+            # Show the error, so an operator can tell propagation from a real failure (#2601).
+            if result.stderr:
+                print(result.stderr, end="")
             warn(
                 f"Terraform apply hit an IAM propagation error; retrying in {sleep_seconds}s ({attempt}/{max_attempts})"
             )
