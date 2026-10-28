@@ -82,10 +82,13 @@ FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199
 
 # Image metadata. `maintainer` is the label SonarCloud docker:S7028 requires;
 # the org.opencontainers.image.* labels are the modern OCI equivalents.
+# CI sets the source URL from the running repository (ADR-069).
+# A local build leaves the label empty.
+ARG SOURCE_REPOSITORY_URL=""
 LABEL maintainer="Shifter maintainers" \
       org.opencontainers.image.title="shifter-portal" \
       org.opencontainers.image.description="Shifter platform portal (Django: Mission Control, CMS, CTF, Management)" \
-      org.opencontainers.image.source="https://github.com/Brad-Edwards/shifter" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY_URL}" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.authors="Shifter maintainers"
 
@@ -104,8 +107,8 @@ WORKDIR /app
 # docs/architecture/rev1-build-deployment-provenance.md; this in-layer upgrade is
 # the deterministic path to the security-suite versions regardless of the base
 # image's rebuild cadence.
-RUN groupadd --gid 1000 appgroup && \
-    useradd --uid 1000 --gid appgroup --create-home --home-dir /home/appuser --shell /bin/bash appuser && \
+RUN groupadd --gid 10001 appgroup && \
+    useradd --uid 10001 --gid appgroup --create-home --home-dir /home/appuser --shell /bin/bash appuser && \
     apt-get update && \
     apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
@@ -126,6 +129,14 @@ COPY shifter_adapter_sdk /opt/shifter-libs/shifter_adapter_sdk
 
 # Copy application code (context is now shifter/, so path is shifter_platform)
 COPY --chown=appuser:appgroup shifter_platform .
+
+# Shipped environment packs (#2550). The canonical sources live under
+# shifter/environment-packs/; only the packs that the in-box bootstrap manifest
+# (cms/scenarios/inbox_packs/manifest.yaml) registers are copied, each to its
+# manifest package_ref under the RAES package root /app. Development packs in the
+# same collection are never copied. Keep this list and the manifest in agreement.
+COPY --chown=appuser:appgroup environment-packs/smoke-linux cms/scenarios/inbox_packs/smoke-linux
+COPY --chown=appuser:appgroup environment-packs/smoke-linux-aws cms/scenarios/inbox_packs/smoke-linux-aws
 
 # Bring in the built SPA bundle from the frontend stage. Kept out of the source
 # COPY above because it is generated (gitignored / dockerignored); collectstatic

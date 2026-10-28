@@ -1,5 +1,8 @@
 # CTF Communication API And Legacy Cutover Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Date: 2026-09-19. Inspected baseline: `37f0b11be`. Scope: #2100 / CTF-012,
 slice 3 of #2049. Architecture guidance only; no implementation plan or claim of
 shipping behavior. Applies ADR-040, ADR-051-R2/R6/R9/R12 and ADR-052 alongside the

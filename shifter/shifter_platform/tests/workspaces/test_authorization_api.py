@@ -466,7 +466,8 @@ def test_predefined_workspace_administrator_assignment_is_typed_and_scoped(autho
     assert "workspace.update" in provider.checked_actions
     assert "workspace.read" in provider.checked_actions
     assert "workspace.leave" not in provider.checked_actions
-    assert "workspace.launch_range" not in provider.checked_actions
+    assert "workspace.launch_range" in provider.checked_actions
+    assert "account.update" not in provider.checked_actions
 
 
 def test_predefined_policy_uuid_is_rejected_by_both_custom_policy_routes(authorization_context) -> None:

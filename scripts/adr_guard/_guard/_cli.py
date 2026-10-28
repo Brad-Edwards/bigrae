@@ -1,4 +1,5 @@
 """Command-line interface: argument parsing and the main() entry point."""
+
 from __future__ import annotations
 
 import argparse
@@ -14,8 +15,8 @@ from ._common import (
     load_adr_exceptions,
 )
 from ._registry import (
-    CHECKS,
     CHECK_LEVELS,
+    CHECKS,
 )
 
 

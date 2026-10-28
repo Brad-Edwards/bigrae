@@ -164,6 +164,22 @@ def resolve_principal_uuid(principal_uuid: UUID) -> PrincipalRef:
     return _principal_ref(principal)
 
 
+def human_principal_user_id(principal_ref: PrincipalRef) -> int:
+    """Resolve the actual human account for business-policy facts, never a service contact."""
+    principal_ref = resolve_principal(principal_ref)
+    if principal_ref.kind != "human":
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    identifier = (
+        _active_principals()
+        .filter(uuid=principal_ref.uuid, kind=Principal.Kind.HUMAN)
+        .values_list("user_id", flat=True)
+        .first()
+    )
+    if identifier is None:
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    return identifier
+
+
 def resolve_service_credential(*, issuer: str, subject: str, audience: str) -> CredentialContext:
     """Resolve only an exact, explicitly admitted, active native service tuple."""
     admission = (
@@ -191,6 +207,27 @@ def resolve_service_credential(*, issuer: str, subject: str, audience: str) -> C
         )
     except ValueError as exc:
         raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE) from exc
+
+
+def resolve_service_credential_reference(credential_uuid: UUID, *, audience: str) -> CredentialContext:
+    """Revalidate an admitted workload's exact immutable lifecycle reference."""
+    from shared.credentials import CredentialRevoked
+
+    admission = (
+        ServiceCredentialAdmission.objects.select_related("binding__principal")
+        .filter(uuid=credential_uuid, audience=audience, is_active=True, binding__principal__is_active=True)
+        .first()
+    )
+    if not audience:
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    if admission is None:
+        raise CredentialRevoked(_PRINCIPAL_UNAVAILABLE)
+    credential = resolve_service_credential(
+        issuer=admission.binding.issuer, subject=admission.binding.subject, audience=admission.audience
+    )
+    if credential.credential_uuid != credential_uuid:
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    return credential
 
 
 def create_service_principal(

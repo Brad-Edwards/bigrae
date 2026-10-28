@@ -106,6 +106,9 @@ def request_event_provisioning(
                 logger.info("Coalescing provision request onto pending task %s", pending.pk)
             return pending
 
+        from ctf.bridges import cms_fence_pack_reference
+
+        cms_fence_pack_reference(event.scenario_id)
         task = CTFScheduledTask.objects.create(
             event_id=event_id,
             task_type=spin_up,

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import os
-
 from django.core.exceptions import ImproperlyConfigured
 
+from config._product_env import product_env
 from shared.schemas.ctf_content_reference import (
     CtfContentReferenceCatalog,
     CtfContentReferenceError,
@@ -22,13 +21,13 @@ __all__ = [
 _DEFAULT_MAX_BYTES = 8 * 1024 * 1024
 _MAX_ALLOWED_BYTES = 8 * 1024 * 1024
 
-CTF_CONTENT_BUCKET = os.environ.get("SHIFTER_CTF_CONTENT_BUCKET", "").strip()
-CTF_CONTENT_PREFIX = os.environ.get("SHIFTER_CTF_CONTENT_PREFIX", "ctf/content-bundles").strip()
+CTF_CONTENT_BUCKET = product_env("SHIFTER_CTF_CONTENT_BUCKET", "").strip()
+CTF_CONTENT_PREFIX = product_env("SHIFTER_CTF_CONTENT_PREFIX", "ctf/content-bundles").strip()
 
 
 def _load_max_bytes() -> int:
     """Load and validate the deployment's content-object byte limit."""
-    raw = os.environ.get("SHIFTER_CTF_CONTENT_MAX_BYTES", str(_DEFAULT_MAX_BYTES)).strip()
+    raw = product_env("SHIFTER_CTF_CONTENT_MAX_BYTES", str(_DEFAULT_MAX_BYTES)).strip()
     try:
         value = int(raw)
     except ValueError as exc:
@@ -42,7 +41,7 @@ def _load_references() -> CtfContentReferenceCatalog:
     """Load the closed reference catalog and its required bucket binding."""
     try:
         catalog = load_ctf_content_references_json(
-            os.environ.get("SHIFTER_CTF_CONTENT_REFERENCES_JSON", ""),
+            product_env("SHIFTER_CTF_CONTENT_REFERENCES_JSON", ""),
             prefix=CTF_CONTENT_PREFIX,
         )
     except CtfContentReferenceError as exc:

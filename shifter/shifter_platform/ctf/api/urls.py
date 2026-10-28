@@ -42,6 +42,31 @@ urlpatterns = [
     ),
     path("communications/", communication.CommunicationListView.as_view(), name="api_communications"),
     path(
+        "communications/targets/",
+        communication.CommunicationTargetsView.as_view(),
+        name="api_communication_targets",
+    ),
+    path(
+        "communications/<uuid:campaign_id>/preview/",
+        communication.CommunicationPreviewView.as_view(),
+        name="api_communication_preview",
+    ),
+    path(
+        "communications/<uuid:campaign_id>/delivery/",
+        communication.CommunicationDeliveryView.as_view(),
+        name="api_communication_delivery",
+    ),
+    path(
+        "communications/<uuid:campaign_id>/recipients/",
+        communication.CommunicationRecipientsView.as_view(),
+        name="api_communication_recipients",
+    ),
+    path(
+        "communications/<uuid:campaign_id>/activity/",
+        communication.CommunicationActivityView.as_view(),
+        name="api_communication_activity",
+    ),
+    path(
         "communications/<uuid:campaign_id>/",
         communication.CommunicationDetailView.as_view(),
         name="api_communication_detail",

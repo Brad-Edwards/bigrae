@@ -1,5 +1,8 @@
 # AWS Redis AUTH/TLS Preflight (#938)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation guidance
 
 Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/938>

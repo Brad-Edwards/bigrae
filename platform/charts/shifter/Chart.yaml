@@ -1,6 +1,6 @@
 apiVersion: v2
 name: shifter
-description: Backend-neutral Helm chart for the Shifter SaaS cyber range platform
+description: Backend-neutral Helm chart for the BigRAE SaaS cyber range platform
 type: application
 version: 0.2.0
 appVersion: "0.1.0"

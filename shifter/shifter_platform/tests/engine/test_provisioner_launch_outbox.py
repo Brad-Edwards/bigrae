@@ -138,6 +138,31 @@ def test_drainer_launches_canonical_command_and_marks_succeeded(settings, k8s_bo
     assert row.task_ref == f"{_JOBS_NAMESPACE}/pulumi-provisioner-job-1"
 
 
+@pytest.mark.postgres
+@pytest.mark.parametrize("operation", ["provision", "destroy"])
+def test_legacy_dispatch_locks_and_launches_on_postgresql(settings, k8s_boundary, django_user_model, operation):
+    from engine.launch_intents import enqueue_provisioner_launch
+    from engine.models import ProvisionerLaunchIntent, Range
+
+    user = django_user_model.objects.create_user(username="synthetic-legacy-launcher")
+    native = Range.objects.create(
+        user=user,
+        workspace_id=_WORKSPACE_ID,
+        status=Range.Status.PROVISIONING if operation == "provision" else Range.Status.DESTROYING,
+    )
+    command = ["range", operation, "--range-id", str(native.pk), "--user-id", str(user.pk)]
+    ref = enqueue_provisioner_launch(command)
+    row = ProvisionerLaunchIntent.objects.get(intent_id=ref)
+    _configure_aws(settings)
+    k8s_boundary.batch_api.create_namespaced_job.return_value = _job("synthetic-legacy-job")
+
+    call_command("drain_provisioner_launch_outbox", stdout=StringIO())
+
+    row.refresh_from_db()
+    assert row.status == "SUCCEEDED"
+    assert _launched_command(k8s_boundary) == [*command, "--operation-id", str(row.operation_id)]
+
+
 def test_drainer_retries_failure_without_leaking_error_details(settings, k8s_boundary) -> None:
     row = _intent()
     before = timezone.now()

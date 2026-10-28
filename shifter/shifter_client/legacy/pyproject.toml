@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shifter-client"
+version = "0.2.0"
+description = "Compatibility distribution; use bigrae-client"
+requires-python = ">=3.12"
+dependencies = ["bigrae-client==0.1.0"]
+
+[tool.setuptools]
+packages = []

@@ -315,6 +315,7 @@ def _warm_prepare_dispatch(
     cleaned up on the non-dispatch paths.
     """
     from cms.models import RangeInstance, Request
+    from cms.services._pack_fence import fence_pack_reference
     from cms.services._raes_range_create import (
         _audit_raes_range_provision,
         _dispatch_raes_package,
@@ -347,6 +348,8 @@ def _warm_prepare_dispatch(
 
         def _persist(cms_request: Request) -> RangeInstance:
             """Create the system-owned CMS RangeInstance row for the warm generation."""
+            # Admission fence (ADR-034-R13): a removed or revised pack admits no new generation.
+            fence_pack_reference(bucket.scenario, expected_digest=source.package_digest)
             return RangeInstance.objects.create(
                 request=cms_request,
                 scenario_id=bucket.scenario,

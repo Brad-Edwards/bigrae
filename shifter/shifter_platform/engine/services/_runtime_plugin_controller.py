@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.utils import timezone
-from shifter_adapter_sdk.runtime import PROTOCOL, InspectionInput, InspectionResult, PluginManifest, RuntimeInput
+from shifter_adapter_sdk.runtime import InspectionInput, InspectionResult, PluginManifest, RuntimeInput
 
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.cloud.exceptions import CloudTaskError
@@ -21,6 +21,7 @@ from shared.cloud.runtime_plugins import (
     observe_plugin,
     plugin_task_ref,
 )
+from shared.exceptions import ValidationError
 
 if TYPE_CHECKING:
     from engine.models import RuntimePluginInstallation
@@ -96,7 +97,13 @@ def _reconcile(row: RuntimePluginInstallation) -> None:
         manifest = PluginManifest.model_validate(row.manifest)
         if manifest.digest != row.manifest_digest:
             raise ValueError("Stored plugin identity mismatch")
-        request = InspectionInput(protocol=PROTOCOL, phase="inspect", invocation_id=row.probe_id, manifest=manifest)
+        if row.authority_kind:
+            from ._runtime_plugin_authority import reauthorize_plugin_initiator
+
+            reauthorize_plugin_initiator(row)
+        request = InspectionInput(
+            protocol=manifest.protocol, phase="inspect", invocation_id=row.probe_id, manifest=manifest
+        )
         if row.probe_expires_at <= timezone.now():
             state, failure_code = "failed", "installation-timeout"
             interrupt_plugin(request)
@@ -132,6 +139,13 @@ def _record(row: RuntimePluginInstallation, state: str, failure_code: str) -> No
     """Persist only current probe evidence under the installation row lock."""
     from engine.models import RuntimePluginInstallation
 
+    if state == "ready" and row.authority_kind:
+        from ._runtime_plugin_authority import reauthorize_plugin_initiator
+
+        try:
+            reauthorize_plugin_initiator(row)
+        except (ValueError, ValidationError):
+            state, failure_code = "failed", "installation-failed"
     with transaction.atomic():
         current = RuntimePluginInstallation.objects.select_for_update().get(pk=row.pk)
         if current.state != "checking" or current.probe_id != row.probe_id:

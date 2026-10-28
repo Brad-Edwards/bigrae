@@ -3,10 +3,14 @@ kind: Deployment
 metadata:
   name: guacamole-client
   namespace: {{ .Values.namespaces.platform }}
-  {{- if .Values.capacityProfile.id }}
   annotations:
+    # CKV_K8S_35: DB credentials arrive through envFrom until the Guacamole image
+    # file-secret fork (#2565) lands. The pinned 1.6.0 image has no _FILE support
+    # (GUACAMOLE-2119). Scoped, time-boxed entry in docs/adr/exceptions.yaml.
+    checkov.io/skip1: CKV_K8S_35=Guacamole 1.6.0 image has no file-secret support (GUACAMOLE-2119); fork tracked in #2565
+    {{- if .Values.capacityProfile.id }}
     shifter.dev/capacity-profile: {{ .Values.capacityProfile.id | quote }}
-  {{- end }}
+    {{- end }}
   labels:
     {{- include "shifter.partOfLabels" . | nindent 4 }}
     app.kubernetes.io/component: guacamole-client
@@ -46,6 +50,14 @@ spec:
             - name: guacamole-home
               mountPath: /home/guacamole
           env:
+            {{- range $name := list "OPENFGA_ENABLED" "GUACAMOLE_CONTROL_URL" "GUACAMOLE_CONTROL_AUDIENCE" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: platform-runtime
+                  key: {{ $name }}
+                  optional: true
+            {{- end }}
             - name: GUACD_HOSTNAME
               value: guacd
             - name: GUACD_PORT

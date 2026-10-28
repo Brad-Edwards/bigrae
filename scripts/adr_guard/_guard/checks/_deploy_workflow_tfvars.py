@@ -4,6 +4,7 @@ The committed `terraform.tfvars` under `platform/terraform/environments/*` is an
 intentionally-broken `example.com` baseline, so each Terraform-running job must
 write the deployment-owned override before Terraform consumes variables.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,7 +19,6 @@ from .._workflow_model import (
     _RANGE_WORKFLOW_PATH,
 )
 from ._deploy_workflow_text import _workflow_job_block
-
 
 _TFVARS_RENDER_CHECK = "aws-platform-renders-deploy-tfvars"
 _TFVARS_RENDER_RULE = "ADR-011-R7"
@@ -103,9 +103,7 @@ def _tfvars_render_violations_for_workflow(workflow_path: str, text: str) -> lis
     return violations
 
 
-def check_platform_renders_deploy_tfvars(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def check_platform_renders_deploy_tfvars(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Require AWS Terraform deploy jobs to render local.auto.tfvars first.
 
     The committed `terraform.tfvars` under `platform/terraform/environments/*`
@@ -115,9 +113,7 @@ def check_platform_renders_deploy_tfvars(
     consumes variables, so deploys never apply the baseline (ADR-011-R7).
     """
     workflow_paths = (_PLATFORM_WORKFLOW_PATH, _CORE_WORKFLOW_PATH, _RANGE_WORKFLOW_PATH)
-    if files is not None and not any(
-        path in {*workflow_paths} or is_guard_source_path(path) for path in files
-    ):
+    if files is not None and not any(path in {*workflow_paths} or is_guard_source_path(path) for path in files):
         return []
 
     violations: list[Violation] = []

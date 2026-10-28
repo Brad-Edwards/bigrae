@@ -20,7 +20,4 @@ create_runner_network = true
 
 runner_count = 3
 
-github_org  = "Brad-Edwards"
-github_repo = "shifter"
-
 # Access via SSM Session Manager - no SSH required

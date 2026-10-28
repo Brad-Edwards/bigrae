@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,10 +28,7 @@ class AdrGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "layer_imports.yaml"
             config.write_text(
-                "allowed:\n"
-                "  engine:\n"
-                "    - shared\n"
-                "    - cms.services\n",
+                "allowed:\n  engine:\n    - shared\n    - cms.services\n",
                 encoding="utf-8",
             )
 
@@ -150,12 +148,8 @@ class AdrGuardTests(unittest.TestCase):
         self.assertEqual(ADR_GUARD.validate_interface_contract(contract, "ADR-032"), [])
 
         mutations = {
-            "provisioner imports RAES": lambda value: value["transport"].update(
-                {"provisioner_imports_raes": True}
-            ),
-            "competing projection": lambda value: value["transport"].update(
-                {"competing_projection": True}
-            ),
+            "provisioner imports RAES": lambda value: value["transport"].update({"provisioner_imports_raes": True}),
+            "competing projection": lambda value: value["transport"].update({"competing_projection": True}),
             "accessor used as consumer": lambda value: value["ownership"].update(
                 {"payload_access": "raes-python-accessor"}
             ),
@@ -171,15 +165,9 @@ class AdrGuardTests(unittest.TestCase):
             "wrong resource accepted": lambda value: value["failure_policy"].update(
                 {"wrong_resource_or_domain": "return-none"}
             ),
-            "leaf fallback": lambda value: value["naming"].update(
-                {"neutral_fallback": "address-leaf"}
-            ),
-            "private helper oracle": lambda value: value["compatibility"].update(
-                {"private_backend_helpers": True}
-            ),
-            "unversioned compatibility": lambda value: value["compatibility"].update(
-                {"exact_pin_required": False}
-            ),
+            "leaf fallback": lambda value: value["naming"].update({"neutral_fallback": "address-leaf"}),
+            "private helper oracle": lambda value: value["compatibility"].update({"private_backend_helpers": True}),
+            "unversioned compatibility": lambda value: value["compatibility"].update({"exact_pin_required": False}),
             "behavior changes in decision issue": lambda value: value["delivery"].update(
                 {"behavior_change_in_decision_issue": True}
             ),
@@ -238,12 +226,8 @@ class AdrGuardTests(unittest.TestCase):
                 {"initial": ["aws-terraform", "gcp-gce", "gcp-gdc", "azure"], "deferred": []}
             ),
             "missing program reference": lambda value: value["issue_references"].pop("478"),
-            "unmapped program reference": lambda value: value["issue_references"].update(
-                {"478": {}}
-            ),
-            "contradictory program reference": lambda value: value[
-                "issue_references"
-            ].update(
+            "unmapped program reference": lambda value: value["issue_references"].update({"478": {}}),
+            "contradictory program reference": lambda value: value["issue_references"].update(
                 {
                     "478": {
                         "operations": ["provision"],
@@ -251,12 +235,12 @@ class AdrGuardTests(unittest.TestCase):
                     }
                 }
             ),
-            "unknown program disposition": lambda value: value[
-                "issue_references"
-            ].update({"478": {"disposition": "covered-elsewhere"}}),
-            "duplicate program operation": lambda value: value[
-                "issue_references"
-            ].update({"478": {"operations": ["provision", "provision"]}}),
+            "unknown program disposition": lambda value: value["issue_references"].update(
+                {"478": {"disposition": "covered-elsewhere"}}
+            ),
+            "duplicate program operation": lambda value: value["issue_references"].update(
+                {"478": {"operations": ["provision", "provision"]}}
+            ),
         }
         for label, mutate in mutations.items():
             with self.subTest(label=label):
@@ -443,9 +427,7 @@ class AdrGuardTests(unittest.TestCase):
                 {"unsupported": "deliver-as-disclosure"}
             ),
             "trusted range": lambda value: value["range_ingress"].update({"trust": "trusted"}),
-            "reusable range credential": lambda value: value["range_ingress"].update(
-                {"credential": "reusable-bearer"}
-            ),
+            "reusable range credential": lambda value: value["range_ingress"].update({"credential": "reusable-bearer"}),
             "range credential lacks generation binding": lambda value: value["range_ingress"].update(
                 {"binding": "event-only"}
             ),
@@ -571,21 +553,13 @@ class AdrGuardTests(unittest.TestCase):
             "best-effort unresolved backfill": lambda value: value["event_transition"].update(
                 {"unresolved_backfill": "skip-event"}
             ),
-            "client-owned API service": lambda value: value["ownership"].update(
-                {"api_services": "external-client"}
-            ),
-            "shared secret fallback": lambda value: value["outages"].update(
-                {"secret_store": "shared-admin-fallback"}
-            ),
+            "client-owned API service": lambda value: value["ownership"].update({"api_services": "external-client"}),
+            "shared secret fallback": lambda value: value["outages"].update({"secret_store": "shared-admin-fallback"}),
             "model outage grants authority": lambda value: value["outages"].update(
                 {"model_provider": "fallback-with-elevated-tools"}
             ),
-            "missing migration evidence": lambda value: value["verification"].remove(
-                "event-binding-migration"
-            ),
-            "missing token parity evidence": lambda value: value["verification"].remove(
-                "session-token-parity"
-            ),
+            "missing migration evidence": lambda value: value["verification"].remove("event-binding-migration"),
+            "missing token parity evidence": lambda value: value["verification"].remove("session-token-parity"),
         }
         for label, mutate in mutations.items():
             with self.subTest(label=label):
@@ -678,48 +652,24 @@ class AdrGuardTests(unittest.TestCase):
         self.assertEqual(ADR_GUARD.validate_interface_contract(contract, "ADR-055"), [])
 
         mutations = {
-            "weakened WCAG target": lambda value: value["standard"].update(
-                {"target": "wcag-2.1-aa"}
-            ),
+            "weakened WCAG target": lambda value: value["standard"].update({"target": "wcag-2.1-aa"}),
             "automated conformance overclaim": lambda value: value["standard"].update(
                 {"automated_conformance_claim": True}
             ),
-            "parallel browser runner": lambda value: value["toolchain"].update(
-                {"runner": "pa11y"}
-            ),
-            "missing inherited WCAG tag": lambda value: value["toolchain"]["wcag_tags"].remove(
-                "wcag2a"
-            ),
-            "changed-page-only PR scan": lambda value: value["cadence"].update(
-                {"pull_request": "changed-pages-only"}
-            ),
-            "unregistered page allowed": lambda value: value["coverage"].update(
-                {"new_surface": "warn"}
-            ),
-            "count threshold baseline": lambda value: value["baseline"].update(
-                {"counts_or_thresholds": True}
-            ),
-            "baseline can grow": lambda value: value["baseline"].update(
-                {"additions": "reviewed"}
-            ),
-            "manual audit only on demand": lambda value: value["manual_audit"].update(
-                {"release_trigger": "optional"}
-            ),
-            "critical incident audit removed": lambda value: value["manual_audit"].update(
-                {"incident_trigger": "none"}
-            ),
+            "parallel browser runner": lambda value: value["toolchain"].update({"runner": "pa11y"}),
+            "missing inherited WCAG tag": lambda value: value["toolchain"]["wcag_tags"].remove("wcag2a"),
+            "changed-page-only PR scan": lambda value: value["cadence"].update({"pull_request": "changed-pages-only"}),
+            "unregistered page allowed": lambda value: value["coverage"].update({"new_surface": "warn"}),
+            "count threshold baseline": lambda value: value["baseline"].update({"counts_or_thresholds": True}),
+            "baseline can grow": lambda value: value["baseline"].update({"additions": "reviewed"}),
+            "manual audit only on demand": lambda value: value["manual_audit"].update({"release_trigger": "optional"}),
+            "critical incident audit removed": lambda value: value["manual_audit"].update({"incident_trigger": "none"}),
             "second waiver registry": lambda value: value["waivers"].update(
                 {"registry": "frontend/accessibility-waivers.json"}
             ),
-            "self-approved waiver": lambda value: value["waivers"].update(
-                {"approval": "author"}
-            ),
-            "CSP relaxation": lambda value: value["security"].update(
-                {"csp_relaxation": True}
-            ),
-            "authenticated traces uploaded": lambda value: value["security"].update(
-                {"sensitive_artifacts": True}
-            ),
+            "self-approved waiver": lambda value: value["waivers"].update({"approval": "author"}),
+            "CSP relaxation": lambda value: value["security"].update({"csp_relaxation": True}),
+            "authenticated traces uploaded": lambda value: value["security"].update({"sensitive_artifacts": True}),
         }
         for label, mutate in mutations.items():
             with self.subTest(label=label):
@@ -1034,7 +984,12 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
             ADR_GUARD.load_allowed_symbols(cfg),
             {
                 "engine": {
-                    "workspaces.services": ["OrganizationAuthorizationError", "get_organization_profile"]
+                    "workspaces.services": [
+                        "OrganizationAuthorizationError",
+                        "get_organization_profile",
+                        "resource_scope_from_ids",
+                        "resolve_range_scope_binding",
+                    ]
                 },
                 "config": {
                     "workspaces.services": [
@@ -1058,7 +1013,7 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                         "get_rdp_connection_info",
                         "get_ssh_connection_info",
                     ]
-                }
+                },
             },
         )
 
@@ -1084,6 +1039,20 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
 class DeployWorkflowPlanScopeTests(unittest.TestCase):
     """Tests for the AWS platform plan trigger and lock-timeout guardrail."""
 
+    def _write_environment_packs(self, repo_root: Path) -> None:
+        """Two packs shipped through explicit portal Dockerfile copies, two development packs."""
+        dockerfile = repo_root / "shifter" / "shifter_platform" / "Dockerfile"
+        dockerfile.parent.mkdir(parents=True)
+        dockerfile.write_text(
+            "COPY --chown=appuser:appgroup shifter_platform .\n"
+            "COPY --chown=appuser:appgroup environment-packs/smoke-linux cms/scenarios/inbox_packs/smoke-linux\n"
+            "COPY --chown=appuser:appgroup environment-packs/smoke-linux-aws "
+            "cms/scenarios/inbox_packs/smoke-linux-aws\n",
+            encoding="utf-8",
+        )
+        for name in ("smoke-linux", "smoke-linux-aws", "preparation-http-smoke", "shifter-raes-validation"):
+            (repo_root / "shifter" / "environment-packs" / name).mkdir(parents=True)
+
     def _write_workflows(
         self,
         repo_root: Path,
@@ -1096,16 +1065,12 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
         workflow_dir.mkdir(parents=True)
         (workflow_dir / "deploy.yml").write_text(deploy, encoding="utf-8")
         (workflow_dir / "_shifter-platform.yml").write_text(platform, encoding="utf-8")
-        (workflow_dir / "_core.yml").write_text(
-            core or self._terraform_workflow_text("core"), encoding="utf-8"
-        )
+        (workflow_dir / "_core.yml").write_text(core or self._terraform_workflow_text("core"), encoding="utf-8")
         (workflow_dir / "_range.yml").write_text(
             range_workflow or self._terraform_workflow_text("range"), encoding="utf-8"
         )
         (workflow_dir / "_quality.yml").write_text(
-            "jobs:\n"
-            "  adr-conformance:\n"
-            "    runs-on: ubuntu-latest\n",
+            "jobs:\n  adr-conformance:\n    runs-on: ubuntu-latest\n",
             encoding="utf-8",
         )
 
@@ -1118,7 +1083,11 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
         portal_image_globs: list[str] | None = None,
         quality_only_globs: list[str] | None = None,
         quality_condition: str = "needs.changes.outputs.quality_relevant == 'true'",
-        quality_output: str = "quality_relevant: ${{ steps.quality_non_docs.outputs.non_docs == 'true' || steps.quality_guardrails.outputs.guardrail_docs == 'true' || steps.filter.outputs.any_changed != 'true' }}",
+        quality_output: str = (
+            "quality_relevant: ${{ steps.quality_non_docs.outputs.non_docs == 'true' || "
+            "steps.quality_guardrails.outputs.guardrail_docs == 'true' || "
+            "steps.filter.outputs.any_changed != 'true' }}"
+        ),
         include_quality_non_docs_filter: bool = True,
         include_guardrail_docs_filter: bool = True,
         quality_predicate: str = "predicate-quantifier: every",
@@ -1141,18 +1110,22 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             ".github/copilot-instructions.md",
             "docs/adr/**",
             "docs/technical/dev/adr-enforcement.md",
+            "shifter/environment-packs/**",
         ]
-        portal_image_globs = portal_image_globs or ["shifter/shifter_platform/**"]
+        portal_image_globs = portal_image_globs or [
+            "shifter/shifter_platform/**",
+            "shifter/environment-packs/smoke-linux/**",
+            "shifter/environment-packs/smoke-linux-aws/**",
+        ]
         quality_only_globs = quality_only_globs or [
             "scripts/stack-smoke/**",
-            "scenario-dev/**",
+            "shifter/environment-packs/preparation-http-smoke/**",
+            "shifter/environment-packs/shifter-raes-validation/**",
         ]
         platform_lines = "".join(f"              - '{glob}'\n" for glob in platform_globs)
         quality_non_docs_filter = ""
         if include_quality_non_docs_filter:
-            quality_non_doc_lines = "".join(
-                f"              - '{glob}'\n" for glob in quality_non_doc_globs
-            )
+            quality_non_doc_lines = "".join(f"              - '{glob}'\n" for glob in quality_non_doc_globs)
             quality_non_docs_filter = (
                 "      - id: quality_non_docs\n"
                 "        with:\n"
@@ -1163,9 +1136,7 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             )
         guardrail_docs_filter = ""
         if include_guardrail_docs_filter:
-            guardrail_doc_lines = "".join(
-                f"              - '{glob}'\n" for glob in guardrail_doc_globs
-            )
+            guardrail_doc_lines = "".join(f"              - '{glob}'\n" for glob in guardrail_doc_globs)
             guardrail_docs_filter = (
                 "      - id: quality_guardrails\n"
                 "        with:\n"
@@ -1175,15 +1146,11 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             )
         portal_image_filter = ""
         if include_portal_image_filter:
-            portal_image_lines = "".join(
-                f"              - '{glob}'\n" for glob in portal_image_globs
-            )
+            portal_image_lines = "".join(f"              - '{glob}'\n" for glob in portal_image_globs)
             portal_image_filter = f"            portal_image:\n{portal_image_lines}"
         quality_only_filter = ""
         if include_quality_only_filter:
-            quality_only_lines = "".join(
-                f"              - '{glob}'\n" for glob in quality_only_globs
-            )
+            quality_only_lines = "".join(f"              - '{glob}'\n" for glob in quality_only_globs)
             quality_only_filter = f"            quality_only:\n{quality_only_lines}"
         return (
             "concurrency:\n"
@@ -1292,9 +1259,7 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 self._deploy_text(),
                 self._platform_text(),
                 core=self._terraform_workflow_text("core", plan_args="-no-color -out=tfplan"),
-                range_workflow=self._terraform_workflow_text(
-                    "range", plan_args="-no-color -out=tfplan"
-                ),
+                range_workflow=self._terraform_workflow_text("range", plan_args="-no-color -out=tfplan"),
             )
 
             violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
@@ -1321,20 +1286,11 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
 
             core_violations = [
-                violation
-                for violation in violations
-                if violation.path.startswith(".github/workflows/_core.yml")
+                violation for violation in violations if violation.path.startswith(".github/workflows/_core.yml")
             ]
             self.assertGreaterEqual(len(core_violations), 1)
-            self.assertTrue(
-                all(violation.rule_id == "ADR-003-R2" for violation in core_violations)
-            )
-            self.assertTrue(
-                any(
-                    "local saved Terraform plan" in violation.message
-                    for violation in core_violations
-                )
-            )
+            self.assertTrue(all(violation.rule_id == "ADR-003-R2" for violation in core_violations))
+            self.assertTrue(any("local saved Terraform plan" in violation.message for violation in core_violations))
 
     def test_flags_apply_without_local_saved_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1412,9 +1368,7 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 self._platform_text(),
             )
 
-            violations = ADR_GUARD.check_deploy_workflow_plan_scope(
-                repo_root, [".github/workflows/deploy.yml"]
-            )
+            violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, [".github/workflows/deploy.yml"])
 
             self.assertEqual(len(violations), 1)
             self.assertEqual(violations[0].rule_id, "ADR-003-R2")
@@ -1438,15 +1392,18 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "              - 'platform/terraform/modules/portal/**'\n"
                 "            portal_image:\n"
                 "              - 'shifter/shifter_platform/**'\n"
+                "              - 'shifter/environment-packs/smoke-linux/**'\n"
+                "              - 'shifter/environment-packs/smoke-linux-aws/**'\n"
                 "            quality_only:\n"
                 "              - 'scripts/stack-smoke/**'\n"
-                "              - 'scenario-dev/**'\n"
+                "              - 'shifter/environment-packs/preparation-http-smoke/**'\n"
+                "              - 'shifter/environment-packs/shifter-raes-validation/**'\n"
                 "  pr-gate:\n"
                 "    steps:\n"
                 "      - run: |\n"
                 "          quality_result='${{ needs.quality.result }}'\n"
                 "          quality_relevant='${{ needs.changes.outputs.quality_relevant }}'\n"
-                "          if [ \"$quality_result\" = \"skipped\" ] && [ \"$quality_relevant\" != \"false\" ]; then\n"
+                '          if [ "$quality_result" = "skipped" ] && [ "$quality_relevant" != "false" ]; then\n'
                 "            exit 1\n"
                 "          fi\n"
                 "  shifter_platform:\n"
@@ -1566,7 +1523,12 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             repo_root = Path(tmp)
             self._write_workflows(
                 repo_root,
-                self._deploy_text(quality_only_globs=["scenario-dev/**"]),
+                self._deploy_text(
+                    quality_only_globs=[
+                        "shifter/environment-packs/preparation-http-smoke/**",
+                        "shifter/environment-packs/shifter-raes-validation/**",
+                    ]
+                ),
                 self._platform_text(),
             )
 
@@ -1575,19 +1537,106 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             self.assertEqual(len(violations), 1)
             self.assertIn("scripts/stack-smoke/**", violations[0].message)
 
-    def test_flags_quality_only_filter_without_scenario_glob(self) -> None:
+    def test_flags_quality_only_filter_without_development_pack_glob(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
+            self._write_environment_packs(repo_root)
             self._write_workflows(
                 repo_root,
-                self._deploy_text(quality_only_globs=["scripts/stack-smoke/**"]),
+                self._deploy_text(
+                    quality_only_globs=[
+                        "scripts/stack-smoke/**",
+                        "shifter/environment-packs/shifter-raes-validation/**",
+                    ]
+                ),
                 self._platform_text(),
             )
 
             violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
 
             self.assertEqual(len(violations), 1)
-            self.assertIn("scenario-dev/**", violations[0].message)
+            self.assertIn("shifter/environment-packs/preparation-http-smoke/**", violations[0].message)
+
+    def test_flags_whole_environment_pack_collection_routing(self) -> None:
+        collection = "shifter/environment-packs/**"
+        cases = {
+            "quality_only": {
+                "quality_only_globs": [
+                    "scripts/stack-smoke/**",
+                    "shifter/environment-packs/preparation-http-smoke/**",
+                    "shifter/environment-packs/shifter-raes-validation/**",
+                    collection,
+                ]
+            },
+            "portal_image": {
+                "portal_image_globs": [
+                    "shifter/shifter_platform/**",
+                    "shifter/environment-packs/smoke-linux/**",
+                    "shifter/environment-packs/smoke-linux-aws/**",
+                    collection,
+                ]
+            },
+        }
+        for filter_name, overrides in cases.items():
+            with self.subTest(filter_name), tempfile.TemporaryDirectory() as tmp:
+                repo_root = Path(tmp)
+                self._write_environment_packs(repo_root)
+                self._write_workflows(repo_root, self._deploy_text(**overrides), self._platform_text())
+
+                violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
+
+                self.assertEqual(len(violations), 1)
+                self.assertIn(filter_name, violations[0].message)
+                self.assertIn(collection, violations[0].message)
+
+    def test_environment_pack_routing_follows_the_dockerfile_copies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write_environment_packs(repo_root)
+            self._write_workflows(repo_root, self._deploy_text(), self._platform_text())
+            self.assertEqual(ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None), [])
+
+            # Shipping a development pack without moving its routing is flagged,
+            # including in targeted mode when only the Dockerfile changed.
+            dockerfile = repo_root / "shifter" / "shifter_platform" / "Dockerfile"
+            dockerfile.write_text(
+                dockerfile.read_text(encoding="utf-8")
+                + "COPY --chown=appuser:appgroup environment-packs/preparation-http-smoke "
+                "cms/scenarios/inbox_packs/preparation-http-smoke\n",
+                encoding="utf-8",
+            )
+
+            violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, ["shifter/shifter_platform/Dockerfile"])
+
+            self.assertEqual(
+                sorted(violation.message.split(":")[0] for violation in violations),
+                [
+                    "`portal_image` must include shipped environment packs",
+                    "`quality_only` must not include shipped environment packs",
+                ],
+            )
+            self.assertTrue(all("preparation-http-smoke" in v.message for v in violations))
+
+    def test_flags_guardrail_docs_filter_without_environment_pack_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write_workflows(
+                repo_root,
+                self._deploy_text(
+                    guardrail_doc_globs=[
+                        ".github/pull_request_template.md",
+                        ".github/copilot-instructions.md",
+                        "docs/adr/**",
+                        "docs/technical/dev/adr-enforcement.md",
+                    ]
+                ),
+                self._platform_text(),
+            )
+
+            violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
+
+            self.assertEqual(len(violations), 1)
+            self.assertIn("shifter/environment-packs/**", violations[0].message)
 
     def test_flags_missing_portal_image_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1618,14 +1667,32 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             self.assertEqual(len(violations), 1)
             self.assertIn("shifter/shifter_platform/**", violations[0].message)
 
+    def test_flags_portal_image_filter_without_shipped_pack_glob(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._write_environment_packs(repo_root)
+            self._write_workflows(
+                repo_root,
+                self._deploy_text(
+                    portal_image_globs=[
+                        "shifter/shifter_platform/**",
+                        "shifter/environment-packs/smoke-linux/**",
+                    ]
+                ),
+                self._platform_text(),
+            )
+
+            violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
+
+            self.assertEqual(len(violations), 1)
+            self.assertIn("shifter/environment-packs/smoke-linux-aws/**", violations[0].message)
+
     def test_flags_missing_portal_image_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._write_workflows(
                 repo_root,
-                self._deploy_text(
-                    portal_image_output="# portal_image: ${{ steps.filter.outputs.portal_image }}"
-                ),
+                self._deploy_text(portal_image_output="# portal_image: ${{ steps.filter.outputs.portal_image }}"),
                 self._platform_text(),
             )
 
@@ -1639,9 +1706,7 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             repo_root = Path(tmp)
             self._write_workflows(
                 repo_root,
-                self._deploy_text(
-                    platform_job_condition="needs.changes.outputs.shifter_platform == 'true'"
-                ),
+                self._deploy_text(platform_job_condition="needs.changes.outputs.shifter_platform == 'true'"),
                 self._platform_text(),
             )
 
@@ -1655,9 +1720,7 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
             repo_root = Path(tmp)
             self._write_workflows(
                 repo_root,
-                self._deploy_text(
-                    platform_job_condition="# needs.changes.outputs.portal_image == 'true'"
-                ),
+                self._deploy_text(platform_job_condition="# needs.changes.outputs.portal_image == 'true'"),
                 self._platform_text(),
             )
 
@@ -1698,7 +1761,9 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "jobs:\n"
                 "  changes:\n"
                 "    outputs:\n"
-                "      # quality_relevant: ${{ steps.quality_non_docs.outputs.non_docs == 'true' || steps.quality_guardrails.outputs.guardrail_docs == 'true' || steps.filter.outputs.any_changed != 'true' }}\n"
+                "      # quality_relevant: ${{ steps.quality_non_docs.outputs.non_docs == 'true' || "
+                "steps.quality_guardrails.outputs.guardrail_docs == 'true' || "
+                "steps.filter.outputs.any_changed != 'true' }}\n"
                 "      portal_image: ${{ steps.filter.outputs.portal_image }}\n"
                 "      quality_only: ${{ steps.filter.outputs.quality_only }}\n"
                 "    steps:\n"
@@ -1709,9 +1774,12 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "              - 'platform/terraform/modules/portal/**'\n"
                 "            portal_image:\n"
                 "              - 'shifter/shifter_platform/**'\n"
+                "              - 'shifter/environment-packs/smoke-linux/**'\n"
+                "              - 'shifter/environment-packs/smoke-linux-aws/**'\n"
                 "            quality_only:\n"
                 "              - 'scripts/stack-smoke/**'\n"
-                "              - 'scenario-dev/**'\n"
+                "              - 'shifter/environment-packs/preparation-http-smoke/**'\n"
+                "              - 'shifter/environment-packs/shifter-raes-validation/**'\n"
                 "      - id: quality_non_docs\n"
                 "        with:\n"
                 "          predicate-quantifier: every\n"
@@ -1728,6 +1796,7 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "              - '.github/copilot-instructions.md'\n"
                 "              - 'docs/adr/**'\n"
                 "              - 'docs/technical/dev/adr-enforcement.md'\n"
+                "              - 'shifter/environment-packs/**'\n"
                 "  quality:\n"
                 "    if: |\n"
                 "      # needs.changes.outputs.quality_relevant == 'true'\n"
@@ -1736,7 +1805,7 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "      - run: |\n"
                 "          quality_result='${{ needs.quality.result }}'\n"
                 "          quality_relevant='${{ needs.changes.outputs.quality_relevant }}'\n"
-                "          if [ \"$quality_result\" = \"skipped\" ] && [ \"$quality_relevant\" != \"false\" ]; then\n"
+                '          if [ "$quality_result" = "skipped" ] && [ "$quality_relevant" != "false" ]; then\n'
                 "            exit 1\n"
                 "          fi\n"
                 "  shifter_platform:\n"
@@ -1771,39 +1840,47 @@ class DeployWorkflowPlanScopeTests(unittest.TestCase):
                 "skip_tests: false",
                 "skip_tests: ${{ steps.skip.outputs.skip_tests == 'true' }}",
             )
-            deploy += (
-                "\n# legacy bypass\n"
-                'if echo "$COMMIT_MSG" | grep -qi "\\[skip tests\\]"; then\n'
-            )
+            deploy += '\n# legacy bypass\nif echo "$COMMIT_MSG" | grep -qi "\\[skip tests\\]"; then\n'
             self._write_workflows(repo_root, deploy, self._platform_text())
 
             violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
 
             self.assertGreaterEqual(len(violations), 1)
-            self.assertTrue(
-                any(
-                    "skip" in v.message.lower() and v.rule_id == "ADR-003-R2"
-                    for v in violations
-                )
-            )
+            self.assertTrue(any("skip" in v.message.lower() and v.rule_id == "ADR-003-R2" for v in violations))
 
     def test_flags_architecture_job_gated_on_skip_tests(self) -> None:
+        jobs = (
+            "adr-conformance", "chart-lint-security", "container-images-lint-security",
+            "adr-guard-lint-security", "stack-smoke-lint-security",
+        )
+        for job in jobs:
+            with self.subTest(job=job), tempfile.TemporaryDirectory() as tmp:
+                repo_root = Path(tmp)
+                self._write_workflows(repo_root, self._deploy_text(), self._platform_text())
+                (repo_root / ".github" / "workflows" / "_quality.yml").write_text(
+                    f"jobs:\n  {job}:\n    if: ${{{{ !inputs.skip_tests }}}}\n    runs-on: ubuntu-latest\n",
+                    encoding="utf-8",
+                )
+
+                violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
+
+                self.assertEqual(len(violations), 1)
+                self.assertIn(job, violations[0].message)
+                self.assertIn("skip_tests", violations[0].message)
+
+    def test_native_security_jobs_run_when_optional_tests_are_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._write_workflows(repo_root, self._deploy_text(), self._platform_text())
             (repo_root / ".github" / "workflows" / "_quality.yml").write_text(
-                "jobs:\n"
-                "  adr-conformance:\n"
-                "    if: ${{ !inputs.skip_tests }}\n"
-                "    runs-on: ubuntu-latest\n",
+                "jobs:\n  chart-lint-security:\n"
+                "    if: needs.paths.outputs.charts == 'true'\n    runs-on: ubuntu-latest\n",
                 encoding="utf-8",
             )
 
             violations = ADR_GUARD.check_deploy_workflow_plan_scope(repo_root, None)
 
-            self.assertEqual(len(violations), 1)
-            self.assertIn("adr-conformance", violations[0].message)
-            self.assertIn("skip_tests", violations[0].message)
+            self.assertEqual(violations, [])
 
     def test_clean_real_repo_passes(self) -> None:
         violations = ADR_GUARD.check_deploy_workflow_plan_scope(ADR_GUARD.REPO_ROOT, None)
@@ -1822,8 +1899,7 @@ class PlatformRendersDeployTfvarsTests(unittest.TestCase):
     # A step whose *name* mentions local.auto.tfvars but whose `run:` never
     # writes the file — a label, not a render.
     _NAME_ONLY_STEP = (
-        "      - name: Render local.auto.tfvars from deployment secret\n"
-        "        run: echo 'no write here'\n"
+        "      - name: Render local.auto.tfvars from deployment secret\n        run: echo 'no write here'\n"
     )
 
     def _write_platform(self, repo_root: Path, platform_text: str) -> None:
@@ -2073,7 +2149,9 @@ class CloudFactorySeamTests(unittest.TestCase):
             )
             violations = ADR_GUARD.check_cloud_factory_seam(repo_root, None)
             self.assertTrue(len(violations) >= 1)
-            self.assertTrue(any("task_runner.py" in v.message and "no AWS counterpart" in v.message for v in violations))
+            self.assertTrue(
+                any("task_runner.py" in v.message and "no AWS counterpart" in v.message for v in violations)
+            )
 
     def test_skips_init_and_base(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2134,8 +2212,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/index.js",
-                'import { spawnSync } from "node:child_process";\n'
-                "spawnSync('aws', ['s3', 'ls']);\n",
+                "import { spawnSync } from \"node:child_process\";\nspawnSync('aws', ['s3', 'ls']);\n",
             )
             self.assertEqual(self._run(repo_root), [])
 
@@ -2149,38 +2226,31 @@ class McpNoShellExecTests(unittest.TestCase):
         cases = {
             "named ESM import, node: prefix": (
                 "mcp/foo/index.js",
-                'import { execSync } from "node:child_process";\n'
-                "execSync('aws s3 ls');\n",
+                "import { execSync } from \"node:child_process\";\nexecSync('aws s3 ls');\n",
             ),
             "named ESM import, no node: prefix": (
                 "mcp/foo/index.js",
-                "import { execSync } from 'child_process';\n"
-                "execSync('aws s3 ls');\n",
+                "import { execSync } from 'child_process';\nexecSync('aws s3 ls');\n",
             ),
             "namespace ESM import": (
                 "mcp/foo/index.js",
-                'import * as cp from "node:child_process";\n'
-                "cp.execSync('aws s3 ls');\n",
+                "import * as cp from \"node:child_process\";\ncp.execSync('aws s3 ls');\n",
             ),
             "default ESM import": (
                 "mcp/foo/index.js",
-                'import cp from "node:child_process";\n'
-                "cp.execSync('aws s3 ls');\n",
+                "import cp from \"node:child_process\";\ncp.execSync('aws s3 ls');\n",
             ),
             "destructured CJS require, .cjs": (
                 "mcp/foo/index.cjs",
-                'const { execSync } = require("child_process");\n'
-                "execSync('aws s3 ls');\n",
+                "const { execSync } = require(\"child_process\");\nexecSync('aws s3 ls');\n",
             ),
             "bare CJS require with property access, .cjs": (
                 "mcp/foo/index.cjs",
-                'const cp = require("node:child_process");\n'
-                "cp.execSync('aws s3 ls');\n",
+                "const cp = require(\"node:child_process\");\ncp.execSync('aws s3 ls');\n",
             ),
             "named ESM import, .mjs extension": (
                 "mcp/foo/index.mjs",
-                'import { execSync } from "child_process";\n'
-                "execSync('aws s3 ls');\n",
+                "import { execSync } from \"child_process\";\nexecSync('aws s3 ls');\n",
             ),
         }
         for label, (rel, body) in cases.items():
@@ -2213,8 +2283,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/index.js",
-                "function execSync(query) { return query; }\n"
-                "execSync('select 1');\n",
+                "function execSync(query) { return query; }\nexecSync('select 1');\n",
             )
             self.assertEqual(self._run(repo_root), [])
 
@@ -2224,8 +2293,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/node_modules/something/dist.js",
-                'import { execSync } from "child_process";\n'
-                "execSync('aws s3 ls');\n",
+                "import { execSync } from \"child_process\";\nexecSync('aws s3 ls');\n",
             )
             self.assertEqual(self._run(repo_root), [])
 
@@ -2236,8 +2304,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/index.js",
-                'import { execSync as run } from "node:child_process";\n'
-                "run('aws s3 ls');\n",
+                "import { execSync as run } from \"node:child_process\";\nrun('aws s3 ls');\n",
             )
             violations = self._run(repo_root)
             self.assertEqual(len(violations), 1)
@@ -2288,8 +2355,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/index.js",
-                'import { exec } from "node:child_process";\n'
-                "exec('aws s3 ls');\n",
+                "import { exec } from \"node:child_process\";\nexec('aws s3 ls');\n",
             )
             violations = self._run(repo_root)
             self.assertEqual(len(violations), 1)
@@ -2300,8 +2366,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/index.js",
-                'import * as cp from "node:child_process";\n'
-                "cp.exec('aws s3 ls');\n",
+                "import * as cp from \"node:child_process\";\ncp.exec('aws s3 ls');\n",
             )
             violations = self._run(repo_root)
             self.assertEqual(len(violations), 1)
@@ -2312,8 +2377,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/index.js",
-                'import { spawn } from "node:child_process";\n'
-                "spawn('aws s3 ls', { shell: true });\n",
+                "import { spawn } from \"node:child_process\";\nspawn('aws s3 ls', { shell: true });\n",
             )
             violations = self._run(repo_root)
             self.assertEqual(len(violations), 1)
@@ -2325,8 +2389,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/index.js",
-                'import { spawn } from "node:child_process";\n'
-                "spawn('aws', ['s3', 'ls']);\n",
+                "import { spawn } from \"node:child_process\";\nspawn('aws', ['s3', 'ls']);\n",
             )
             self.assertEqual(self._run(repo_root), [])
 
@@ -2336,8 +2399,7 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/foo/index.js",
-                'import { spawn } from "node:child_process";\n'
-                "spawn('aws', ['s3', 'ls'], { shell: false });\n",
+                "import { spawn } from \"node:child_process\";\nspawn('aws', ['s3', 'ls'], { shell: false });\n",
             )
             self.assertEqual(self._run(repo_root), [])
 
@@ -2387,14 +2449,12 @@ class McpNoShellExecTests(unittest.TestCase):
             self._write(
                 repo_root,
                 "mcp/legacy/index.js",
-                'import { execSync } from "child_process";\n'
-                "execSync('aws s3 ls');\n",
+                "import { execSync } from \"child_process\";\nexecSync('aws s3 ls');\n",
             )
             self._write(
                 repo_root,
                 "mcp/fresh/index.js",
-                'import { execSync } from "child_process";\n'
-                "execSync('aws s3 ls');\n",
+                "import { execSync } from \"child_process\";\nexecSync('aws s3 ls');\n",
             )
 
             raw = ADR_GUARD.check_mcp_no_shell_exec(repo_root, None)
@@ -2403,9 +2463,7 @@ class McpNoShellExecTests(unittest.TestCase):
 
             exceptions = ADR_GUARD.load_adr_exceptions(repo_root)
             filtered = ADR_GUARD.filter_excepted_violations(raw, exceptions)
-            self.assertEqual(
-                [v.path for v in filtered], ["mcp/fresh/index.js"]
-            )
+            self.assertEqual([v.path for v in filtered], ["mcp/fresh/index.js"])
 
     def test_no_plaintext_secrets_flags_literal_assignment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2413,8 +2471,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                'dc_domain_name = "internal.example"\n'
-                'dc_domain_password = "P@ssw0rd!"  # pragma: allowlist secret\n',
+                'dc_domain_name = "internal.example"\ndc_domain_password = "P@ssw0rd!"  # pragma: allowlist secret\n',
                 encoding="utf-8",
             )
 
@@ -2464,7 +2521,7 @@ class McpNoShellExecTests(unittest.TestCase):
             (tfvars_dir / "terraform.tfvars").write_text(
                 "dc_domain_password = var.dc_domain_password\n"
                 "db_password         = local.db_password\n"
-                'app_secret_arn      = data.aws_secretsmanager_secret.app.arn\n',
+                "app_secret_arn      = data.aws_secretsmanager_secret.app.arn\n",
                 encoding="utf-8",
             )
 
@@ -2492,9 +2549,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                'dc_domain_name = "internal.example"\n'
-                'environment    = "prod"\n'
-                'aws_region     = "us-east-2"\n',
+                'dc_domain_name = "internal.example"\nenvironment    = "prod"\naws_region     = "us-east-2"\n',
                 encoding="utf-8",
             )
 
@@ -2508,9 +2563,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                'dc_domain_password = <<EOF\n'
-                "P@ssw0rd!\n"
-                "EOF\n",
+                "dc_domain_password = <<EOF\nP@ssw0rd!\nEOF\n",
                 encoding="utf-8",
             )
 
@@ -2526,9 +2579,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                "db_password = <<-MARKER\n"
-                "  hunter2\n"
-                "  MARKER\n",
+                "db_password = <<-MARKER\n  hunter2\n  MARKER\n",
                 encoding="utf-8",
             )
 
@@ -2561,9 +2612,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                "db_credentials = jsonencode({\n"
-                '  password = "leak"\n'
-                "})\n",
+                'db_credentials = jsonencode({\n  password = "leak"\n})\n',
                 encoding="utf-8",
             )
 
@@ -2579,10 +2628,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                "db_credentials = jsonencode({\n"
-                "  password = var.db_password\n"
-                "  username = var.db_username\n"
-                "})\n",
+                "db_credentials = jsonencode({\n  password = var.db_password\n  username = var.db_username\n})\n",
                 encoding="utf-8",
             )
 
@@ -2596,9 +2642,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                "api_token = sensitive(\n"
-                '  trimspace("ghp_AAAAAAAAAAAA")\n'
-                ")\n",
+                'api_token = sensitive(\n  trimspace("ghp_AAAAAAAAAAAA")\n)\n',
                 encoding="utf-8",
             )
 
@@ -2619,9 +2663,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                'public_key_password   = "leak1"\n'
-                'authorized_keys_token = "leak2"\n'
-                'pubkey_secret         = "leak3"\n',
+                'public_key_password   = "leak1"\nauthorized_keys_token = "leak2"\npubkey_secret         = "leak3"\n',
                 encoding="utf-8",
             )
 
@@ -2651,8 +2693,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                '# dc_domain_password = "old-value"\n'
-                '#   db_password = "another-old"\n',
+                '# dc_domain_password = "old-value"\n#   db_password = "another-old"\n',
                 encoding="utf-8",
             )
 
@@ -2666,8 +2707,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                '// dc_domain_password = "old-value"\n'
-                '//   db_password         = "another-old"\n',
+                '// dc_domain_password = "old-value"\n//   db_password         = "another-old"\n',
                 encoding="utf-8",
             )
 
@@ -2698,10 +2738,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                "db_credentials = {\n"
-                '  username = "admin"\n'
-                '  password = "hunter2"\n'
-                "}\n",
+                'db_credentials = {\n  username = "admin"\n  password = "hunter2"\n}\n',
                 encoding="utf-8",
             )
 
@@ -2734,10 +2771,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                "api_tokens = [\n"
-                '  "token-one",\n'
-                '  "token-two",\n'
-                "]\n",
+                'api_tokens = [\n  "token-one",\n  "token-two",\n]\n',
                 encoding="utf-8",
             )
 
@@ -2753,8 +2787,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                'db_password = trimspace("hunter2")\n'
-                'api_token   = sensitive("ghp_AAAA")\n',
+                'db_password = trimspace("hunter2")\napi_token   = sensitive("ghp_AAAA")\n',
                 encoding="utf-8",
             )
 
@@ -2786,8 +2819,7 @@ class McpNoShellExecTests(unittest.TestCase):
             tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "prod" / "portal"
             tfvars_dir.mkdir(parents=True)
             (tfvars_dir / "terraform.tfvars").write_text(
-                "db_password = trimspace(var.db_password_raw)\n"
-                "api_token   = sensitive(local.token)\n",
+                "db_password = trimspace(var.db_password_raw)\napi_token   = sensitive(local.token)\n",
                 encoding="utf-8",
             )
 
@@ -2859,6 +2891,43 @@ class McpNoShellExecTests(unittest.TestCase):
             self.assertEqual(violations, [])
 
 
+# Rule fixtures for the chart-render checks (#2571). The chart render is the only
+# manifest source the checks scan, so these tests feed fixture manifests to the
+# same rule functions that the render branch applies.
+_K8S_FIXTURE_DIR = "manifests"
+
+
+def _k8s_fixture_documents(repo_root: Path) -> tuple[list[tuple[list[object], str]], list]:
+    """Parse every fixture manifest; return (documents, label) pairs and parse violations."""
+    base = repo_root / _K8S_FIXTURE_DIR
+    documents: list[tuple[list[object], str]] = []
+    parse_violations: list = []
+    for path in sorted(list(base.rglob("*.yaml")) + list(base.rglob("*.yml"))):
+        rel = ADR_GUARD._repo_relative(path, repo_root)
+        docs, violations = ADR_GUARD._iter_yaml_documents(path.read_text(encoding="utf-8"), rel)
+        documents.append((docs, rel))
+        parse_violations.extend(violations)
+    return documents, parse_violations
+
+
+def _validate_k8s_fixture_deployments(repo_root: Path) -> list:
+    """Apply the ADR-006-R2 Deployment rules to every fixture manifest."""
+    documents, violations = _k8s_fixture_documents(repo_root)
+    for docs, rel in documents:
+        violations.extend(ADR_GUARD._validate_deployment_documents(docs, rel))
+    return violations
+
+
+def _validate_k8s_fixture_network_policies(repo_root: Path) -> list:
+    """Apply the ADR-006-R3 NetworkPolicy rules to the combined fixture manifests."""
+    documents, parse_violations = _k8s_fixture_documents(repo_root)
+    violations = ADR_GUARD._as_network_policy_violations(parse_violations)
+    if documents:
+        docs = [doc for file_docs, _rel in documents for doc in file_docs]
+        violations.extend(ADR_GUARD._validate_network_policy_documents(docs, _K8S_FIXTURE_DIR))
+    return violations
+
+
 class K8sDeploymentSecurityContextTests(unittest.TestCase):
     """Tests for the k8s-deployment-security-context ADR-006-R2 check."""
 
@@ -2879,7 +2948,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         "          securityContext:\n"
         "            allowPrivilegeEscalation: false\n"
         "            capabilities:\n"
-        "              drop: [\"ALL\"]\n"
+        '              drop: ["ALL"]\n'
         "            readOnlyRootFilesystem: true\n"
         "            runAsNonRoot: true\n"
         "            runAsUser: 1000\n"
@@ -2891,19 +2960,13 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
 
-    def _run(self, repo_root: Path, files: list[str] | None = None) -> list:
-        if files is None:
-            base = repo_root / ADR_GUARD.K8S_BASE_DEPLOYMENT_DIR
-            files = sorted(
-                ADR_GUARD._repo_relative(p, repo_root)
-                for p in list(base.rglob("*.yaml")) + list(base.rglob("*.yml"))
-            )
-        return ADR_GUARD.check_k8s_deployment_security_context(repo_root, files)
+    def _run(self, repo_root: Path) -> list:
+        return _validate_k8s_fixture_deployments(repo_root)
 
     def test_compliant_deployment_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", self.HARDENED_POD)
+            self._write(repo_root, "manifests/web-deployment.yaml", self.HARDENED_POD)
             self.assertEqual(self._run(repo_root), [])
 
     def test_missing_pod_seccomp_profile_fails(self) -> None:
@@ -2913,7 +2976,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
                 "      securityContext:\n        seccompProfile:\n          type: RuntimeDefault\n",
                 "",
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("seccompProfile" in v.message for v in violations))
             self.assertTrue(all(v.rule_id == "ADR-006-R2" for v in violations))
@@ -2922,17 +2985,15 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace("RuntimeDefault", "Unconfined")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("Unconfined" in v.message for v in violations))
 
     def test_allow_privilege_escalation_true_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            body = self.HARDENED_POD.replace(
-                "allowPrivilegeEscalation: false", "allowPrivilegeEscalation: true"
-            )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            body = self.HARDENED_POD.replace("allowPrivilegeEscalation: false", "allowPrivilegeEscalation: true")
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("allowPrivilegeEscalation" in v.message for v in violations))
 
@@ -2940,7 +3001,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace("            readOnlyRootFilesystem: true\n", "")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("readOnlyRootFilesystem" in v.message for v in violations))
 
@@ -2948,17 +3009,15 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace("            runAsNonRoot: true\n", "")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("runAsNonRoot" in v.message for v in violations))
 
     def test_missing_capabilities_drop_all_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            body = self.HARDENED_POD.replace(
-                "            capabilities:\n              drop: [\"ALL\"]\n", ""
-            )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            body = self.HARDENED_POD.replace('            capabilities:\n              drop: ["ALL"]\n', "")
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("drop ALL" in v.message for v in violations))
 
@@ -2966,7 +3025,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace('drop: ["ALL"]', 'drop: ["NET_RAW"]')
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("drop ALL" in v.message for v in violations))
 
@@ -2974,7 +3033,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace("runAsUser: 1000", "runAsUser: 0")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("runAsUser" in v.message for v in violations))
 
@@ -2982,7 +3041,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace("            runAsUser: 1000\n", "")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("runAsUser" in v.message for v in violations))
 
@@ -2990,7 +3049,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace("            runAsGroup: 1000\n", "")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("runAsGroup" in v.message for v in violations))
 
@@ -3012,56 +3071,41 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
                 "        - name: bare\n"
                 "          image: example/bare:1\n"
             )
-            self._write(repo_root, "platform/k8s/gcp/base/bare-deployment.yaml", body)
+            self._write(repo_root, "manifests/bare-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(len(violations) >= 4)
             self.assertTrue(all(v.rule_id == "ADR-006-R2" for v in violations))
 
-    def test_skips_when_no_relevant_files_changed(self) -> None:
+    def test_skips_when_no_chart_file_changed(self) -> None:
+        # The temporary root has no chart, so a scan that ran would report the
+        # missing chart directory. An empty result proves the scan was skipped.
         with tempfile.TemporaryDirectory() as tmp:
-            repo_root = Path(tmp)
-            body = self.HARDENED_POD.replace("RuntimeDefault", "Unconfined")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
-            self.assertEqual(
-                self._run(repo_root, ["shifter/shifter_platform/cms/views.py"]), []
-            )
+            unrelated = ["shifter/shifter_platform/cms/views.py"]
+            self.assertEqual(ADR_GUARD.check_k8s_deployment_security_context(Path(tmp), unrelated), [])
+            self.assertEqual(ADR_GUARD.check_k8s_network_policy_coverage(Path(tmp), unrelated), [])
 
-    def test_runs_when_relevant_files_changed(self) -> None:
+    def test_runs_when_a_chart_file_changed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            repo_root = Path(tmp)
-            body = self.HARDENED_POD.replace("RuntimeDefault", "Unconfined")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
-            violations = self._run(
-                repo_root, ["platform/k8s/gcp/base/web-deployment.yaml"]
+            violations = ADR_GUARD.check_k8s_deployment_security_context(
+                Path(tmp), ["platform/charts/shifter/templates/web-deployment.yaml"]
             )
-            self.assertTrue(any("Unconfined" in v.message for v in violations))
+            self.assertTrue(any("chart directory is missing" in v.message for v in violations))
 
     def test_skips_non_deployment_kinds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/base/foo-deployment.yaml",
+                "manifests/foo-deployment.yaml",
                 "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: foo\n",
             )
             self.assertEqual(self._run(repo_root), [])
 
-    def test_real_repo_base_manifests_pass(self) -> None:
-        """The actual repo's base deployments must comply with ADR-006-R2.
-
-        Restricted to base files so the test doesn't depend on `helm`
-        being on PATH; the chart-rendered validation has its own test
-        guarded by skipUnless.
-        """
-        base = ADR_GUARD.REPO_ROOT / ADR_GUARD.K8S_BASE_DEPLOYMENT_DIR
-        files = sorted(
-            ADR_GUARD._repo_relative(p, ADR_GUARD.REPO_ROOT)
-            for p in list(base.rglob("*.yaml")) + list(base.rglob("*.yml"))
-        )
-        violations = ADR_GUARD.check_k8s_deployment_security_context(
-            ADR_GUARD.REPO_ROOT, files
-        )
-        self.assertEqual(violations, [], msg=str(violations))
+    @unittest.skipUnless(shutil.which("helm"), "helm is required to render the chart")
+    def test_real_repo_chart_renders_pass(self) -> None:
+        """Every supported profile render of the real chart complies with ADR-006-R2 and ADR-006-R3."""
+        self.assertEqual(ADR_GUARD.check_k8s_deployment_security_context(ADR_GUARD.REPO_ROOT, None), [])
+        self.assertEqual(ADR_GUARD.check_k8s_network_policy_coverage(ADR_GUARD.REPO_ROOT, None), [])
 
     def test_privileged_container_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3070,7 +3114,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
                 "          securityContext:\n",
                 "          securityContext:\n            privileged: true\n",
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("privileged" in v.message for v in violations))
 
@@ -3078,48 +3122,39 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace(
-                "            capabilities:\n              drop: [\"ALL\"]\n",
-                "            capabilities:\n              drop: [\"ALL\"]\n              add: [\"SYS_ADMIN\"]\n",
+                '            capabilities:\n              drop: ["ALL"]\n',
+                '            capabilities:\n              drop: ["ALL"]\n              add: ["SYS_ADMIN"]\n',
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
-            self.assertTrue(
-                any("capabilities.add" in v.message for v in violations)
-            )
+            self.assertTrue(any("capabilities.add" in v.message for v in violations))
 
     def test_container_level_seccomp_unconfined_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace(
                 "            runAsGroup: 1000\n",
-                "            runAsGroup: 1000\n"
-                "            seccompProfile:\n"
-                "              type: Unconfined\n",
+                "            runAsGroup: 1000\n            seccompProfile:\n              type: Unconfined\n",
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
-            self.assertTrue(
-                any("container-level seccompProfile" in v.message for v in violations)
-            )
+            self.assertTrue(any("container-level seccompProfile" in v.message for v in violations))
 
     def test_container_level_seccomp_runtime_default_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace(
                 "            runAsGroup: 1000\n",
-                "            runAsGroup: 1000\n"
-                "            seccompProfile:\n"
-                "              type: RuntimeDefault\n",
+                "            runAsGroup: 1000\n            seccompProfile:\n              type: RuntimeDefault\n",
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             self.assertEqual(self._run(repo_root), [])
 
     def test_init_container_unsafe_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = (
-                self.HARDENED_POD
-                + "      initContainers:\n"
+                self.HARDENED_POD + "      initContainers:\n"
                 "        - name: setup\n"
                 "          image: example/setup:1\n"
                 "          securityContext:\n"
@@ -3131,30 +3166,27 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
                 "            runAsUser: 0\n"
                 "            runAsGroup: 0\n"
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
-            self.assertTrue(
-                any("initContainer" in v.message and "'setup'" in v.message for v in violations)
-            )
+            self.assertTrue(any("initContainer" in v.message and "'setup'" in v.message for v in violations))
 
     def test_init_container_compliant_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = (
-                self.HARDENED_POD
-                + "      initContainers:\n"
+                self.HARDENED_POD + "      initContainers:\n"
                 "        - name: setup\n"
                 "          image: example/setup:1\n"
                 "          securityContext:\n"
                 "            allowPrivilegeEscalation: false\n"
                 "            capabilities:\n"
-                "              drop: [\"ALL\"]\n"
+                '              drop: ["ALL"]\n'
                 "            readOnlyRootFilesystem: true\n"
                 "            runAsNonRoot: true\n"
                 "            runAsUser: 1000\n"
                 "            runAsGroup: 1000\n"
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             self.assertEqual(self._run(repo_root), [])
 
     def test_boolean_run_as_user_is_rejected(self) -> None:
@@ -3162,7 +3194,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace("runAsUser: 1000", "runAsUser: true")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("runAsUser" in v.message for v in violations))
 
@@ -3170,7 +3202,7 @@ class K8sDeploymentSecurityContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace("runAsGroup: 1000", "runAsGroup: false")
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("runAsGroup" in v.message for v in violations))
 
@@ -3205,31 +3237,23 @@ class K8sNetworkPolicyCoverageTests(unittest.TestCase):
         "  egress: []\n"
     )
 
-    DEFAULT_DENY_JOBS = DEFAULT_DENY_PLATFORM.replace(
-        "namespace: shifter-platform", "namespace: shifter-jobs"
-    )
+    DEFAULT_DENY_JOBS = DEFAULT_DENY_PLATFORM.replace("namespace: shifter-platform", "namespace: shifter-jobs")
 
     def _write(self, repo_root: Path, rel: str, body: str) -> None:
         path = repo_root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
 
-    def _run(self, repo_root: Path, files: list[str] | None = None) -> list:
-        if files is None:
-            base = repo_root / ADR_GUARD.K8S_BASE_DEPLOYMENT_DIR
-            files = sorted(
-                ADR_GUARD._repo_relative(p, repo_root)
-                for p in list(base.rglob("*.yaml")) + list(base.rglob("*.yml"))
-            )
-        return ADR_GUARD.check_k8s_network_policy_coverage(repo_root, files)
+    def _run(self, repo_root: Path) -> list:
+        return _validate_k8s_fixture_network_policies(repo_root)
 
     def test_each_namespace_requires_default_deny_network_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/namespaces.yaml", self.NAMESPACES)
+            self._write(repo_root, "manifests/namespaces.yaml", self.NAMESPACES)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/base/networkpolicies.yaml",
+                "manifests/networkpolicies.yaml",
                 self.DEFAULT_DENY_PLATFORM,
             )
 
@@ -3241,10 +3265,10 @@ class K8sNetworkPolicyCoverageTests(unittest.TestCase):
     def test_default_deny_network_policy_coverage_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/namespaces.yaml", self.NAMESPACES)
+            self._write(repo_root, "manifests/namespaces.yaml", self.NAMESPACES)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/base/networkpolicies.yaml",
+                "manifests/networkpolicies.yaml",
                 self.DEFAULT_DENY_PLATFORM + "---\n" + self.DEFAULT_DENY_JOBS,
             )
 
@@ -3269,10 +3293,10 @@ class K8sNetworkPolicyCoverageTests(unittest.TestCase):
                 + "        - ipBlock:\n"
                 + "            cidr: 0.0.0.0/0\n"
             )
-            self._write(repo_root, "platform/k8s/gcp/base/namespaces.yaml", self.NAMESPACES)
+            self._write(repo_root, "manifests/namespaces.yaml", self.NAMESPACES)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/base/networkpolicies.yaml",
+                "manifests/networkpolicies.yaml",
                 broad_allow + "---\n" + self.DEFAULT_DENY_JOBS,
             )
 
@@ -3292,21 +3316,15 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
 
-    def _run(self, repo_root: Path, files: list[str] | None = None) -> list:
-        if files is None:
-            base = repo_root / ADR_GUARD.K8S_BASE_DEPLOYMENT_DIR
-            files = sorted(
-                ADR_GUARD._repo_relative(p, repo_root)
-                for p in list(base.rglob("*.yaml")) + list(base.rglob("*.yml"))
-            )
-        return ADR_GUARD.check_k8s_deployment_security_context(repo_root, files)
+    def _run(self, repo_root: Path) -> list:
+        return _validate_k8s_fixture_deployments(repo_root)
 
     def test_leading_document_separator_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/base/web-deployment.yaml",
+                "manifests/web-deployment.yaml",
                 "---\n" + self.HARDENED_POD,
             )
             self.assertEqual(self._run(repo_root), [])
@@ -3329,7 +3347,7 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             "        securityContext:\n"
             "          allowPrivilegeEscalation: false\n"
             "          capabilities:\n"
-            "            drop: [\"ALL\"]\n"
+            '            drop: ["ALL"]\n'
             "          readOnlyRootFilesystem: true\n"
             "          runAsNonRoot: true\n"
             "          runAsUser: 1000\n"
@@ -3337,7 +3355,7 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             self.assertEqual(self._run(repo_root), [])
 
     def test_empty_flow_security_context_fails_cleanly(self) -> None:
@@ -3349,14 +3367,14 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
                 "          securityContext:\n"
                 "            allowPrivilegeEscalation: false\n"
                 "            capabilities:\n"
-                "              drop: [\"ALL\"]\n"
+                '              drop: ["ALL"]\n'
                 "            readOnlyRootFilesystem: true\n"
                 "            runAsNonRoot: true\n"
                 "            runAsUser: 1000\n"
                 "            runAsGroup: 1000\n",
                 "          securityContext: {}\n",
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(len(violations) >= 4)
             self.assertTrue(all(v.rule_id == "ADR-006-R2" for v in violations))
@@ -3380,11 +3398,9 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
-            self.assertTrue(
-                any("must be a mapping" in v.message for v in violations)
-            )
+            self.assertTrue(any("must be a mapping" in v.message for v in violations))
 
     def test_pod_level_run_as_user_inheritance_passes(self) -> None:
         body = (
@@ -3407,12 +3423,12 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             "          securityContext:\n"
             "            allowPrivilegeEscalation: false\n"
             "            capabilities:\n"
-            "              drop: [\"ALL\"]\n"
+            '              drop: ["ALL"]\n'
             "            readOnlyRootFilesystem: true\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             self.assertEqual(self._run(repo_root), [])
 
     def test_container_override_beats_pod_level_default(self) -> None:
@@ -3437,13 +3453,13 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             "          securityContext:\n"
             "            allowPrivilegeEscalation: false\n"
             "            capabilities:\n"
-            "              drop: [\"ALL\"]\n"
+            '              drop: ["ALL"]\n'
             "            readOnlyRootFilesystem: true\n"
             "            runAsUser: 0\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("runAsUser" in v.message for v in violations))
 
@@ -3453,17 +3469,17 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
         body = self.HARDENED_POD.replace("allowPrivilegeEscalation: false", "allowPrivilegeEscalation: true")
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/worker.yaml", body)
+            self._write(repo_root, "manifests/worker.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("allowPrivilegeEscalation" in v.message for v in violations))
 
     def test_non_deployment_kind_is_skipped(self) -> None:
-        """A non-Deployment YAML in the base dir must be parsed but not flagged."""
+        """A non-Deployment document must be parsed but not flagged."""
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/base/configmap.yaml",
+                "manifests/configmap.yaml",
                 "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: foo\n",
             )
             self.assertEqual(self._run(repo_root), [])
@@ -3474,56 +3490,32 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             body = self.HARDENED_POD.replace(
-                "            capabilities:\n              drop: [\"ALL\"]\n",
-                "            capabilities:\n              drop: [\"ALL\"]\n              add: []\n",
+                '            capabilities:\n              drop: ["ALL"]\n',
+                '            capabilities:\n              drop: ["ALL"]\n              add: []\n',
             )
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
-            self.assertTrue(
-                any("capabilities.add" in v.message for v in violations)
-            )
+            self.assertTrue(any("capabilities.add" in v.message for v in violations))
 
     def test_non_mapping_spec_fails_cleanly(self) -> None:
         """A `spec:` value that is a non-mapping scalar must produce a violation,
         not crash the entire ADR guard with an AttributeError."""
-        body = (
-            "apiVersion: apps/v1\n"
-            "kind: Deployment\n"
-            "metadata:\n"
-            "  name: web\n"
-            "spec: scalar-not-a-mapping\n"
-        )
+        body = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec: scalar-not-a-mapping\n"
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("spec must be a mapping" in v.message for v in violations))
 
     def test_non_mapping_template_fails_cleanly(self) -> None:
         body = (
-            "apiVersion: apps/v1\n"
-            "kind: Deployment\n"
-            "metadata:\n"
-            "  name: web\n"
-            "spec:\n"
-            "  template: scalar-not-a-mapping\n"
+            "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  template: scalar-not-a-mapping\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
-            self.assertTrue(
-                any("spec.template must be a mapping" in v.message for v in violations)
-            )
-
-    def test_yml_extension_is_scanned(self) -> None:
-        """A Deployment in a `.yml`-extension file under base/ must be scanned."""
-        body = self.HARDENED_POD.replace("allowPrivilegeEscalation: false", "allowPrivilegeEscalation: true")
-        with tempfile.TemporaryDirectory() as tmp:
-            repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/worker.yml", body)
-            violations = self._run(repo_root)
-            self.assertTrue(any("allowPrivilegeEscalation" in v.message for v in violations))
+            self.assertTrue(any("spec.template must be a mapping" in v.message for v in violations))
 
     def test_missing_chart_directory_is_a_violation(self) -> None:
         """Deleting the entire chart directory must produce a violation,
@@ -3532,15 +3524,11 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             # No chart/ directory created.
-            rendered, violations = ADR_GUARD._render_chart_for_validation(
-                repo_root, ADR_GUARD.HELM_VALUES_FILES
-            )
+            rendered, violations = ADR_GUARD._render_chart_for_validation(repo_root, ADR_GUARD.HELM_VALUES_FILES)
             self.assertEqual(rendered, [])
             self.assertTrue(
                 any(
-                    v.path == ADR_GUARD.HELM_CHART_DIR
-                    and "chart directory is missing" in v.message
-                    for v in violations
+                    v.path == ADR_GUARD.HELM_CHART_DIR and "chart directory is missing" in v.message for v in violations
                 )
             )
 
@@ -3587,8 +3575,7 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             shim_dir.mkdir()
             shim_path = shim_dir / "helm"
             shim_path.write_text(
-                "#!/usr/bin/env bash\n"
-                f"cat <<'YAML'\n{unsafe_deployment}YAML\n",
+                f"#!/usr/bin/env bash\ncat <<'YAML'\n{unsafe_deployment}YAML\n",
                 encoding="utf-8",
             )
             shim_path.chmod(shim_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -3603,9 +3590,7 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             finally:
                 os.environ["PATH"] = old_path
 
-            chart_violations = [
-                v for v in violations if "allowPrivilegeEscalation" in v.message
-            ]
+            chart_violations = [v for v in violations if "allowPrivilegeEscalation" in v.message]
             self.assertTrue(chart_violations)
             for v in chart_violations:
                 self.assertIn(v.path, ADR_GUARD.HELM_VALUES_FILES)
@@ -3618,12 +3603,11 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             (repo_root / "platform/charts/shifter").mkdir(parents=True)
             # Override PATH so helm cannot be found.
             import os
+
             old_path = os.environ.get("PATH", "")
             try:
                 os.environ["PATH"] = ""
-                rendered, violations = ADR_GUARD._render_chart_for_validation(
-                    repo_root, ADR_GUARD.HELM_VALUES_FILES
-                )
+                rendered, violations = ADR_GUARD._render_chart_for_validation(repo_root, ADR_GUARD.HELM_VALUES_FILES)
             finally:
                 os.environ["PATH"] = old_path
             self.assertEqual(rendered, [])
@@ -3664,8 +3648,7 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             shim_dir.mkdir()
             shim_path = shim_dir / "helm"
             shim_path.write_text(
-                "#!/usr/bin/env bash\n"
-                f"cat <<'YAML'\n{unsafe_deployment}YAML\n",
+                f"#!/usr/bin/env bash\ncat <<'YAML'\n{unsafe_deployment}YAML\n",
                 encoding="utf-8",
             )
             shim_path.chmod(shim_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -3680,15 +3663,11 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             finally:
                 os.environ["PATH"] = old_path
 
-            self.assertTrue(
-                any("allowPrivilegeEscalation" in v.message for v in violations)
-            )
+            self.assertTrue(any("allowPrivilegeEscalation" in v.message for v in violations))
             # Violation path is the repo-relative values file (so existing
             # exception globs in docs/adr/exceptions.yaml can match), not a
             # synthetic 'helm template -f X' label.
-            self.assertTrue(
-                any(v.path in ADR_GUARD.HELM_VALUES_FILES for v in violations)
-            )
+            self.assertTrue(any(v.path in ADR_GUARD.HELM_VALUES_FILES for v in violations))
 
     def test_missing_helm_values_file_is_a_violation(self) -> None:
         """Deleting / renaming a configured values file must produce a violation,
@@ -3701,9 +3680,7 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             chart_dir = repo_root / "platform/charts/shifter"
             chart_dir.mkdir(parents=True)
             # Create only ONE of the configured values files.
-            (repo_root / ADR_GUARD.HELM_VALUES_FILES[0]).write_text(
-                "dummy: true\n", encoding="utf-8"
-            )
+            (repo_root / ADR_GUARD.HELM_VALUES_FILES[0]).write_text("dummy: true\n", encoding="utf-8")
 
             # Compliant deployment from the shim so the existing one passes.
             compliant_deployment = self.HARDENED_POD
@@ -3711,8 +3688,7 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             shim_dir.mkdir()
             shim_path = shim_dir / "helm"
             shim_path.write_text(
-                "#!/usr/bin/env bash\n"
-                f"cat <<'YAML'\n{compliant_deployment}YAML\n",
+                f"#!/usr/bin/env bash\ncat <<'YAML'\n{compliant_deployment}YAML\n",
                 encoding="utf-8",
             )
             shim_path.chmod(shim_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -3720,9 +3696,7 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
             old_path = os.environ.get("PATH", "")
             try:
                 os.environ["PATH"] = f"{shim_dir}:{old_path}"
-                rendered, violations = ADR_GUARD._render_chart_for_validation(
-                    repo_root, ADR_GUARD.HELM_VALUES_FILES
-                )
+                _rendered, violations = ADR_GUARD._render_chart_for_validation(repo_root, ADR_GUARD.HELM_VALUES_FILES)
             finally:
                 os.environ["PATH"] = old_path
 
@@ -3748,11 +3722,9 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
-            self.assertTrue(
-                any("containers must be a non-empty list" in v.message for v in violations)
-            )
+            self.assertTrue(any("containers must be a non-empty list" in v.message for v in violations))
 
     def test_missing_containers_key_is_a_violation(self) -> None:
         body = (
@@ -3769,26 +3741,19 @@ class K8sDeploymentSecurityContextRobustnessTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/web-deployment.yaml", body)
+            self._write(repo_root, "manifests/web-deployment.yaml", body)
             violations = self._run(repo_root)
-            self.assertTrue(
-                any("containers must be a non-empty list" in v.message for v in violations)
-            )
+            self.assertTrue(any("containers must be a non-empty list" in v.message for v in violations))
 
     def test_multi_document_file_scans_only_deployments(self) -> None:
         """A multi-document YAML file with a ConfigMap and a Deployment must only
         flag violations in the Deployment document."""
-        body = (
-            "apiVersion: v1\n"
-            "kind: ConfigMap\n"
-            "metadata:\n"
-            "  name: cfg\n"
-            "---\n"
-            + self.HARDENED_POD.replace("allowPrivilegeEscalation: false", "allowPrivilegeEscalation: true")
+        body = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cfg\n---\n" + self.HARDENED_POD.replace(
+            "allowPrivilegeEscalation: false", "allowPrivilegeEscalation: true"
         )
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            self._write(repo_root, "platform/k8s/gcp/base/bundle.yaml", body)
+            self._write(repo_root, "manifests/bundle.yaml", body)
             violations = self._run(repo_root)
             self.assertTrue(any("allowPrivilegeEscalation" in v.message for v in violations))
 
@@ -3818,13 +3783,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         "max-complexity = 15\n"
     )
 
-    PYPROJECT_MISSING_MCCABE = (
-        "[project]\n"
-        'name = "pkg-a"\n'
-        "\n"
-        "[tool.ruff.lint]\n"
-        'select = ["E", "F", "C901"]\n'
-    )
+    PYPROJECT_MISSING_MCCABE = '[project]\nname = "pkg-a"\n\n[tool.ruff.lint]\nselect = ["E", "F", "C901"]\n'
 
     PYPROJECT_WRONG_THRESHOLD = (
         "[project]\n"
@@ -3853,9 +3812,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         if not backlog.exists():
             backlog.parent.mkdir(parents=True, exist_ok=True)
             backlog.write_text(
-                "# Python Complexity Backlog\n\n"
-                "| Package | File | Function | Complexity |\n"
-                "|---|---|---|---|\n",
+                "# Python Complexity Backlog\n\n| Package | File | Function | Complexity |\n|---|---|---|---|\n",
                 encoding="utf-8",
             )
 
@@ -3863,7 +3820,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         """All canonical pyprojects with C901 + max-complexity=15 produce no violations."""
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             self._write_packages(repo_root, packages)
 
             violations = ADR_GUARD.check_python_complexity_gate(repo_root, None)
@@ -3875,7 +3832,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             packages[target_pkg] = self.PYPROJECT_MISSING_C901
             self._write_packages(repo_root, packages)
 
@@ -3892,7 +3849,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             packages[target_pkg] = self.PYPROJECT_MISSING_MCCABE
             self._write_packages(repo_root, packages)
 
@@ -3907,7 +3864,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             packages[target_pkg] = self.PYPROJECT_WRONG_THRESHOLD
             self._write_packages(repo_root, packages)
 
@@ -3923,7 +3880,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             # Skip the first canonical package entirely.
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[1:]}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[1:], self.PYPROJECT_OK)
             self._write_packages(repo_root, packages)
 
             violations = ADR_GUARD.check_python_complexity_gate(repo_root, None)
@@ -3937,14 +3894,12 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             # Even with a bad pyproject, the file filter should skip the check.
             packages[target_pkg] = self.PYPROJECT_MISSING_C901
             self._write_packages(repo_root, packages)
 
-            violations = ADR_GUARD.check_python_complexity_gate(
-                repo_root, ["docs/unrelated.md"]
-            )
+            violations = ADR_GUARD.check_python_complexity_gate(repo_root, ["docs/unrelated.md"])
 
             self.assertEqual(violations, [])
 
@@ -3953,13 +3908,11 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             packages[target_pkg] = self.PYPROJECT_MISSING_C901
             self._write_packages(repo_root, packages)
 
-            violations = ADR_GUARD.check_python_complexity_gate(
-                repo_root, [f"{target_pkg}/pyproject.toml"]
-            )
+            violations = ADR_GUARD.check_python_complexity_gate(repo_root, [f"{target_pkg}/pyproject.toml"])
 
             self.assertEqual(len(violations), 1)
             self.assertIn("C901", violations[0].message)
@@ -3985,9 +3938,7 @@ class PythonComplexityGateTests(unittest.TestCase):
     def test_check_registered_in_checks_registry(self) -> None:
         """The new check has a CHECKS entry pointing at the implementation."""
         self.assertIn("python-complexity-gate", ADR_GUARD.CHECKS)
-        self.assertIs(
-            ADR_GUARD.CHECKS["python-complexity-gate"], ADR_GUARD.check_python_complexity_gate
-        )
+        self.assertIs(ADR_GUARD.CHECKS["python-complexity-gate"], ADR_GUARD.check_python_complexity_gate)
 
     # ----- Findings 1: silent gate bypass through ignore / per-file-ignores -----
 
@@ -3998,7 +3949,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         Used by the silent-bypass + prefix-selector tests so each case only
         declares what differs from the OK baseline.
         """
-        lint = "[tool.ruff.lint]\nselect = [\"E\", \"F\", \"C901\"]\n"
+        lint = '[tool.ruff.lint]\nselect = ["E", "F", "C901"]\n'
         if extra_lint_lines:
             lint += extra_lint_lines if extra_lint_lines.endswith("\n") else extra_lint_lines + "\n"
         return (
@@ -4010,14 +3961,12 @@ class PythonComplexityGateTests(unittest.TestCase):
             + (("\n" + extra_sections) if extra_sections else "")
         )
 
-    def _assert_single_bypass_violation(
-        self, pyproject_body: str, must_contain: tuple[str, ...]
-    ) -> None:
+    def _assert_single_bypass_violation(self, pyproject_body: str, must_contain: tuple[str, ...]) -> None:
         """Helper: synthetic repo with one bad pyproject; assert one violation matching all strings."""
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             packages[target_pkg] = pyproject_body
             self._write_packages(repo_root, packages)
 
@@ -4076,14 +4025,14 @@ class PythonComplexityGateTests(unittest.TestCase):
         """A ruff hook for a package missing from PYTHON_COMPLEXITY_GATE_PYPROJECTS must fail."""
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             self._write_packages(repo_root, packages)
             # Pre-commit has a hook for a new package not in the constant.
             extra_pkg = "scripts/new_uncovered_pkg"
             (repo_root / extra_pkg).mkdir(parents=True, exist_ok=True)
             self._write_precommit(
                 repo_root,
-                list(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS) + [extra_pkg],
+                [*list(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS), extra_pkg],
             )
 
             violations = ADR_GUARD.check_python_complexity_gate(repo_root, None)
@@ -4097,7 +4046,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         """A constant entry not backed by a ruff hook indicates stale config; must fail."""
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             self._write_packages(repo_root, packages)
             # Pre-commit covers only the first N-1 packages; the last constant entry is stale.
             covered = list(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS)[:-1]
@@ -4115,7 +4064,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         """Constant + ruff hooks in agreement → no consistency violation."""
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             self._write_packages(repo_root, packages)
             self._write_precommit(repo_root, list(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS))
 
@@ -4123,7 +4072,7 @@ class PythonComplexityGateTests(unittest.TestCase):
 
             self.assertEqual(violations, [])
 
-    # ----- Reconciliation: in-source `# noqa: C901` ↔ backlog rows -----
+    # ----- Reconciliation: in-source C901 exemptions and backlog rows -----
 
     def _write_backlog(self, repo_root: Path, rows: list[tuple[str, str, str, int]]) -> None:
         """Write a synthetic docs/adr/complexity-backlog.md with the given rows.
@@ -4149,7 +4098,7 @@ class PythonComplexityGateTests(unittest.TestCase):
 
     def _full_synthetic_repo(self, repo_root: Path) -> None:
         """Build a minimal repo with all canonical pyprojects + precommit + empty backlog."""
-        packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+        packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
         self._write_packages(repo_root, packages)
         self._write_precommit(repo_root, list(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS))
         self._write_backlog(repo_root, [])
@@ -4189,10 +4138,7 @@ class PythonComplexityGateTests(unittest.TestCase):
             violations = ADR_GUARD.check_python_complexity_gate(repo_root, None)
 
             self.assertTrue(
-                any(
-                    "foo" in v.message and v.path.startswith(source_rel)
-                    for v in violations
-                ),
+                any("foo" in v.message and v.path.startswith(source_rel) for v in violations),
                 msg=f"Expected unauthorized-exemption violation: {violations}",
             )
 
@@ -4217,7 +4163,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         """If the backlog doc is absent, the reconciliation gate cannot operate; fail."""
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             self._write_packages(repo_root, packages)
             self._write_precommit(repo_root, list(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS))
             # `_write_packages` writes an empty backlog by default; delete it
@@ -4227,10 +4173,7 @@ class PythonComplexityGateTests(unittest.TestCase):
             violations = ADR_GUARD.check_python_complexity_gate(repo_root, None)
 
             self.assertTrue(
-                any(
-                    v.path == "docs/adr/complexity-backlog.md" and "missing" in v.message
-                    for v in violations
-                ),
+                any(v.path == "docs/adr/complexity-backlog.md" and "missing" in v.message for v in violations),
                 msg=f"Expected missing-backlog violation: {violations}",
             )
 
@@ -4254,7 +4197,7 @@ class PythonComplexityGateTests(unittest.TestCase):
                 msg=f"Expected multi-code noqa detected: {violations}",
             )
 
-    # ----- Cycle-3 finding 1: bare `# noqa` on def line bypasses scanner -----
+    # ----- Cycle-3 finding 1: bare noqa on a def line bypasses the scanner -----
 
     def test_bare_noqa_on_def_line_violates(self) -> None:
         """`def foo(...):  # noqa` (no code list) suppresses C901 too; must fail."""
@@ -4272,10 +4215,7 @@ class PythonComplexityGateTests(unittest.TestCase):
             violations = ADR_GUARD.check_python_complexity_gate(repo_root, None)
 
             self.assertTrue(
-                any(
-                    "bare" in v.message.lower() and v.path.startswith(source_rel)
-                    for v in violations
-                ),
+                any("bare" in v.message.lower() and v.path.startswith(source_rel) for v in violations),
                 msg=f"Expected bare-noqa violation: {violations}",
             )
 
@@ -4305,17 +4245,17 @@ class PythonComplexityGateTests(unittest.TestCase):
         """Prefix selectors that cover C901 (C, C9, C90, ALL) in suppress fields must fail."""
         cases = (
             (
-                'ignore_C_prefix',
+                "ignore_C_prefix",
                 self._pyproject_with_lint_keys(extra_lint_lines='ignore = ["C"]'),
                 ("ignore", "C901"),
             ),
             (
-                'extend-ignore_ALL',
+                "extend-ignore_ALL",
                 self._pyproject_with_lint_keys(extra_lint_lines='extend-ignore = ["ALL"]'),
                 ("extend-ignore", "C901"),
             ),
             (
-                'per-file-ignores_C90_prefix',
+                "per-file-ignores_C90_prefix",
                 self._pyproject_with_lint_keys(
                     extra_sections='[tool.ruff.lint.per-file-ignores]\n"**/*.py" = ["C90"]\n'
                 ),
@@ -4323,20 +4263,19 @@ class PythonComplexityGateTests(unittest.TestCase):
             ),
         )
         for label, body, expected_substrings in cases:
-            with self.subTest(case=label):
-                with tempfile.TemporaryDirectory() as tmp:
-                    repo_root = Path(tmp)
-                    target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-                    packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
-                    packages[target_pkg] = body
-                    self._write_packages(repo_root, packages)
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
+                repo_root = Path(tmp)
+                target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
+                packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
+                packages[target_pkg] = body
+                self._write_packages(repo_root, packages)
 
-                    violations = ADR_GUARD.check_python_complexity_gate(repo_root, None)
+                violations = ADR_GUARD.check_python_complexity_gate(repo_root, None)
 
-                    self.assertTrue(
-                        any(all(s in v.message for s in expected_substrings) for v in violations),
-                        msg=f"{label}: expected violation containing {expected_substrings}; got {violations}",
-                    )
+                self.assertTrue(
+                    any(all(s in v.message for s in expected_substrings) for v in violations),
+                    msg=f"{label}: expected violation containing {expected_substrings}; got {violations}",
+                )
 
     def test_select_with_c_prefix_satisfies_gate(self) -> None:
         """`select = ["C"]` enables C901 by prefix; the gate accepts it."""
@@ -4353,7 +4292,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             packages[target_pkg] = body
             self._write_packages(repo_root, packages)
 
@@ -4371,15 +4310,13 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             # Introduce a config-shape problem so the check has something to report.
             packages[target_pkg] = self.PYPROJECT_MISSING_C901
             self._write_packages(repo_root, packages)
 
             # Pass only adr_guard.py in --files mode.
-            violations = ADR_GUARD.check_python_complexity_gate(
-                repo_root, ["scripts/adr_guard/adr_guard.py"]
-            )
+            violations = ADR_GUARD.check_python_complexity_gate(repo_root, ["scripts/adr_guard/adr_guard.py"])
 
             self.assertTrue(
                 any("C901" in v.message for v in violations),
@@ -4396,13 +4333,11 @@ class PythonComplexityGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             target_pkg = ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             packages[target_pkg] = self.PYPROJECT_MISSING_C901
             self._write_packages(repo_root, packages)
 
-            violations = ADR_GUARD.check_python_complexity_gate(
-                repo_root, ["scripts/adr_guard/checks/complexity.py"]
-            )
+            violations = ADR_GUARD.check_python_complexity_gate(repo_root, ["scripts/adr_guard/checks/complexity.py"])
 
             self.assertTrue(
                 any("C901" in v.message for v in violations),
@@ -4413,7 +4348,7 @@ class PythonComplexityGateTests(unittest.TestCase):
         """Package test files carry no gate config, so they stay irrelevant (#998)."""
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            packages = {pkg: self.PYPROJECT_OK for pkg in ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS}
+            packages = dict.fromkeys(ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS, self.PYPROJECT_OK)
             packages[ADR_GUARD.PYTHON_COMPLEXITY_GATE_PYPROJECTS[0]] = self.PYPROJECT_MISSING_C901
             self._write_packages(repo_root, packages)
 
@@ -4460,9 +4395,7 @@ class PackageBoundaryTests(unittest.TestCase):
             "sorted(reg.CHECKS); "
             "print('ok')"
         )
-        result = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True
-        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("ok", result.stdout)
 
@@ -4716,9 +4649,7 @@ class BoundaryMockPolicyTests(unittest.TestCase):
                 ],
             )
 
-            reference_baseline = Counter(
-                {("tests/test_ranges.py", "cms.services.create_range"): 1}
-            )
+            reference_baseline = Counter({("tests/test_ranges.py", "cms.services.create_range"): 1})
             # Patch the impl module (checks/boundary_mock.py): the facade re-export
             # keeps its own module globals, so the check resolves this helper there.
             with patch.object(
@@ -4933,15 +4864,19 @@ class NoTrackedGeneratedArtifactsTests(unittest.TestCase):
     def test_flags_scenario_build_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            build_dir = repo_root / "scenario-dev" / "example" / "build" / "guest"
+            build_dir = repo_root / "shifter" / "environment-packs" / "example" / "build" / "guest"
             build_dir.mkdir(parents=True)
             (build_dir / "runtime-token").write_text("challenge-local-token", encoding="utf-8")
+            # Pack source content is not build output, even under a nested build/ name.
+            source_dir = repo_root / "shifter" / "environment-packs" / "example" / "assets" / "build"
+            source_dir.mkdir(parents=True)
+            (source_dir / "notes.txt").write_text("authored", encoding="utf-8")
 
             violations = ADR_GUARD.check_no_tracked_generated_artifacts(repo_root, None)
 
             self.assertEqual(
                 {v.path for v in violations},
-                {"scenario-dev/example/build/guest/runtime-token"},
+                {"shifter/environment-packs/example/build/guest/runtime-token"},
             )
             self.assertEqual({v.rule_id for v in violations}, {"ADR-004-R8"})
             self.assertNotIn("challenge-local-token", violations[0].message)
@@ -5027,18 +4962,16 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
 
     The check guards against re-introducing the failure mode resolved by
     PR #1207, where ``platform-runtime-secrets.env`` carried plaintext
-    runtime credentials. Synthetic placeholders are allowed so the
-    Kustomize overlay still renders for static validation, but real
+    runtime credentials. Synthetic placeholders are allowed, but real
     values must be supplied at deploy time (GCP Secret Manager,
     deploy-time Kubernetes Secret, or a gitignored local env file).
+    The check scans every tracked secret env file under ``platform/``.
 
     Violation messages must name only the path and variable name,
     never the rejected value.
     """
 
-    SECRETS_ENV_REL = (
-        "platform/k8s/gcp/overlays/gcp-dev/platform-runtime-secrets.env"
-    )
+    SECRETS_ENV_REL = "platform/example/gcp-dev/platform-runtime-secrets.env"
 
     def _make_overlay(self, repo_root: Path, rel: str) -> Path:
         d = repo_root / rel
@@ -5048,43 +4981,33 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
     def test_passes_when_file_is_comments_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 "# header comment\n#\n# another comment line\n\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(violations, [])
 
     def test_passes_with_empty_assignment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 "DB_PASSWORD=\nAPP_TOKEN=\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(violations, [])
 
     def test_passes_with_synthetic_placeholders(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 "DB_PASSWORD=REPLACE_AT_DEPLOY\n"
                 "API_TOKEN=CHANGE_ME\n"
@@ -5094,9 +5017,7 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(violations, [])
 
@@ -5106,17 +5027,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         sentinel_value = "ActualSensitiveValue123XYZ"
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 f"DB_PASSWORD={sentinel_value}\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             v = violations[0]
@@ -5135,9 +5052,7 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(violations, [])
 
@@ -5145,33 +5060,25 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         # Non-secrets env files in the same overlay must NOT be scanned.
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime.env").write_text(
                 "DB_HOST=postgresql.example.com\nDB_PORT=5432\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(violations, [])
 
     def test_files_arg_narrows_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            dev = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            dev = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (dev / "platform-runtime-secrets.env").write_text(
                 "DB_PASSWORD=DevRealVal\n",
                 encoding="utf-8",
             )
-            prod = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-prod"
-            )
+            prod = self._make_overlay(repo_root, "platform/example/gcp-prod")
             (prod / "platform-runtime-secrets.env").write_text(
                 "DB_PASSWORD=ProdRealVal\n",
                 encoding="utf-8",
@@ -5179,37 +5086,26 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
 
             scoped = ADR_GUARD.check_no_populated_secret_env_files(
                 repo_root,
-                [
-                    "platform/k8s/gcp/overlays/gcp-dev/"
-                    "platform-runtime-secrets.env"
-                ],
+                ["platform/example/gcp-dev/platform-runtime-secrets.env"],
             )
 
             self.assertEqual(len(scoped), 1)
             self.assertEqual(
                 scoped[0].path,
-                "platform/k8s/gcp/overlays/gcp-dev/"
-                "platform-runtime-secrets.env",
+                "platform/example/gcp-dev/platform-runtime-secrets.env",
             )
 
     def test_flags_only_violating_lines_not_placeholder_siblings(self) -> None:
         # Mixed-content file: placeholders are OK, populated lines flag.
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
-                "# header\n"
-                "DB_PASSWORD=REPLACE_AT_DEPLOY\n"
-                "API_TOKEN=NotASynthetic\n"
-                "APP_KEY=\n",
+                "# header\nDB_PASSWORD=REPLACE_AT_DEPLOY\nAPI_TOKEN=NotASynthetic\nAPP_KEY=\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             flagged_vars = [v.message for v in violations]
             self.assertEqual(len(violations), 1)
@@ -5225,17 +5121,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         # comment shape. Codex review cycle 1 caught this.
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 "DB_PASSWORD=#actualsecret\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             v = violations[0]
@@ -5249,17 +5141,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         # exactly one of the approved placeholders.
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 "API_TOKEN=REPLACE_AT_DEPLOY#realtoken\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             v = violations[0]
@@ -5272,17 +5160,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         # of the form `KEY=actual # note` to slip through.
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 "SHARED_KEY=actualvalue # not a comment\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             self.assertIn("SHARED_KEY", violations[0].message)
@@ -5297,17 +5181,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         sentinel = "DotKeyRealValueZ9"
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 f"db.password={sentinel}\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             self.assertEqual(violations[0].rule_id, "ADR-004-R9")
@@ -5319,17 +5199,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         sentinel = "HyphenKeyRealValueQ7"
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 f"api-token={sentinel}\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             self.assertIn("api-token", violations[0].message)
@@ -5342,17 +5218,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         sentinel = "ExportShellValueK3"
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 f"export DB_PASSWORD={sentinel}\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             self.assertIn("export DB_PASSWORD", violations[0].message)
@@ -5364,17 +5236,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         # / free text cannot slip past the value check.
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 "some random secret-bearing text without an equals sign\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             self.assertIn("not a comment", violations[0].message)
@@ -5387,18 +5255,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         # key shapes).
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
-                "db.password=REPLACE_AT_DEPLOY\n"
-                "api-token=<replace-at-deploy>\n",
+                "db.password=REPLACE_AT_DEPLOY\napi-token=<replace-at-deploy>\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(violations, [])
 
@@ -5412,17 +5275,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         sentinel = "AttackerKnownValueB7"
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
                 f"DB_PASSWORD=<{sentinel}>\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(len(violations), 1)
             self.assertEqual(violations[0].rule_id, "ADR-004-R9")
@@ -5435,21 +5294,13 @@ class NoPopulatedSecretEnvFilesTests(unittest.TestCase):
         # common bracketed example tokens).
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            overlay = self._make_overlay(
-                repo_root, "platform/k8s/gcp/overlays/gcp-dev"
-            )
+            overlay = self._make_overlay(repo_root, "platform/example/gcp-dev")
             (overlay / "platform-runtime-secrets.env").write_text(
-                "A=<replace-at-deploy>\n"
-                "B=<placeholder>\n"
-                "C=<PLACEHOLDER>\n"
-                "D=<example>\n"
-                "E=<change-me>\n",
+                "A=<replace-at-deploy>\nB=<placeholder>\nC=<PLACEHOLDER>\nD=<example>\nE=<change-me>\n",
                 encoding="utf-8",
             )
 
-            violations = ADR_GUARD.check_no_populated_secret_env_files(
-                repo_root, None
-            )
+            violations = ADR_GUARD.check_no_populated_secret_env_files(repo_root, None)
 
             self.assertEqual(violations, [])
 
@@ -5484,9 +5335,7 @@ class NoLiveCloudIdentifiersTests(unittest.TestCase):
     # assembled so the literal never appears in this tracked source.
     REAL_PUBLIC_IP = "45.77." + "12.9"
     ACCT_BUCKET = "shifter-example-bake-dev-" + "9" * 12
-    UUID_BUCKET = "shifter-dev-infra-" + "-".join(
-        ["a" * 8, "b" * 4, "c" * 4, "d" * 4, "e" * 12]
-    )
+    UUID_BUCKET = "shifter-dev-infra-" + "-".join(["a" * 8, "b" * 4, "c" * 4, "d" * 4, "e" * 12])
 
     def _write(self, repo_root: Path, rel: str, body: str) -> Path:
         path = repo_root / rel
@@ -5715,11 +5564,7 @@ class NoLiveCloudIdentifiersTests(unittest.TestCase):
         """Portal user-uploads CRR waiver (#143) must not share log-archive paths."""
         exceptions = ADR_GUARD.load_adr_exceptions(ADR_GUARD.REPO_ROOT)
         portal_path = "platform/terraform/modules/portal/s3/"
-        portal_entries = [
-            entry
-            for entry in exceptions
-            if portal_path in (entry.get("paths") or [])
-        ]
+        portal_entries = [entry for entry in exceptions if portal_path in (entry.get("paths") or [])]
         self.assertEqual(len(portal_entries), 1, portal_entries)
         self.assertEqual(portal_entries[0]["paths"], [portal_path])
         reason = portal_entries[0]["reason"]
@@ -5727,9 +5572,7 @@ class NoLiveCloudIdentifiersTests(unittest.TestCase):
         self.assertIn("s3-bucket-hardening-preflight.md", reason)
 
         log_entries = [
-            entry
-            for entry in exceptions
-            if any("log-aggregation" in path for path in (entry.get("paths") or []))
+            entry for entry in exceptions if any("log-aggregation" in path for path in (entry.get("paths") or []))
         ]
         self.assertTrue(log_entries, "expected a log-aggregation exception entry")
         for entry in log_entries:
@@ -5751,9 +5594,7 @@ class DocumentationCoverageTests(unittest.TestCase):
         if isinstance(manifest, str):
             (adr_dir / "documentation-coverage.yaml").write_text(manifest, encoding="utf-8")
         else:
-            (adr_dir / "documentation-coverage.yaml").write_text(
-                json.dumps(manifest), encoding="utf-8"
-            )
+            (adr_dir / "documentation-coverage.yaml").write_text(json.dumps(manifest), encoding="utf-8")
         for rel, body in docs.items():
             path = repo_root / self.DOCS_ROOT / rel
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -5888,6 +5729,148 @@ class DocumentationCoverageTests(unittest.TestCase):
 
             self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")
 
+    def test_boundary_change_requires_its_technical_doc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            feature = self._feature(drift_sources=["runtime/contracts/*.py"])
+            self._write_repo(root, self._manifest([feature]), self._good_docs())
+            for changed in (
+                ["runtime/contracts/input.py"],
+                ["runtime/contracts/input.py", "docs/features/demo.md"],
+                ["runtime/contracts/input.py", "docs/technical/unrelated.md"],
+            ):
+                with self.subTest(changed=changed):
+                    violations = ADR_GUARD.check_documentation_coverage(root, changed)
+                    self.assertEqual(len(violations), 1)
+                    self.assertIn("drift", violations[0].message)
+                    self.assertIn("docs/technical/demo.md", violations[0].message)
+
+    def test_boundary_review_and_unrelated_edits_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            feature = self._feature(drift_sources=["runtime/contracts/*.py"])
+            self._write_repo(root, self._manifest([feature]), self._good_docs())
+            for changed in (
+                ["runtime/contracts/input.py", "docs/technical/demo.md"],
+                ["runtime/internal.py"],
+                ["docs/features/demo.md"],
+                [],
+            ):
+                with self.subTest(changed=changed):
+                    self.assertEqual(ADR_GUARD.check_documentation_coverage(root, changed), [])
+
+    def test_drift_associations_reject_malformed_source_paths(self) -> None:
+        for sources in ([], "runtime/*.py", [""], [3], ["/runtime/*"], ["../runtime/*"]):
+            with self.subTest(sources=sources), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._write_repo(root, self._manifest([self._feature(drift_sources=sources)]), self._good_docs())
+                violations = ADR_GUARD.check_documentation_coverage(root, [])
+                self.assertEqual(len(violations), 1)
+                self.assertIn("drift_sources", violations[0].message)
+
+    def test_drift_does_not_hide_missing_or_renamed_handbook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = self._good_docs()
+            del docs["technical/demo.md"]
+            docs["technical/renamed.md"] = "# Renamed\n"
+            self._write_repo(root, self._manifest([self._feature(drift_sources=["runtime/*"])]), docs)
+            violations = ADR_GUARD.check_documentation_coverage(
+                root, ["runtime/input.py", "docs/technical/demo.md", "docs/technical/renamed.md"]
+            )
+            self.assertEqual(len(violations), 1)
+            self.assertIn("missing", violations[0].message)
+
+    def test_full_check_detects_committed_deletion_and_handbook_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_repo(root, self._manifest([self._feature(drift_sources=["runtime/*"])]), self._good_docs())
+            (root / "runtime").mkdir()
+            source = root / "runtime/input.py"
+            source.write_text("VERSION = 1\n", encoding="utf-8")
+
+            def git(*args: str) -> None:
+                subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
+            git("init", "-b", "dev")
+            git("add", ".")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "fixture")
+            git("checkout", "-b", "feature")
+            source.unlink()
+            git("add", "-A")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "remove contract")
+            with patch.dict(os.environ, {"ADR_GUARD_BASE_REF": "dev", "GITHUB_BASE_REF": "dev"}):
+                violations = ADR_GUARD.check_documentation_coverage(root, None)
+                self.assertEqual(len(violations), 1)
+                self.assertIn("drift", violations[0].message)
+                (root / "docs/technical/demo.md").write_text("# Reviewed\n", encoding="utf-8")
+                self.assertEqual(ADR_GUARD.check_documentation_coverage(root, None), [])
+
+    def test_drift_full_ci_check_fails_when_base_cannot_be_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_repo(root, self._manifest([self._feature(drift_sources=["runtime/*"])]), self._good_docs())
+            with (
+                patch.dict(os.environ, {"ADR_GUARD_SNAPSHOT_ENFORCE": "1"}),
+                patch.object(
+                    ADR_GUARD.documentation_drift, "_boundary_mock_base_reference_candidates", return_value=[]
+                ),
+            ):
+                violations = ADR_GUARD.check_documentation_coverage(root, None)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("base", violations[0].message)
+
+    def test_base_association_survives_removal_or_narrowing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_repo(root, self._manifest([self._feature()]), self._good_docs())
+            old = self._feature(drift_sources=["runtime/*"])
+            with (
+                patch.object(
+                    ADR_GUARD.documentation_drift, "_git_text", return_value=json.dumps(self._manifest([old]))
+                ),
+                patch.object(
+                    ADR_GUARD.documentation_drift, "_boundary_mock_base_reference_candidates", return_value=["base"]
+                ),
+            ):
+                for changed in (["runtime/input.py"], ["docs/adr/documentation-coverage.yaml"]):
+                    with self.subTest(changed=changed):
+                        violations = ADR_GUARD.check_documentation_coverage(root, changed)
+                        self.assertEqual(len(violations), 1)
+                        self.assertIn("drift", violations[0].message)
+
+    def test_drift_targets_must_be_contained_and_published(self) -> None:
+        for target in ("../outside.md", "/outside.md", "architecture/old.md"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._write_repo(
+                    root,
+                    self._manifest([self._feature(drift_sources=["runtime/*"], technical_docs=[target])]),
+                    self._good_docs(),
+                )
+                (root / "mkdocs.yml").write_text("docs_dir: docs\nexclude_docs: |\n  architecture/\n", encoding="utf-8")
+                violations = ADR_GUARD.check_documentation_coverage(root, [])
+                self.assertTrue(any(v.rule_id == "ADR-022-R2" for v in violations))
+
+    def test_duplicate_drift_feature_ids_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            feature = self._feature(drift_sources=["runtime/*"])
+            self._write_repo(root, self._manifest([feature, feature]), self._good_docs())
+            violations = ADR_GUARD.check_documentation_coverage(root, [])
+            self.assertTrue(any("duplicate" in v.message for v in violations))
+
+    def test_malformed_drift_target_reports_violation_instead_of_crashing(self) -> None:
+        for targets in (3, [3], "technical/demo.md"):
+            with self.subTest(targets=targets), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._write_repo(
+                    root,
+                    self._manifest([self._feature(drift_sources=["runtime/*"], technical_docs=targets)]),
+                    self._good_docs(),
+                )
+                self.assertTrue(ADR_GUARD.check_documentation_coverage(root, ["runtime/input.py"]))
+
     def test_real_repo_manifest_passes(self) -> None:
         violations = ADR_GUARD.check_documentation_coverage(ADR_GUARD.REPO_ROOT, None)
         self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")
@@ -5976,9 +5959,7 @@ class LilraeIdentityBoundaryTests(unittest.TestCase):
     def test_targeted_registry_rejects_false_pairing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            rel = self._write_adr_index(
-                repo_root, "The TechVault/APTL integration owns this path."
-            )
+            rel = self._write_adr_index(repo_root, "The TechVault/APTL integration owns this path.")
 
             violations = ADR_GUARD.check_lilrae_identity_boundary(repo_root, [rel])
 
@@ -5988,9 +5969,7 @@ class LilraeIdentityBoundaryTests(unittest.TestCase):
     def test_full_registry_scan_rejects_false_pairing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            rel = self._write_adr_index(
-                repo_root, "The TechVault/APTL integration owns this path."
-            )
+            rel = self._write_adr_index(repo_root, "The TechVault/APTL integration owns this path.")
 
             violations = ADR_GUARD.check_lilrae_identity_boundary(repo_root, None)
 
@@ -6065,8 +6044,7 @@ class LilraeIdentityBoundaryTests(unittest.TestCase):
             self._write(
                 repo_root,
                 current_rel,
-                "LilRAE (formerly APTL) is one continuous identity. "
-                "TechVault is a scenario pack.\n",
+                "LilRAE (formerly APTL) is one continuous identity. TechVault is a scenario pack.\n",
             )
             self._write(
                 repo_root,
@@ -6077,9 +6055,7 @@ class LilraeIdentityBoundaryTests(unittest.TestCase):
                 "The bespoke implementation was retired by the RAES hard cut.\n",
             )
 
-            violations = ADR_GUARD.check_lilrae_identity_boundary(
-                repo_root, [current_rel, retired_rel]
-            )
+            violations = ADR_GUARD.check_lilrae_identity_boundary(repo_root, [current_rel, retired_rel])
 
             self.assertEqual(violations, [])
 
@@ -6153,9 +6129,7 @@ class MissionControlFlagLiteralsTests(unittest.TestCase):
             self._write(
                 repo_root,
                 self.MC_PY,
-                'HELP = "Submit answers in FLAG{...} form"\n'
-                'HINT = "shape is FLAG{<16-hex>}"\n'
-                'EMPTY = "FLAG{}"\n',
+                'HELP = "Submit answers in FLAG{...} form"\nHINT = "shape is FLAG{<16-hex>}"\nEMPTY = "FLAG{}"\n',
             )
             violations = ADR_GUARD.check_mission_control_no_flag_literals(repo_root, None)
             self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")
@@ -6186,11 +6160,15 @@ class MissionControlFlagLiteralsTests(unittest.TestCase):
             repo_root = Path(tmp)
             # Tests, native CTF, docs, Example content, and non-MC templates all
             # legitimately carry flag literals; none are MC runtime surfaces.
-            self._write(repo_root, "shifter/shifter_platform/tests/mission_control/test_x.py", f'F = "{self.CONCRETE}"\n')
+            self._write(
+                repo_root, "shifter/shifter_platform/tests/mission_control/test_x.py", f'F = "{self.CONCRETE}"\n'
+            )
             self._write(repo_root, "shifter/shifter_platform/ctf/models/challenge.py", f'F = "{self.CONCRETE}"\n')
             self._write(repo_root, "shifter/shifter_platform/templates/ctf/board.html", f"<i>{self.CONCRETE}</i>\n")
             self._write(repo_root, "docs/example.md", f"Example flag: {self.CONCRETE}\n")
-            self._write(repo_root, "scenario-dev/example/board/challenge.json", f'{{"flag": "{self.CONCRETE}"}}\n')
+            self._write(
+                repo_root, "shifter/environment-packs/example/board/challenge.json", f'{{"flag": "{self.CONCRETE}"}}\n'
+            )
             violations = ADR_GUARD.check_mission_control_no_flag_literals(repo_root, None)
             self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")
 
@@ -6294,7 +6272,7 @@ class GithubOidcNoAdminAccessTests(unittest.TestCase):
             tf_path.parent.mkdir(parents=True, exist_ok=True)
             tf_path.write_text(
                 'resource "aws_iam_role_policy_attachment" "core" {\n'
-                '  policy_arn = aws_iam_policy.core_infrastructure.arn\n'
+                "  policy_arn = aws_iam_policy.core_infrastructure.arn\n"
                 "}\n",
                 encoding="utf-8",
             )
@@ -6447,9 +6425,9 @@ class PublishedContractSnapshotsImmutableTests(unittest.TestCase):
         self.assertEqual(violations, [], msg=f"Unexpected violations: {violations}")
 
 
-
 class NoLiveGcpDeployIdentityTests(unittest.TestCase):
     REAL_PROJECT = "prod-ab3xyz"
+    VALUES_REL = "platform/charts/shifter/values-gcp-prod.yaml"
 
     def _write(self, repo_root: Path, rel: str, body: str) -> Path:
         path = repo_root / rel
@@ -6457,21 +6435,17 @@ class NoLiveGcpDeployIdentityTests(unittest.TestCase):
         path.write_text(body, encoding="utf-8")
         return path
 
-    def test_flags_real_project_in_kustomization_newname(self) -> None:
+    def test_flags_real_project_in_chart_image_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/overlays/orthanc/kustomization.yaml",
+                self.VALUES_REL,
                 "images:\n"
-                "  - name: us-docker.pkg.dev/placeholder-project/shifter/portal\n"
-                f"    newName: us-central1-docker.pkg.dev/{self.REAL_PROJECT}/shifter-orthanc-portal/portal\n",
+                f"  platform: us-central1-docker.pkg.dev/{self.REAL_PROJECT}/shifter/platform@sha256:{'1' * 64}\n",
             )
             violations = ADR_GUARD.check_no_live_gcp_deploy_identity(repo_root, None)
-            self.assertEqual(
-                {v.path for v in violations},
-                {"platform/k8s/gcp/overlays/orthanc/kustomization.yaml"},
-            )
+            self.assertEqual({v.path for v in violations}, {self.VALUES_REL})
             for v in violations:
                 self.assertEqual(v.rule_id, "ADR-004-R14")
                 self.assertEqual(v.check, "no-live-gcp-deploy-identity")
@@ -6483,9 +6457,12 @@ class NoLiveGcpDeployIdentityTests(unittest.TestCase):
             repo_root = Path(tmp)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/overlays/orthanc/patch-serviceaccounts.patch",
-                "    iam.gke.io/gcp-service-account: "
-                f"shifterorthanc-portal@{self.REAL_PROJECT}.iam.gserviceaccount.com\n",
+                "platform/charts/shifter/values.yaml",
+                "serviceAccounts:\n"
+                "  portal:\n"
+                "    annotations:\n"
+                "      iam.gke.io/gcp-service-account: "
+                f"shiftergcpdev-portal@{self.REAL_PROJECT}.iam.gserviceaccount.com\n",
             )
             violations = ADR_GUARD.check_no_live_gcp_deploy_identity(repo_root, None)
             self.assertTrue(violations)
@@ -6493,37 +6470,39 @@ class NoLiveGcpDeployIdentityTests(unittest.TestCase):
                 self.assertEqual(v.rule_id, "ADR-004-R14")
                 self.assertNotIn(self.REAL_PROJECT, v.message)
 
-    def test_allows_placeholder_projects(self) -> None:
+    def test_allows_the_placeholder_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._write(
                 repo_root,
-                "platform/k8s/gcp/overlays/orthanc/kustomization.yaml",
+                self.VALUES_REL,
                 "images:\n"
-                "  - name: us-docker.pkg.dev/placeholder-project/shifter/portal\n"
-                "    newName: us-central1-docker.pkg.dev/shifter-orthanc/shifter-orthanc-portal/portal\n",
-            )
-            self._write(
-                repo_root,
-                "platform/k8s/gcp/overlays/orthanc/patch-serviceaccounts.patch",
-                "    iam.gke.io/gcp-service-account: "
-                "shifterorthanc-portal@shifter-orthanc.iam.gserviceaccount.com\n",
+                f"  platform: us-docker.pkg.dev/placeholder-project/shifter/platform@sha256:{'1' * 64}\n"
+                "  sa: portal@placeholder-project.iam.gserviceaccount.com\n",
             )
             self.assertEqual(ADR_GUARD.check_no_live_gcp_deploy_identity(repo_root, None), [])
 
-    def test_ignores_non_overlay_files(self) -> None:
+    def test_ignores_files_outside_the_chart_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
-            # A real project in a doc/test outside the overlay tree is out of this
-            # check's scope (the overlay surface is where committed identity is
+            # A real project in a doc or a chart test is outside this check's scope
+            # (the committed chart values are where committed identity is
             # categorically wrong).
             self._write(
                 repo_root,
                 "docs/dev/example.md",
-                f"deploy.py gdc-bootstrap --project-id {self.REAL_PROJECT}\n"
+                f"deploy.py gcp-images --project-id {self.REAL_PROJECT}\n"
                 f"us-central1-docker.pkg.dev/{self.REAL_PROJECT}/x/y\n",
             )
+            self._write(
+                repo_root,
+                "platform/charts/shifter/templates/ingress.yaml",
+                f"# us-central1-docker.pkg.dev/{self.REAL_PROJECT}/x/y\n",
+            )
             self.assertEqual(ADR_GUARD.check_no_live_gcp_deploy_identity(repo_root, None), [])
+
+    def test_real_repo_chart_values_pass(self) -> None:
+        self.assertEqual(ADR_GUARD.check_no_live_gcp_deploy_identity(ADR_GUARD.REPO_ROOT, None), [])
 
 
 if __name__ == "__main__":

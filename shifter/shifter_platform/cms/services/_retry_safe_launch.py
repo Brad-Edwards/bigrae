@@ -35,7 +35,7 @@ from engine.services import (
 from shared.deployment import resolve_deployment_scope
 from shared.operation_intent import INTENT_PROJECTION_VERSION, canonical_intent_digest
 
-from ._raes_range_create import create_range_dispatch
+from ._raes_range_dispatch import create_range_dispatch
 
 __all__ = [
     "RetryKeyConflict",

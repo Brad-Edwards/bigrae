@@ -182,4 +182,52 @@ describe("pack adapter assignments", () => {
     expect(screen.getByRole("option", { name: "example.adapter · 2 (checking)" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Review assignment" })).toBeDisabled();
   });
+
+  it("removes an owned pack after confirmation and reports pending cleanup truthfully", async () => {
+    const owned = { ...pack, can_update: true };
+    mockApi.mockImplementation(async (url, options) => {
+      if (options?.method === "POST") return { removal_id: "r-1", pack_id: "example", state: "pending", remaining_archives: 1 };
+      return url.includes("?page=") ? { count: 1, next: null, previous: null, results: [owned] } : detail;
+    });
+    renderRoute(<AdapterPackBindings organization="org-1" adapters={[adapter]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Example pack" }));
+    expect(mockApi.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Remove pack" }));
+    await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/cms/organizations/org-1/packs/example/removal/", {
+      method: "POST", body: { pack_digest: digest },
+    }));
+    expect(await screen.findByText(/Example pack was removed\. Storage cleanup is pending and retries automatically\./))
+      .toBeInTheDocument();
+  });
+
+  it("names the references that block removal and keeps the dialog open", async () => {
+    const owned = { ...pack, can_update: true };
+    mockApi.mockImplementation(async (url, options) => {
+      if (options?.method === "POST") throw new ApiError(409, {
+        code: "pack_in_use",
+        message: "The pack is still in use by 3 active reference(s): Spring event",
+        details: {
+          blockers: [
+            { kind: "ctf_event", status: "draft", label: "Spring event" },
+            { kind: "range", status: "ready", label: null },
+          ],
+          blocker_count: 3,
+        },
+      });
+      return url.includes("?page=") ? { count: 1, next: null, previous: null, results: [owned] } : detail;
+    });
+    renderRoute(<AdapterPackBindings organization="org-1" adapters={[adapter]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Example pack" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove pack" }));
+    expect(await screen.findByText("CTF event: Spring event (draft)")).toBeInTheDocument();
+    expect(screen.getByText("Range: details not visible to you (ready)")).toBeInTheDocument();
+    expect(screen.getByText("1 more reference not listed.")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  });
+
+  it("offers removal only for packs the organization owns", async () => {
+    renderRoute(<AdapterPackBindings organization="org-1" adapters={[adapter]} />);
+    await screen.findByRole("button", { name: "Configure Example pack" });
+    expect(screen.queryByRole("button", { name: "Remove Example pack" })).not.toBeInTheDocument();
+  });
 });

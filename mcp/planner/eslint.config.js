@@ -6,7 +6,9 @@ export default [
     ignores: ["node_modules/**"],
     plugins: { security },
     rules: {
-      ...security.configs.recommended.rules,
+      ...Object.fromEntries(
+        Object.keys(security.configs.recommended.rules).map((rule) => [rule, "error"]),
+      ),
       // Plan/phase/step IDs are internally generated short UUIDs, not user input
       "security/detect-object-injection": "off",
     },

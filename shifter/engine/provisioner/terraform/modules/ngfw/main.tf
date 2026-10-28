@@ -6,25 +6,24 @@ locals {
   bootstrap_prefix = "bootstrap/ngfw/${var.instance_uuid}"
 
   # Hostname for NGFW
-  hostname = "ngfw-user-${var.user_id}"
+  hostname = var.user_id != null ? "ngfw-user-${var.user_id}" : "ngfw-${substr(var.instance_uuid, 0, 26)}"
 
   # Common tags applied to all resources
-  common_tags = {
-    "shifter:user_id"       = tostring(var.user_id)
+  common_tags = merge(var.user_id != null ? { "shifter:user_id" = tostring(var.user_id) } : {}, {
     "shifter:environment"   = var.environment
     "shifter:request_uuid"  = var.request_uuid
     "shifter:instance_uuid" = var.instance_uuid
     "shifter:system"        = "shifter"
     "shifter:component"     = "ngfw"
     "ManagedBy"             = "terraform"
-  }
+  })
 }
 
 # Management ENI
 resource "aws_network_interface" "mgmt" {
   subnet_id       = var.subnet_id
   security_groups = [var.mgmt_security_group_id]
-  description     = "NGFW management interface for user ${var.user_id}"
+  description     = "NGFW management interface for ${var.name_prefix}"
 
   tags = merge(local.common_tags, {
     Name = "${var.name_prefix}-mgmt"
@@ -36,7 +35,7 @@ resource "aws_network_interface" "data" {
   subnet_id         = var.subnet_id
   security_groups   = [var.data_security_group_id]
   source_dest_check = false # Required for traffic inspection
-  description       = "NGFW data interface for user ${var.user_id}"
+  description       = "NGFW data interface for ${var.name_prefix}"
 
   tags = merge(local.common_tags, {
     Name = "${var.name_prefix}-data"
@@ -123,6 +122,19 @@ resource "aws_instance" "ngfw" {
 
   # User data for VM-Series bootstrap
   user_data = "vmseries-bootstrap-aws-s3bucket=${var.bootstrap_bucket}/${local.bootstrap_prefix}"
+
+  # Require IMDSv2 tokens (AWS-0028). VM-Series supports IMDSv2 from PAN-OS
+  # 10.2.0 (VM-Series plugin 3.0.0). The bootstrap sets panorama-server=cloud,
+  # and Strata Cloud Manager needs PAN-OS 10.2.3 or later.
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  # Encrypt the root volume with the account EBS key (AWS-0131).
+  root_block_device {
+    encrypted = true
+  }
 
   # Attach ENIs
   network_interface {

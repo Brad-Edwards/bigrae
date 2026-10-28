@@ -80,7 +80,11 @@ def launch_plugin(
         cluster=PLUGIN_NAMESPACE,
         command=[],
         container_name=PLUGIN_CONTAINER,
-        env_overrides={"SHIFTER_PLUGIN_INPUT": request.model_dump_json()},
+        env_overrides={
+            "BIGRAE_PLUGIN_INPUT"
+            if request.protocol == "bigrae.runtime-plugin/v1"
+            else "SHIFTER_PLUGIN_INPUT": request.model_dump_json()
+        },
         task_identity=str(request.invocation_id),
     )
 

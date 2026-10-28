@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from cms.exceptions import CMSError
 from cms.models import AgentConfig
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 
 from ._common import _validate_caller_user
 
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def list_scenarios(user: User) -> list[ScenarioProjection]:
+def list_scenarios(user: User | CredentialContext, *, scope: ResourceScope | None = None) -> list[ScenarioProjection]:
     """Get available scenarios with metadata.
 
     Uses the RAES package-source registry with metadata overlays and access
@@ -37,6 +39,8 @@ def list_scenarios(user: User) -> list[ScenarioProjection]:
     """
     from cms.scenarios.registry import list_all_scenarios
 
+    if isinstance(user, CredentialContext):
+        return list_all_scenarios(user=user, scope=scope)
     _validate_caller_user(user, "list_scenarios")
 
     logger.debug("list_scenarios called for user_id=%s", user.id)
@@ -59,7 +63,9 @@ def list_scenarios(user: User) -> list[ScenarioProjection]:
         raise
 
 
-def list_launchable_scenarios(user: User, workflow: str = "range_launch") -> list[ScenarioProjection]:
+def list_launchable_scenarios(
+    user: User | CredentialContext, workflow: str = "range_launch", *, scope: ResourceScope | None = None
+) -> list[ScenarioProjection]:
     """Get scenarios a given launch workflow may consume.
 
     Staff review listings (the full catalog) use ``list_scenarios``; launch,
@@ -80,6 +86,8 @@ def list_launchable_scenarios(user: User, workflow: str = "range_launch") -> lis
     from cms.scenarios.registry import ScenarioWorkflow
     from cms.scenarios.registry import list_launchable_scenarios as _registry_list_launchable
 
+    if isinstance(user, CredentialContext):
+        return _registry_list_launchable(user=user, workflow=ScenarioWorkflow(workflow), scope=scope)
     _validate_caller_user(user, "list_launchable_scenarios")
 
     try:
@@ -96,7 +104,9 @@ def list_launchable_scenarios(user: User, workflow: str = "range_launch") -> lis
         raise
 
 
-def get_scenario(scenario_id: str) -> ScenarioProjection:
+def get_scenario(
+    scenario_id: str, *, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> ScenarioProjection:
     """Get a single scenario template by ID.
 
     Uses the RAES package-source registry.
@@ -111,7 +121,13 @@ def get_scenario(scenario_id: str) -> ScenarioProjection:
     Raises:
         CMSError: If scenario not found
     """
-    from cms.scenarios.registry import get_scenario_detail
+    from cms.scenarios.registry import check_scenario_access, get_scenario_detail
+
+    if credential is not None:
+        try:
+            return check_scenario_access(scenario_id, credential, scope=scope)
+        except ValueError:
+            raise CMSError("Scenario unavailable") from None
 
     logger.debug("get_scenario called for scenario_id=%s", scenario_id)
 

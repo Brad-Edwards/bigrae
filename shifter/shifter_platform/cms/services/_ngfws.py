@@ -10,7 +10,9 @@ from cms.exceptions import CMSError
 from cms.services._ngfw_provisioning import _provision_ngfw_request_records
 from shared.audit import AuditAction, AuditActorType, AuditEntityType
 from shared.constants import USER_CANNOT_BE_NONE, USER_MUST_BE_SAVED
+from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
+from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
 
     from cms.models import App, Credential, Instance, Request
     from cms.services._ngfw_hydration import NGFWRegistration
-    from shared.schemas.app import NGFWAppContext, NGFWAppRef
+    from shared.schemas.app import NGFWAppContext, NGFWAppRef, NGFWOneTimeRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +146,7 @@ def _validate_app_id(app_id: UUID | str) -> UUID:
     raise TypeError(f"app_id must be a UUID or string, got {type(app_id).__name__}")
 
 
-def list_ngfws(user: User) -> list[NGFWAppContext]:
+def list_ngfws(user: User | CredentialContext, *, scope: ResourceScope | None = None) -> list[NGFWAppContext]:
     """Get user's NGFWs as NGFWAppContext projections.
 
     Args:
@@ -159,6 +161,10 @@ def list_ngfws(user: User) -> list[NGFWAppContext]:
     """
     from cms.models import App
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_devices import list_scoped_devices
+
+        return list_scoped_devices(user, scope)
     _validate_ngfw_user(user)
     logger.debug("list_ngfws called for user_id=%s", user.id)
 
@@ -174,7 +180,7 @@ def list_ngfws(user: User) -> list[NGFWAppContext]:
     return [_app_to_ngfw_context(app) for app in apps]
 
 
-def get_ngfw(user: User, app_id: UUID | str) -> NGFWAppContext:
+def get_ngfw(user: User | CredentialContext, app_id: UUID | str) -> NGFWAppContext:
     """Get single NGFW by App UUID as NGFWAppContext projection.
 
     Args:
@@ -191,6 +197,10 @@ def get_ngfw(user: User, app_id: UUID | str) -> NGFWAppContext:
     """
     from cms.models import App
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_devices import get_scoped_device
+
+        return get_scoped_device(user, app_id)
     _validate_ngfw_user(user)
     validated_app_id = _validate_app_id(app_id)
     logger.debug("get_ngfw called for user_id=%s, app_id=%s", user.id, validated_app_id)
@@ -288,13 +298,14 @@ def _hydrate_and_dispatch_ngfw(
 
 
 def create_ngfw(
-    user: User,
+    user: User | CredentialContext,
     name: str,
     deployment_profile_id: int,
     registration_method: str,
     scm_credential_id: int | None = None,
-    otp_value: str | None = None,
-    otp_folder: str | None = None,
+    otp: NGFWOneTimeRegistration | None = None,
+    *,
+    scope: ResourceScope | None = None,
 ) -> NGFWAppRef:
     """Create a new NGFW.
 
@@ -307,9 +318,22 @@ def create_ngfw(
         CMSError: If credential validation fails or the user already has an
             active NGFW.
     """
+    otp_value = otp.value if otp else None
+    otp_folder = otp.folder if otp else None
+
     from cms.models import Credential
     from shared.schemas.app import NGFWAppRef
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_device_create import create_scoped_device
+
+        if registration_method not in {"otp", "pin"}:
+            raise CMSError("Invalid registration method")
+        return create_scoped_device(
+            user, scope, name, deployment_profile_id, registration_method, scm_credential_id, otp
+        )
+    if scope is not None:
+        raise CMSError("Device scope unavailable")
     _validate_ngfw_user(user)
     _reject_existing_active_ngfw(user)
 
@@ -372,7 +396,7 @@ def create_ngfw(
     )
 
 
-def destroy_ngfw(user: User, app_id: UUID | str, confirm_name: str) -> NGFWAppRef:
+def destroy_ngfw(user: User | CredentialContext, app_id: UUID | str, confirm_name: str) -> NGFWAppRef:
     """Deprovision an NGFW.
 
     Requires name confirmation to prevent accidental deprovisioning.
@@ -396,6 +420,10 @@ def destroy_ngfw(user: User, app_id: UUID | str, confirm_name: str) -> NGFWAppRe
     from cms.models import App
     from shared.schemas.app import NGFWAppRef
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_devices import destroy_scoped_device
+
+        return destroy_scoped_device(user, app_id, confirm_name)
     _validate_ngfw_user(user)
     validated_app_id = _validate_app_id(app_id)
     logger.debug("destroy_ngfw called for user_id=%s, app_id=%s", user.id, safe_log_value(validated_app_id))

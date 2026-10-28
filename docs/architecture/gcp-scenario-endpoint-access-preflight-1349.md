@@ -1,5 +1,8 @@
 # GCP Scenario Endpoint Access Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1349, "Implement portal access to scenario-declared GCP
 range-cell endpoints."
 

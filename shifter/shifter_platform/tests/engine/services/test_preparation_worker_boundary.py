@@ -62,13 +62,13 @@ def test_expired_attempt_cannot_read_or_submit(attempt):
     assert PreparationAttempt.objects.get(pk=attempt.id).result is None
 
 
-def test_cancellation_revokes_worker_input_and_result_authority(attempt, operator):
+def test_cancellation_revokes_new_work_but_preserves_authenticated_receipt(attempt, operator):
     token = attempt_token(attempt)
     cancel_artifact_preparation(operator, attempt.operation_id)
     with pytest.raises(ValidationError):
         read_preparation_worker_input(attempt.operation_id, token)
-    with pytest.raises(ValidationError):
-        record_preparation_worker_result(attempt.operation_id, token, result_for(attempt))
+    assert record_preparation_worker_result(attempt.operation_id, token, result_for(attempt)) == "received"
+    assert PreparationAttempt.objects.get(pk=attempt.id).result == result_for(attempt)
     assert PreparationOperation.objects.get(pk=attempt.operation_id).state == "cancelled"
 
 
@@ -114,6 +114,11 @@ def test_revoked_requester_cannot_continue_private_execution(attempt, operator):
     operator.user_permissions.clear()
     with pytest.raises(ValidationError):
         read_preparation_worker_input(attempt.operation_id, attempt_token(attempt))
+    assert (
+        record_preparation_worker_result(attempt.operation_id, attempt_token(attempt), result_for(attempt))
+        == "received"
+    )
+    assert PreparationOperation.objects.get(pk=attempt.operation_id).state == "queued"
 
 
 def test_mutated_grant_cannot_extend_existing_worker_authority(attempt, grant):

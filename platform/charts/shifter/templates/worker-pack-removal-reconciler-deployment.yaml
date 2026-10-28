@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-pack-removal-reconciler
+  namespace: {{ .Values.namespaces.platform }}
+  labels:
+    {{- include "shifter.partOfLabels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-pack-removal-reconciler
+spec:
+  replicas: {{ .Values.workers.packRemovalReconciler.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: shifter
+      app.kubernetes.io/component: worker-pack-removal-reconciler
+  template:
+    metadata:
+      labels:
+        {{- include "shifter.partOfLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker-pack-removal-reconciler
+      annotations:
+        checksum/runtime-config: {{ include "shifter.runtimeConfigChecksum" . }}
+    spec:
+      {{- include "shifter.podSecurityContext" . | nindent 6 }}
+      automountServiceAccountToken: false
+      # Only the portal identity may delete tenant pack archives (ADR-034-R13).
+      serviceAccountName: {{ .Values.serviceAccounts.portal.name }}
+      {{- include "shifter.cloudSqlProxyPod" (dict "root" . "autoIam" true) | nindent 6 }}
+      containers:
+        - name: worker-pack-removal-reconciler
+          image: {{ include "shifter.portalImage" . }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
+          {{- include "shifter.tmpVolumeMount" . | nindent 10 }}
+          args: ["python", "manage.py", "reconcile_tenant_pack_removals", "--loop", "--interval", "60"]
+          {{- if .Values.cloudSqlProxy.enabled }}
+          env:
+            {{- include "shifter.databaseUserEnv" (dict "root" . "role" "portal") | nindent 12 }}
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: platform-runtime
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "find /tmp/worker-pack-removal-reconciler-heartbeat -mmin -10 | grep -q ."]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "find /tmp/worker-pack-removal-reconciler-heartbeat -mmin -10 | grep -q ."]
+            initialDelaySeconds: 90
+            periodSeconds: 60
+          resources:
+            {{- toYaml .Values.workers.packRemovalReconciler.resources | nindent 12 }}
+      {{- include "shifter.tmpVolume" . | nindent 6 }}

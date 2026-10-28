@@ -1,6 +1,8 @@
 """Deterministic check registry: CHECKS and CHECK_LEVELS."""
+
 from __future__ import annotations
 
+from .checks.accessibility_baseline import check_accessibility_baseline
 from .checks.adr_registry import (
     check_adr_registry,
 )
@@ -12,7 +14,6 @@ from .checks.cloud_identifiers import (
     check_no_live_cloud_identifiers,
     check_no_terraform_operational_placeholders,
 )
-from .checks.gcp_deploy_identity import check_no_live_gcp_deploy_identity
 from .checks.complexity import (
     check_python_complexity_gate,
 )
@@ -33,6 +34,7 @@ from .checks.documentation import (
 from .checks.eks_cross_stack_sourcing import (
     check_eks_cross_stack_sourcing,
 )
+from .checks.gcp_deploy_identity import check_no_live_gcp_deploy_identity
 from .checks.k8s_security import (
     check_k8s_deployment_security_context,
     check_k8s_network_policy_coverage,
@@ -47,19 +49,19 @@ from .checks.mcp_policy import (
     check_mcp_no_shell_exec,
     check_mcp_ops_tls_strict,
 )
-from .checks.accessibility_baseline import check_accessibility_baseline
 from .checks.published_contract import (
     check_published_contract_snapshots_immutable,
 )
 from .checks.quality_ownership import (
     check_quality_path_ownership,
 )
+from .checks.release_workflow import check_release_workflow
+from .checks.repository_identity import check_repository_identity_literals
 from .checks.secret_hygiene import (
     check_no_plaintext_secrets_in_tfvars,
     check_no_populated_secret_env_files,
     check_no_tracked_generated_artifacts,
 )
-
 
 CHECKS = {
     "adr-registry": check_adr_registry,
@@ -94,6 +96,8 @@ CHECKS = {
     "no-agent-attribution": check_no_agent_attribution,
     "quality-path-ownership": check_quality_path_ownership,
     "eks-cross-stack-sourcing": check_eks_cross_stack_sourcing,
+    "repository-identity-literals": check_repository_identity_literals,
+    "release-workflow-provenance": check_release_workflow,
 }
 CHECK_LEVELS = {
     "fast": [
@@ -127,6 +131,8 @@ CHECK_LEVELS = {
         "no-agent-attribution",
         "quality-path-ownership",
         "eks-cross-stack-sourcing",
+        "repository-identity-literals",
+        "release-workflow-provenance",
     ],
     "ci": [
         "adr-registry",
@@ -160,6 +166,8 @@ CHECK_LEVELS = {
         "no-agent-attribution",
         "quality-path-ownership",
         "eks-cross-stack-sourcing",
+        "repository-identity-literals",
+        "release-workflow-provenance",
     ],
     "all": list(CHECKS),
 }

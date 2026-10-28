@@ -13,6 +13,8 @@ from shared.audit import (
     AuditActorType,
     AuditEntityType,
 )
+from shared.credentials import CredentialContext as AdmittedCredential
+from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 
 from ._common import _validate_caller_user
@@ -32,7 +34,7 @@ def _audit_log_call(**kwargs: Any) -> None:  # NOSONAR
     _cs.audit_log(_cs.AuditEvent(**kwargs))
 
 
-def create_credential(user: User, credential_type_slug: str, **kwargs: Any) -> CredentialRef:
+def create_credential(user: User | AdmittedCredential, credential_type_slug: str, **kwargs: Any) -> CredentialRef:
     """Create credential (SCM or deployment profile).
 
     Args:
@@ -60,6 +62,10 @@ def create_credential(user: User, credential_type_slug: str, **kwargs: Any) -> C
     from cms.models import Credential, CredentialType
     from shared.schemas import CredentialRef
 
+    if isinstance(user, AdmittedCredential):
+        from ._scoped_credentials import create_scoped_credential
+
+        return create_scoped_credential(user, credential_type_slug, kwargs.pop("scope", None), kwargs)
     _validate_caller_user(user, "create_credential")
 
     if credential_type_slug is None:
@@ -95,7 +101,9 @@ def create_credential(user: User, credential_type_slug: str, **kwargs: Any) -> C
         if credential_type_slug == "scm" and not kwargs.get("scm_folder_name"):
             kwargs["scm_folder_name"] = ""
 
-        data = kwargs
+        from ._credential_input import validate_credential_data
+
+        data = validate_credential_data(cred_type.spec_slug, kwargs, name=name, expires_at=expires_at, user_id=user.pk)
 
         credential = Credential(
             user=user,
@@ -143,7 +151,7 @@ def create_credential(user: User, credential_type_slug: str, **kwargs: Any) -> C
         raise
 
 
-def delete_credential(user: User, credential_id: int) -> CredentialRef:
+def delete_credential(user: User | AdmittedCredential, credential_id: int) -> CredentialRef:
     """Soft delete credential.
 
     Verifies ownership, then performs soft delete.
@@ -165,6 +173,10 @@ def delete_credential(user: User, credential_id: int) -> CredentialRef:
     from cms.models import Credential
     from shared.schemas import CredentialRef
 
+    if isinstance(user, AdmittedCredential):
+        from ._scoped_credentials import delete_scoped_credential
+
+        return delete_scoped_credential(user, credential_id)
     _validate_caller_user(user, "delete_credential")
 
     if credential_id is None:
@@ -201,6 +213,7 @@ def delete_credential(user: User, credential_id: int) -> CredentialRef:
             credential = Credential.objects.get(
                 id=credential_id,
                 user=user,
+                scope_kind="",
             )
         except Credential.DoesNotExist:
             logger.error(
@@ -250,7 +263,7 @@ def delete_credential(user: User, credential_id: int) -> CredentialRef:
         raise
 
 
-def list_credentials(user: User) -> list[CredentialContext]:
+def list_credentials(user: User | AdmittedCredential, *, scope: ResourceScope | None = None) -> list[CredentialContext]:
     """Get user's credentials as CredentialContext projections.
 
     Returns type-specific context objects (SCMCredentialContext or
@@ -272,6 +285,10 @@ def list_credentials(user: User) -> list[CredentialContext]:
         SCMCredentialContext,
     )
 
+    if isinstance(user, AdmittedCredential):
+        from ._scoped_credentials import list_scoped_credentials
+
+        return list_scoped_credentials(user, scope)
     _validate_caller_user(user, "list_credentials")
 
     logger.debug("list_credentials called for user_id=%s", user.id)
@@ -280,6 +297,7 @@ def list_credentials(user: User) -> list[CredentialContext]:
         credentials = (
             Credential.objects.filter(
                 user=user,
+                scope_kind="",
             )
             .select_related("credential_type")
             .order_by("-created_at")
@@ -339,7 +357,7 @@ def list_credentials(user: User) -> list[CredentialContext]:
         raise
 
 
-def get_credential(user: User, credential_id: int) -> CredentialContext:
+def get_credential(user: User | AdmittedCredential, credential_id: int) -> CredentialContext:
     """Get single credential by ID as CredentialContext projection.
 
     Returns type-specific context (SCMCredentialContext or
@@ -363,6 +381,10 @@ def get_credential(user: User, credential_id: int) -> CredentialContext:
     from cms.models import Credential
     from shared.schemas import DeploymentProfileContext, SCMCredentialContext
 
+    if isinstance(user, AdmittedCredential):
+        from ._scoped_credentials import get_scoped_credential
+
+        return get_scoped_credential(user, credential_id)
     _validate_caller_user(user, "get_credential")
 
     if credential_id is None:
@@ -398,6 +420,7 @@ def get_credential(user: User, credential_id: int) -> CredentialContext:
         cred = Credential.objects.select_related("credential_type").get(
             id=credential_id,
             user=user,
+            scope_kind="",
         )
     except Credential.DoesNotExist:
         logger.error(

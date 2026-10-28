@@ -26,8 +26,13 @@ from shared.model_access.authority_port import invalidate_authority, suppress_au
 from . import model_access_authority as _model_access_authority
 from . import policy as _policy
 from . import principals as _principals
+from . import session_backend as _session_backend
+from . import temporary_accounts as _temporary_accounts
 from .audit_context import AuditContext
 from .models import ActivityLog, UserProfile
+
+save_session_assurance = _session_backend.save_session_assurance
+session_for_credential = _session_backend.session_for_credential
 
 require_principal_administration = _policy.require_principal_administration
 PrincipalConflictError = _principals.PrincipalConflictError
@@ -39,8 +44,10 @@ principal_for_user = _principals.principal_for_user
 principal_identity_for_user = _principals.principal_identity_for_user
 resolve_principal = _principals.resolve_principal
 resolve_principal_uuid = _principals.resolve_principal_uuid
+human_principal_user_id = _principals.human_principal_user_id
 resolve_verified_principal = _principals.resolve_verified_principal
 resolve_service_credential = _principals.resolve_service_credential
+resolve_service_credential_reference = _principals.resolve_service_credential_reference
 set_service_contact = _principals.set_service_contact
 
 ModelAccessGroupEligibilityView = _model_access_authority.ModelAccessGroupEligibilityView
@@ -54,9 +61,7 @@ set_model_access_group_eligibility = _model_access_authority.set_model_access_gr
 
 USER_PK_REQUIRED_MSG = "user must have a primary key"
 if TYPE_CHECKING:
-    from uuid import UUID
-
-    from django.contrib.auth.models import AnonymousUser, User
+    from django.contrib.auth.models import User
     from django.db.models import QuerySet
 
 logger = logging.getLogger(__name__)
@@ -426,71 +431,8 @@ def bind_provider_identity(user: User, issuer: str, subject: str) -> BindOutcome
         raise BindingConflictError("Presented provider identity is already bound to a different account") from exc
 
 
-def set_active_ctf_event(user: User, event_id: UUID | None) -> None:
-    """Set or clear the active CTF event for a user.
-
-    Args:
-        user: The user to update.
-        event_id: CTF event UUID PK to set, or None to clear.
-    """
-    profile = get_user_profile(user)
-    profile.active_ctf_event_id = event_id
-    profile.save(update_fields=["active_ctf_event_id"])
-
-
-def configure_temporary_ctf_account(user: User, event_id: UUID) -> None:
-    """Mark a freshly created local user as an isolated CTF account.
-
-    The origin marker is intentionally one-way. Callers may update ordinary
-    role state, but no service is provided to clear ``is_ctf_account``.
-    """
-    profile = get_user_profile(user)
-    if profile.cognito_sub or profile.issuer:
-        raise ValueError("A provider-bound user cannot become a CTF account")
-    profile.is_ctf_account = True
-    profile.must_change_password = True
-    profile.user_type = "ctf_participant"
-    profile.active_ctf_event_id = event_id
-    profile.save(
-        update_fields=[
-            "is_ctf_account",
-            "must_change_password",
-            "user_type",
-            "active_ctf_event_id",
-        ]
-    )
-    # Keep an already-populated reverse one-to-one cache consistent
-    # with the just-committed marker for callers in the same transaction.
-    user.profile = profile
-
-
-def is_temporary_ctf_account(user: User | AnonymousUser) -> bool:
-    """Return the durable account-origin marker without exposing the model."""
-    result = False
-    if getattr(user, "is_authenticated", False) and isinstance(user, get_user_model()) and user.pk is not None:
-        try:
-            result = user.profile.is_ctf_account
-        except UserProfile.DoesNotExist:
-            result = False
-    return result
-
-
-def is_ctf_password_change_required(user: User | AnonymousUser) -> bool:
-    """Return whether a marked account is still bootstrap-password gated."""
-    result = False
-    if getattr(user, "is_authenticated", False) and isinstance(user, get_user_model()) and user.pk is not None:
-        try:
-            profile = user.profile
-            result = profile.is_ctf_account and profile.must_change_password
-        except UserProfile.DoesNotExist:
-            result = False
-    return result
-
-
-def set_ctf_password_change_required(user: User, required: bool) -> None:
-    """Update the first-login password-change gate for a marked account."""
-    profile = get_user_profile(user)
-    if not profile.is_ctf_account:
-        raise ValueError("Password-change state is only valid for CTF accounts")
-    profile.must_change_password = required
-    profile.save(update_fields=["must_change_password"])
+set_active_ctf_event = _temporary_accounts.set_active_ctf_event
+configure_temporary_ctf_account = _temporary_accounts.configure_temporary_ctf_account
+is_temporary_ctf_account = _temporary_accounts.is_temporary_ctf_account
+is_ctf_password_change_required = _temporary_accounts.is_ctf_password_change_required
+set_ctf_password_change_required = _temporary_accounts.set_ctf_password_change_required

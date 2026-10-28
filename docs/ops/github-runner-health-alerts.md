@@ -1,6 +1,6 @@
 # GitHub Runner Health Alerts Runbook
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/292>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/292>
 Design note: [`docs/architecture/github-runner-health-alerting-preflight-292.md`](../architecture/github-runner-health-alerting-preflight-292.md)
 Region: `us-east-2`
 
@@ -85,8 +85,9 @@ applying.
    ```
    A stopped-but-recoverable service: `sudo systemctl restart 'actions.runner.*'`.
 
-4. **Verify GitHub's view.** Confirm the runner shows online at
-   <https://github.com/Brad-Edwards/shifter/settings/actions/runners>. An active
+4. **Verify GitHub's view.** Run `REPO="$(gh repo set-default --view)"`.
+   Confirm the runner shows online at
+   `https://github.com/$REPO/settings/actions/runners`. An active
    local service with the runner showing offline on GitHub points at network or
    registration, not the host; re-register per the root README if needed.
 

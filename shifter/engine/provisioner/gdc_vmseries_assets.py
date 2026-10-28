@@ -54,12 +54,13 @@ from gdc_vmseries_common import (
     _ssh_secret_id,
 )
 from log_redact import safe_log_fingerprint
+from ngfw_native_identity import native_owner_key
 from utils.crypto import derive_ssh_public_key, generate_ssh_keypair
 
 logger = logging.getLogger(__name__)
 
 
-def _ssh_secret_locations(project_id: str, user_id: int, instance_id: str) -> SecretLocations:
+def _ssh_secret_locations(project_id: str, user_id: int | None, instance_id: str) -> SecretLocations:
     """Resolve legacy and canonical locations for a VM-Series SSH key."""
     return secret_locations(
         platform_project_id=project_id,
@@ -67,7 +68,7 @@ def _ssh_secret_locations(project_id: str, user_id: int, instance_id: str) -> Se
         legacy_secret_id=_ssh_secret_id(user_id, instance_id),
         canonical_secret_id=canonical_secret_id(
             credential_class=DynamicSecretClass.VMSERIES_SSH,
-            scope=f"user-{user_id}-{instance_id}",
+            scope=f"{native_owner_key(user_id, instance_id)}-{instance_id}",
         ),
     )
 
@@ -86,7 +87,7 @@ def _ensure_namespace(
         core_api.patch_namespace(name=namespace, body={"metadata": {"labels": labels}})
 
 
-def _ensure_ssh_secret(user_id: int, instance_id: str) -> tuple[str, str]:
+def _ensure_ssh_secret(user_id: int | None, instance_id: str) -> tuple[str, str]:
     """Fetch or create the VM-Series SSH keypair in Secret Manager.
 
     Returns the full secret resource name and the derived public key.

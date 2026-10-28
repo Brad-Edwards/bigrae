@@ -303,7 +303,7 @@ def test_platform_drf_convention_defaults(monkeypatch) -> None:
     ]
 
     spectacular = settings_module.SPECTACULAR_SETTINGS
-    assert spectacular["TITLE"] == "Shifter Platform API"
+    assert spectacular["TITLE"] == "BigRAE Platform API"
     assert spectacular["VERSION"] == "v1"
     assert spectacular["SCHEMA_PATH_PREFIX"] == r"/api/v[0-9]+"
     assert spectacular["SERVE_INCLUDE_SCHEMA"] is False

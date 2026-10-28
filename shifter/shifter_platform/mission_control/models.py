@@ -7,8 +7,11 @@ import uuid
 from django.db import models
 from django.utils import timezone
 
+from shared.db import RecordedAuthorityFields
+from shared.field_encryption import EncryptedStringField
 
-class GuacamoleBootstrapRequest(models.Model):
+
+class GuacamoleBootstrapRequest(RecordedAuthorityFields):
     """Pollable state for asynchronous Guacamole URL bootstrap."""
 
     class Protocol(models.TextChoices):
@@ -27,11 +30,11 @@ class GuacamoleBootstrapRequest(models.Model):
         FAILED = "failed", "Failed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user_id = models.PositiveBigIntegerField(db_index=True)
+    user_id = models.PositiveBigIntegerField(db_index=True, null=True)
     protocol = models.CharField(max_length=16, choices=Protocol.choices)
     target_id = models.CharField(max_length=200)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True)
-    result_url = models.TextField(blank=True)
+    result_url = EncryptedStringField(blank=True)
     error_message = models.CharField(max_length=500, blank=True)
     error_status_code = models.PositiveSmallIntegerField(default=500)
     duration_ms = models.PositiveIntegerField(null=True, blank=True)
@@ -43,6 +46,9 @@ class GuacamoleBootstrapRequest(models.Model):
     # delivery happened and the token field was cleared, so lifecycle state is
     # never inferred from a blanked secret column.
     delivered_at = models.DateTimeField(null=True, blank=True)
+    native_session_token = EncryptedStringField(blank=True, default="")
+    native_terminated_at = models.DateTimeField(null=True, blank=True)
+    termination_pending = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         """Ordering and lookup indexes for user-scoped polling."""

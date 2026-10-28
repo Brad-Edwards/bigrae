@@ -43,6 +43,15 @@ no SDK publication.
 
 The files use JSON syntax with a `.yaml` extension so they stay human-readable while remaining parseable by the standard library.
 
+The [#2555 rename preflight](../architecture/bigrae-product-repository-rename-preflight-2555.md)
+applies GEN-002 to repository identity, compatibility and future-deployment
+templates under the recorded no-deployments premise. It distinguishes registry
+validity from live enforcement, preserves fail-closed quality routing and names
+the existing config, secret-admission and provenance owners. It adds no ADR,
+check, exception or runtime support claim. Renaming cannot waive expired
+exceptions or missing blocking quality owners; Ground Control project and
+requirement identities remain independent of the GitHub slug.
+
 ADR-058 records the [participant-control realization design](../architecture/raes-participant-control-realization-envelope-1967.md)
 under GEN-2005. It is design policy, not a new executable interface contract.
 Existing registry, guardrail and import checks validate structure; they do not
@@ -124,7 +133,7 @@ the executable evidence for that rule. Provider paths consume the same persisted
 deadline state and contain no lease-policy branch.
 
 Proposed ADR-059, ADR-060 and ADR-061 record the
-[#681 model-access design](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md): a
+[#681 model-access design](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/index.md): a
 deployment-owned broker, Engine-owned allocation and mandatory budgets,
 and evidence-based revocation/operation. Their registry entries are proposed
 design policy. Existing import and registry checks validate structure; they
@@ -803,3 +812,82 @@ IAP/SSH/SCP transport; the role retains no project metadata write permission.
 The runner starts its IAP listener without a one-shot guest connection check;
 bounded SSH/LDAP probes still gate validation through first boot and reboot.
 An exited tunnel process fails promptly instead of consuming the boot timeout.
+
+## Deployment configuration cleanup
+
+GCP platform execution now uses one root with explicit environment var-files
+and separate `TF_DATA_DIR` metadata. State prefixes, resource addresses and
+provider locks remain unchanged. The Terraform validation inventory covers
+that common root. Kustomize runtime patches lived in one component until
+#2571 removed the Kustomize tree (see [GitHub-less GCP deployment](#github-less-gcp-deployment-adr-070)).
+
+Unused connector templates and the drained standalone workshop root are
+removed with their dedicated CI responsibilities, structural tests and stale
+exception paths. Maintained Terraform, workflow, Kubernetes and secret checks
+remain in force. AWS production and optional portal CTFd retain their named
+owner and working callers. Retired AWS profile admission is removed from
+bootstrap and the installation registry; its published artifact is regenerated.
+See the [design](../architecture/deployment-root-consolidation-2089.md) and
+[operator recovery procedure](../dev/deployment-configuration.md).
+
+The operator-confirmed repository rename changes the canonical GitHub target
+in `.ground-control.yaml` to `Brad-Edwards/bigrae`. The local agent rules and
+Sonar scan admission match that target. This changes repository routing, not
+platform resource names or the Ground Control project identity. Existing
+Ground Control connections must restart after the origin changes; their launch
+identity remains immutable during a connection.
+
+Before #2571, Kubernetes quality jobs rendered standalone Kustomization roots
+and validated Components through their consuming overlays. #2571 removed the
+Kustomize tree and that regression test; the quality jobs now render the Helm
+chart.
+
+Artifact provenance checks, bootstrap/tool defaults and foundation repository
+inputs follow the authorized rename. Reusable workflow trust still requires
+the exact canonical repository, workflow path and immutable revision; foreign
+libraries remain rejected by native Terraform tests.
+
+## GitHub-less GCP deployment (ADR-070)
+
+[ADR-070](070-github-less-gcp-deployment.md) records the GitHub-less GCP
+deployment model of #2571. The registry adds ADR-070 and revises ADR-003-R5,
+ADR-003-R6, ADR-004-R5, ADR-004-R9, ADR-004-R11, ADR-004-R23, ADR-006, ADR-007,
+ADR-033-R2, ADR-035-R1, ADR-037, ADR-053-R3, and ADR-069-R3. Evidence entries
+that named the removed Kustomize tree now name the chart templates or the deploy
+command modules.
+
+The guardrails change as follows:
+
+- The `release-workflow-provenance` check runs at the fast and ci levels. It
+  reads `.github/workflows/release-gcp.yml` as data and fails closed. It requires
+  `workflow_dispatch` as the only trigger. Each job that authenticates must bind
+  the `gcp-release` Environment, run on a GitHub-hosted runner, and reject every
+  ref except `refs/heads/main` before authentication. It also requires SHA-pinned actions, an SBOM and
+  maximum provenance for each pushed build, and an attestation of each built
+  digest with `push-to-registry: true`.
+- `scripts/check_tf_gcp_wif_trust` covers the `release` purpose and the closed
+  impersonation grant. It rejects a default on `github_repository_id`,
+  `github_owner_id`, and `purpose_contexts`. Its resolved-plan verifier requires
+  no WIF provider when no federated subject exists, and exactly one provider
+  otherwise. It also requires the token-creator grants to equal the named
+  principals.
+- The Helm chart is the only Kubernetes renderer. `k8s-schema` renders every
+  supported values file and runs `kubeconform -strict` with a CRD catalog pinned
+  to one commit. `chart-lint-security` runs `helm lint` and kube-linter on the
+  same renders, and `security-k8s` runs Checkov on them. The `k8s-lint` job and
+  the `validate-gcp-manifests` action are removed. The ADR guard Kubernetes
+  checks read only the chart renders.
+- The CKV_K8S_35 and CKV_K8S_38 exceptions now point at the chart Deployments
+  that carry their annotations. Their justifications and expiry dates do not
+  change. The
+  CKV_K8S_43 exception is removed, because the chart pins each image by digest.
+- `no-populated-secret-env-files` scans tracked `*-secrets.env` files under
+  `platform/`. The pre-commit hook `adr-guard-gcp-overlay-identity` is now
+  `adr-guard-gcp-deploy-identity`, and `no-live-gcp-deploy-identity` scans the
+  chart values files.
+- The `gcp_deployer` quality unit routes `platform/deployer/**` to
+  `container-images-lint-security` and to the `gcp-deployer-image` build test.
+- The deploy workflow guard tests read the GCP command modules for the
+  properties that `_gcp-dev.yml` held before #2571. These are the HIGH and
+  CRITICAL release scan, the running-image evidence, the private input files,
+  the Connect Gateway credentials, and the single range-zone input.

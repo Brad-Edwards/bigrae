@@ -85,7 +85,9 @@ def _verify_upload_object_or_raise(s3_key: str, expected_size: int, user_id: int
     return identity
 
 
-def _inspect_upload_header_or_raise(payload: dict[str, Any], s3_key: str, user_id: int) -> None:
+def _inspect_upload_header_or_raise(
+    payload: dict[str, Any], s3_key: str, user_id: int, *, identity: dict[str, Any]
+) -> None:
     """Header-inspect the uploaded object (issue #696); delete + raise on mismatch."""
     from django.conf import settings as _settings
 
@@ -104,7 +106,7 @@ def _inspect_upload_header_or_raise(payload: dict[str, Any], s3_key: str, user_i
         raise CMSError(f"Invalid upload filename: {exc}") from exc
 
     try:
-        header = _s3.read_agent_header(s3_key, _settings.UPLOAD_INSPECTION_MAX_HEADER_BYTES)
+        header = _s3.read_agent_header(s3_key, _settings.UPLOAD_INSPECTION_MAX_HEADER_BYTES, expected_identity=identity)
     except S3Error as exc:
         logger.exception("complete_upload: header read failed user_id=%s s3_key=%s", user_id, safe_log_value(s3_key))
         raise CMSError("Upload content inspection failed") from exc

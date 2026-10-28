@@ -1,5 +1,8 @@
 # VM Guest Credential Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #762, "Shared hardcoded VM passwords are baked into range
 images and reused in portal access flows".
 

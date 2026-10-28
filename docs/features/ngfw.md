@@ -47,7 +47,7 @@ Once the NGFW is ready:
 
 ### CLI Access
 
-Access the PAN-OS command line interface directly from Shifter:
+Access the PAN-OS command line interface directly from BigRAE:
 
 1. Go to your NGFW detail page
 2. Click **Open CLI** in the Management Access section

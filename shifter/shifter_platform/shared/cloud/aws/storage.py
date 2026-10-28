@@ -220,7 +220,9 @@ class AWSObjectStorage:
             logger.exception("head_object: failed bucket=%s key=%s", bucket, safe_key)
             raise CloudStorageError(f"Failed to head S3 object: {e}") from e
 
-    def read_object_header(self, bucket: str, key: str, max_bytes: int) -> bytes:
+    def read_object_header(
+        self, bucket: str, key: str, max_bytes: int, *, expected_identity: dict[str, Any] | None = None
+    ) -> bytes:
         """Read up to `max_bytes` from the start of the object using a Range GET.
 
         Used by server-side upload inspection to validate magic bytes without
@@ -231,6 +233,11 @@ class AWSObjectStorage:
         """
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
+        precondition = {}
+        if expected_identity is not None:
+            if not expected_identity.get("etag"):
+                raise CloudStorageError("conditional header read requires an object etag")
+            precondition["IfMatch"] = expected_identity["etag"]
         safe_key = safe_log_value(key)
         logger.debug("read_object_header: bucket=%s key=%s max_bytes=%d", bucket, safe_key, max_bytes)
         try:
@@ -239,6 +246,7 @@ class AWSObjectStorage:
                 Bucket=bucket,
                 Key=key,
                 Range=f"bytes=0-{max_bytes - 1}",
+                **precondition,
                 **self._owner_kwargs(),
             )
             stream = response["Body"]

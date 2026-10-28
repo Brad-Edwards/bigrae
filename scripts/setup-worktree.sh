@@ -95,7 +95,7 @@ ensure_symlink \
 # main checkout and symlink every local.auto.tfvars it has into this worktree
 # at the same relative path, so local plans remain usable without committing
 # deployment-specific tfvars. Discovered rather than hardcoded so new envs/
-# stacks (e.g. core, proof, gcp) are picked up automatically.
+# stacks (e.g. core, range, gcp) are picked up automatically.
 if [[ -d "$MAIN_REPO/platform/terraform" ]]; then
     while IFS= read -r -d '' tfvars_overlay; do
         rel="${tfvars_overlay#"$MAIN_REPO/"}"

@@ -1,6 +1,6 @@
 # CI/CD Pipeline
 
-How GitHub Actions validates and deploys Shifter.
+How GitHub Actions validates and deploys BigRAE.
 
 ## Overview
 
@@ -10,8 +10,8 @@ which coordinates:
 1. **Quality** - Linting, tests, security scanning
 2. **Core** - ECR repositories (foundation)
 3. **Range** - Range VPC infrastructure
-4. **Shifter Engine** - Container build
-5. **Shifter Platform** - Application infrastructure, containers, deployment
+4. **BigRAE Engine** - Container build
+5. **BigRAE Platform** - Application infrastructure, containers, deployment
 
 ## Trigger Rules
 
@@ -54,9 +54,11 @@ picks where it goes. `dev` is the integration branch (Quality only).
 ├── _quality.yml            # Linting, tests, Checkov
 ├── _core.yml               # ECR repositories
 ├── _range.yml              # Range VPC
-├── _gcp-dev.yml            # GCP validate/deploy workflow
+├── _gcp-dev.yml            # GCP CI wrapper over the gcp-deploy commands
 ├── _shifter-engine.yml     # Shifter Engine container
-└── _shifter-platform.yml   # Shifter Platform infra + deploy
+├── _shifter-platform.yml   # Shifter Platform infra + deploy
+├── gcp-dev-destroy.yml     # GCP teardown wrapper over gcp-destroy
+└── release-gcp.yml         # GCP release images and deployer image
 ```
 
 Underscore prefix (`_*.yml`) indicates reusable workflows called by `deploy.yml`.
@@ -81,8 +83,8 @@ Quality (must pass first)
 
 Downstream AWS jobs use explicit `needs.<job>.result` gates. A skipped upstream
 is acceptable when its path filter did not select it, but a failed or cancelled
-upstream must stop dependent infrastructure work. In particular, Shifter Platform
-must not plan or apply on top of a failed Shifter Engine deploy.
+upstream must stop dependent infrastructure work. In particular, BigRAE Platform
+must not plan or apply on top of a failed BigRAE Engine deploy.
 
 ## Change Detection
 
@@ -92,13 +94,13 @@ The orchestrator uses path filters to run only relevant jobs:
 |--------|--------------|
 | `core` | ECR module, environment root, deploy workflow |
 | `range` | Range Terraform, engine state module |
-| `shifter_engine` | Shifter Engine code, ECR module |
+| `shifter_engine` | BigRAE Engine code, ECR module |
 | `shifter_platform` | Portal/Guacamole Terraform and platform deploy workflow |
 | `quality_relevant` | Any non-docs change, plus guardrail docs; controls whether Quality runs without launching deploy or Terraform plan jobs |
 | `portal_image` | Portal image build inputs (`shifter/shifter_platform/**`, `cyberscript`, `installation`, `.dockerignore`); triggers the portal image build/deploy on a deploy dispatch without running Terraform |
-| `gcp` | GCP Terraform, GCP Kubernetes assets, GCP scripts, GCP cloud adapters |
+| `gcp` | GCP Terraform, the Helm chart, GCP scripts, the GCP deploy command modules in `scripts/bootstrap`, GCP cloud adapters |
 | `mcp` | MCP package changes, routed to Quality only |
-| `quality_only` | Non-deploy test-support and guardrail surfaces (`scripts/stack-smoke/**`, `scenario-dev/**`, `_quality.yml`, ADR/guardrail checker paths), routed to Quality only |
+| `quality_only` | Non-deploy test-support and guardrail surfaces (`scripts/stack-smoke/**`, each development pack under `shifter/environment-packs/`, `_quality.yml`, ADR/guardrail checker paths), routed to Quality only. Shipped environment packs route to `portal_image` |
 
 ## Quality Gate
 
@@ -122,7 +124,24 @@ every production path to its blocking lint, security, and test jobs; the
 See `docs/technical/dev/adr-enforcement.md` for how to add a quality unit or
 record a gap.
 
-The Shifter Engine reusable workflow has an additional blocking provisioner
+The blocking repository-wide owners include:
+
+- ADR tooling: Ruff plus medium-and-higher Bandit findings.
+- Stack smoke: Ruff, medium-and-higher Bandit findings, and ShellCheck.
+- Standalone deployment utilities: one blocking medium-and-higher Bandit lane
+  in addition to their package-local Ruff and test jobs.
+- MCP packages: ESLint security rules promoted to errors, zero warning
+  tolerance, package tests (including `mcp/shared`), and dependency audits.
+- Container inputs: BuildKit Dockerfile checks, entrypoint ShellCheck, and
+  high/critical Trivy configuration policy; the Guacamole authority test job
+  builds both customized runtime images. The root `.dockerignore` is a separate
+  portal-image-context owner whose test route builds and boots the production
+  portal image through stack smoke.
+- Helm charts: lint and render every supported values profile, then scan the
+  rendered manifests with kube-linter.
+
+
+The BigRAE Engine reusable workflow has an additional blocking provisioner
 pytest gate before local Docker validation, credentialed image build, and ECS
 deploy. This keeps a deploy dispatch from building or deploying the provisioner
 image when the top-level Quality job is legitimately skipped.
@@ -282,7 +301,7 @@ dispatch environment=gcp-dev|orthanc|sauron|balrog → selected GCP deploy
 
 - `dev`/`main` are integration branches: they run the quality gate but never plan/apply infrastructure or deploy workloads.
 - A deploy is a manual `workflow_dispatch` that names the `environment`; the branch you run it from is the code that deploys. No branch name selects the target.
-- The GCP control plane is deployed through the Helm chart in `platform/charts/shifter`, with generated values layered on top of environment defaults.
+- The GCP control plane is deployed through the Helm chart in `platform/charts/shifter` by `scripts/bootstrap/deploy.py gcp-deploy`, with generated values layered on top of the profile values. CI and an operator without GitHub run the same command (ADR-070).
 - The GCP portal auth contract is FirebaseUI/browser-side Identity Platform auth plus server-side verified-token exchange. Do not add Django credential handling to recreate Cognito semantics.
 - Multi-cloud work enters through the shared cloud adapter layers rather than provider-specific calls in domain services.
 
@@ -306,7 +325,7 @@ The self-hosted runner has:
 - AWS CLI configured
 - gcloud SDK support for GCP workflows
 - Docker + BuildX
-- Terraform (deploy jobs pin `1.13.3`)
+- Terraform (AWS deploy jobs pin `1.13.3`; GCP deploy jobs pin `1.16.7`)
 - Python 3.12
 - Network access to AWS and GCP APIs
 
@@ -344,9 +363,9 @@ Terraform plans are also posted as PR comments.
 
 ### GCP Deploy Fails
 - Verify each purpose Environment has its explicit `GCP_*_SERVICE_ACCOUNT` and `GCP_WORKLOAD_IDENTITY_PROVIDER` secrets set
-- Check the GCS backend bucket bootstrap step for IAM or bucket-name conflicts
-- Review `terraform output -json` and the generated `platform-runtime.generated.env` values in the workflow logs
-- Review the generated Helm values, ingress resources, and `BackendConfig` resources if hostname, DNS, certificate, or Cloud Armor behavior is wrong
-- Review the `guacamole-runtime` Secret sync step if the Guacamole client pods stay in `CreateContainerConfigError`
+- Check the `Render deployment inputs` step: the CI adapter stops when a required input is missing or when a GitHub value conflicts with the root config
+- Check the `Run the infrastructure stage` step for IAM or bucket-name conflicts on the GCS backend bucket. The step log shows each command that ran and the error of the command that failed
+- The command keeps the Terraform outputs, the runtime env, and the generated Helm values in a private temporary directory, not in the workflow log. Review the ingress resources and the `BackendConfig` resources if hostname, DNS, certificate, or Cloud Armor behavior is wrong
+- Review the `guacamole-runtime` Secret sync in the `Run the rollout stage` step if the Guacamole client pods stay in `CreateContainerConfigError`
 - If the portal auth path is wrong, verify the Terraform outputs expose `public_hostname`, `managed_tls_enabled=true`, that Identity Platform was provisioned successfully, that the blocking function and MFA configuration are present, that the bootstrap operator credentials were supplied, and that the managed certificate reaches `Active`
 - Check `kubectl rollout status` output for the specific control-plane deployment that stalled

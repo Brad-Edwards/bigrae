@@ -1,5 +1,8 @@
 # User lifecycle administration preflight (#1943)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: accepted and implemented (account lifecycle, password reset, and bounded
 ownership transfer under ADR-046-R13)
 

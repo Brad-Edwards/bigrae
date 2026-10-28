@@ -85,6 +85,7 @@ from ._agents import (
     list_agents,
     max_agent_file_size_bytes,
 )
+from ._content_authority import set_catalog_publication
 from ._content_ingestion import PackRegistrationRequest, RegisteredPack, register_pack
 from ._credential_scope import range_credential_scope
 from ._credentials import (
@@ -116,6 +117,7 @@ from ._non_user_range_launch import NonUserWorkflow, create_non_user_range
 
 # --- Public service functions ------------------------------------------------
 from ._pack_conformance import validate_registered_pack_conformance
+from ._pack_fence import fence_pack_reference
 from ._policy_offboarding import policy_reassign_range_owner, policy_transfer_user_ownership
 from ._policy_range_scope import policy_list_range_scope_bindings, policy_rebind_range_workspace
 from ._queries import (
@@ -124,7 +126,14 @@ from ._queries import (
     get_range_status_by_id,
     get_range_target_instances,
 )
-from ._raes_range_create import create_raes_native_range, create_range_dispatch
+from ._raes_range_create import create_raes_native_range
+from ._raes_range_dispatch import create_range_dispatch
+from ._range_access import (
+    admit_range_remote_authority as admit_range_remote_authority,
+)
+from ._range_access import (
+    authorize_range_terminal as authorize_range_terminal,
+)
 from ._range_access import (
     connect_range_terminal,
     get_range_rdp_connection_info,
@@ -190,6 +199,7 @@ from ._range_vpn import (
     has_ctf_openvpn_profile,
     has_mission_control_openvpn_profile,
 )
+from ._range_vpn import OpenVpnProfilePending as OpenVpnProfilePending
 from ._range_workspace_admin import (
     RangeRebindResult,
     RangeScopeAuditContext,
@@ -204,6 +214,18 @@ from ._scenarios import (
     list_scenarios,
     validate_scenario_requirements,
 )
+from ._scoped_devices import admit_device_remote_authority as admit_device_remote_authority
+from ._tenant_pack_removal import (
+    PackRemovalConflict,
+    PackRemovalView,
+    confirm_tenant_pack_archive_absent,
+    reconcile_tenant_pack_removal,
+    reconcile_tenant_pack_removals,
+    relocate_tenant_pack_archive,
+    request_tenant_pack_removal,
+)
+from ._unified_authorization import range_authorization_binding as range_authorization_binding
+from ._unified_authorization import require_range_action as require_range_action
 from ._uploads import (
     cancel_upload,
     complete_upload,
@@ -216,6 +238,7 @@ from ._user_offboarding import (
     OwnershipTransferSummary,
     transfer_user_ownership,
 )
+from ._vpn_authority import admit_range_vpn_authority as admit_range_vpn_authority
 from ._warm_pool_claim import attempt_warm_claim
 from ._warm_pool_reconcile import reconcile_warm_pool
 
@@ -252,6 +275,8 @@ __all__ = (
     "OpenVpnProfileUnavailable",
     "OwnershipTransferSummary",
     "PackRegistrationRequest",
+    "PackRemovalConflict",
+    "PackRemovalView",
     "RangeCleanupOutcome",
     "RangeInstance",
     "RangeLeaseConflict",
@@ -276,6 +301,7 @@ __all__ = (
     "change_range_model_sources",
     "complete_upload",
     "confirm_ctf_receipt_binding",
+    "confirm_tenant_pack_archive_absent",
     "connect_range_terminal",
     "create_agent",
     "create_credential",
@@ -321,6 +347,7 @@ __all__ = (
     "engine_validate_sharing_binding",
     "expire_due_ranges",
     "extend_mission_control_range",
+    "fence_pack_reference",
     "find_model_access_selected_ranges",
     "find_range_instance_id_by_request",
     "get_active_range",
@@ -376,10 +403,14 @@ __all__ = (
     "reassign_range_owner",
     "rebind_range_workspace",
     "reconcile_ctf_range_leases",
+    "reconcile_tenant_pack_removal",
+    "reconcile_tenant_pack_removals",
     "reconcile_warm_pool",
     "register_pack",
+    "relocate_tenant_pack_archive",
     "replace_group_lease_policy",
     "replace_tenant_lease_policy",
+    "request_tenant_pack_removal",
     "reset_group_lease_policy",
     "reset_tenant_lease_policy",
     "resolve_mission_control_lease_policy",
@@ -394,6 +425,7 @@ __all__ = (
     "resume_range",
     "resume_range_by_request_id",
     "revoke_range_model_sources",
+    "set_catalog_publication",
     "transfer_user_ownership",
     "validate_registered_pack_conformance",
     "validate_scenario_requirements",

@@ -384,7 +384,8 @@ def test_predefined_administrator_checks_exact_policy_actions_not_unrelated_acti
     assert "workspace.update" in checked_actions
     assert "workspace.read" in checked_actions
     assert "workspace.leave" not in checked_actions
-    assert "workspace.launch_range" not in checked_actions
+    assert "workspace.launch_range" in checked_actions
+    assert "account.update" not in checked_actions
 
 
 @pytest.mark.django_db

@@ -137,6 +137,87 @@ def test_destroy_refs_match_workflow_guard_and_terraform_contract():
     assert all(context["ref"] in DESTROY_PROTECTED_REFS for context in example["purpose_contexts"]["destroy"])
 
 
+def _github_less_inputs(path, **overrides):
+    example_path = get_repo_root() / "scripts/bootstrap/gcp-foundation.github-less.example.tfvars.json"
+    example = json.loads(example_path.read_text())
+    path.write_text(json.dumps({**example, "project_number": "123", **overrides}))
+    return path
+
+
+def test_github_less_foundation_uses_no_github_and_disables_federation(tmp_path, monkeypatch):
+    """ADR-070: no gh call, no repository IDs, and explicit empty federation inputs."""
+    inputs = _github_less_inputs(tmp_path / "foundation.json")
+    calls = []
+    federation = {}
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[:3] == ["gcloud", "projects", "describe"]:
+            return subprocess.CompletedProcess(argv, 0, "123\n")
+        if argv[:4] == ["gcloud", "storage", "buckets", "describe"]:
+            return subprocess.CompletedProcess(argv, 0, "")
+        if argv[0] == "terraform" and argv[2] == "plan":
+            override = next(a for a in argv if a.startswith("-var-file=") and a.endswith("github-less.tfvars.json"))
+            with open(override.removeprefix("-var-file="), encoding="utf-8") as handle:
+                federation.update(json.load(handle))
+        return subprocess.CompletedProcess(argv, 0, "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    set_assume_yes(True)
+    try:
+        bootstrap_gcp_foundation(str(inputs))
+    finally:
+        set_assume_yes(False)
+    assert not any(call[0] == "gh" for call in calls)
+    assert federation == {"purpose_contexts": {}, "github_repository_id": "", "github_owner_id": ""}
+    plan = next(call for call in calls if call[0] == "terraform" and call[2] == "plan")
+    assert plan[4] == f"-var-file={inputs}"
+    assert not any(call[:4] == ["gcloud", "storage", "buckets", "create"] for call in calls)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"github_repository_id": "456"}, "takes no GitHub inputs; remove github_repository_id"),
+        ({"github_org": "example"}, "takes no GitHub inputs; remove github_org"),
+        ({"impersonation_principals": {"deploy": ["user:a@example.com"]}}, "release_scan"),
+        (
+            {"impersonation_principals": {"deploy": [], "release_scan": ["user:a@x.com"], "destroy": ["user:a@x.com"]}},
+            "deploy",
+        ),
+        (
+            {"deployment_config_bucket_name": "--billing-project=other"},
+            "deployment_config_bucket_name is not a valid GCP name",
+        ),
+        (
+            {"terraform_state_bucket_name": "example-project-other-state"},
+            "terraform_state_bucket_name must be 'example-project-terraform-state'",
+        ),
+        (
+            {"release_evidence_bucket_name": "example-project-evidence"},
+            "release_evidence_bucket_name must be 'example-project-release-evidence'",
+        ),
+    ],
+)
+def test_github_less_inputs_fail_before_commands(overrides, message, tmp_path, monkeypatch):
+    inputs = _github_less_inputs(tmp_path / "foundation.json", **overrides)
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+    with pytest.raises(ValueError, match=message):
+        bootstrap_gcp_foundation(str(inputs))
+    assert calls == []
+
+
+def test_github_less_requires_the_config_bucket(tmp_path, monkeypatch):
+    inputs = _github_less_inputs(tmp_path / "foundation.json")
+    data = json.loads(inputs.read_text())
+    data.pop("deployment_config_bucket_name")
+    inputs.write_text(json.dumps(data))
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("ran a command"))
+    with pytest.raises(ValueError, match="Missing foundation inputs: deployment_config_bucket_name"):
+        bootstrap_gcp_foundation(str(inputs))
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

@@ -9,11 +9,14 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
+from django.contrib.sessions.base_session import AbstractBaseSession
 from django.core.exceptions import ValidationError
 from django.db import models
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+
+    from management.session_backend import SessionStore
 
 
 class UserProfile(models.Model):
@@ -354,3 +357,29 @@ class ServiceCredentialAdmission(models.Model):
             if previous is None or any(previous[field] != getattr(self, field) for field in fields):
                 raise PrincipalConflictError("Service admission is immutable; disable and register a new binding")
         super().save(*args, **kwargs)
+
+
+class PrincipalSession(AbstractBaseSession):
+    """Django session with a non-secret lifecycle reference for admitted work.
+
+    S8 selects management.session_backend through Django's SESSION_ENGINE.
+    The cookie remains exclusively inside Django's session persistence.
+    """
+
+    credential_uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    principal_uuid = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+
+    class Meta:
+        """Keep session state and its credential reference in one owning row."""
+
+        db_table = "management_principal_session"
+
+    @classmethod
+    def get_session_store_class(cls) -> type[SessionStore]:
+        """Use the incumbent Django database-session extension seam."""
+        from management.session_backend import SessionStore
+
+        return SessionStore
+
+    def __str__(self) -> str:
+        return f"session-credential:{self.credential_uuid}"

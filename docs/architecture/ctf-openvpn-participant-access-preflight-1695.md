@@ -1,5 +1,8 @@
 # CTF OpenVPN Participant Access Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1695, "OVPN download button for CTF users to connect to
 their Kali box."
 

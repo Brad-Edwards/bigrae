@@ -1,5 +1,8 @@
 # ACES Participant Runtime API And Sidecar Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1288, "19 - ACES migration: implement participant runtime API
 and storage sidecars."
 

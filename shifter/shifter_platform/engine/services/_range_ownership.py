@@ -11,8 +11,8 @@ class RangeOwnershipProjection:
     """Immutable SQL identity/ancestry; no range configuration or access data."""
 
     uuid: UUID
-    user_id: int
-    request_user_id: int
+    user_id: int | None
+    request_user_id: int | None
     cms_user_id: int | None
     scope_kind: str
     account_id: int | None

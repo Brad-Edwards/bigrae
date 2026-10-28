@@ -49,9 +49,16 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2467 after admitting raes-range activate in the provisioner Job policy.
 # Regenerated for #2480 after admitting the OpenVPN pool env and dropping the 1195 port.
 # Regenerated for #2320: dedicated Guacamole/guacd KSAs and bounded native SQL admission.
+# Regenerated for #2520: tenant pack removal reconciler on the portal identity.
+# Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
+# Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
+# Regenerated for #2571: the chart is the only GCP renderer. Worker readiness
+# probes now match the retired Kustomize base, stale comments are removed, and
+# the two registered Checkov exceptions annotate their chart Deployments. The
+# portal-to-Guacamole token API policies moved from the retired base to the chart.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "9373c79d9e86a4a23651243745b20fb6a286b849304ee8db066e34ab12ce7bc2",
-    "gcp-prod": "fe4da7c3b0548324baa23b7a6c0bed3f81ee20dd4de1deb10d1e9ed59c370678",
+    "gcp-dev": "287d0a99ff652eeedcf4ba17ddb33d72c8e80c5cb2747c48dc9e557dbf627876",
+    "gcp-prod": "67e594f1f291e171e641e5cfac402fbb5956ef1302e53cbe840dd02cdab9318d",
 }
 
 
@@ -85,6 +92,19 @@ def _identity(document: dict[str, object]) -> tuple[str, str]:
 
 
 class BackendNeutralChartContractTests(unittest.TestCase):
+    def test_guacamole_uses_dedicated_identity_and_common_authority_configuration(self):
+        _, documents = _render(VALUES_FILES["gcp-dev"])
+        deployment = next(doc for doc in documents if _identity(doc) == ("Deployment", "guacamole-client"))
+        pod = deployment["spec"]["template"]["spec"]
+        self.assertEqual(pod["serviceAccountName"], "guacamole-client")
+        accounts = [doc for doc in documents if _identity(doc) == ("ServiceAccount", "guacamole-client")]
+        self.assertEqual(len(accounts), 1)
+        env = {value["name"]: value for value in pod["containers"][0]["env"]}
+        for name in ("OPENFGA_ENABLED", "GUACAMOLE_CONTROL_URL", "GUACAMOLE_CONTROL_AUDIENCE"):
+            ref = env[name]["valueFrom"]["configMapKeyRef"]
+            self.assertEqual(ref["name"], "platform-runtime")
+            self.assertEqual(ref["key"], name)
+
     def test_range_access_selects_smoke_without_broadening_destinations(self) -> None:
         for profile in ("gcp-dev", "gcp-prod"):
             with self.subTest(profile=profile):

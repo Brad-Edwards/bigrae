@@ -18,7 +18,12 @@ else:
     GCSClient = Any
     GCSBlob = Any
 
+_CONDITIONAL_HEADER_READ_REQUIRES_AN_OBJECT_GENERATION = "conditional header read requires an object generation"
+
+
 logger = logging.getLogger(__name__)
+
+_API_EXCEPTIONS_MODULE = "google.api_core.exceptions"
 
 
 def _authoritative_size_and_generation(blob: GCSBlob, identity: dict[str, Any]) -> tuple[int | None, int | None]:
@@ -95,11 +100,16 @@ class GCPObjectStorage:
         logger.info("upload_file: success bucket=%s key=%s", bucket, safe_key)
 
     def delete_object(self, bucket: str, key: str) -> None:
+        """Delete ``key``; an already-absent object is success, as on S3."""
         safe_key = safe_log_value(key)
         logger.debug("delete_object: bucket=%s key=%s", bucket, safe_key)
+        api_exceptions = import_google_module(_API_EXCEPTIONS_MODULE)
         try:
             client = self._get_client()
             client.bucket(bucket).blob(key).delete()
+        except api_exceptions.NotFound:
+            logger.info("delete_object: already absent bucket=%s key=%s", bucket, safe_key)
+            return
         except Exception as e:
             logger.exception("delete_object: failed bucket=%s key=%s", bucket, safe_key)
             raise CloudStorageError(f"Failed to delete GCS object: {e}") from e
@@ -147,7 +157,7 @@ class GCPObjectStorage:
         safe_src = safe_log_value(src_key)
         safe_dst = safe_log_value(dst_key)
         logger.debug("copy_object_conditional: bucket=%s src=%s dst=%s", bucket, safe_src, safe_dst)
-        api_exceptions = import_google_module("google.api_core.exceptions")
+        api_exceptions = import_google_module(_API_EXCEPTIONS_MODULE)
         try:
             client = self._get_client()
             source_bucket = client.bucket(bucket)
@@ -199,7 +209,7 @@ class GCPObjectStorage:
             raise ValueError("max_bytes must be positive")
         safe_key = safe_log_value(key)
         logger.debug("download_object: bucket=%s key=%s max_bytes=%d", bucket, safe_key, max_bytes)
-        api_exceptions = import_google_module("google.api_core.exceptions")
+        api_exceptions = import_google_module(_API_EXCEPTIONS_MODULE)
         try:
             client = self._get_client()
             blob = client.bucket(bucket).blob(key)
@@ -266,7 +276,9 @@ class GCPObjectStorage:
             logger.exception("head_object: failed bucket=%s key=%s", bucket, safe_key)
             raise CloudStorageError(f"Failed to head GCS object: {e}") from e
 
-    def read_object_header(self, bucket: str, key: str, max_bytes: int) -> bytes:
+    def read_object_header(
+        self, bucket: str, key: str, max_bytes: int, *, expected_identity: dict[str, Any] | None = None
+    ) -> bytes:
         """Read up to `max_bytes` from the start of the blob.
 
         GCS `download_as_bytes(start=, end=)` uses an inclusive `end`, so
@@ -274,12 +286,24 @@ class GCPObjectStorage:
         """
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
+        precondition = {}
+        if expected_identity is not None:
+            value = expected_identity.get("generation")
+            if not isinstance(value, (int, str)) or isinstance(value, bool):
+                raise CloudStorageError(_CONDITIONAL_HEADER_READ_REQUIRES_AN_OBJECT_GENERATION)
+            try:
+                generation = int(value)
+            except (KeyError, ValueError, TypeError):
+                raise CloudStorageError(_CONDITIONAL_HEADER_READ_REQUIRES_AN_OBJECT_GENERATION) from None
+            if generation <= 0:
+                raise CloudStorageError(_CONDITIONAL_HEADER_READ_REQUIRES_AN_OBJECT_GENERATION)
+            precondition["if_generation_match"] = generation
         safe_key = safe_log_value(key)
         logger.debug("read_object_header: bucket=%s key=%s max_bytes=%d", bucket, safe_key, max_bytes)
         try:
             client = self._get_client()
             blob = client.bucket(bucket).blob(key)
-            body = blob.download_as_bytes(start=0, end=max_bytes - 1)
+            body = blob.download_as_bytes(start=0, end=max_bytes - 1, **precondition)
         except Exception as e:
             logger.exception(
                 "read_object_header: failed bucket=%s key=%s error=%s",

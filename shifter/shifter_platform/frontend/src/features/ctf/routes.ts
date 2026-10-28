@@ -64,3 +64,6 @@ export const ctfAdminEventRangesPath = (eventId: string): string => `${CTF_ADMIN
 export const ctfAdminEventNotificationsPath = (eventId: string): string =>
   `${CTF_ADMIN_BASE}/events/${eventId}/notifications/`;
 export const ctfAdminEventBracketsPath = (eventId: string): string => `${CTF_ADMIN_BASE}/events/${eventId}/brackets/`;
+export const ctfAdminCommunicationsPath = (): string => `${CTF_ADMIN_BASE}/communications/`;
+export const ctfAdminCommunicationPath = (campaignId: string): string =>
+  `${CTF_ADMIN_BASE}/communications/${campaignId}/`;

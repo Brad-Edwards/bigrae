@@ -70,6 +70,10 @@ services:
       - .:/app
       - /app/.venv
       - ../engine/provisioner:/engine/provisioner
+      # The source mount hides the image's shipped environment packs. Mount the
+      # same packs at the same runtime destinations as the Dockerfile (#2550).
+      - ../environment-packs/smoke-linux:/app/cms/scenarios/inbox_packs/smoke-linux:ro
+      - ../environment-packs/smoke-linux-aws:/app/cms/scenarios/inbox_packs/smoke-linux-aws:ro
 
   # ------------------------------------------------------------------------------
   # SQS Workers

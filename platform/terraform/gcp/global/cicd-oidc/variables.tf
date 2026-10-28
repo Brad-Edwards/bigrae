@@ -17,13 +17,23 @@ variable "region" {
 variable "github_org" {
   description = "GitHub organization that owns the repository allowed to federate."
   type        = string
-  default     = "Brad-Edwards"
+  # Default is read only by the static CKV_GCP_125 trust-grammar check, which is
+  # mandatory and un-skippable (check_tf_gcp_wif_trust). Real deployments set this
+  # in their per-environment tfvars. The immutable github_repository_id and
+  # github_owner_id are the binding anchor and have no default, so a fork or
+  # rename cannot federate even though this name has a default (ADR-069).
+  default = "Brad-Edwards"
 }
 
 variable "github_repo" {
   description = "GitHub repository allowed to federate into the build service account."
   type        = string
-  default     = "shifter"
+  # Default is read only by the static CKV_GCP_125 trust-grammar check, which is
+  # mandatory and un-skippable (check_tf_gcp_wif_trust). Real deployments set this
+  # in their per-environment tfvars. The immutable github_repository_id and
+  # github_owner_id are the binding anchor and have no default, so a fork or
+  # rename cannot federate even though this name has a default (ADR-069).
+  default = "bigrae"
 }
 
 variable "promotion_reader_service_account_email" {
@@ -56,9 +66,21 @@ variable "platform_external_bucket_names" {
 variable "github_subject_format" {
   description = "Reviewed GitHub default subject format: legacy names or immutable owner/repository IDs."
   type        = string
-  default     = "default"
+  default     = "immutable"
   validation {
     condition     = contains(["default", "immutable"], var.github_subject_format)
     error_message = "github_subject_format must be default or immutable."
   }
+}
+
+variable "impersonation_principals" {
+  description = "Principals that may impersonate each lifecycle purpose identity without GitHub (release_scan, deploy, destroy)."
+  type        = map(list(string))
+  default     = {}
+}
+
+variable "deployment_config_bucket_name" {
+  description = "Bucket for the GitHub-less deployment input bundle. An empty value creates no bucket."
+  type        = string
+  default     = ""
 }

@@ -32,6 +32,9 @@ class PackStorage:
         self.deleted.append((bucket, key))
         self.objects.pop((bucket, key), None)
 
+    def object_exists(self, bucket, key):
+        return (bucket, key) in self.objects
+
     def head_object(self, bucket, key):
         return {"content_length": len(self.objects[(bucket, key)]), "etag": key}
 
@@ -232,7 +235,7 @@ def test_pack_cannot_be_launched_in_another_organization_workspace(upload, tenan
 
 
 def test_ctf_event_owner_binds_tenant_adapter_for_participant_workspace(upload, tenant, monkeypatch):
-    from cms.services._raes_dispatch import _launch_pack, _runtime_plugin_scope
+    from cms.services._raes_dispatch import RaesDispatchOptions, _launch_pack, _runtime_plugin_scope
     from workspaces.services import resolve_personal_workspace
 
     client, organization, root, _ = upload
@@ -250,13 +253,7 @@ def test_ctf_event_owner_binds_tenant_adapter_for_participant_workspace(upload, 
     monkeypatch.setattr("shared.raes.package_loader.launch_raes_package", launch)
     plugin_scope = _runtime_plugin_scope(participant, workspace.workspace_id, source, owner)
     _launch_pack(
-        uuid4(),
-        participant,
-        root,
-        None,
-        workspace.workspace_id,
-        "status-quo",
-        plugin_scope,
+        uuid4(), participant, root, RaesDispatchOptions(None, workspace.workspace_id, "status-quo"), plugin_scope
     )
 
     assert captured["scope"].organization_uuid == organization.uuid
@@ -265,7 +262,7 @@ def test_ctf_event_owner_binds_tenant_adapter_for_participant_workspace(upload, 
 
 def test_rejected_launch_logs_bounded_diagnostics(upload, tenant, monkeypatch, caplog):
     from cms.exceptions import CMSError
-    from cms.services._raes_dispatch import _launch_pack
+    from cms.services._raes_dispatch import RaesDispatchOptions, _launch_pack
     from shared.raes.package_loader import ShifterLaunchResult
     from shared.runtime_plugin_binding import RuntimePluginScope
     from workspaces.services import resolve_personal_workspace
@@ -294,11 +291,14 @@ def test_rejected_launch_logs_bounded_diagnostics(upload, tenant, monkeypatch, c
         caplog.at_level("WARNING", logger="cms.services._raes_dispatch"),
         pytest.raises(CMSError, match="RAES provisioning was not accepted"),
     ):
-        _launch_pack(request_id, owner, root, None, workspace.workspace_id, "status-quo", scope)
+        _launch_pack(request_id, owner, root, RaesDispatchOptions(None, workspace.workspace_id, "status-quo"), scope)
 
     assert str(request_id) in caplog.text
     assert "status=rejected" in caplog.text
-    assert diagnostic in caplog.text
+    from shared.log_sanitize import safe_log_fingerprint
+
+    assert diagnostic not in caplog.text
+    assert safe_log_fingerprint(diagnostic) in caplog.text
 
 
 def test_pack_revision_requires_existing_identity(upload):
@@ -309,24 +309,29 @@ def test_pack_revision_requires_existing_identity(upload):
     assert not storage.objects
 
 
-def test_update_installs_verified_new_version_without_replacing_existing_object(upload, make_pack):
-    from tests.cms.conftest import conformant_pack_yaml
-
-    client, organization, root, storage = upload
-    first = _post(client, organization, root)
-    original_objects = dict(storage.objects)
-    metadata = conformant_pack_yaml(root.name)
-    metadata["version"] = "0.2.0"
-    make_pack(root, pack_yaml=metadata)
+def _post_revision(client, organization, root, make_pack, expected_digest, version="0.2.0"):
+    """Rewrite the pack as a conformant new version and upload it as a revision."""
     from raes_contracts.associated_artifacts import associated_artifact_set_digest
     from raes_contracts.contracts import AssociatedArtifactManifestModel
 
+    from tests.cms.conftest import conformant_pack_yaml
+
+    metadata = conformant_pack_yaml(root.name)
+    metadata["version"] = version
+    make_pack(root, pack_yaml=metadata)
     manifest_path = root / "associated-artifacts.json"
     manifest = AssociatedArtifactManifestModel.model_validate_json(manifest_path.read_text())
-    manifest = manifest.model_copy(update={"manifest_version": "0.2.0"})
+    manifest = manifest.model_copy(update={"manifest_version": version})
     manifest = manifest.model_copy(update={"set_digest": associated_artifact_set_digest(manifest)})
     manifest_path.write_text(manifest.model_dump_json(indent=2) + "\n")
-    updated = _post(client, organization, root, expected_digest=first.data["package_digest"])
+    return _post(client, organization, root, expected_digest=expected_digest)
+
+
+def test_update_installs_verified_new_version_without_replacing_existing_object(upload, make_pack):
+    client, organization, root, storage = upload
+    first = _post(client, organization, root)
+    original_objects = dict(storage.objects)
+    updated = _post_revision(client, organization, root, make_pack, first.data["package_digest"])
     assert updated.status_code == 201, updated.data
     assert updated.data["scenario_id"] == first.data["scenario_id"]
     assert updated.data["package_version"] == "0.2.0"

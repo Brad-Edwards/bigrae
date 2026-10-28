@@ -66,6 +66,7 @@ def render(config: Config) -> str:
     network = config.tunnel_network
     run = config.runtime_dir
     user = pwd.getpwuid(os.geteuid()).pw_name
+    revocation = f"crl-verify {run}/crl.pem\n" if config.source_authority else ""
     return f"""port 1194
 proto udp4
 dev tun0
@@ -77,7 +78,7 @@ connect-freq 20 10
 keepalive 5 30
 explicit-exit-notify 1
 ca {run}/ca.crt
-cert {run}/server.crt
+{revocation}cert {run}/server.crt
 key {run}/server.key
 dh none
 tls-crypt {run}/tls-crypt.key

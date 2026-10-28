@@ -79,6 +79,9 @@ __all__ = [
 class ResultStep(StrEnum):
     """Closed, deterministic step keys. Scoped to a ``(resource, operation)``."""
 
+    VPN_PKI_READY = "vpn_pki_ready"
+    VPN_PKI_FAILED = "vpn_pki_failed"
+
     # range pause
     RANGE_INSTANCES_PAUSED = "range_instances_paused"
     RANGE_NGFW_CASCADE_PAUSING = "range_ngfw_cascade_pausing"
@@ -206,7 +209,16 @@ _RAES_ACTIVATE_STEPS: dict[ResultStep, StepSpec] = {
 # resolves the target differently, the result shape is the same. Provision and
 # destroy do not: they report RAES operation observations, not instance sets.
 
+_VPN_PKI_STEPS = {
+    ResultStep.VPN_PKI_READY: StepSpec(10, "TERMINAL_SUCCESS", Shape.VPN_PKI, None, True),
+    ResultStep.VPN_PKI_FAILED: failure(10),
+}
+
 _CONTRACT: dict[tuple[str, str], dict[ResultStep, StepSpec]] = {
+    ("vpn-profile", "issue"): _VPN_PKI_STEPS,
+    ("vpn-profile", "revoke"): _VPN_PKI_STEPS,
+    ("vpn-profile", "refresh-crl"): _VPN_PKI_STEPS,
+    ("vpn-profile", "purge"): _VPN_PKI_STEPS,
     ("range", "pause"): _RANGE_PAUSE_STEPS,
     ("range", "resume"): _RANGE_RESUME_STEPS,
     ("raes-range", "pause"): _RANGE_PAUSE_STEPS,

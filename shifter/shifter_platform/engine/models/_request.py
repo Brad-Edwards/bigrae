@@ -11,6 +11,7 @@ import uuid
 from django.conf import settings
 from django.db import models
 
+from engine.field_encryption import EncryptedProvisioningSpecField
 from shared.enums import RequestType
 
 
@@ -39,7 +40,15 @@ class Request(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="engine_requests",
+        null=True,
+        blank=True,
     )
+    owner_principal_uuid = models.UUIDField(null=True, blank=True, db_index=True)
+    # The NGFW's request owns customer custody; infrastructure remains native.
+    scope_kind = models.CharField(max_length=16, blank=True, default="")
+    account_id = models.PositiveBigIntegerField(null=True, blank=True)
+    organization_id = models.PositiveBigIntegerField(null=True, blank=True)
+    workspace_id = models.PositiveBigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -80,7 +89,7 @@ class Instantiation(models.Model):
         null=True,
         blank=True,
     )
-    spec = models.JSONField(
+    spec = EncryptedProvisioningSpecField(
         null=True,
         blank=True,
         help_text="Hydrated spec JSON from CMS (what was asked for)",

@@ -32,6 +32,11 @@ name.
 artifact: ``contract export`` regenerates the committed artifact from the Pydantic contract
 and registry, and ``contract check`` runs the drift, breaking-change, and registry-
 conformance gates (also enforced in the ``installation`` test lane).
+
+``gcp-release-manifest`` (#2571) writes the validated ``bigrae.gcp-release.v1`` manifest
+to standard output. The release-driven GCP deploy command consumes it: one source
+revision and the exact image identity of each control-plane image. The command opens no
+output file. The caller selects the destination with a shell redirect.
 """
 
 from __future__ import annotations
@@ -43,8 +48,9 @@ from pathlib import Path
 
 from .cli_parser import build_parser
 from .doctor import CheckScope, CheckStatus, DoctorReport, run_doctor
-from .errors import InstallationConfigError
-from .loader import load_root_config
+from .errors import ConfigIssue, InstallationConfigError
+from .gcp_release import build_release_manifest, render_release_manifest
+from .loader import default_root_config_path, load_root_config
 from .publication import (
     ARTIFACT_PATH,
     build_contract_artifact,
@@ -322,6 +328,48 @@ def _cmd_contract(contract_command: str | None, output: str | None, parser: argp
     return 2
 
 
+def _release_images(items: list[str]) -> dict[str, str]:
+    """Return the ``--image NAME=IDENTITY`` values by name.
+
+    Raises ``InstallationConfigError`` for a malformed value or a repeated name.
+    """
+    images: dict[str, str] = {}
+    for item in items:
+        name, separator, identity = item.partition("=")
+        if not separator or not name or not identity:
+            issue = ConfigIssue("--image", "must be NAME=REPOSITORY@sha256:DIGEST")
+            raise InstallationConfigError([issue], subject="release manifest arguments")
+        if name in images:
+            issue = ConfigIssue(f"release.images.{name}", "is named more than once")
+            raise InstallationConfigError([issue], subject="release manifest arguments")
+        images[name] = identity
+    return images
+
+
+def _cmd_gcp_release_manifest(args: argparse.Namespace) -> int:
+    """Write one validated GCP release manifest from explicit image identities to stdout."""
+    try:
+        manifest = build_release_manifest(
+            version=args.version,
+            source_revision=args.source_revision,
+            chart_version=args.chart_version,
+            images=_release_images(args.image),
+        )
+    except InstallationConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    sys.stdout.write(render_release_manifest(manifest))
+    return 0
+
+
+def _default_config_path() -> str:
+    """Select the canonical default, rejecting conflicting compatibility input."""
+    selected = default_root_config_path()
+    if selected.name == "shifter.yaml":
+        print("shifter.yaml is deprecated; use bigrae.yaml", file=sys.stderr)
+    return str(selected)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the shifter-config command-line interface."""
 
@@ -330,6 +378,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help(sys.stderr)
         return 2
+    if hasattr(args, "path") and args.path is None:
+        try:
+            args.path = _default_config_path()
+        except InstallationConfigError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    return _dispatch(args, parser)
+
+
+def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Dispatch parsed input after default-path resolution has succeeded."""
     if args.command == "validate":
         exit_code = _cmd_validate(args.path)
     elif args.command == "render":
@@ -356,6 +415,8 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = _cmd_doctor(args.path, args.repo_root, args.checks, as_json=args.as_json)
     elif args.command == "contract":
         exit_code = _cmd_contract(args.contract_command, getattr(args, "output", None), parser)
+    elif args.command == "gcp-release-manifest":
+        exit_code = _cmd_gcp_release_manifest(args)
     else:
         parser.print_help(sys.stderr)  # pragma: no cover - argparse rejects unknown subcommands first
         exit_code = 2

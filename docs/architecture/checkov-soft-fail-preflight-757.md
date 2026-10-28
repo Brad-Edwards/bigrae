@@ -1,5 +1,8 @@
 # Checkov Soft-Fail Policy (ADR-004-R11)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: implemented
 
 Original tracking issue: <https://github.com/Brad-Edwards/shifter/issues/757>

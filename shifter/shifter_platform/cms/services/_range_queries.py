@@ -1,9 +1,4 @@
-"""Range query entrypoints: list_ranges / get_range / get_active_range / get_range_by_request_id.
-
-The runtime-IP overlay (``_resolve_runtime_ips``) lives in ``_common`` so
-it can be shared with destroy/pause/resume helpers if needed, and so it
-honors test patches of ``cms.services.engine_get_instance_ips_by_uuid``.
-"""
+"""Range query entrypoints; ``_common`` preserves runtime-IP overlays and late-bound CMS hooks."""
 
 from __future__ import annotations
 
@@ -13,6 +8,8 @@ from typing import TYPE_CHECKING
 from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from shared.constants import USER_CANNOT_BE_NONE
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 from workspaces.services import WorkspaceOperation
 
@@ -33,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def list_ranges(user: User) -> list[RangeInstance]:
+def list_ranges(user: User | CredentialContext, *, scope: ResourceScope | None = None) -> list[RangeInstance]:
     """Get user's range instances.
 
     Args:
@@ -46,6 +43,10 @@ def list_ranges(user: User) -> list[RangeInstance]:
         TypeError: If user is None or invalid type
         ValueError: If user has no ID (unsaved)
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import list_scoped_ranges
+
+        return list_scoped_ranges(user, scope)
     _validate_caller_user(user, "list_ranges")
 
     logger.debug("list_ranges called for user_id=%s", user.id)
@@ -89,7 +90,9 @@ def list_ranges(user: User) -> list[RangeInstance]:
         raise
 
 
-def list_mission_control_range_history(user: User) -> list[RangeInstance]:
+def list_mission_control_range_history(
+    user: User | CredentialContext, *, scope: ResourceScope | None = None
+) -> list[RangeInstance]:
     """Return the user's Mission Control range history, newest first (#1370).
 
     Unlike :func:`list_ranges` (the generic, source-agnostic query through the
@@ -119,6 +122,10 @@ def list_mission_control_range_history(user: User) -> list[RangeInstance]:
     """
     from shared.enums import RangeSource
 
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import list_scoped_ranges
+
+        return list_scoped_ranges(user, scope, include_terminal=True, range_source=RangeSource.MISSION_CONTROL.value)
     _validate_caller_user(user, "list_mission_control_range_history")
 
     logger.debug("list_mission_control_range_history called for user_id=%s", user.id)
@@ -134,7 +141,7 @@ def list_mission_control_range_history(user: User) -> list[RangeInstance]:
     )
 
 
-def get_range(user: User, range_id: int) -> RangeInstance:
+def get_range(user: User | CredentialContext, range_id: int) -> RangeInstance:
     """Get single range instance by range ID.
 
     Args:
@@ -149,6 +156,10 @@ def get_range(user: User, range_id: int) -> RangeInstance:
         ValueError: If user has no ID (unsaved) or range_id is invalid
         CMSError: If range not found or not owned by user
     """
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import get_scoped_range
+
+        return get_scoped_range(user, range_id)
     _validate_caller_user(user, "get_range")
 
     if range_id is None:
@@ -231,7 +242,9 @@ def get_range(user: User, range_id: int) -> RangeInstance:
         raise
 
 
-def get_active_range(user: User, range_source: RangeSource | None = None) -> RangeContext | None:
+def get_active_range(
+    user: User | CredentialContext, range_source: RangeSource | None = None, *, scope: ResourceScope | None = None
+) -> RangeContext | None:
     """Get user's active (non-deleted) range as a RangeContext projection.
 
     Returns the most recently created range that:
@@ -262,11 +275,159 @@ def get_active_range(user: User, range_source: RangeSource | None = None) -> Ran
         Exception: Database errors are logged and propagated
     """
     from shared.enums import RangeSource as _RangeSource
-    from shared.enums import ResourceStatus
-    from shared.schemas import InstanceContext, RangeContext
 
     if range_source is None:
         range_source = _RangeSource.MISSION_CONTROL
+
+    if isinstance(user, CredentialContext):
+        return _active_scoped_range_context(user, scope, range_source)
+    return _get_active_legacy_range_context(user, range_source)
+
+
+def has_ready_active_range(
+    user: User | CredentialContext, range_source: RangeSource | None = None, *, scope: ResourceScope | None = None
+) -> bool:
+    """Return whether the user's latest active range for a source is READY, cheaply.
+
+    Mirrors :func:`get_active_range`'s ownership filter and ``has_active_range``
+    semantics (the most recently created non-DESTROYING range is READY) but reads
+    only the ``status`` column — no FK joins, runtime-IP overlay, scenario lookup,
+    or instance-context projection. Used by the ``nav`` context tier so the shared
+    sidebar's ``has_active_range`` indicator does not pay terminal-page cost on
+    every authenticated render (#898).
+
+    Args:
+        user: User whose active-range readiness to check.
+        range_source: Provenance filter. Defaults to MISSION_CONTROL so the
+            MC sidebar indicator reflects only Mission Control ranges.
+
+    Returns:
+        True if the user's most recent non-DESTROYING range for the source is READY.
+
+    Raises:
+        TypeError: If user is None or an invalid type.
+        ValueError: If user is unsaved (id is None).
+    """
+    from shared.enums import RangeSource as _RangeSource
+    from shared.enums import ResourceStatus
+
+    if range_source is None:
+        range_source = _RangeSource.MISSION_CONTROL
+
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import active_scoped_range
+
+        instance = active_scoped_range(user, scope, range_source.value)
+        return instance is not None and instance.status == ResourceStatus.READY.value
+    _validate_caller_user(user, "has_ready_active_range")
+
+    status = (
+        RangeInstance.objects.filter(user_id=user.id, range_source=range_source.value)
+        .filter(workspace_id__in=authorized_range_workspace_ids(user, WorkspaceOperation.READ_RANGE))
+        .exclude(status=ResourceStatus.DESTROYING.value)
+        .order_by("-created_at")
+        .values_list("status", flat=True)
+        .first()
+    )
+    return status == ResourceStatus.READY.value
+
+
+def get_range_by_request_id(
+    user: User | CredentialContext, request_id: str, *, include_terminal: bool = False
+) -> RangeContext:
+    """Get range by request_id (UUID string).
+
+    Used by WebSocket consumers and views to look up range by request_id.
+
+    Args:
+        user: User requesting the range (ownership check)
+        request_id: UUID string of the request
+        include_terminal: When True, read through ``all_objects`` so a soft-deleted
+            terminal (DESTROYED/FAILED) range the caller still owns is authorized
+            and projected instead of 404'd. The retry-safe replay and cleanup-
+            outcome surfaces need this to report on terminal operations
+            (#2086, ADR-063-R4); the default preserves the active-only behavior.
+
+    Returns:
+        RangeContext: Template-safe projection of the range
+
+    Raises:
+        TypeError: If user is None or invalid type
+        CMSError: If range not found or not owned by user
+    """
+    from shared.enums import ResourceStatus
+    from shared.schemas import InstanceContext, RangeContext
+
+    if isinstance(user, CredentialContext):
+        from ._scoped_range_queries import get_scoped_range_by_request
+
+        return get_scoped_range_by_request(user, request_id, include_terminal=include_terminal)
+    _validate_caller_user(user, "get_range_by_request_id")
+    if not request_id:
+        logger.error("get_range_by_request_id called with empty request_id")
+        raise CMSError("request_id is required")
+
+    logger.debug(
+        "get_range_by_request_id called: user_id=%s request_id=%s",
+        user.id,
+        safe_log_value(request_id),
+    )
+
+    manager = RangeInstance.all_objects if include_terminal else RangeInstance.objects
+    instance = manager.filter(
+        request__request_id=request_id,
+        user_id=user.id,
+        workspace_id__in=authorized_range_workspace_ids(user, WorkspaceOperation.READ_RANGE),
+    ).first()
+
+    if not instance:
+        logger.warning(
+            "get_range_by_request_id: not found or not owned: request_id=%s user_id=%s",
+            safe_log_value(request_id),
+            user.id,
+        )
+        raise CMSError("Range not found")
+
+    if instance.request is None:
+        raise CMSError("Range has no associated request")
+
+    ip_by_uuid = _resolve_runtime_ips(instance.range_id)
+    instance_contexts = _instance_contexts_from_range_spec(instance.range_spec, InstanceContext, ip_by_uuid)
+
+    agent_name = instance.agent.name if instance.agent else None
+
+    supported = _resolve_pause_resume_supported(instance.range_id)
+    return RangeContext(
+        request_id=instance.request.request_id,
+        range_id=instance.range_id,
+        scenario_id=instance.scenario_id,
+        user_id=instance.user_id,
+        status=ResourceStatus(instance.status),
+        instances=instance_contexts,
+        agent_name=agent_name,
+        pause_supported=supported,
+        resume_supported=supported,
+    )
+
+
+def _active_scoped_range_context(
+    user: CredentialContext, scope: ResourceScope | None, range_source: RangeSource
+) -> RangeContext | None:
+    """Project the selected scoped range only when its request identity remains available."""
+    from ._scoped_range_queries import active_scoped_range, get_scoped_range_by_request
+
+    instance = active_scoped_range(user, scope, range_source.value)
+    return (
+        get_scoped_range_by_request(user, str(instance.request.request_id))
+        if instance is not None and instance.request is not None
+        else None
+    )
+
+
+def _get_active_legacy_range_context(user: User, range_source: RangeSource) -> RangeContext | None:
+    """Project the current incumbent human-owned range after its workspace decision."""
+    from shared.enums import ResourceStatus
+    from shared.schemas import InstanceContext, RangeContext
 
     if user is None:
         logger.error("get_active_range called with None user")
@@ -335,116 +496,3 @@ def get_active_range(user: User, range_source: RangeSource | None = None) -> Ran
             user.id,
         )
         return None
-
-
-def has_ready_active_range(user: User, range_source: RangeSource | None = None) -> bool:
-    """Return whether the user's latest active range for a source is READY, cheaply.
-
-    Mirrors :func:`get_active_range`'s ownership filter and ``has_active_range``
-    semantics (the most recently created non-DESTROYING range is READY) but reads
-    only the ``status`` column — no FK joins, runtime-IP overlay, scenario lookup,
-    or instance-context projection. Used by the ``nav`` context tier so the shared
-    sidebar's ``has_active_range`` indicator does not pay terminal-page cost on
-    every authenticated render (#898).
-
-    Args:
-        user: User whose active-range readiness to check.
-        range_source: Provenance filter. Defaults to MISSION_CONTROL so the
-            MC sidebar indicator reflects only Mission Control ranges.
-
-    Returns:
-        True if the user's most recent non-DESTROYING range for the source is READY.
-
-    Raises:
-        TypeError: If user is None or an invalid type.
-        ValueError: If user is unsaved (id is None).
-    """
-    from shared.enums import RangeSource as _RangeSource
-    from shared.enums import ResourceStatus
-
-    if range_source is None:
-        range_source = _RangeSource.MISSION_CONTROL
-
-    _validate_caller_user(user, "has_ready_active_range")
-
-    status = (
-        RangeInstance.objects.filter(user_id=user.id, range_source=range_source.value)
-        .filter(workspace_id__in=authorized_range_workspace_ids(user, WorkspaceOperation.READ_RANGE))
-        .exclude(status=ResourceStatus.DESTROYING.value)
-        .order_by("-created_at")
-        .values_list("status", flat=True)
-        .first()
-    )
-    return status == ResourceStatus.READY.value
-
-
-def get_range_by_request_id(user: User, request_id: str, *, include_terminal: bool = False) -> RangeContext:
-    """Get range by request_id (UUID string).
-
-    Used by WebSocket consumers and views to look up range by request_id.
-
-    Args:
-        user: User requesting the range (ownership check)
-        request_id: UUID string of the request
-        include_terminal: When True, read through ``all_objects`` so a soft-deleted
-            terminal (DESTROYED/FAILED) range the caller still owns is authorized
-            and projected instead of 404'd. The retry-safe replay and cleanup-
-            outcome surfaces need this to report on terminal operations
-            (#2086, ADR-063-R4); the default preserves the active-only behavior.
-
-    Returns:
-        RangeContext: Template-safe projection of the range
-
-    Raises:
-        TypeError: If user is None or invalid type
-        CMSError: If range not found or not owned by user
-    """
-    from shared.enums import ResourceStatus
-    from shared.schemas import InstanceContext, RangeContext
-
-    _validate_caller_user(user, "get_range_by_request_id")
-    if not request_id:
-        logger.error("get_range_by_request_id called with empty request_id")
-        raise CMSError("request_id is required")
-
-    logger.debug(
-        "get_range_by_request_id called: user_id=%s request_id=%s",
-        user.id,
-        safe_log_value(request_id),
-    )
-
-    manager = RangeInstance.all_objects if include_terminal else RangeInstance.objects
-    instance = manager.filter(
-        request__request_id=request_id,
-        user_id=user.id,
-        workspace_id__in=authorized_range_workspace_ids(user, WorkspaceOperation.READ_RANGE),
-    ).first()
-
-    if not instance:
-        logger.warning(
-            "get_range_by_request_id: not found or not owned: request_id=%s user_id=%s",
-            safe_log_value(request_id),
-            user.id,
-        )
-        raise CMSError("Range not found")
-
-    if instance.request is None:
-        raise CMSError("Range has no associated request")
-
-    ip_by_uuid = _resolve_runtime_ips(instance.range_id)
-    instance_contexts = _instance_contexts_from_range_spec(instance.range_spec, InstanceContext, ip_by_uuid)
-
-    agent_name = instance.agent.name if instance.agent else None
-
-    supported = _resolve_pause_resume_supported(instance.range_id)
-    return RangeContext(
-        request_id=instance.request.request_id,
-        range_id=instance.range_id,
-        scenario_id=instance.scenario_id,
-        user_id=instance.user_id,
-        status=ResourceStatus(instance.status),
-        instances=instance_contexts,
-        agent_name=agent_name,
-        pause_supported=supported,
-        resume_supported=supported,
-    )

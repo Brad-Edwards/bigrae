@@ -192,7 +192,7 @@ function RangeAccessPanel({
         <div className="flex flex-wrap items-center gap-2">
           {vpnProfileAvailable ? (
             <Button variant="secondary" onClick={() => download.mutate()} disabled={download.isPending}>
-              {download.isPending ? "Downloading…" : "Download VPN profile"}
+              {download.isPending ? "Preparing VPN profile…" : "Download VPN profile"}
             </Button>
           ) : null}
           {lifecycle?.can_extend ? (

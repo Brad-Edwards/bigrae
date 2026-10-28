@@ -9,8 +9,8 @@ records the selected LiteLLM OSS replacement with deployment-owned rotation;
 it does not enable these controls.
 
 A model source connects an approved model to an account that pays for its use.
-It is independent of where the range or Shifter runs. A Vertex source may use
-Shifter's own GCP project, another GCP project, or a model account elsewhere.
+It is independent of where the range or BigRAE runs. A Vertex source may use
+BigRAE's own GCP project, another GCP project, or a model account elsewhere.
 The broker handles provider authentication; participants receive only scoped,
 revocable access for their range.
 

@@ -57,11 +57,9 @@ def _authenticate(operation_id: UUID, token: str) -> PreparationAttempt:
     return attempt
 
 
-def _current_attempt(attempt: PreparationAttempt) -> None:
-    """Cancellation, revocation and generation changes revoke ordinary work."""
+def _verify_recorded_attempt(attempt: PreparationAttempt) -> None:
+    """Prove the immutable role/input even when new effects are revoked."""
     operation = attempt.operation
-    if operation.current_attempt_id != attempt.id:
-        raise ValidationError(_DENIED)
     inherited = {
         key: value
         for key, value in attempt.input.items()
@@ -77,18 +75,43 @@ def _current_attempt(attempt: PreparationAttempt) -> None:
     )
     if any(invalid):
         raise ValidationError(_DENIED)
+    if operation.authority_kind:
+        from ._preparation_authority import verify_preparation_authority_binding
+        from ._preparation_workload import verify_preparation_workload
+
+        verify_preparation_authority_binding(operation)
+        try:
+            verify_preparation_workload(attempt)
+        except ValueError:
+            raise ValidationError(_DENIED) from None
+
+
+def _current_attempt(attempt: PreparationAttempt, *, authorize: bool = True) -> None:
+    """Cancellation, revocation and generation changes revoke ordinary work."""
+    _verify_recorded_attempt(attempt)
+    operation = attempt.operation
+    if operation.current_attempt_id != attempt.id:
+        raise ValidationError(_DENIED)
     if attempt.phase == "cleanup":
         if not operation.cleanup_pending:
             raise ValidationError(_DENIED)
     else:
-        _validate_active_authority(operation)
+        _validate_active_authority(operation, authorize=authorize)
 
 
-def _validate_active_authority(operation: PreparationOperation) -> None:
+def _validate_active_authority(operation: PreparationOperation, *, authorize: bool = True) -> None:
     """Handle validate active authority."""
     if operation.state in {"cancelled", "failed", "available"} or not operation.adapter.grant.active:
         raise ValidationError(_DENIED)
-    require_preparation_permission(operation.requested_by, "prepare_artifacts")
+    if operation.authority_kind:
+        from ._preparation_authority import reauthorize_preparation_initiator
+
+        if authorize:
+            reauthorize_preparation_initiator(operation)
+    else:
+        if operation.requested_by is None:
+            raise ValidationError(_DENIED)
+        require_preparation_permission(operation.requested_by, "prepare_artifacts")
     adapter = operation.adapter
     manifest = validate_pinned_adapter(adapter)
     configuration = _validate_grant(adapter.grant, manifest)
@@ -130,11 +153,11 @@ def record_preparation_worker_result(operation_id: UUID, token: str, payload: ob
             if attempt.result_digest != digest:
                 raise ValidationError("The preparation worker result conflicts with its recorded receipt")
             return "received"
-        _current_attempt(attempt)
+        _verify_recorded_attempt(attempt)
         if attempt.expires_at <= timezone.now():
             raise ValidationError(_DENIED)
         attempt.result = normalized
         attempt.result_digest = digest
-        attempt.disposition = "received"
+        attempt.disposition = "received" if attempt.operation.current_attempt_id == attempt.id else "received-stale"
         attempt.save(update_fields=["result", "result_digest", "disposition"])
         return "received"

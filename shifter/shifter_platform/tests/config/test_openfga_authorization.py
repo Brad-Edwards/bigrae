@@ -108,6 +108,43 @@ class FakeClient:
         return SimpleNamespace(changes=[SimpleNamespace()], continuation_token="next-page")
 
 
+def test_range_requires_its_exact_sql_parent_and_rejects_another_event_in_the_same_account():
+    expected_event, other_event, range_uuid = uuid4(), uuid4(), uuid4()
+    edges = {
+        (f"account:{ACCOUNT_ID}", "installation"): ("installation:root",),
+        (f"range:{range_uuid}", "event"): (f"event:{other_event}",),
+        (f"event:{other_event}", "account"): (f"account:{ACCOUNT_ID}",),
+        (f"event:{expected_event}", "account"): (f"account:{ACCOUNT_ID}",),
+    }
+
+    class RangeClient(FakeClient):
+        def read(self, body, options):
+            return SimpleNamespace(
+                tuples=[
+                    SimpleNamespace(key=SimpleNamespace(user=parent))
+                    for parent in edges.get((body.object, body.relation), ())
+                ],
+                continuation_token="",
+            )
+
+    client = RangeClient()
+    provider = OpenFgaAuthorizationProvider(_settings(), client=client)
+    request = AuthorizationRequest(
+        PrincipalRef(PRINCIPAL_ID, "service"),
+        "range.read",
+        TargetRef("range", range_uuid),
+        ResourceScope("account", ACCOUNT_ID),
+        CredentialCeiling(frozenset({"range.read"})),
+        parent=TargetRef("event", expected_event),
+    )
+    assert not provider.check(request).allowed
+    assert client.check_call is None
+    edges[(f"range:{range_uuid}", "event")] = (f"event:{expected_event}",)
+    assert provider.check(request).allowed
+    edges[(f"range:{range_uuid}", "account")] = (f"account:{ACCOUNT_ID}",)
+    assert not provider.check(request).allowed
+
+
 def test_runtime_settings_require_private_tls_auth_and_pins() -> None:
     with pytest.raises(ValueError, match="https"):
         _settings(api_url="http://openfga.internal")
@@ -179,7 +216,7 @@ def test_check_uses_pinned_model_primary_consistency_and_concrete_object() -> No
 
 @pytest.mark.parametrize(
     ("direct_parent", "event_parent", "allowed"),
-    [(False, "valid", True), (True, "valid", True), (True, "wrong", False), (False, "missing", False)],
+    [(False, "valid", True), (True, "valid", False), (True, "wrong", False), (False, "missing", False)],
 )
 def test_range_accepts_event_ancestry_but_rejects_conflicting_or_missing_parents(
     direct_parent, event_parent, allowed
@@ -211,6 +248,7 @@ def test_range_accepts_event_ancestry_but_rejects_conflicting_or_missing_parents
         TargetRef("range", range_uuid),
         ResourceScope("account", ACCOUNT_ID, organization, workspace),
         CredentialCeiling(frozenset({"range.read"})),
+        parent=TargetRef("event", event),
     )
     assert provider.check(request).allowed is allowed
 
@@ -283,6 +321,7 @@ def test_account_event_range_inherits_only_its_exact_event_parent() -> None:
         TargetRef("range", range_uuid),
         ResourceScope("account", ACCOUNT_ID),
         CredentialCeiling(frozenset({"range.read"})),
+        parent=TargetRef("event", event),
     )
 
     assert provider.check(request).allowed

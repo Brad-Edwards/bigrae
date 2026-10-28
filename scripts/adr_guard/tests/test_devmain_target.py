@@ -4,14 +4,19 @@ Two artifacts have to agree for a promotion to work: the root Makefile's
 ``devmain`` target, which opens the PR, and ``pr-title-lint.yml``, whose
 ``Lint PR title`` context is a required status check on ``main``.
 
-``devmain`` pins ``--repo``. This checkout is a fork
-(``Brad-Edwards/shifter`` of ``PaloAltoNetworks/shifter``) and carries a second
-``panw`` remote, so ``gh pr create`` resolves its base repository to the fork
-parent by default; an unpinned invocation would open the promotion PR against
-the upstream OSS repository. ``.gc/plan-rules.md`` makes
-``Brad-Edwards/shifter`` canonical regardless of remote configuration, so the
-pin is the load-bearing property of the recipe rather than a stylistic
-preference.
+``devmain`` passes an explicit ``--repo``. A clone can carry an upstream
+remote. Then ``gh pr create`` resolves its base repository to the fork parent,
+and an unpinned invocation opens the promotion PR against the upstream project.
+ADR-069 rule 4 makes the clone's ``gh`` default repository
+(``gh repo set-default --view``) the target. The recipe passes that value as
+``--repo`` and never relies on the implicit base of ``gh``. When no default is
+set, make stops before any command runs. The explicit pin is the load-bearing
+property of the recipe rather than a stylistic preference.
+
+The suite puts a fake ``gh`` first on ``PATH``. It answers only
+``repo set-default --view``, with a synthetic repository, and fails on any other
+call. The checks therefore do not depend on the configuration of the local
+clone, and the recipe holds no repository literal.
 
 The title lint has to trigger on ``main``. #1776 narrowed the workflow to PRs
 targeting ``dev`` while ``Lint PR title`` stayed a required context on ``main``,
@@ -24,16 +29,18 @@ The recipe is read through ``make --dry-run`` so the assertions run against
 make's own expansion (variables included) rather than against Makefile text,
 and ``shlex`` turns the expansion into argv so the checks are on parsed flags
 rather than substrings. A recipe rewritten to reach the same argv a different
-way still passes; one that drops ``--repo`` fails. Nothing here contacts
-GitHub or creates a pull request.
+way still passes; one that drops ``--repo`` or pins a literal fails. Nothing
+here contacts GitHub or creates a pull request.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import os
 import shlex
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -46,7 +53,26 @@ SPEC.loader.exec_module(ADR_GUARD)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAKEFILE = REPO_ROOT / "Makefile"
 
-CANONICAL_REPO = "Brad-Edwards/shifter"
+# Synthetic gh default repositories (ADR-069: tests use synthetic identities).
+# Two values show that --repo follows the gh default rather than a literal.
+SYNTHETIC_REPOS = ("example-org/example-repo", "example-org/other-repo")
+OVERRIDE_REPO = "example-org/override-repo"
+
+# Answers only `gh repo set-default --view`. An unset default mirrors real gh:
+# nothing on stdout, a message on stderr, exit 0.
+FAKE_GH = """#!/bin/sh
+if [ "$#" -eq 3 ] && [ "$1" = repo ] && [ "$2" = set-default ] && [ "$3" = --view ]; then
+  if [ -n "$FAKE_GH_DEFAULT" ]; then
+    printf '%s\\n' "$FAKE_GH_DEFAULT"
+  else
+    echo "no default repository has been set" >&2
+  fi
+  exit 0
+fi
+echo "fake gh: unexpected call: $*" >&2
+exit 97
+"""
+
 PROMOTION_TITLE = "chore(main): promote dev"
 # release-please's PR title shape (docs/DEVELOPMENT_WORKFLOW.md), which linting
 # `main` newly brings into scope.
@@ -61,31 +87,51 @@ TITLE_LINT_BRANCHES = ("dev", "main")
 VERIFICATION_TARGETS = ("test", "policy")
 
 
-def _make(*args: str) -> str:
-    """Run make in the repo root and return stdout.
+def _run_make(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Run make in the repo root and return the completed process.
 
     ``--no-print-directory`` because this suite itself runs from a ``make``
     lane: a sub-make would otherwise interleave its own ``Entering directory``
     bookkeeping with the recipe under inspection.
     """
-    result = subprocess.run(  # noqa: S603
-        ["make", "--no-print-directory", *args],  # noqa: S607
+    return subprocess.run(
+        ["make", "--no-print-directory", *args],
         cwd=REPO_ROOT,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
+
+
+def _make(*args: str, env: dict[str, str] | None = None) -> str:
+    """Run make in the repo root, require success, and return stdout."""
+    result = _run_make(*args, env=env)
+    if result.returncode != 0:
+        raise AssertionError(f"make {' '.join(args)} failed: {result.stderr}")
     return result.stdout
 
 
-def _dry_run_argv(target: str) -> list[str]:
+def _fake_gh_env(bin_dir: str, default_repo: str) -> dict[str, str]:
+    """Environment with the fake gh first on PATH and a given gh default.
+
+    DEVMAIN_REPO and MAKEFLAGS are removed so an override in the caller's
+    environment or parent make cannot reach the recipe under test.
+    """
+    env = {key: value for key, value in os.environ.items() if key not in ("DEVMAIN_REPO", "MAKEFLAGS")}
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    env["FAKE_GH_DEFAULT"] = default_repo
+    return env
+
+
+def _dry_run_argv(target: str, env: dict[str, str] | None = None, *overrides: str) -> list[str]:
     """Parsed argv of the commands ``make <target>`` would run.
 
     Shell line continuations are folded the way a shell folds them before
     tokenizing, so a recipe wrapped across lines parses identically to a
     single-line one.
     """
-    expanded = _make("--dry-run", target).replace("\\\n", " ")
+    expanded = _make("--dry-run", target, *overrides, env=env).replace("\\\n", " ")
     return shlex.split(expanded)
 
 
@@ -122,14 +168,47 @@ class DevmainTargetTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.argv = _dry_run_argv("devmain")
+        cls.bin_dir = tempfile.TemporaryDirectory()
+        fake_gh = Path(cls.bin_dir.name) / "gh"
+        fake_gh.write_text(FAKE_GH, encoding="utf-8")
+        fake_gh.chmod(0o755)
+        cls.env = _fake_gh_env(cls.bin_dir.name, SYNTHETIC_REPOS[0])
+        cls.recipe = _make("--dry-run", "devmain", env=cls.env)
+        cls.argv = _dry_run_argv("devmain", cls.env)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.bin_dir.cleanup()
 
     def test_invokes_gh_pr_create(self) -> None:
         self.assertEqual(self.argv[:3], ["gh", "pr", "create"])
 
-    def test_pins_the_canonical_repository(self) -> None:
-        """Without --repo, gh targets the fork parent (PaloAltoNetworks/shifter)."""
-        self.assertEqual(_flag(self.argv, "--repo"), CANONICAL_REPO)
+    def test_passes_the_gh_default_repository(self) -> None:
+        """Without --repo, gh targets the fork parent of the clone.
+
+        --repo follows each synthetic gh default, so no repository literal
+        decides the target.
+        """
+        for repo in SYNTHETIC_REPOS:
+            with self.subTest(repo=repo):
+                argv = _dry_run_argv("devmain", _fake_gh_env(self.bin_dir.name, repo))
+                self.assertEqual(_flag(argv, "--repo"), repo)
+
+    def test_explicit_override_replaces_the_gh_default(self) -> None:
+        argv = _dry_run_argv("devmain", self.env, f"DEVMAIN_REPO={OVERRIDE_REPO}")
+        self.assertEqual(_flag(argv, "--repo"), OVERRIDE_REPO)
+
+    def test_stops_without_a_target_repository(self) -> None:
+        """An unset gh default stops make before gh pr create can run."""
+        for env, overrides in (
+            (_fake_gh_env(self.bin_dir.name, ""), ()),
+            (self.env, ("DEVMAIN_REPO=",)),
+        ):
+            with self.subTest(overrides=overrides):
+                result = _run_make("--dry-run", "devmain", *overrides, env=env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("gh repo set-default <owner>/<repo>", result.stderr)
+                self.assertNotIn("gh pr create", result.stdout)
 
     def test_promotes_dev_into_main(self) -> None:
         self.assertEqual(_flag(self.argv, "--base"), "main")
@@ -161,9 +240,8 @@ class DevmainTargetTests(unittest.TestCase):
 
     def test_failure_is_not_swallowed(self) -> None:
         """gh's nonzero exit and its stderr must reach the operator."""
-        recipe = _make("--dry-run", "devmain")
-        self.assertNotIn("|| true", recipe)
-        self.assertNotIn("2>/dev/null", recipe)
+        self.assertNotIn("|| true", self.recipe)
+        self.assertNotIn("2>/dev/null", self.recipe)
 
     def test_is_phony(self) -> None:
         self.assertIn("devmain", _phony_targets())

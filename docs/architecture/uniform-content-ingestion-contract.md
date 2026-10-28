@@ -12,6 +12,9 @@ Amended 2026-07-27 to replace the pull-or-bake dichotomy with RAES artifact
 requirement satisfaction semantics and to correct the claim that every
 published image is a rebuildable cache.
 
+Amended 2026-10-15 to define tenant pack removal and historical retention
+(ADR-034-R13, #2520).
+
 ## Context
 
 An operator running a packaged Shifter tenant must be able to add new images to
@@ -101,6 +104,41 @@ ADR-053.
   exact-required artifacts can be rebuilt from source. Public and private
   acquisition origins differ in acquisition policy; trust and provenance remain
   orthogonal.
+
+## Source layout and shipped bootstrap references (#2550)
+
+A shared source collection does not select shipped or default-registered packs.
+The existing in-box manifest selects the bootstrap seed, and explicit image copy
+rules supply its referenced bytes. Source-checkout paths and persisted runtime
+references are distinct: relocating source can preserve runtime destinations and
+canonical digests without revising CMS registrations. If runtime references do
+change, use the existing fenced registration update and trusted conformance
+process, accounting for old pods and rollback images before removing paths.
+
+See the [environment-pack consolidation preflight](environment-pack-consolidation-preflight-2550.md)
+for the source/runtime boundary, validation layers and routing constraints.
+
+## Tenant pack removal (ADR-034-R13, #2520)
+
+Tenant administrators can remove only packs that their organization owns.
+Organization-less packs stay operator-managed.
+
+- Removal is refused while a non-terminal range, a non-terminal event, a pending
+  or running range spin-up task, or an active operator warm-pool bucket uses the
+  pack. CTF reports its references through the `shared.pack_references` port.
+- Every writer of a pack reference takes the CMS admission fence in the same
+  transaction. Removal locks the pack row without waiting.
+- Removal hard-deletes the catalog row, its overlays and the current adapter
+  assignment. Event and range history, audit records and runtime plugin pins stay.
+- A pack-owned inventory records every uploaded archive. The removal captures
+  the exact keys and the strict audit before it deletes objects. A reconciler
+  retries failed cleanup. The bucket lifecycle rule expires noncurrent
+  generations.
+- Acquired feature artifacts and adapter installations are shared resources.
+  Removal does not delete them.
+
+See the [tenant pack removal preflight](tenant-pack-removal-preflight-2520.md)
+for the decisions, reference rules and concurrency constraints.
 
 ## Consequences
 

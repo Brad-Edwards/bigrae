@@ -498,3 +498,41 @@ def test_ec2_allowlist_denied_before_reservation_or_dispatch(user, monkeypatch, 
         create_raes_native_range(user, "raes-launch")
     assert not RangeInstance.objects.filter(user_id=user.id).exists()
     dispatch.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("change", ["removed", "revised"])
+def test_reservation_fences_the_pack_admitted_by_the_launch(user, monkeypatch, change):
+    """A pack removed or revised after the launch read it is refused at reservation."""
+    from cms.models import TenantPackRemoval
+    from cms.services import _raes_range_create
+
+    _make_source(user)
+    load = _raes_range_create._load_raes_source_or_raise
+
+    def stale_snapshot(scenario):
+        source = load(scenario)
+        if change == "removed":
+            RaesPackageSource.objects.filter(pk=source.pk).delete()
+            TenantPackRemoval.objects.create(
+                organization_uuid=source.pk,
+                scenario_id=scenario,
+                package_name=scenario,
+                package_version="1.0.0",
+                package_digest=source.package_digest,
+                requested_by=user,
+                next_attempt_at=source.created_at,
+            )
+        else:
+            RaesPackageSource.objects.filter(pk=source.pk).update(package_digest="sha256:" + "b" * 64)
+        return source
+
+    dispatched = []
+    monkeypatch.setattr(_raes_range_create, "_load_raes_source_or_raise", stale_snapshot)
+    monkeypatch.setattr(_DISPATCH, lambda *args, **kwargs: dispatched.append(args))
+
+    with pytest.raises(CMSError):
+        create_raes_native_range(user, "raes-launch")
+
+    assert not dispatched
+    assert not RangeInstance.all_objects.exists()

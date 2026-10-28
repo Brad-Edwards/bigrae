@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Shifter Helm values",
+  "title": "BigRAE Helm values",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -494,7 +494,8 @@
         "outboxDrainer",
         "provisionerLauncher",
         "reconciler",
-        "warmPoolReconciler"
+        "warmPoolReconciler",
+        "packRemovalReconciler"
       ],
       "properties": {
         "cms": { "$ref": "#/$defs/scaledWorkload" },
@@ -508,7 +509,8 @@
         "outboxDrainer": { "$ref": "#/$defs/scaledWorkload" },
         "provisionerLauncher": { "$ref": "#/$defs/scaledWorkload" },
         "reconciler": { "$ref": "#/$defs/scaledWorkload" },
-        "warmPoolReconciler": { "$ref": "#/$defs/scaledWorkload" }
+        "warmPoolReconciler": { "$ref": "#/$defs/scaledWorkload" },
+        "packRemovalReconciler": { "$ref": "#/$defs/scaledWorkload" }
       }
     },
     "guacd": {

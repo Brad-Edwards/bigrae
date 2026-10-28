@@ -12,6 +12,19 @@ resource "google_storage_bucket" "packages" {
     enabled = true
   }
 
+  # Tenant pack removal deletes live archive objects (ADR-034-R13). Versioning
+  # keeps a noncurrent generation as accidental-delete protection; expire it so
+  # removed pack bytes do not stay in the bucket indefinitely.
+  lifecycle_rule {
+    action {
+      type = "Delete"
+    }
+    condition {
+      days_since_noncurrent_time = var.noncurrent_version_retention_days
+      with_state                 = "ARCHIVED"
+    }
+  }
+
   logging {
     log_bucket        = var.access_log_bucket_name
     log_object_prefix = "raes-packages-access/"

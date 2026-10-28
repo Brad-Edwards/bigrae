@@ -51,7 +51,7 @@ class TestValidateCommand:
     def test_default_path_missing_exits_nonzero(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
         assert main(["validate"]) == 1
-        assert "shifter.yaml" in capsys.readouterr().err
+        assert "bigrae.yaml" in capsys.readouterr().err
 
 
 class TestRenderMissionControlLeaseEnvCommand:

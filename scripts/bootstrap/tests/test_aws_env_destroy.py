@@ -157,7 +157,7 @@ class FakeAws:
 
     def _bucket_tagging(self, bucket: str) -> SimpleNamespace:
         if self.bucket_tags is None:
-            tags = {"Project": "shifter", "Environment": "proof"}
+            tags = {"Project": "shifter", "Environment": "dev"}
         else:
             tags = self.bucket_tags.get(bucket)
             if tags is None:
@@ -172,7 +172,7 @@ class FakeAws:
             return _ns(0, f"arn:aws:ecr:us-east-2:111122223333:repository/{repo}\n")
         if "list-tags-for-resource" in cmd:
             repo = _flag_value(cmd, "--resource-arn").split("/")[-1]
-            tags = {"Project": "other"} if repo in self.ecr_unowned else {"Project": "shifter", "Environment": "proof"}
+            tags = {"Project": "other"} if repo in self.ecr_unowned else {"Project": "shifter", "Environment": "dev"}
             return _ns(0, json.dumps({"tags": [{"Key": k, "Value": v} for k, v in tags.items()]}))
         if "list-images" in cmd:
             return _ns(0, json.dumps(self.ecr_images.get(_flag_value(cmd, "--repository-name"), [])))
@@ -194,11 +194,11 @@ def cmd_has(cmd: list[str], needles: tuple[str, ...]) -> bool:
 
 def _ctx(tmp_path: Path, **overrides) -> aed.TeardownContext:
     defaults = {
-        "env": "proof",
+        "env": "dev",
         "region": "us-east-2",
         "repo_root": tmp_path / "repo",
         "backend_dir": tmp_path / "backend",
-        "state_bucket": "shifter-proof-infra-uuid",
+        "state_bucket": "shifter-dev-infra-uuid",
         "profile": "",
         "dry_run": False,
     }
@@ -207,19 +207,19 @@ def _ctx(tmp_path: Path, **overrides) -> aed.TeardownContext:
 
 
 _RDS_ADDR = "module.rds.aws_db_instance.portal"
-_RDS_ARN = "arn:aws:rds:us-east-2:111122223333:db:proof-portal"
+_RDS_ARN = "arn:aws:rds:us-east-2:111122223333:db:dev-portal"
 
 
 def _full_state() -> dict[str, list[str]]:
     return {
-        "environments/proof/eks": [],  # parked -> empty -> skipped
-        "environments/proof/portal": [
+        "environments/dev/eks": [],  # parked -> empty -> skipped
+        "environments/dev/portal": [
             _RDS_ADDR,
             "module.vpc.aws_vpc.this",
             "module.log_aggregation.aws_s3_bucket.logs",
         ],
-        "environments/proof/range": ["module.range.aws_vpc.range"],
-        "environments/proof": [
+        "environments/dev/range": ["module.range.aws_vpc.range"],
+        "environments/dev": [
             "module.ecr.aws_ecr_repository.portal",
             "module.engine_state.aws_s3_bucket.engine_state",
         ],
@@ -229,10 +229,10 @@ def _full_state() -> dict[str, list[str]]:
 
 
 _STATE_BUCKETS = {
-    "module.log_aggregation.aws_s3_bucket.logs": "proof-portal-logs",
-    "module.engine_state.aws_s3_bucket.engine_state": "proof-engine-state",
+    "module.log_aggregation.aws_s3_bucket.logs": "dev-portal-logs",
+    "module.engine_state.aws_s3_bucket.engine_state": "dev-engine-state",
 }
-_ECR_REPOS = {"module.ecr.aws_ecr_repository.portal": "shifter-proof-portal"}
+_ECR_REPOS = {"module.ecr.aws_ecr_repository.portal": "shifter-dev-portal"}
 _STATE_ARNS = {_RDS_ADDR: _RDS_ARN}
 
 
@@ -262,8 +262,8 @@ def _wire(monkeypatch, fake):
 
 def test_happy_path_orders_layers_and_runs_pre_destroy_handling(tmp_path, monkeypatch, sweep_ok):
     fake = _fake(
-        versions={"proof-portal-logs": {"Versions": [{"Key": "a", "VersionId": "v1"}]}},
-        ecr_images={"shifter-proof-portal": [{"imageDigest": "sha256:x"}]},
+        versions={"dev-portal-logs": {"Versions": [{"Key": "a", "VersionId": "v1"}]}},
+        ecr_images={"shifter-dev-portal": [{"imageDigest": "sha256:x"}]},
     )
     _wire(monkeypatch, fake)
 
@@ -271,16 +271,16 @@ def test_happy_path_orders_layers_and_runs_pre_destroy_handling(tmp_path, monkey
 
     # EKS empty -> skipped; the rest destroy Portal -> Range -> Core -> runner -> iam.
     assert fake.destroys() == [
-        "environments/proof/portal",
-        "environments/proof/range",
-        "environments/proof",
+        "environments/dev/portal",
+        "environments/dev/range",
+        "environments/dev",
         "global/github-runner",
         "global/iam",
     ]
     portal = fake.find(
-        lambda c: c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "environments/proof/portal"
+        lambda c: c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "environments/dev/portal"
     )[0]
-    assert "-var=terraform_state_bucket=shifter-proof-infra-uuid" in portal
+    assert "-var=terraform_state_bucket=shifter-dev-infra-uuid" in portal
     assert "-lock-timeout=5m" in portal
     # data.aws_subnets.default in state -> the default-VPC opt-in was applied.
     runner = fake.find(lambda c: c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "global/github-runner")[
@@ -288,7 +288,7 @@ def test_happy_path_orders_layers_and_runs_pre_destroy_handling(tmp_path, monkey
     ]
     assert "-var=allow_default_vpc=true" in runner
     iam = fake.find(lambda c: c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "global/iam")[0]
-    assert "-var=environment=proof" in iam
+    assert "-var=environment=dev" in iam
 
 
 def test_runner_uses_managed_vpc_var_when_network_module_in_state(tmp_path, monkeypatch, sweep_ok):
@@ -439,7 +439,7 @@ def test_protection_lift_targets_only_ownership_verified_rds(tmp_path, monkeypat
     ctx = _ctx(tmp_path)
     aed.teardown(ctx)
 
-    override = ctx.repo_root / "platform/terraform/environments/proof/portal" / aed._PROTECTION_OVERRIDE_FILE
+    override = ctx.repo_root / "platform/terraform/environments/dev/portal" / aed._PROTECTION_OVERRIDE_FILE
     assert override.exists()
     assert "db_deletion_protection            = false" in override.read_text()
 
@@ -447,7 +447,7 @@ def test_protection_lift_targets_only_ownership_verified_rds(tmp_path, monkeypat
     assert len(applies) == 1
     assert f"-target={_RDS_ADDR}" in applies[0]
     assert not any(a.startswith("-target=module.vpc") for a in applies[0])
-    assert "-var=terraform_state_bucket=shifter-proof-infra-uuid" in applies[0]
+    assert "-var=terraform_state_bucket=shifter-dev-infra-uuid" in applies[0]
     assert "-input=false" in applies[0]
 
 
@@ -464,18 +464,18 @@ def test_protection_lift_skips_unowned_target(tmp_path, monkeypatch, sweep_ok):
 def test_s3_empty_deletes_versions_and_markers_and_aborts_multipart(tmp_path, monkeypatch, sweep_ok):
     fake = _fake(
         versions={
-            "proof-portal-logs": {
+            "dev-portal-logs": {
                 "Versions": [{"Key": "k", "VersionId": "v1"}],
                 "DeleteMarkers": [{"Key": "k", "VersionId": "v2"}],
             }
         },
-        uploads={"proof-portal-logs": {"Uploads": [{"Key": "big", "UploadId": "u1"}]}},
+        uploads={"dev-portal-logs": {"Uploads": [{"Key": "big", "UploadId": "u1"}]}},
     )
     _wire(monkeypatch, fake)
 
     aed.teardown(_ctx(tmp_path))
 
-    deletes = fake.find(lambda c: "delete-objects" in c and _flag_value(c, "--bucket") == "proof-portal-logs")
+    deletes = fake.find(lambda c: "delete-objects" in c and _flag_value(c, "--bucket") == "dev-portal-logs")
     assert deletes
     keys = {(o["Key"], o["VersionId"]) for c in deletes for o in json.loads(_flag_value(c, "--delete"))["Objects"]}
     assert ("k", "v1") in keys
@@ -485,24 +485,24 @@ def test_s3_empty_deletes_versions_and_markers_and_aborts_multipart(tmp_path, mo
 
 def test_s3_empty_skips_unowned_and_state_bucket(tmp_path, monkeypatch, sweep_ok):
     state = _full_state()
-    state["environments/proof/portal"].append("module.x.aws_s3_bucket.state")
+    state["environments/dev/portal"].append("module.x.aws_s3_bucket.state")
     fake = _fake(
         state=state,
-        s3_state_buckets={**_STATE_BUCKETS, "module.x.aws_s3_bucket.state": "shifter-proof-infra-uuid"},
-        bucket_tags={"proof-portal-logs": {"Project": "shifter", "Environment": "proof"}},  # engine-state not owned
-        versions={"proof-portal-logs": {"Versions": [{"Key": "k", "VersionId": "v1"}]}},
+        s3_state_buckets={**_STATE_BUCKETS, "module.x.aws_s3_bucket.state": "shifter-dev-infra-uuid"},
+        bucket_tags={"dev-portal-logs": {"Project": "shifter", "Environment": "dev"}},  # engine-state not owned
+        versions={"dev-portal-logs": {"Versions": [{"Key": "k", "VersionId": "v1"}]}},
     )
     _wire(monkeypatch, fake)
 
     aed.teardown(_ctx(tmp_path))
 
     emptied = {_flag_value(c, "--bucket") for c in fake.find(lambda c: "list-object-versions" in c)}
-    assert emptied == {"proof-portal-logs"}
+    assert emptied == {"dev-portal-logs"}
 
 
 def test_ecr_from_state_batches_at_100_and_runs_before_core_destroy(tmp_path, monkeypatch, sweep_ok):
     images = [{"imageDigest": f"sha256:{i}"} for i in range(150)]
-    fake = _fake(ecr_images={"shifter-proof-portal": images})
+    fake = _fake(ecr_images={"shifter-dev-portal": images})
     _wire(monkeypatch, fake)
 
     aed.teardown(_ctx(tmp_path))
@@ -514,7 +514,7 @@ def test_ecr_from_state_batches_at_100_and_runs_before_core_destroy(tmp_path, mo
         ("ecr" if "batch-delete-image" in c else "core-destroy")
         for c in fake.calls
         if "batch-delete-image" in c
-        or (c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "environments/proof")
+        or (c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "environments/dev")
     ]
     assert order
     assert order.index("ecr") < order.index("core-destroy")
@@ -522,7 +522,7 @@ def test_ecr_from_state_batches_at_100_and_runs_before_core_destroy(tmp_path, mo
 
 def test_ecr_delete_failure_fails_closed(tmp_path, monkeypatch, sweep_ok):
     fake = _fake(
-        ecr_images={"shifter-proof-portal": [{"imageDigest": "sha256:x"}]}, ecr_delete_fail=("shifter-proof-portal",)
+        ecr_images={"shifter-dev-portal": [{"imageDigest": "sha256:x"}]}, ecr_delete_fail=("shifter-dev-portal",)
     )
     _wire(monkeypatch, fake)
 
@@ -532,9 +532,7 @@ def test_ecr_delete_failure_fails_closed(tmp_path, monkeypatch, sweep_ok):
 
 
 def test_ecr_unowned_repo_is_skipped(tmp_path, monkeypatch, sweep_ok):
-    fake = _fake(
-        ecr_images={"shifter-proof-portal": [{"imageDigest": "sha256:x"}]}, ecr_unowned=("shifter-proof-portal",)
-    )
+    fake = _fake(ecr_images={"shifter-dev-portal": [{"imageDigest": "sha256:x"}]}, ecr_unowned=("shifter-dev-portal",))
     _wire(monkeypatch, fake)
 
     aed.teardown(_ctx(tmp_path))
@@ -542,7 +540,7 @@ def test_ecr_unowned_repo_is_skipped(tmp_path, monkeypatch, sweep_ok):
 
 
 def test_ecr_absent_repo_is_skipped(tmp_path, monkeypatch, sweep_ok):
-    fake = _fake(ecr_missing=("shifter-proof-portal",))
+    fake = _fake(ecr_missing=("shifter-dev-portal",))
     _wire(monkeypatch, fake)
 
     aed.teardown(_ctx(tmp_path))
@@ -555,7 +553,7 @@ def test_empty_state_layers_are_skipped(tmp_path, monkeypatch, sweep_ok):
     _wire(monkeypatch, fake)
 
     aed.teardown(_ctx(tmp_path))
-    assert "environments/proof/eks" not in fake.destroys()
+    assert "environments/dev/eks" not in fake.destroys()
 
 
 def test_rerun_after_stacks_phase_is_idempotent(tmp_path, monkeypatch):
@@ -567,12 +565,12 @@ def test_rerun_after_stacks_phase_is_idempotent(tmp_path, monkeypatch):
     fake.calls.clear()
     aed.teardown(_ctx(tmp_path), phase="stacks")  # rerun: everything already destroyed
 
-    assert first == ["environments/proof/portal", "environments/proof/range", "environments/proof"]
+    assert first == ["environments/dev/portal", "environments/dev/range", "environments/dev"]
     assert fake.destroys() == []  # nothing re-entered on the retry
 
 
 def test_postcondition_fails_closed_when_state_remains(tmp_path, monkeypatch, sweep_ok):
-    fake = _fake(keep_state=("environments/proof/range",))
+    fake = _fake(keep_state=("environments/dev/range",))
     _wire(monkeypatch, fake)
 
     ctx = _ctx(tmp_path)
@@ -581,7 +579,7 @@ def test_postcondition_fails_closed_when_state_remains(tmp_path, monkeypatch, sw
 
 
 def test_state_list_failure_fails_closed(tmp_path, monkeypatch, sweep_ok):
-    fake = _fake(state_list_fail=("environments/proof/eks",))
+    fake = _fake(state_list_fail=("environments/dev/eks",))
     _wire(monkeypatch, fake)
 
     ctx = _ctx(tmp_path)
@@ -590,7 +588,7 @@ def test_state_list_failure_fails_closed(tmp_path, monkeypatch, sweep_ok):
 
 
 def test_transient_destroy_failure_recovers_on_retry_without_state_rm(tmp_path, monkeypatch, sweep_ok):
-    fake = _fake(destroy_failures={"environments/proof": 1})  # first core destroy fails, retry succeeds
+    fake = _fake(destroy_failures={"environments/dev": 1})  # first core destroy fails, retry succeeds
     _wire(monkeypatch, fake)
 
     aed.teardown(_ctx(tmp_path))  # must not raise
@@ -598,7 +596,7 @@ def test_transient_destroy_failure_recovers_on_retry_without_state_rm(tmp_path, 
 
 
 def test_persistent_destroy_failure_fails_closed(tmp_path, monkeypatch, sweep_ok):
-    fake = _fake(destroy_failures={"environments/proof/range": 2})  # initial + retry both fail
+    fake = _fake(destroy_failures={"environments/dev/range": 2})  # initial + retry both fail
     _wire(monkeypatch, fake)
 
     ctx = _ctx(tmp_path)
@@ -636,7 +634,7 @@ def test_verify_fails_closed_on_residual_resource(tmp_path, monkeypatch, sweep_o
 
 
 def test_verify_excludes_preserved_state_bucket(tmp_path, monkeypatch, sweep_ok):
-    fake = _fake(verify_arns=("arn:aws:s3:::shifter-proof-infra-uuid",))
+    fake = _fake(verify_arns=("arn:aws:s3:::shifter-dev-infra-uuid",))
     _wire(monkeypatch, fake)
 
     aed.teardown(_ctx(tmp_path))  # must not raise
@@ -679,7 +677,7 @@ def test_phase_stacks_runs_only_env_stacks_and_no_sweep_or_verify(tmp_path, monk
 
     aed.teardown(_ctx(tmp_path), phase="stacks")
 
-    assert fake.destroys() == ["environments/proof/portal", "environments/proof/range", "environments/proof"]
+    assert fake.destroys() == ["environments/dev/portal", "environments/dev/range", "environments/dev"]
     assert not fake.find(lambda c: "resourcegroupstaggingapi" in c and set(aed._VERIFY_RESOURCE_TYPES).issubset(set(c)))
 
 
@@ -709,7 +707,7 @@ def test_main_rejects_prod():
 
 def test_main_requires_state_bucket():
     with pytest.raises(SystemExit):
-        aed.main(["--env", "proof", "--state-bucket", "  "])
+        aed.main(["--env", "dev", "--state-bucket", "  "])
 
 
 def test_dry_run_makes_no_mutations(tmp_path, monkeypatch, sweep_ok):

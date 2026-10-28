@@ -1,33 +1,23 @@
-"""Real deployment adapters bind the control process to the configured catalog."""
+"""The GCP deploy command binds the control process to the configured catalog."""
 
+import base64
 import json
 import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
+from shared.model_access import seal_catalog
+from shared.model_access.runtime import load_mounted_catalog
 
-import deploy
-import gcp_control_plane
+from gcp_helm import chart_path, profile_values_path, write_values
+from gcp_inputs import load_deployment_inputs
+from tests.gcp_test_support import FakeRunner, generated_helm_values, root_config, sample_gcp_outputs, write_bundle
 
-from .test_gcp_control_plane import PINNED_IMAGE_TAG, _sample_gcp_control_plane_outputs
+_PROJECT = "platform-example"
 
 
-@pytest.mark.parametrize("adapter", ["bootstrap", "actions"])
-@pytest.mark.parametrize("enabled", [True, False])
-@pytest.mark.integration
-def test_control_binds_root_catalog_through_both_deployment_adapters(tmp_path, adapter, enabled):
-    """The mounted catalog overrides inherited disabled defaults only for control."""
-    import importlib.util
-
-    import yaml
-    from shared.model_access import seal_catalog
-    from shared.model_access.runtime import load_mounted_catalog
-
-    root = Path(__file__).resolve().parents[3]
-    catalog = json.loads((root / "docs/architecture/model-access/example-policy.v3.json").read_text())
-    catalog.pop("digest")
-    catalog["enabled"] = True
-    catalog = seal_catalog(catalog).model_dump(mode="json")
+def _broker_settings(tmp_path: Path) -> tuple[dict[str, object], dict[str, object]]:
     broker = {
         "enabled": True,
         "hostname": "models.example.test",
@@ -81,145 +71,63 @@ def test_control_binds_root_catalog_through_both_deployment_adapters(tmp_path, a
         "guest_trust_ca_pem": ca_path.read_text(),
         "fingerprint_previous_secret_name": "broker-fingerprint-retained",
     }
-    root_path = tmp_path / "shifter.yaml"
-    root_path.write_text(
-        yaml.safe_dump(
-            {
-                "backend": "gcp",
-                "deployment": {"name": "shifter", "domain": "shifter.example.test"},
-                "secrets": {"django_secret_key": "prompt"},
-                "settings": {
-                    "project_id": "platform-example",
-                    "dynamic_secret_project_id": "secrets-example",
-                    "region": "us-central1",
-                    "model_broker": broker,
-                    "model_broker_runtime": runtime,
-                    "model_access": {"enabled": enabled, "catalog": catalog},
-                },
-            }
-        )
+    return broker, runtime
+
+
+def _render(tmp_path: Path, config: dict[str, object], outputs: dict[str, dict[str, object]]) -> list[dict]:
+    inputs = load_deployment_inputs(
+        str(write_bundle(tmp_path / "bundle", config=config)), tmp_path / "work", FakeRunner(), {}
     )
-    config = deploy.GDCBootstrapConfig(project_id="platform-example", shifter_config_path=str(root_path))
-    outputs = _sample_gcp_control_plane_outputs(config.project_id)
+    values_path = write_values(tmp_path, generated_helm_values(inputs, outputs))
+    rendered = subprocess.run(
+        [
+            "helm",
+            "template",
+            "shifter",
+            str(chart_path()),
+            "-f",
+            str(profile_values_path(inputs.profile)),
+            "-f",
+            str(values_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return [doc for doc in yaml.safe_load_all(rendered) if doc]
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.integration
+def test_control_binds_root_catalog_through_the_deploy_values(tmp_path, enabled):
+    """The mounted catalog overrides inherited disabled defaults only for control."""
+    root = Path(__file__).resolve().parents[3]
+    catalog = json.loads((root / "docs/architecture/model-access/example-policy.v3.json").read_text())
+    catalog.pop("digest")
+    catalog["enabled"] = True
+    catalog = seal_catalog(catalog).model_dump(mode="json")
+    broker, runtime = _broker_settings(tmp_path)
+    config = root_config(
+        project_id=_PROJECT,
+        dynamic_secret_project_id="secrets-example",
+        model_broker=broker,
+        model_broker_runtime=runtime,
+        model_access={"enabled": enabled, "catalog": catalog},
+    )
+    outputs = sample_gcp_outputs(_PROJECT)
     outputs["model_broker"] = {
         "value": {
             **broker,
             "global_access": False,
             "region": "us-central1",
-            "gsa": "model-broker@platform-example.iam.gserviceaccount.com",
-            "provisioner_subject": "provisioner@platform-example.iam.gserviceaccount.com",
+            "gsa": f"model-broker@{_PROJECT}.iam.gserviceaccount.com",
+            "provisioner_subject": f"provisioner@{_PROJECT}.iam.gserviceaccount.com",
             "broker_subject_id": "123456789012345678901",
             "provisioner_subject_id": "123456789012345678902",
             "model_identities": {"models-example": "model-invoke@models-example.iam.gserviceaccount.com"},
         }
     }
-    chart = root / "platform/charts/shifter"
-    if adapter == "bootstrap":
-        values_path = gcp_control_plane.stage_gcp_control_plane_values(
-            config,
-            outputs,
-            tmp_path,
-            image_tag=PINNED_IMAGE_TAG,
-            image_identities=outputs["attested_image_identities"]["value"],
-        )
-        rendered = subprocess.run(
-            [
-                "helm",
-                "template",
-                "shifter",
-                str(chart),
-                "-f",
-                str(chart / "values-gcp-dev.yaml"),
-                "-f",
-                str(values_path),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-    else:
-        spec = importlib.util.spec_from_file_location(
-            "broker_catalog_regression", root / "scripts/gcp/render_model_broker.py"
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        outputs_path = tmp_path / "outputs.json"
-        outputs_path.write_text(json.dumps(outputs))
-        # Actions inherits these defaults, but only control mounts a catalog.
-        base_path = tmp_path / "base.yaml"
-        capacity_workloads = [
-            {
-                "apiVersion": "apps/v1",
-                "kind": "Deployment",
-                "metadata": {"name": name, "namespace": "shifter-platform"},
-                "spec": {
-                    "replicas": 1,
-                    "template": {
-                        "metadata": {},
-                        "spec": {"containers": [{"name": container, "resources": {}}]},
-                    },
-                },
-            }
-            for name, container in (
-                ("portal-web", "portal"),
-                ("guacd", "guacd"),
-                ("guacamole-client", "guacamole-client"),
-            )
-        ]
-        base_path.write_text(
-            yaml.safe_dump_all(
-                [
-                    {
-                        "apiVersion": "v1",
-                        "kind": "ConfigMap",
-                        "metadata": {"name": "platform-runtime", "namespace": "shifter-platform"},
-                        "data": {
-                            "MODEL_ACCESS_ENABLED": "false",
-                            "MODEL_ACCESS_CATALOG_PATH": "",
-                            "MODEL_ACCESS_CATALOG_DIGEST": "",
-                        },
-                    },
-                    {
-                        "apiVersion": "apps/v1",
-                        "kind": "Deployment",
-                        "metadata": {"name": "worker-engine", "namespace": "shifter-platform"},
-                        "spec": {
-                            "template": {
-                                "spec": {
-                                    "containers": [
-                                        {
-                                            "name": "worker-engine",
-                                            "envFrom": [{"configMapRef": {"name": "platform-runtime"}}],
-                                        }
-                                    ]
-                                }
-                            }
-                        },
-                    },
-                    *capacity_workloads,
-                ]
-            )
-        )
-        output_path = tmp_path / "broker.yaml"
-        assert (
-            module.main(
-                [
-                    "--config",
-                    str(root_path),
-                    "--terraform-output",
-                    str(outputs_path),
-                    "--platform-image",
-                    outputs["attested_image_identities"]["value"]["platform"],
-                    "--base-manifests",
-                    str(base_path),
-                    "--output",
-                    str(output_path),
-                ]
-            )
-            == 0
-        )
-        rendered = output_path.read_text()
-    docs = [doc for doc in yaml.safe_load_all(rendered) if doc]
+    docs = _render(tmp_path, config, outputs)
     control = next(
         doc for doc in docs if doc["kind"] == "Deployment" and doc["metadata"]["name"] == "model-access-control"
     )
@@ -229,13 +137,14 @@ def test_control_binds_root_catalog_through_both_deployment_adapters(tmp_path, a
     )
     assert broker_deployment["spec"]["replicas"] == (2 if enabled else 0)
     if enabled:
-        import base64
-
         runtime_config = next(
             doc for doc in docs if doc["kind"] == "ConfigMap" and doc["metadata"]["name"] == "platform-runtime"
         )
         assert runtime_config["data"]["MODEL_BROKER_GUEST_URL"] == "https://models.example.test"
-        assert base64.b64decode(runtime_config["data"]["MODEL_ENROLLMENT_CA_PEM_B64"]).decode() == ca_path.read_text()
+        assert (
+            base64.b64decode(runtime_config["data"]["MODEL_ENROLLMENT_CA_PEM_B64"]).decode()
+            == runtime["guest_trust_ca_pem"]
+        )
         assert (
             runtime_config["data"]["MODEL_ENROLLMENT_CONTROL_URL"]
             == "https://model-access-control.shifter-platform.svc:8444"

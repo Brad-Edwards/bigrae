@@ -1,5 +1,8 @@
 # ACES Participant Runtime History And Evidence Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1289, "20 - ACES migration: capture participant runtime history
 and evidence."
 

@@ -1,5 +1,8 @@
 # GCP Cloud SQL Deletion Protection Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #960, "[HIGH] Cloud SQL deletion protection disabled".
 
 This note records the architecture boundary for closing the Cloud SQL

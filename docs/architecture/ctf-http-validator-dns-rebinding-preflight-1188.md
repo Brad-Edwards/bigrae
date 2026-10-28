@@ -1,5 +1,8 @@
 # CTF HTTP Validator DNS Rebinding Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue #1188 closes a DNS rebinding / resolution TOCTOU gap in CTF HTTP flag
 validators. This is an outbound validation security fix, not a new flag type,
 workflow, proxy abstraction, or challenge schema.

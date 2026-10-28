@@ -7,10 +7,8 @@ Participant range status/access plus the organizer range operations
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
-from django.http import HttpResponse
-from django.utils.cache import patch_vary_headers
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.request import Request
@@ -50,13 +48,12 @@ from ctf.api.serializers import (
     SpareProvisionResultSerializer,
 )
 from ctf.enums import EventCapability
-from shared.api.schema import ApiErrorSerializer
 from shared.api_tokens import scopes
-from shared.remote_access import OPENVPN_PROFILE_MEDIA_TYPE
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from uuid import UUID
+
 
 _VPN_PROFILE_READ = (scopes.CTF_VPN_PROFILE_READ,)
 _VPN_PROFILE_FILENAME = "shifter-ctf-range.ovpn"
@@ -186,88 +183,6 @@ class ParticipantRangeAccessView(APIView):
                 ),
             }
         )
-
-
-class ParticipantVpnProfileView(APIView):
-    """Deliver the current participant's generation-bound OpenVPN profile."""
-
-    permission_classes = CTF_PARTICIPANT_PERMISSIONS
-    required_write_scopes = _VPN_PROFILE_READ
-
-    @extend_schema(
-        request=None,
-        responses={
-            (200, OPENVPN_PROFILE_MEDIA_TYPE): OpenApiTypes.BINARY,
-            400: ApiErrorSerializer,
-            404: ApiErrorSerializer,
-            409: ApiErrorSerializer,
-            429: ApiErrorSerializer,
-            503: ApiErrorSerializer,
-        },
-    )
-    def post(self, request: Request) -> HttpResponse | Response:
-        """Return a no-store credential after role, ownership, state and rate gates."""
-        from ctf.exceptions import CTFNotFoundError, CTFRangeError, CTFStateError
-        from ctf.services import range as range_service
-        from ctf.services.audit import audit_vpn_profile_download
-        from ctf.views._access import _check_credential_delivery_rate_limit
-
-        try:
-            if request.body or request.query_params:
-                raise _CtfApiError(
-                    code="invalid",
-                    message="VPN profile requests must not include a body or query parameters.",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
-            participant = _resolve_active_participant(request)
-            if participant is None or participant.range_instance_id is None:
-                _raise_not_found(_VPN_PROFILE_NOT_FOUND)
-            try:
-                allowed = _check_credential_delivery_rate_limit(_actor(request).pk)
-            except Exception as exc:
-                raise _CtfApiError(
-                    code="vpn_profile_unavailable",
-                    message=_VPN_PROFILE_UNAVAILABLE,
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ) from exc
-            if not allowed:
-                raise _CtfApiError(
-                    code="throttled",
-                    message="Too many VPN profile requests. Try again later.",
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    headers={"Retry-After": "3600"},
-                )
-            try:
-                profile = range_service.get_vpn_profile(participant.pk)
-            except CTFNotFoundError:
-                _raise_not_found(_VPN_PROFILE_NOT_FOUND)
-            except CTFStateError as exc:
-                raise _CtfApiError(
-                    code="vpn_not_ready",
-                    message=_VPN_PROFILE_NOT_READY,
-                    status_code=status.HTTP_409_CONFLICT,
-                ) from exc
-            except CTFRangeError as exc:
-                raise _CtfApiError(
-                    code="vpn_profile_unavailable",
-                    message=_VPN_PROFILE_UNAVAILABLE,
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ) from exc
-            audit_vpn_profile_download(
-                actor_id=_actor(request).pk,
-                participant_id=participant.pk,
-                range_instance_id=participant.range_instance_id,
-                generation=profile.generation,
-                profile_version=profile.profile_version,
-            )
-            response = HttpResponse(profile.content, content_type=OPENVPN_PROFILE_MEDIA_TYPE)
-            response["Content-Disposition"] = f'attachment; filename="{_VPN_PROFILE_FILENAME}"'
-            response["Cache-Control"] = "private, no-store"
-            response["Content-Length"] = str(len(profile.content))
-            patch_vary_headers(response, ("Cookie", "Authorization"))
-            return response
-        except _CtfApiError as exc:
-            return exc.to_response(request)
 
 
 class EventRangeListView(APIView):

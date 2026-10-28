@@ -123,12 +123,11 @@ def _aws_generated_outputs() -> tuple[GeneratedOutput, ...]:
 
 # Canonical pre-mutation validation front doors for the AWS bundle. Each is a pure,
 # repository-relative argv array whose executable is a declared required tool — the fast,
-# credential-free checks a setup/doctor flow runs before touching infrastructure. AWS has no
-# ``platform/k8s/aws`` overlay; its Kubernetes surface is the shared chart, so helm-template
-# (rendered with the AWS profile values) is the k8s front door rather than a kustomize
-# overlay render or a raw-manifest kube-linter pass. The fuller pre-mutation suite (tflint
-# with init, checkov, kube-linter/kubeconform on the rendered chart, and effective-values
-# schema validation) stays CI-enforced and in the deploy lifecycle.
+# credential-free checks a setup/doctor flow runs before touching infrastructure. The AWS
+# Kubernetes surface is the shared chart, so helm-template (rendered with the AWS profile
+# values) is the k8s front door. The fuller pre-mutation suite (tflint with init, checkov,
+# kube-linter/kubeconform on the rendered chart, and effective-values schema validation)
+# stays CI-enforced and in the deploy lifecycle.
 _AWS_VALIDATION_CHECKS: tuple[ValidationCheck, ...] = (
     ROOT_CONFIG_CHECK,
     ValidationCheck(
@@ -187,11 +186,7 @@ AWS_BUNDLE = BackendBundle(
         "Shifter on AWS: platform workloads run on EKS through the shared Helm chart, while ECS remains "
         "the private range task transport alongside RDS, SQS, S3, Secrets Manager, and Cognito/OIDC."
     ),
-    # prod / dev are the OSS profiles; proof is the internal new-tenant readiness tier that
-    # has its own Terraform root (platform/terraform/environments/proof) and aws-proof
-    # deploy path (.github/workflows/deploy.yml, _core.yml, _range.yml). Admit it explicitly
-    # rather than strand a real environment the deploy paths already target (preflight #728).
-    supported_profiles=frozenset({"prod", "dev", "proof"}),
+    supported_profiles=frozenset({"prod", "dev"}),
     # Migrated by #1116 / GH #728: the closed operator-intent schema, no longer None.
     settings_model=AwsSettings,
     deploy=CommandSpec(
@@ -230,7 +225,7 @@ AWS_BUNDLE = BackendBundle(
     health_checks=(PORTAL_HEALTH_CHECK,),
     capabilities=AWS_AND_GCP_CAPABILITIES,
     owned_files=OwnedFiles(
-        infrastructure=("platform/terraform/modules", "platform/terraform/environments", "platform/cloudformation"),
+        infrastructure=("platform/terraform/modules", "platform/terraform/environments"),
         kubernetes=(SHIFTER_CHART_PATH,),
         scripts=("scripts/bootstrap",),
         workflows=(".github/workflows/deploy.yml",),

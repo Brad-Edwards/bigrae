@@ -15,13 +15,19 @@ from django.db import transaction
 from shared.schemas.persistence import wrap_persisted_spec
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
     from engine.models import App, Instance, Request, Subnet
+    from shared.identity_scope import PrincipalRef, ResourceScope
     from shared.schemas import InstanceSpec, NGFWAppSpec, RangeSpec, RequestSpec, SubnetSpec
+
 
 logger = logging.getLogger(__name__)
 
 
-def interpret(request_spec: RequestSpec) -> Request:
+def interpret(
+    request_spec: RequestSpec, *, principal: PrincipalRef | None = None, resource_scope: ResourceScope | None = None
+) -> Request:
     """Interpret a RequestSpec into Engine models.
 
     Creates Request, Instance, and App records by walking the spec tree.
@@ -38,13 +44,10 @@ def interpret(request_spec: RequestSpec) -> Request:
         ValueError: If request_spec fails validation.
         User.DoesNotExist: If user_id doesn't map to a Django user.
     """
-    from django.contrib.auth import get_user_model
 
     from engine.models import Request
     from shared.schemas import InstanceSpec, RangeSpec
     from shared.schemas import RequestSpec as RequestSpecClass
-
-    user_model = get_user_model()
 
     if not isinstance(request_spec, RequestSpecClass):
         raise TypeError(f"Expected RequestSpec, got {type(request_spec).__name__}")
@@ -52,7 +55,7 @@ def interpret(request_spec: RequestSpec) -> Request:
     if not request_spec.items:
         raise ValueError("RequestSpec must have at least one item")
 
-    user = user_model.objects.get(id=request_spec.user_id)
+    user, fields = _request_custody(request_spec, principal, resource_scope)
 
     # Determine request type from items
     request_type = _infer_request_type(request_spec)
@@ -63,6 +66,7 @@ def interpret(request_spec: RequestSpec) -> Request:
             request_id=request_spec.request_id,
             request_type=request_type,
             user=user,
+            **fields,
         )
 
         logger.info(
@@ -204,3 +208,38 @@ def _interpret_subnet(subnet_spec: SubnetSpec, request: Request) -> Subnet:
         _interpret_instance(instance_spec, request, subnet=subnet)
 
     return subnet
+
+
+def _request_custody(
+    request_spec: RequestSpec, principal: PrincipalRef | None, resource_scope: ResourceScope | None
+) -> tuple[User | None, dict[str, object]]:
+    """Resolve a real request owner and customer ancestry before opening SQL locks."""
+    from django.contrib.auth import get_user_model
+
+    user_model = get_user_model()
+    fields = {}
+    if principal is not None:
+        from management.services import human_principal_user_id, resolve_principal
+        from workspaces.services import resolve_range_scope_binding
+
+        if resource_scope is None:
+            raise ValueError("Request scope unavailable")
+        owner = resolve_principal(principal)
+        expected = human_principal_user_id(owner) if owner.kind == "human" else None
+        if request_spec.owner_principal_uuid != owner.uuid or request_spec.user_id != expected:
+            raise ValueError("Request ownership conflicts")
+        resolved = resolve_range_scope_binding(resource_scope, member=owner)
+        fields = {
+            "owner_principal_uuid": owner.uuid,
+            "scope_kind": resolved.kind,
+            "account_id": resolved.account_id,
+            "organization_id": resolved.organization_id,
+            "workspace_id": resolved.workspace_id,
+        }
+        user = user_model.objects.get(id=expected) if expected is not None else None
+    else:
+        if request_spec.owner_principal_uuid is not None or request_spec.user_id is None:
+            raise ValueError("Request authority unavailable")
+        user = user_model.objects.get(id=request_spec.user_id)
+
+    return user, fields

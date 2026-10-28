@@ -4,12 +4,14 @@
 //
 // User-controlled values land as literal argv elements via
 // buildGhWorkflowRunArgs; no shell interpolation (ADR-010). The GitHub
-// token stays child-environment-only (resolved inside ghExec).
+// token stays child-environment-only (resolved inside ghExec). The target
+// repository comes from GH_REPO or the clone's gh default repository
+// (resolveGithubRepo, ADR-069); a dispatch without one fails closed.
 
 import {
-  DEFAULT_GITHUB_REPO,
   buildGhWorkflowRunArgs,
   ghExec,
+  resolveGithubRepo,
   resolveProtectedAmiRef,
 } from "./lib.js";
 
@@ -21,10 +23,11 @@ export function triggerAmiWorkflow(
   // (dev|main); reject a working-tree feature branch rather than dispatch a
   // workflow copy that could weaken its own inline protected-ref gate (#1656).
   const branch = resolveProtectedAmiRef(ref);
+  const repo = resolveGithubRepo(ghOptions);
   ghExec(
     buildGhWorkflowRunArgs({
       workflow,
-      repo: DEFAULT_GITHUB_REPO,
+      repo,
       ref: branch,
       inputs: { ami_type },
     }),
@@ -32,7 +35,7 @@ export function triggerAmiWorkflow(
   );
   return (
     `Triggered ${workflow} for ${ami_type} on ref ${branch}. ` +
-    `View at: https://github.com/${DEFAULT_GITHUB_REPO}/actions/workflows/${actionsPath}`
+    `View at: https://github.com/${repo}/actions/workflows/${actionsPath}`
   );
 }
 
@@ -50,10 +53,11 @@ export function triggerGceImageWorkflow({
   actionsPath,
 }, ghOptions = {}) {
   const branch = resolveProtectedAmiRef(ref);
+  const repo = resolveGithubRepo(ghOptions);
   ghExec(
     buildGhWorkflowRunArgs({
       workflow,
-      repo: DEFAULT_GITHUB_REPO,
+      repo,
       ref: branch,
       inputs,
     }),
@@ -62,6 +66,6 @@ export function triggerGceImageWorkflow({
   const releaseIdentity = inputs.image_type ?? inputs.source_image;
   return (
     `Triggered ${workflow} for ${releaseIdentity} on ref ${branch}. ` +
-    `View at: https://github.com/${DEFAULT_GITHUB_REPO}/actions/workflows/${actionsPath}`
+    `View at: https://github.com/${repo}/actions/workflows/${actionsPath}`
   );
 }

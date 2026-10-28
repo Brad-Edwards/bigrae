@@ -2,6 +2,24 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
+    "reason": "CKV_K8S_35 (prefer secret files over environment variables): the guacamole-client Deployment reads the guacamole-runtime Secret through envFrom. The pinned Guacamole 1.6.0 image has a confirmed file-secret regression (GUACAMOLE-2119): its entrypoint has no _FILE variable support, and it links the PostgreSQL authentication extension through an environment-variable-driven feature framework. A correct file-delivery fix must fork the custom image entrypoint to build guacamole.properties from a mounted file and link the extension without the environment path, which is a higher-risk change to participant remote access. The image fork is tracked in #2565. The `checkov.io/skip1: CKV_K8S_35` annotation on the chart's guacamole-client Deployment points back to this entry. The chart is the only renderer since ADR-070, so the same acceptance now covers every rendered profile.",
+    "expires_on": "2027-04-28",
+    "paths": [
+      "platform/charts/shifter/templates/guacamole-client-deployment.yaml"
+    ]
+  },
+  {
+    "rule_id": "ADR-004-R11",
+    "owner": "@Brad-Edwards",
+    "reason": "CKV_K8S_38 (service account token only mounted where necessary): verified false positive for the worker-provisioner-launcher Deployment. This dedicated launcher requires Kubernetes API access to create and manage provisioner Jobs under ADR-006-R4, so automountServiceAccountToken is necessary for this controller. Ordinary workers and provisioner execution Jobs keep automount disabled. The `checkov.io/skip1: CKV_K8S_38` annotation on the chart's worker-provisioner-launcher Deployment points back to this entry.",
+    "expires_on": "2027-10-28",
+    "paths": [
+      "platform/charts/shifter/templates/worker-provisioner-launcher-deployment.yaml"
+    ]
+  },
+  {
+    "rule_id": "ADR-004-R11",
+    "owner": "@Brad-Edwards",
     "reason": "CKV_GCP_38 (boot disk CSEK): the GCP-native dev-tenant runner (#1546) boot disk relies on Google-managed at-rest encryption (AES-256) rather than a customer-supplied/managed key. CSEK/CMEK would require provisioning and managing a KMS key + IAM in the dedicated runner root for marginal defense-in-depth over Google's default encryption, on a private, re-creatable dev-tenant runner. Inline `# checkov:skip=CKV_GCP_38` on google_compute_instance.runner points back to this entry; a CMEK upgrade is tracked with the runner hardening follow-up (#1613 area).",
     "expires_on": "2027-07-13",
     "paths": [
@@ -23,7 +41,6 @@
     "reason": "CKV_AWS_46 (hard-coded EC2 user_data secret): false positive on Terraform templatefile interpolation. The relevant lines read SECRET_KEY=$${secret_key} where secret_key is generated at instance boot via openssl rand -hex 32. No hardcoded secret exists at the source level.",
     "expires_on": "2027-05-26",
     "paths": [
-      "platform/terraform/global/ctfd-workshop/",
       "platform/terraform/modules/portal/ctfd/"
     ]
   },
@@ -54,10 +71,9 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
-    "reason": "CKV_AWS_88 / CKV_AWS_130 (EC2 / subnet public IP) and CKV_AWS_25 / CKV_AWS_260 / CKV_AWS_24 (open RDP/HTTP/SSH ingress): these fire on workshop demo ranges (ctfd-workshop, dev-box) and on the CTFd-platform module that backs customer CTF events. Demo participants need direct console access to those instances (public IP + RDP/SSH/HTTP from controlled CIDRs) or the workshop scenario does not run. The ingress rules are scoped to specific source CIDRs where possible; '0.0.0.0/0' appears only on the public CTFd web port where the platform is by design publicly reachable.",
+    "reason": "CKV_AWS_88 / CKV_AWS_130 (EC2 / subnet public IP) and CKV_AWS_25 / CKV_AWS_260 / CKV_AWS_24 (open RDP/HTTP/SSH ingress): these fire on demo workstations (dev-box) and on the CTFd-platform module that backs customer CTF events. Demo participants need direct console access to those instances (public IP + RDP/SSH/HTTP from controlled CIDRs) or the workshop scenario does not run. The ingress rules are scoped to specific source CIDRs where possible; '0.0.0.0/0' appears only on the public CTFd web port where the platform is by design publicly reachable.",
     "expires_on": "2026-11-26",
     "paths": [
-      "platform/terraform/global/ctfd-workshop/",
       "platform/terraform/global/dev-box/",
       "platform/terraform/modules/portal/ctfd/"
     ]
@@ -312,15 +328,6 @@
   {
     "rule_id": "ADR-004-R14",
     "owner": "@Brad-Edwards",
-    "reason": "Vendor (Prisma Cloud) AWS connector CloudFormation templates. The 12-digit account IDs in these downloaded templates are Palo Alto Networks' own published service account IDs (gcp_saas_role, dspm_scanner, etc.) and MUST stay exact for the cross-account connector roles to function. They are not Shifter infrastructure and carry no reconnaissance value about this deployment.",
-    "expires_on": "2027-06-20",
-    "paths": [
-      "platform/cloudformation/*"
-    ]
-  },
-  {
-    "rule_id": "ADR-004-R14",
-    "owner": "@Brad-Edwards",
     "reason": "Operational state-bucket map in the mcp/ops server, which reads live Terraform state from these UUID-suffixed infra/state buckets at runtime. The bucket names do not embed the AWS account ID. Relocated from index.js to the terraform_state tool module during the #690 modularization (still composed via registerAllOpsTools). Moving them to runtime config is a separate change to the agent's working-day surface and out of scope for the identifier-strip; retained explicitly here.",
     "expires_on": "2027-06-20",
     "paths": [
@@ -355,15 +362,6 @@
     ]
   },
   {
-    "rule_id": "ADR-019-R1",
-    "owner": "@Brad-Edwards",
-    "reason": "Temporary baseline convergence for bootstrap tests already merged to dev by #1713, #1716, #1718, #1738, #1742, and #1745. Their independently reviewed branches introduced aggregate CLI/GDC orchestration patch counts that were not reflected in the shared ratchet after merge, making the CI-only full-repository guard fail for every subsequent PR that touches a guardrail path (surfaced again while merging dev into #994). This exception records the exact current counts without exempting any future growth; the bootstrap tests must be converted to process/cloud-boundary or observable-behavior tests before expiry.",
-    "expires_on": "2026-10-18",
-    "paths": [
-      "scripts/adr_guard/boundary_mock_baseline.json"
-    ]
-  },
-  {
     "rule_id": "ADR-039-R10",
     "owner": "@Brad-Edwards",
     "reason": "The per-range OpenVPN network edge must accept authorized user clients whose public source addresses are not known at range provision or profile download time. The audited var.vpn_public_client_cidr exception is confined by the CIDR checker to shifter/engine/provisioner/terraform/modules/range/vpn.tf, aws_security_group.vpn_nlb, mutual-TLS UDP, and from/to port 1194. The gateway readiness responder remains private to the portal VPC, the target has no public address, and server forwarding remains limited to the authoritative target /32.",
@@ -371,64 +369,6 @@
     "paths": [
       "scripts/check_tf_sg_cidrs/check_tf_sg_cidrs.py",
       "shifter/engine/provisioner/terraform/modules/range/vpn.tf"
-    ]
-  },
-  {
-    "rule_id": "ADR-004-R24",
-    "owner": "@Brad-Edwards",
-    "reason": "Production-path quality-ownership SECURITY gaps (#1530). These quality units have lint and/or test coverage but no category-specific BLOCKING security (SAST) job: the script categories (assert_portal_inspection, check_rds_pending_modifications, handle_sd_replacement, cyberscript, stack_smoke) and the adr_guard/quality_ownership guard tooling have no dedicated blocking SAST lane; the MCP packages (mcp_ngfw, mcp_ops, mcp_planner, mcp_shared) have no JavaScript SAST lane; k8s security is provided only by the advisory continue-on-error Checkov job. Recorded as visible, dated gaps rather than mislabelling an advisory/absent job as a blocking owner (the #1530 preflight forbids not_applicable/advisory dispositions). Gap-closure tracked by #1698.",
-    "expires_on": "2026-10-17",
-    "paths": [
-      ".github/quality-path-filters.yaml#assert_portal_inspection:security",
-      ".github/quality-path-filters.yaml#check_rds_pending_modifications:security",
-      ".github/quality-path-filters.yaml#handle_sd_replacement:security",
-      ".github/quality-path-filters.yaml#cyberscript:security",
-      ".github/quality-path-filters.yaml#k8s:security",
-      ".github/quality-path-filters.yaml#mcp_ngfw:security",
-      ".github/quality-path-filters.yaml#mcp_ops:security",
-      ".github/quality-path-filters.yaml#mcp_planner:security",
-      ".github/quality-path-filters.yaml#mcp_shared:security",
-      ".github/quality-path-filters.yaml#stack_smoke:security",
-      ".github/quality-path-filters.yaml#adr_guard:security"
-    ]
-  },
-  {
-    "rule_id": "ADR-004-R24",
-    "owner": "@Brad-Edwards",
-    "reason": "Production-path quality-ownership LINT gaps (#1530). These quality units have test coverage but no category-specific BLOCKING lint job: cyberscript has no dedicated linter; stack_smoke are shell/smoke script categories with no lint lane; the adr_guard/quality_ownership guard tooling is ruff-linted only via pre-commit, with no blocking CI lint job. Recorded as visible, dated gaps per the #1530 preflight (no not_applicable disposition). Gap-closure tracked by #1698.",
-    "expires_on": "2026-10-17",
-    "paths": [
-      ".github/quality-path-filters.yaml#cyberscript:lint",
-      ".github/quality-path-filters.yaml#stack_smoke:lint",
-      ".github/quality-path-filters.yaml#adr_guard:lint"
-    ]
-  },
-  {
-    "rule_id": "ADR-004-R24",
-    "owner": "@Brad-Edwards",
-    "reason": "Production-path quality-ownership TEST gap (#1530). mcp_shared is intentionally absent from the MCP test matrix: a change to mcp/shared/** fans lint out to every MCP package (fanout_all_on_change) but shared itself has no own test job. Recorded as a visible, dated gap; whether shared gains its own tests or stays deliberately exercised via the dependent packages is decided in #1698.",
-    "expires_on": "2026-10-17",
-    "paths": [
-      ".github/quality-path-filters.yaml#mcp_shared:test"
-    ]
-  },
-  {
-    "rule_id": "ADR-004-R24",
-    "owner": "@Brad-Edwards",
-    "reason": "Production build / deployment / runtime image owners with no dedicated blocking quality job yet (#1530). These are tracked build/runtime inputs, so ADR-004-R24 requires them to be quality units (not exclusions): container_images (GDC VM images, Guacamole/guacd runtime image inputs, Docker build config), charts (Helm charts), cloudformation (CloudFormation templates), and branding_assets (deploy-consumed logos/wordmarks/login stylesheet). charts now has a blocking TEST lane (chart-tests: the Helm chart contract suite, #1823) so charts:test is no longer a gap; its lint/security lanes and the other units' lanes remain gaps. Recorded as visible, dated gaps rather than hidden config exclusions. Gap-closure (helm lint, cfn-lint, image build/scan, asset checks) tracked by #1698.",
-    "expires_on": "2026-10-17",
-    "paths": [
-      ".github/quality-path-filters.yaml#container_images:lint",
-      ".github/quality-path-filters.yaml#container_images:security",
-      ".github/quality-path-filters.yaml#container_images:test",
-      ".github/quality-path-filters.yaml#charts:lint",
-      ".github/quality-path-filters.yaml#charts:security",
-      ".github/quality-path-filters.yaml#cloudformation:lint",
-      ".github/quality-path-filters.yaml#cloudformation:security",
-      ".github/quality-path-filters.yaml#cloudformation:test",
-      ".github/quality-path-filters.yaml#branding_assets:lint",
-      ".github/quality-path-filters.yaml#branding_assets:security",
-      ".github/quality-path-filters.yaml#branding_assets:test"
     ]
   },
   {

@@ -93,6 +93,16 @@ class TestSSHConsumerConnectGuards:
 
         consumer.close.assert_awaited_once_with(code=WebSocketCloseCode.INVALID_REQUEST)
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("error", [ValueError, ConnectionError])
+    async def test_upstream_failures_never_log_credential_material(self, consumer, monkeypatch, caplog, error):
+        def unavailable(*args, **kwargs):
+            raise error("SECRET_PROVIDER_MARKER")
+
+        monkeypatch.setattr("cms.services.connect_range_terminal", unavailable)
+        assert not await consumer._open_ssh(MagicMock(), "synthetic-instance", None)
+        assert "SECRET_PROVIDER_MARKER" not in caplog.text
+
 
 @pytest.mark.django_db(transaction=True)
 class TestSSHConsumerConnectRealRange:

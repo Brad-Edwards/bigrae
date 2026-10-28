@@ -1,5 +1,8 @@
 # Digest-Pinned Scenario CTF Content Hydration Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 > **Superseded in part (2026-10-05):** static flags are no longer hashed. They are
 > stored as normalized plaintext in `CTFFlag.value` (formerly `flag_hash`), and a
 > submission matches with or without a `FLAG{...}` or `{...}` wrapper (CTF-104).

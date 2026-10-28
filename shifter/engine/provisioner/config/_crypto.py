@@ -5,6 +5,8 @@ imports of ``installation``/``cloud`` to avoid import-time cost and circular
 imports back into this package.
 """
 
+from __future__ import annotations
+
 import base64
 import logging
 import os
@@ -13,6 +15,9 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from cryptography.fernet import Fernet
+
+_ENCRYPTED_VALUE_PREFIX = "enc:v1:"
+
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +102,8 @@ def decrypt_field(encrypted_value: str) -> str:
     the input value.
 
     Args:
-        encrypted_value: Base64-url-encoded Fernet ciphertext.
+        encrypted_value: Legacy base64-wrapped Fernet ciphertext or a native
+            provisioning field carrying the ``enc:v1:`` Fernet marker.
 
     Returns:
         Decrypted plaintext string. Empty input returns ``""`` as the
@@ -121,7 +127,11 @@ def decrypt_field(encrypted_value: str) -> str:
 
     try:
         fernet = Fernet(key.encode() if isinstance(key, str) else key)
-        encrypted_bytes = base64.urlsafe_b64decode(encrypted_value.encode("ascii"))
+        encrypted_bytes = (
+            encrypted_value.removeprefix(_ENCRYPTED_VALUE_PREFIX).encode("ascii")
+            if encrypted_value.startswith(_ENCRYPTED_VALUE_PREFIX)
+            else base64.urlsafe_b64decode(encrypted_value.encode("ascii"))
+        )
         return fernet.decrypt(encrypted_bytes).decode("utf-8")
     except Exception as e:
         # Wrap the underlying cryptography / binascii error so callers
@@ -130,6 +140,26 @@ def decrypt_field(encrypted_value: str) -> str:
         # never carries the input value.
         logger.warning("Failed to decrypt provisioner field (%s)", type(e).__name__)
         raise FieldDecryptError("failed to decrypt provisioner field") from e
+
+
+def decrypt_provisioning_spec(value: object) -> object:
+    """Decode versioned registration secrets read without Django field converters.
+
+    Historical plaintext inputs remain readable. A prefixed encrypted input
+    always requires the configured field key and successful authentication.
+    """
+    if isinstance(value, list):
+        return [decrypt_provisioning_spec(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: decrypt_field(item)
+        if key in {"authcode", "scm_pin_value", "otp_value"}
+        and isinstance(item, str)
+        and item.startswith(_ENCRYPTED_VALUE_PREFIX)
+        else decrypt_provisioning_spec(item)
+        for key, item in value.items()
+    }
 
 
 def generate_presigned_url(bucket: str, key: str, expires_in: int = 3600) -> str:

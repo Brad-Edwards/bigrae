@@ -4,7 +4,7 @@ Upload and manage your XDR/XSIAM agent installers.
 
 ## What's an Agent?
 
-An agent is your XDR or XSIAM installer file. When you launch a range, Shifter deploys this agent to victim machines. Alerts from attacks appear in your XDR/XSIAM console.
+An agent is your XDR or XSIAM installer file. When you launch a range, BigRAE deploys this agent to victim machines. Alerts from attacks appear in your XDR/XSIAM console.
 
 ## Supported Formats
 

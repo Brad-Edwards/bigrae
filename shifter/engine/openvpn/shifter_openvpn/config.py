@@ -27,6 +27,7 @@ class Config:
     max_clients: int
     health_port: int
     runtime_dir: str
+    source_authority: bool = False
 
 
 def _require(name: str) -> str:
@@ -63,4 +64,5 @@ def load_config() -> Config:
         max_clients=max_clients,
         health_port=int(os.environ.get("HEALTH_PORT", "8080")),
         runtime_dir=os.environ.get("RUNTIME_DIR", "/run/openvpn"),
+        source_authority=os.environ.get("OPENFGA_ENABLED", "false").strip().lower() == "true",
     )

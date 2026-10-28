@@ -159,9 +159,16 @@ resource "aws_iam_policy" "ec2_provisioning" {
         Resource = "*"
       },
       {
+        # Pass the range and NGFW instance roles only to EC2 (instance
+        # profiles at RunInstances).
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = compact([var.range_instance_role_arn, var.ngfw_instance_role_arn])
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ec2.amazonaws.com"
+          }
+        }
       }
     ]
   })

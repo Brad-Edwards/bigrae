@@ -1,7 +1,7 @@
 # GitHub Actions Self-Hosted Runners
 
 EC2-based runners that pick up `runs-on: self-hosted` jobs from
-`Brad-Edwards/shifter`. Lives in the dev account; cross-account roles
+`Brad-Edwards/bigrae`. Lives in the dev account; cross-account roles
 let it deploy to both dev and prod.
 
 ## Architecture
@@ -11,7 +11,7 @@ let it deploy to both dev and prod.
 - Placement (ADR-004-R20, issue #1437). The standard is a dedicated,
   non-default runner VPC from `modules/github-runner-network`: private runner
   subnet, NAT-only egress, no private-DNS interface endpoints, encrypted flow
-  logs. `dev.tfvars` and `proof.tfvars` set `create_runner_network = true`, and
+  logs. `dev.tfvars` sets `create_runner_network = true`, and
   the bootstrap `runners` path passes it. It has no portal or range dependency,
   so it works on a fresh account and commits no live IDs (ADR-004-R14). The
   managed network takes precedence over `vpc_id`/`subnet_id` and
@@ -156,15 +156,18 @@ or logs), and verifies each runner online via the GitHub API:
 
 ### Manual (fallback)
 
-For a one-off registration outside the bootstrap flow:
+For a one-off registration outside the bootstrap flow, run these commands in
+your clone. The clone must have a `gh` default repository
+(`gh repo set-default`).
 
 ```bash
 export AWS_PROFILE=aws-dev
 export AWS_PAGER=""
 
+REPO="$(gh repo set-default --view)"
 INSTANCE=i-xxxxxxxxxxxxxxxxx
 NAME=shifter-github-runner-N
-TOKEN=$(gh api -X POST /repos/Brad-Edwards/shifter/actions/runners/registration-token --jq .token)
+TOKEN=$(gh api -X POST "/repos/$REPO/actions/runners/registration-token" --jq .token)
 
 aws ssm send-command \
   --instance-ids "$INSTANCE" \
@@ -173,7 +176,7 @@ aws ssm send-command \
   --parameters "commands=[
     \"set -ex\",
     \"cd /home/ec2-user/actions-runner\",
-    \"sudo -u ec2-user ./config.sh --url https://github.com/Brad-Edwards/shifter --token $TOKEN --labels self-hosted,linux,X64 --unattended --replace --name $NAME\",
+    \"sudo -u ec2-user ./config.sh --url https://github.com/$REPO --token $TOKEN --labels self-hosted,linux,X64 --unattended --replace --name $NAME\",
     \"./svc.sh install ec2-user\",
     \"./svc.sh start\"
   ]"
@@ -182,7 +185,7 @@ aws ssm send-command \
 Verify:
 
 ```bash
-gh api repos/Brad-Edwards/shifter/actions/runners --jq '.runners[] | {name, status}'
+gh api "repos/$REPO/actions/runners" --jq '.runners[] | {name, status}'
 ```
 
 ## Gotchas
@@ -224,9 +227,13 @@ plain EC2; nothing in `main.tf` references them. Deleted in 3.95.3.
 ## Removing a runner
 
 ```bash
-# From the EC2 (via SSM):
+# In your clone, get a remove token:
+REPO="$(gh repo set-default --view)"
+gh api -X POST "/repos/$REPO/actions/runners/remove-token" --jq .token
+
+# On the EC2 (via SSM), set TOKEN to that value:
 cd /home/ec2-user/actions-runner
-TOKEN=$(gh api -X POST /repos/Brad-Edwards/shifter/actions/runners/remove-token --jq .token)
+TOKEN=<remove-token>
 sudo ./svc.sh stop
 sudo ./svc.sh uninstall
 sudo -u ec2-user ./config.sh remove --token "$TOKEN"

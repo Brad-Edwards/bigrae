@@ -1,5 +1,8 @@
 # CTF Communications And RAES Inject Realization Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: accepted architecture guidance
 
 Date: 2026-08-14

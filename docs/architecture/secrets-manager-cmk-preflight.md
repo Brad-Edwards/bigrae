@@ -1,5 +1,8 @@
 # Secrets Manager CMK Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #52, "fix: dev provisioner destroys silently failing on KMS
 Decrypt deny".
 

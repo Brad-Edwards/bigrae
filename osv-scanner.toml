@@ -1,4 +1,4 @@
-# OSV-Scanner suppressions.
+# OSV-Scanner policy.
 #
 # Policy: entries here are ONLY for advisories with NO upstream fix available
 # (the latest published release is still the last-affected version) AND that are
@@ -8,21 +8,11 @@
 # a patched version — bump the dependency instead.
 
 [[IgnoredVulns]]
-id = "GHSA-vfj7-8cjw-p6xm"
-ignoreUntil = 2026-11-03T00:00:00Z
-reason = """braces stack-exhaustion DoS via deeply-nested glob patterns. No upstream fix: \
-braces 3.0.3 (the latest published release, verified against the npm registry 2026-10-03) \
-is the last-affected version and no patched version exists. Transitive via micromatch in the \
-shifter_platform build/test toolchain (devDependency); micromatch matches globs from \
-first-party config, never untrusted runtime input, so the DoS is not reachable. \
-Re-evaluate when braces publishes a fix."""
-
-[[IgnoredVulns]]
-id = "GHSA-86w9-cpqp-85rv"
-ignoreUntil = 2026-11-03T00:00:00Z
-reason = """node-forge RSA PKCS#1 v1.5 signature verification accepts extra nested \
-DigestAlgorithm elements. No upstream fix: node-forge 1.4.0 (the latest published release, \
-verified 2026-10-03) is the last-affected version and no patched version exists. Transitive \
-via gcip-cloud-functions in the Identity Platform beforeCreate Cloud Function, which only \
-enforces the sign-up domain allowlist and does not verify attacker-controlled RSA signatures \
-with node-forge. Re-evaluate when node-forge publishes a fix."""
+id = "GHSA-gcqx-w48m-w2h4"
+ignoreUntil = 2027-04-28
+# CVE-2026-93753. deepmerge@4.3.1 is a dev-only transitive dependency, pulled in
+# by jest-config for the test harness. It is not in the runtime or request path.
+# The advisory has no upstream fix: 4.3.1 is the latest published release and the
+# last affected version (affected >=4.2.0, <=4.3.1; patched: none). Bump and
+# remove this entry once a fixed release ships; re-evaluate at ignoreUntil.
+reason = "deepmerge CVE-2026-93753: no upstream fix (4.3.1 is latest and last-affected); dev-only test transitive via jest-config, not runtime-reachable."

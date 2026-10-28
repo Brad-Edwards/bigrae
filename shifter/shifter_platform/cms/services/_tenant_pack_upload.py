@@ -17,7 +17,7 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 
-from cms.models import RaesPackageSource, ScenarioModelNeeds
+from cms.models import RaesPackageSource, ScenarioModelNeeds, TenantPackArchive
 from cms.scenarios.pack_validation import pack_digest, validate_pack
 from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, audit_log
 from shared.cloud import get_object_storage
@@ -79,8 +79,9 @@ def _persist(
     report: str,
     request_id: str,
     model_needs: dict[str, dict[str, object]],
+    location: tuple[str, str],
 ) -> dict[str, Any]:
-    """Register validated bytes and their conformance evidence atomically."""
+    """Register validated bytes, their owned archive and conformance evidence atomically."""
     with transaction.atomic():
         # Reauthorize after foreign-input validation and storage I/O.
         get_organization_profile(user, organization_uuid)
@@ -91,6 +92,16 @@ def _persist(
             request_id=request_id,
         )
         row = RaesPackageSource.objects.select_for_update().get(scenario_id=result.scenario_id)
+        # Every revision's object stays pack-owned inventory so removal can
+        # delete exactly the bytes this pack uploaded (ADR-034-R13).
+        TenantPackArchive.objects.create(
+            organization_uuid=organization_uuid,
+            scenario_id=row.scenario_id,
+            package_ref=request.package_ref,
+            bucket=location[0],
+            object_key=location[1],
+            location_verified=True,
+        )
         row.conformance_status = "passed"
         row.conformance_report_ref = report
         row.save(update_fields=["conformance_status", "conformance_report_ref", "updated_at"])
@@ -195,6 +206,7 @@ def upload_tenant_pack(
                 report,
                 request_id,
                 model_needs,
+                (bucket, key),
             )
         except Exception:
             try:

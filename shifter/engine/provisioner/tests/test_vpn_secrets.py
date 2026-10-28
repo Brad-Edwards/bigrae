@@ -169,3 +169,24 @@ def test_pool_is_enabled_only_with_a_deployed_pool_on_shared_vpc_gce(monkeypatch
     assert openvpn_access_enabled() is False
     with pytest.raises(RuntimeError, match="shared OpenVPN pool"):
         get_vpn_secret_ops()
+
+
+def test_individual_profile_uses_recorded_storage_and_issuer_after_configuration_change(monkeypatch):
+    profile_id = uuid4()
+    client = MagicMock()
+    adapter = GCPVpnSecretOps(
+        client=client,
+        exceptions=SimpleNamespace(NotFound=_NotFound, AlreadyExists=_AlreadyExists, InvalidArgument=_InvalidArgument),
+        project_id="current-platform",
+        storage_project_id="recorded-secrets",
+        storage_environment="recorded-env",
+        issuer_secret="projects/recorded-platform/secrets/issuer",
+    )
+    monkeypatch.setenv("ENVIRONMENT", "changed-env")
+    monkeypatch.setenv("GCP_DYNAMIC_SECRET_PROJECT_ID", "changed-secrets")
+    locations = adapter._individual_locations(profile_id)
+    assert all(ref.startswith("projects/recorded-secrets/secrets/") for ref in locations.read_refs)
+    assert "shifter-recorded-env-dynamic-participant-vpn-" in locations.create_ref
+    client.access_secret_version.return_value = SimpleNamespace(payload=SimpleNamespace(data=b"issuer"))
+    assert adapter.read_issuer() == "issuer"
+    assert client.access_secret_version.call_args.kwargs["request"]["name"].startswith("projects/recorded-platform/")

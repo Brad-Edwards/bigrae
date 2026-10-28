@@ -22,14 +22,14 @@ schema_version: 1
 
 # Named toolchain profiles. A root references a profile; CI never carries a
 # parallel root-to-version mapping. These represent the three live consumer
-# pins today (AWS deploy CI 1.13.3, GCP validation/deploy 1.16.1, provisioner
+# pins today (AWS deploy CI 1.13.3, GCP validation/deploy 1.16.7, provisioner
 # runtime image 1.16.3); unifying them is deliberately out of scope for #1528.
 profiles:
   aws-1.13.3:
     terraform_version: "1.13.3"
     provider_family: aws
-  gcp-1.16.1:
-    terraform_version: "1.16.1"
+  gcp-1.16.7:
+    terraform_version: "1.16.7"
     provider_family: gcp
   provisioner-1.16.3:
     terraform_version: "1.16.3"
@@ -96,37 +96,10 @@ roots:
     toolchain: aws-1.13.3
     providers:
       - registry.terraform.io/hashicorp/aws
-  - id: gcp-dev
-    path: platform/terraform/gcp/environments/gcp-dev
+  - id: gcp-platform
+    path: platform/terraform/gcp/environments/platform
     owner: "@Brad-Edwards"
-    toolchain: gcp-1.16.1
-    providers:
-      - registry.terraform.io/hashicorp/archive
-      - registry.terraform.io/hashicorp/google
-      - registry.terraform.io/hashicorp/google-beta
-      - registry.terraform.io/hashicorp/random
-  - id: orthanc
-    path: platform/terraform/gcp/environments/orthanc
-    owner: "@Brad-Edwards"
-    toolchain: gcp-1.16.1
-    providers:
-      - registry.terraform.io/hashicorp/archive
-      - registry.terraform.io/hashicorp/google
-      - registry.terraform.io/hashicorp/google-beta
-      - registry.terraform.io/hashicorp/random
-  - id: sauron
-    path: platform/terraform/gcp/environments/sauron
-    owner: "@Brad-Edwards"
-    toolchain: gcp-1.16.1
-    providers:
-      - registry.terraform.io/hashicorp/archive
-      - registry.terraform.io/hashicorp/google
-      - registry.terraform.io/hashicorp/google-beta
-      - registry.terraform.io/hashicorp/random
-  - id: balrog
-    path: platform/terraform/gcp/environments/balrog
-    owner: "@Brad-Edwards"
-    toolchain: gcp-1.16.1
+    toolchain: gcp-1.16.7
     providers:
       - registry.terraform.io/hashicorp/archive
       - registry.terraform.io/hashicorp/google
@@ -139,7 +112,7 @@ roots:
     test: tests/inventory.tftest.hcl
     path: platform/terraform/gcp/global/github-runner
     owner: "@Brad-Edwards"
-    toolchain: gcp-1.16.1
+    toolchain: gcp-1.16.7
     providers:
       - registry.terraform.io/hashicorp/google
   # GCP-native GitHub Actions OIDC/WIF identity (pool, provider, packer build SA).
@@ -150,11 +123,22 @@ roots:
     test: tests/inventory.tftest.hcl
     path: platform/terraform/gcp/global/cicd-oidc
     owner: "@Brad-Edwards"
-    toolchain: gcp-1.16.1
+    toolchain: gcp-1.16.7
+    providers:
+      - registry.terraform.io/hashicorp/google
+  # Release registry (ADR-070): the repository that release-gcp.yml and
+  # packer-gcp.yml publish to and that GitHub-less deployments read. It has its
+  # own state prefix and outlives every deployment.
+  - id: gcp-global-release-registry
+    test: tests/registry.tftest.hcl
+    path: platform/terraform/gcp/global/release-registry
+    owner: "@Brad-Edwards"
+    toolchain: gcp-1.16.7
     providers:
       - registry.terraform.io/hashicorp/google
   - id: aws-global-iam
     path: platform/terraform/global/iam
+    test: tests/github-subject.tftest.hcl
     owner: "@Brad-Edwards"
     toolchain: aws-1.13.3
     providers:
@@ -176,12 +160,6 @@ roots:
       - registry.terraform.io/hashicorp/random
   - id: aws-global-se-admins
     path: platform/terraform/global/se-admins
-    owner: "@Brad-Edwards"
-    toolchain: aws-1.13.3
-    providers:
-      - registry.terraform.io/hashicorp/aws
-  - id: aws-global-ctfd-workshop
-    path: platform/terraform/global/ctfd-workshop
     owner: "@Brad-Edwards"
     toolchain: aws-1.13.3
     providers:
@@ -236,11 +214,6 @@ modules:
     reason: "Contract-test rollout tracked in #1597."
     tracking: "#1597"
   - path: platform/terraform/modules/portal/cognito
-    owner: "@Brad-Edwards"
-    contract: deferred
-    reason: "Contract-test rollout tracked in #1597."
-    tracking: "#1597"
-  - path: platform/terraform/modules/portal/ctfd
     owner: "@Brad-Edwards"
     contract: deferred
     reason: "Contract-test rollout tracked in #1597."
@@ -335,7 +308,7 @@ modules:
     owner: "@Brad-Edwards"
     contract: terraform_test
     test: tests/main.tftest.hcl
-    test_profile: gcp-1.16.1
+    test_profile: gcp-1.16.7
   - path: platform/terraform/gcp/modules/project-services
     owner: "@Brad-Edwards"
     contract: deferred
@@ -350,12 +323,12 @@ modules:
     owner: "@Brad-Edwards"
     contract: terraform_test
     test: tests/main.tftest.hcl
-    test_profile: gcp-1.16.1
+    test_profile: gcp-1.16.7
   - path: platform/terraform/gcp/modules/vpn-pool
     owner: "@Brad-Edwards"
     contract: terraform_test
     test: tests/main.tftest.hcl
-    test_profile: gcp-1.16.1
+    test_profile: gcp-1.16.7
   - path: platform/terraform/gcp/modules/github-runner-network
     owner: "@Brad-Edwards"
     contract: deferred
@@ -381,7 +354,7 @@ modules:
     owner: "@Brad-Edwards"
     contract: terraform_test
     test: tests/main.tftest.hcl
-    test_profile: gcp-1.16.1
+    test_profile: gcp-1.16.7
   - path: platform/terraform/gcp/modules/portal/iam
     owner: "@Brad-Edwards"
     contract: deferred
@@ -416,4 +389,4 @@ modules:
     owner: "@Brad-Edwards"
     contract: terraform_test
     test: tests/main.tftest.hcl
-    test_profile: gcp-1.16.1
+    test_profile: gcp-1.16.7

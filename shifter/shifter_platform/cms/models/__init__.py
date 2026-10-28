@@ -8,6 +8,7 @@ classes are organized by bounded context:
 * :mod:`cms.models.provisioning` — Request and the entities a request materializes
 * :mod:`cms.models.scenarios`    — RAES package sources and metadata overlays
 * :mod:`cms.models.range`        — Engine-side range tracking
+* :mod:`cms.models.pack_removal` — Tenant pack archive inventory and removals
 
 New CMS models go into the submodule that matches their domain. Always re-export
 them here so existing call sites (`from cms.models import X`) keep working.
@@ -34,6 +35,7 @@ from cms.models.lease_policy import (
     MissionControlTenantLeasePolicy,
     MissionControlTenantLeasePolicyRevision,
 )
+from cms.models.pack_removal import TenantPackArchive, TenantPackRemoval
 from cms.models.provisioning import (
     App,
     EntityBase,
@@ -43,11 +45,14 @@ from cms.models.provisioning import (
 )
 from cms.models.range import ACTIVE_RANGE_UNIQUE_CONSTRAINT, RangeInstance
 from cms.models.scenarios import RaesPackageSource, ScenarioMetadata, ScenarioModelNeeds
+from cms.models.uploads import AgentUpload, AgentUploadBudget
 
 __all__ = [
     "ACTIVE_RANGE_UNIQUE_CONSTRAINT",
     "AgentConfig",
     "AgentType",
+    "AgentUpload",
+    "AgentUploadBudget",
     "App",
     "AppType",
     "Asset",
@@ -70,4 +75,6 @@ __all__ = [
     "ScenarioMetadata",
     "ScenarioModelNeeds",
     "Subnet",
+    "TenantPackArchive",
+    "TenantPackRemoval",
 ]

@@ -1,6 +1,6 @@
 # GCP GCE range-cell deploy runbook
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 The GCP range backend defaults to the GCE range-cell path, the approved GCP
 live-fire backend (ADR-030). This runbook covers enabling it in a real
@@ -12,20 +12,23 @@ For the backend design see
 
 ## Backend selection
 
-`GCP_RANGE_BACKEND` selects the GCP range backend:
+`settings.range_cells.backend` in `bigrae.yaml` selects the GCP range backend.
+The deploy renders it as the runtime key `GCP_RANGE_BACKEND`. A CI deployment
+sets the `GCP_RANGE_BACKEND` variable instead. The values are:
 
 - `gce` (default): provision each range as an isolated GCE range cell. This is
   the only approved GCP **live-fire** backend (ADR-030).
 - `gdc`: the retained GDC VM Runtime path (**development/validation only**). It is
   **not** a live-fire rollback: normal Mission Control and CTF range provisioning
   fails closed on `gdc` (the CMS service gate rejects the launch and the
-  provisioner independently denies a live-fire GDC apply; issue #1348). Do not set
-  `GCP_RANGE_BACKEND=gdc` to "roll back" a live-fire environment when GCE is
+  provisioner independently denies a live-fire GDC apply; issue #1348). Do not
+  select `gdc` to "roll back" a live-fire environment when GCE is
   unhealthy. A GCE availability problem must be fixed on the GCE path, never by
   downgrading containment.
 
-The default lives in `config.py` (`get_gcp_range_backend`) and the generated
-runtime config (`scripts/gcp/render_runtime_env.py`). The GDC configuration block
+The default lives in the `settings.range_cells` model, `config.py`
+(`get_gcp_range_backend`), and the generated runtime config
+(`scripts/gcp/render_runtime_env.py`). The GDC configuration block
 is retained in the rendered contract and is inert while the backend is `gce`.
 
 ### Switching the selector on an environment with existing GDC ranges
@@ -129,10 +132,14 @@ disable admission or remove the suffix.
 
 ## Required configuration
 
-Set the GCE range-cell variables documented in
-`docs/dev/deploy-secrets.md` ("GCE range-cell backend variables"). The
-minimum for a live range is: `RANGE_NETWORK_ZONE`, `GCP_RANGE_LINUX_IMAGE`,
-and any additional guest image profiles required by the authored topology.
+Set the GCE range-cell inputs in the deployment input bundle:
+`settings.range_cells` in `bigrae.yaml` and the image roles in
+`range-images.json`
+([GitHub-less GCP deployment guide](../technical/handbook/gcp-github-less-deployment.md#author-and-publish-the-deployment-input-bundle)).
+A CI deployment sets the matching variables in `docs/dev/deploy-secrets.md`
+("GCE range-cell backend variables"). The deploy precondition gate requires
+`settings.range_cells.zone` and the `linux` and `dc` images. Add the other guest
+image profiles that the authored topology requires.
 By default, range guests receive a keyless, least-privilege model-access
 identity (ADR-064): the range host service account carries a predict-only Vertex
 role and the provisioner attaches it to guests through Workload Identity, with no
@@ -142,7 +149,7 @@ is the guest model path (`MODEL_BROKER_GUEST_VIP` set), which is optional
 readiness; see the
 [external runtime boundary](../architecture/external-scenario-runtime-design.md).
 
-The deployment `shifter.yaml` must also set
+The deployment `bigrae.yaml` must also set
 `settings.dynamic_secret_project_id` to the pre-existing, deployment-only
 range-secret project. This is distinct from the guest compute project. Broker
 model invocation may use that project, the platform project, or another
@@ -162,9 +169,9 @@ a broad Secret Manager role to compensate for a missing entry. The migration,
 permission-probe, quota, audit-cost, and revocation procedure is documented in
 [`platform/terraform/gcp/README.md`](../../platform/terraform/gcp/README.md#deployment-scoped-range-secret-project).
 
-`GCP_RANGE_CELL_PROJECT_ID` defaults to the project parsed from the range VPC
-self-link, so the range backend targets the real range project even when the
-control-plane `GCP_PROJECT_ID` is a deploy-overlay placeholder.
+When `settings.range_cells.project_id` is empty, the runtime renderer sets
+`GCP_RANGE_CELL_PROJECT_ID` to the project parsed from the range VPC self-link.
+The range backend then targets the real range project.
 
 ## Network mode
 
@@ -194,7 +201,7 @@ causes admission to fail rather than relying on a firewall-only deny.
 An existing range whose already-created subnets are still explicitly listed on
 the Terraform bridge can replay without duplicate NAT enrollment. Before
 destroying such a range, remove those subnet links from the Terraform bridge
-through that environment's deploy workflow; destroy refuses while the bridge
+through that environment's deploy; destroy refuses while the bridge
 still owns them. New subnets are never admitted onto the bridge.
 
 Cloud NAT currently allows [50 explicit subnet ranges per gateway and 50
@@ -221,7 +228,7 @@ matches the event is refused before the old participant range is torn down.
 
 Range subnets get VPC Flow Logs and range NAT gateways get Cloud NAT logging by
 default. The platform project also logs Vertex AI Data Access calls. Change
-these controls with `settings.range_telemetry` in `shifter.yaml`. The deploy
+these controls with `settings.range_telemetry` in `bigrae.yaml`. The deploy
 verifies them after Terraform apply. See
 [GCP range audit telemetry](../ops/gcp-range-audit-telemetry.md).
 
@@ -230,16 +237,20 @@ verifies them after Terraform apply. See
 The scenario-owned legacy `RangeSpec` adapter resolves current instances to one
 of four approved image profiles by role and OS (`GCERangeCellConfig.get_profile`):
 
-| Instance | Profile | Variable |
+| Instance | Profile | Runtime key |
 |---|---|---|
 | Domain controller (`role=dc`) | dc | `GCP_RANGE_DC_IMAGE` |
 | Kali / attacker | kali | `GCP_RANGE_KALI_IMAGE` |
 | Windows guest | windows | `GCP_RANGE_WINDOWS_IMAGE` |
 | Everything else (Linux host) | linux | `GCP_RANGE_LINUX_IMAGE` |
 
+The deploy sets each runtime key from the role of the same name in
+`range-images.json`. A CI deployment sets the key as a variable.
+
 Instances without an `ami_key` continue to use those four defaults. An instance
 with an `ami_key` requires an exact entry in
-`GCP_RANGE_IMAGE_KEY_PROFILES_JSON` under its derived profile class. Each entry
+`GCP_RANGE_IMAGE_KEY_PROFILES_JSON` (`settings.range_cells.image_key_profiles`)
+under its derived profile class. Each entry
 is complete. Normal image profiles declare image, machine type, disk size, disk
 type, and typed bootstrap capability. Exact machine-image profiles declare the
 machine image, machine type, host-management login, participant
@@ -331,7 +342,7 @@ inside the configured container as the configured participant user. The image
 owns that fixed executable and manifest. It must exercise the real browser
 launcher with disposable state, validate browser trust/start state/clean home
 and projected material, emit no sensitive output, and return nonzero on any
-mismatch. Shifter discards its output and exposes only bounded pass/failure
+mismatch. BigRAE discards its output and exposes only bounded pass/failure
 codes. Do not qualify a fresh profile for participant use from the marker
 alone; the immutable image, participant canary, content-readback, egress, and
 shared-service evidence required by
@@ -360,9 +371,11 @@ workaround to their generic families. Cross-project image families require the
 narrow image-project grant for the provisioner GSA; do not broaden portal or
 launcher identities.
 
-Images are native GCE images referenced by family:
-`projects/<project>/global/images/family/shifter-<type>`. Unlike the GDC path
-there is no qcow2 export or CDI import.
+Images are native GCE images. A reference names an exact image
+(`projects/<project>/global/images/<name>`) or a family
+(`projects/<project>/global/images/family/shifter-<type>`). `gcp-images` records
+exact image references. Unlike the GDC path there is no qcow2 export or CDI
+import.
 
 ## Service accounts
 
@@ -422,19 +435,23 @@ Enable it per deployment:
    profile. The deploy identity needs the conditioned pool role it adds
    (instance templates, the regional instance group, and the autoscaler, limited
    to the pool's own VM names).
-2. Set the deployment variable `RANGE_OPENVPN_ENABLED=true` (default `false`) and
-   run the CI deploy. It creates the pool, its PKI, and its release record, and
-   renders the pool wiring into the runtime environment. The local
-   `gdc-bootstrap` path never deploys the pool; see step 6 of the GCP deployment
-   in [`docs/technical/dev/setup.md`](../technical/dev/setup.md).
+2. Set `settings.participant_openvpn.enabled: true` in `bigrae.yaml` (default
+   `false`), then run `gcp-deploy`. A CI deployment sets the variable
+   `RANGE_OPENVPN_ENABLED=true` and runs the CI deploy. The deploy creates the
+   pool, its PKI, and its release record. It renders the pool wiring into the
+   runtime environment. See step 6 of the GCP deployment in
+   [`docs/technical/dev/setup.md`](../technical/dev/setup.md).
 3. Size the pool through `settings.shared_service_capacity_profile`. Each profile
    plans 25 participants per `e2-standard-2` server, keeps one spare server above
    the planned count, scales out at 30% CPU, and allows twice the minimum. Check
    the live values with `scripts/gcp/check_event_capacity_drift.py --vpn-pool`.
 
-Each deploy rebuilds and scans the pool image, records its digest, and replaces
-the servers by surging new ones in before old ones leave. Connected participants
-reconnect once, like browser sessions during the control-plane restart. The
+Each deploy scans the pool image of its release and records its digest. A CI
+deploy builds that image in the same run. A deployment without GitHub uses the
+image that its release built. When the digest or the server certificate
+changes, the deploy replaces the servers by surging new ones in before old ones
+leave. Connected participants reconnect once, like browser sessions during the
+control-plane restart. The
 deploy also creates the tenant CA once and renews the pool server certificate
 30 days before it expires; private keys never enter Terraform state.
 

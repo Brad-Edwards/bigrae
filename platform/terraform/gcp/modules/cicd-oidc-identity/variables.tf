@@ -25,13 +25,23 @@ variable "region" {
 variable "github_org" {
   description = "GitHub organization that owns the repository allowed to federate."
   type        = string
-  default     = "Brad-Edwards"
+  # Default is read only by the static CKV_GCP_125 trust-grammar check, which is
+  # mandatory and un-skippable (check_tf_gcp_wif_trust). Real deployments set this
+  # in their per-environment tfvars. The immutable github_repository_id and
+  # github_owner_id are the binding anchor and have no default, so a fork or
+  # rename cannot federate even though this name has a default (ADR-069).
+  default = "Brad-Edwards"
 }
 
 variable "github_repo" {
   description = "GitHub repository allowed to federate into the purpose identities."
   type        = string
-  default     = "shifter"
+  # Default is read only by the static CKV_GCP_125 trust-grammar check, which is
+  # mandatory and un-skippable (check_tf_gcp_wif_trust). Real deployments set this
+  # in their per-environment tfvars. The immutable github_repository_id and
+  # github_owner_id are the binding anchor and have no default, so a fork or
+  # rename cannot federate even though this name has a default (ADR-069).
+  default = "bigrae"
 }
 
 variable "build_roles" {
@@ -294,9 +304,41 @@ variable "platform_external_bucket_names" {
 variable "github_subject_format" {
   description = "Reviewed GitHub default subject format: legacy names or immutable owner/repository IDs."
   type        = string
-  default     = "default"
+  default     = "immutable"
   validation {
     condition     = contains(["default", "immutable"], var.github_subject_format)
     error_message = "github_subject_format must be default or immutable."
+  }
+}
+
+variable "impersonation_principals" {
+  description = "Principals that may impersonate each lifecycle purpose identity (roles/iam.serviceAccountTokenCreator). A listed purpose identity exists without GitHub federation (ADR-070)."
+  type        = map(list(string))
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for purpose, members in var.impersonation_principals :
+      contains(["release_scan", "deploy", "destroy"], purpose) && length(members) > 0 && alltrue([
+        for member in members :
+        can(regex("^(user|group|serviceAccount):[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$", member))
+      ])
+    ])
+    error_message = "impersonation_principals must map release_scan, deploy, or destroy to non-empty lists of user:, group:, or serviceAccount: members."
+  }
+}
+
+variable "deployment_config_bucket_name" {
+  description = "Bucket for the GitHub-less deployment input bundle (ADR-070). An empty value creates no bucket."
+  type        = string
+  default     = ""
+
+  validation {
+    condition = var.deployment_config_bucket_name == "" || (
+      can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.deployment_config_bucket_name)) &&
+      lower(var.deployment_config_bucket_name) != lower(var.release_evidence_bucket_name) &&
+      lower(var.deployment_config_bucket_name) != lower(var.terraform_state_bucket_name)
+    )
+    error_message = "deployment_config_bucket_name must be empty or a valid bucket name that differs from the release-evidence and state buckets."
   }
 }

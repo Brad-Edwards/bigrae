@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from shared.credentials import CredentialContext
+
 from ._range_lifecycle import PAUSE_OP, run_by_instance_pk, run_by_request_id
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
 
-def pause_range(user: User, range_instance_pk: int) -> None:
+def pause_range(user: User | CredentialContext, range_instance_pk: int) -> None:
     """Pause a running range.
 
     Fetches RangeInstance, verifies ownership, updates CMS status to PAUSING,
@@ -36,7 +38,7 @@ def pause_range(user: User, range_instance_pk: int) -> None:
     run_by_instance_pk(user, range_instance_pk, PAUSE_OP)
 
 
-def pause_range_by_request_id(user: User, request_id: str) -> None:
+def pause_range_by_request_id(user: User | CredentialContext, request_id: str) -> None:
     """Pause a running range by request_id.
 
     Fetches RangeInstance by request_id, verifies ownership, then delegates

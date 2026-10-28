@@ -27,7 +27,6 @@ IAM_MODULE_GLOBS: tuple[str, ...] = (
     "platform/terraform/modules/portal/vpc/*.tf",
     "platform/terraform/modules/portal/cognito/*.tf",
     "platform/terraform/modules/portal/rds/*.tf",
-    "platform/terraform/modules/portal/ctfd/*.tf",
     "platform/terraform/modules/range/vpc/*.tf",
     "platform/terraform/modules/provisioner-iam/*.tf",
     "platform/terraform/modules/log-aggregation/*.tf",
@@ -107,7 +106,15 @@ IMAGE_TRUST_REQUIRED_SUBS: tuple[str, ...] = (
     "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/dev",
     "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main",
 )
-IMAGE_TRUST_WILDCARD_SUB = "repo:${var.github_org}/${var.github_repo}:*"
+IMAGE_TRUST_LOCAL_SUBS: tuple[str, ...] = (
+    "${local.github_subject_prefix}:ref:refs/heads/dev",
+    "${local.github_subject_prefix}:ref:refs/heads/main",
+)
+IMAGE_TRUST_PREFIX_ASSIGNMENT = (
+    'github_subject_prefix = var.github_subject_format == "immutable" ? '
+    '"repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" '
+    ': "repo:${var.github_org}/${var.github_repo}"'
+)
 IMAGE_PASSROLE_EXACT_RESOURCE = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/shifter-${var.environment}-range-range-instance"
 IMAGE_PASSROLE_FORBIDDEN_WILDCARDS: tuple[str, ...] = (
     "role/shifter-*",
@@ -610,27 +617,28 @@ def check_github_oidc_image_role_trust(path: Path, lines: list[str]) -> list[Vio
     block = _find_named_resource_block(lines, IMAGE_ROLE_RE)
     if block is None:
         return []
-    compact = re.sub(r"\s+", "", _strip_hcl_comments("\n".join(block)))
-    violations: list[Violation] = []
-    if IMAGE_TRUST_WILDCARD_SUB.replace(" ", "") in compact:
-        violations.append(
-            Violation(
-                path,
-                1,
-                "image-pipeline role OIDC trust must pin exact protected-branch "
-                "subjects, not a repo:...:* wildcard (ADR-004-R22, #1656)",
-            )
+    subjects = _assignment_values(
+        _strip_hcl_comments("\n".join(block)), "token.actions.githubusercontent.com:sub"
+    )
+    if subjects == set(IMAGE_TRUST_REQUIRED_SUBS):
+        return []
+    prefix = re.sub(r"\s+", "", IMAGE_TRUST_PREFIX_ASSIGNMENT)
+    assignments = {
+        re.sub(r"\s+", "", line)
+        for line in _strip_hcl_comments("\n".join(lines)).splitlines()
+    }
+    if subjects == set(IMAGE_TRUST_LOCAL_SUBS) and prefix in assignments:
+        return []
+    reason = (
+        "image-pipeline role OIDC trust must select only exact dev/main subjects "
+        "with the reviewed repository prefix (ADR-004-R22, #1656)"
+    )
+    if any("*" in subject for subject in subjects or set()):
+        reason = (
+            "image-pipeline role OIDC trust must pin exact protected-branch "
+            "subjects, not a repo:...:* wildcard (ADR-004-R22, #1656)"
         )
-    for sub in IMAGE_TRUST_REQUIRED_SUBS:
-        if sub.replace(" ", "") not in compact:
-            violations.append(
-                Violation(
-                    path,
-                    1,
-                    f"image-pipeline role OIDC trust must include exact subject {sub} (ADR-004-R22, #1656)",
-                )
-            )
-    return violations
+    return [Violation(path, 1, reason)]
 
 
 def check_github_oidc_image_passrole_scope(

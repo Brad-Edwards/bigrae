@@ -51,9 +51,12 @@ them once per deployment in a JSON file. The platform CIDRs come from the
 Terraform outputs of the environment:
 
 ```
-terraform -chdir=platform/terraform/gcp/environments/gcp-dev output gke_pods_cidr
-terraform -chdir=platform/terraform/gcp/environments/gcp-dev output gke_services_cidr
-terraform -chdir=platform/terraform/gcp/environments/gcp-dev output gke_nodes_cidr
+TF_DATA_DIR="$PWD/platform/terraform/gcp/environments/gcp-dev/.terraform" \
+  terraform -chdir=platform/terraform/gcp/environments/platform output gke_pods_cidr
+TF_DATA_DIR="$PWD/platform/terraform/gcp/environments/gcp-dev/.terraform" \
+  terraform -chdir=platform/terraform/gcp/environments/platform output gke_services_cidr
+TF_DATA_DIR="$PWD/platform/terraform/gcp/environments/gcp-dev/.terraform" \
+  terraform -chdir=platform/terraform/gcp/environments/platform output gke_nodes_cidr
 ```
 
 Example `escape-config.json`:

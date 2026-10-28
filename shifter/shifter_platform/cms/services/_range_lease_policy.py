@@ -13,6 +13,7 @@ from cms.models import (
     MissionControlTenantLeasePolicy,
 )
 from shared.credentials import CredentialContext
+from shared.identity_scope import PrincipalRef
 from shared.mission_control_lease import MissionControlLeasePolicy
 
 from ._range_lease_policy_support import (
@@ -50,17 +51,27 @@ if TYPE_CHECKING:
 
 
 def resolve_mission_control_lease_policy(
-    user: User,
+    user: User | PrincipalRef,
     *,
     for_update: bool = False,
 ) -> ResolvedMissionControlLeasePolicy:
     """Resolve fallback -> tenant -> restrictive group policy for an authenticated owner."""
+    group_owner: User | None
+    if isinstance(user, PrincipalRef):
+        from django.contrib.auth import get_user_model
+
+        from management.services import human_principal_user_id, resolve_principal
+
+        owner = resolve_principal(user)
+        group_owner = get_user_model().objects.get(pk=human_principal_user_id(owner)) if owner.kind == "human" else None
+    else:
+        group_owner = user
     if for_update:
         if not connection.in_atomic_block:
             raise RuntimeError("Locked lease-policy resolution requires an active transaction")
         _lock_policy_namespace()
     tenant, tenant_revision, tenant_source = _effective_tenant(for_update=for_update)
-    rows = _matching_group_rows(user, for_update=for_update)
+    rows = _matching_group_rows(group_owner, for_update=for_update) if group_owner is not None else []
     if not rows:
         return ResolvedMissionControlLeasePolicy(tenant, tenant_source, tenant_revision, ())
 

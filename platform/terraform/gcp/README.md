@@ -2,6 +2,20 @@
 
 This tree provisions the GCP control plane for Shifter.
 
+## Roots
+
+| Root | Purpose |
+| --- | --- |
+| `environments/platform` | Shared platform root of every GCP deployment. `scripts/bootstrap/deploy.py gcp-deploy` and `gcp-destroy` run it with the state prefix `shifter/<environment>/platform-core`. |
+| `environments/<deployment>` | Committed Terraform values of the deployments that GitHub CI deploys. A deployment without GitHub keeps its values in its deployment input bundle. |
+| `global/cicd-oidc` | Purpose identities that outlive the platform. GitHub federation is optional: an empty `purpose_contexts` creates no pool or provider. `impersonation_principals` names the principals that may impersonate the deploy, release-scan, and destroy identities. `deployment_config_bucket_name` creates the deployment config bucket. A `release` purpose creates the release publisher identity. |
+| `global/release-registry` | Artifact Registry repository for published releases. `writer_members` push releases; `reader_members` read them. |
+| `global/github-runner` | Self-hosted runner of a deployment that GitHub CI deploys. |
+
+`scripts/bootstrap/deploy.py gcp-foundation` applies `global/cicd-oidc`. See
+the [GitHub-less GCP deployment guide](../../../docs/technical/handbook/gcp-github-less-deployment.md)
+for the order of the roots without GitHub.
+
 Current scope:
 
 - project service enablement
@@ -21,14 +35,15 @@ Current scope:
 - Identity Platform corporate auth with FirebaseUI/browser-side Google auth flows, allowlisted self-signup, required email verification, required TOTP MFA before app-session creation, and bootstrap-owned first-operator seeding
 - reserved private service networking range
 - workload and node service accounts with least-privilege runtime roles
-- GCS-backed Terraform state bootstrap in CI
+- GCS-backed Terraform state bootstrap by the deploy command
 
 Security posture:
 
 - GKE nodes are private-only.
-- The GKE control-plane endpoint is private. Bootstrap and CI reach it through
-  the IAM-authenticated fleet Connect Gateway; optional authorized networks
-  are limited to connected RFC1918 ranges.
+- The GKE control-plane endpoint is private. The deploy command reaches it
+  through the IAM-authenticated fleet Connect Gateway, from an operator
+  workstation, the deployer image, or CI. Optional authorized networks are
+  limited to connected RFC1918 ranges.
 - GKE Binary Authorization is enabled (`PROJECT_SINGLETON_POLICY_ENFORCE`) so cluster admission enforces the project's Binary Authorization policy.
 - The public application edge is protected with a baseline Cloud Armor policy.
 - The GDC workstation and cluster hosts are expected to be private-only and accessed through IAP by bootstrap.
@@ -36,15 +51,14 @@ Security posture:
 - Cloud SQL deletion protection is on by default (`var.cloud_sql_deletion_protection`, default `true`); the platform control-plane database cannot be destroyed without an explicit, environment-root override.
 - Memorystore Redis runs on the STANDARD_HA tier with `auth_enabled = true` and `transit_encryption_mode = "SERVER_AUTHENTICATION"` (ADR-008-R6). The AUTH token lives in a `redis` Secret Manager bundle and is hydrated by the runtime entrypoint just like the DB/app secrets - never in the runtime ConfigMap, generated env, or process argv. Django Channels reads `REDIS_TLS` / `REDIS_PASSWORD` and uses a `rediss://` channels_redis URL host; the helper fails closed if TLS is enabled without a hydrated password.
 - GCS buckets stay on Google-managed encryption keys (ADR-008-R5). Customer-managed encryption keys (CMEK) are deferred until an external compliance trigger materializes; see `docs/architecture/gcp-gcs-cmek-preflight.md` for the recorded decision, owner, and review trigger.
-- `gdc-bootstrap` now fails before Terraform apply unless your
-  deployment-specific override (typically `local.auto.tfvars` for local
-  runs, or rendered from GitHub secrets for CI - see
-  [`docs/dev/deploy-secrets.md`](../../../docs/dev/deploy-secrets.md))
-  provides:
-  - `public_hostname`
-  - `enable_managed_tls = true`
-  - `gke_master_authorized_cidrs = []` for Connect Gateway access, or only
-    RFC1918 CIDRs reachable through connected private networks
+- `gcp-deploy` sets `public_hostname` from `deployment.domain` and sets
+  `enable_managed_tls = true`. Before Terraform apply, it reads
+  `gke_master_authorized_cidrs` from the Terraform values of the deployment.
+  The value must be `[]` for Connect Gateway access, or hold only RFC1918
+  CIDRs reachable through connected private networks. Otherwise, `gcp-deploy`
+  fails. See
+  [`docs/dev/deploy-secrets.md`](../../../docs/dev/deploy-secrets.md) for the
+  inputs of a CI-deployed environment.
 
 ## Deployment-scoped range-secret project
 
@@ -225,8 +239,9 @@ no email secret is created.
 
 To enable email:
 
-1. Set the email variables in your environment override (for example
-   `local.auto.tfvars`, or rendered from CI secrets):
+1. Set the email variables in the Terraform values of the deployment
+   (`terraform.tfvars` or `terraform.tfvars.json` in the deployment input
+   bundle):
 
    ```hcl
    # SendGrid
@@ -268,10 +283,11 @@ Current non-goals:
 
 - guest VM / NGFW / Compute Engine range infrastructure beyond the shared range-network foundation
 
-CI still validates this tree with `terraform init -backend=false` and
-`terraform validate` on pull requests. On `gcp-dev` pushes, the workflow
-authenticates to GCP, bootstraps a GCS backend bucket named
-`${project_id}-terraform-state` if needed, and applies the environment.
+CI validates this tree with `terraform init -backend=false` and
+`terraform validate` on pull requests. A deploy, from CI or from an operator,
+creates and hardens the GCS backend bucket `${project_id}-terraform-state` if
+needed. Then it applies the shared platform root with the deployment's state
+prefix.
 
 The environment outputs now also expose the provider-neutral range-network
 contract consumed by the provisioner runtime:

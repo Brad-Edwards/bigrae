@@ -20,12 +20,8 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
     from rest_framework.request import Request
 
-    from ctf.models import (
-        CTFContentHydrationReceipt,
-        CTFEvent,
-        CTFParticipant,
-        CTFRangeRecovery,
-    )
+    from ctf.models import CTFContentHydrationReceipt, CTFEvent, CTFParticipant, CTFRangeRecovery
+    from shared.identity_scope import PrincipalRef
 
 
 def audit_platform_admin_event_action(
@@ -364,11 +360,12 @@ def audit_spare_provisioning(
 
 def audit_vpn_profile_download(
     *,
-    actor_id: int,
+    actor_id: int | None,
     participant_id: UUID,
     range_instance_id: int,
     generation: UUID,
     profile_version: str,
+    principal: PrincipalRef | None = None,
 ) -> None:
     """Record profile delivery without credential, topology, or provider data."""
     from shared.credential_delivery import audit_openvpn_profile_download
@@ -380,6 +377,7 @@ def audit_vpn_profile_download(
         generation=generation,
         profile_version=profile_version,
         product="ctf",
+        principal=principal,
     )
 
 

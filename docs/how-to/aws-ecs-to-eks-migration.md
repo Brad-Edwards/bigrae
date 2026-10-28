@@ -9,7 +9,7 @@ move.
 1. Back up and verify the database and object-store recovery path.
 2. Confirm legacy ECS/ASG roots and the new EKS root use separate remote state
    keys. Do not add imports, moved blocks, or shared ownership.
-3. Validate `shifter.yaml` with `backend: aws` and prepare an attested image
+3. Validate `bigrae.yaml` with `backend: aws` and prepare an attested image
    file containing only `repository@sha256:<digest>` values.
 4. Apply the environment's `platform/terraform/global/iam` stack, then verify
    the deploy role can manage only the scoped EKS/OIDC resources and can pass

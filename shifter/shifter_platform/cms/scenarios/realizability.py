@@ -65,7 +65,10 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
     from cms.models import RaesPackageSource
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
     from shared.raes.realizability import ImageDemand
+
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +91,9 @@ _MISSING_IMAGE_MAPPING = "shifter-realizability.missing-image-mapping"
 _MISSING_SOURCE_IDENTITY = "shifter-realizability.missing-image-identity"
 
 
-def get_scenario_realizability(scenario_id: str) -> dict[str, Any] | None:
+def get_scenario_realizability(
+    scenario_id: str, *, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> dict[str, Any] | None:
     """Return the bounded realizability projection for one catalog entry.
 
     Args:
@@ -98,15 +103,17 @@ def get_scenario_realizability(scenario_id: str) -> dict[str, Any] | None:
         ``None`` when ``scenario_id`` is not a catalog entry. Otherwise a bounded
         dict of ``scenario_id``, ``target_id``, ``outcome``, and ``gaps``.
     """
-    entry = get_catalog_entry(scenario_id)
+    entry = get_catalog_entry(scenario_id, user=credential, scope=scope)
     if entry is None:
         return None
     if entry.get("scenario_type") != RAES_SCENARIO_TYPE:
         return _result(scenario_id, "", RealizabilityOutcome.NOT_APPLICABLE, ())
-    return _assess_raes_entry(scenario_id)
+    return _assess_raes_entry(scenario_id, credential=credential, scope=scope)
 
 
-def _assess_raes_entry(scenario_id: str) -> dict[str, Any]:
+def _assess_raes_entry(
+    scenario_id: str, *, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> dict[str, Any]:
     """Assess a catalog entry already known to be RAES-backed.
 
     Resolves the registered package source and the server-selected target before
@@ -120,10 +127,17 @@ def _assess_raes_entry(scenario_id: str) -> dict[str, Any]:
     target_id = _resolve_target_id()
     if not target_id:
         return _result(scenario_id, "", RealizabilityOutcome.INDETERMINATE, (_gap_no_target(),))
-    return _assess_registered_pack(scenario_id, source, target_id)
+    return _assess_registered_pack(scenario_id, source, target_id, credential=credential, scope=scope)
 
 
-def _assess_registered_pack(scenario_id: str, source: RaesPackageSource, target_id: str) -> dict[str, Any]:
+def _assess_registered_pack(
+    scenario_id: str,
+    source: RaesPackageSource,
+    target_id: str,
+    *,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
+) -> dict[str, Any]:
     """Assess a registered RAES pack against ``target_id``.
 
     The whole assessment runs inside the pack-root context because an
@@ -133,15 +147,23 @@ def _assess_registered_pack(scenario_id: str, source: RaesPackageSource, target_
     with _trusted_scenario_path(source) as (scenario_path, trust_gap):
         if scenario_path is None:
             return _result(scenario_id, target_id, RealizabilityOutcome.INDETERMINATE, (trust_gap,))
-        return _assess_trusted_path(scenario_id, scenario_path, target_id)
+        return _assess_trusted_path(scenario_id, scenario_path, target_id, credential=credential, scope=scope)
 
 
-def _assess_trusted_path(scenario_id: str, scenario_path: Path, target_id: str) -> dict[str, Any]:
+def _assess_trusted_path(
+    scenario_id: str,
+    scenario_path: Path,
+    target_id: str,
+    *,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
+) -> dict[str, Any]:
     """Combine capability and backend-supply contributors into one ordered answer."""
     capability = assess_scenario_capability(
-        scenario_path, artifact_availability_provider=_availability_provider(target_id)
+        scenario_path,
+        artifact_availability_provider=_availability_provider(target_id, credential=credential, scope=scope),
     )
-    supply_gaps = _supply_gaps(capability.image_demands, target_id=target_id)
+    supply_gaps = _supply_gaps(capability.image_demands, target_id=target_id, credential=credential, scope=scope)
     supply_outcome = RealizabilityOutcome.NOT_REALIZABLE if supply_gaps else RealizabilityOutcome.REALIZABLE
 
     gaps = tuple(sorted({*capability.gaps, *supply_gaps}))
@@ -293,14 +315,22 @@ def _verified_object_scenario_path(pack_root: Path, source: RaesPackageSource) -
         return None, _gap_pack_unresolvable()
 
 
-def _supply_gaps(demands: Sequence[ImageDemand], *, target_id: str) -> tuple[RealizabilityGap, ...]:
+def _supply_gaps(
+    demands: Sequence[ImageDemand],
+    *,
+    target_id: str,
+    credential: CredentialContext | None = None,
+    scope: ResourceScope | None = None,
+) -> tuple[RealizabilityGap, ...]:
     """Return a gap for every node the tenant image registry cannot supply.
 
     Mirrors realization exactly: the authored ``source.name`` keys the lookup, a
     source-less node falls back to its ``os_family`` for a base-OS image, and an
     already-concrete provider reference passes through without a mapping.
     """
-    candidates = _registry_candidates({_lookup_name(demand) for demand in demands}, target_id=target_id)
+    candidates = _registry_candidates(
+        {_lookup_name(demand) for demand in demands}, target_id=target_id, credential=credential, scope=scope
+    )
     gaps = [gap for demand in demands if (gap := _supply_gap(demand, candidates, target_id)) is not None]
     return tuple(sorted(set(gaps)))
 
@@ -347,7 +377,9 @@ def _missing_mapping_message(demand: ImageDemand, name: str, target_id: str) -> 
     )
 
 
-def _registry_candidates(names: set[str], *, target_id: str) -> dict[str, list[dict[str, Any]]]:
+def _registry_candidates(
+    names: set[str], *, target_id: str, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> dict[str, list[dict[str, Any]]]:
     """Read the enabled registry rows once, grouped by source name.
 
     Goes through the ``engine.services`` seam rather than ``engine.models``
@@ -362,7 +394,7 @@ def _registry_candidates(names: set[str], *, target_id: str) -> dict[str, list[d
         return {}
 
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in list_raes_image_mappings(provider=target_id, include_disabled=False):
+    for row in list_raes_image_mappings(provider=target_id, include_disabled=False, credential=credential, scope=scope):
         if row.source_name not in wanted:
             continue
         grouped.setdefault(row.source_name, []).append(
@@ -377,7 +409,9 @@ def _registry_candidates(names: set[str], *, target_id: str) -> dict[str, list[d
     return grouped
 
 
-def _availability_provider(target_id: str) -> Callable[[Mapping[str, Any]], ArtifactSupply]:
+def _availability_provider(
+    target_id: str, *, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> Callable[[Mapping[str, Any]], ArtifactSupply]:
     """Return a provider that answers artifact availability from the tenant registry.
 
     Injected into :func:`assess_scenario_capability` so the artifact-resolution
@@ -389,12 +423,14 @@ def _availability_provider(target_id: str) -> Callable[[Mapping[str, Any]], Arti
 
     def provider(requirements: Mapping[str, Any]) -> ArtifactSupply:
         """Answer per-requirement artifact availability for ``requirements`` from the registry."""
-        return build_artifact_supply(requirements, _backend_inventory(target_id))
+        return build_artifact_supply(requirements, _backend_inventory(target_id, credential=credential, scope=scope))
 
     return provider
 
 
-def _backend_inventory(target_id: str) -> list[BackendArtifact]:
+def _backend_inventory(
+    target_id: str, *, credential: CredentialContext | None = None, scope: ResourceScope | None = None
+) -> list[BackendArtifact]:
     """Read the backend-owned portable artifacts for ``target_id`` from the registry.
 
     Delegates to the one shared projection (``engine.services.list_backend_artifacts``)
@@ -403,7 +439,7 @@ def _backend_inventory(target_id: str) -> list[BackendArtifact]:
     """
     from engine.services import list_backend_artifacts
 
-    return list_backend_artifacts(provider=target_id)
+    return list_backend_artifacts(provider=target_id, credential=credential, scope=scope)
 
 
 def _lookup_name(demand: ImageDemand) -> str:

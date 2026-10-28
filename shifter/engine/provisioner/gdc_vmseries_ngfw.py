@@ -64,6 +64,7 @@ from gdc_vmseries_common import (
     _vm_name,
     _VMSeriesNames,
 )
+from ngfw_native_identity import native_owner_key
 
 logger = logging.getLogger(__name__)
 
@@ -208,12 +209,12 @@ def apply_ngfw(
     core_api = client_module.CoreV1Api(api_client)
     custom_api = client_module.CustomObjectsApi(api_client)
 
-    user_id = int(app_spec.get("user_id", 0))
-    namespace = _namespace_name(config, user_id)
+    user_id = app_spec.get("user_id")
+    namespace = _namespace_name(config, user_id, instance_id)
     vm_name = _vm_name(user_id, instance_id)
     boot_disk_name = _boot_disk_name(vm_name)
     bootstrap_disk_name = _bootstrap_disk_name(vm_name)
-    hostname = _sanitize_name(f"ngfw-user-{user_id}", max_length=31)
+    hostname = _sanitize_name(f"ngfw-{native_owner_key(user_id, instance_id)}", max_length=31)
     labels = _labels(user_id=user_id, request_id=request_id, instance_id=instance_id)
     names = _VMSeriesNames(
         namespace=namespace,

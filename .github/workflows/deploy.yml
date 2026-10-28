@@ -130,7 +130,8 @@ jobs:
             # Portal image build/deploy trigger (#913). Mirrors the
             # portal image's build inputs: the Docker context controls
             # plus every tree the Dockerfile COPYs
-            # (shifter_platform and installation). Kept
+            # (shifter_platform, installation and the explicitly copied
+            # shipped environment packs). Kept
             # separate from the Terraform-only `shifter_platform`
             # filter (ADR-003-R2) and from the broad `quality_relevant`
             # classifier so engine/packer-only changes do not redeploy
@@ -143,6 +144,11 @@ jobs:
               - 'shifter/cyberscript/**'
               - 'shifter/installation/**'
               - 'shifter/.dockerignore'
+              # Shipped environment packs: one glob per explicit pack COPY in
+              # shifter/shifter_platform/Dockerfile (#2550). Development
+              # packs in the same collection are quality-only below.
+              - 'shifter/environment-packs/smoke-linux/**'
+              - 'shifter/environment-packs/smoke-linux-aws/**'
             # The built-image stack smoke must re-run when its own
             # implementation changes, not only when the portal image does -
             # otherwise the CI guardrail can be edited (harness, ElasticMQ
@@ -161,9 +167,12 @@ jobs:
             quality_only:
               - '.github/workflows/_quality.yml'
               - '.github/quality-path-filters.yaml'
-              # Local smoke tooling and synthetic pack fixtures are quality-only.
+              # Local smoke tooling and development environment packs are
+              # quality-only. Packs are listed individually so a shipped pack
+              # keeps its portal_image routing (#2550).
               - 'scripts/stack-smoke/**'
-              - 'scenario-dev/**'
+              - 'shifter/environment-packs/preparation-http-smoke/**'
+              - 'shifter/environment-packs/shifter-raes-validation/**'
               # Guardrail scripts that the Quality workflow invokes
               # directly (their CI steps live in _quality.yml's
               # terraform-lint job). A change to these scripts or their
@@ -186,8 +195,18 @@ jobs:
               - 'docs/technical/dev/adr-enforcement.md'
             gcp:
               - 'platform/terraform/gcp/**'
-              - 'platform/k8s/gcp/**'
+              # The Helm chart is the only GCP renderer (ADR-007, ADR-070).
+              - 'platform/charts/shifter/**'
               - 'scripts/gcp/**'
+              # The GCP deploy command and its shared bootstrap modules (ADR-070).
+              - 'scripts/bootstrap/gcp_*.py'
+              - 'scripts/bootstrap/bootstrap_core.py'
+              - 'scripts/bootstrap/cli.py'
+              - 'scripts/bootstrap/deploy.py'
+              - 'scripts/bootstrap/preflight.py'
+              - 'scripts/bootstrap/pyproject.toml'
+              - 'scripts/bootstrap/uv.lock'
+              - 'scripts/smoke-test-gcp.sh'
               - 'shifter/shifter_platform/shared/cloud/gcp/**'
               - 'shifter/shifter_platform/shared/cloud/types.py'
               - 'shifter/engine/provisioner/cloud/gcp/**'
@@ -234,6 +253,9 @@ jobs:
               - '.gc/plan-rules.md'
               - 'docs/adr/**'
               - 'docs/technical/dev/adr-enforcement.md'
+              # Environment-pack Markdown is digest-covered pack content
+              # (#2550), so a Markdown-only pack change still runs Quality.
+              - 'shifter/environment-packs/**'
 
       - name: Set environment
         id: env
@@ -494,8 +516,9 @@ jobs:
     needs: [changes, quality]
     # `_gcp-dev.yml::prepare`, `release_scan`, and `deploy` request
     # `id-token: write` (purpose-scoped GCP WIF); `prepare` also requests
-    # `attestations: write` (SBOM + provenance, ADR-037-R5/R6), and deploy
-    # requests attestation readback. `post-deploy-smoke` requests
+    # `attestations: write` (SBOM + provenance stored with each image,
+    # ADR-037-R5/R6). The deploy verifies them through the registry, not the
+    # GitHub API (ADR-070). `post-deploy-smoke` requests
     # `issues: write` (smoke failure issues). Reusable workflows can't request
     # higher GITHUB_TOKEN scopes than the caller grants — without this
     # block the workflow fails at startup with
@@ -531,14 +554,13 @@ jobs:
       GCP_DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
       GCP_RELEASE_SCAN_SERVICE_ACCOUNT: ${{ secrets.GCP_RELEASE_SCAN_SERVICE_ACCOUNT }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      # Deployment-owned identity/config values consumed by _gcp-dev.yml's
-      # render steps. Must be forwarded here: the reusable workflow only sees
-      # secrets the caller passes, so an omitted one renders empty and the
-      # deploy fails loud (e.g. "GCP_PROJECT_ID is not set").
+      # Deployment-owned identity/config values that _gcp-dev.yml's CI adapter
+      # projects onto the deployment input bundle. Must be forwarded here: the
+      # reusable workflow only sees secrets the caller passes, so an omitted one
+      # renders empty and the deploy fails loud (e.g. "GCP_PROJECT_ID is not set").
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       GCP_PUBLIC_HOSTNAME: ${{ secrets.GCP_PUBLIC_HOSTNAME }}
       GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN: ${{ secrets.GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN }}
-      GCP_MASTER_AUTHORIZED_CIDRS: ${{ secrets.GCP_MASTER_AUTHORIZED_CIDRS }}
       GCP_RANGE_IMAGE_KEY_PROFILES_JSON: ${{ secrets.GCP_RANGE_IMAGE_KEY_PROFILES_JSON }}
       SHIFTER_CONFIG_GCP_DEV: ${{ secrets.SHIFTER_CONFIG_GCP_DEV }}
       GCP_BOOTSTRAP_ADMIN_EMAIL: ${{ secrets.GCP_BOOTSTRAP_ADMIN_EMAIL }}

@@ -8,15 +8,15 @@ defines qualification for the selected LiteLLM OSS gateway, including
 deployment-owned key rotation, automatic private TLS renewal and fresh bootstrap;
 it is not an installed service.
 
-Status: proposed for [#681](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/index.md),
+Status: proposed for [#681](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/index.md),
 ADR-061, 2026-09-06. Procedures describe implementation requirements.
 Management endpoints and operational commands must be delivered and tested
-by the [owning issues](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/delivery.md) before use.
+by the [owning issues](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/delivery.md) before use.
 No live provider, load, revoke, migration or restore evidence is asserted here.
 
 ## Deployment and responsibility
 
-Run a dedicated broker Deployment in the existing Shifter Helm release,
+Run a dedicated broker Deployment in the existing BigRAE Helm release,
 using a separate service account, private TLS service and bounded resource
 requests/limits. Start qualification with two replicas on separate nodes
 where available, a disruption budget, graceful draining and pinned images.
@@ -93,7 +93,7 @@ stream migration or post-crash replay.
 
 ## Scenario model needs and required-access admission (M02, #2119)
 
-A scenario declares its logical model need through a Shifter-owned, staff-authored
+A scenario declares its logical model need through a BigRAE-owned, staff-authored
 overlay (`ScenarioModelNeeds`), not by editing the RAES pack and not through the
 deploy-time mounted catalog. Author it per registered scenario pack:
 
@@ -220,7 +220,7 @@ Restore qualification includes overlapping bindings, pinned shared assignments,
 membership revisions and unknown requests charged to old pools. Reconstruct
 authority before enabling admission; never recover balances by summing
 overlapping constraint accounts as if each were a separate provider invoice.
-See the [sharing contract](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/sharing.md)
+See the [sharing contract](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/sharing.md)
 for the selector and allocation rules.
 
 ## Observability and retention
@@ -407,14 +407,14 @@ The broker/control TLS Secrets and public trust ConfigMap remain deployment-owne
 
 ## Vertex invocation and usage adapter (M07)
 
-Issue [#2124](https://github.com/Brad-Edwards/shifter/issues/2124) hardens the
+Issue [#2124](https://github.com/Brad-Edwards/bigrae/issues/2124) hardens the
 existing broker Vertex path into a qualified invocation and usage adapter.
 [ADR-059](../adr/059-range-model-access-broker.md),
 [ADR-060](../adr/060-model-access-allocation-accounting.md),
 [ADR-061](../adr/061-model-access-operations-qualification.md)
 and the [Vertex adapter preflight](../architecture/model-access/vertex-adapter-preflight-2124.md)
 retain their authority. Live qualification evidence is owned by
-[#2334](https://github.com/Brad-Edwards/shifter/issues/2334); local rendering,
+[#2334](https://github.com/Brad-Edwards/bigrae/issues/2334); local rendering,
 transport tests and a successful count are not live invocation proof.
 
 ### Runtime behavior
@@ -465,6 +465,6 @@ unsupported cost-changing feature fails before a billable effect rather than bei
 silently stripped; a feature is admitted only when its protocol, provider
 behavior, billing bound and usage settlement are all qualified. The exact client
 version, installed settings and the sanitized real wire corpus that prove this
-default are captured under [#2334](https://github.com/Brad-Edwards/shifter/issues/2334);
-[#2125](https://github.com/Brad-Edwards/shifter/issues/2125) installs the same
+default are captured under [#2334](https://github.com/Brad-Edwards/bigrae/issues/2334);
+[#2125](https://github.com/Brad-Edwards/bigrae/issues/2125) installs the same
 pin and settings into guests without introducing a second compatibility target.

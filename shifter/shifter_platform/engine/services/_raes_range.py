@@ -44,9 +44,17 @@ from ._runtime_plugin_bindings import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
     from engine.models import Range
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
     from shared.range_instantiation_policy import BackendAdmission
     from shared.runtime_plugin_binding import RuntimePluginScope
+
+    from ._principal_range_create import PreparedRaesRangeCreation
+
 
 __all__ = [
     "RaesRangeRef",
@@ -90,14 +98,18 @@ class RangeBindings:
     # when the launch requests no VPN (ADR-039-R10, #2030). Engine mints the
     # capability against the persisted participant access and reserves a slot.
     openvpn_deadline: datetime | None = None
+    credential: CredentialContext | None = None
+    resource_scope: ResourceScope | None = None
+    cms_range_uuid: UUID | None = None
+    prepared_creation: PreparedRaesRangeCreation | None = None
 
 
 def create_raes_range(
     *,
     request_id: str | UUID,
-    user_id: int,
+    user_id: int | None,
     compiled_plan: dict[str, Any],
-    workspace_id: int,
+    workspace_id: int | None,
     egress_mode: str = RangeEgressMode.STATUS_QUO.value,
     backend_admission: BackendAdmission | None = None,
     bindings: RangeBindings | None = None,
@@ -149,11 +161,17 @@ def create_raes_range(
     # before the app registry is ready.
     from engine.models import Range, Request
 
-    require_workspace_binding(workspace_id)
+    from ._principal_range_create import (
+        assert_principal_range_creation,
+        verify_principal_range_replay,
+    )
+
+    principal_fields = _prepared_range_creation_fields(bindings, workspace_id, user_id, compiled_plan)
     request_uuid = request_id if isinstance(request_id, UUID) else UUID(str(request_id))
 
     existing = Range.objects.filter(request__request_id=request_uuid).first()
     if existing is not None:
+        verify_principal_range_replay(existing, principal_fields, bindings, compiled_plan)
         verify_existing_binding(existing, request_uuid, backend_admission)
         verify_existing_workspace_binding(existing, request_uuid, workspace_id)
         verify_existing_egress_binding(existing, request_uuid, egress_mode)
@@ -180,8 +198,15 @@ def create_raes_range(
             if scope
             else None
         )
-        user = user_model.objects.get(id=user_id)
-        request = Request.objects.create(request_id=request_uuid, request_type=RequestType.RANGE.value, user=user)
+        if principal_fields:
+            assert_principal_range_creation(bindings, principal_fields)
+        user = user_model.objects.get(id=user_id) if user_id is not None else None
+        request = Request.objects.create(
+            request_id=request_uuid,
+            request_type=RequestType.RANGE.value,
+            user=user,
+            **({"owner_principal_uuid": principal_fields["owner_principal_uuid"]} if principal_fields else {}),
+        )
         subnet_index = Range.allocate_subnet_index()
         # #2029 realized multi-region placement: pick the zone from the
         # RANGE_NETWORK_ZONES pool in the same transaction as the slot (empty keeps
@@ -195,20 +220,19 @@ def create_raes_range(
             status=Range.Status.PROVISIONING,
             subnet_index=subnet_index,
             placement_zone=placement_zone,
-            resource_generation=uuid4() if binding_fields.get("range_backend") == "ec2" else None,
+            resource_generation=_new_resource_generation(bool(principal_fields), binding_fields.get("range_backend")),
             range_config=compiled_plan,
             workspace_id=workspace_id,
             remote_access_capability=capability,
             **binding_fields,
             **egress_fields,
+            **principal_fields,
         )
         _persist_range_bindings(range_obj, bindings)
         persist_runtime_plugin_pin(range_obj, pin)
         _write_operation_receipt(request_uuid, range_id=str(range_obj.uuid))
 
-    if bindings.defer_dispatch:
-        return RaesRangeRef(str(request_uuid), str(range_obj.uuid), range_obj.status, True)
-    return dispatch_created_raes_range(request_uuid)
+    return _dispatch_range_creation(range_obj, request_uuid, bindings)
 
 
 def mint_remote_access_capability(
@@ -292,11 +316,22 @@ def _verify_existing_plugin_scope(existing: Range, scope: RuntimePluginScope | N
         raise ValueError("Range replay cannot change its runtime plugin pack identity")
 
 
-def dispatch_created_raes_range(request_uuid: UUID) -> RaesRangeRef:
+def dispatch_created_raes_range(
+    request_uuid: UUID,
+    *,
+    credential: CredentialContext | None = None,
+    prepared_creation: PreparedRaesRangeCreation | None = None,
+) -> RaesRangeRef:
     """Dispatch an already persisted range through the incumbent launch outbox."""
     from engine.models import Range
 
     range_obj = Range.objects.get(request__request_id=request_uuid)
+    if range_obj.owner_principal_uuid is not None or credential is not None:
+        from ._principal_range_create import dispatch_principal_raes_range
+
+        if credential is None:
+            raise PermissionError("Range authority unavailable")
+        return dispatch_principal_raes_range(range_obj, credential, prepared_creation)
     try:
         task_ref = start_raes_range_provisioning(request_uuid)
     except Exception:
@@ -410,3 +445,37 @@ def _write_operation_receipt(request_id: UUID, *, range_id: str) -> None:
         payload={"operation_id": operation_id, "accepted": True, "status": "accepted"},
         range_id=range_id,
     )
+
+
+def _prepared_range_creation_fields(
+    bindings: RangeBindings, workspace_id: int | None, user_id: int | None, compiled_plan: dict[str, Any]
+) -> dict[str, object]:
+    """Choose the already-admitted principal custody or the incumbent workspace binding before creation."""
+    from ._principal_range_create import prepare_principal_range_fields, prepared_creation_fields
+
+    principal_fields: dict[str, object] = {}
+    if bindings.credential is not None:
+        principal_fields = (
+            prepared_creation_fields(bindings.prepared_creation, bindings, workspace_id, user_id, compiled_plan)
+            if bindings.prepared_creation is not None
+            else prepare_principal_range_fields(bindings, workspace_id, user_id)
+        )
+    else:
+        if bindings.resource_scope is not None or bindings.cms_range_uuid is not None:
+            raise ValueError("Range creation authority unavailable")
+        require_workspace_binding(workspace_id)
+    return principal_fields
+
+
+def _dispatch_range_creation(range_obj: Range, request_uuid: UUID, bindings: RangeBindings) -> RaesRangeRef:
+    """Honor the enclosing CMS transaction before dispatching one immutable native range generation."""
+    if bindings.defer_dispatch:
+        return RaesRangeRef(str(request_uuid), str(range_obj.uuid), range_obj.status, True)
+    if bindings.credential is not None:
+        return dispatch_created_raes_range(request_uuid, credential=bindings.credential)
+    return dispatch_created_raes_range(request_uuid)
+
+
+def _new_resource_generation(principal_owned: bool, range_backend: object) -> UUID | None:
+    """Mint native custody generations for principal ranges and EC2 execution."""
+    return uuid4() if principal_owned or range_backend == "ec2" else None

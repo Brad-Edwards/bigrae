@@ -1,5 +1,8 @@
 # REV1 Trustworthy Testing And Quality Metrics Preflight (#1529)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1529>
 
 ## Decision

@@ -6,6 +6,38 @@ workflow authority; no second outbox, scheduler, or transport layer is added.
 See the [API and cutover preflight](../../architecture/ctf-communication-api-cutover-preflight-2100.md)
 and [operator guide](../../features/ctf-communications.md).
 
+The [console design (#2052)](../../architecture/ctf-communications-console-design-2052.md)
+records the preview, reporting, timeline, and console architecture. The #2052
+[API](../../architecture/ctf-api-integration-preflight-2052.md),
+[console](../../design/ctf-communications-console-boundaries-2052.md), and
+[scheduling](../../architecture/ctf-multi-event-communications-preflight-2052.md)
+preflights record the boundaries.
+
+## Console read projections
+
+`ctf/services/communication/reporting.py` owns the console reads. It writes no
+row. Each campaign read first runs `reauthorize` over the complete persisted
+target set with the read scope.
+
+| Projection | Source | Bound |
+| --- | --- | --- |
+| Targets | `authorized_workspace_ids`, `authorize_bound_workspace`, `events_with_capability` | 100 events per page |
+| Preview | `recipient_queryset` grouped by event; no row load | Target count |
+| Delivery | `DeliveryAttempt` and `RecipientSnapshot` in separate grouped queries | 100 occurrences per page |
+| Recipients | Snapshots for one occurrence and one event; also needs `participants` capability | 100 rows per page |
+| Activity | Campaign, revision, and intent attribution columns | 100 revisions and 100 intents |
+
+Separate grouped queries keep receipts from being multiplied by channel rows.
+The delivery projection adds the latest `release_communication` task status for
+a scheduled intent. Preview returns each event's local due time from
+`event_timezone`. `MessageRevision.actor_user_id` / `actor_token_id` and
+`CommunicationCampaign.cancelled_*` hold the timeline attribution. Migration
+`0065` attributes each existing revision 1 to its campaign author. Strict
+`shared.audit` stays the investigator record; it has no organizer read surface.
+
+`_reschedule_event_tasks` cancels only the event-derived task types it
+recreates. A pending `release_communication` task keeps its authored due time.
+
 ## Authorization and serialization
 
 Bearer authentication precedes session authentication. `require_scope` publishes

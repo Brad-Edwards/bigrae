@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from shared.identity_scope import PrincipalRef
+
 from uuid import UUID
 
 from django.core.cache import caches
@@ -12,6 +17,7 @@ from shared.audit import (
     AuditEntityType,
     AuditEvent,
     audit_log,
+    principal_actor_fields,
 )
 from shared.rate_limit import consume_fixed_window
 
@@ -25,12 +31,13 @@ def credential_delivery_allowed(user_id: int | UUID, *, limit: int = 50, window:
 
 def audit_openvpn_profile_download(
     *,
-    actor_id: int,
+    actor_id: int | None,
     range_instance_id: int,
     generation: UUID,
     profile_version: str,
     product: str,
     participant_id: UUID | None = None,
+    principal: PrincipalRef | None = None,
 ) -> None:
     """Record profile delivery without credential, topology, or provider data."""
     state = {
@@ -47,8 +54,11 @@ def audit_openvpn_profile_download(
             entity_type=AuditEntityType.CREDENTIAL,
             entity_id=range_instance_id,
             action=AuditAction.DOWNLOAD,
-            actor_type=AuditActorType.USER,
-            actor_id=actor_id,
+            **(
+                principal_actor_fields(principal)
+                if principal is not None
+                else {"actor_type": AuditActorType.USER, "actor_id": actor_id}
+            ),
             new_state=state,
             context=f"{product}_vpn_profile_download",
         )

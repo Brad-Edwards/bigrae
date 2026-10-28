@@ -1,5 +1,8 @@
 # Guacamole And Terminal Injectable Ports Preflight (#993)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: architecture decision / pre-implementation guidance
 
 Date: 2026-09-03

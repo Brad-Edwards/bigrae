@@ -19,7 +19,6 @@ on:
         type: choice
         options:
           - ubuntu
-          - brokenbk
           - kali
           - windows
           - dc
@@ -392,6 +391,8 @@ jobs:
     needs: build
     # Publish the reusable GCE-native base image (kali, ubuntu, DC) so a fresh
     # tenant bootstrap imports it instead of re-baking with Packer (issue #2309).
+    # When the GCP_RELEASE_REGISTRY variable is set, the job also copies the same
+    # artifact to the release Artifact Registry repository (#2571).
     # Runs only for publish_target=ghcr; publish_target=tenant leaves the native
     # image in the build project's family with no registry copy.
     if: >-
@@ -475,4 +476,47 @@ jobs:
             echo "- **Immutable source:** \`oci://${PACKAGE}@${DIGEST}\`"
             echo "- **Payload:** GCE-native disk.raw tarball; the tenant bootstrap imports it as a native GCE image."
             echo "- **Note:** set this package public once so bootstrap pulls it credential-free (private-package support: issue #2312)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "GHCR_BASE_IMAGE=${PACKAGE}@${DIGEST}"
+            echo "GCE_BASE_IMAGE_TAG=${TAG}"
+          } >> "$GITHUB_ENV"
+
+      # A GitHub-less deployment imports the base images from the release
+      # Artifact Registry repository, not from GHCR (#2571, ADR-070). The copy
+      # keeps the manifest, the layer, and the annotations unchanged, so the
+      # release registry holds the same digest. The import checks the same OCI
+      # contract: deploy.py gcp-images --source "${GCP_RELEASE_REGISTRY}".
+      - name: Copy GCE base image to the release registry
+        if: vars.GCP_RELEASE_REGISTRY != ''
+        env:
+          GCP_RELEASE_REGISTRY: ${{ vars.GCP_RELEASE_REGISTRY }}
+          IMAGE_TYPE: ${{ needs.build.outputs.gce_base_disk_role }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${GCP_RELEASE_REGISTRY}" =~ ^[a-z0-9-]+-docker\.pkg\.dev/[a-z][a-z0-9-]{4,28}[a-z0-9]/[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+            echo "::error::GCP_RELEASE_REGISTRY must be <location>-docker.pkg.dev/<project>/<repository>."
+            exit 1
+          fi
+          case "${IMAGE_TYPE}" in kali|ubuntu|dc) ;; *) exit 1 ;; esac
+          if ! [[ "${GHCR_BASE_IMAGE}" =~ ^ghcr\.io/[a-z0-9._-]+/shifter-gce-${IMAGE_TYPE}@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::The GHCR publication did not record an exact base image digest."
+            exit 1
+          fi
+          DIGEST="${GHCR_BASE_IMAGE##*@}"
+          PACKAGE="${GCP_RELEASE_REGISTRY}/shifter-gce-${IMAGE_TYPE}"
+          # The job's GCP identity signs in to Artifact Registry through the
+          # gcloud Docker credential helper. ORAS reads the same Docker config.
+          gcloud auth configure-docker "${GCP_RELEASE_REGISTRY%%/*}" --quiet
+          oras cp "${GHCR_BASE_IMAGE}" "${PACKAGE}:${GCE_BASE_IMAGE_TAG}"
+          COPIED="$(oras resolve "${PACKAGE}:${GCE_BASE_IMAGE_TAG}")"
+          if [ "${COPIED}" != "${DIGEST}" ]; then
+            echo "::error::The release registry copy has digest ${COPIED}, not ${DIGEST}."
+            exit 1
+          fi
+          {
+            echo "## Release registry GCE base image copied"
+            echo "- **Package:** \`${PACKAGE}\`"
+            echo "- **Version tag:** \`${GCE_BASE_IMAGE_TAG}\` (discovery only)"
+            echo "- **Immutable source:** \`oci://${PACKAGE}@${DIGEST}\`"
           } >> "$GITHUB_STEP_SUMMARY"

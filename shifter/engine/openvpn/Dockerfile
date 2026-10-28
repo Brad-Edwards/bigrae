@@ -9,15 +9,18 @@
 # base image: alpine:3.22
 FROM alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 
+# CI sets the source URL from the running repository (ADR-069).
+# A local build leaves the label empty.
+ARG SOURCE_REPOSITORY_URL=""
 LABEL maintainer="Shifter maintainers" \
       org.opencontainers.image.title="shifter-openvpn" \
       org.opencontainers.image.description="Shifter shared participant OpenVPN pool server" \
-      org.opencontainers.image.source="https://github.com/Brad-Edwards/shifter" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY_URL}" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.authors="Shifter maintainers"
 
 # Minor-version constraints: CI rebuilds without cache pick up patch releases.
-RUN apk add --no-cache "nftables~1.1" "openvpn~2.6" "python3~3.12" "setpriv~2.41" \
+RUN apk add --no-cache "nftables~1.1" openssl "openvpn~2.6" "python3~3.12" "setpriv~2.41" \
     && addgroup -S -g 10001 shifter-vpn \
     && adduser -S -D -H -u 10001 -G shifter-vpn -s /sbin/nologin shifter-vpn
 

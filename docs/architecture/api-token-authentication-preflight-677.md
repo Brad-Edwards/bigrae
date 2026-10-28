@@ -1,5 +1,8 @@
 # API Token Authentication Preflight (PLAT-102 / #677)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Historical preflight. Its custom verifier and staff-based issuance proposals are
 superseded by the [#2316 credential preflight](unified-credential-auth-preflight-2316.md).
 

@@ -11,6 +11,7 @@ from typing import Any
 from shared.enums import ResourceStatus
 
 from config import resolve_ngfw_attachment_config
+from config._crypto import decrypt_provisioning_spec
 from provisioner_db import get_db_connection
 from state_helpers import _get_cloud_provider
 
@@ -159,8 +160,8 @@ def get_ngfw_data_by_request_id(request_id: str) -> dict[str, Any]:
             "request_id": str(row[0]),
             "instance_id": str(row[1]),
             "app_id": str(row[2]) if row[2] else None,
-            "spec": unwrap_persisted_spec(row[3] if row[3] else {}),
-            "app_spec": unwrap_persisted_spec(row[4] if row[4] else {}),
+            "spec": decrypt_provisioning_spec(unwrap_persisted_spec(row[3] if row[3] else {})),
+            "app_spec": decrypt_provisioning_spec(unwrap_persisted_spec(row[4] if row[4] else {})),
             "state": row[5] if row[5] else {},
             "status": row[6],
         }

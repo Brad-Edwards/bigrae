@@ -76,11 +76,10 @@ def _scoped_type(name: str, parent: str) -> list[str]:
     ]
 
 
-def _event_type() -> list[str]:
-    """Let an event inherit from its one validated customer placement."""
-    parents = ("account", "organization", "workspace")
+def _multi_parent_type(name: str, parents: tuple[str, ...]) -> list[str]:
+    """Let a resource inherit from its one SQL-validated placement."""
     return [
-        "type event",
+        f"type {name}",
         _RELATIONS_HEADER,
         *(f"    define {parent}: [{parent}]" for parent in parents),
         "    define operator: " + " or ".join(f"operator from {parent}" for parent in parents),
@@ -90,7 +89,7 @@ def _event_type() -> list[str]:
         + " or ".join(f"administrator from {parent}" for parent in parents),
         "    define excluded: [principal, group#member, role#assignee] or "
         + " or ".join(f"excluded from {parent}" for parent in parents),
-        *_action_relations("event"),
+        *_action_relations(name),
         "",
     ]
 
@@ -135,19 +134,8 @@ def _build_model() -> str:
         *_scoped_type("account", "installation"),
         *_scoped_type("organization", "account"),
         *_scoped_type("workspace", "organization"),
-        *_event_type(),
-        "type range",
-        _RELATIONS_HEADER,
-        "    define workspace: [workspace]",
-        "    define event: [event]",
-        "    define operator: operator from workspace or operator from event",
-        f"    define direct_administrator: [{_RELATIONSHIP_SUBJECTS}]",
-        f"    define deny_administrator: [{_RELATIONSHIP_SUBJECTS}]",
-        "    define administrator: (direct_administrator but not deny_administrator) "
-        "or administrator from workspace or administrator from event",
-        f"    define excluded: [{_RELATIONSHIP_SUBJECTS}] or excluded from workspace or excluded from event",
-        *_action_relations("range"),
-        "",
+        *_multi_parent_type("event", ("account", "organization", "workspace")),
+        *_multi_parent_type("range", ("account", "organization", "workspace", "event")),
     ]
     return "\n".join(lines)
 

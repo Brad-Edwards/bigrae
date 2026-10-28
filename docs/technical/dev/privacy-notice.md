@@ -1,6 +1,6 @@
 # Privacy Notice And Cookie Disclosure
 
-The Shifter portal ships a neutral privacy notice shell and a dismissible
+The BigRAE portal ships a neutral privacy notice shell and a dismissible
 browser-storage disclosure. These are operator-facing mechanics only. They are
 not legal advice, not a binding privacy policy, and not a GDPR compliance claim.
 

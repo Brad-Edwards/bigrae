@@ -20,7 +20,7 @@ VALID = {
     "conformance_status": "passed",
     "conformance_report_ref": "reports/example-conformance.json",
     "provenance": {
-        "repo": "Brad-Edwards/shifter",
+        "repo": "example-org/example-repo",
         "commit": "abc123",
         "tool": "raes",
         "tool_version": "0.1",

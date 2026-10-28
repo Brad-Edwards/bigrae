@@ -17,7 +17,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from engine.models import Instance, Range, Request
+from engine.models import Instance, OperationInput, ProvisionerLaunchIntent, Range, Request
+from shared.operation_envelope import build_operation_envelope
 from shared.raes.artifact_binding import ArtifactBinding
 from shared.raes.content_delivery import DeliveryBinding
 from shared.raes.operation_input import (
@@ -31,10 +32,13 @@ from shared.raes.operation_input import (
 from shared.raes.operation_input_remote_access import parse_remote_access
 from shared.raes.participant_access import ParticipantAccessBinding
 
-__all__ = ["operation_input_payload"]
-
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from engine.models import RaesImageMapping
+
+
+__all__ = ["operation_input_payload"]
 
 
 # Durable ownership discriminants persisted on ``engine_instance.state`` (#1666).
@@ -82,7 +86,7 @@ def _resolved_range_backend(target: Range, request: Request) -> str | None:
     return _resolve_backend_from_evidence(request)
 
 
-def _raes_image_candidates(plan: dict[str, object]) -> dict[str, list[dict[str, object]]]:
+def _raes_image_candidates(plan: dict[str, object], target: Range | None = None) -> dict[str, list[dict[str, object]]]:
     """Project the enabled registry rows this plan can actually ask for.
 
     Scoped to the plan's own lookup keys (ADR-032-R2 authored source, else the
@@ -97,9 +101,18 @@ def _raes_image_candidates(plan: dict[str, object]) -> dict[str, list[dict[str, 
     if not keys:
         return {}
     projected: dict[str, list[dict[str, object]]] = {}
-    rows = RaesImageMapping.objects.filter(source_name__in=list(keys), enabled=True).order_by(
-        "provider", "source_name", "source_version"
-    )
+    rows = RaesImageMapping.objects.filter(source_name__in=list(keys), enabled=True)
+    if target is not None and target.owner_principal_uuid is not None:
+        from engine.services._inventory_scope import inventory_scope_filter
+        from engine.services._range_authority import project_range_authority
+
+        if target.request is None:
+            raise ValueError("Range request unavailable")
+        scope = project_range_authority(target.request.request_id).scope
+        rows = rows.filter(inventory_scope_filter(scope))
+    else:
+        rows = rows.filter(scope_kind="")
+    rows = rows.order_by("provider", "source_name", "source_version")
     for row in rows:
         key = candidate_key(str(row.provider), str(row.source_name))
         projected.setdefault(key, []).append(_image_candidate_row(row))
@@ -243,7 +256,7 @@ def _raes_input_payload(target: Range, request: Request, *, suppress_access: boo
             model_enrollments=project_model_guest_bindings(target, pin) if not suppress_access else (),
             remote_access=None if suppress_access else _raes_remote_access(target),
         ),
-        image_candidates=_raes_image_candidates(plan),
+        image_candidates=_raes_image_candidates(plan, target),
         range_backend=_resolved_range_backend(target, request),
         instantiation_purpose=target.instantiation_purpose or None,
         identity=RaesRangeIdentity(target.id, str(target.resource_generation) if target.resource_generation else None),
@@ -270,6 +283,8 @@ def _activation_input_payload(target: Range, request: Request) -> dict[str, obje
     if gen is None:
         raise ValueError("activation requires a claimed warm generation for the request")
     claimant = target.user
+    if claimant is None:
+        raise ValueError("Warm activation requires a human claimant")
     purpose = target.instantiation_purpose or "live_fire"
     workspace_id = target.workspace_id
     if workspace_id is None:
@@ -343,3 +358,32 @@ def operation_input_payload(
     if isinstance(target, Range):
         return _range_operation_payload(target, resource, request, operation)
     return {"role": str(target.role), "os_type": str(target.os_type)}
+
+
+def materialize_operation_input(payload: dict[str, object], operation_id: UUID | str, target: Range | Instance) -> None:
+    """Persist input atomically with the incumbent intent and its authority hash."""
+    from engine.services._launch_authority import authority_envelope_fields
+    from engine.services._runtime_plugin_operations import queue_runtime_plugin_plans
+
+    request: Request | None = getattr(target, "request", None)
+    if request is None:
+        return
+    resource, operation = str(payload["resource"]), str(payload["operation"])
+    intent = ProvisionerLaunchIntent.objects.get(operation_id=operation_id)
+    envelope = build_operation_envelope(
+        operation_id=operation_id,
+        request_id=request.request_id,
+        resource=resource,
+        operation=operation,
+        payload=operation_input_payload(target, resource, request, operation=operation),
+        **authority_envelope_fields(intent),
+    )
+    OperationInput.objects.create(
+        operation_id=operation_id,
+        request_id=request.request_id,
+        resource=resource,
+        operation=operation,
+        contract_version=envelope["contract_version"],
+        envelope=envelope,
+    )
+    queue_runtime_plugin_plans(envelope)

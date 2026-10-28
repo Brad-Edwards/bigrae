@@ -107,7 +107,7 @@
       },
       {
         "id": "ADR-003-R2",
-        "description": "AWS Terraform plan routing must stay scoped to Terraform-consumed files, while Quality routing must run by exclusion for pull requests and dev pushes: a dedicated quality_relevant output runs Quality unless the diff is ordinary docs-only, and guardrail docs such as .github/pull_request_template.md, .github/copilot-instructions.md, docs/adr/**, and adr-enforcement.md must remain quality-relevant. Non-deploy support/test paths such as scripts/stack-smoke/** and scenario-dev/** must stay categorized through a dedicated quality_only filter/output without launching Terraform plans, image builds, or environment deploys. Commit-message or label-based test skips are not accepted. AWS deploy runs that can apply infrastructure must queue instead of cancelling an in-flight apply. Core, range, and platform Terraform plan and apply commands must wait for the backend state lock. Their apply jobs must create a local saved tfplan and apply that exact file instead of uploading raw binary plans as artifacts or running a fresh unplanned apply (the platform folds plan+apply into a single apply job; there is no separate plan job since the legacy ECS/EC2 rollout jobs were retired). Portal application changes must keep reaching the portal image build/deploy path through the dedicated portal_image filter wired into the shifter_platform job trigger and the platform build job's portal_image_changes input, without widening the Terraform-scoped plan trigger.",
+        "description": "AWS Terraform plan routing must stay scoped to Terraform-consumed files, while Quality routing must run by exclusion for pull requests and dev pushes: a dedicated quality_relevant output runs Quality unless the diff is ordinary docs-only, and guardrail docs such as .github/pull_request_template.md, .github/copilot-instructions.md, docs/adr/**, and adr-enforcement.md must remain quality-relevant. Non-deploy support/test paths such as scripts/stack-smoke/** and each development pack under shifter/environment-packs/ must stay categorized through a dedicated quality_only filter/output, while each pack copied by the portal Dockerfile routes to portal_image, without launching Terraform plans, image builds, or environment deploys. Commit-message or label-based test skips are not accepted. AWS deploy runs that can apply infrastructure must queue instead of cancelling an in-flight apply. Core, range, and platform Terraform plan and apply commands must wait for the backend state lock. Their apply jobs must create a local saved tfplan and apply that exact file instead of uploading raw binary plans as artifacts or running a fresh unplanned apply (the platform folds plan+apply into a single apply job; there is no separate plan job since the legacy ECS/EC2 rollout jobs were retired). Portal application changes must keep reaching the portal image build/deploy path through the dedicated portal_image filter wired into the shifter_platform job trigger and the platform build job's portal_image_changes input, without widening the Terraform-scoped plan trigger.",
         "checks": [
           "deploy-workflow-plan-scope"
         ]
@@ -119,7 +119,7 @@
       },
       {
         "id": "ADR-003-R6",
-        "description": "After successful dev portal deploy verification, provider-specific reusable deploy workflows may run an advisory post-deploy range smoke job (post-deploy-smoke) that executes the shared run_post_deploy_smoke manage command through the provider's bounded command transport. The job must remain dev-only (`inputs.is_dev` or the provider-equivalent dev-environment gate), continue-on-error so deploy success is not blocked, request `issues: write` only for failure issue creation, and declare SMOKE_* secrets on the reusable workflow. AWS runs `scripts/smoke-test.sh`, which execs the shared `run_post_deploy_smoke` manage command inside the live `portal-web` pod via `kubectl exec` on the EKS cluster (the AWS portal runtime is EKS; the legacy ECS/EC2 SSM+ASG transport was retired). GCP uses a short-lived Job rendered from the live digest-pinned portal template instead of streaming kubectl exec through Connect Gateway; the Job must retain the portal entrypoint, service account, access-pool placement and runtime configuration, avoid the portal Service selector, inject the smoke identity through a temporary Secret reference, and remove both Job and Secret on exit. The GCP migration Job idempotently registers the immutable shipped smoke seed through the uniform ingestion service before rollout using a fixed non-login system actor whose bounded identity fails closed on drift. The shared smoke readiness loop must return only on READY and fail immediately on every canonical terminal ResourceStatus while preserving request-id cleanup, rather than waiting for the provision timeout after FAILED or DESTROYED. Provider parity must reuse the shared smoke command/variant contract rather than forking smoke lifecycle logic by cloud.",
+        "description": "After successful dev portal deploy verification, provider-specific reusable deploy workflows may run an advisory post-deploy range smoke job (post-deploy-smoke) that executes the shared run_post_deploy_smoke manage command through the provider's bounded command transport. The job must remain dev-only (`inputs.is_dev` or the provider-equivalent dev-environment gate), continue-on-error so deploy success is not blocked, request `issues: write` only for failure issue creation, and declare SMOKE_* secrets on the reusable workflow. AWS runs `scripts/smoke-test.sh`, which execs the shared `run_post_deploy_smoke` manage command inside the live `portal-web` pod via `kubectl exec` on the EKS cluster (the AWS portal runtime is EKS; the legacy ECS/EC2 SSM+ASG transport was retired). GCP uses a short-lived Job rendered from the live digest-pinned portal template instead of streaming kubectl exec through Connect Gateway; the Job must retain the portal entrypoint, service account, access-pool placement and runtime configuration, avoid the portal Service selector, inject the smoke identity through a temporary Secret reference, and remove both Job and Secret on exit. The GCP migration Job idempotently registers the immutable shipped smoke seed through the uniform ingestion service before rollout using a fixed non-login system actor whose bounded identity fails closed on drift. The shared smoke readiness loop must return only on READY and fail immediately on every canonical terminal ResourceStatus while preserving request-id cleanup, rather than waiting for the provision timeout after FAILED or DESTROYED. Provider parity must reuse the shared smoke command/variant contract rather than forking smoke lifecycle logic by cloud. On GCP the smoke runs through `deploy.py gcp-smoke` (ADR-070), the same command that an operator runs; it starts `scripts/smoke-test-gcp.sh`. The CI post-deploy-smoke job calls it, requires SMOKE_TEST_USER_EMAIL, and keeps the failure issue. In an operator run the smoke is advisory. A failure returns exit status 3 after the deployment completes and opens no issue. An empty settings.post_deploy_smoke.user_email skips the smoke.",
         "checks": [
           "deploy-workflow-runner-exposure"
         ]
@@ -131,14 +131,15 @@
       },
       {
         "id": "ADR-003-R5",
-        "description": "Deploy workflows must keep pull_request events on GitHub-hosted PR validation only. Jobs that can reach self-hosted deploy runners, assume deploy roles, push ECR images, mutate infrastructure, or restart runtime services must be gated to trusted push/workflow_dispatch runs and bind a separate GitHub Environment name such as aws-dev, aws-prod, gcp-dev, or nazgul. GCP manual dispatches must route each allowlisted deployment name to the same-named Terraform root, protected deploy Environment, and self-hosted runner label so the workflow identity satisfies the environment-bound trust condition without borrowing another tenant's runner, while exact-release scanning binds its separate purpose-scoped gcp-release-scan-* Environment. GCP reusable jobs consume the external-inventory contract's non-secret GCP_WIF_PROVIDER and GCP_SERVICE_ACCOUNT Environment variables, with the legacy purpose-named secret inputs retained only as a compatibility fallback. Deploy preflight validates only credentials owned by the deploy Environment; the release-scan job validates its scanner identity after entering the separate scanner Environment. AWS ECR repositories are immutable; AWS deploy consumers use repo@sha256 image digests instead of mutable latest/short-SHA image identity. The deploy-workflow-runner-exposure check enforces the pull_request half by evaluating each reusable workflow's self-hosted job if-expression for a pull_request event and requiring it to fail closed (semantic evaluation, not substring matching).",
+        "description": "Deploy workflows must keep pull_request events on GitHub-hosted PR validation only. Jobs that can reach self-hosted deploy runners, assume deploy roles, push ECR images, mutate infrastructure, or restart runtime services must be gated to trusted push/workflow_dispatch runs and bind a separate GitHub Environment name such as aws-dev, aws-prod, gcp-dev, or nazgul. GCP manual dispatches must route each allowlisted deployment name to the same-named Terraform root, protected deploy Environment, and self-hosted runner label so the workflow identity satisfies the environment-bound trust condition without borrowing another tenant's runner, while exact-release scanning binds its separate purpose-scoped gcp-release-scan-* Environment. GCP reusable jobs consume the external-inventory contract's non-secret GCP_WIF_PROVIDER and GCP_SERVICE_ACCOUNT Environment variables, with the legacy purpose-named secret inputs retained only as a compatibility fallback. Deploy preflight validates only credentials owned by the deploy Environment; the release-scan job validates its scanner identity after entering the separate scanner Environment. AWS ECR repositories are immutable; AWS deploy consumers use repo@sha256 image digests instead of mutable latest/short-SHA image identity. The GCP release workflow (release-gcp.yml, ADR-070) runs on GitHub-hosted runners and binds the gcp-release Environment on each job that authenticates; the release-workflow-provenance check enforces both. The deploy-workflow-runner-exposure check enforces the pull_request half by evaluating each reusable workflow's self-hosted job if-expression for a pull_request event and requiring it to fail closed (semantic evaluation, not substring matching).",
         "checks": [
-          "deploy-workflow-runner-exposure"
+          "deploy-workflow-runner-exposure",
+          "release-workflow-provenance"
         ]
       },
       {
         "id": "ADR-003-R7",
-        "description": "SonarCloud scanner identity is repository deployment configuration, not shared source-analysis configuration. The SonarQube Cloud scan step in `.github/workflows/_quality.yml` consumes the project key and organization from the non-secret `SONAR_PROJECT_KEY` and `SONAR_ORGANIZATION` repository variables; `sonar-project.properties` retains shared sources, exclusions, report paths, suppressions, encoding, version, and file-header policy but no `sonar.projectKey`, `sonar.organization`, or `sonar.projectName`. The scan attempt is gated on the canonical `github.repository`, never on either variable being present, so missing or renamed variables fail the scanner loudly on `Brad-Edwards/shifter`. Runs under any other repository slug skip: SonarCloud is this project's tooling choice and is not imposed on anyone who cloned the repository. Fork-origin pull requests also skip, because they execute in the base repository's context (passing the identity test) but receive no secrets, and a scan that cannot be given `SONAR_TOKEN` would hand an outside contributor an unfixable red check; their code is analyzed on the `dev` run after merge. The existing `SONAR_TOKEN` reusable-workflow secret boundary, path/coverage routing, and action SHA pinning remain unchanged. Every canonical analysis that runs MUST set `sonar.qualitygate.wait=true`; scanner upload success without the terminal quality-gate verdict is not an accepted release result. Repository-variable activation and readback are part of the same delivery as the workflow change. The `.ground-control.yaml` `sonarcloud` block remains Ground Control integration metadata and is not a scanner runtime input or an alternative source for workflow arguments. Generated OpenAPI declarations follow the established generated-schema source-analysis exclusion, with any additional exact artifact recorded as an owned, time-bounded exception. Their DRF drift verification and TypeScript consumer checks remain mandatory; handwritten administration code retains all analysis gates.",
+        "description": "SonarCloud scanner identity is repository deployment configuration, not shared source-analysis configuration. The SonarQube Cloud scan step in `.github/workflows/_quality.yml` consumes the project key and organization from the non-secret `SONAR_PROJECT_KEY` and `SONAR_ORGANIZATION` repository variables; `sonar-project.properties` retains shared sources, exclusions, report paths, suppressions, encoding, version, and file-header policy but no `sonar.projectKey`, `sonar.organization`, or `sonar.projectName`. The scan attempt is gated on the immutable `github.repository_id` and `github.repository_owner_id` of the upstream repository, which equal `docs/adr/repository-identity.json` (ADR-069), never on either variable being present, so missing or renamed variables fail the scanner loudly in the upstream repository. Runs in any other repository skip: SonarCloud is this project's tooling choice and is not imposed on anyone who cloned the repository. Fork-origin pull requests also skip, because they execute in the base repository's context (passing the identity test) but receive no secrets, and a scan that cannot be given `SONAR_TOKEN` would hand an outside contributor an unfixable red check; their code is analyzed on the `dev` run after merge. The existing `SONAR_TOKEN` reusable-workflow secret boundary, path/coverage routing, and action SHA pinning remain unchanged. Every canonical analysis that runs MUST set `sonar.qualitygate.wait=true`; scanner upload success without the terminal quality-gate verdict is not an accepted release result. Repository-variable activation and readback are part of the same delivery as the workflow change. The `.ground-control.yaml` `sonarcloud` block remains Ground Control integration metadata and is not a scanner runtime input or an alternative source for workflow arguments. Generated OpenAPI declarations follow the established generated-schema source-analysis exclusion, with any additional exact artifact recorded as an owned, time-bounded exception. Their DRF drift verification and TypeScript consumer checks remain mandatory; handwritten administration code retains all analysis gates. Rename amendment (#2555): after the observed same-owner rename, canonical analysis admits only Brad-Edwards/bigrae with immutable repository ID 1241599684 and owner ID 56809295. The old slug, recreated slugs, other owners and fork-origin pull requests are denied. Current repository tooling, source labels, attestation checks and future-deployment examples use the new slug; historical links, published provenance and pinned pack records retain original coordinates. New public SDK/client coordinates ship legacy import aliases and deprecation distributions; Dependabot owns each package root, including both compatibility distributions.",
         "checks": []
       },
       {
@@ -197,7 +198,7 @@
       },
       {
         "id": "ADR-004-R5",
-        "description": "Kubernetes manifests are validated with kubeconform and linted with kube-linter on two tiers. Kustomize patch files use the .patch extension so directory-wide validators do not treat partial strategic-merge documents as standalone Deployments (no selector, no image, no securityContext). CI (.github/workflows/_quality.yml) runs `kustomize build` on every kustomization.yaml root under platform/k8s/ and runs both validators against the rendered output, which catches overlay-introduced regressions on the manifests that actually deploy.",
+        "description": "Kubernetes manifests are validated with kubeconform and linted with kube-linter on the rendered Helm chart. The chart (platform/charts/shifter) is the only Kubernetes renderer (ADR-007, ADR-070). CI (.github/workflows/_quality.yml) renders the chart with every supported values file (values.yaml, values-aws-dev.yaml, values-aws-prod.yaml, values-gcp-dev.yaml, values-gcp-prod.yaml). The k8s-schema job runs kubeconform -strict with the default Kubernetes schemas and a CRD catalog pinned to one commit for the GKE custom resources. The chart-lint-security job runs helm lint and kube-linter on the same renders. Both catch regressions in the manifests that actually deploy.",
         "checks": []
       },
       {
@@ -214,14 +215,14 @@
       },
       {
         "id": "ADR-004-R8",
-        "description": "Generated and pre-staging sensitive artifacts must not be tracked in source: Terraform plan outputs under AWS/GCP environment roots, scenario build output under scenario-dev/<pack>/build/, operator provisioning state and status/health reports under scripts/, and license/authcode bootstrap material under temp/bootstrap/. Detection uses generic layout and artifact names, never private scenario identities. The guardrail fails closed and emits repo-relative paths only, never contents.",
+        "description": "Generated and pre-staging sensitive artifacts must not be tracked in source: Terraform plan outputs under AWS/GCP environment roots, environment-pack build output under shifter/environment-packs/<pack>/build/, operator provisioning state and status/health reports under scripts/, and license/authcode bootstrap material under temp/bootstrap/. Detection uses generic layout and artifact names, never private scenario identities. The guardrail fails closed and emits repo-relative paths only, never contents.",
         "checks": [
           "no-tracked-generated-artifacts"
         ]
       },
       {
         "id": "ADR-004-R9",
-        "description": "Tracked *-secrets.env files under platform/k8s/ must contain only comments, blank lines, empty assignments (KEY=), or a small fixed synthetic-placeholder allowlist (REPLACE_AT_DEPLOY, CHANGE_ME, PLACEHOLDER, EXAMPLE, plus the matching bracketed forms <replace-at-deploy>, <change-me>, <placeholder>, <example>). The bracketed forms are an explicit fixed set, NOT a <...> pattern, to prevent hiding a real credential as <attacker-known-password>. Real runtime secrets must flow in at deploy time from GCP Secret Manager, a gitignored local env file, or a deploy-time Kubernetes Secret. Containment uses git ls-files so gitignored local-dev files (e.g. *.local.env) are intentionally not scanned. The parser splits on the first '=' so non-identifier key shapes (db.password=..., api-token=..., export DB_PASSWORD=...) still flow through the value check. Inline '# comment' is NOT honored (Kustomize env_file format treats '#' as a comment only at the start of a line). Non-comment lines without '=' are flagged as malformed. The blocked condition is centralized in scripts/adr_guard/adr_guard.py; violation messages name the repo-relative path and the variable name only, never the rejected value. Backstops gitleaks for low-entropy committed credentials it ignores and prevents reintroduction of the failure mode resolved by #1207 / #1195.",
+        "description": "Tracked *-secrets.env files under platform/ must contain only comments, blank lines, empty assignments (KEY=), or a small fixed synthetic-placeholder allowlist (REPLACE_AT_DEPLOY, CHANGE_ME, PLACEHOLDER, EXAMPLE, plus the matching bracketed forms <replace-at-deploy>, <change-me>, <placeholder>, <example>). The bracketed forms are an explicit fixed set, NOT a <...> pattern, to prevent hiding a real credential as <attacker-known-password>. Real runtime secrets must flow in at deploy time from GCP Secret Manager, a gitignored local env file, or a deploy-time Kubernetes Secret. Containment uses git ls-files so gitignored local-dev files (e.g. *.local.env) are intentionally not scanned. The parser splits on the first '=' so non-identifier key shapes (db.password=..., api-token=..., export DB_PASSWORD=...) still flow through the value check. Inline '# comment' is NOT honored (the env-file format treats '#' as a comment only at the start of a line). Non-comment lines without '=' are flagged as malformed. The blocked condition is centralized in scripts/adr_guard/adr_guard.py; violation messages name the repo-relative path and the variable name only, never the rejected value. Backstops gitleaks for low-entropy committed credentials it ignores and prevents reintroduction of the failure mode resolved by #1207 / #1195.",
         "checks": [
           "no-populated-secret-env-files"
         ]
@@ -233,7 +234,7 @@
       },
       {
         "id": "ADR-004-R11",
-        "description": "Checkov is a blocking gate for first-party Terraform under `platform/terraform/`. The GitHub Actions security-iac job (`.github/workflows/_quality.yml`) consumes the canonical config at `platform/terraform/.checkov.yaml` with external module loading and soft_fail=false. The local Checkov hook is optional to keep commits fast; if installed, it must use the same config, directory and blocking policy. CI invocation validation remains mandatory. Accepted-risk waivers (Checkov `skip-check` entries in `.checkov.yaml` or inline `# checkov:skip=CKV_X:...` comments on individual resources) MUST have a matching entry in `docs/adr/exceptions.yaml` with `rule_id: ADR-004-R11`, owner, reason (containing the Checkov policy ID), `expires_on`, and the affected `paths`. `adr_guard.py` rejects expired exceptions, forcing owner re-review. GCP waivers MUST be placed inline on the exact Terraform resource; global `CKV_GCP_*` and `CKV2_GCP_*` skip lists are prohibited because they hide unrelated future resources. Terraform Checkov policy and Kubernetes Checkov policy are separate surfaces: the `security-k8s` job intentionally remains `soft_fail: true` while manifest hardening proceeds under a separate issue, and Kubernetes soft-fail debt does NOT justify Terraform soft-fail. If non-GCP rule-level policy grows beyond a flat skip list, centralize it in `platform/terraform/.checkov.yaml` only \u2014 do NOT duplicate skip semantics across pre-commit args and workflow inputs.",
+        "description": "Checkov is a blocking gate for first-party Terraform under `platform/terraform/`. The GitHub Actions security-iac job (`.github/workflows/_quality.yml`) consumes the canonical config at `platform/terraform/.checkov.yaml` with external module loading and soft_fail=false. The local Checkov hook is optional to keep commits fast; if installed, it must use the same config, directory and blocking policy. CI invocation validation remains mandatory. Accepted-risk waivers (Checkov `skip-check` entries in `.checkov.yaml` or inline `# checkov:skip=CKV_X:...` comments on individual resources) MUST have a matching entry in `docs/adr/exceptions.yaml` with `rule_id: ADR-004-R11`, owner, reason (containing the Checkov policy ID), `expires_on`, and the affected `paths`. `adr_guard.py` rejects expired exceptions, forcing owner re-review. GCP waivers MUST be placed inline on the exact Terraform resource; global `CKV_GCP_*` and `CKV2_GCP_*` skip lists are prohibited because they hide unrelated future resources. Terraform Checkov policy and Kubernetes Checkov policy are separate surfaces: the `security-k8s` job is a blocking gate since #2558 (`soft_fail: false`, no `continue-on-error`), with accepted-risk waivers recorded as resource `checkov.io/skipN` annotations plus matching `docs/adr/exceptions.yaml` entries; a Kubernetes waiver does NOT justify a Terraform waiver. Since #2571 the security-k8s job scans the rendered Helm chart for every supported values file, because the chart is the only Kubernetes renderer (ADR-007). Making the Trivy configuration scan blocking is tracked in #2566. If non-GCP rule-level policy grows beyond a flat skip list, centralize it in `platform/terraform/.checkov.yaml` only \u2014 do NOT duplicate skip semantics across pre-commit args and workflow inputs. Rename amendment (#2555): CI loads a narrow immutable-subject syntax adapter through the pinned Checkov external-check hook. It requires package 3.2.494 from the existing action image tag 3.2.495 and the known vendor repository grammar; incompatible initialization stops the scanner. Only repository syntax is extended. All CKV_GCP_125 policy decisions remain active, with native positive/negative and fatal-drift probes in the same digest-pinned image. CI invocation parity requires the adapter path. No rule skip or soft-fail exception is added.",
         "checks": []
       },
       {
@@ -248,7 +249,7 @@
       },
       {
         "id": "ADR-004-R14",
-        "description": "Tracked files MUST NOT contain live AWS infrastructure identifiers: 12-digit AWS account IDs, VPC IDs (`vpc-<hex>`), subnet IDs (`subnet-<hex>`), or Shifter S3 bucket names that are account-ID-suffixed (`shifter-...-<12 digits>`) or UUID-suffixed infra/state buckets (`shifter-[dev-]infra-<uuid>`); and, in IaC files (`.tf`/`.tfvars`/`.hcl`) only, globally-routable public IPv4 addresses in code (comments excluded), which are almost always an operator/participant allow-CIDR \u2014 a home/office IP, i.e. PII. Public-IP detection uses `ipaddress.is_global`, so private (RFC1918), loopback, link-local, CGNAT, and documentation (RFC5737: 192.0.2/198.51.100/203.0.113) ranges pass; a small in-code allowlist covers well-known public infra constants (Google/Cloudflare public DNS; GCP load-balancer health-check, IAP, and googleapis VIP ranges). These are low-entropy but reconnaissance-sensitive in a public repo and are not caught by gitleaks (which targets high-entropy secrets); this is the complementary backstop. Detection is by pattern in the centralized `no-live-cloud-identifiers` check in `scripts/adr_guard/adr_guard.py`, never by a denylist of real values. The allowlist is a small fixed set of 12-digit runs that are not Shifter accounts: AWS documentation example account IDs (123456789012, 111122223333), the all-zero placeholder, and public AMI-publisher account IDs (Canonical 099720109477, Debian 136693071363, OffSec/Kali 679593333241). Placeholder and example forms (`vpc-xxxxxxxx`, `<your-account-id>`) are not matched because the patterns require hex / 12 literal digits, so there is no universal `<...>` wildcard a real value can hide behind. Real values that MUST stay committed are cleared via scoped `docs/adr/exceptions.yaml` entries with `rule_id: ADR-004-R14`, owner, reason, `expires_on`, and `paths`: vendor connector templates under `platform/cloudformation/` (Prisma Cloud account IDs must be exact), S3 backend/state buckets read directly by `terraform init` (`*.s3.tfbackend`, the remote-state data sources in `platform/terraform/environments/*/portal/main.tf`, and the operational state-bucket map in `mcp/ops/index.js`), and synthetic 12-digit PAN firewall serial-number fixtures in `shifter/engine/provisioner/tests/test_main.py`. `.lock` files and binary assets are skipped. Violation messages name the repo-relative path, line, and identifier kind only \u2014 never the value. Dependency lock files and binary assets are not scanned. The check runs at the `fast` and `ci` levels and is wired into `.github/workflows/_quality.yml` as a blocking CI guard. Closes the #911 SEC-2 / NET-10 / DP-7 identifier-strip gap and blocks reintroduction.",
+        "description": "Tracked files MUST NOT contain live AWS infrastructure identifiers: 12-digit AWS account IDs, VPC IDs (`vpc-<hex>`), subnet IDs (`subnet-<hex>`), or Shifter S3 bucket names that are account-ID-suffixed (`shifter-...-<12 digits>`) or UUID-suffixed infra/state buckets (`shifter-[dev-]infra-<uuid>`); and, in IaC files (`.tf`/`.tfvars`/`.hcl`) only, globally-routable public IPv4 addresses in code (comments excluded), which are almost always an operator/participant allow-CIDR \u2014 a home/office IP, i.e. PII. Public-IP detection uses `ipaddress.is_global`, so private (RFC1918), loopback, link-local, CGNAT, and documentation (RFC5737: 192.0.2/198.51.100/203.0.113) ranges pass; a small in-code allowlist covers well-known public infra constants (Google/Cloudflare public DNS; GCP load-balancer health-check, IAP, and googleapis VIP ranges). These are low-entropy but reconnaissance-sensitive in a public repo and are not caught by gitleaks (which targets high-entropy secrets); this is the complementary backstop. Detection is by pattern in the centralized `no-live-cloud-identifiers` check in `scripts/adr_guard/adr_guard.py`, never by a denylist of real values. The allowlist is a small fixed set of 12-digit runs that are not Shifter accounts: AWS documentation example account IDs (123456789012, 111122223333), the all-zero placeholder, and public AMI-publisher account IDs (Canonical 099720109477, Debian 136693071363, OffSec/Kali 679593333241). Placeholder and example forms (`vpc-xxxxxxxx`, `<your-account-id>`) are not matched because the patterns require hex / 12 literal digits, so there is no universal `<...>` wildcard a real value can hide behind. Real values that MUST stay committed are cleared via scoped `docs/adr/exceptions.yaml` entries with `rule_id: ADR-004-R14`, owner, reason, `expires_on`, and `paths`: S3 backend/state buckets read directly by `terraform init` (`*.s3.tfbackend`, the remote-state data sources in `platform/terraform/environments/*/portal/main.tf`, and the operational state-bucket map in `mcp/ops/index.js`), and synthetic 12-digit PAN firewall serial-number fixtures in `shifter/engine/provisioner/tests/test_main.py`. `.lock` files and binary assets are skipped. Violation messages name the repo-relative path, line, and identifier kind only \u2014 never the value. Dependency lock files and binary assets are not scanned. The check runs at the `fast` and `ci` levels and is wired into `.github/workflows/_quality.yml` as a blocking CI guard. Closes the #911 SEC-2 / NET-10 / DP-7 identifier-strip gap and blocks reintroduction.",
         "checks": [
           "no-live-cloud-identifiers"
         ]
@@ -263,7 +264,7 @@
       },
       {
         "id": "ADR-004-R16",
-        "description": "Mission Control runtime code MUST NOT contain hardcoded CTF challenge flag literals. The `no-mission-control-flag-literals` check in `scripts/adr_guard/adr_guard.py` scans the `shifter/shifter_platform/mission_control/` package (all runtime; its tests live under `shifter/shifter_platform/tests/mission_control/`, outside scope) and the `shifter/shifter_platform/templates/mission_control/` template tree (covering inline `<script>` JavaScript) for answer-shaped `FLAG{...}` literals (case-insensitive). Detection is by pattern, never by a denylist of real values. Format-hint placeholders that describe the answer shape rather than carry one are intentionally NOT flagged: an empty body (`FLAG{}`), the ellipsis form (`FLAG{...}`), and angle-bracket templates (`FLAG{<16-hex>}`). The path scope deliberately excludes tests, docs, the native `ctf` app (`CTFChallenge`/`CTFFlag` and `ctf.services`/templates, where `FLAG{...}` is a documented format hint), and synthetic scenario fixtures under `scenario-dev/`, where flags are legitimate challenge content. Challenge answers belong to the CTF/CTFd content domain, not the Mission Control application path. CTF flags are low-entropy and are not caught by gitleaks (which targets high-entropy secrets); this is the complementary repo-specific backstop. Violation messages name the repo-relative path and line only \u2014 never the matched value. The check runs at the `fast` and `ci` levels via the existing `python3 scripts/adr_guard/adr_guard.py --all --level ci` invocation in pre-commit and `.github/workflows/_quality.yml`. Closes the #560 regression gap (the `box_info` literal-flag map removed during the mission_control views package split) and blocks reintroduction.",
+        "description": "Mission Control runtime code MUST NOT contain hardcoded CTF challenge flag literals. The `no-mission-control-flag-literals` check in `scripts/adr_guard/adr_guard.py` scans the `shifter/shifter_platform/mission_control/` package (all runtime; its tests live under `shifter/shifter_platform/tests/mission_control/`, outside scope) and the `shifter/shifter_platform/templates/mission_control/` template tree (covering inline `<script>` JavaScript) for answer-shaped `FLAG{...}` literals (case-insensitive). Detection is by pattern, never by a denylist of real values. Format-hint placeholders that describe the answer shape rather than carry one are intentionally NOT flagged: an empty body (`FLAG{}`), the ellipsis form (`FLAG{...}`), and angle-bracket templates (`FLAG{<16-hex>}`). The path scope deliberately excludes tests, docs, the native `ctf` app (`CTFChallenge`/`CTFFlag` and `ctf.services`/templates, where `FLAG{...}` is a documented format hint), and environment packs under `shifter/environment-packs/`, where flags are legitimate challenge content. Challenge answers belong to the CTF/CTFd content domain, not the Mission Control application path. CTF flags are low-entropy and are not caught by gitleaks (which targets high-entropy secrets); this is the complementary repo-specific backstop. Violation messages name the repo-relative path and line only \u2014 never the matched value. The check runs at the `fast` and `ci` levels via the existing `python3 scripts/adr_guard/adr_guard.py --all --level ci` invocation in pre-commit and `.github/workflows/_quality.yml`. Closes the #560 regression gap (the `box_info` literal-flag map removed during the mission_control views package split) and blocks reintroduction.",
         "checks": [
           "no-mission-control-flag-literals"
         ]
@@ -295,17 +296,19 @@
       },
       {
         "id": "ADR-004-R22",
-        "description": "The packer.yml base-image `build` job MUST assume a dedicated least-privilege image-pipeline role (`aws_iam_role.github_actions_image` in `platform/terraform/global/iam/github-oidc.tf`), never the broad `github_actions` deploy role: the deploy role legitimately passes portal EC2, ECS, Lambda, RDS-monitoring, and every range role to AWS services, so it cannot simultaneously prove that a base-image verification instance may receive ONLY the range instance role. This dedicated principal IS the IAM boundary the workflow's inline `dev|main` ref gate is not (a feature-branch copy of the workflow could weaken that gate before it runs). Its OIDC `assume_role_policy` MUST pin the trust `sub` to the EXACT protected-branch subjects (`repo:${var.github_org}/${var.github_repo}:ref:refs/heads/dev` and `.../main`), never a `repo:...:*` wildcard, so a pull-request or feature-branch subject receives no AWS role. Its inline policy (`aws_iam_role_policy.image_pipeline`) MUST scope `iam:PassRole` to EXACTLY `role/shifter-${var.environment}-range-range-instance` with an `iam:PassedToService = ec2.amazonaws.com` condition - never `shifter-*`, `*-range-instance`, `role/*`, role tags, or profile-name validation (AWS warns role tags are not a PassRole boundary) - so the fresh-boot verifier can launch a range-profile instance while the role cannot exfiltrate a more-privileged profile. EC2 is scoped by action to the amazon-ebs builder + verifier + `always()` cleanup set (never `ec2:*`); SSM is the verifier (`DescribeInstanceInformation` / `SendCommand` / `GetCommandInvocation`) plus publication of the `/shifter/ami/*` base pointers only. No IAM mutation, Secrets Manager, arbitrary Parameter Store, or scenario-artifact access is granted, and `bake-scenario` MUST NOT use this base-image role; its separate principal/trust boundary is governed by ADR-004-R23. The exact-subject and exact-range-role invariants are enforced by `scripts/check_tf_iam_role_naming/check_tf_iam_role_naming.py` (`check_github_oidc_image_role_trust`, `check_github_oidc_image_passrole_scope`), enforced by the matching `_quality.yml` CI step, with its unittest suite included in the `check_tf_*` checker tests; the checks no-op when the role is absent so deploy-only fixtures are unaffected. The role ARN is published as the `github_actions_image_role_arn` global-IAM output and wired to the `AWS_IMAGE_ROLE_ARN_<ENV>` GitHub secret; the actual global-IAM `terraform apply` + secret creation + OIDC-subject verification is a post-merge operator cutover, not part of the implementation PR. Binding design note: `docs/architecture/packer-base-build-privilege-boundary-preflight-1656.md`. Established by #1656.",
+        "description": "The packer.yml base-image `build` job MUST assume a dedicated least-privilege image-pipeline role (`aws_iam_role.github_actions_image` in `platform/terraform/global/iam/github-oidc.tf`), never the broad `github_actions` deploy role: the deploy role legitimately passes portal EC2, ECS, Lambda, RDS-monitoring, and every range role to AWS services, so it cannot simultaneously prove that a base-image verification instance may receive ONLY the range instance role. This dedicated principal IS the IAM boundary the workflow's inline `dev|main` ref gate is not (a feature-branch copy of the workflow could weaken that gate before it runs). Its OIDC `assume_role_policy` MUST pin the trust `sub` to the EXACT protected-branch subjects (`repo:${var.github_org}/${var.github_repo}:ref:refs/heads/dev` and `.../main`), never a `repo:...:*` wildcard, so a pull-request or feature-branch subject receives no AWS role. Its inline policy (`aws_iam_role_policy.image_pipeline`) MUST scope `iam:PassRole` to EXACTLY `role/shifter-${var.environment}-range-range-instance` with an `iam:PassedToService = ec2.amazonaws.com` condition - never `shifter-*`, `*-range-instance`, `role/*`, role tags, or profile-name validation (AWS warns role tags are not a PassRole boundary) - so the fresh-boot verifier can launch a range-profile instance while the role cannot exfiltrate a more-privileged profile. EC2 is scoped by action to the amazon-ebs builder + verifier + `always()` cleanup set (never `ec2:*`); SSM is the verifier (`DescribeInstanceInformation` / `SendCommand` / `GetCommandInvocation`) plus publication of the `/shifter/ami/*` base pointers only. No IAM mutation, Secrets Manager, arbitrary Parameter Store, or scenario-artifact access is granted, and `bake-scenario` MUST NOT use this base-image role; its separate principal/trust boundary is governed by ADR-004-R23. The exact-subject and exact-range-role invariants are enforced by `scripts/check_tf_iam_role_naming/check_tf_iam_role_naming.py` (`check_github_oidc_image_role_trust`, `check_github_oidc_image_passrole_scope`), enforced by the matching `_quality.yml` CI step, with its unittest suite included in the `check_tf_*` checker tests; the checks no-op when the role is absent so deploy-only fixtures are unaffected. The role ARN is published as the `github_actions_image_role_arn` global-IAM output and wired to the `AWS_IMAGE_ROLE_ARN_<ENV>` GitHub secret; the actual global-IAM `terraform apply` + secret creation + OIDC-subject verification is a post-merge operator cutover, not part of the implementation PR. Binding design note: `docs/architecture/packer-base-build-privilege-boundary-preflight-1656.md`. Established by #1656. Rename amendment (#2555): the legacy literal subjects may use the reviewed github_subject_prefix expression, which selects exactly one legacy or immutable owner/repository-ID format. The guard reuses its HCL assignment reader to require only the exact dev/main pair, validates the prefix expression and rejects extra or wildcard subjects. Native AWS tests independently verify the rendered trust with synthetic identities. Under the user decision that no deployments exist, this source repair requires no cloud apply or live migration.",
         "checks": []
       },
       {
         "id": "ADR-004-R23",
-        "description": "Credentialed `workflow_dispatch` jobs MUST establish reviewed-code provenance at the external cloud trust boundary before dispatched workflow code can obtain an identity. After verifying the repository's live default GitHub OIDC subject contract (`use_default: true`, `use_immutable_subject: false`), the general AWS deploy role in `platform/terraform/global/iam/github-oidc.tf` MUST trust only the exact protected-branch subjects needed by non-Environment callers and the exact environment-derived subjects needed by Environment-bound callers; `repo:${var.github_org}/${var.github_repo}:*` is forbidden. Every trusted GitHub Environment MUST restrict deployment branches to the protected branches because an Environment `sub` does not contain the source ref. GCP WIF used by deploy/image workflows MUST require the exact repository, an exact protected `assertion.ref`, and exact allowed `assertion.sub` values, and each service-account binding MUST name exact subject principals rather than a repository-wide `principalSet` binding; the CKV_GCP_125 repository-scope waiver is not permitted. Credentialed logic MUST execute from the authorized event commit (`github.sha`) or another immutable protected commit, never a caller-selected or re-resolved mutable ref. The GCP build, validate, promote, release-scan, deploy, and destroy capabilities use purpose-specific least-privilege identities instead of inheriting the shared build/deploy identity; the release scanner has repository-scoped read only and no deployment/runtime-secret authority. Deploy and destroy MUST NOT receive project-wide Compute Admin, instance/image administration, Storage Admin, Editor, or Owner roles: platform compute lifecycle uses network/security administration roles, while object and bucket lifecycle permissions are condition-bound to the deterministic platform-owned bucket names and exclude the release-evidence bucket. Under the default GitHub OIDC subject format, purposes that currently share an Environment also share the same `sub`; they MUST move to pairwise-distinct, purpose-scoped Environment subjects before separate service accounts can be claimed as an authorization boundary. Evidence bucket IAM MUST also preserve producer separation with object-prefix conditions: build creates immutable build-source records, validation reads only those records and creates validation records, release-scan and deploy create only their own evidence classes, and promotion reads only validation records. A bare mutable image label is not authoritative build or promotion evidence: the build producer binds the protected source revision to the server-assigned numeric image ID in immutable private evidence, validation requires that record to match its own protected revision and the exact candidate, and promotion binds the exact candidate to the successful protected validation run, revision, run attempt, and exact immutable private evidence objects. Promotion MUST fetch the exact redacted verdict artifact ID named on the candidate, verify its expected name, non-expired state, and originating successful protected run, and verify its opaque digest binds the candidate project/name/numeric ID/family/type/revision to the full private-evidence digest; possession of a platform GCP credential alone cannot mint this GitHub artifact. Missing, ambiguous, old-schema, malformed, or mismatched evidence fails closed. Raw build, scan, running-image, validation, and guest-SBOM records MUST stay in access-controlled retained storage; public Actions artifacts may expose only a redacted verdict, source revision, opaque locator, private-evidence digest, and opaque candidate-binding digest. The prod copy MUST remain outside the image family until READY state and provider-reported source image ID have been verified, so a failed verification cannot advance the deployment channel. Implementation MUST extend the existing AWS IAM checker for the general role and the focused GCP WIF semantic guard, with positive/negative tests and CI guard/source parity; workflow tests MUST inventory every credentialed caller, including shared-provider callers and `_gcp-dev`'s post-deploy authentication job. Live OIDC/IAM/WIF and GitHub Environment policy activation is a documented post-merge operator cutover with readback, not an effect of merging Terraform. Binding design notes: `docs/architecture/credentialed-workflow-dispatch-trust-preflight-1690.md` and `docs/architecture/gcp-ci-purpose-identities-promotion-integrity-preflight-1699.md`. Established by the architecture preflights for #1690 and #1699. For external deployment inventory (common contract owned by the deployment-inventory design), deployment IDs are data and purpose capabilities remain closed product policy. The same validated purpose mapping must drive exact repository/environment/ref/workflow trust tuples and disjoint service-account bindings; generic rendering must retain blocking CKV_GCP_125 coverage tied to the applied configuration, without tenant-name branches or a waiver. Bootstrap uses explicit initial operator authority and separate foundation/deployment state ownership; migration preserves existing resource ownership and removes obsolete trust. The common contract is implemented alongside the installation contract; the source guard enforces the generic template, and bootstrap checks resolved saved-plan trust, requires pinned CKV_GCP_125 coverage, applies only unchanged plan bytes and reads installed policies back. Numeric repository/owner IDs and exact workflow tuples are mandatory. External inventory explicitly selects legacy or immutable default subject syntax; bootstrap reads back the exact prefix and derives immutable subjects from the reviewed numeric IDs. The bootstrap Checkov adapter extends only the pinned CKV_GCP_125 repository parser for immutable syntax, rejects unexpected versions/parser patterns and preserves blocking evaluation; independent resolved-plan and installed-policy verification remain mandatory. Each deployment uses one project for application resources, runners and automation identities. Deploy and destroy retain trusted project-administration authority; exact WIF login restrictions do not isolate an authorized project administrator. Distinct bucket ownership scopes direct state grants. Optional two-project topology is deferred by explicit operator direction. Native Terraform tests are registered in the validation inventory. Live cutover evidence remains deployment-specific and is not implied by local tests.",
-        "checks": []
+        "description": "Credentialed `workflow_dispatch` jobs MUST establish reviewed-code provenance at the external cloud trust boundary before dispatched workflow code can obtain an identity. After verifying the repository's live default GitHub OIDC subject contract (`use_default: true`, `use_immutable_subject: false`), the general AWS deploy role in `platform/terraform/global/iam/github-oidc.tf` MUST trust only the exact protected-branch subjects needed by non-Environment callers and the exact environment-derived subjects needed by Environment-bound callers; `repo:${var.github_org}/${var.github_repo}:*` is forbidden. Every trusted GitHub Environment MUST restrict deployment branches to the protected branches because an Environment `sub` does not contain the source ref. GCP WIF used by deploy/image workflows MUST require the exact repository, an exact protected `assertion.ref`, and exact allowed `assertion.sub` values, and each service-account binding MUST name exact subject principals rather than a repository-wide `principalSet` binding; the CKV_GCP_125 repository-scope waiver is not permitted. Credentialed logic MUST execute from the authorized event commit (`github.sha`) or another immutable protected commit, never a caller-selected or re-resolved mutable ref. The GCP build, validate, promote, release-scan, deploy, and destroy capabilities use purpose-specific least-privilege identities instead of inheriting the shared build/deploy identity; the release scanner has repository-scoped read only and no deployment/runtime-secret authority. Deploy and destroy MUST NOT receive project-wide Compute Admin, instance/image administration, Storage Admin, Editor, or Owner roles: platform compute lifecycle uses network/security administration roles, while object and bucket lifecycle permissions are condition-bound to the deterministic platform-owned bucket names and exclude the release-evidence bucket. Under the default GitHub OIDC subject format, purposes that currently share an Environment also share the same `sub`; they MUST move to pairwise-distinct, purpose-scoped Environment subjects before separate service accounts can be claimed as an authorization boundary. Evidence bucket IAM MUST also preserve producer separation with object-prefix conditions: build creates immutable build-source records, validation reads only those records and creates validation records, release-scan and deploy create only their own evidence classes, and promotion reads only validation records. A bare mutable image label is not authoritative build or promotion evidence: the build producer binds the protected source revision to the server-assigned numeric image ID in immutable private evidence, validation requires that record to match its own protected revision and the exact candidate, and promotion binds the exact candidate to the successful protected validation run, revision, run attempt, and exact immutable private evidence objects. Promotion MUST fetch the exact redacted verdict artifact ID named on the candidate, verify its expected name, non-expired state, and originating successful protected run, and verify its opaque digest binds the candidate project/name/numeric ID/family/type/revision to the full private-evidence digest; possession of a platform GCP credential alone cannot mint this GitHub artifact. Missing, ambiguous, old-schema, malformed, or mismatched evidence fails closed. Raw build, scan, running-image, validation, and guest-SBOM records MUST stay in access-controlled retained storage; public Actions artifacts may expose only a redacted verdict, source revision, opaque locator, private-evidence digest, and opaque candidate-binding digest. The prod copy MUST remain outside the image family until READY state and provider-reported source image ID have been verified, so a failed verification cannot advance the deployment channel. Implementation MUST extend the existing AWS IAM checker for the general role and the focused GCP WIF semantic guard, with positive/negative tests and CI guard/source parity; workflow tests MUST inventory every credentialed caller, including shared-provider callers and `_gcp-dev`'s post-deploy authentication job. Live OIDC/IAM/WIF and GitHub Environment policy activation is a documented post-merge operator cutover with readback, not an effect of merging Terraform. Binding design notes: `docs/architecture/credentialed-workflow-dispatch-trust-preflight-1690.md` and `docs/architecture/gcp-ci-purpose-identities-promotion-integrity-preflight-1699.md`. Established by the architecture preflights for #1690 and #1699. For external deployment inventory (common contract owned by the deployment-inventory design), deployment IDs are data and purpose capabilities remain closed product policy. The same validated purpose mapping must drive exact repository/environment/ref/workflow trust tuples and disjoint service-account bindings; generic rendering must retain blocking CKV_GCP_125 coverage tied to the applied configuration, without tenant-name branches or a waiver. Bootstrap uses explicit initial operator authority and separate foundation/deployment state ownership; migration preserves existing resource ownership and removes obsolete trust. The common contract is implemented alongside the installation contract; the source guard enforces the generic template, and bootstrap checks resolved saved-plan trust, requires pinned CKV_GCP_125 coverage, applies only unchanged plan bytes and reads installed policies back. Numeric repository/owner IDs and exact workflow tuples are mandatory. External inventory explicitly selects legacy or immutable default subject syntax; bootstrap reads back the exact prefix and derives immutable subjects from the reviewed numeric IDs. The bootstrap Checkov adapter extends only the pinned CKV_GCP_125 repository parser for immutable syntax, rejects unexpected versions/parser patterns and preserves blocking evaluation; independent resolved-plan and installed-policy verification remain mandatory. Each deployment uses one project for application resources, runners and automation identities. Deploy and destroy retain trusted project-administration authority; exact WIF login restrictions do not isolate an authorized project administrator. Distinct bucket ownership scopes direct state grants. Optional two-project topology is deferred by explicit operator direction. Native Terraform tests are registered in the validation inventory. Live cutover evidence remains deployment-specific and is not implied by local tests. GitHub-less amendment (#2571, ADR-070): the GCP purpose identities are reachable through exact WIF subjects, through service-account impersonation by named principals, or both. The cicd-oidc-identity module creates the WIF pool and provider only when purpose_contexts is not empty. github_repository_id, github_owner_id, and purpose_contexts have no Terraform default. A deployment without federation sets {} and empty IDs explicitly. Validation admits empty IDs only without federation. impersonation_principals admits only the release_scan, deploy, and destroy purposes and only user:, group:, or serviceAccount: members. Each named principal receives roles/iam.serviceAccountTokenCreator only on the identity of its own purpose, through the single impersonation resource; no key exists. The release purpose federates only release-gcp.yml on refs/heads/main, holds no project-wide role, and receives write access only on the release repository from the release-registry root. The release workflow starts only through workflow_dispatch and binds the gcp-release Environment (release-workflow-provenance check). The optional deployment config bucket holds the deployment input bundle. The deploy and destroy identities read it, and they create and delete only objects under locks/. Deploy principals publish the bundle, and destroy-only principals read it. Its usage logs go to the release-evidence bucket under one prefix. The Cloud Storage usage-log writer can create objects only under that prefix. scripts/check_tf_gcp_wif_trust enforces the closed impersonation grant, the no-default anchors, and the release purpose. Its resolved-plan verifier requires no WIF provider when no federated subject exists, and exactly one provider otherwise. It also requires the token-creator grants to equal the named principals. Native tests: platform/terraform/gcp/global/cicd-oidc/github_less.tftest.hcl and platform/terraform/gcp/global/release-registry/tests/registry.tftest.hcl.",
+        "checks": [
+          "release-workflow-provenance"
+        ]
       },
       {
         "id": "ADR-004-R24",
-        "description": "Production-path quality ownership is a single versioned, machine-readable contract at `.github/quality-path-filters.yaml` (schema parsed by `scripts/quality_ownership/contract.py`), enforced fail-closed. The always-run `paths` job in `.github/workflows/_quality.yml` invokes `scripts/quality_ownership/classify_paths.py`, which validates the contract and REJECTS any changed path that is neither a declared quality unit nor a typed exclusion BEFORE emitting any job-selection output, so an unowned path can no longer skip the checks designed to gate it. Deleted paths are excluded from classification (git `--diff-filter=d`): a removed file exists at neither HEAD nor the tracked estate, owns no quality job, and MUST NOT require a classifier entry that the estate-staleness invariant below would then reject (#1776). The `quality-path-ownership` adr_guard check (this rule) reconciles the contract against the whole repository and enforces three invariants: (1) estate completeness - every git-tracked path is a production owner or a narrow typed exclusion (closed enum: docs/test/generated/vendor/metadata/config; no catch-all, no unowned remainder); (2) ownership completeness - every production PATH is covered, across the union of its matching units, by a BLOCKING lint AND security AND test job (an advisory / `continue-on-error` / always-run / missing job never satisfies a responsibility), and unit `packages` reconcile both directions against the #1523 first-party classification in `scripts/check_layer_imports/layer_imports.yaml`; (3) routing reachability - a representative change to each unit makes its declared jobs (and matrix members) run in the real `_quality.yml` (proven by semantic `if:` evaluation, not substring match), while a docs-only change selects no production job. Genuine ownership gaps are recorded ONLY as time-bounded `docs/adr/exceptions.yaml` entries keyed to the `.github/quality-path-filters.yaml#<unit>:<responsibility>` anchor - there is no `not_applicable`, advisory, or permanent grandfather escape hatch in the contract schema. The contract and its classifier route their own guard tests and adr-conformance (self-bypass prevention). Anchored on GEN-002 (Executable Architecture Governance). Established by #1530; gap-closure tracked by #1698.",
+        "description": "Production-path quality ownership is a single versioned, machine-readable contract at `.github/quality-path-filters.yaml` (schema parsed by `scripts/quality_ownership/contract.py`), enforced fail-closed. The always-run `paths` job in `.github/workflows/_quality.yml` invokes `scripts/quality_ownership/classify_paths.py`, which validates the contract and REJECTS any changed path that is neither a declared quality unit nor a typed exclusion BEFORE emitting any job-selection output, so an unowned path can no longer skip the checks designed to gate it. Deleted paths are excluded from classification (git `--diff-filter=d`): a removed file exists at neither HEAD nor the tracked estate, owns no quality job, and MUST NOT require a classifier entry that the estate-staleness invariant below would then reject (#1776). The `quality-path-ownership` adr_guard check (this rule) reconciles the contract against the whole repository and enforces three invariants: (1) estate completeness - every git-tracked path is a production owner or a narrow typed exclusion (closed enum: docs/test/generated/vendor/metadata/config; no catch-all, no unowned remainder); (2) ownership completeness - every production PATH is covered, across the union of its matching units, by a BLOCKING lint AND security AND test job (an advisory / `continue-on-error` / always-run / missing job never satisfies a responsibility), and unit `packages` reconcile both directions against the #1523 first-party classification in `scripts/check_layer_imports/layer_imports.yaml`; (3) routing reachability - a representative change to each unit makes its declared jobs (and matrix members) run in the real `_quality.yml` (proven by semantic `if:` evaluation, not substring match), while a docs-only change selects no production job. Genuine ownership gaps are recorded ONLY as time-bounded `docs/adr/exceptions.yaml` entries keyed to the `.github/quality-path-filters.yaml#<unit>:<responsibility>` anchor - there is no `not_applicable`, advisory, or permanent grandfather escape hatch in the contract schema. The contract and its classifier route their own guard tests and adr-conformance (self-bypass prevention). Anchored on GEN-002 (Executable Architecture Governance). Established by #1530; quality repair in #2555 reuses blocking Ruff security rules, kube-linter, zero-warning MCP lint and chart security contracts, adds guard/smoke/container checks, and retires unused assets and vendor installers. The bootstrap mock ratchet decreases; expired generic gap exceptions are removed without renewal.",
         "checks": [
           "quality-path-ownership"
         ]
@@ -335,7 +338,10 @@
       ".gitleaks.toml",
       ".kube-linter.yaml",
       ".pre-commit-config.yaml",
+      ".github/quality-path-filters.yaml",
+      ".github/actions/install-shellcheck/action.yml",
       ".github/workflows/_quality.yml",
+      "scripts/adr_guard/ruff.toml",
       "scripts/adr_guard/adr_guard.py",
       "scripts/check_tf_kms_secrets_grant/check_tf_kms_secrets_grant.py",
       "scripts/check_tf_rds_security/check_tf_rds_security.py",
@@ -354,7 +360,12 @@
       "docs/architecture/checkov-soft-fail-preflight-757.md",
       "docs/architecture/proof-vpn-gateway-permissions-preflight-1755.md",
       "docs/technical/dev/adr-enforcement.md",
-      "docs/technical/dev/ci-cd.md"
+      "docs/technical/dev/ci-cd.md",
+      "platform/terraform/gcp/modules/cicd-oidc-identity/main.tf",
+      "platform/terraform/gcp/global/cicd-oidc/github_less.tftest.hcl",
+      "platform/terraform/gcp/global/release-registry/main.tf",
+      "scripts/adr_guard/_guard/checks/release_workflow.py",
+      "docs/architecture/github-less-gcp-deployment-design-2571.md"
     ]
   },
   {
@@ -398,7 +409,7 @@
       "docs/architecture/root-configured-backend-bundles.md",
       "docs/architecture/provider-neutral-range-substrate.md",
       "platform/terraform/gcp/README.md",
-      "platform/k8s/gcp/README.md",
+      "docs/architecture/github-less-gcp-deployment-design-2571.md",
       "docs/technical/dev/ci-cd.md"
     ]
   },
@@ -406,17 +417,17 @@
     "id": "ADR-006",
     "title": "Kubernetes workloads must meet Pod Security Standards",
     "status": "accepted",
-    "scope": "platform/k8s",
+    "scope": "platform/charts",
     "decision": "All Kubernetes namespaces enforce the restricted Pod Security Standard. Workloads must define security contexts, and each namespace must have NetworkPolicies.",
     "rules": [
       {
         "id": "ADR-006-R1",
-        "description": "Namespace manifests must carry pod-security.kubernetes.io/enforce labels.",
+        "description": "Every Shifter namespace carries the pod-security.kubernetes.io/enforce label. The deploy commands create the platform and jobs namespaces outside the Helm release with the restricted labels (scripts/bootstrap/gcp_control_plane.py on GCP, scripts/bootstrap/aws_eks.py on AWS). Each Namespace template in the chart carries the labels (the k8s-pss-labels pre-commit hook).",
         "checks": []
       },
       {
         "id": "ADR-006-R2",
-        "description": "Pod, container, and init-container securityContext on every Deployment (in base manifests under platform/k8s/gcp/base/ AND in helm-template-rendered output of platform/charts/shifter for each supported values file) must enforce the restricted PSS profile: pod-level seccompProfile RuntimeDefault; per container/initContainer allowPrivilegeEscalation false, capabilities drop ALL with no capabilities.add, readOnlyRootFilesystem true, runAsNonRoot true, privileged not true, container-level seccompProfile (when set) equal to RuntimeDefault, and positive runAsUser/runAsGroup integers (booleans rejected). Pod-level inheritance for runAsNonRoot/runAsUser/runAsGroup is honored.",
+        "description": "The chart is the only Kubernetes renderer (ADR-007). Pod, container, and init-container securityContext on every Deployment in the helm-template-rendered output of platform/charts/shifter for each supported profile values file must enforce the restricted PSS profile: pod-level seccompProfile RuntimeDefault; per container/initContainer allowPrivilegeEscalation false, capabilities drop ALL with no capabilities.add, readOnlyRootFilesystem true, runAsNonRoot true, privileged not true, container-level seccompProfile (when set) equal to RuntimeDefault, and positive runAsUser/runAsGroup integers (booleans rejected). Pod-level inheritance for runAsNonRoot/runAsUser/runAsGroup is honored.",
         "checks": [
           "k8s-deployment-security-context"
         ]
@@ -430,7 +441,7 @@
       },
       {
         "id": "ADR-006-R4",
-        "description": "Creation of Jobs running as the privileged provisioner service account in the jobs namespace and mutation of their per-intent sensitive-env Secrets must be owned by one dedicated provisioner-launcher workload identity. Portal, CTF scheduler, general workers, and the provisioner runtime identity have no provisioner Job-launch or Secret mutation grant and mount no Kubernetes API token; the provisioner Job also disables token automount while retaining the selected provider's exact workload identity. RBAC, default-deny egress, runtime configuration, and the fail-closed ValidatingAdmissionPolicy (equivalent across the GCP base and every Helm render that enables the Kubernetes Job launcher, with identity/namespace fields derived from canonical values) name one launcher principal. Admission denies non-provisioner Jobs from that launcher and denies provisioner Jobs unless they mirror the provider-selected KubernetesTaskRunner profile: pinned image/pull policy and literal values, exact operation/identifier grammar with an optional validated operation-generation UUID suffix, deterministic task/Secret identity, required Secret-backed database bindings, one non-indexed execution, exact bounded volumes/mounts, no auxiliary execution fields, and canonical pod/container security. Structured non-secret runtime values remain literal ConfigMap data and admission requires their exact value to match platform-runtime; they never move to argv or the sensitive Secret. Dynamic creates cannot be constrained with RBAC resourceNames known at deployment time; use the dedicated principal, semantic admission, deterministic create-or-observe identity, ownerReferences, and resourceNames only for fixed targets. Enforced by effective-authorization, Helm override/parity, and rendered-CEL semantic denial tests. Recorded by the architecture preflights for #1518, #1761, and #1826.",
+        "description": "Creation of Jobs running as the privileged provisioner service account in the jobs namespace and mutation of their per-intent sensitive-env Secrets must be owned by one dedicated provisioner-launcher workload identity. Portal, CTF scheduler, general workers, and the provisioner runtime identity have no provisioner Job-launch or Secret mutation grant and mount no Kubernetes API token; the provisioner Job also disables token automount while retaining the selected provider's exact workload identity. RBAC, default-deny egress, runtime configuration, and the fail-closed ValidatingAdmissionPolicy (equivalent across every Helm render that enables the Kubernetes Job launcher, with identity/namespace fields derived from canonical values) name one launcher principal. Admission denies non-provisioner Jobs from that launcher and denies provisioner Jobs unless they mirror the provider-selected KubernetesTaskRunner profile: pinned image/pull policy and literal values, exact operation/identifier grammar with an optional validated operation-generation UUID suffix, deterministic task/Secret identity, required Secret-backed database bindings, one non-indexed execution, exact bounded volumes/mounts, no auxiliary execution fields, and canonical pod/container security. Structured non-secret runtime values remain literal ConfigMap data and admission requires their exact value to match platform-runtime; they never move to argv or the sensitive Secret. Dynamic creates cannot be constrained with RBAC resourceNames known at deployment time; use the dedicated principal, semantic admission, deterministic create-or-observe identity, ownerReferences, and resourceNames only for fixed targets. Enforced by effective-authorization, Helm override/parity, and rendered-CEL semantic denial tests. Recorded by the architecture preflights for #1518, #1761, and #1826.",
         "checks": []
       }
     ],
@@ -440,10 +451,8 @@
       "ci"
     ],
     "evidence": [
-      "platform/k8s/gcp/base/namespaces.yaml",
-      "platform/k8s/gcp/base/networkpolicies.yaml",
+      "scripts/bootstrap/gcp_control_plane.py",
       "platform/charts/shifter/templates/networkpolicies.yaml",
-      "platform/k8s/gcp/base/validatingadmissionpolicy-provisioner-jobs.yaml",
       "platform/charts/shifter/templates/validatingadmissionpolicy-provisioner-jobs.yaml",
       "shifter/shifter_platform/tests/platform/test_gcp_job_launcher_manifests.py",
       ".kube-linter.yaml",
@@ -460,16 +469,16 @@
     "title": "GCP control-plane deployments are Helm-packaged and bootstrap-managed",
     "status": "accepted",
     "scope": "gcp",
-    "decision": "The GCP Shifter control plane is deployed through the Shifter Helm chart with layered values files and bootstrap-generated runtime values. Raw GCP manifests and staged workflows are supporting assets, not the authoritative deployment contract.",
+    "decision": "The GCP Shifter control plane is deployed through the Shifter Helm chart with layered values files and command-generated runtime values. The chart is the only GCP Kubernetes renderer: #2571 removed the Kustomize tree under platform/k8s/gcp and its overlay-only renderers. One command, deploy.py gcp-deploy, installs and updates a deployment for operators and CI (ADR-070).",
     "rules": [
       {
         "id": "ADR-007-R1",
-        "description": "GCP environment defaults live in chart values files, with bootstrap-generated runtime values layered last.",
+        "description": "GCP profile defaults live in the chart values files (values-gcp-<profile>.yaml, selected by deployment.profile), with the values that the deploy command generates layered last.",
         "checks": []
       },
       {
         "id": "ADR-007-R2",
-        "description": "Branch-local GCP bring-up must flow through the bootstrap entrypoint rather than relying on ad hoc kubectl or legacy staged workflow logic.",
+        "description": "GCP bring-up and every update flow through deploy.py gcp-deploy, which an operator or a CI workflow runs. They never use ad hoc kubectl, Kustomize, or inline workflow deploy logic. Before the Helm upgrade, the command adopts the rendered objects that exist without Helm ownership. After a successful upgrade, it removes a closed list of retired Kustomize-only objects. It creates the shifter-platform and shifter-jobs namespaces outside the release.",
         "checks": []
       }
     ],
@@ -485,10 +494,16 @@
       "platform/charts/shifter/values-gcp-dev.yaml",
       "platform/charts/shifter/values-gcp-prod.yaml",
       "scripts/bootstrap/deploy.py",
-      "platform/k8s/gcp/README.md",
+      "scripts/bootstrap/gcp_helm.py",
       "platform/terraform/gcp/README.md",
       "docs/technical/platform_infrastructure/gcp-infrastructure.md",
-      "docs/technical/dev/ci-cd.md"
+      "docs/technical/dev/ci-cd.md",
+      "scripts/bootstrap/gcp_deploy.py",
+      "scripts/bootstrap/gcp_deploy_stages.py",
+      "scripts/bootstrap/tests/test_gcp_rollout_steps.py",
+      "platform/charts/shifter/tests/test_chart_contract.py",
+      "docs/architecture/github-less-gcp-deployment-design-2571.md",
+      "docs/runbooks/rb023-gcp-deployment.md"
     ]
   },
   {
@@ -568,13 +583,13 @@
       "platform/terraform/gcp/modules/platform-core/main.tf",
       "platform/terraform/gcp/modules/portal/cloud-sql/main.tf",
       "platform/terraform/gcp/modules/portal/iam/main.tf",
-      "platform/k8s/gcp/base/validatingadmissionpolicy-provisioner-jobs.yaml",
+      "platform/charts/shifter/templates/validatingadmissionpolicy-provisioner-jobs.yaml",
       "platform/terraform/gcp/modules/platform-core/variables.tf",
       "platform/terraform/gcp/environments/gcp-dev/terraform.tfvars",
       "platform/charts/shifter/templates/portal-backendconfig.yaml",
       "platform/charts/shifter/templates/guacamole-backendconfig.yaml",
       "platform/terraform/gcp/README.md",
-      "platform/k8s/gcp/README.md",
+      "docs/architecture/github-less-gcp-deployment-design-2571.md",
       "docs/technical/platform_infrastructure/networking.md",
       "shifter/shifter_platform/config/settings.py",
       "shifter/shifter_platform/entrypoint.sh",
@@ -1108,8 +1123,8 @@
       "platform/terraform/environments/prod/range/local.auto.tfvars.example",
       "platform/terraform/gcp/modules/platform-core/main.tf",
       "platform/terraform/gcp/modules/platform-core/variables.tf",
-      "platform/terraform/gcp/environments/gcp-dev/variables.tf",
-      "platform/terraform/gcp/environments/gcp-dev/main.tf",
+      "platform/terraform/gcp/environments/platform/variables.tf",
+      "platform/terraform/gcp/environments/platform/main.tf",
       "platform/terraform/gcp/environments/gcp-dev/terraform.tfvars",
       "docs/architecture/range-egress-ip-allowlist.md",
       "docs/architecture/range-egress-allowlist-render-preflight-958.md",
@@ -1171,7 +1186,7 @@
     "rules": [
       {
         "id": "ADR-019-R1",
-        "description": "Python tests must not introduce new first-party internal `patch()` or statically resolvable `patch.object()` targets. The `boundary-mock-policy` ADR guard check compares current internal patch counts against `scripts/adr_guard/boundary_mock_baseline.json` and rejects baseline allowance growth against the branch reference; process/network/cloud boundary patches remain allowed.",
+        "description": "Python tests must not introduce new first-party internal `patch()` or statically resolvable `patch.object()` targets. The `boundary-mock-policy` ADR guard check compares current internal patch counts against `scripts/adr_guard/boundary_mock_baseline.json` and rejects baseline allowance growth against the branch reference; process/network/cloud boundary patches remain allowed. Orchestrators expose explicit high-level operation ports for tests instead of requiring first-party monkeypatches. Issue #202 applied this pattern to bootstrap CLI dispatch, GCP Terraform, and the GDC substrate and reduced the ratchet from 618 to 465 without a replacement exception.",
         "checks": [
           "boundary-mock-policy"
         ]
@@ -1187,6 +1202,10 @@
       "scripts/adr_guard/adr_guard.py",
       "scripts/adr_guard/boundary_mock_baseline.json",
       "scripts/adr_guard/tests/test_adr_guard.py",
+      "scripts/bootstrap/cli.py",
+      "scripts/bootstrap/gcp_control_plane.py",
+      "scripts/bootstrap/tests/test_cli.py",
+      "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "docs/adr/README.md",
       "docs/technical/dev/adr-enforcement.md"
     ]
@@ -1263,11 +1282,18 @@
     "title": "Major platform features carry user and technical documentation",
     "status": "accepted",
     "scope": "repository",
-    "decision": "GEN-001 is enforced by a repo-native documentation coverage manifest plus an adr_guard check. Each major platform feature is enumerated in docs/adr/documentation-coverage.yaml with at least one user doc and one technical doc; the documentation-coverage check validates that every referenced doc exists under the in-app docs tree, is not under a _deprecated/hidden path, and is reachable from an index.md. 'Major platform feature' is an issue/PR classification recorded in the manifest, not a runtime model; the check enforces documentation existence and discoverability, not prose depth (that stays a review concern).",
+    "decision": "GEN-001 is enforced by a repo-native documentation coverage manifest plus an adr_guard check. Each major platform feature is enumerated in docs/adr/documentation-coverage.yaml with at least one user doc and one technical doc; the documentation-coverage check validates that every referenced doc exists under the public docs tree, is not under a _deprecated/hidden path, and is reachable from an index.md. 'Major platform feature' is an issue/PR classification recorded in the manifest, not a runtime model; the check enforces documentation existence and discoverability, not prose depth (that stays a review concern). Current architecture is maintained at docs/technical/architecture.md. Optional drift_sources associations in the existing coverage manifest bind architecture interfaces to their technical handbook pages; changed boundaries require a paired page review. The stable operations handoff catalog uses the existing ADR-guard unittest estate to enforce its fixed RB001-RB022 inventory, required section structure, index reachability, escalation boundary, and read-only shell-example policy without introducing a second documentation manifest or runtime check.",
     "rules": [
       {
         "id": "ADR-022-R1",
         "description": "Every feature in docs/adr/documentation-coverage.yaml must declare at least one user doc and at least one technical doc. Each referenced doc must exist under the manifest's docs_root, must not live under a _deprecated or hidden path, and must be linked from an index.md so it is discoverable. The check validates the whole manifest on every run regardless of the changed-file set.",
+        "checks": [
+          "documentation-coverage"
+        ]
+      },
+      {
+        "id": "ADR-022-R2",
+        "description": "Architecture features may declare nonempty repository-relative drift_sources globs. Changes to a mapped interface, or removal/narrowing of its association, require review/update of its corresponding published technical page in the same change. Full CI compares the complete PR diff including deletions against fetched base history and refuses an unverifiable comparison; the base mappings remain binding during mapping changes. Structure and pairing are automated; maintainers review accuracy. Quality path classification executes the same documentation check before emitting job-selection outputs, using the full changed set including deletions, so filtered ADR-conformance routing cannot bypass handbook review.",
         "checks": [
           "documentation-coverage"
         ]
@@ -1283,7 +1309,15 @@
       "docs/adr/documentation-coverage.yaml",
       "scripts/adr_guard/adr_guard.py",
       "scripts/adr_guard/tests/test_adr_guard.py",
-      "docs/technical/dev/adr-enforcement.md"
+      "docs/technical/dev/adr-enforcement.md",
+      "docs/technical/architecture.md",
+      "docs/technical/handbook/scenario-contract-transition.md",
+      ".github/CODEOWNERS",
+      "scripts/quality_ownership/classify_paths.py",
+      "scripts/adr_guard/tests/test_quality_path_ownership.py",
+      "scripts/adr_guard/_guard/checks/_documentation_drift.py",
+      "docs/runbooks/index.md",
+      "scripts/adr_guard/tests/test_operations_runbooks.py"
     ]
   },
   {
@@ -1873,7 +1907,7 @@
       },
       {
         "id": "ADR-033-R2",
-        "description": "The CI/build/deploy runner fleet is development-plane and must not reside in a product/operator deploy-target account; environment deploy/bake uses ephemeral compute in the target tenant or maintainer-isolated infrastructure, so environment teardown never removes the deploy mechanism. Amended by #1546 for maintainer-owned dev tenants (the only deployments that exist today; there is no product deployment model yet): a self-contained per-tenant runner MAY live in that tenant's own project when (a) it is a dedicated, re-creatable Terraform execution root with a state prefix separate from the platform root, so a platform destroy never removes it, and (b) the deploy mechanism itself remains the repo's bootstrap CLI (scripts/bootstrap, deploy.py runners), not tenant-resident state. Dev tenants must not depend on another tenant's runner fleet (cross-tenant containment): a GCP dev tenant runs its own CI/deploy rather than borrowing the AWS fleet.",
+        "description": "The CI/build/deploy runner fleet is development-plane and must not reside in a product/operator deploy-target account; environment deploy/bake uses ephemeral compute in the target tenant or maintainer-isolated infrastructure, so environment teardown never removes the deploy mechanism. Amended by #1546 for maintainer-owned dev tenants (the only deployments that exist today; there is no product deployment model yet): a self-contained per-tenant runner MAY live in that tenant's own project when (a) it is a dedicated, re-creatable Terraform execution root with a state prefix separate from the platform root, so a platform destroy never removes it, and (b) the deploy mechanism itself remains the repo's bootstrap CLI (scripts/bootstrap, deploy.py runners), not tenant-resident state. Dev tenants must not depend on another tenant's runner fleet (cross-tenant containment): a GCP dev tenant runs its own CI/deploy rather than borrowing the AWS fleet. Superseded by ADR-053-R3. ADR-070 (#2571) replaces the statement that no product deployment model exists, for GCP.",
         "checks": []
       },
       {
@@ -1958,6 +1992,11 @@
         "id": "ADR-034-R12",
         "description": "Recipe acquisition runs before ranges need it and never needs an operator step: registering or updating a pack triggers acquisition for its declared feature sources, and deploy bootstrap does the same for registered packs. A request first reuses a ready inventory row whose object is present with a matching digest and downloads nothing; otherwise the first requester claims the row and starts exactly one dedicated, isolated acquisition Job, and concurrent requesters wait on that attempt rather than downloading again. Materialization requires every declared feature to resolve to a ready artifact; a launch waits a bounded time for an in-flight attempt, and an artifact that cannot be acquired fails that range's materialization before any cloud mutation. Failure is per range and never sticky: one range failing does not fail other ranges stamped from the same scenario, and a later request starts a fresh attempt after a bounded backoff.",
         "checks": []
+      },
+      {
+        "id": "ADR-034-R13",
+        "description": "Tenant pack removal is an organization-admin CMS service over organization-owned registrations only; organization-less packs remain operator-managed. Refuse non-terminal ranges, non-terminal events, pending or running launch schedules and active operator warm-pool buckets that reference the catalog id, using owner-domain projections through a fail-closed port. Every reference writer takes the CMS admission fence (a share lock on the pack row) in the transaction that commits the reference; removal takes the row without waiting. Hard-delete the catalog row and its overlays; history keeps scalar identities, audit records and runtime plugin pins, and only current pack selections are removed through Engine. Record every uploaded archive in a pack-owned inventory, commit strict request audit and the captured exact keys before destructive I/O, keep failed cleanup retryable by a reconciler on the bucket-owning identity, and report completion only after every captured live object is absent and completion audit is durable. The pack bucket expires noncurrent generations through its lifecycle rule. Never purge an organization prefix, infer ownership from a digest, or conflate content uninstall with adapter retirement or shared artifact garbage collection; acquired artifacts are shared retained supply. Unverified cloud cleanup of a terminal range is not a pack reference, because teardown uses the immutable compiled plan and retained pin.",
+        "checks": []
       }
     ],
     "exceptions": [],
@@ -1967,6 +2006,7 @@
     "evidence": [
       "docs/architecture/uniform-content-ingestion-contract.md",
       "docs/architecture/uniform-content-ingestion-preflight-1578.md",
+      "docs/architecture/environment-pack-consolidation-preflight-2550.md",
       "docs/architecture/raes-artifact-requirement-resolution-preflight-1580.md",
       "docs/architecture/raes-in-tenant-artifact-preparation-preflight-1583.md",
       "docs/architecture/raes-in-tenant-artifact-preparation-design-1583.md",
@@ -1982,7 +2022,14 @@
       "docs/adr/index.yaml",
       "shifter/shifter_platform/cms/services/_tenant_pack_upload.py",
       "shifter/shifter_platform/tests/cms/test_tenant_pack_upload.py",
-      "docs/architecture/raes-feature-artifact-acquisition-preflight-2463.md"
+      "docs/architecture/raes-feature-artifact-acquisition-preflight-2463.md",
+      "docs/architecture/tenant-pack-removal-preflight-2520.md",
+      "shifter/shifter_platform/cms/services/_tenant_pack_removal.py",
+      "shifter/shifter_platform/cms/services/_pack_fence.py",
+      "shifter/shifter_platform/cms/services/_pack_references.py",
+      "shifter/shifter_platform/shared/pack_references.py",
+      "shifter/shifter_platform/tests/cms/test_tenant_pack_removal.py",
+      "shifter/shifter_platform/tests/cms/test_tenant_pack_removal_postgres.py"
     ]
   },
   {
@@ -1994,7 +2041,7 @@
     "rules": [
       {
         "id": "ADR-035-R1",
-        "description": "Deployment prerequisites are declared once in the shared preflight spec (scripts/bootstrap/preflight.py) and enforced by the same code locally (the deploy CLI runs preflight_gate at the start of bootstrap/terraform/full) and in CI (each reusable deploy workflow runs `python -m preflight` before any Terraform apply). A deploy path must not reintroduce a parallel, divergent prerequisite check.",
+        "description": "Deployment prerequisites are declared once in the shared preflight spec (scripts/bootstrap/preflight.py) and enforced by the same code locally (the deploy CLI runs preflight_gate at the start of bootstrap/terraform/full) and in CI (each reusable deploy workflow runs `python -m preflight` before any Terraform apply). A deploy path must not reintroduce a parallel, divergent prerequisite check. For GCP, the local preflight validates the deployment input bundle (--store or --inputs) with the same loader that deploy.py gcp-deploy uses (ADR-070).",
         "checks": []
       },
       {
@@ -2067,13 +2114,14 @@
     "title": "Build and deployment provenance is pinned, verified, and attested",
     "status": "accepted",
     "scope": "shifter_platform",
-    "decision": "Build provenance is a delivery-plane security control layered on the existing GitHub Actions build/deploy workflows, Dockerfiles, and image-reference renderers - not a new API, datastore, Terraform resource, custom signer service, or second deployment framework. Third-party actions in cloud-credentialed workflows are SHA-pinned; committed Docker FROM stages are digest-pinned and refreshed via Dependabot; downloaded executables and Python runtime dependencies are integrity-verified before use; release OCI images carry an SBOM and a GitHub OIDC-signed provenance attestation for the exact repository and digest; and deployment verifies that attestation and the exact image@sha256 before it mutates any runtime. The existing image digest remains the sole deployment identity, and there is no trust-bypass mode.",
+    "decision": "Build provenance is a delivery-plane security control. It is layered on the GitHub Actions build and release workflows, the Dockerfiles, the image-reference renderers, and the GCP deploy command. It is not a new API, datastore, custom signer service, or second deployment framework. Third-party actions in cloud-credentialed workflows are SHA-pinned; committed Docker FROM stages are digest-pinned and refreshed via Dependabot; downloaded executables and Python runtime dependencies are integrity-verified before use; release OCI images carry an SBOM and a GitHub OIDC-signed provenance attestation for the exact repository and digest; and deployment verifies that attestation and the exact image@sha256 before it mutates any runtime. On GCP the attestation is stored with the image. The deploy command verifies it with the Sigstore trust root and the trusted repository and owner IDs of the deployment, without the GitHub API (ADR-070). The existing image digest remains the sole deployment identity, and there is no trust-bypass mode.",
     "rules": [
       {
         "id": "ADR-037-R1",
         "description": "Every non-local uses: action in a cloud-credentialed workflow (one requesting id-token: write, running self-hosted, invoking a cloud-auth action, or passing a workload_identity_provider) MUST pin a full 40-hex commit SHA, including actions/*. A readable '# <version>' comment is retained for Dependabot. Enforced fail-closed by the workflow-action-sha-pinning adr_guard check, which parses workflows as data and reports any unparseable workflow, unclassifiable ref, or mutable ref.",
         "checks": [
-          "workflow-action-sha-pinning"
+          "workflow-action-sha-pinning",
+          "release-workflow-provenance"
         ]
       },
       {
@@ -2093,27 +2141,31 @@
       },
       {
         "id": "ADR-037-R5",
-        "description": "Release OCI image builds MUST produce an SBOM and maximum build provenance and MUST create a GitHub OIDC-signed artifact attestation bound to the exact repository name and image@sha256 digest. Build jobs receive only the narrow attestation/id-token permissions; no long-lived signing key or PAT is introduced, and credentials are never passed as Docker build arguments. Packer AMI/GCE artifacts are not OCI application images and MUST NOT be represented as OCI application-image provenance. A qcow2 VM-disk artifact may use OCI distribution only when its media type, digest-pinned consumption contract, and VM-disk boundary are explicit.",
-        "checks": []
+        "description": "Release OCI image builds MUST produce an SBOM and maximum build provenance and MUST create a GitHub OIDC-signed artifact attestation bound to the exact repository and image@sha256 digest. GCP release and CI builds MUST store the attestation with the image (push-to-registry: true). A deployment then verifies it from the registry without the GitHub API. The release-workflow-provenance check enforces this for release-gcp.yml. Build jobs receive only the narrow attestation/id-token permissions; no long-lived signing key or PAT is introduced, and credentials are never passed as Docker build arguments. Packer AMI/GCE artifacts are not OCI application images and MUST NOT be represented as OCI application-image provenance. A qcow2 VM-disk artifact may use OCI distribution only when its media type, digest-pinned consumption contract, and VM-disk boundary are explicit.",
+        "checks": [
+          "release-workflow-provenance"
+        ]
       },
       {
         "id": "ADR-037-R6",
-        "description": "Before mutating ECS/portal or Kubernetes rollout, deployment MUST verify the GitHub attestation for the fixed Brad-Edwards/shifter repository identity and the exact fully-qualified image@sha256 it will deploy. A valid signature for another repository, a tag resolving to a digest, or a digest merely matching the expected shape is insufficient. Any verifier failure, missing attestation, subject/repository mismatch, or digest mismatch is a hard ::error:: and non-zero exit; there is no first-deploy, continue-on-error, or other bypass.",
+        "description": "Before mutating ECS/portal or Kubernetes rollout, deployment MUST verify provenance for the exact fully-qualified image@sha256 it will deploy. The AWS deploy verifies the GitHub attestation for the running repository identity (`GITHUB_REPOSITORY` as both the repository and the signer repository, ADR-069). The GCP deploy (deploy.py gcp-deploy, ADR-070) reads the Sigstore bundles that are stored with each image as OCI referrers. It verifies them with the Sigstore public-good trust root, without the GitHub API. Its policy requires the GitHub Actions OIDC issuer and the immutable source repository and owner IDs. The IDs come from settings.release_trust, or from the running repository in CI. The policy also requires the source revision of the release manifest, an in-toto subject equal to the exact digest, and the SLSA provenance v1 predicate. A valid signature for another repository, a tag resolving to a digest, or a digest merely matching the expected shape is insufficient. Any verifier failure, missing attestation, subject/repository mismatch, or digest mismatch is a hard failure and a non-zero exit; there is no first-deploy, continue-on-error, or other bypass.",
         "checks": []
       },
       {
         "id": "ADR-037-R7",
-        "description": "Cloud-credentialed validation workflows that mint trusted labels (e.g. validated=passed) MUST be restricted to protected integration branches at two independent enforcement layers: (1) a ref-allowlist in the workflow job that rejects non-protected refs before cloud auth is attempted (defense-in-depth), and (2) a ref condition in the OIDC/WIF attribute_condition that rejects tokens from any ref outside the allowlist at the provider level \u2014 outside any branch-controlled workflow code. The GCP WIF module enforces this via the allowed_workflow_refs variable (platform/terraform/gcp/modules/cicd-oidc-identity). GitHub environment deployment-branch protection MUST also be configured for the target environments so that GitHub rejects runs from non-protected refs before the job starts. Any exception requires a docs/adr/exceptions.yaml entry with owner, justification, and expiry.",
-        "checks": []
+        "description": "Cloud-credentialed validation workflows that mint trusted labels (e.g. validated=passed) MUST be restricted to protected integration branches at two independent enforcement layers: (1) a ref-allowlist in the workflow job that rejects non-protected refs before cloud auth is attempted (defense-in-depth), and (2) a ref condition in the OIDC/WIF attribute_condition that rejects tokens from any ref outside the allowlist at the provider level \u2014 outside any branch-controlled workflow code. The GCP WIF module enforces this through the exact ref and workflow_ref of each purpose_contexts tuple (platform/terraform/gcp/modules/cicd-oidc-identity). The GCP release workflow applies both layers. A step rejects every ref except refs/heads/main before authentication (release-workflow-provenance). The release purpose context binds refs/heads/main and release-gcp.yml (scripts/check_tf_gcp_wif_trust). GitHub environment deployment-branch protection MUST also be configured for the target environments so that GitHub rejects runs from non-protected refs before the job starts. Any exception requires a docs/adr/exceptions.yaml entry with owner, justification, and expiry.",
+        "checks": [
+          "release-workflow-provenance"
+        ]
       },
       {
         "id": "ADR-037-R8",
-        "description": "A GCP exact-release decision binds source revision to the four built OCI digests, their SBOM/provenance attestations, a blocking HIGH/CRITICAL vulnerability scan of each exact digest before rollout, and a closed inventory of every running GKE workload and normal/init/ephemeral container after rollout. Every Deployment in that same closed component inventory MUST converge and every superseded release Pod MUST finish terminating before evidence is sampled; a partial rollout wait or a terminating old identity cannot establish runtime identity. Every declared image and runtime image ID MUST equal its approved full repository@sha256 identity; unexpected workloads or containers fail closed. For GCE guests, the build producer MUST bind its protected source revision to the server-assigned numeric image ID in immutable private evidence before validation. Protected validation MUST collect a non-empty SPDX JSON package inventory outside the candidate trust domain by attaching an exact candidate-derived disk read-only to a separate credentialless trusted scanner, mounting it read-only/noexec/nosuid/nodev, and using a source-pinned scanner archive digest. Versioned validation evidence binds the SBOM SHA-256, scanner version and identity, external collection boundary, numeric candidate image ID, and source revision. Promotion MUST authenticate the exact redacted verdict artifact from the successful protected validation run and verify its candidate-binding and private-evidence digests before verifying every raw evidence binding. Tags, families, labels, source locks, OCI SBOMs, candidate-executed tools, and source-only tests never substitute for the matching running-workload or guest-image evidence.",
+        "description": "A GCP exact-release decision binds source revision to the five built OCI digests, their SBOM/provenance attestations, a blocking HIGH/CRITICAL vulnerability scan of each exact digest before rollout, and a closed inventory of every running GKE workload and normal/init/ephemeral container after rollout. Every Deployment in that same closed component inventory MUST converge and every superseded release Pod MUST finish terminating before evidence is sampled; a partial rollout wait or a terminating old identity cannot establish runtime identity. Every declared image and runtime image ID MUST equal its approved full repository@sha256 identity; unexpected workloads or containers fail closed. For GCE guests, the build producer MUST bind its protected source revision to the server-assigned numeric image ID in immutable private evidence before validation. Protected validation MUST collect a non-empty SPDX JSON package inventory outside the candidate trust domain by attaching an exact candidate-derived disk read-only to a separate credentialless trusted scanner, mounting it read-only/noexec/nosuid/nodev, and using a source-pinned scanner archive digest. Versioned validation evidence binds the SBOM SHA-256, scanner version and identity, external collection boundary, numeric candidate image ID, and source revision. Promotion MUST authenticate the exact redacted verdict artifact from the successful protected validation run and verify its candidate-binding and private-evidence digests before verifying every raw evidence binding. Tags, families, labels, source locks, OCI SBOMs, candidate-executed tools, and source-only tests never substitute for the matching running-workload or guest-image evidence. For a GCP deployment, deploy.py gcp-deploy runs the scan as the release-scan identity and the running-image check after rollout (ADR-070). It stores each redacted verdict next to its raw evidence in the release-evidence bucket, under the release-scans/ and deployments/ prefixes, not as an Actions artifact.",
         "checks": []
       },
       {
         "id": "ADR-037-R9",
-        "description": "Protected Packer GCE builds may publish only the allowlisted Kali, Ubuntu, and pre-promoted DC base set as GCE-native disk.raw tarballs to the canonical public GHCR packages through the dedicated package-write job. The tenant bootstrap MUST discover public packages without registry credentials, validate the OCI artifact/layer/role/protected-revision contract before payload download, resolve and pull by immutable manifest digest, import or reuse a digest-derived native GCE image, require READY, and publish the same exact image resources to both the first local bootstrap and the selected GitHub deployment Environment. Transfer buckets, objects, and any proven-necessary temporary access MUST be narrowly scoped, retry-convergent, and removed on success and failure. Mutable tags are discovery only; publication/import is neither qualification nor stronger attestation, and bootstrap MUST NOT dispatch Packer or fall back to a tenant bake.",
+        "description": "Protected Packer GCE builds may publish only the allowlisted Kali, Ubuntu, and pre-promoted DC base set as GCE-native disk.raw tarballs to the canonical public GHCR packages through the dedicated package-write job. When GCP_RELEASE_REGISTRY is set, the same job copies each artifact by digest into the release registry and checks the copied digest (ADR-070). The tenant import (deploy.py gcp-images) MUST read an explicit --source registry prefix, never one derived from the GitHub repository owner. It uses no registry credentials for a public source and the caller's gcloud credentials for an Artifact Registry source. It MUST validate the OCI artifact/layer/role/protected-revision contract before payload download. It MUST resolve and pull by immutable manifest digest, import or reuse a digest-derived native GCE image, and require READY. It records the exact image resources in range-images.json in the deployment input bundle (--store) or prints them; it never writes a GitHub Environment. Transfer buckets, objects, and any proven-necessary temporary access MUST be narrowly scoped, retry-convergent, and removed on success and failure. Mutable tags are discovery only; publication/import is neither qualification nor stronger attestation, and the import MUST NOT dispatch Packer or fall back to a tenant bake.",
         "checks": []
       }
     ],
@@ -2138,12 +2190,25 @@
       "docs/architecture/gcp-guest-images.md",
       "docs/architecture/ghcr-vm-guest-image-preflight-2297.md",
       "docs/architecture/gcp-foundation-image-bootstrap-preflight-2338.md",
+      "docs/architecture/ubuntu-php-security-refresh-preflight-2556.md",
+      "docs/architecture/php-security-floor-design-2556.md",
       "shifter/engine/provisioner/config/_gdc.py",
       "shifter/packer/gcp/scripts/validate/verify-promotion-evidence.sh",
       "shifter/packer/tests/test_packer_gcp.py",
       ".github/dependabot.yml",
       "https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds",
-      "https://docs.docker.com/build/ci/github-actions/attestations/"
+      "https://docs.docker.com/build/ci/github-actions/attestations/",
+      ".github/workflows/release-gcp.yml",
+      "platform/deployer/gcp/Dockerfile",
+      "scripts/bootstrap/gcp_provenance.py",
+      "scripts/bootstrap/gcp_release_scan.py",
+      "scripts/bootstrap/gcp_evidence.py",
+      "scripts/bootstrap/gcp_rollout.py",
+      "scripts/bootstrap/gcp_base_images.py",
+      "scripts/bootstrap/tests/test_gcp_release_gates.py",
+      "scripts/adr_guard/_guard/checks/release_workflow.py",
+      "scripts/adr_guard/tests/test_release_workflow.py",
+      "docs/architecture/github-less-gcp-deployment-design-2571.md"
     ]
   },
   {
@@ -2466,7 +2531,6 @@
       "shifter/shifter_platform/engine/services/_runtime_plugins.py",
       "shifter/shifter_platform/engine/services/_runtime_plugin_controller.py",
       "shifter/shifter_platform/shared/cloud/runtime_plugins.py",
-      "platform/k8s/gcp/base/runtime-plugins.yaml",
       "platform/charts/shifter/templates/runtime-plugins.yaml",
       "platform/terraform/modules/portal/eks/runtime_plugins.tf",
       "platform/terraform/modules/portal/eks/runtime-plugins-userdata.tftpl",
@@ -3253,7 +3317,7 @@
       },
       {
         "id": "ADR-051-R12",
-        "description": "The #2049 delivery engine extends the #2048 communication ledger rather than introducing another outbox or workflow owner. Occurrence release revalidates source authority and atomically commits bounded immutable audience, commands, in-app availability, and correlated strict audit; accepting a future declaration commits recoverable timing work without exposing future content. Release, lifecycle fencing, and worker claims share deterministic locking; claim leases fence stale completion, recovery, and retries without holding database locks across transport I/O. A claim is not evidence of a send. Reclaimed work rechecks cancellation and current scope; conflicting idempotent replay is rejected. Authored occurrence identity is separate from mutable retry/run-now timestamps; rescheduling fences superseded declarations, scheduler event routing never narrows campaign-wide authorization, and task controls cannot bypass communication policy. Lifecycle communication handoff is recoverable without browser polling. CMS retains range lease/credential-ceiling and expiry ownership independently of communication delivery. Scheduler completion, channel acceptance, participant receipt, and partial-failure aggregation retain distinct truthful meanings. Retry and backlog budgets are bounded and shared across processes, and all worker/configuration/secret/observability surfaces satisfy the #2049 preflight. The #2100 API/cutover preflight specializes the final slice: exact shared token scopes and live original-owner authorization, session-bound parent-scoped receipts, shared closed parsing and safe error envelopes, and a controlled single-writer legacy cutover that accounts for in-flight work and channel readiness without inventing historical success. These are architecture obligations; registry validation alone does not prove runtime delivery or recovery.",
+        "description": "The #2049 delivery engine extends the #2048 communication ledger rather than introducing another outbox or workflow owner. Occurrence release revalidates source authority and atomically commits bounded immutable audience, commands, in-app availability, and correlated strict audit; accepting a future declaration commits recoverable timing work without exposing future content. Release, lifecycle fencing, and worker claims share deterministic locking; claim leases fence stale completion, recovery, and retries without holding database locks across transport I/O. A claim is not evidence of a send. Reclaimed work rechecks cancellation and current scope; conflicting idempotent replay is rejected. Authored occurrence identity is separate from mutable retry/run-now timestamps; rescheduling fences superseded declarations, scheduler event routing never narrows campaign-wide authorization, and task controls cannot bypass communication policy. Lifecycle communication handoff is recoverable without browser polling. CMS retains range lease/credential-ceiling and expiry ownership independently of communication delivery. Scheduler completion, channel acceptance, participant receipt, and partial-failure aggregation retain distinct truthful meanings. Retry and backlog budgets are bounded and shared across processes, and all worker/configuration/secret/observability surfaces satisfy the #2049 preflight. The #2100 API/cutover preflight specializes the final slice: exact shared token scopes and live original-owner authorization, session-bound parent-scoped receipts, shared closed parsing and safe error envelopes, and a controlled single-writer legacy cutover that accounts for in-flight work and channel readiness without inventing historical success. The #2052 scheduler preflight requires event-time changes to preserve independently scheduled communication declarations and requires reporting to distinguish terminal task failure from a healthy schedule; task routing never narrows the full campaign target set. The #2052 API/console design note requires authorized read-only preview through the existing audience policy without delivery materialization, explicit previewed revision identity for send/schedule, atomic admission across every target and requested channel, and truthful event/channel projections. The console adds no workflow owner and does not activate ADR-066. These are architecture obligations; registry validation alone does not prove runtime delivery or recovery.",
         "checks": []
       }
     ],
@@ -3268,6 +3332,10 @@
       "docs/architecture/ctf-communications-raes-inject-preflight-2047.md",
       "docs/architecture/ctf-communication-delivery-engine-preflight-2049.md",
       "docs/architecture/ctf-communication-api-cutover-preflight-2100.md",
+      "docs/design/ctf-communications-console-boundaries-2052.md",
+      "docs/architecture/ctf-api-integration-preflight-2052.md",
+      "docs/architecture/ctf-multi-event-communications-preflight-2052.md",
+      "docs/architecture/ctf-communications-console-design-2052.md",
       "docs/architecture/email-templating-delivery-preflight-581.md",
       "docs/architecture/notifications-websocket-fanout-preflight-941.md",
       "docs/design/ctf-email-template-rendering-preflight-1095.md",
@@ -3373,7 +3441,7 @@
       },
       {
         "id": "ADR-053-R3",
-        "description": "The CI/build/deploy runner fleet is development-surface and must not reside in a product/operator deploy-target account; environment deploy/bake uses ephemeral compute in the target tenant or maintainer-isolated infrastructure, so environment teardown never removes the deploy mechanism. Amended by #1546 for maintainer-owned dev tenants (the only deployments that exist today; there is no product deployment model yet): a self-contained per-tenant runner MAY live in that tenant's own project when (a) it is a dedicated, re-creatable Terraform execution root with a state prefix separate from the platform root, so a platform destroy never removes it, and (b) the deploy mechanism itself remains the repo's bootstrap CLI (scripts/bootstrap, deploy.py runners), not tenant-resident state. Dev tenants must not depend on another tenant's runner fleet (cross-tenant containment): a GCP dev tenant runs its own CI/deploy rather than borrowing the AWS fleet.",
+        "description": "The CI/build/deploy runner fleet is development-surface and must not reside in a product/operator deploy-target account; environment deploy/bake uses ephemeral compute in the target tenant or maintainer-isolated infrastructure, so environment teardown never removes the deploy mechanism. Amended by #1546 for maintainer-owned dev tenants that deploy through CI: a self-contained per-tenant runner MAY live in that tenant's own project when (a) it is a dedicated, re-creatable Terraform execution root with a state prefix separate from the platform root, so a platform destroy never removes it, and (b) the deploy mechanism itself remains the repo's bootstrap CLI (scripts/bootstrap, deploy.py runners), not tenant-resident state. Dev tenants must not depend on another tenant's runner fleet (cross-tenant containment): a GCP dev tenant runs its own CI/deploy rather than borrowing the AWS fleet. ADR-070 (#2571) adds the GCP product deployment model. An operator deploys a published release with the deployer image and the bootstrap CLI (deploy.py gcp-deploy) under purpose-identity impersonation. Such a deployment needs no runner fleet and no GitHub dependency.",
         "checks": []
       },
       {
@@ -3390,7 +3458,8 @@
       "https://github.com/Brad-Edwards/shifter/issues/2075",
       "docs/architecture/product-development-surfaces.md",
       "docs/architecture/bigrae-consume-development-boundary-preflight-2075.md",
-      "docs/adr/index.yaml"
+      "docs/adr/index.yaml",
+      "docs/adr/070-github-less-gcp-deployment.md"
     ]
   },
   {
@@ -3778,8 +3847,8 @@
       "https://github.com/Brad-Edwards/shifter/issues/2080",
       "docs/architecture/gcp-range-cell-containment-threat-model.md",
       "platform/terraform/gcp/modules/portal/gke",
-      "platform/k8s/gcp/base/networkpolicies.yaml",
-      "platform/k8s/gcp/base/validatingadmissionpolicy-provisioner-jobs.yaml"
+      "platform/charts/shifter/templates/networkpolicies.yaml",
+      "platform/charts/shifter/templates/validatingadmissionpolicy-provisioner-jobs.yaml"
     ]
   },
   {
@@ -4220,6 +4289,11 @@
         "id": "ADR-066-R7",
         "description": "At S8, HTTP admits a valid credential and the owning service enforces application administration through the shared principal, registered action, resolved target/scope, live OpenFGA decision, and credential ceiling for HTTP and direct callers alike. Human and service application administrators have the same valid application operations when credentials permit. This supersedes ADR-045-R3's staff-session-only audit read, ADR-046-R13's Django-superuser-only transfer override, ADR-046-R10's superuser-only quota authoring, and ADR-048-R2/R3's organization overrides for integrated operations; earlier production gates remain until S8. The deployment-global audit ledger is read only with installation.read_audit; customer audit access cannot be inferred from unscoped historical rows. Retained Django-admin and legacy browser writes use authorized services or lose their write path, and transfers resolve both source and destination authority without fabricating grants or changing cloud authority. Human-user lifecycle, customer Account lifecycle, and deployment settings remain distinct. Coverage must distinguish prepared adapters from mounted operations; provider failure is not an empty authorized result, and transfer summaries preserve blocked outcomes without claiming cross-resource atomicity.",
         "checks": []
+      },
+      {
+        "id": "ADR-066-R8",
+        "description": "S6 extends existing CMS/Engine/Mission Control service, operation and channel contracts. Engine may consume exact scalar ancestry and optional owner membership through the read-only workspaces.services.resolve_range_scope_binding facade; it performs no tenancy mutation or policy grant, and CMS retains transfer orchestration. Customer content, credentials, installations and preparation carry resolved account scope; operator-shared catalog access does not expose private assets. Account-level ranges extend the canonical action/model/ancestry and descendant contracts without fabricated workspaces. Durable operations preserve initiating principal, separate executing workload, non-secret credential reference, original exact ceiling, admitted action/target/scope and generation; dispatch/retry reauthorize without widening intent or rehoming work. Required cleanup uses explicit bounded system authority, never a missing-actor fallback, and preserves existing idempotency, outbox/inbox, cancellation and cleanup evidence. Continuing access requires credential and resource checks, revocation notification/revalidation and documented tested finite data-plane termination bounds per transport, including idle connections and dependency failure. Preserve the isolated plugin worker/public SDK boundary and S8 activation; no new job framework or capability protocol without separate gap justification. Principal RAES creation stages policy before native SQL locks and commits public/runtime linkage, original authority, operation input, queue and strict audit together. NGFW request custody is scalar and immutable through bulk writes; native registration specs reuse field encryption. Device SSH uses the existing recorded Guacamole renewal/termination boundary, and callbacks mirror accepted native scope/generation evidence. Accepted device teardown permits bounded explicit system cleanup only after dispatch suppression and native task-absence verification, without borrowing a revoked credential. Launch intents separately pin immutable provisioner namespace, service account, image, command and deterministic Job identity; delivery success is not task-completion evidence.",
+        "checks": []
       }
     ],
     "exceptions": [],
@@ -4240,6 +4314,14 @@
       "https://github.com/Brad-Edwards/shifter/issues/2320",
       "docs/architecture/account-administration-preflight-2317.md",
       "docs/architecture/account-administration-coverage-2317.md",
+      "docs/architecture/content-range-authority-preflight-2319.md",
+      "docs/technical/shifter_platform/content-range-authority.md",
+      "shifter/shifter_platform/tests/cms/services/test_principal_ingestion.py",
+      "shifter/shifter_platform/tests/cms/test_principal_preparation.py",
+      "shifter/shifter_platform/tests/engine/services/test_inventory_scope.py",
+      "shifter/shifter_platform/tests/cms/services/test_principal_uploads.py",
+      "shifter/shifter_platform/tests/cms/services/test_principal_agents.py",
+      "shifter/shifter_platform/tests/cms/services/test_principal_devices.py",
       "docs/features/account-administration.md",
       "docs/technical/shifter_platform/account-administration.md",
       "shifter/shifter_platform/tests/integration/authorization/test_openfga_released_server.py",
@@ -4254,7 +4336,10 @@
       "shifter/shifter_platform/shared/verified_identity.py",
       "shifter/shifter_platform/shared/api/principals.py",
       "scripts/check_layer_imports/layer_imports.yaml",
-      "shifter/shifter_platform/management/management/commands/check_model_fks.py"
+      "shifter/shifter_platform/management/management/commands/check_model_fks.py",
+      "docs/features/content-range-authority.md",
+      "shifter/shifter_platform/tests/cms/services/test_principal_range_launch.py",
+      "shifter/shifter_platform/engine/field_encryption.py"
     ]
   },
   {
@@ -4327,6 +4412,155 @@
       "docs/adr/064-default-range-model-access.md",
       "docs/technical/dev/setup.md",
       "https://github.com/Brad-Edwards/shifter/issues/2274"
+    ]
+  },
+  {
+    "id": "ADR-069",
+    "title": "Repository identity comes from context or configuration, not literals",
+    "status": "accepted",
+    "scope": "repository",
+    "decision": "Self-identity uses the GitHub Actions runtime context. Upstream-only jobs compare the immutable repository and owner IDs declared in docs/adr/repository-identity.json, so forks skip them. Cloud trust and deployed validators get the trusted repository from deployment configuration and bind immutable IDs, with no default identity in code. Operator tooling resolves its target from the clone's gh default repository or an explicit argument. Documentation links, the documentation site, citation and package metadata, historical links, and provenance records may name the upstream project. The ADR guard enforces the rules.",
+    "rules": [
+      {
+        "id": "ADR-069-R1",
+        "description": "A workflow or build that refers to its own repository uses the runtime context (github.repository, github.repository_owner, github.repository_id, github.server_url, or the GITHUB_* environment values), never a literal. This includes attestation verification of artifacts the same repository built, image source labels, and registry namespaces derived from the owner.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      },
+      {
+        "id": "ADR-069-R2",
+        "description": "A job that must run only in the upstream repository compares github.repository_id and github.repository_owner_id, never the name, and the IDs equal docs/adr/repository-identity.json.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      },
+      {
+        "id": "ADR-069-R3",
+        "description": "Cloud trust (AWS IAM OIDC, GCP Workload Identity Federation) and deployed validators get the trusted repository from deployment configuration and bind immutable IDs. Terraform modules, roots, and bootstrap carry no default repository identity, except the GCP WIF trust module (gcp/modules/cicd-oidc-identity and gcp/global/cicd-oidc) keeps a github_org/github_repo default because the mandatory un-skippable CKV_GCP_125 static check must resolve the name; the immutable github_repository_id/github_owner_id remain default-less and are the binding anchor. purpose_contexts also has no default. A GCP deployment without GitHub federation (ADR-070) sets purpose_contexts to {} and both IDs to empty strings explicitly. Module validation admits empty IDs only without federation, and scripts/check_tf_gcp_wif_trust rejects a default on these variables. The provenance trust anchor of a GCP deployment is settings.release_trust in its root config: the immutable repository and owner IDs that sign its releases. CI passes the running repository's IDs instead.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      },
+      {
+        "id": "ADR-069-R4",
+        "description": "Operator tooling resolves its target repository from the clone's gh default repository (gh repo set-default --view), an explicit argument, or a GH_REPO value, never from gh repo view, and stops with a clear message when none is set.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      },
+      {
+        "id": "ADR-069-R5",
+        "description": "Documentation links, the documentation site URL, citation and package metadata, historical issue and pull request links, and provenance records may name the upstream project.",
+        "checks": []
+      },
+      {
+        "id": "ADR-069-R6",
+        "description": "The repository-identity-literals check fails when an executable or configuration file contains the declared or a former repository name, the repository or owner ID, or the registry owner namespace outside the declaration and the ADR-069-R5 references, and when .ground-control.yaml github_repo differs from the declaration. Tests use synthetic identities.",
+        "checks": [
+          "repository-identity-literals"
+        ]
+      }
+    ],
+    "exceptions": [],
+    "enforcement": [
+      "ci",
+      "pre-commit",
+      "agent-policy"
+    ],
+    "evidence": [
+      "docs/adr/069-repository-identity.md",
+      "docs/adr/repository-identity.json",
+      "docs/architecture/repository-identity-design-1698.md"
+    ]
+  },
+  {
+    "id": "ADR-070",
+    "title": "GCP deployments run from published releases without GitHub",
+    "status": "accepted",
+    "scope": "gcp",
+    "decision": "A GCP deployment runs from a published release, not from a repository checkout or GitHub. release-gcp.yml builds the five control-plane images and the deployer image once from protected main. It stores the provenance of each image with the image in the release registry, and it embeds the release manifest in the deployer image. One command, deploy.py gcp-deploy, installs and updates a deployment for operators and CI. It renders only with the Helm chart and reads the deployment input bundle and Secret Manager references. It runs each stage as its purpose identity, and it runs the ADR-037 gates without the GitHub API. gcp-destroy tears down the platform as the destroy identity. A new deployment needs no repository change.",
+    "rules": [
+      {
+        "id": "ADR-070-R1",
+        "description": "A GCP release is built once by .github/workflows/release-gcp.yml, which starts only through workflow_dispatch from protected refs/heads/main and runs on GitHub-hosted runners in the gcp-release Environment. It pushes the five control-plane images (portal, provisioner, guacd, guacamole-client, openvpn) and the deployer image by digest to the release registry. It signs SBOM-bearing build provenance for each digest and stores the attestation with the image (push-to-registry: true). The release manifest (bigrae.gcp-release.v1) inside the deployer image names the source revision, the chart version, and the exact image identities. Before it attests the deployer image, the workflow scans that exact digest with the blocking Trivy gate for HIGH and CRITICAL findings that have a fix. The only accepted exposures are time-boxed vendor-binary entries in platform/deployer/gcp/trivyignore.yaml, which stop applying on their expiry date.",
+        "checks": [
+          "release-workflow-provenance",
+          "workflow-action-sha-pinning"
+        ]
+      },
+      {
+        "id": "ADR-070-R2",
+        "description": "deploy.py gcp-deploy is the only GCP deploy implementation, for the first install and for each update. An operator runs it from the deployer image or from a clean checkout of the release revision. The GCP CI workflows (_gcp-dev.yml, gcp-dev-destroy.yml) call gcp-deploy, gcp-release-scan, gcp-smoke, and gcp-destroy and hold no inline deploy logic. The Helm chart is the only GCP Kubernetes renderer. The deploy workflow guard tests (scripts/adr_guard/tests/test_deploy_workflow.py) and the bootstrap unit tests enforce this.",
+        "checks": []
+      },
+      {
+        "id": "ADR-070-R3",
+        "description": "A deployment keeps its deploy inputs outside this repository and outside GitHub. The deployment input bundle (bigrae.yaml, terraform.tfvars and terraform.tfvars.json, range-images.json, and optional inputs) lives in the deployment config bucket or in a local directory. Secret values stay in Secret Manager, and bigrae.yaml refers to them by reference (settings.operator_bootstrap.admin_password_secret_ref). The commands read no per-deployment file from this repository, so a new deployment needs no repository change. In CI, scripts/gcp/render_ci_deployment_inputs.py is the only component that reads the GitHub secrets and variables and the committed per-deployment values. It renders the same bundle and fails on a value that conflicts with the root config.",
+        "checks": []
+      },
+      {
+        "id": "ADR-070-R4",
+        "description": "Operators run each command stage as the deploy, release-scan, or destroy purpose identity through service-account impersonation, with no service-account key. Only the principals in impersonation_principals receive roles/iam.serviceAccountTokenCreator, each only on the identity of its own purpose (ADR-004-R23). GitHub federation is optional: an empty purpose_contexts creates no WIF pool or provider. CI uses --identity ambient. scripts/check_tf_gcp_wif_trust and the native Terraform tests enforce the identity contract.",
+        "checks": []
+      },
+      {
+        "id": "ADR-070-R5",
+        "description": "gcp-deploy runs the ADR-037 gates and fails closed, with no bypass. Before rollout the release-scan identity scans each exact digest for HIGH and CRITICAL findings with the pinned Trivy. Every operator rollout scans, also with --stage rollout; CI scans in its release-scan job, which the rollout job needs. The deploy then verifies the Sigstore bundle that is stored with each image (ADR-037-R6). The policy binds the GitHub Actions issuer and the immutable repository and owner IDs in settings.release_trust; CI passes the IDs of the running repository. It also binds the release revision, the exact digest subject, and the SLSA provenance v1 predicate. After rollout it compares each running workload and container with the approved digests (ADR-037-R8). Raw evidence and redacted verdicts go to the private release-evidence bucket under the release-scans/ and deployments/ prefixes, not to Actions artifacts.",
+        "checks": []
+      },
+      {
+        "id": "ADR-070-R6",
+        "description": "In operator mode, gcp-deploy and gcp-destroy run only from tooling whose source revision equals the release revision. That tooling is the deployer image (BIGRAE_SOURCE_REVISION) or a clean checkout at that revision. Every operator stage of gcp-deploy, and gcp-destroy, needs the release manifest. Before any change it checks the tooling revision and verifies the provenance of the release images. A lock object (locks/deploy.lock) in the deployment config bucket allows one deploy or destroy at a time. Generation preconditions create and remove it, and --break-lock removes a stale lock. CI keeps its workflow concurrency group and uses --lock external.",
+        "checks": []
+      },
+      {
+        "id": "ADR-070-R7",
+        "description": "gcp-destroy runs as the destroy identity and requires --confirm with the deployment name. It renders the same Terraform inputs as the deploy and lifts Cloud SQL deletion protection. It removes the permanent KMS key ring and key from state and runs terraform destroy with bounded retries. It keeps the foundation identities and the state, evidence, and config buckets. In operator mode the release tooling check (ADR-070-R6) and a release provenance check replace the protected-branch rule. The CI destroy workflow keeps its protected-ref check.",
+        "checks": []
+      },
+      {
+        "id": "ADR-070-R8",
+        "description": "deploy.py gcp-images imports base guest images from an explicit --source registry prefix and keeps the digest pins and the OCI contract checks. It records the exact references in range-images.json in the deployment input bundle. When GCP_RELEASE_REGISTRY is set, packer-gcp.yml copies each published base-image artifact by digest into the release registry (ADR-037-R9).",
+        "checks": []
+      }
+    ],
+    "exceptions": [],
+    "enforcement": [
+      "ci",
+      "pre-commit",
+      "agent-policy"
+    ],
+    "evidence": [
+      "https://github.com/Brad-Edwards/bigrae/issues/2571",
+      "docs/adr/070-github-less-gcp-deployment.md",
+      "docs/architecture/github-less-gcp-deployment-design-2571.md",
+      "docs/runbooks/rb023-gcp-deployment.md",
+      "docs/technical/handbook/gcp-github-less-deployment.md",
+      ".github/workflows/release-gcp.yml",
+      ".github/workflows/_gcp-dev.yml",
+      ".github/workflows/gcp-dev-destroy.yml",
+      "platform/deployer/gcp/Dockerfile",
+      "scripts/bootstrap/gcp_cli.py",
+      "scripts/bootstrap/gcp_deploy.py",
+      "scripts/bootstrap/gcp_deploy_stages.py",
+      "scripts/bootstrap/gcp_destroy.py",
+      "scripts/bootstrap/gcp_inputs.py",
+      "scripts/bootstrap/gcp_identity.py",
+      "scripts/bootstrap/gcp_lock.py",
+      "scripts/bootstrap/gcp_provenance.py",
+      "scripts/bootstrap/gcp_release_scan.py",
+      "scripts/bootstrap/gcp_foundation.py",
+      "scripts/gcp/render_ci_deployment_inputs.py",
+      "shifter/installation/gcp_release.py",
+      "shifter/installation/settings_gcp_deploy.py",
+      "platform/terraform/gcp/modules/cicd-oidc-identity/main.tf",
+      "platform/terraform/gcp/global/release-registry/main.tf",
+      "platform/terraform/gcp/global/cicd-oidc/github_less.tftest.hcl",
+      "scripts/check_tf_gcp_wif_trust/check_tf_gcp_wif_trust.py",
+      "scripts/adr_guard/_guard/checks/release_workflow.py",
+      "scripts/adr_guard/tests/test_release_workflow.py",
+      "scripts/adr_guard/tests/test_deploy_workflow.py"
     ]
   }
 ]

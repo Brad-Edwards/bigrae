@@ -1,5 +1,8 @@
 # Quota allocation and pending grant preflight — #2120 / M03
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Inspected baseline: `5fbf929df82717164ed027c01f8ed355b95c0929`.
 Requirement: PLAT-202. This note applies ADR-047, ADR-043, and
 [ADR-060](../../adr/060-model-access-allocation-accounting.md) to the current

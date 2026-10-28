@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.contrib import admin
 
 from ctf.models import (
@@ -14,6 +16,9 @@ from ctf.models import (
     CTFSubmission,
     CTFTeam,
 )
+
+if TYPE_CHECKING:
+    from django.http import HttpRequest
 
 
 class CTFChallengeInline(admin.TabularInline):
@@ -54,9 +59,14 @@ class CTFScheduledTaskInline(admin.TabularInline):
     model = CTFScheduledTask
     extra = 0
     fields = ["task_type", "scheduled_for", "status", "executed_at"]
-    readonly_fields = ["status", "executed_at"]
+    # Tasks are created and retyped only by the fenced scheduling services (ADR-034-R13).
+    readonly_fields = ["task_type", "status", "executed_at"]
     show_change_link = True
     ordering = ["scheduled_for"]
+
+    def has_add_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        """Scheduled tasks are created only by the scheduling services."""
+        return False
 
 
 class CTFChallengeFileInline(admin.TabularInline):

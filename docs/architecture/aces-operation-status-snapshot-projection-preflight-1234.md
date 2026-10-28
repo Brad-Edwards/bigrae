@@ -1,5 +1,8 @@
 # ACES Operation Persistence And Range Projection Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1234, "05 - ACES migration: design operation, status,
 snapshot, and range projection persistence."
 

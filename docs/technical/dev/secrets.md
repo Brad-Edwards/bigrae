@@ -5,7 +5,7 @@ Where secrets live and how to manage them.
 ## Principles
 
 1. **Never in code** - No secrets in source files or environment configs
-2. **GitHub Secrets for CI/CD** - OIDC role ARNs plus the per-environment deploy payloads (`TF_VARS_*` and `SHIFTER_CONFIG_*`) rendered at deploy time; see [deploy-secrets.md](../../dev/deploy-secrets.md)
+2. **GitHub Secrets for CI/CD** - OIDC role ARNs plus the per-environment deploy payloads (`TF_VARS_*` and `SHIFTER_CONFIG_*`) rendered at deploy time; see [deploy-secrets.md](../../dev/deploy-secrets.md). A GCP deployment that runs without GitHub keeps no deploy input in GitHub. Its deployment config bucket holds the inputs, and Secret Manager holds the secret values (ADR-070)
 3. **Cloud secret manager for runtime** - AWS Secrets Manager today, GCP Secret Manager for `gcp-dev`
 4. **Explicit, not default** - No silent fallbacks; fail if secret missing
 5. **Committed tfvars are non-sensitive baselines** - The repo `terraform.tfvars` are fail-loud `example.com` placeholders; real per-environment values live in the `TF_VARS_*` GitHub secrets and render into a gitignored `local.auto.tfvars` at deploy time (since #1250)
@@ -23,24 +23,31 @@ These must be configured in repository Settings > Secrets and variables > Action
 | `GCP_PACKER_BUILD_SERVICE_ACCOUNT` | Image build service account in `gcp-build-dev` / `gcp-build-proof` |
 | `GCP_PACKER_VALIDATE_SERVICE_ACCOUNT` | Image validation service account in `gcp-validate-dev` / `gcp-validate-proof` |
 | `GCP_PACKER_PROMOTE_SERVICE_ACCOUNT` | Image promotion service account in `gcp-promote-prod` |
+| `GCP_RELEASE_SCAN_SERVICE_ACCOUNT` | Exact-release scanner service account in `gcp-release-scan-<deployment suffix>` |
+| `GCP_RELEASE_SERVICE_ACCOUNT` | Release publisher service account in `gcp-release` |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub Actions workload identity provider resource for `gcp-dev` deploys |
 | `GCP_BOOTSTRAP_ADMIN_EMAIL` | Optional first GCP operator email for Identity Platform bootstrap |
 | `GCP_BOOTSTRAP_ADMIN_PASSWORD` | Optional first GCP operator password for Identity Platform bootstrap |
 | `PLATFORM_BOOTSTRAP_STAFF_EMAILS` | Optional comma-separated runtime staff bootstrap emails for production auth providers |
 | `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS` | Optional comma-separated runtime superuser bootstrap emails for production auth providers |
-| `TF_INFRA_STATE_BUCKET[_DEV/_PROOF]` | Terraform state bucket the backend render reads (prod is unsuffixed) |
+| `TF_INFRA_STATE_BUCKET[_DEV]` | Terraform state bucket the backend render reads (prod is unsuffixed) |
 | `TF_VARS_<ENV>_CORE` / `_RANGE` / `_PORTAL` | Per-environment Terraform `local.auto.tfvars` payloads, rendered to a gitignored `local.auto.tfvars` at deploy time (since #1250) |
-| `SHIFTER_CONFIG_<ENV>_RANGE` / `SHIFTER_CONFIG_GCP_DEV` | Deployment `shifter.yaml` payload that renders the range egress allowlist |
+| `SHIFTER_CONFIG_<ENV>_RANGE` | Deployment `bigrae.yaml` payload that renders the range egress allowlist |
+| `SHIFTER_CONFIG_GCP_DEV` | Deployment `bigrae.yaml` of a CI-deployed GCP environment; the CI adapter renders it into the deployment input bundle |
 
-AWS uses IAM role ARNs for OIDC federation. `gcp-dev` uses Google workload
-identity federation. No static access keys are required.
+AWS uses IAM role ARNs for OIDC federation. A CI-deployed GCP environment uses
+Google workload identity federation. A GCP deployment that runs without GitHub
+uses service-account impersonation by named principals instead. No static
+access keys are required.
 
 **Deploy tfvars (since #1250)**: the committed `terraform.tfvars` are fail-loud
 `example.com` baselines. Each environment's real values live in the
 `TF_VARS_<ENV>_*` secrets and are rendered into a gitignored `local.auto.tfvars`
-at deploy time (`*.auto.tfvars` auto-loads over `terraform.tfvars`). Push them
-from local overlays with `scripts/sync-deploy-secrets.sh`. The single
-authoritative per-environment checklist is
+at deploy time (`*.auto.tfvars` auto-loads over `terraform.tfvars`). Push the
+AWS overlays with `scripts/sync-deploy-secrets.sh`. GCP inputs are not synced
+there: publish them to the deployment config bucket with
+`scripts/bootstrap/deploy.py gcp-config publish`. The single authoritative
+per-environment checklist is
 [deploy-secrets.md](../../dev/deploy-secrets.md).
 
 ## AWS Secrets Manager
@@ -63,21 +70,11 @@ Terraform state.
 
 #### Provisioning (Terraform-managed)
 
-The DC domain password secret is created and seeded by the engine-provisioner
-module (`platform/terraform/modules/engine-provisioner/secrets.tf`), exactly
-like the portal RDS credentials and the Django-app secret: a `random_password`
-generated at apply time and stored in `aws_secretsmanager_secret.dc_domain_password`
-via an `aws_secretsmanager_secret_version`. `terraform apply` for the portal
-stack creates the secret with a live `AWSCURRENT` value and wires its ARN into
-the engine ECS task definition (`secrets = [...]`) and the portal SSM parameter
-(`${ps_prefix}/dc-domain-password-secret-arn`). The engine provisioner uses
-that value to promote each prebaked DC AMI (the AMI ships AD DS binaries; the
-domain (and its Administrator password) is created per range at provision
-time) and to domain-join victims; the portal Django container reads it at
-runtime via `entrypoint.sh`. There is no out-of-band
-`aws secretsmanager create-secret` / `put-secret-value` step. A fresh
-environment is fully provisioned by the normal bootstrap → `terraform apply`
-flow, same as every other secret in the stack.
+The Portal Terraform root creates and seeds the DC domain password secret.
+Its `random_password.dc_domain_password` value is stored in Secrets Manager.
+The AWS EKS provisioner environment carries the secret reference through the existing hydration boundary.
+The secret is not stored in Helm values or committed configuration.
+A fresh environment uses the normal infrastructure apply; no manual secret creation is required.
 
 ### Dev Box
 
@@ -102,11 +99,11 @@ Current rollout behavior:
 - `shifter-gcp-dev-app` and `shifter-gcp-dev-db` are seeded by Terraform for the first deployable control-plane slice
 - `shifter-gcp-dev-guacamole-db` and `shifter-gcp-dev-guacamole-json-auth` are seeded by Terraform and synced into the `guacamole-runtime` Kubernetes Secret **out of band** during deploy (`kubectl apply` from Secret Manager, before the Helm release). Secret Manager and the Kubernetes Secret are the only runtime copies: these values are never placed in Helm chart values or Helm release history. The chart references the `guacamole-runtime` Secret by name only (`envFrom.secretRef`).
 - Identity Platform is provisioned by Terraform for the secure GCP portal login path
-- The first GCP operator is seeded by bootstrap using `GCP_BOOTSTRAP_ADMIN_EMAIL` / `GCP_BOOTSTRAP_ADMIN_PASSWORD` (or an interactive prompt)
-- Bootstrap operator elevation is runtime-configured with `PLATFORM_BOOTSTRAP_STAFF_EMAILS` / `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS`; these values must stay out of committed source
+- `gcp-deploy` seeds the first GCP operator from `settings.operator_bootstrap`: the `admin_email`, and the password in the Secret Manager secret that `admin_password_secret_ref` names. CI supplies `GCP_BOOTSTRAP_ADMIN_EMAIL` through the CI adapter and passes `GCP_BOOTSTRAP_ADMIN_PASSWORD` through `--operator-password-env`. The password never enters Terraform, the deployment input bundle, or a command argument
+- Bootstrap operator elevation comes from `settings.operator_bootstrap.staff_emails` / `superuser_emails`, which the deploy renders into `PLATFORM_BOOTSTRAP_STAFF_EMAILS` / `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS`. CI maps those GitHub secrets onto the settings. These values must stay out of committed source
 - The same `PLATFORM_BOOTSTRAP_STAFF_EMAILS` / `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS` contract is applied by the AWS/Cognito OIDC backend and the GCP Identity Platform backend on user login. These settings identify which authenticated users receive Django `is_staff` / `is_superuser`; they are not Django passwords and do not bypass the configured identity provider.
 - GCP corporate users authenticate in the browser through Identity Platform's FirebaseUI/SDK flow. Django only accepts verified Google identity tokens and creates the application session after email-verification and MFA checks pass.
-- The GCP bootstrap path now assumes the secure portal posture. It no longer preserves the old debug-auth fallback when hostname/TLS settings are missing
+- The GCP deploy command assumes the secure portal posture. It sets the public hostname from `deployment.domain` and always enables managed TLS
 - The operational dependency chain is now explicit:
   - `public_hostname` must be configured
   - managed TLS must be enabled
@@ -338,6 +335,11 @@ Role ARN doesn't change. Trust policy updates are in `platform/terraform/global/
 The provider resource and target service account stay stable. Rotate or tighten
 permissions in GCP IAM without changing the GitHub workflow contract unless the
 provider or service account identity itself changes.
+
+Federation is optional (ADR-070). A GCP deployment that runs without GitHub
+grants `roles/iam.serviceAccountTokenCreator` on each purpose identity only to
+the principals in the `impersonation_principals` input of the `cicd-oidc` root.
+Change that list to add or remove an operator. No service-account key exists.
 
 ## Accessing Secrets Locally
 

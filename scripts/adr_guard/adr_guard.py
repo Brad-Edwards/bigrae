@@ -37,6 +37,7 @@ _SOURCE_MODULES = (
     "_guard._workflow_model",
     "_guard.checks.adr_registry",
     "_guard.checks.layer_imports",
+    "_guard.checks._documentation_drift",
     "_guard.checks.documentation",
     "_guard.checks.mcp_policy",
     "_guard.checks.k8s_security",
@@ -50,6 +51,7 @@ _SOURCE_MODULES = (
     "_guard.checks.published_contract",
     "_guard.checks.quality_ownership",
     "_guard.checks.eks_cross_stack_sourcing",
+    "_guard.checks.repository_identity",
     "_guard._registry",
     "_guard._cli",
 )
@@ -77,7 +79,10 @@ for _module_name in _SOURCE_MODULES:
 
 # Expose the check submodules themselves (e.g. ``adr_guard.boundary_mock``),
 # which several tests reference directly rather than through a member symbol.
-from _guard.checks import (  # noqa: E402
+from _guard.checks import (  # noqa: E402, F401 - re-exported for tests
+    _documentation_drift as documentation_drift,
+)
+from _guard.checks import (  # noqa: E402, F401 - re-exported for tests
     accessibility_baseline,
     adr_registry,
     boundary_mock,
@@ -92,6 +97,7 @@ from _guard.checks import (  # noqa: E402
     mcp_policy,
     published_contract,
     quality_ownership,
+    repository_identity,
     secret_hygiene,
 )
 
@@ -103,6 +109,7 @@ _SUBMODULES = (
     "complexity",
     "deploy_workflow",
     "documentation",
+    "documentation_drift",
     "eks_cross_stack_sourcing",
     "gcp_deploy_identity",
     "k8s_security",
@@ -110,6 +117,7 @@ _SUBMODULES = (
     "mcp_policy",
     "published_contract",
     "quality_ownership",
+    "repository_identity",
     "secret_hygiene",
 )
 
@@ -118,7 +126,6 @@ __all__ = sorted(_exported | set(_SUBMODULES))
 # The CLI entry point. Also re-exported by the loop above; imported explicitly
 # here so the ``__main__`` dispatch resolves statically.
 from _guard._cli import main  # noqa: E402
-
 
 if __name__ == "__main__":
     sys.exit(main())

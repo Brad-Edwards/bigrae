@@ -12,54 +12,33 @@ from shared.schemas import InstanceSpec, RequestSpec
 from ._common import EngineError
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from engine.models import Instance, Request
+    from engine.services._device_authority import PreparedDeviceCreation
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
+
 
 logger = logging.getLogger(__name__)
 
 
-def create_ngfw(request_spec: RequestSpec) -> UUID:
+def create_ngfw(
+    request_spec: RequestSpec,
+    *,
+    credential: CredentialContext | None = None,
+    resource_scope: ResourceScope | None = None,
+    prepared_creation: PreparedDeviceCreation | None = None,
+) -> UUID:
     """Provision NGFW infrastructure."""
-    from engine.ecs import start_ngfw_provisioning
-    from engine.interpreter import interpret
-    from engine.models import Request
 
-    ngfw_spec: InstanceSpec | None = None
-    for item in request_spec.items:
-        if isinstance(item, InstanceSpec) and item.role == "ngfw":
-            ngfw_spec = item
-            break
+    if credential is not None:
+        from ._principal_ngfw import create_principal_ngfw
 
-    if ngfw_spec is None:
-        raise ValueError("RequestSpec must contain an NGFW InstanceSpec")
-    if ngfw_spec.ngfw_app is None:
-        raise ValueError("ngfw_app is required for NGFW provisioning")
-    if not ngfw_spec.ngfw_app.is_hydrated:
-        raise ValueError("ngfw_app must be hydrated with credential values")
-
-    existing_request = Request.objects.filter(request_id=request_spec.request_id).first()
-    if existing_request is not None:
-        logger.info("create_ngfw: reusing existing request_id=%s", request_spec.request_id)
-        return existing_request.request_id
-
-    request = interpret(request_spec)
-    logger.info("create_ngfw: interpreted request_id=%s", request_spec.request_id)
-
-    ngfw_instance = request.instance_instantiations.filter(role="ngfw").first()
-    if ngfw_instance:
-        _set_ngfw_materialization_status(request, ResourceStatus.PROVISIONING.value)
-        try:
-            task_arn = start_ngfw_provisioning(request.request_id)
-        except Exception:
-            _set_ngfw_materialization_status(request, ResourceStatus.FAILED.value)
-            raise
-        if task_arn:
-            logger.info(
-                "create_ngfw: started ECS task=%s for request=%s",
-                task_arn,
-                request.request_id,
-            )
-
-    return request.request_id
+        if resource_scope is None:
+            raise ValueError("Device scope unavailable")
+        return create_principal_ngfw(request_spec, credential, resource_scope, prepared_creation)
+    return _create_legacy_ngfw(request_spec)
 
 
 def _set_ngfw_materialization_status(request: Request, status: str) -> None:
@@ -86,45 +65,14 @@ def _set_ngfw_materialization_status(request: Request, status: str) -> None:
             app.save(update_fields=["status", "updated_at"])
 
 
-def destroy_ngfw(request_id: UUID) -> bool:
+def destroy_ngfw(request_id: UUID, *, credential: CredentialContext | None = None) -> bool:
     """Tear down NGFW infrastructure."""
-    from engine.ecs import start_ngfw_teardown
-    from engine.models import Instance, Range, Request
 
-    logger.debug("destroy_ngfw: request_id=%s", request_id)
+    if credential is not None:
+        from ._principal_ngfw import commit_ngfw_lifecycle, prepare_ngfw_lifecycle
 
-    try:
-        request = Request.objects.get(request_id=request_id)
-    except Request.DoesNotExist:
-        logger.warning("destroy_ngfw: request not found request_id=%s", request_id)
-        return False
-
-    ngfw_instance = Instance.objects.filter(request=request, role="ngfw").first()
-    if not ngfw_instance:
-        logger.warning("destroy_ngfw: no NGFW instance found for request_id=%s", request_id)
-        return False
-
-    attached_ranges = Range.objects.filter(
-        ngfw_instance=ngfw_instance,
-        status__in=[
-            Range.Status.READY,
-            Range.Status.PENDING,
-            Range.Status.PROVISIONING,
-            Range.Status.PAUSED,
-            Range.Status.RESUMING,
-        ],
-    )
-    if attached_ranges.exists():
-        count = attached_ranges.count()
-        range_ids = list(attached_ranges.values_list("id", flat=True)[:5])
-        raise EngineError(
-            f"Cannot delete NGFW: {count} range(s) are still attached. Delete these ranges first: {range_ids}"
-        )
-
-    task_arn = start_ngfw_teardown(request_id)
-    if task_arn:
-        logger.info("destroy_ngfw: started ECS task=%s for request=%s", task_arn, request_id)
-    return task_arn is not None
+        return commit_ngfw_lifecycle(prepare_ngfw_lifecycle(request_id, credential, "deprovision"))
+    return _destroy_legacy_ngfw(request_id)
 
 
 def _resolve_ngfw_instance_for_lifecycle(
@@ -165,10 +113,16 @@ def _validate_ngfw_instance_status(
     return ngfw_instance
 
 
-def _run_ngfw_lifecycle_op(request_id: UUID, op_name: str, allowed_statuses: tuple[str, ...]) -> bool:
+def _run_ngfw_lifecycle_op(
+    request_id: UUID, op_name: str, allowed_statuses: tuple[str, ...], credential: CredentialContext | None = None
+) -> bool:
     """Shared start/stop NGFW transition + ECS-dispatch helper."""
     from engine.ecs import start_ngfw_operation
 
+    if credential is not None:
+        from ._principal_ngfw import commit_ngfw_lifecycle, prepare_ngfw_lifecycle
+
+        return commit_ngfw_lifecycle(prepare_ngfw_lifecycle(request_id, credential, op_name))
     logger.debug("%s_ngfw: request_id=%s", op_name, request_id)
 
     ngfw_instance = _resolve_ngfw_instance_for_lifecycle(request_id, op_name, allowed_statuses)
@@ -181,19 +135,114 @@ def _run_ngfw_lifecycle_op(request_id: UUID, op_name: str, allowed_statuses: tup
     return task_arn is not None
 
 
-def start_ngfw(request_id: UUID) -> bool:
+def start_ngfw(request_id: UUID, *, credential: CredentialContext | None = None) -> bool:
     """Start a stopped NGFW instance."""
     return _run_ngfw_lifecycle_op(
         request_id,
         "start",
         (ResourceStatus.PAUSED.value, ResourceStatus.FAILED.value),
+        credential=credential,
     )
 
 
-def stop_ngfw(request_id: UUID) -> bool:
+def stop_ngfw(request_id: UUID, *, credential: CredentialContext | None = None) -> bool:
     """Stop a running NGFW instance."""
     return _run_ngfw_lifecycle_op(
         request_id,
         "stop",
         (ResourceStatus.READY.value,),
+        credential=credential,
     )
+
+
+def _destroy_legacy_ngfw(request_id: UUID) -> bool:
+    """Destroy an incumbent human-owned device while principal resources retain their own admission."""
+    from engine.ecs import start_ngfw_teardown
+    from engine.models import Instance, Range, Request
+
+    logger.debug("destroy_ngfw: request_id=%s", request_id)
+
+    try:
+        request = Request.objects.get(request_id=request_id)
+    except Request.DoesNotExist:
+        logger.warning("destroy_ngfw: request not found request_id=%s", request_id)
+        return False
+
+    ngfw_instance = Instance.objects.filter(request=request, role="ngfw").first()
+    if not ngfw_instance:
+        logger.warning("destroy_ngfw: no NGFW instance found for request_id=%s", request_id)
+        return False
+
+    attached_ranges = Range.objects.filter(
+        ngfw_instance=ngfw_instance,
+        status__in=[
+            Range.Status.READY,
+            Range.Status.PENDING,
+            Range.Status.PROVISIONING,
+            Range.Status.PAUSED,
+            Range.Status.RESUMING,
+        ],
+    )
+    if attached_ranges.exists():
+        count = attached_ranges.count()
+        range_ids = list(attached_ranges.values_list("id", flat=True)[:5])
+        raise EngineError(
+            f"Cannot delete NGFW: {count} range(s) are still attached. Delete these ranges first: {range_ids}"
+        )
+
+    task_arn = start_ngfw_teardown(request_id)
+    if task_arn:
+        logger.info("destroy_ngfw: started ECS task=%s for request=%s", task_arn, request_id)
+    return task_arn is not None
+
+
+def _create_legacy_ngfw(request_spec: RequestSpec) -> UUID:
+    """Create an incumbent human-owned device through native interpretation and launch dispatch."""
+    from engine.ecs import start_ngfw_provisioning
+    from engine.interpreter import interpret
+    from engine.models import Request
+
+    if request_spec.owner_principal_uuid is not None:
+        raise PermissionError("Device authority unavailable")
+    _require_hydrated_device_spec(request_spec)
+
+    existing_request = Request.objects.filter(request_id=request_spec.request_id).first()
+    if existing_request is not None:
+        logger.info("create_ngfw: reusing existing request_id=%s", request_spec.request_id)
+        return existing_request.request_id
+
+    request = interpret(request_spec)
+    logger.info("create_ngfw: interpreted request_id=%s", request_spec.request_id)
+
+    ngfw_instance = request.instance_instantiations.filter(role="ngfw").first()
+    if ngfw_instance:
+        _set_ngfw_materialization_status(request, ResourceStatus.PROVISIONING.value)
+        try:
+            task_arn = start_ngfw_provisioning(request.request_id)
+        except Exception:
+            _set_ngfw_materialization_status(request, ResourceStatus.FAILED.value)
+            raise
+        if task_arn:
+            logger.info(
+                "create_ngfw: started ECS task=%s for request=%s",
+                task_arn,
+                request.request_id,
+            )
+
+    return request.request_id
+
+
+def _require_hydrated_device_spec(request_spec: RequestSpec) -> None:
+    """Require a native device item with resolved credential material before creating records."""
+    ngfw_spec: InstanceSpec | None = None
+    for item in request_spec.items:
+        if isinstance(item, InstanceSpec) and item.role == "ngfw":
+            ngfw_spec = item
+            break
+
+    if ngfw_spec is None:
+        raise ValueError("RequestSpec must contain an NGFW InstanceSpec")
+    if ngfw_spec.ngfw_app is None:
+        raise ValueError("ngfw_app is required for NGFW provisioning")
+    if not ngfw_spec.ngfw_app.is_hydrated:
+        raise ValueError("ngfw_app must be hydrated with credential values")

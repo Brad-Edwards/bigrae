@@ -20,9 +20,11 @@ from django.db.models import Q
 from django.utils import timezone
 
 from engine.launch_intents import (
+    assert_provisioner_input_matches,
     authorize_provisioner_payload,
     command_from_payload,
     fail_current_provisioner_operation,
+    validate_provisioner_generation,
 )
 from engine.launch_interrupt import drain_due_interrupts
 from engine.models import InterruptState, ProvisionerLaunchIntent, ProvisionerLaunchStatus
@@ -59,6 +61,9 @@ class Command(BaseCommand):
                 reconcile_runtime_plugins(limit=3)
                 reconcile_runtime_plugin_operations(limit=6)
                 reconcile_feature_artifact_acquisitions(limit=3)
+                from engine.services._vpn_profiles import reconcile_vpn_profiles
+
+                reconcile_vpn_profiles(limit=100)
             self.stdout.write(f"Drained {drained} launch intents, {interrupted} interrupts")
             if not options["loop"]:
                 return
@@ -141,6 +146,7 @@ class Command(BaseCommand):
             # provisioner tags its input read and result appends with exactly the
             # operation it is executing, never "latest by request" (ADR-043).
             command = command_from_payload({**row.payload, "operation_id": str(row.operation_id)})
+            authorize_provisioner_payload(row.payload, expected_operation_id=row.operation_id)
             # Lock the domain projection while validating the operation generation.
             # This linearizes a stale launch against a concurrent lifecycle transition:
             # either this generation is authorized first, or the newer generation wins
@@ -156,8 +162,13 @@ class Command(BaseCommand):
                     current.save(update_fields=["status", "next_attempt_at"])
                     logger.info("provisioner launch suppressed by interrupt intent_id=%s", row.intent_id)
                     return
-                authorize_provisioner_payload(row.payload, expected_operation_id=row.operation_id)
-                task_ref = dispatch_provisioner_command(command, task_identity=str(row.intent_id))
+                validate_provisioner_generation(row.payload, expected_operation_id=row.operation_id)
+                assert_provisioner_input_matches(row.payload, row.operation_id)
+                task_ref = dispatch_provisioner_command(
+                    command,
+                    task_identity=str(row.intent_id),
+                    **({"expected_workload": current.executing_workload} if current.authority_kind else {}),
+                )
             if not task_ref:
                 raise RuntimeError("provisioner task runner is not configured")
         except Exception as exc:

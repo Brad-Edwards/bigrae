@@ -164,7 +164,7 @@ _REQUIRED_TERRAFORM_INPUTS = frozenset(
 
 def eks_root(profile: str) -> Path:
     """Return the isolated Terraform root for an EKS profile."""
-    if profile not in {"dev", "proof", "prod"}:
+    if profile not in {"dev", "prod"}:
         raise ValueError(f"unsupported AWS EKS profile {profile!r}")
     return get_repo_root() / "platform" / "terraform" / "environments" / profile / "eks"
 
@@ -181,8 +181,8 @@ def _validate_config(config: RootConfig) -> None:
     """Require the AWS backend and an EKS-supported deployment profile."""
     if config.backend != "aws":
         raise ValueError("the EKS lifecycle requires shifter.yaml backend: aws")
-    if config.deployment.profile not in {"dev", "proof", "prod"}:
-        raise ValueError("the AWS EKS bundle supports only dev, proof, and prod profiles")
+    if config.deployment.profile not in {"dev", "prod"}:
+        raise ValueError("the AWS EKS bundle supports only dev and prod profiles")
 
 
 def _validated_images(images: Mapping[str, object]) -> dict[str, str]:
@@ -297,7 +297,7 @@ def _runtime_env(config: RootConfig, outputs: Mapping[str, object]) -> dict[str,
         "EMAIL_BACKEND": _CONSOLE_EMAIL_BACKEND,
         # The Django runtime mode (development/production); keyed by Django settings.
         "ENVIRONMENT": _runtime_environment(config.deployment.profile),
-        # The AWS infrastructure environment name (dev/proof/prod) used by the
+        # The AWS infrastructure environment name (dev/prod) used by the
         # standalone provisioner to tag and scope range resources. It must equal the
         # Terraform/IAM environment (local.environment == the deployment profile), not
         # the Django ENVIRONMENT (development/production): the provisioner-iam tag
@@ -624,8 +624,8 @@ def _verify_effective_irsa(roles: Mapping[str, object], platform_image: str) -> 
                     "restartPolicy": "Never",
                     "securityContext": {
                         "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "runAsGroup": 1000,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
                         "seccompProfile": {"type": "RuntimeDefault"},
                     },
                     "containers": [
@@ -736,7 +736,7 @@ print("NETWORK_POLICY_OK:{workload}", flush=True)
             "capabilities": {"drop": ["ALL"]},
             "readOnlyRootFilesystem": True,
             "runAsNonRoot": True,
-            "runAsUser": 1000,
+            "runAsUser": 10001,
         },
     }
     if workload == "deployment":
@@ -790,8 +790,8 @@ def _networkpolicy_probe_manifests(
     job_name = "shifter-networkpolicy-job"
     pod_security_context = {
         "runAsNonRoot": True,
-        "runAsUser": 1000,
-        "runAsGroup": 1000,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
         "seccompProfile": {"type": "RuntimeDefault"},
     }
     labels = {
@@ -1499,8 +1499,8 @@ def _guacamole_provision_manifests(
                     # one-shot and non-serving.
                     "securityContext": {
                         "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "runAsGroup": 1000,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
                         "seccompProfile": {"type": "RuntimeDefault"},
                     },
                     "containers": [
@@ -1913,8 +1913,8 @@ def _migration_job(platform_image: str) -> dict[str, object]:
                     # guacamole provisioner Job). The pod is one-shot and non-serving.
                     "securityContext": {
                         "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "runAsGroup": 1000,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
                         "seccompProfile": {"type": "RuntimeDefault"},
                     },
                     "containers": [

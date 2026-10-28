@@ -6,19 +6,7 @@ live admission after the coordinated authority cutover in ADR-066.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True, slots=True)
-class OperationPolicy:
-    """One operation's registered action and SQL-owned target locator."""
-
-    actions: tuple[str, ...]
-    target: str | None
-    locator: str | None
-    exemption: str | None = None
-    selector: str | None = None
-
+from shared.authorization.operations import OperationPolicy
 
 _MANAGE_AWARDS = "event.manage_awards"
 _MANAGE_CHALLENGES = "event.manage_challenges"
@@ -55,6 +43,11 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_communications_cancel_create": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
     "ctf_communications_release_create": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
     "ctf_communications_revisions_create": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
+    "ctf_communications_targets_list": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign_collection"),
+    "ctf_communications_preview_retrieve": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
+    "ctf_communications_delivery_retrieve": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
+    "ctf_communications_recipients_list": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
+    "ctf_communications_activity_retrieve": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
     "ctf_events_list": OperationPolicy(("event.read",), "event", "event_discovery"),
     "ctf_events_create": OperationPolicy(
         ("account.create_event", "organization.create_event", "workspace.create_event"),
@@ -216,6 +209,8 @@ NON_API_ROUTE_POLICY: dict[str, str] = {
             "admin_notification_create",
             "admin_event_email_templates",
             "admin_analytics",
+            "admin_communications",
+            "admin_communication_detail",
             "admin_challenge_file_upload",
         ),
         "spa_shell",

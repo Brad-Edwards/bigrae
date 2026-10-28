@@ -74,6 +74,13 @@ export const SURFACES: readonly A11ySurface[] = [
     remediation: "src/features/ctf/admin/AdminDashboardPage.tsx",
   },
   {
+    id: "ctf-admin-communications",
+    route: "/ctf/admin/communications",
+    actor: "organizer",
+    ready: "Communications",
+    remediation: "src/features/ctf/admin/communications/CommunicationsPage.tsx",
+  },
+  {
     id: "scenario-editor-list",
     route: "/scenario-editor",
     actor: "threat",

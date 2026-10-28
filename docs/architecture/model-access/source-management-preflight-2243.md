@@ -1,5 +1,8 @@
 # Tenant model-source configuration preflight — #2243
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Architecture guidance for PLAT-202, 2026-09-18; inspected baseline `b44273f98`.
 This records boundaries and acceptance risks, not an implementation plan or a
 claim of installed provider support. ADR-059 through ADR-061 remain authoritative.

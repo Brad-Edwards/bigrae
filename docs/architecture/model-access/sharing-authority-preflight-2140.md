@@ -1,5 +1,8 @@
 # Sharing membership and authority preflight — #2140 / M20
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Inspected repository baseline: `43e6b79fc44812fe22f6b8283f7274404e7ccbd7`,
 2026-09-14. This note specializes [ADR-060](../../adr/060-model-access-allocation-accounting.md),
 the [sharing contract](sharing.md), the [architecture](architecture.md), and the

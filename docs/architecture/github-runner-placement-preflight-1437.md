@@ -1,5 +1,8 @@
 # AWS runner placement preflight (#1437)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Date: 2026-09-12. Status: architecture decision; implementation and operational
 migration remain outstanding. Repository inspected at `613f365ac`.
 

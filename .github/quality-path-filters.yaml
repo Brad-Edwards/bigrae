@@ -49,11 +49,27 @@ force_full_matrix:
   - .github/quality-path-filters.yaml
 
 quality_units:
+  - id: guacamole_authority
+    paths:
+      - shifter/engine/guacamole/authority-extension/**
+      - shifter/shifter_platform/tests/integration/test_guacamole_native*.py
+      - shifter/shifter_platform/tests/integration/guacamole_*.py
+      - shifter/shifter_platform/tests/integration/guacamole-rdp/**
+    sonar: true
+    responsibilities:
+      lint: [guacamole-authority-sast]
+      security: [guacamole-authority-sast]
+      test: [guacamole-authority-tests]
+
   - id: shifter_platform
     paths:
       - shifter/shifter_platform/**
       - shifter/shifter_adapter_sdk/**
       - shifter/shifter_client/**
+      # Shifter-owned environment packs (#2550). Platform pack-loading,
+      # bootstrap/conformance, object-source and backend-validation tests
+      # consume every pack in the collection.
+      - shifter/environment-packs/**
       - .importlinter
     packages:
       - engine
@@ -73,6 +89,8 @@ quality_units:
   - id: provisioner
     paths:
       - shifter/engine/provisioner/**
+      # The provisioner operating-system tests read this pack's SDL (#2550).
+      - shifter/environment-packs/shifter-raes-validation/**
     sonar: true
     responsibilities:
       lint: [provisioner-lint]
@@ -130,7 +148,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [check-rds-pending-modifications-lint]
-      security: []
+      security: [deployment-utilities-sast]
       test: [check-rds-pending-modifications-tests]
 
   - id: handle_sd_replacement
@@ -139,7 +157,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [handle-sd-replacement-lint]
-      security: []
+      security: [deployment-utilities-sast]
       test: [handle-sd-replacement-tests]
 
   - id: assert_portal_inspection
@@ -148,7 +166,7 @@ quality_units:
     sonar: false
     responsibilities:
       lint: [assert-portal-inspection-lint]
-      security: []
+      security: [deployment-utilities-sast]
       test: [assert-portal-inspection-tests]
 
   - id: installation
@@ -197,16 +215,6 @@ quality_units:
       security: [security-iac]
       test: [terraform-validate]
 
-  - id: k8s
-    paths:
-      - platform/k8s/**
-      - .kube-linter.yaml
-    sonar: false
-    responsibilities:
-      lint: [k8s-lint]
-      security: []
-      test: [k8s-schema]
-
   - id: mcp_ngfw
     paths:
       - mcp/ngfw/**
@@ -215,7 +223,7 @@ quality_units:
       package: ngfw
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ngfw}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: ngfw}}]
       test: [{job: mcp-tests, matrix: {package: ngfw}}]
 
   - id: mcp_ops
@@ -226,7 +234,7 @@ quality_units:
       package: ops
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: ops}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: ops}}]
       test: [{job: mcp-tests, matrix: {package: ops}}]
 
   - id: mcp_planner
@@ -237,7 +245,7 @@ quality_units:
       package: planner
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: planner}}]
-      security: []
+      security: [{job: mcp-lint, matrix: {package: planner}}]
       test: [{job: mcp-tests, matrix: {package: planner}}]
 
   - id: mcp_shared
@@ -249,8 +257,8 @@ quality_units:
       fanout_all_on_change: true
     responsibilities:
       lint: [{job: mcp-lint, matrix: {package: shared}}]
-      security: []
-      test: []
+      security: [{job: mcp-lint, matrix: {package: shared}}]
+      test: [{job: mcp-tests, matrix: {package: shared}}]
 
   - id: adr_guard
     paths:
@@ -264,8 +272,8 @@ quality_units:
       - .shifter.yaml
     sonar: false
     responsibilities:
-      lint: []
-      security: []
+      lint: [adr-guard-lint-security]
+      security: [adr-guard-lint-security]
       test: [adr-guard-tests]
 
   - id: stack_smoke
@@ -273,52 +281,53 @@ quality_units:
       - scripts/stack-smoke/**
     sonar: false
     responsibilities:
-      lint: []
-      security: []
-      test: [stack-smoke]
+      lint: [stack-smoke-lint-security]
+      security: [stack-smoke-lint-security]
+      test: [stack-smoke-lint-security, stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
-  # exclusions (ADR-004-R23 forbids exempting shipped build/runtime material via
-  # exclusions). They have no dedicated blocking quality job yet, so every
-  # responsibility is a visible, dated ADR-004-R23 gap tracked by #1698 rather
-  # than a hidden config exclusion.
+  # exclusions (ADR-004-R24 forbids exempting shipped build/runtime material via
+  # exclusions). Each responsibility resolves to a blocking job below.
   - id: container_images
     paths:
       - shifter/engine/guacamole/**
       - shifter/engine/guacd/**
+    sonar: false
+    responsibilities:
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [guacamole-authority-tests, guacd-image-tests]
+
+  # GitHub-less GCP deployer image (#2571, ADR-070).
+  - id: gcp_deployer
+    paths:
+      - platform/deployer/**
+    sonar: false
+    responsibilities:
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [gcp-deployer-image]
+
+  - id: portal_image_context
+    paths:
       - shifter/.dockerignore
     sonar: false
     responsibilities:
-      lint: []
-      security: []
-      test: []
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [stack-smoke]
 
+  # The Helm chart is the only Kubernetes renderer (ADR-007, #2571). Every
+  # Kubernetes gate validates the rendered chart for each supported profile.
   - id: charts
     paths:
       - platform/charts/**
+      - .kube-linter.yaml
     sonar: false
     responsibilities:
-      lint: []
-      security: []
-      test: [chart-tests]
-
-  - id: cloudformation
-    paths:
-      - platform/cloudformation/**
-    sonar: false
-    responsibilities:
-      lint: []
-      security: []
-      test: []
-
-  - id: branding_assets
-    paths:
-      - assets/**
-    sonar: false
-    responsibilities:
-      lint: []
-      security: []
-      test: []
+      lint: [chart-lint-security]
+      security: [chart-lint-security, security-k8s]
+      test: [chart-tests, k8s-schema]
 
 exclusions:
   - type: docs
@@ -377,8 +386,9 @@ exclusions:
       # Exact-release Trivy exposure-management policy consumed by the
       # release-scan gate in .github/workflows/_gcp-dev.yml (--ignorefile).
       - .trivyignore.yaml
-      # OSV-Scanner suppressions (time-boxed, no-upstream-fix) consumed by the
-      # Security (osv-scanner) quality job via --config.
+      # OSV-Scanner policy consumed by the Security (osv-scanner) quality job
+      # via --config. Any future suppression must be time-boxed and limited to
+      # an advisory with no upstream fix.
       - osv-scanner.toml
       - tools/install-vale.sh
 
@@ -398,7 +408,6 @@ exclusions:
       - scripts/check_checkov_invocation_parity/**
       - scripts/post_deploy_smoke/**
       - scripts/terraform/**
-      - scripts/ctf-scenario/**
       - scripts/tests/**
       # Root-level helper scripts are enumerated (not a scripts/* wildcard) so a
       # new script package under scripts/ still fails closed as unclassified.
@@ -421,13 +430,6 @@ exclusions:
       - scripts/smoke-test-gcp.sh
       - scripts/sync-deploy-secrets.sh
       - scripts/update-coverage-readme.py
-
-  - type: config
-    reason: >-
-      Synthetic RAES validation scenarios and associated authoring material.
-      Private packs and their tests belong to their owning repositories.
-    paths:
-      - scenario-dev/**
 
   - type: test
     reason: >-

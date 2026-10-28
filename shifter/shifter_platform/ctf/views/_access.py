@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _check_credential_delivery_rate_limit(user_id: int, limit: int = 50, window: int = 3600) -> bool:
+def _check_credential_delivery_rate_limit(user_id: int | UUID, limit: int = 50, window: int = 3600) -> bool:
     """Return True if credential reset/delivery remains within its budget.
 
     Uses Django's cache with a fixed-window counter. Default: 50 per hour.

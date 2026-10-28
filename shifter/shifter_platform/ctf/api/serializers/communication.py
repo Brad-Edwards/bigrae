@@ -14,8 +14,11 @@ from __future__ import annotations
 from typing import Any
 
 from django.conf import settings
+from django.db.models import OuterRef, QuerySet, Subquery
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from ctf.api.serializers.communication_console import CommunicationTriggerProjectionSerializer
 from ctf.communication_contracts import (
     MAX_AUDIENCE_IDS,
     MAX_BODY_BYTES,
@@ -28,7 +31,7 @@ from ctf.communication_contracts import (
 )
 from ctf.enums_communication import AcknowledgementPolicy, AudienceKind, CommunicationChannel, TriggerKind
 from ctf.exceptions import CTFCommunicationError
-from ctf.models import CommunicationCampaign
+from ctf.models import CommunicationCampaign, MessageRevision
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api.strict_json import ClosedJSONParser
 
@@ -54,6 +57,29 @@ class CommunicationInboxItemSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(source="intent.released_at", read_only=True, allow_null=True)
 
 
+def with_latest_revision(queryset: QuerySet[CommunicationCampaign]) -> QuerySet[CommunicationCampaign]:
+    """Annotate each campaign with its newest revision identity; never loads revision bodies."""
+    latest = MessageRevision.objects.filter(campaign=OuterRef("pk")).order_by("-revision_number")
+    return queryset.annotate(
+        latest_revision_id=Subquery(latest.values("id")[:1]),
+        latest_revision_number=Subquery(latest.values("revision_number")[:1]),
+    )
+
+
+class CommunicationTargetRefSerializer(serializers.Serializer):
+    """Target event identity and display name."""
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+
+class CommunicationRevisionRefSerializer(serializers.Serializer):
+    """Immutable revision identity."""
+
+    id = serializers.UUIDField(read_only=True)
+    revision_number = serializers.IntegerField(read_only=True)
+
+
 class CommunicationCampaignSummarySerializer(serializers.Serializer):
     """Organizer-facing campaign summary; carries shape and counts, never recipients."""
 
@@ -64,11 +90,38 @@ class CommunicationCampaignSummarySerializer(serializers.Serializer):
     channels = serializers.ListField(child=serializers.CharField(), read_only=True)
     acknowledgement_policy = serializers.CharField(read_only=True)
     target_event_count = serializers.SerializerMethodField()
+    target_events = serializers.SerializerMethodField()
+    latest_revision = serializers.SerializerMethodField()
+    trigger = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(read_only=True)
 
     def get_target_event_count(self, campaign: CommunicationCampaign) -> int:
-        """Return the number of events the campaign targets (no identities exposed)."""
-        return campaign.target_events.count()
+        """Return the number of events the campaign targets."""
+        return len(campaign.target_events.all())
+
+    @extend_schema_field(CommunicationTargetRefSerializer(many=True))
+    def get_target_events(self, campaign: CommunicationCampaign) -> list[dict[str, Any]]:
+        """Return the target events; callers authorize every target before projection."""
+        events = sorted(campaign.target_events.all(), key=lambda event: (event.name, str(event.pk)))
+        return [{"id": event.pk, "name": event.name} for event in events]
+
+    @extend_schema_field(CommunicationRevisionRefSerializer(allow_null=True))
+    def get_latest_revision(self, campaign: CommunicationCampaign) -> dict[str, Any] | None:
+        """Return the newest immutable revision identity for an explicit reviewed release."""
+        if hasattr(campaign, "latest_revision_id"):
+            # Collection queries annotate the identity (``with_latest_revision``).
+            revision_id, number = campaign.latest_revision_id, getattr(campaign, "latest_revision_number", None)
+        else:
+            latest = campaign.message_revisions.order_by("-revision_number").values("id", "revision_number").first()
+            revision_id, number = (latest["id"], latest["revision_number"]) if latest else (None, None)
+        return None if revision_id is None else {"id": revision_id, "revision_number": number}
+
+    @extend_schema_field(CommunicationTriggerProjectionSerializer)
+    def get_trigger(self, campaign: CommunicationCampaign) -> dict[str, Any]:
+        """Return the closed trigger kind and its UTC instant."""
+        from ctf.services.communication.reporting import trigger_projection
+
+        return CommunicationTriggerProjectionSerializer(trigger_projection(campaign)).data
 
 
 # Write contracts deliberately enumerate every supported field. Domain validators

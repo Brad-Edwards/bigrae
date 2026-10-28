@@ -1,5 +1,8 @@
 # Provisioner Persistence Boundary Preflight (#478)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: pre-implementation guidance
 
 Runtime plugin addendum (2026-09-17, ADR-043-R8): isolated planning produces a

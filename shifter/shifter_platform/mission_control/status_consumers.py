@@ -45,7 +45,7 @@ class RangeStatusConsumer(AsyncWebsocketConsumer):
         from shared.exceptions import CMSError
 
         # Verify authentication
-        user = self.scope.get("user")
+        user = self.scope.get("credential_context", self.scope.get("user"))
         if not user or isinstance(user, AnonymousUser):
             logger.warning("Unauthenticated WebSocket connection attempt to range status")
             await self.close(code=WebSocketCloseCode.NOT_AUTHENTICATED)
@@ -61,9 +61,8 @@ class RangeStatusConsumer(AsyncWebsocketConsumer):
         except CMSError:
             # CMSError covers both not found and permission denied
             logger.warning(
-                "Range with request_id %s not found or not owned by user %s",
+                "Range with request_id %s unavailable to status subscriber",
                 self.request_id,
-                user.id,
             )
             await self.close(code=WebSocketCloseCode.NOT_FOUND)
             return
@@ -114,6 +113,8 @@ class RangeStatusConsumer(AsyncWebsocketConsumer):
             request_id = str(event.get("request_id", ""))
             status = str(event.get("new_status", ""))
 
+        if request_id != self.request_id:
+            return
         await self.send(
             text_data=json.dumps(
                 {
@@ -149,7 +150,7 @@ class NGFWStatusConsumer(AsyncWebsocketConsumer):
         from shared.exceptions import CMSError
 
         # Verify authentication
-        user = self.scope.get("user")
+        user = self.scope.get("credential_context", self.scope.get("user"))
         if not user or isinstance(user, AnonymousUser):
             logger.warning("Unauthenticated WebSocket connection attempt to NGFW status")
             await self.close(code=WebSocketCloseCode.NOT_AUTHENTICATED)
@@ -164,9 +165,8 @@ class NGFWStatusConsumer(AsyncWebsocketConsumer):
             ngfw = await sync_to_async(cms_get_ngfw)(user, self.app_id)
         except CMSError:
             logger.warning(
-                "NGFW app %s not found or not owned by user %s",
+                "NGFW app %s unavailable to status subscriber",
                 self.app_id,
-                user.id,
             )
             await self.close(code=WebSocketCloseCode.NOT_FOUND)
             return
@@ -206,6 +206,8 @@ class NGFWStatusConsumer(AsyncWebsocketConsumer):
 
         Called when a status update is broadcast to the NGFW group.
         """
+        if str(event.get("app_id", "")) != str(self.app_id):
+            return
         await self.send(
             text_data=json.dumps(
                 {

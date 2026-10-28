@@ -5,6 +5,7 @@ routing-reachability invariant in ``_quality_ownership_routing`` (split out to
 keep each module under the file-length limit); both are re-exported here, so
 this module remains the single import site for the check.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,26 +17,25 @@ from .._common import (
     _walk_all_files,
 )
 from .._workflow_model import (
-    _DwShapeError,
     _dw_jobs,
     _dw_load_workflow,
     _dw_truthy,
+    _DwShapeError,
 )
 from ._quality_ownership_model import (
     _QUALITY_CONTRACT_REL,
     _QUALITY_WORKFLOW_REL,
+    _load_quality_module,
+    _quality_load_contract,
     _QualityContract,
     _QualityJobRef,
     _QualityJobs,
     _QualityUnit,
     _QualityViol,
-    _load_quality_module,
-    _quality_load_contract,
 )
 from ._quality_ownership_routing import (
     _QUALITY_INPUT_VALUES,
     _QUALITY_MATRIX_OUTPUT,
-    _QualityProbe,
     _quality_docs_only_violations,
     _quality_eval_if,
     _quality_job_reachable,
@@ -47,11 +47,11 @@ from ._quality_ownership_routing import (
     _quality_routing_reachability,
     _quality_strip_if,
     _quality_unit_routing_violations,
+    _QualityProbe,
 )
 from .layer_imports import (
     _classified_packages,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Production-path quality-ownership conformance (#1530, GEN-002, ADR-004-R24)
@@ -76,13 +76,15 @@ _QUALITY_CHECK = "quality-path-ownership"
 _QUALITY_RESPONSIBILITIES = ("lint", "security", "test")
 # Evidence-only jobs: soft-fail, always-run, or advisory scanners that cannot
 # by themselves own a required responsibility (per the #1530 preflight).
+# security-k8s became a blocking gate in #2558 (Kubernetes Checkov fails closed),
+# so it is no longer listed here. Making the Trivy configuration scan blocking is
+# tracked separately in #2566.
 _QUALITY_ADVISORY_JOBS = frozenset(
     {
         "security-trivy-advisory",
         "security-osv-advisory",
         "secrets-gitleaks",
         "sonarcloud",
-        "security-k8s",
     }
 )
 
@@ -122,9 +124,7 @@ def _quality_reference_violations(
     return violations
 
 
-def _quality_satisfied_responsibilities(
-    contract: _QualityContract, jobs: _QualityJobs
-) -> dict[str, set[str]]:
+def _quality_satisfied_responsibilities(contract: _QualityContract, jobs: _QualityJobs) -> dict[str, set[str]]:
     """Map each unit id to the responsibilities a blocking job actually owns."""
     return {
         unit.id: {
@@ -184,9 +184,7 @@ def _quality_ownership_completeness(
     return violations
 
 
-def _quality_package_reconciliation(
-    contract: _QualityContract, repo_root: Path, viol: _QualityViol
-) -> list[Violation]:
+def _quality_package_reconciliation(contract: _QualityContract, repo_root: Path, viol: _QualityViol) -> list[Violation]:
     """Reconcile the units' declared packages against the #1523 classification:
     neither side may reference a package the other does not know about."""
     try:
@@ -239,15 +237,14 @@ def check_quality_path_ownership(repo_root: Path, files: list[str] | None) -> li
         tracked = _walk_all_files(repo_root)
 
     violations: list[Violation] = [
-        viol(_QUALITY_CONTRACT_REL, err)
-        for err in module.estate_violations(contract, tracked)
+        viol(_QUALITY_CONTRACT_REL, err) for err in module.estate_violations(contract, tracked)
     ]
 
     try:
         workflow = _dw_load_workflow(repo_root, _QUALITY_WORKFLOW_REL)
         jobs = _dw_jobs(workflow, _QUALITY_WORKFLOW_REL)
     except _DwShapeError as exc:
-        return violations + [viol(_QUALITY_WORKFLOW_REL, str(exc))]
+        return [*violations, viol(_QUALITY_WORKFLOW_REL, str(exc))]
 
     violations += _quality_ownership_completeness(contract, module, tracked, jobs, viol)
     violations += _quality_output_wiring_violations(contract, module, jobs, viol)

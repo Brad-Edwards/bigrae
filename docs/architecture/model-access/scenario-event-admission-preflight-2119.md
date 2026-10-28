@@ -1,5 +1,8 @@
 # Scenario and event model-admission preflight — #2119
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 **Requirement:** PLAT-202 (M02)
 **Status:** pre-implementation guidance; complements ADR-059 through ADR-061
 

@@ -37,7 +37,10 @@ def test_collect_env_bindings_exposes_raes_runtime_keys_without_retired_selector
     assert "SHIFTER_RAES_CONTENT_DELIVERY_MAX_PAYLOAD_BYTES" not in names  # no payload cap (ADR-032-R9)
     for expected in cutover_keys:
         suffix = expected.split("RAES", maxsplit=1)[1]
-        assert {name for name in names if name.endswith(suffix)} == {expected}
+        aliases = {expected}
+        if expected.startswith("SHIFTER_"):
+            aliases.add(expected.replace("SHIFTER_", "BIGRAE_", 1))
+        assert {name for name in names if name.endswith(suffix)} == aliases
 
 
 def test_env_manifest_is_current():

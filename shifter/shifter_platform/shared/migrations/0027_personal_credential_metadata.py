@@ -28,6 +28,8 @@ class Migration(migrations.Migration):
         ("shared", "0026_alter_auditlog_action_alter_auditlog_entity_type"),
         ("management", "0016_provider_binding_immutability"),
         migrations.swappable_dependency(settings.KNOX_TOKEN_MODEL),
+        # The knox_token FK targets knox's final token key, not its first schema.
+        ("knox", "0009_extend_authtoken_field"),
     ]
 
     operations = [

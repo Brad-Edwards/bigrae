@@ -116,6 +116,9 @@ def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
     resolved_content = resolve_scenario_ctf_content(scenario_id)
 
     with transaction.atomic():
+        from ctf.bridges import cms_fence_pack_reference
+
+        cms_fence_pack_reference(scenario_id)
         event = CTFEvent.objects.create(
             created_by=user,
             workspace_id=workspace_id,

@@ -10,7 +10,19 @@ from .._common import (
     Violation,
     _load_json_yaml,
 )
-
+from ._documentation_drift import (
+    _DOCS_EXCLUDED_PART,
+    DOCS_COVERAGE_MANIFEST,
+    _check_drift_targets,
+    _check_feature_drift,
+    _coverage_manifest_shape_error,
+    _coverage_violation,
+    _doc_path_is_excluded,
+    _documentation_changed_paths,
+    _drift_associations,
+    _feature_doc_paths_error,
+    _relative_drift_path,
+)
 
 GUARDRAIL_PREFIXES = (
     ".github/workflows/",
@@ -45,9 +57,7 @@ DOC_PATHS = (
 
 def _is_guardrail_file(path: str) -> bool:
     """True when the path is a guardrail definition governed by ADR-002-R1."""
-    return path in GUARDRAIL_FILES or any(
-        path.startswith(prefix) for prefix in GUARDRAIL_PREFIXES
-    )
+    return path in GUARDRAIL_FILES or any(path.startswith(prefix) for prefix in GUARDRAIL_PREFIXES)
 
 
 def _is_docs_file(path: str) -> bool:
@@ -74,20 +84,14 @@ def check_guardrail_docs(repo_root: Path, files: list[str] | None) -> list[Viola
     ]
 
 
-def check_no_agent_attribution(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def check_no_agent_attribution(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Reject AI/agent marketing or co-author attribution in tracked text."""
     from agent_attribution import find_agent_attribution_matches
 
     candidates = files
     if candidates is None:
         candidates = [
-            rel
-            for rel in subprocess.check_output(
-                ["git", "ls-files"], cwd=repo_root, text=True
-            ).splitlines()
-            if rel
+            rel for rel in subprocess.check_output(["git", "ls-files"], cwd=repo_root, text=True).splitlines() if rel
         ]
 
     violations: list[Violation] = []
@@ -116,13 +120,9 @@ def check_no_agent_attribution(
     return violations
 
 
-DOCS_COVERAGE_MANIFEST = "docs/adr/documentation-coverage.yaml"
-DOCS_COVERAGE_RULE_ID = "ADR-022-R1"
 LILRAE_IDENTITY_RULE_ID = "ADR-024-R6"
 ADR_INDEX_PATH = "docs/adr/index.yaml"
-_LILRAE_IDENTITY_PREFLIGHT = (
-    "docs/architecture/aptl-lilrae-techvault-identity-preflight-2062.md"
-)
+_LILRAE_IDENTITY_PREFLIGHT = "docs/architecture/aptl-lilrae-techvault-identity-preflight-2062.md"
 _LILRAE_CURRENT_PROSE_FILES = {
     ADR_INDEX_PATH,
     "docs/architecture/aces-runtime-target-backend-manifest-preflight-1233.md",
@@ -145,9 +145,7 @@ _RETIRED_TECHVAULT_DOCS = {
     "docs/architecture/techvault-encrypted-ami-preflight-1455.md",
 }
 _HISTORICAL_BOUNDARY_MARKER = "**Historical boundary (issue #2062, 2026-08-19):**"
-_FALSE_TECHVAULT_PAIR = re.compile(
-    r"\bTechVault\s*/\s*(?:APTL|LilRAE)\b", re.IGNORECASE
-)
+_FALSE_TECHVAULT_PAIR = re.compile(r"\bTechVault\s*/\s*(?:APTL|LilRAE)\b", re.IGNORECASE)
 _FALSE_IDENTITY_SPLIT = re.compile(
     r"\b(?:APTL\s+and\s+LilRAE|LilRAE\s+and\s+APTL)\s+"
     r"(?:are|remain|represent)\s+(?:two\s+|separate\s+|distinct\s+|different\s+)",
@@ -168,7 +166,6 @@ _AGENT_ATTRIBUTION_SCAN_SKIP = {
     "scripts/adr_guard/block_agent_attribution_commit_msg.py",
     "scripts/adr_guard/tests/test_agent_attribution.py",
 }
-_DOCS_EXCLUDED_PART = "_deprecated"
 _MARKDOWN_LINK_PATTERN = re.compile(r"\]\(([^)\s]+)")
 
 
@@ -184,15 +181,6 @@ def _normalize_doc_slug(value: str) -> str:
             continue
         segments.append(segment)
     return "/".join(segments)
-
-
-def _doc_path_is_excluded(slug: str) -> bool:
-    """A doc under a ``_deprecated`` or hidden path part is not serveable."""
-    return any(
-        part == _DOCS_EXCLUDED_PART or part.startswith(".")
-        for part in slug.split("/")
-        if part
-    )
 
 
 def _index_link_targets(text: str) -> list[str]:
@@ -215,9 +203,7 @@ def _collect_index_link_slugs(docs_root: Path) -> set[str]:
         return linked
     for index_file in docs_root.rglob("index.md"):
         rel_parts = index_file.relative_to(docs_root).parts
-        if any(
-            part == _DOCS_EXCLUDED_PART or part.startswith(".") for part in rel_parts
-        ):
+        if any(part == _DOCS_EXCLUDED_PART or part.startswith(".") for part in rel_parts):
             continue
         index_dir = "/".join(rel_parts[:-1])
         try:
@@ -227,22 +213,6 @@ def _collect_index_link_slugs(docs_root: Path) -> set[str]:
         for target in _index_link_targets(text):
             linked.add(_normalize_doc_slug(f"{index_dir}/{target}"))
     return linked
-
-
-def _coverage_violation(path: str, message: str) -> Violation:
-    """Build a documentation-coverage violation for ``path``."""
-    return Violation("documentation-coverage", DOCS_COVERAGE_RULE_ID, path, message)
-
-
-def _coverage_manifest_shape_error(manifest: object) -> str | None:
-    """Return the shape error for a loaded coverage manifest, or None when valid."""
-    if not isinstance(manifest, dict):
-        return "documentation coverage manifest must be a JSON object"
-    if not isinstance(manifest.get("docs_root"), str) or not isinstance(
-        manifest.get("features"), list
-    ):
-        return "manifest must define a string 'docs_root' and a list of 'features'"
-    return None
 
 
 def _load_coverage_manifest(
@@ -255,6 +225,11 @@ def _load_coverage_manifest(
         return None, [_coverage_violation(DOCS_COVERAGE_MANIFEST, str(err))]
 
     shape_error = _coverage_manifest_shape_error(manifest)
+    if shape_error is None and (
+        not _relative_drift_path(manifest["docs_root"])
+        or not (repo_root / manifest["docs_root"]).resolve().is_relative_to(repo_root.resolve())
+    ):
+        shape_error = "docs_root must stay inside the repository"
     if shape_error is not None:
         return None, [_coverage_violation(DOCS_COVERAGE_MANIFEST, shape_error)]
     return manifest, []
@@ -290,15 +265,14 @@ def _check_feature_coverage(
 ) -> list[Violation]:
     """Validate a single manifest feature entry and every doc it references."""
     if not isinstance(feature, dict):
-        return [
-            _coverage_violation(
-                DOCS_COVERAGE_MANIFEST, "each feature entry must be a JSON object"
-            )
-        ]
+        return [_coverage_violation(DOCS_COVERAGE_MANIFEST, "each feature entry must be a JSON object")]
 
     feature_id = feature.get("id") or "<unknown>"
     user_docs = feature.get("user_docs") or []
     technical_docs = feature.get("technical_docs") or []
+    shape_error = _feature_doc_paths_error(feature)
+    if shape_error is not None:
+        return [_coverage_violation(DOCS_COVERAGE_MANIFEST, shape_error)]
     violations: list[Violation] = []
     if not user_docs:
         violations.append(
@@ -315,26 +289,20 @@ def _check_feature_coverage(
             )
         )
     for rel in list(user_docs) + list(technical_docs):
-        violations.extend(
-            _check_feature_doc(feature_id, rel, docs_root_rel, docs_root, linked_slugs)
-        )
+        violations.extend(_check_feature_doc(feature_id, rel, docs_root_rel, docs_root, linked_slugs))
     return violations
 
 
-def check_documentation_coverage(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def check_documentation_coverage(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Require every major feature to carry user and technical documentation.
 
     The coverage manifest (``docs/adr/documentation-coverage.yaml``) is the
     source of truth, so the check validates the whole manifest on every run
     regardless of ``files`` (like ``check_adr_registry``). Each feature must
     declare at least one user doc and one technical doc; every referenced doc
-    must exist as a serveable file under the in-app docs tree (not under a
+    must exist as a serveable file under the public docs tree (not under a
     ``_deprecated``/hidden path) and be reachable from an ``index.md``.
     """
-    # the manifest is the source of truth, so the check is not scoped to `files`
-    del files
     manifest, load_violations = _load_coverage_manifest(repo_root)
     if manifest is None:
         return load_violations
@@ -343,11 +311,16 @@ def check_documentation_coverage(
     docs_root = repo_root / docs_root_rel
     linked_slugs = _collect_index_link_slugs(docs_root)
 
-    violations: list[Violation] = []
+    associations, violations = _drift_associations(repo_root, manifest)
+    changed, diff_errors = _documentation_changed_paths(repo_root, files, {"features": associations})
+    violations.extend(diff_errors)
     for feature in manifest["features"]:
-        violations.extend(
-            _check_feature_coverage(feature, docs_root_rel, docs_root, linked_slugs)
-        )
+        violations.extend(_check_feature_coverage(feature, docs_root_rel, docs_root, linked_slugs))
+    for association in associations:
+        target_errors = _check_drift_targets(repo_root, docs_root_rel, association)
+        violations.extend(target_errors)
+        if not target_errors:
+            violations.extend(_check_feature_drift(association, docs_root_rel, changed))
     return violations
 
 
@@ -359,9 +332,7 @@ def _lilrae_violation(path: str, message: str) -> Violation:
 def _lilrae_candidates(repo_root: Path, files: list[str] | None) -> list[str]:
     """Return current prose plus the machine-readable ADR authority."""
     if files is not None:
-        return sorted(
-            {path for path in files if path.endswith(".md") or path == ADR_INDEX_PATH}
-        )
+        return sorted({path for path in files if path.endswith(".md") or path == ADR_INDEX_PATH})
     candidates = {
         path.relative_to(repo_root).as_posix()
         for path in repo_root.rglob("*.md")
@@ -380,11 +351,7 @@ def _adr024_registry_prose(repo_root: Path) -> str | None:
         registry = None
     entry = (
         next(
-            (
-                item
-                for item in registry
-                if isinstance(item, dict) and item.get("id") == "ADR-024"
-            ),
+            (item for item in registry if isinstance(item, dict) and item.get("id") == "ADR-024"),
             None,
         )
         if isinstance(registry, list)
@@ -415,11 +382,7 @@ def _read_lilrae_candidate(repo_root: Path, rel: str) -> str | None:
 
 def _identity_boundary_message(rel: str, text: str) -> str | None:
     """Return the first prohibited LilRAE/APTL/TechVault identity claim."""
-    if (
-        rel == "CHANGELOG.md"
-        or rel.startswith("changelog.d/")
-        or rel == _LILRAE_IDENTITY_PREFLIGHT
-    ):
+    if rel == "CHANGELOG.md" or rel.startswith("changelog.d/") or rel == _LILRAE_IDENTITY_PREFLIGHT:
         return None
     checks = (
         (
@@ -444,14 +407,8 @@ def _identity_boundary_message(rel: str, text: str) -> str | None:
 
 def _rename_continuity_message(rel: str, text: str) -> str | None:
     """Return a continuity error for current prose that omits the rename."""
-    if (
-        rel in _LILRAE_CURRENT_PROSE_FILES
-        and "APTL" in text
-        and "LilRAE (formerly APTL)" not in text
-    ):
-        return (
-            "current conceptual APTL references must establish LilRAE rename continuity"
-        )
+    if rel in _LILRAE_CURRENT_PROSE_FILES and "APTL" in text and "LilRAE (formerly APTL)" not in text:
+        return "current conceptual APTL references must establish LilRAE rename continuity"
     return None
 
 
@@ -471,9 +428,7 @@ def _retired_techvault_message(rel: str, text: str) -> str | None:
     return None
 
 
-def check_lilrae_identity_boundary(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def check_lilrae_identity_boundary(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Keep the LilRAE rename and TechVault scenario-pack boundary unambiguous.
 
     Release history and literal external identifiers remain factual. Current

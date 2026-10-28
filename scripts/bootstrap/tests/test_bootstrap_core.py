@@ -3,8 +3,11 @@
 Currently focuses on ``run_cmd_secret_stdin`` (issue #1546): the secret-stdin
 subprocess path used to hand a single-use GitHub registration token to an
 interactive ``config.sh`` over ``gcloud compute ssh`` without the token ever
-reaching argv, the operator log, or a verbatim child-output dump.
+reaching argv, the operator log, or a verbatim child-output dump. It also
+covers the ADR-069 repository identity resolver.
 """
+
+import subprocess
 
 import pytest
 
@@ -159,3 +162,71 @@ class TestSubprocessPagerSuppression:
 
         assert result is not None
         assert result.stdout == "set:"
+
+
+class TestResolveGithubRepository:
+    """ADR-069: the target comes from the gh default and the IDs from the GitHub API."""
+
+    @staticmethod
+    def _runner(default_stdout, api_result):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            if cmd[:3] == ["gh", "repo", "set-default"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=default_stdout, stderr="")
+            return api_result
+
+        return run, calls
+
+    def test_resolves_canonical_identity_from_the_api(self, capsys, github_identity):
+        from bootstrap_core import resolve_github_repository
+
+        # The local default still names the old repository. The API returns the canonical name.
+        api = subprocess.CompletedProcess(
+            [], 0, stdout="123456789\n12345678\nexample-org/example-repo\nexample-org\n", stderr=""
+        )
+        run, calls = self._runner("example-org/old-name\n", api)
+
+        assert resolve_github_repository(command_runner=run) == github_identity
+        assert [cmd for cmd, _ in calls] == [
+            ["gh", "repo", "set-default", "--view"],
+            ["gh", "api", "repos/example-org/old-name", "--jq", ".id, .owner.id, .full_name, .owner.login"],
+        ]
+        assert all(kwargs == {"check": False, "capture": True} for _, kwargs in calls)
+        assert "example-org/example-repo (repository ID 123456789, owner ID 12345678)" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        ("default_stdout", "api_result", "message"),
+        [
+            # gh prints nothing on stdout and exits 0 when no default is set.
+            ("", None, "No gh default repository is set"),
+            ("not a repository\n", None, "is not in the form <owner>/<repo>"),
+            (
+                "example-org/example-repo\n",
+                subprocess.CompletedProcess([], 1, stdout="", stderr="HTTP 404: Not Found"),
+                "Cannot read repository example-org/example-repo from the GitHub API: HTTP 404: Not Found",
+            ),
+            (
+                "example-org/example-repo\n",
+                subprocess.CompletedProcess([], 0, stdout="123456789\n", stderr=""),
+                "Cannot read repository example-org/example-repo from the GitHub API: unexpected response",
+            ),
+            (
+                "example-org/example-repo\n",
+                subprocess.CompletedProcess(
+                    [], 0, stdout="0\n12345678\nexample-org/example-repo\nexample-org\n", stderr=""
+                ),
+                "invalid identity",
+            ),
+        ],
+    )
+    def test_fails_clearly_without_a_usable_identity(self, default_stdout, api_result, message):
+        from bootstrap_core import RepositoryIdentityError, resolve_github_repository
+
+        run, calls = self._runner(default_stdout, api_result)
+
+        with pytest.raises(RepositoryIdentityError, match=message):
+            resolve_github_repository(command_runner=run)
+        # Without a usable default, the API is not called.
+        assert len(calls) == (1 if api_result is None else 2)

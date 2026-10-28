@@ -5,6 +5,7 @@ workflows the check reads, how a violation is built, when the check is relevant
 to a changed-file set, the concurrency policy for apply-capable runs, and the
 rule that unit tests may never be skipped through commit-message flags.
 """
+
 from __future__ import annotations
 
 import re
@@ -24,7 +25,6 @@ from ._deploy_workflow_text import (
     _workflow_job_block,
 )
 
-
 _DEPLOY_WORKFLOW_PATH = ".github/workflows/deploy.yml"
 _PLAN_SCOPE_CHECK = "deploy-workflow-plan-scope"
 _PLAN_SCOPE_RULE = "ADR-003-R2"
@@ -37,7 +37,7 @@ _SKIP_TESTS_FORBIDDEN_MARKERS = (
 )
 # Lint / architecture / security jobs in _quality.yml that must never be gated
 # on inputs.skip_tests (ADR-003-R2 / issue #760).
-_QUALITY_SKIP_TESTS_IMMUNE_JOB_SUFFIXES = ("-lint", "-lint-js", "-sast", "-arch")
+_QUALITY_SKIP_TESTS_IMMUNE_JOB_SUFFIXES = ("-lint", "-lint-js", "-lint-security", "-sast", "-arch")
 _QUALITY_SKIP_TESTS_IMMUNE_JOB_NAMES = frozenset(
     {
         "adr-conformance",
@@ -46,9 +46,10 @@ _QUALITY_SKIP_TESTS_IMMUNE_JOB_NAMES = frozenset(
         "security-iac",
         "security-k8s",
         "secrets-gitleaks",
-        "k8s-lint",
         "k8s-schema",
         "mcp-lint",
+        "chart-lint-security",
+        "container-images-lint-security",
     }
 )
 _QUALITY_JOB_NAME_RE = re.compile(r"^ {2}([a-z0-9_-]+):\s*$")
@@ -65,6 +66,16 @@ def _plan_scope_violation(path: str, message: str) -> Violation:
     return Violation(_PLAN_SCOPE_CHECK, _PLAN_SCOPE_RULE, path, message)
 
 
+# Environment-pack routing inputs (#2550): the portal Dockerfile's explicit pack
+# copies and the pack collection select the portal_image / quality_only globs.
+_ENVIRONMENT_PACK_ROUTING_INPUTS = ("shifter/shifter_platform/Dockerfile", "shifter/environment-packs/")
+
+
+def _is_environment_pack_routing_input(path: str) -> bool:
+    """True for a changed file that can change environment-pack routing."""
+    return path == _ENVIRONMENT_PACK_ROUTING_INPUTS[0] or path.startswith(_ENVIRONMENT_PACK_ROUTING_INPUTS[1])
+
+
 def _deploy_plan_scope_relevant(files: list[str] | None) -> bool:
     """True when a changed file can affect ADR-003-R2 plan-scope routing."""
     if files is None:
@@ -76,7 +87,9 @@ def _deploy_plan_scope_relevant(files: list[str] | None) -> bool:
         _PLATFORM_WORKFLOW_PATH,
         _QUALITY_WORKFLOW_PATH,
     }
-    return any(path in relevant or is_guard_source_path(path) for path in files)
+    return any(
+        path in relevant or is_guard_source_path(path) or _is_environment_pack_routing_input(path) for path in files
+    )
 
 
 def _should_check_plan_scope_file(files: list[str] | None, path: str) -> bool:
@@ -87,7 +100,9 @@ def _should_check_plan_scope_file(files: list[str] | None, path: str) -> bool:
 def _plan_scope_checks_deploy_and_platform(files: list[str] | None) -> bool:
     """True when the deploy and platform workflows are in scope for this run."""
     return files is None or any(
-        path in {_DEPLOY_WORKFLOW_PATH, _PLATFORM_WORKFLOW_PATH} or is_guard_source_path(path)
+        path in {_DEPLOY_WORKFLOW_PATH, _PLATFORM_WORKFLOW_PATH}
+        or is_guard_source_path(path)
+        or _is_environment_pack_routing_input(path)
         for path in files
     )
 

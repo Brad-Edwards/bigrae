@@ -4,6 +4,11 @@ kind: Deployment
 metadata:
   name: worker-provisioner-launcher
   namespace: {{ .Values.namespaces.platform }}
+  annotations:
+    # CKV_K8S_38: the dedicated provisioner launcher needs the Kubernetes API to
+    # create and manage provisioner Jobs (ADR-006-R4); automount stays enabled
+    # for this controller only. Ordinary workers keep automount disabled.
+    checkov.io/skip1: CKV_K8S_38=dedicated provisioner launcher requires Kubernetes API access (ADR-006-R4)
   labels:
     {{- include "shifter.partOfLabels" . | nindent 4 }}
     app.kubernetes.io/component: worker-provisioner-launcher
@@ -41,6 +46,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: platform-runtime
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "find /tmp/worker-provisioner-launcher-heartbeat -mmin -2 | grep -q ."]
+            initialDelaySeconds: 10
+            periodSeconds: 15
           livenessProbe:
             exec:
               command: ["sh", "-c", "find /tmp/worker-provisioner-launcher-heartbeat -mmin -2 | grep -q ."]

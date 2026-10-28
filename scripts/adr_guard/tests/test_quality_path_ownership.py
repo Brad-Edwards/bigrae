@@ -355,7 +355,8 @@ class ClassificationTests(unittest.TestCase):
 class EstateReconciliationTests(unittest.TestCase):
     def test_complete_estate_has_no_violations(self):
         contract = C.build_contract(DEFAULT_CONTRACT)
-        tracked = DEFAULT_ESTATE + [
+        tracked = [
+            *DEFAULT_ESTATE,
             ".github/workflows/_quality.yml",
             ".github/quality-path-filters.yaml",
             "scripts/quality_ownership/contract.py",
@@ -396,7 +397,7 @@ class ClassifyPathsCliTests(unittest.TestCase):
         saved_changed = classify_paths._changed_files
         try:
             os.environ.update(env)
-            classify_paths._changed_files = lambda repo_root: changed
+            classify_paths._changed_files = lambda repo_root, **kwargs: changed
             return classify_paths.main()
         finally:
             classify_paths._changed_files = saved_changed
@@ -420,6 +421,9 @@ class ClassifyPathsCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_repo(root)
+            coverage = root / "docs/adr/documentation-coverage.yaml"
+            coverage.parent.mkdir(parents=True, exist_ok=True)
+            coverage.write_text('{"docs_root":"docs","features":[]}', encoding="utf-8")
             out_file = root / "gh_output"
             out_file.write_text("", encoding="utf-8")
             rc = self._run_main(
@@ -430,6 +434,38 @@ class ClassifyPathsCliTests(unittest.TestCase):
             written = out_file.read_text(encoding="utf-8")
             self.assertIn("alpha=true", written)
             self.assertIn("run_all=false", written)
+
+    def test_source_only_change_cannot_bypass_handbook_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_repo(root)
+            docs = root / "docs"
+            (docs / "adr").mkdir()
+            (docs / "technical").mkdir()
+            (docs / "index.md").write_text("[Handbook](technical/handbook.md)\n", encoding="utf-8")
+            (docs / "technical/handbook.md").write_text("# Handbook\n", encoding="utf-8")
+            (docs / "adr/documentation-coverage.yaml").write_text(
+                json.dumps(
+                    {
+                        "docs_root": "docs",
+                        "features": [
+                            {
+                                "id": "architecture",
+                                "user_docs": ["technical/handbook.md"],
+                                "technical_docs": ["technical/handbook.md"],
+                                "drift_sources": ["src/alpha/*"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            out_file = root / "gh_output"
+            out_file.write_text("", encoding="utf-8")
+            env = {"GITHUB_WORKSPACE": str(root), "GITHUB_OUTPUT": str(out_file)}
+            self.assertEqual(self._run_main(env, ["src/alpha/mod.py"]), 1)
+            self.assertEqual(out_file.read_text(encoding="utf-8"), "")
+            self.assertEqual(self._run_main(env, ["src/alpha/mod.py", "docs/technical/handbook.md"]), 0)
 
     def test_contradiction_exits_nonzero_without_output(self):
         data = json.loads(json.dumps(DEFAULT_CONTRACT))
@@ -487,11 +523,13 @@ class ChangedFilesDiffTests(unittest.TestCase):
                 os.environ["DIFF_BASE_SHA"] = base
                 os.environ["DIFF_HEAD_SHA"] = head
                 changed = classify_paths._changed_files(root)
+                including_deleted = classify_paths._changed_files(root, include_deleted=True)
             finally:
                 os.environ.clear()
                 os.environ.update(original)
             self.assertIn("keep.py", changed)
             self.assertNotIn("gone.toml", changed)
+            self.assertIn("gone.toml", including_deleted)
 
 
 # --------------------------------------------------------------------------- #
@@ -507,7 +545,7 @@ class QualityOwnershipCheckTests(unittest.TestCase):
     def test_unclassified_estate_path_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            write_repo(root, estate=DEFAULT_ESTATE + ["weird/orphan.txt"])
+            write_repo(root, estate=[*DEFAULT_ESTATE, "weird/orphan.txt"])
             self.assertTrue(any("weird/orphan.txt" in v.message for v in run_check(root)))
 
     def test_ownership_gap_flagged(self):
@@ -521,8 +559,9 @@ class QualityOwnershipCheckTests(unittest.TestCase):
 
     def test_advisory_job_cannot_own_responsibility(self):
         data = json.loads(json.dumps(DEFAULT_CONTRACT))
-        # security-k8s is an evidence-only (advisory) job by name.
-        data["quality_units"][0]["responsibilities"]["security"] = ["security-k8s"]
+        # security-trivy-advisory is an evidence-only (advisory) job by name.
+        # (security-k8s became a blocking gate in #2558.)
+        data["quality_units"][0]["responsibilities"]["security"] = ["security-trivy-advisory"]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_repo(root, contract=data)
@@ -711,6 +750,52 @@ class QualityOwnershipCheckTests(unittest.TestCase):
 # Real repository: the shipped contract is conformant once exceptions apply
 # --------------------------------------------------------------------------- #
 class RealRepositoryTests(unittest.TestCase):
+    def test_guacamole_authority_changes_select_native_java_checks_and_sonar(self):
+        contract = C.load_contract(_REPO_ROOT / ".github" / "quality-path-filters.yaml")
+        outputs = C.compute_outputs(
+            contract,
+            ["shifter/engine/guacamole/authority-extension/src/main/java/com/shifter/guacamole/AuthorityLease.java"],
+        )
+        self.assertEqual(outputs.get("guacamole_authority"), "true")
+        self.assertEqual(outputs.get("run_sonar"), "true")
+
+    def test_deployment_utility_security_owner_runs_bandit(self):
+        contract = C.load_contract(_REPO_ROOT / ".github" / "quality-path-filters.yaml")
+        units = {unit.id: unit for unit in contract.units}
+        for unit_id in (
+            "check_rds_pending_modifications",
+            "handle_sd_replacement",
+            "assert_portal_inspection",
+        ):
+            self.assertEqual(
+                [ref.job for ref in units[unit_id].responsibilities["security"]],
+                ["deployment-utilities-sast"],
+            )
+
+        workflow = yaml.safe_load(
+            (_REPO_ROOT / ".github" / "workflows" / "_quality.yml").read_text(encoding="utf-8")
+        )
+        security_job = workflow["jobs"]["deployment-utilities-sast"]
+        self.assertIn("bandit==1.9.4", str(security_job))
+        self.assertIn("bandit -q -ll -r", str(security_job))
+
+    def test_root_dockerignore_routes_to_portal_context_checks(self):
+        contract = C.load_contract(_REPO_ROOT / ".github" / "quality-path-filters.yaml")
+        outputs = C.compute_outputs(contract, ["shifter/.dockerignore"])
+        self.assertEqual(outputs.get("portal_image_context"), "true")
+        self.assertEqual(outputs.get("container_images"), "false")
+
+        workflow = yaml.safe_load(
+            (_REPO_ROOT / ".github" / "workflows" / "_quality.yml").read_text(encoding="utf-8")
+        )
+        jobs = workflow["jobs"]
+        self.assertTrue(ADR_GUARD._quality_job_reachable(jobs, "container-images-lint-security", outputs))
+        self.assertTrue(ADR_GUARD._quality_job_reachable(jobs, "stack-smoke", outputs))
+        self.assertIn(
+            "docker build --check -f shifter/shifter_platform/Dockerfile shifter",
+            str(jobs["container-images-lint-security"]),
+        )
+
     def test_real_contract_estate_is_complete(self):
         contract = C.load_contract(_REPO_ROOT / ".github" / "quality-path-filters.yaml")
         tracked = ADR_GUARD._git_tracked_all(_REPO_ROOT)

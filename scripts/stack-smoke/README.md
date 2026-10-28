@@ -18,7 +18,7 @@ credentials**: the only AWS surface is a local ElasticMQ SQS double reached via
    deps and runs `compilemessages` / `collectstatic` as the non-root `appuser`.
 2. **Boot**: `entrypoint.sh` waits for the DB, runs migrations exactly once
    (a dedicated one-shot; every long-running container boots with
-   `SKIP_MIGRATIONS=1`, mirroring `scripts/portal-deploy/deploy_portal.sh`), and
+   `SKIP_MIGRATIONS=1`, matching the shared chart’s separate migration Job), and
    execs the production Gunicorn/Uvicorn ASGI command as `appuser`.
 3. **Readiness**: `/health/` returns 200 from the real dependency-aware
    `django-health-check` registry (DB + cache + storage + Redis channel layer).
@@ -91,7 +91,7 @@ variation is a parameter change rather than a copy of the workflow block.
 | `SMOKE_WEB_PORT` | `18000` | Host port mapped to the web container's 8000 |
 | `SMOKE_HEALTH_PATH` | `/health/` | Readiness path to poll for 200 |
 | `SMOKE_WS_PATH` | `ws/notifications/` | Routed websocket consumer path |
-| `SMOKE_PAGES` | dashboard/range/terminal/settings/help | Space-separated authenticated page paths to render + asset-check |
+| `SMOKE_PAGES` | SPA root/range/terminal/settings/help | Space-separated authenticated page paths to render + asset-check |
 | `SMOKE_BOOT_TIMEOUT` | `180` | Seconds to wait for readiness |
 | `SMOKE_HEARTBEAT_TIMEOUT` | `120` | Seconds to wait for each heartbeat |
 | `SMOKE_WORKER_SPECS` | cms worker + ctf-scheduler | `name\|heartbeat_file\|command` per line |

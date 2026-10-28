@@ -145,7 +145,7 @@ def _ensure_predefined_metadata(scope: ResourceScope) -> None:
                 AuthorizationPolicy.objects.get_or_create(
                     **lookup,
                     predefined_code=definition.code,
-                    defaults={"name": definition.name, "description": "Built-in Shifter authorization policy."},
+                    defaults={"name": definition.name, "description": "Built-in BigRAE authorization policy."},
                 )
                 AuthorizationGroup.objects.get_or_create(
                     **lookup,

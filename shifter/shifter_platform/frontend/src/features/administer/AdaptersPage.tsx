@@ -87,7 +87,7 @@ function InstalledPlugins({ organization }: Readonly<{ organization: string }>) 
         username={username} password={password} pending={update.isPending}
         onUsername={setUsername} onPassword={setPassword} /> : null}>
       {action?.kind === "enable" || action?.kind === "retry"
-        ? "Shifter will run compatibility checks before enabling this version."
+        ? "BigRAE will run compatibility checks before enabling this version."
         : "New range launches cannot use this version. Existing range and cleanup references are retained."}
       {action?.kind === "retire" ? " Retirement cannot be reversed." : ""}
     </ConfirmDialog>

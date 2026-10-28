@@ -1,5 +1,8 @@
 # GCP Range-Cell Backend Preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: GitHub #1341, "Implement GCP range-cell provisioning backend."
 
 This is requirement-free pre-implementation guidance. The GitHub issue title,

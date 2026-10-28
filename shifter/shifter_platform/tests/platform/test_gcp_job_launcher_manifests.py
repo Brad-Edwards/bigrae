@@ -14,7 +14,6 @@ import yaml
 from celpy import CELEvalError, Environment, celtypes, json_to_cel
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-BASE_MANIFEST_DIR = REPO_ROOT / "platform" / "k8s" / "gcp" / "base"
 CHART_DIR = REPO_ROOT / "platform" / "charts" / "shifter"
 DEFAULT_NAMESPACE = "default"
 
@@ -23,13 +22,6 @@ JOB_LAUNCHER_DEPLOYMENTS = {"worker-provisioner-launcher": "provisioner-launcher
 
 def _load_yaml_documents(source: str) -> list[dict[str, Any]]:
     return [document for document in yaml.safe_load_all(source) if isinstance(document, dict)]
-
-
-def _load_base_documents() -> list[dict[str, Any]]:
-    documents: list[dict[str, Any]] = []
-    for path in BASE_MANIFEST_DIR.glob("*.yaml"):
-        documents.extend(_load_yaml_documents(path.read_text(encoding="utf-8")))
-    return documents
 
 
 def _load_helm_documents() -> list[dict[str, Any]]:
@@ -103,8 +95,8 @@ def _rbac_subjects(documents: list[dict[str, Any]]) -> set[tuple[str, str]]:
 
 # The canonical provisioner contract the admission policy pins. These must stay
 # aligned with shared.cloud.PROVISIONER_CONTAINER_NAME, the provisioner KSA in
-# platform/charts/shifter/values.yaml + platform/k8s/gcp/base/serviceaccounts.yaml,
-# and the runtime ENGINE_TASK_IMAGE published in the platform-runtime ConfigMap.
+# platform/charts/shifter/values.yaml, and the runtime ENGINE_TASK_IMAGE published
+# in the platform-runtime ConfigMap.
 PROVISIONER_POLICY_NAME = "restrict-provisioner-jobs"
 PROVISIONER_SERVICE_ACCOUNT = "provisioner"
 PROVISIONER_CONTAINER = "pulumi-provisioner"
@@ -232,7 +224,7 @@ def _canonical_admission_job() -> dict[str, Any]:
                     "automountServiceAccountToken": False,
                     "securityContext": {
                         "seccompProfile": {"type": "RuntimeDefault"},
-                        "fsGroup": 1000,
+                        "fsGroup": 10001,
                         "fsGroupChangePolicy": "OnRootMismatch",
                     },
                     "restartPolicy": "Never",
@@ -350,7 +342,6 @@ def _malformed_admission_job(canonical: dict[str, Any], mutation: str) -> dict[s
 @pytest.mark.parametrize(
     ("source_name", "loader"),
     [
-        ("base", _load_base_documents),
         ("helm", _load_helm_documents),
     ],
 )
@@ -367,7 +358,6 @@ def test_provisioner_job_admission_policy_present(source_name: str, loader: Any)
 @pytest.mark.parametrize(
     ("source_name", "loader"),
     [
-        ("base", _load_base_documents),
         ("helm", _load_helm_documents),
     ],
 )
@@ -433,23 +423,11 @@ def test_provisioner_job_admission_policy_invariants(source_name: str, loader: A
     )
 
 
-def test_provisioner_job_admission_policy_base_helm_equivalent() -> None:
-    base_documents = _load_base_documents()
-    helm_documents = _load_helm_documents()
-
-    assert _policy(base_documents) == _policy(helm_documents), (
-        "the provisioner admission policy must be identical in the static base and the Helm chart"
-    )
-    assert _binding(base_documents) == _binding(helm_documents), (
-        "the provisioner admission policy binding must be identical in the static base and the Helm chart"
-    )
-
-
 def test_admission_environment_allowlists_match_task_runner_forwarding_contract() -> None:
     from engine.ecs import _GCP_PROVISIONER_ENV_KEYS
     from shared.cloud.sensitive_env import split_env
 
-    policy = _policy(_load_base_documents())
+    policy = _policy(_load_helm_documents())
     sensitive, plain = split_env(dict.fromkeys(_GCP_PROVISIONER_ENV_KEYS, "test-value"))
 
     assert set(ast.literal_eval(_policy_variable(policy, "allowedLiteralEnv"))) == set(plain)
@@ -557,7 +535,7 @@ def test_helm_admission_principal_tracks_launcher_identity_values() -> None:
     assert api_egress["spec"]["egress"][0]["ports"] == [{"protocol": "TCP", "port": 443}]
 
 
-@pytest.mark.parametrize("loader", [_load_base_documents, _load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents])
 def test_admission_policy_semantically_denies_spoofed_and_malformed_launches(loader: Any) -> None:
     policy = _policy(loader())
     assert _SEMANTIC_VALIDATION_MESSAGES.issubset(
@@ -632,7 +610,7 @@ def test_admission_policy_semantically_denies_spoofed_and_malformed_launches(loa
     )
 
 
-@pytest.mark.parametrize("loader", [_load_base_documents, _load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents])
 def test_admission_policy_accepts_compatible_operation_id_command_forms(loader: Any) -> None:
     policy = _policy(loader())
     canonical = _canonical_admission_job()
@@ -667,7 +645,7 @@ def test_admission_policy_accepts_compatible_operation_id_command_forms(loader: 
         assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, job, image), args
 
 
-@pytest.mark.parametrize("loader", [_load_base_documents, _load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents])
 def test_admission_policy_admits_exactly_the_launcher_operation_grammar(loader: Any) -> None:
     """Every operation the launcher may enqueue is admitted; nothing else is.
 

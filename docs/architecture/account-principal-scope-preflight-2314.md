@@ -1,5 +1,8 @@
 # Account, principal, and resource-scope preflight (#2314)
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Status: architecture guidance for the authorized S1 source integration;
 production authority cutover remains S8
 

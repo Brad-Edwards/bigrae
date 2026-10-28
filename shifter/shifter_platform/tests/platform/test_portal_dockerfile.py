@@ -57,3 +57,34 @@ def test_portal_image_builds_django_artifacts_as_appuser() -> None:
     assert 'FIELD_ENCRYPTION_KEY="$BUILD_FIELD_ENCRYPTION_KEY"' in dockerfile
     assert "OIDC_RP_CLIENT_ID=build-time-client" in dockerfile
     assert "DJANGO_DEBUG=True" not in dockerfile
+
+
+def test_portal_image_ships_exactly_the_bootstrap_manifest_packs() -> None:
+    """Explicit pack copies agree with the in-box manifest; no other pack ships (#2550)."""
+    from cms.scenarios.inbox import SHIPPED_INBOX_MANIFEST, load_inbox_manifest
+    from tests._environment_packs import ENVIRONMENT_PACKS_ROOT, shipped_pack_copies
+
+    copies = shipped_pack_copies()
+    manifest_refs = {request.package_ref for request in load_inbox_manifest(SHIPPED_INBOX_MANIFEST)}
+    assert set(copies) == manifest_refs
+    for package_ref, source in copies.items():
+        assert source.parent == ENVIRONMENT_PACKS_ROOT
+        assert source.name == Path(package_ref).name
+        assert (source / "pack.yaml").is_file()
+
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    assert not re.search(r"^COPY\s+(?:--\S+\s+)*environment-packs/?\s", dockerfile, re.MULTILINE)
+    for package_ref in copies:
+        assert f"COPY --chown=appuser:appgroup environment-packs/{Path(package_ref).name} {package_ref}\n" in dockerfile
+    development_packs = {path.name for path in ENVIRONMENT_PACKS_ROOT.iterdir() if path.is_dir()} - {
+        source.name for source in copies.values()
+    }
+    assert development_packs == {"preparation-http-smoke", "shifter-raes-validation"}
+
+
+def test_environment_packs_have_one_canonical_source() -> None:
+    """Retired pack locations hold no maintained copies (#2550)."""
+    from cms.scenarios.inbox import SHIPPED_INBOX_MANIFEST
+
+    retired = [REPO_ROOT / "scenario-dev", *(path for path in SHIPPED_INBOX_MANIFEST.parent.iterdir() if path.is_dir())]
+    assert [str(path.relative_to(REPO_ROOT)) for path in retired if path.exists()] == []

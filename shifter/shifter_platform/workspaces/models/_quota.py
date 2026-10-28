@@ -150,6 +150,7 @@ class WorkspaceQuotaDecision(models.Model):
     reason_code = models.CharField(max_length=64, help_text="Bounded machine-readable reason.")
     actor_type = models.CharField(max_length=32, blank=True)
     actor_id = models.PositiveIntegerField(null=True, blank=True)
+    actor_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
     correlation_key = models.CharField(max_length=64, blank=True, help_text="Stable per-action correlation key.")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

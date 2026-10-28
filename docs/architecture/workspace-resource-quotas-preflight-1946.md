@@ -1,5 +1,8 @@
 # Workspace resource quotas and usage preflight
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Issue: #1946, "Org/workspace admin: workspace quotas & usage"
 
 Status: pre-implementation guidance

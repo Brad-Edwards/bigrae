@@ -4,6 +4,7 @@ Split out of ``quality_ownership.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 import sys
@@ -14,7 +15,6 @@ from typing import Protocol
 
 from .._common import Violation
 from .._workflow_model import _DwShapeError
-
 
 _QUALITY_CONTRACT_REL = ".github/quality-path-filters.yaml"
 _QUALITY_WORKFLOW_REL = ".github/workflows/_quality.yml"

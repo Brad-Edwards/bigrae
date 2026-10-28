@@ -36,8 +36,8 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Shifter Platform API",
-    "DESCRIPTION": "Authenticated HTTP/JSON API for Shifter platform integrations.",
+    "TITLE": "BigRAE Platform API",
+    "DESCRIPTION": "Authenticated HTTP/JSON API for BigRAE platform integrations.",
     "VERSION": "v1",
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]+",
     "SERVE_INCLUDE_SCHEMA": False,

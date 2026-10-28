@@ -1,5 +1,8 @@
 # GCP broker packaging preflight — #2123 / M06
 
+> **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../../technical/architecture.md) and accepted, superseding ADRs.
+
+
 Inspected repository baseline: `613f365ac`, 2026-09-12. This note applies
 [ADR-059](../../adr/059-range-model-access-broker.md), the [security
 contract](security.md) and [operations contract](../../ops/model-access.md)

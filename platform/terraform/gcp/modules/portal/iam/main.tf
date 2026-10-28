@@ -46,6 +46,7 @@ locals {
   )
 
   workload_service_accounts = setunion(toset([
+    "guacamole-client",
     "portal",
     "workers",
     "ctf-scheduler",
@@ -54,7 +55,7 @@ locals {
     "provisioner",
     # Isolated feature-artifact acquisition Jobs (#2479).
     "artifact-acquirer",
-  ]), var.cloud_sql_iam_auth ? toset(["guacamole-client"]) : toset([]), var.openfga_enabled ? toset(["openfga-runtime", "openfga-admin", "openfga-migrator"]) : toset([]))
+  ]), var.openfga_enabled ? toset(["openfga-runtime", "openfga-admin", "openfga-migrator"]) : toset([]))
 
   # GCP service-account account_id is capped at 30 chars. The account_id is
   # "${replace(name_prefix, "-", "")}-${key}"; for name_prefix "shifter-gcp-dev"
@@ -74,6 +75,7 @@ locals {
   }
 
   workload_identity_members = merge({
+    guacamole-client     = "serviceAccount:${var.workload_identity_pool}[shifter-platform/guacamole-client]"
     portal               = "serviceAccount:${var.workload_identity_pool}[shifter-platform/portal]"
     workers              = "serviceAccount:${var.workload_identity_pool}[shifter-platform/workers]"
     ctf-scheduler        = "serviceAccount:${var.workload_identity_pool}[shifter-platform/ctf-scheduler]"
@@ -81,9 +83,7 @@ locals {
     provisioner-launcher = "serviceAccount:${var.workload_identity_pool}[shifter-platform/provisioner-launcher]"
     provisioner          = "serviceAccount:${var.workload_identity_pool}[shifter-jobs/provisioner]"
     artifact-acquirer    = "serviceAccount:${var.workload_identity_pool}[shifter-acquisition/artifact-acquirer]"
-    }, var.cloud_sql_iam_auth ? {
-    guacamole-client = "serviceAccount:${var.workload_identity_pool}[shifter-platform/guacamole-client]"
-    } : {}, var.openfga_enabled ? {
+    }, var.openfga_enabled ? {
     openfga-runtime  = "serviceAccount:${var.workload_identity_pool}[shifter-platform/openfga-runtime]"
     openfga-admin    = "serviceAccount:${var.workload_identity_pool}[shifter-platform/openfga-admin]"
     openfga-migrator = "serviceAccount:${var.workload_identity_pool}[shifter-platform/openfga-migrator]"
@@ -115,6 +115,9 @@ locals {
   # check_tf_gcp_iam_resource_scope guard fails closed on any secret/storage
   # payload/admin role added here.
   workload_project_roles = {
+    # Authority renewal uses metadata identity without application cloud roles.
+    # The native SQL proxy duty is granted separately when IAM SQL is enabled.
+    guacamole-client = toset([])
     portal = toset([
       "roles/pubsub.publisher",
     ])

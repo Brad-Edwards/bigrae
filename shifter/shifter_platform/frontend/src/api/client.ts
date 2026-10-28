@@ -114,7 +114,7 @@ export async function apiDownload(path: string, options: DownloadOptions): Promi
   const response = await fetch(buildUrl(path, options.query), init);
   const mediaType = response.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
 
-  if (!response.ok) {
+  if (!response.ok || response.status === 202) {
     const text = await response.text();
     let payload: unknown;
     try {
