@@ -35,6 +35,8 @@ if TYPE_CHECKING:
     from shared.schemas.range import RangeContext
     from workspaces.services import ResolvedResourceScope
 
+_LAUNCH_INPUTS_UNAVAILABLE = "Range launch inputs unavailable"
+
 
 def _validate_scoped_launch_inputs(
     scope: ResourceScope | None,
@@ -52,7 +54,7 @@ def _validate_scoped_launch_inputs(
         or not isinstance(scenario, str)
         or not scenario
     ):
-        raise CMSError("Range launch inputs unavailable")
+        raise CMSError(_LAUNCH_INPUTS_UNAVAILABLE)
     is_event_launch = range_source is RangeSource.CTF
     _validate_event_binding(is_event_launch, owner_principal, authority_action, authority_target)
     return scope, is_event_launch, range_source or RangeSource.MISSION_CONTROL
@@ -206,7 +208,8 @@ def _prepare_launch(
     ):
         raise CMSError(_ACTIVE_RANGE_MESSAGE)
     egress = _initial_launch_egress(current, resolved, scenario, source, event.model_admission_subject)
-    return replace(launch, egress=egress)
+    prepared: PreparedScopedLaunch = replace(launch, egress=egress)
+    return prepared
 
 
 def create_scoped_range(
@@ -382,6 +385,6 @@ def _validate_event_binding(
     """CTF requires the complete binding; ordinary launches accept none of its authority fields."""
     if is_event_launch:
         if not (owner and action and target):
-            raise CMSError("Range launch inputs unavailable")
+            raise CMSError(_LAUNCH_INPUTS_UNAVAILABLE)
     elif any(value is not None for value in (owner, action, target)):
-        raise CMSError("Range launch inputs unavailable")
+        raise CMSError(_LAUNCH_INPUTS_UNAVAILABLE)

@@ -51,6 +51,7 @@ __all__ = ["CmsRaesDispatchPort"]
 # (the RAES-native GCE adapter). A backend outside this set has no artifact
 # inventory, so resolution is skipped rather than querying an unknown provider.
 _ARTIFACT_REGISTRY_PROVIDERS = frozenset({"gce"})
+_RANGE_CREATION_AUTHORITY_UNAVAILABLE = "Range creation authority unavailable"
 
 
 @dataclass(frozen=True)
@@ -151,7 +152,7 @@ class CmsRaesDispatchPort:
         from engine.services import dispatch_created_raes_range, prepare_raes_range_creation
 
         if self.credential is None or self.scope is None or self.source is None:
-            raise ValueError("Range creation authority unavailable")
+            raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
         current = revalidate_scoped_launch(
             self.credential,
             self.scope,
@@ -275,7 +276,7 @@ class CmsRaesDispatchPort:
         from uuid import UUID
 
         if self.scope is None:
-            raise ValueError("Range creation authority unavailable")
+            raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
 
         if self.scope.kind == "installation":
             from engine.services import native_range_id_by_request
@@ -294,7 +295,7 @@ class CmsRaesDispatchPort:
         from workspaces.services import resolve_resource_scope
 
         if self.scope is None or self.source is None or row.request is None:
-            raise ValueError("Range creation authority unavailable")
+            raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
         if row.launch_intent_digest:
             from shared.operation_authority import credential_reference_fields
 
@@ -310,7 +311,7 @@ class CmsRaesDispatchPort:
         from cms.services._scoped_launch_source import source_launch_binding, source_launch_metadata
 
         if self.source is None:
-            raise ValueError("Range creation authority unavailable")
+            raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
         if (
             source is None
             or source_launch_binding(source) != source_launch_binding(self.source)
@@ -326,7 +327,7 @@ class CmsRaesDispatchPort:
         from shared.credentials import resolve_local_credential
 
         if row.request is None:
-            raise ValueError("Range creation authority unavailable")
+            raise ValueError(_RANGE_CREATION_AUTHORITY_UNAVAILABLE)
         if (
             resolve_local_credential(current) != current
             or row.status != "provisioning"

@@ -45,6 +45,14 @@ _INVALID_UPLOAD_METADATA = "Invalid upload metadata"
 
 _CONTENT_UNAVAILABLE = "Content unavailable"
 
+__all__ = [
+    "_cleanup_upload",
+    "cancel_scoped_upload",
+    "complete_scoped_upload",
+    "initiate_scoped_upload",
+    "reconcile_upload_cleanup",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class _UploadAdmission:

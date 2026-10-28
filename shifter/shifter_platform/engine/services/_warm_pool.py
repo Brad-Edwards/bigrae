@@ -78,6 +78,10 @@ _WARM_SCOPE_NAMESPACE = UUID("2a7b5c9e-3d81-4f26-8b14-6c0d9e2f1a55")
 
 __all__ = [
     "WarmGenerationDraft",
+    "_finalize_warm_generation",
+    "_generation_is_stalled",
+    "_request_warm_retirement",
+    "abandon_warm_preparation",
     "active_generation_count",
     "admit_warm_generation_capacity",
     "bucket_state_counts",

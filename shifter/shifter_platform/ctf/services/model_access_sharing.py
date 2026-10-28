@@ -310,6 +310,8 @@ def resolve_model_access_selector(
     """Resolve a complete CTF atomic selector under owner-domain row locks."""
     from shared.model_access.availability import require_model_access_available
 
+    # Preserve the public keyword signature while this surface admits no actor.
+    del actor
     require_model_access_available()
     try:
         parsed = selector if isinstance(selector, SharingSelector) else SharingSelector.model_validate(selector)

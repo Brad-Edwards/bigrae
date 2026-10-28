@@ -427,15 +427,20 @@ class ParticipantContentImagesView(APIView):
         try:
             participant = require_content_image_participant(authenticated_credential(request), participant.event_id)
         except (ValueError, CTFPermissionError):
-            return _no_active_event_response(request)
+            response = _no_active_event_response(request)
         except CTFError:
-            return api_error_response(
+            response = api_error_response(
                 code="dependency_unavailable", message="Service unavailable", status_code=503, request=request
             )
-        mapping, pending = participant_image_state(participant)
-        return Response(
-            {"images": [{"source_url": src, "url": url} for src, url in sorted(mapping.items())], "pending": pending}
-        )
+        else:
+            mapping, pending = participant_image_state(participant)
+            response = Response(
+                {
+                    "images": [{"source_url": src, "url": url} for src, url in sorted(mapping.items())],
+                    "pending": pending,
+                }
+            )
+        return response
 
 
 class ParticipantBriefingView(APIView):

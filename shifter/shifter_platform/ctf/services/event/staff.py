@@ -294,9 +294,7 @@ def transfer_event_ownership(event_id: UUID, actor: EventActor, new_owner_princi
                 target_principal_uuid=target_principal.uuid,
                 prepared_plan=prepared_plan,
             )
-        event = locked_event
     else:
-        event = transition_row.event
         retained_owner_uuid = transition_row.previous_owner_principal_uuid
         if retained_owner_uuid is None:
             raise CTFValidationError("Event ownership transition is invalid", code="CTF_STAFF_CONFLICT")

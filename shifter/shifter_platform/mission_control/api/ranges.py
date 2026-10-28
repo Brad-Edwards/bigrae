@@ -408,3 +408,18 @@ def _catalog_scope(
             status_code=403,
         )
     return scope, None
+
+
+__all__ = [
+    "AgentListView",
+    "CancelRangeView",
+    "CurrentRangeView",
+    "DestroyRangeView",
+    "ExtendRangeLeaseView",
+    "LaunchRangeView",
+    "LaunchWorkspaceListView",
+    "PauseRangeView",
+    "RangeLifecycleView",
+    "ResumeRangeView",
+    "ScenarioListView",
+]

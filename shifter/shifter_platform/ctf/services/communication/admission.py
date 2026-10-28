@@ -325,7 +325,8 @@ def prepare_admission(
             else "CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
         )
         raise CTFCommunicationError("Communication credential unavailable", code=code) from None
-    return replace(actor, event_admissions=admissions, campaign_binding=_campaign_binding(campaign))
+    admitted: AdmissionActor = replace(actor, event_admissions=admissions, campaign_binding=_campaign_binding(campaign))
+    return admitted
 
 
 def prepare_campaign_admission(campaign: CommunicationCampaign, actor: AdmissionActor) -> AdmissionActor:

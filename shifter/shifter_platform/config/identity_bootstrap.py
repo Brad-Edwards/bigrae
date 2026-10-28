@@ -27,10 +27,10 @@ def bootstrap_grants(principal_uuid: UUID, plan: Mapping[str, object]) -> tuple[
     subject = RelationshipSubject("principal", principal_uuid)
     target = TargetRef("installation")
     administrator = AdministrativeRoleChange(subject, "application_administrator", target, PolicyEffect.GRANT)
+    grants: list[AuthorizationRelationshipChange] = [administrator]
     if eligible:
-        eligibility = PolicyRelationshipChange(subject, PERSONAL_CREDENTIAL_ACTION, target, PolicyEffect.GRANT)
-        return administrator, eligibility
-    return (administrator,)
+        grants.append(PolicyRelationshipChange(subject, PERSONAL_CREDENTIAL_ACTION, target, PolicyEffect.GRANT))
+    return tuple(grants)
 
 
 def ensure_bootstrap_grant(provider: AuthorizationProvider, change: AuthorizationRelationshipChange) -> None:

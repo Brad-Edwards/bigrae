@@ -300,8 +300,7 @@ def start_range_provisioning(request_id: UUID, *, credential: CredentialContext 
 
 
 def start_raes_range_provisioning(request_id: UUID, *, credential: CredentialContext | None = None) -> str | None:
-    """Start provisioning an RAES-native range via the provisioner ``raes-range``
-    command using request_id (ADR-031, feature-flagged parallel path).
+    """Provision an RAES-native range through its request-bound lifecycle command.
 
     Identical dispatch mechanics to :func:`start_range_provisioning` (local
     subprocess or ECS Fargate); only the provisioner subcommand differs, so the
@@ -314,8 +313,7 @@ def start_raes_range_provisioning(request_id: UUID, *, credential: CredentialCon
 
 
 def start_raes_range_teardown(request_id: UUID, *, credential: CredentialContext | None = None) -> str | None:
-    """Start teardown of an RAES-native range via the provisioner ``raes-range``
-    command using request_id (ADR-031, feature-flagged parallel path).
+    """Destroy an RAES-native range through its request-bound lifecycle command.
 
     Identical dispatch mechanics to :func:`start_range_teardown`; only the
     provisioner subcommand differs, so the provisioner reconstructs the range

@@ -65,23 +65,13 @@ def set_catalog_publication(
         raise CMSError(_UNAVAILABLE)
     source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
     if source is None or (expected_package_digest is not None and source.package_digest != expected_package_digest):
-        raise CMSError("Content unavailable")
+        raise CMSError(_UNAVAILABLE)
     scope = content_scope(source)
     if scope.kind != "installation":
         raise CMSError(_UNAVAILABLE)
     current = require_content_scope(credential, scope, "publish_content")
     with transaction.atomic():
-        row = RaesPackageSource.objects.select_for_update().filter(pk=source.pk).first()
-        if (
-            row is None
-            or content_scope(row) != scope
-            or row.scope_generation != source.scope_generation
-            or row.package_digest != source.package_digest
-            or resolve_local_credential(current) != current
-        ):
-            raise CMSError(_UNAVAILABLE)
-        if row.owner_principal_uuid != source.owner_principal_uuid:
-            raise CMSError(_UNAVAILABLE)
+        row = _locked_publication_source(source, scope, current)
         previous = row.is_operator_published
         row.is_operator_published = published
         row.save(update_fields=["is_operator_published", "updated_at"])
@@ -97,6 +87,26 @@ def set_catalog_publication(
             ),
             strict=True,
         )
+
+
+def _locked_publication_source(
+    source: RaesPackageSource, scope: ResourceScope, current: CredentialContext
+) -> RaesPackageSource:
+    """Lock the source and recheck its admitted scope, generation, digest and proof."""
+    from cms.models import RaesPackageSource
+
+    row = RaesPackageSource.objects.select_for_update().filter(pk=source.pk).first()
+    if (
+        row is None
+        or content_scope(row) != scope
+        or row.scope_generation != source.scope_generation
+        or row.package_digest != source.package_digest
+        or resolve_local_credential(current) != current
+    ):
+        raise CMSError(_UNAVAILABLE)
+    if row.owner_principal_uuid != source.owner_principal_uuid:
+        raise CMSError(_UNAVAILABLE)
+    return row
 
 
 def content_scope_fields(scope: ResourceScope) -> dict[str, object]:

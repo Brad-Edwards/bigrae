@@ -16,6 +16,7 @@ from gcp_process import ProcessRunner
 
 
 def _read_credential(path: str | Path) -> str:
+    """Read a bounded bearer from a private regular file without following links."""
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(descriptor, "rb") as handle:
