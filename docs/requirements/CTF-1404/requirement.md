@@ -1,7 +1,7 @@
 ---
 id: CTF-1404
 title: "Solve History Visibility"
-status: ACTIVE
+status: DEPRECATED
 type: FUNCTIONAL
 priority: MUST
 wave: 2
