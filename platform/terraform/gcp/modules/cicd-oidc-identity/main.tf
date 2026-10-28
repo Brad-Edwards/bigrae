@@ -667,9 +667,11 @@ resource "google_storage_bucket" "deployment_config" {
 }
 
 # Cloud Storage writes usage logs as this Google group. The grant is limited to
-# the access-log prefix, so the group can not create release evidence.
+# the access-log prefix, so the group can not create release evidence. A Domain
+# Restricted Sharing org policy (iam.allowedPolicyMemberDomains) rejects the
+# google.com group with Error 412, so the grant is optional (#2585).
 resource "google_storage_bucket_iam_member" "deployment_config_access_log_writer" {
-  count  = local.deployment_config_enabled ? 1 : 0
+  count  = local.deployment_config_enabled && var.enable_gcs_usage_log_delivery ? 1 : 0
   bucket = google_storage_bucket.release_evidence.name
   role   = "roles/storage.objectCreator"
   member = "group:cloud-storage-analytics@google.com"
@@ -679,6 +681,18 @@ resource "google_storage_bucket_iam_member" "deployment_config_access_log_writer
     description = "Cloud Storage may create usage-log objects for the deployment config bucket only."
     expression  = "resource.name.startsWith('projects/_/buckets/${google_storage_bucket.release_evidence.name}/objects/${local.deployment_config_log_prefix}')"
   }
+}
+
+# Cloud Audit Logs record every read and write of the deployment config bucket
+# also when usage-log delivery is off. No other root owns the storage audit
+# configuration of the foundation project (#2585).
+module "storage_data_access_audit" {
+  count  = local.deployment_config_enabled ? 1 : 0
+  source = "../project-audit-config"
+
+  project_id = var.project_id
+  service    = "storage.googleapis.com"
+  log_types  = ["DATA_READ", "DATA_WRITE"]
 }
 
 # The lifecycle identities read the inputs and manage only the deployment lock.
