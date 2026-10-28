@@ -144,7 +144,11 @@ machine-type and zone specific. Confirm an alternative type has capacity in all
 of the cluster's zones (the `access` pool already proves `e2-standard-8`
 availability), then set `provisioner_machine_type` to that type of the same
 size class (`e2-standard-8` is the same 8 vCPU / 32 GB shape as
-`n2-standard-8`). Set it in the bundle's Terraform values (`terraform.tfvars`
+`n2-standard-8`). The pool runs only the provisioner launcher and the
+Terraform provisioner Jobs, so a smaller E2 type, for example `e2-standard-4`,
+also works. After a stockout, the pool stays `RUNNING_WITH_ERROR` and the apply
+fails at the node-pool timeout. Publish the new type in the bundle and run the
+deploy again; Terraform replaces the pool. Set it in the bundle's Terraform values (`terraform.tfvars`
 or `terraform.tfvars.json`). A CI deployment sets it in its committed
 `environments/<environment>/terraform.tfvars`. Do not try to pin the GKE node
 zones: there is no tfvar for it, so that would be a module change, not an
