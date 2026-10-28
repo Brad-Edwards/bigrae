@@ -24,4 +24,3 @@ Import/export enables challenge reuse across events and leveraging community cha
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/bulk_import.py` (Participant CSV bulk import service (partial: imports participants, not challenges))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms/` (CTFParticipantImportForm - CSV upload form for participant import)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#625` (CTF-011: Import/Export & Data Management)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_people.py` (Participant import views (CSV form + JSON API) - partial import capability)

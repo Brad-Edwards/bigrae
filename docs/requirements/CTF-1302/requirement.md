@@ -22,7 +22,6 @@ Analytics transform raw event data into actionable insights for improving future
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Analytics view - shows participant count, challenge count, submissions, per-challenge stats)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/analytics.html` (Analytics template - summary cards and challenge breakdown table)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Scoring service - get_event_analytics score histogram, solve timeline, challenge analysis and engagement)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py (admin_analytics route)` (URL route for analytics dashboard at admin/events/<uuid>/analytics/)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#636` (CTF-1302: Analytics Dashboard)

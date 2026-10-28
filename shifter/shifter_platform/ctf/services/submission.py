@@ -6,8 +6,6 @@ Provides business logic for flag submission and scoring.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -299,46 +297,6 @@ def get_participant_submissions(
         qs = qs.filter(challenge_id=challenge_id)
 
     return qs.select_related("challenge").order_by("-submitted_at")
-
-
-def get_participant_solve_history(
-    participant_id: UUID,
-    freeze_at: datetime | None = None,
-) -> list[dict[str, Any]]:
-    """Participant-safe correct-solve history for scoreboard row drill-down.
-
-    Returns only *correct* submissions, newest first, projected to non-secret
-    fields: challenge name, category, points awarded, and solve time. The
-    submitted flag, attempt IP address, and incorrect-attempt details are
-    deliberately excluded so this projection is safe to render on a
-    participant-visible surface (issue #521 / CTF-401). Ranking and tie-break
-    semantics (CTF-406) stay in ``ctf.services.scoring``; this is a display
-    read only.
-
-    Args:
-        participant_id: UUID of the participant whose solves to return.
-        freeze_at: When set, solves submitted at or after this cutoff are
-            excluded so the drill-down matches the frozen scoreboard's
-            visibility. Pass ``None`` (organizer view, or an unfrozen board)
-            to return the full correct-solve history.
-
-    Returns:
-        List of dicts with ``challenge_name``, ``category``, ``points``, and
-        ``solved_at`` (ISO-8601), ordered newest solve first.
-    """
-    solves = CTFSubmission.objects.filter(participant_id=participant_id, is_correct=True)
-    if freeze_at is not None:
-        solves = solves.filter(submitted_at__lt=freeze_at)
-    solves = solves.select_related("challenge").order_by("-submitted_at")
-    return [
-        {
-            "challenge_name": solve.challenge.name,
-            "category": solve.challenge.category,
-            "points": solve.points_awarded,
-            "solved_at": solve.submitted_at.isoformat(),
-        }
-        for solve in solves
-    ]
 
 
 def get_challenge_submissions(challenge_id: UUID) -> QuerySet[CTFSubmission]:

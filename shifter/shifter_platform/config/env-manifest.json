@@ -223,11 +223,6 @@
       "source_file": "config/_raes_settings.py"
     },
     {
-      "default": "'noreply@shifter.local'",
-      "name": "BIGRAE_SUPPORT_EMAIL",
-      "source_file": "config/settings.py"
-    },
-    {
       "default": "'enforce'",
       "name": "BROWSER_CSP_MODE",
       "source_file": "config/_browser_security.py"
@@ -271,11 +266,6 @@
       "default": "''",
       "name": "CLOUD_SQL_INSTANCE_CONNECTION_NAME",
       "source_file": "config/_cloud.py"
-    },
-    {
-      "default": "'https://ctf.shifter.example.com/login'",
-      "name": "CTFD_PLATFORM_URL",
-      "source_file": "config/settings.py"
     },
     {
       "default": "'24'",
@@ -406,11 +396,6 @@
       "default": "''",
       "name": "DJANGO_SECRET_KEY_FALLBACKS",
       "source_file": "config/_database_settings.py"
-    },
-    {
-      "default": "'https://brad-edwards.github.io/bigrae/'",
-      "name": "DOCS_SITE_URL",
-      "source_file": "config/settings.py"
     },
     {
       "default": "''",
@@ -986,11 +971,6 @@
       "default": "str(_raes_default_package_root)",
       "name": "SHIFTER_RAES_PACKAGE_ROOT",
       "source_file": "config/_raes_settings.py"
-    },
-    {
-      "default": "'noreply@shifter.local'",
-      "name": "SHIFTER_SUPPORT_EMAIL",
-      "source_file": "config/settings.py"
     },
     {
       "default": null,

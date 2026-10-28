@@ -14,15 +14,12 @@ from django.urls import reverse
 from django.views.debug import SafeExceptionReporterFilter
 
 from ctf.exceptions import CTFValidationError
-from ctf.forms import CTFEventForm
 from ctf.services.participant.accounts import create_participant_accounts
 from ctf.services.participant.credentials import reset_participant_password
 from management.services import get_user_profile, set_ctf_password_change_required
 from shared.api_tokens.models import ApiToken
 from shared.audit import AuditAction, AuditEntityType, RequestAudit
 from shared.models import AuditLog
-
-from .conftest import TEST_CTF_BOOTSTRAP_PASSWORD
 
 pytestmark = pytest.mark.django_db
 
@@ -42,29 +39,6 @@ def _disable_provisioning(monkeypatch):
 
 def _create_participant(event):
     return create_participant_accounts(event.id, count=1)[0]
-
-
-def _event_form_data(event, **overrides):
-    data = {
-        "name": event.name,
-        "description": event.description,
-        "event_start": event.event_start,
-        "event_end": event.event_end,
-        "scenario_id": event.scenario_id,
-        "auto_cleanup": event.auto_cleanup,
-        "cleanup_delay_hours": event.cleanup_delay_hours,
-        "participant_password_override": "",
-        "range_spinup_minutes": event.range_spinup_minutes,
-        "team_mode": event.team_mode,
-        "submission_cooldown_seconds": event.submission_cooldown_seconds,
-        "attempt_limit_mode": event.attempt_limit_mode,
-        "attempt_limit_cooldown_seconds": event.attempt_limit_cooldown_seconds,
-        "rating_visibility": event.rating_visibility,
-        "scoring_mode": event.scoring_mode,
-        "scoreboard_visibility": event.scoreboard_visibility,
-    }
-    data.update(overrides)
-    return data
 
 
 def test_account_creation_generates_a_fresh_password_when_event_has_no_shared_policy(
@@ -100,25 +74,6 @@ def test_account_creation_uses_only_an_explicit_event_shared_password(ctf_event,
 
     assert participant.user.check_password(shared_password)
     assert generated == []
-
-
-def test_event_form_does_not_render_or_clear_an_existing_shared_password(ctf_event):
-    form = CTFEventForm(data=_event_form_data(ctf_event), instance=ctf_event)
-
-    assert form.is_valid(), form.errors
-    assert TEST_CTF_BOOTSTRAP_PASSWORD not in form.as_p()
-    assert form.cleaned_data["participant_password_override"] == ""
-    assert form.save(commit=False).participant_password_override == TEST_CTF_BOOTSTRAP_PASSWORD
-
-
-def test_event_form_requires_an_explicit_control_to_disable_shared_password(ctf_event):
-    form = CTFEventForm(
-        data=_event_form_data(ctf_event, disable_participant_shared_password="on"),
-        instance=ctf_event,
-    )
-
-    assert form.is_valid(), form.errors
-    assert form.save(commit=False).participant_password_override == ""
 
 
 def test_generated_reset_updates_security_state_and_writes_secret_free_audit(

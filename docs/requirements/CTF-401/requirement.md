@@ -23,9 +23,7 @@ The individual scoreboard is the central competitive interface for non-team even
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Scoring service - get_scoreboard() ranked by descending score with solve_count, last_solve, rank)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Scoreboard view (participant) and api_scoreboard JSON endpoint)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/scoreboard.html` (Scoreboard template - renders rank, name, score, solves, last_solve with 15-second auto-refresh polling)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/_read.py::get_scoreboard` (Individual scoreboard read path - rank, participant display, score, solve count, last solve)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring.py` (Scoring tests - individual scoreboard ranking, score recomputation/materialization, solve count and last solve)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (Participant scoreboard view: participant_id context wiring + own-row solve-history drill-down (PR #1304))
 - IMPLEMENTS → GITHUB_ISSUE `521` (Issue #521 - Repair participant scoreboard wiring and add solve-history drill-down)

@@ -28,4 +28,3 @@ Events are the top-level organizing unit for CTF competitions. Event state contr
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTF models - CTFEvent lifecycle fields, time-bound configuration, registration_deadline)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_participant.py::TestRegistrationDeadlineEnforcement` (Tests for registration deadline enforcement in invite_participant and bulk_import_participants)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Scoring service - get_scoreboard() with freeze_at cutoff for results visibility timing)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF views - scoreboard and participant views (missing results visibility timing control))

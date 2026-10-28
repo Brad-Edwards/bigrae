@@ -30,8 +30,3 @@ Brackets enable fair competition when participants have vastly different skill l
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/__init__.py` (Bracket service exports)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/migrations/0020_add_brackets.py` (Migration for CTFBracket model and participant bracket FK)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_brackets.py` (Bracket model, service, scoring, and view tests)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/scoreboard.html` (Participant scoreboard with bracket tabs)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/scoreboard.html` (Admin scoreboard with bracket tabs)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/bracket_list.html` (Admin bracket list template)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/bracket_form.html` (Admin bracket create/edit form template)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_brackets.py` (Bracket management views, scoreboard bracket tabs, bracket API)
