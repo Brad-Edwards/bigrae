@@ -22,10 +22,6 @@ Ties are common in CTF events, especially when multiple participants solve the s
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Scoring service: get_scoreboard and get_team_scoreboard with timestamp tie-breaking)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/templates/ctf/help.html` (CTF Help page documenting tie-breaking rule visible to participants)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/scoreboard.html` (Participant scoreboard template showing rank, score, and last solve time)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/scoreboard.html` (Admin scoreboard template showing rank, score, and last solve time)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF views dispatching individual/team scoreboards consistently)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/_read.py::get_scoreboard` (Scoreboard read path - deterministic score and earliest-last-solve tie ordering)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring.py` (Scoring tests - deterministic tie-breaking by score and earliest last-solve order)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)

@@ -23,7 +23,4 @@ First blood is a prestigious achievement in CTF culture that adds excitement and
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge.first_blood property - read-only first solver tracking)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (get_challenge_statistics() returns first_blood data)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (First blood display in participant challenge detail template)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_detail.html` (First blood display in admin challenge detail template)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (test_challenge_first_blood - tests first_blood property)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_challenges.py` (View passes first_blood to challenge detail context)

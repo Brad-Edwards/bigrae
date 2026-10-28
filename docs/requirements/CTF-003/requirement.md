@@ -23,7 +23,5 @@ Hints prevent participants from getting completely stuck while maintaining compe
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFHint and CTFHintUsage models, calculate_points_with_penalty(total_hint_penalty))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/hint.py` (Progressive hint service: add/remove/use_hint, sequential ordering, cumulative penalty)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (Progressive hint UI: sequential unlock, penalty display, locked hints)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_hint.py` (Progressive hint tests: CRUD, sequential order, penalty cap, idempotent unlock, event state)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#566` (CTF-003: Hint System)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/hints.py` (Hint management APIs (organizer), progressive hint unlock API (participant))

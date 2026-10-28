@@ -26,4 +26,3 @@ CRUD operations on challenges are the foundational data management capability th
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms/` (CTF forms - Django forms for challenge create/update input validation)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (CTF enums - ChallengeCategory, ChallengeDifficulty, and other enum definitions)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (CTF model tests - Tests for CTFChallenge model validation and properties)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_challenges.py` (CTF views - HTTP endpoints for challenge CRUD and event management)

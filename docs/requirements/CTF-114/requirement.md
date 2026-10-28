@@ -25,6 +25,4 @@ Rate limiting prevents automated brute-force flag guessing, which undermines com
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (submit_flag() -- no time-based rate limiting implemented)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#547` (CTF-114: Submission Rate Limiting)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_submit_flag_rate_limit_api.py` (API integration test: submit_flag 429 cooldown envelope with Retry-After)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/api/play.py` (api_submit_flag 429 response with retry_after_seconds and Retry-After header)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_submission.py` (TestSubmissionRateLimit, cooldown enforcement, per-challenge scope, retry details)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (submitFlag() branches on HTTP 429 for cooldown messaging)
