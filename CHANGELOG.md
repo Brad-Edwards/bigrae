@@ -12,6 +12,78 @@ are generated at release time via its release PR, not hand-edited in PRs. See
 model. The history below is preserved as-is across the towncrier to
 release-please transition (#1776).
 
+## [4.2.0](https://github.com/Brad-Edwards/bigrae/compare/v4.1.1...v4.2.0) (2026-10-28)
+
+
+### Features
+
+* **authority:** enforce principal scope for content and range operations ([a2372dc](https://github.com/Brad-Edwards/bigrae/commit/a2372dc60e92a35794526e44eeb6d2e7c6118ddc))
+* **authority:** enforce principal scope for content and range operations ([1a9b180](https://github.com/Brad-Edwards/bigrae/commit/1a9b18037a49cfa21683a416d922c04a20aa5e1e))
+* **cms:** add tenant pack removal with durable archive cleanup ([573c515](https://github.com/Brad-Edwards/bigrae/commit/573c5153e5991e11f92f16a053a8c8a84895428a))
+* **cms:** add tenant pack removal with durable archive cleanup ([77b940b](https://github.com/Brad-Edwards/bigrae/commit/77b940b70b67cd79221ca24ce9f2510f96a93fe2))
+* **ctf:** add multi-event communications console with preview, delivery state, and activity timeline ([edfdd47](https://github.com/Brad-Edwards/bigrae/commit/edfdd474cbcbda98d26a0b59546a446eeb99a3c2))
+* **ctf:** multi-event communications console with preview, delivery state, and activity timeline ([c07f7e1](https://github.com/Brad-Edwards/bigrae/commit/c07f7e1af8cfc9e162071830023b7b8686acc12f))
+* enforce the browser CSP, copy organizer images, and publish an accurate verification matrix ([bf96986](https://github.com/Brad-Edwards/bigrae/commit/bf96986e9c7f4ea73fbc140424014deaa15fc674))
+* enforce the browser CSP, copy organizer images, and publish an accurate verification matrix ([6ea6acb](https://github.com/Brad-Edwards/bigrae/commit/6ea6acb8605d0e31e2ffcf6ce82eee17bf9d57f8))
+* **gcp:** stand up, update, and tear down GCP deployments without GitHub ([b0ea399](https://github.com/Brad-Edwards/bigrae/commit/b0ea39969514ef38ef52f8719e5723d3c2285c2d))
+* **gcp:** stand up, update, and tear down GCP deployments without GitHub ([bb847ae](https://github.com/Brad-Edwards/bigrae/commit/bb847aee85b9225acc7417dd2e1862a42288d2a6)), closes [#2571](https://github.com/Brad-Edwards/bigrae/issues/2571)
+* introduce BigRAE compatibility and restore quality coverage ([81a910a](https://github.com/Brad-Edwards/bigrae/commit/81a910a19e02b4e066f5efe4fcbae6c2e69859c7))
+* introduce BigRAE naming and restore architecture checks ([5e3b4a4](https://github.com/Brad-Edwards/bigrae/commit/5e3b4a4709deb1d8c96ace335fe367e05b794c57))
+
+
+### Bug Fixes
+
+* **authority:** satisfy delivery validation gates ([456f8c1](https://github.com/Brad-Edwards/bigrae/commit/456f8c1a440138d5e6bb7d356eb64986883cc457))
+* **bootstrap:** align merged tests with required repository identity ([0681728](https://github.com/Brad-Edwards/bigrae/commit/06817286338d6d4b3696502a0967aa2d8ba0927c))
+* **ci:** add shell default cases and exclude PowerShell from coverage ([61e0031](https://github.com/Brad-Edwards/bigrae/commit/61e00315da13deb8648933c7372c7407cd5ee9d9))
+* **ci:** clear the PR 2579 promotion check failures ([ef1de1e](https://github.com/Brad-Edwards/bigrae/commit/ef1de1eb0485cb6df7bfc77b5035de016167b1bb))
+* **ci:** keep WIF trust name default for the mandatory CKV_GCP_125 check ([f184651](https://github.com/Brad-Edwards/bigrae/commit/f184651ee24e85930edccadad89f51dc255568b5))
+* **cms:** resolve type and quality findings in tenant pack removal ([938239b](https://github.com/Brad-Edwards/bigrae/commit/938239b329610547ae30f1eb9a6872368020d4ef))
+* complete immutable trust and rename validation ([a86d613](https://github.com/Brad-Edwards/bigrae/commit/a86d613d6ee5175739ea3df2c5224d1b56ef43e1))
+* **ctf:** satisfy mypy in communication reporting projections ([a4fd664](https://github.com/Brad-Edwards/bigrae/commit/a4fd664bcb9f685e03452bdc9746025a5e4abc5d))
+* **deps:** upgrade qs and msgpack; time-box the unfixed deepmerge advisory ([1c2a18d](https://github.com/Brad-Edwards/bigrae/commit/1c2a18d73fdd7cd967f81408380b221afbae07b2))
+* **gcp:** adopt the Identity Platform config with an import block ([6e5485f](https://github.com/Brad-Edwards/bigrae/commit/6e5485f9e18e932a79341b2056aa945f24e6ddf4))
+* **gcp:** adopt the Identity Platform config with an import block ([e276ba3](https://github.com/Brad-Edwards/bigrae/commit/e276ba363de07802fab3304f6fecf07f0f860161)), closes [#2598](https://github.com/Brad-Edwards/bigrae/issues/2598)
+* **gcp:** apply the release registry in a fresh project ([745641a](https://github.com/Brad-Edwards/bigrae/commit/745641a27422d23f538db96db6a5641b943640dd))
+* **gcp:** apply the release registry in a fresh project ([c2946a8](https://github.com/Brad-Edwards/bigrae/commit/c2946a8e1a7fd57411905235420a9f6aee87d6dd)), closes [#2589](https://github.com/Brad-Edwards/bigrae/issues/2589)
+* **gcp:** inventory the google-beta and time providers ([cc9f275](https://github.com/Brad-Edwards/bigrae/commit/cc9f27543f6ad1b477940f325510c174f093f991)), closes [#2589](https://github.com/Brad-Edwards/bigrae/issues/2589)
+* **gcp:** let the deploy identity initialize Identity Platform ([2b6a243](https://github.com/Brad-Edwards/bigrae/commit/2b6a24316b2a21b00bff74b9c2441b883610af19))
+* **gcp:** let the deploy identity initialize Identity Platform ([ec84e95](https://github.com/Brad-Edwards/bigrae/commit/ec84e954ac9c0c380f6d76aede89669098fade9b)), closes [#2594](https://github.com/Brad-Edwards/bigrae/issues/2594)
+* **gcp:** let the deploy identity read range images and report lookup failures ([2d8c5e3](https://github.com/Brad-Edwards/bigrae/commit/2d8c5e3330ff7f55fbe3d0ebcb4f9a131c9211c3))
+* **gcp:** let the deploy identity read range images and report lookup failures ([93c04e7](https://github.com/Brad-Edwards/bigrae/commit/93c04e7b73279693d87312f1148897b055d23be5)), closes [#2608](https://github.com/Brad-Edwards/bigrae/issues/2608)
+* **gcp:** lock google-beta and time in the module lock files ([a7f9933](https://github.com/Brad-Edwards/bigrae/commit/a7f9933689315bfd898325d4b584d5e0d10cc525)), closes [#2589](https://github.com/Brad-Edwards/bigrae/issues/2589)
+* **gcp:** make gcp-foundation run in a fresh, policy-restricted project ([b7a9e1d](https://github.com/Brad-Edwards/bigrae/commit/b7a9e1d0fcec3a88b9ab78f9e36bb0a5a8159e01))
+* **gcp:** make gcp-foundation run in a fresh, policy-restricted project ([e28162e](https://github.com/Brad-Edwards/bigrae/commit/e28162ec567a47128ec6e5d72dcb617bd43a22c9)), closes [#2584](https://github.com/Brad-Edwards/bigrae/issues/2584) [#2585](https://github.com/Brad-Edwards/bigrae/issues/2585) [#2586](https://github.com/Brad-Edwards/bigrae/issues/2586) [#2587](https://github.com/Brad-Edwards/bigrae/issues/2587)
+* **gcp:** pin the quota project of impersonated deploy stages ([fc4c8c7](https://github.com/Brad-Edwards/bigrae/commit/fc4c8c70e1ebdab3ea74ea45875b9227e30d139f))
+* **gcp:** pin the quota project of impersonated deploy stages ([3e6c345](https://github.com/Brad-Edwards/bigrae/commit/3e6c3452267a475e9773599fc2f059dd10c2596e)), closes [#2596](https://github.com/Brad-Edwards/bigrae/issues/2596)
+* **gcp:** port the Guacamole token API policies and clear SonarCloud findings ([1db749f](https://github.com/Brad-Edwards/bigrae/commit/1db749fd143b442fc50f8aca1c46175ddbf25044))
+* **gcp:** publish GCP releases from main, dev, or deploy-test ([0615455](https://github.com/Brad-Edwards/bigrae/commit/0615455c68a062d4c43411f012034c26f4a74b71))
+* **gcp:** publish GCP releases from main, dev, or deploy-test ([fee27aa](https://github.com/Brad-Edwards/bigrae/commit/fee27aad6806d67267e14d7720c4b997e811d197)), closes [#2580](https://github.com/Brad-Edwards/bigrae/issues/2580)
+* **gcp:** record CVE-2026-56857 as a false positive for the deployer image ([ed43ca3](https://github.com/Brad-Edwards/bigrae/commit/ed43ca3ccd139841e5738a1ac5dcafb3f178fb26)), closes [#2582](https://github.com/Brad-Edwards/bigrae/issues/2582)
+* **gcp:** show the Terraform error of each retried apply ([f7a5a72](https://github.com/Brad-Edwards/bigrae/commit/f7a5a727cf934f341b882e29d40a50031ff175a8))
+* **gcp:** show the Terraform error of each retried apply ([991b417](https://github.com/Brad-Edwards/bigrae/commit/991b417368f35001a691932da45ddae2f8f599ca)), closes [#2601](https://github.com/Brad-Edwards/bigrae/issues/2601)
+* **gcp:** split the merged assert block in the cicd-oidc github_less test ([de6ab51](https://github.com/Brad-Edwards/bigrae/commit/de6ab517621e59708d68fc81a426ba23a1cf0cea)), closes [#2612](https://github.com/Brad-Edwards/bigrae/issues/2612)
+* label the content egress Deployment and refresh the backend contract artifact ([7080455](https://github.com/Brad-Edwards/bigrae/commit/7080455f99b9fad81067d1d1ec7863bd9e14fbd8))
+* lock offline client packaging dependencies ([5a061ef](https://github.com/Brad-Edwards/bigrae/commit/5a061ef0139239a4e49e4e4010d68a31f041b90f))
+* **packer:** enforce the php2shell security floor in victim images ([4b44a42](https://github.com/Brad-Edwards/bigrae/commit/4b44a428569ec5fc969bdc8fa3a15b636b129dac))
+* **packer:** enforce the php2shell security floor in victim images ([e35b16d](https://github.com/Brad-Edwards/bigrae/commit/e35b16d7b0d4cb93fdf8d9ff801eea1a8891a471))
+* **platform:** require autobahn 26.10.1 for CVE-2026-116579 ([cc44f85](https://github.com/Brad-Edwards/bigrae/commit/cc44f85173bf5617c273cee87e51215e8ab2f399)), closes [#2582](https://github.com/Brad-Edwards/bigrae/issues/2582)
+* preserve scanner coverage for immutable subjects ([5f33b97](https://github.com/Brad-Edwards/bigrae/commit/5f33b972e57416605b70248445143f6d9e60c832))
+* probe direct SPA route in stack smoke ([800adb8](https://github.com/Brad-Edwards/bigrae/commit/800adb8dbdf2c8c0d0540555b1bab2189a4ac409))
+* **provisioner:** give range provisioner Jobs resource requests and limits ([ad67094](https://github.com/Brad-Edwards/bigrae/commit/ad670949d7b2ea5cb6847ed1785b0b4e98bb257c))
+* **provisioner:** give range provisioner Jobs resource requests and limits ([03f4373](https://github.com/Brad-Edwards/bigrae/commit/03f43733b8a536f43a9bd5d65eb4c5f1de92f2da)), closes [#2606](https://github.com/Brad-Edwards/bigrae/issues/2606)
+* **quality:** close production-path ownership gaps and restore a green ADR guard ([ac70ade](https://github.com/Brad-Edwards/bigrae/commit/ac70adef92cba727c15f576bd621ca0d918ca939))
+* **quality:** resolve SonarCloud new-code findings in the identity guard ([f192c00](https://github.com/Brad-Edwards/bigrae/commit/f192c00453330b12adafe36600c41661bd22f803))
+* **quality:** split the identity resolver to clear the complexity gate ([acefcd3](https://github.com/Brad-Edwards/bigrae/commit/acefcd339d142aef65079d380f9f526cc310ab46))
+* repair the cicd-oidc test file and update @hono/node-server ([0932db6](https://github.com/Brad-Edwards/bigrae/commit/0932db6244b60219bf26265aaf5cf0cd1caf2d65)), closes [#2582](https://github.com/Brad-Edwards/bigrae/issues/2582)
+* resolve quality gate findings ([9f42f8d](https://github.com/Brad-Edwards/bigrae/commit/9f42f8d8d303c959e8e4dc513adcc15b2824dc80))
+* **security:** ignore unfixable dev-only deepmerge advisory (CVE-2026-93753) ([8cc5e27](https://github.com/Brad-Edwards/bigrae/commit/8cc5e273d01d897f1736ff30cb673af184c4dbf6))
+* **security:** update @hono/node-server to 2.1.5 in the MCP lockfiles ([996d32c](https://github.com/Brad-Edwards/bigrae/commit/996d32cde42170153de4caa2887e21a43b90c62d)), closes [#2615](https://github.com/Brad-Edwards/bigrae/issues/2615)
+* **security:** update @hono/node-server to 2.1.5 in the MCP lockfiles ([0f6cbb2](https://github.com/Brad-Edwards/bigrae/commit/0f6cbb2e5dd3bcb8a2aec2503603bb2c398a4de8)), closes [#2615](https://github.com/Brad-Edwards/bigrae/issues/2615)
+* **ui:** wrap page header actions on narrow screens; scan the communications console for accessibility ([7ed9844](https://github.com/Brad-Edwards/bigrae/commit/7ed9844508985727a9f2f5bf700e794f017f5ba3))
+* update vulnerable dependencies ([ae33cf6](https://github.com/Brad-Edwards/bigrae/commit/ae33cf6a749e4f50467685dcb63e01129d23e935))
+* validate smoke workflow structure and use canonical environment import ([f39bdf7](https://github.com/Brad-Edwards/bigrae/commit/f39bdf7c3cdc6b1815bbabbf93b0af81c22e92da))
+
 ## [4.1.1](https://github.com/Brad-Edwards/shifter/compare/v4.1.0...v4.1.1) (2026-10-14)
 
 
