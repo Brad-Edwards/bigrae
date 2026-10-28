@@ -3,6 +3,8 @@
 {{- $_ := set $runtimeEnv "ENGINE_TASK_NAMESPACE" .Values.namespaces.jobs -}}
 {{- $_ = set $runtimeEnv "ENGINE_TASK_SERVICE_ACCOUNT_NAME" .Values.serviceAccounts.provisioner.name -}}
 {{- end -}}
+{{- /* CTF image copies and webhooks reach public hosts only through content-egress (#2090). */ -}}
+{{- $_ := set $runtimeEnv "CTF_EGRESS_PROXY" "content-egress:3128" -}}
 {{- with .Values.runtime.secretReferences.app -}}
 {{- $_ := set $runtimeEnv "APP_SECRET_ID" . -}}
 {{- end -}}

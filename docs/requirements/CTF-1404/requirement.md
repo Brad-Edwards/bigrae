@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-07-02T01:00:00.023436Z
-updated_at: 2026-07-02T06:16:27.429121Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1404: Solve History Visibility
@@ -21,9 +21,5 @@ Aggregate competitive standing (rank, score, solves, last solve) is inherently p
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (participant_solve_history view: own-participant-or-organizer gate + frozen-scoreboard cutoff (PR #1304))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (get_participant_solve_history: correct-solves-only, secret-safe projection with freeze cutoff (PR #1304))
 - IMPLEMENTS → ADR `docs/adr/index.yaml::ADR-028` (ADR-028: CTF participant solve history is semi-private (participant and organizer only))
-- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoreboard_views.py` (Solve-history view tests: own/other/organizer gate, 404, frozen-owner/organizer cutoff (PR #1304))
-- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_submission_service.py` (get_participant_solve_history tests: correct-only, secret-safe, freeze-cutoff (PR #1304))
 - IMPLEMENTS → GITHUB_ISSUE `521` (Issue #521 - Repair participant scoreboard wiring and add solve-history drill-down)

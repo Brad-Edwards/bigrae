@@ -27,6 +27,8 @@ GCP_GENERATED_RUNTIME_ENV_KEYS: frozenset[str] = frozenset(
         "CLOUD_PROJECT_ID",
         "CLOUD_PROVIDER",
         "CSRF_COOKIE_SECURE",
+        # CTF image copies and webhooks reach public hosts through content-egress (#2090).
+        "CTF_EGRESS_PROXY",
         "DB_HOST",
         "DB_AUTH_MODE",
         "DB_MIGRATION_SECRET_ID",

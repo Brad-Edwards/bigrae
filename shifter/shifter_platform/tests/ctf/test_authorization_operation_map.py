@@ -34,6 +34,7 @@ def test_every_published_ctf_operation_has_one_registered_action_or_exemption() 
             assert len(binding.actions) == 1 or binding.selector in {
                 "validated_parent_placement",
                 "file_audience",
+                "content_image_audience",
             }
             for action in binding.actions:
                 definition = action_definition(action)

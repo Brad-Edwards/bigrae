@@ -1,9 +1,8 @@
 """Behavior tests for two canonical DRF Mission Control range reads (#1370):
 
 - ``CurrentRangeView`` (``GET /api/v1/mission-control/range/``) filtering a
-  CTF-participant-only account down to Kali instances, mirroring
-  ``mission_control.context_processors.active_range``'s existing template
-  behavior (previously the DRF read leaked non-Kali instances to participants).
+  CTF-participant-only account down to Kali instances (previously the DRF
+  read leaked non-Kali instances to participants).
 - The new range-history list (``GET /api/v1/mission-control/ranges/``), backed
   by ``cms.services.list_mission_control_range_history`` — the product-scoped
   query that INCLUDES soft-deleted terminal ranges (the historical rows) and

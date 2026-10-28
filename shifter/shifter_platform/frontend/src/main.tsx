@@ -7,9 +7,13 @@ import { RouterProvider } from "react-router";
 import "./index.css";
 
 import { createQueryClient } from "@/api/queryClient";
+import { installStyleNonce } from "@/lib/csp-nonce";
 import { applyInitialTheme } from "@/lib/theme";
 import { router } from "@/router";
 
+// Before any component mounts: libraries create <style> elements at run time
+// and the enforced CSP admits them only with the response nonce (ADR-036).
+installStyleNonce();
 applyInitialTheme();
 
 const queryClient = createQueryClient();

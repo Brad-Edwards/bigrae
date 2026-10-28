@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:24.203801Z
-updated_at: 2026-03-31T03:28:44.047176Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1301: Organizer Dashboard
@@ -21,7 +21,4 @@ Organizers need a single pane of glass for managing CTF events. Without a dashbo
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/dashboard.html` (Dashboard template - events, quick controls, range status, activity feed sections)
-- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_challenges.py` (TestOrganizerDashboard - context, range overview, activity feed, empty state tests)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#570` (CTF-1301: Organizer Dashboard)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_events.py` (admin_dashboard view - event stats, quick controls, range overview, activity feed)

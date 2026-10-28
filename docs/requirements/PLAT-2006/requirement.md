@@ -6,7 +6,7 @@ type: NON_FUNCTIONAL
 priority: MUST
 wave: 1
 created_at: 2026-05-10T02:50:04.466069Z
-updated_at: 2026-06-13T06:34:24.906309Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-2006: AWS/GCP compatibility and security preservation
@@ -35,7 +35,6 @@ The re-architecture should improve maintainability without silently weakening de
 - IMPLEMENTS → PULL_REQUEST `971` (security: harden rds auth and ca settings)
 - IMPLEMENTS → CODE_FILE `platform/terraform/modules/portal/rds/main.tf` (Portal RDS instance CA and IAM auth settings)
 - IMPLEMENTS → CODE_FILE `scripts/check_tf_rds_security/check_tf_rds_security.py` (RDS security Terraform guardrail checker)
-- IMPLEMENTS → CODE_FILE `platform/terraform/modules/guacamole/rds.tf` (Guacamole RDS instance CA and IAM auth settings)
 - TESTS → TEST `scripts/check_tf_rds_security/test_check_tf_rds_security.py` (RDS security checker tests)
 - CONSTRAINS → ADR `ADR-002-R3` (Intentional fast local-hook boundary with repository-wide policy guards owned by blocking CI)
 - IMPLEMENTS → CONFIG `.github/workflows/_quality.yml` (CI RDS security guardrail wiring)

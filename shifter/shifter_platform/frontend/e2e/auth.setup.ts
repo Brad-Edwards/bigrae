@@ -11,7 +11,7 @@
 
 import { chmodSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 
-import { test as setup, expect } from "@playwright/test";
+import { test as setup, expect } from "./support/csp";
 
 import { ACTORS, AUTH_DIR } from "./support/actors";
 

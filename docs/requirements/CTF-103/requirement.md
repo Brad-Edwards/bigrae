@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:21.480501Z
-updated_at: 2026-03-26T06:36:08.256970Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-103: Challenge Difficulty Levels
@@ -22,11 +22,6 @@ Difficulty indicators help participants allocate their limited competition time 
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (ChallengeDifficulty enum (easy/medium/hard/expert))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFChallenge.difficulty field (line 438))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenges.html` (Difficulty badges in participant challenge listing)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (Difficulty badge in participant challenge detail)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_list.html` (Difficulty display in admin challenge listing)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_detail.html` (Difficulty badges and detail row in admin challenge detail)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_form.html` (Difficulty form field in challenge create/edit)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge.difficulty field (line 438))
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_challenge_metadata.py` (Challenge metadata tests - difficulty create/update/list/detail persistence and visibility)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)

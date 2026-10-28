@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import AxeBuilder from "@axe-core/playwright";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/csp";
 
 import { ACTORS } from "../support/actors";
 import { AXE_WCAG_TAGS, SURFACES, THEME, VIEWPORTS, type Viewport } from "./matrix";
@@ -30,8 +30,8 @@ const baseline: string[] = existsSync(baselinePath) ? JSON.parse(readFileSync(ba
 
 for (const surface of SURFACES) {
   for (const viewport of Object.keys(VIEWPORTS) as Viewport[]) {
-    test(`a11y: ${surface.id} [${viewport}]`, async ({ browser }) => {
-      const context = await browser.newContext({
+    test(`a11y: ${surface.id} [${viewport}]`, async ({ newGuardedContext }) => {
+      const context = await newGuardedContext({
         storageState: ACTORS[surface.actor].state,
         viewport: VIEWPORTS[viewport],
       });
