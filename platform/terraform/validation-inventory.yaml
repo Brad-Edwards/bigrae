@@ -105,6 +105,7 @@ roots:
       - registry.terraform.io/hashicorp/google
       - registry.terraform.io/hashicorp/google-beta
       - registry.terraform.io/hashicorp/random
+      - registry.terraform.io/hashicorp/time
   # GCP-native self-hosted runner (issue #1546). A dedicated execution root and
   # state prefix, separate from the gcp-dev platform root, so a platform destroy
   # never removes the runner (dev-tenant containment).
@@ -136,6 +137,8 @@ roots:
     toolchain: gcp-1.16.7
     providers:
       - registry.terraform.io/hashicorp/google
+      - registry.terraform.io/hashicorp/google-beta
+      - registry.terraform.io/hashicorp/time
   - id: aws-global-iam
     path: platform/terraform/global/iam
     test: tests/github-subject.tftest.hcl

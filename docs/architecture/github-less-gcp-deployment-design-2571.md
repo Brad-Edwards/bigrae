@@ -69,8 +69,8 @@ Kustomize, and it built images on the operator workstation.
 
 ### Release
 
-The release workflow runs only from protected `refs/heads/main` through
-`workflow_dispatch`. Its `gcp-release` Environment holds the release publisher
+The release workflow runs only from protected `refs/heads/main`,
+`refs/heads/dev`, or `refs/heads/deploy-test` through `workflow_dispatch`. Its `gcp-release` Environment holds the release publisher
 identity. The first step of the job rejects every other ref before checkout
 and cloud authentication. The WIF provider admits only the exact repository
 IDs, Environment, ref, and workflow (ADR-004-R23).

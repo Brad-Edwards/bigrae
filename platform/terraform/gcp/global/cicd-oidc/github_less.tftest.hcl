@@ -85,6 +85,29 @@ run "impersonation_only_foundation" {
     error_message = "Deploy principals publish the inputs; destroy-only principals read them."
   }
   assert {
+    condition = (
+      toset(google_project_iam_custom_role.deploy_identity_platform[0].permissions) == toset(["firebase.projects.get", "firebase.projects.update"]) &&
+      google_project_iam_member.deploy_identity_platform[0].member == "serviceAccount:custunseen-deploy@example-project.iam.gserviceaccount.com"
+    )
+    error_message = "The deploy identity must be able to add Firebase when it initializes Identity Platform (#2594)."
+    condition     = length(google_storage_bucket_iam_member.deployment_config_access_log_writer) == 0
+    error_message = "Usage-log delivery is off by default; Domain Restricted Sharing rejects the google.com group (#2585)."
+  }
+  assert {
+    condition     = join(",", module.storage_data_access_audit[0].enabled_log_types) == "DATA_READ,DATA_WRITE"
+    error_message = "Cloud Audit Logs must record every read and write of the deployment config bucket (#2585)."
+  }
+}
+
+run "usage_log_delivery_enabled" {
+  command = plan
+  module {
+    source = "../../modules/cicd-oidc-identity"
+  }
+  variables {
+    enable_gcs_usage_log_delivery = true
+  }
+  assert {
     condition     = google_storage_bucket_iam_member.deployment_config_access_log_writer[0].condition[0].expression == "resource.name.startsWith('projects/_/buckets/example-customer-evidence/objects/deployment-config-access')"
     error_message = "The usage-log writer may create objects under the access-log prefix only."
   }
@@ -147,7 +170,7 @@ run "config_bucket_differs_from_evidence" {
   expect_failures = [var.deployment_config_bucket_name]
 }
 
-run "release_purpose_on_protected_main" {
+run "release_purpose_on_release_refs" {
   command = plan
   module {
     source = "../../modules/cicd-oidc-identity"
@@ -158,10 +181,10 @@ run "release_purpose_on_protected_main" {
     github_repository_id = "123"
     github_owner_id      = "456"
     purpose_contexts = {
-      release = [{
+      release = [for ref in ["refs/heads/main", "refs/heads/dev", "refs/heads/deploy-test"] : {
         environment           = "gcp-release"
-        ref                   = "refs/heads/main"
-        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@refs/heads/main"
+        ref                   = ref
+        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@${ref}"
         reusable_workflow_ref = ""
       }]
     }
@@ -178,9 +201,13 @@ run "release_purpose_on_protected_main" {
     condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.workflow_ref == 'example/product/.github/workflows/release-gcp.yml@refs/heads/main'")
     error_message = "The provider must bind the release workflow on protected main."
   }
+  assert {
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.workflow_ref == 'example/product/.github/workflows/release-gcp.yml@refs/heads/deploy-test'")
+    error_message = "The provider must bind the release workflow on deploy-test."
+  }
 }
 
-run "release_purpose_off_main_rejected" {
+run "release_purpose_off_release_refs_rejected" {
   command = plan
   module {
     source = "../../modules/cicd-oidc-identity"
@@ -193,8 +220,8 @@ run "release_purpose_off_main_rejected" {
     purpose_contexts = {
       release = [{
         environment           = "gcp-release"
-        ref                   = "refs/heads/dev"
-        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@refs/heads/dev"
+        ref                   = "refs/heads/feature"
+        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@refs/heads/feature"
         reusable_workflow_ref = ""
       }]
     }
