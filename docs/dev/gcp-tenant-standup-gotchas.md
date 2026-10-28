@@ -70,8 +70,8 @@ one state.
 
 `gcp-foundation` sets the quota project of its child processes. A manual run,
 for example the `release-registry` apply, uses the quota project in your ADC
-file. If that project is deleted, each call fails with "The requested project
-was not found". Set the quota project and a private data directory for the run:
+file. If that project is deleted, each call fails with the error `The requested
+project was not found`. Set the quota project and a private data directory for the run:
 
 ```bash
 export GOOGLE_CLOUD_QUOTA_PROJECT=<project> TF_DATA_DIR="$(mktemp -d)"
