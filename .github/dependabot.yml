@@ -433,6 +433,7 @@ updates:
       - "/shifter/engine/guacd"
       - "/shifter/engine/guacamole"
       - "/shifter/engine/openvpn"
+      - "/platform/deployer/gcp"
     target-branch: "dev"
     commit-message:
       prefix: "chore"

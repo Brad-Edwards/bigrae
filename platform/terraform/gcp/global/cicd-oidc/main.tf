@@ -1,5 +1,10 @@
 # Foundational GitHub Actions -> GCP OIDC/WIF identity root (issue #615 follow-up).
 #
+# A deployment without GitHub (ADR-070) sets no purpose_contexts. The root then
+# creates no WIF pool or provider. impersonation_principals names the people or
+# groups that may impersonate the deploy, release-scan, and destroy identities,
+# and deployment_config_bucket_name creates the deployment input bucket.
+#
 # The WIF pool/provider and purpose-scoped service accounts are the identities
 # CI authenticates as. They must OUTLIVE the platform: a
 # `gcp-dev-destroy` tears down the platform-core root, and the subsequent CI
@@ -51,4 +56,6 @@ module "cicd_oidc_identity" {
   promotion_reader_service_account_email = var.promotion_reader_service_account_email
   terraform_state_bucket_name            = var.terraform_state_bucket_name
   platform_external_bucket_names         = var.platform_external_bucket_names
+  impersonation_principals               = var.impersonation_principals
+  deployment_config_bucket_name          = var.deployment_config_bucket_name
 }

@@ -66,11 +66,6 @@
       "target": "deploy.walkthrough_github_secrets"
     },
     {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.Path.home"
-    },
-    {
       "count": 2,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy._gcp_identity_access_token"
@@ -81,54 +76,9 @@
       "target": "deploy._gcp_identity_admin_request"
     },
     {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy._run_gcp_bootstrap_probe"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.error"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.gcloud_resource_exists"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.get_gcp_managed_certificate_status"
-    },
-    {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.helm_release_exists"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.install_gke_gcloud_auth_plugin_user_space"
-    },
-    {
-      "count": 2,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.list_gcp_helm_cutover_resources"
-    },
-    {
-      "count": 3,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.os.geteuid"
-    },
-    {
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.prompt_for_gcp_bootstrap_operator_credentials"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.prune_stale_gcp_terraform_bootstrap_keys"
     },
     {
       "count": 7,
@@ -136,22 +86,7 @@
       "target": "deploy.resolve_gcp_bootstrap_operator_credentials"
     },
     {
-      "count": 7,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.run_cmd"
-    },
-    {
-      "count": 10,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.shutil.which"
-    },
-    {
       "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.tempfile.TemporaryDirectory"
-    },
-    {
-      "count": 9,
       "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
       "target": "deploy.time.sleep"
     },
@@ -161,44 +96,9 @@
       "target": "deploy.urllib_request.urlopen"
     },
     {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.verify_gcp_public_portal"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.wait_for_gcp_managed_certificate_active"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gcp_control_plane.py",
-      "target": "deploy.wait_for_user"
-    },
-    {
       "count": 2,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy._fetch_existing_gdc_bootstrap_material"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.apply_gcp_control_plane_terraform"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.deploy_gcp_control_plane_with_helm"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.ensure_gcp_control_plane_namespaces"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.ensure_gcp_identity_platform_operator"
     },
     {
       "count": 1,
@@ -209,11 +109,6 @@
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy.ensure_gdc_vm_image_secret"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.ensure_gke_gcloud_auth_plugin"
     },
     {
       "count": 1,
@@ -236,39 +131,19 @@
       "target": "deploy.get_latest_gcp_secret_payload"
     },
     {
-      "count": 3,
+      "count": 2,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy.get_repo_root"
     },
     {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.prepare_gcp_helm_cutover"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.push_gcp_control_plane_images"
-    },
-    {
-      "count": 14,
+      "count": 13,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy.run_cmd"
     },
     {
       "count": 1,
       "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.stage_gcp_control_plane_values"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
       "target": "deploy.time.sleep"
-    },
-    {
-      "count": 1,
-      "path": "scripts/bootstrap/tests/test_gdc_cluster.py",
-      "target": "deploy.walkthrough_gcp_dns_setup_and_wait_for_tls"
     },
     {
       "count": 6,

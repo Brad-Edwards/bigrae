@@ -32,7 +32,7 @@ The current enforcement stack has six parts:
    example `_guard/checks/k8s_security.py`, `_guard/checks/secret_hygiene.py`,
    `_guard/checks/deploy_workflow.py`; `_guard/checks/cloud_identifiers.py` holds
    the AWS-shaped `no-live-cloud-identifiers` scan and
-   `_guard/checks/gcp_deploy_identity.py` its GCP overlay complement,
+   `_guard/checks/gcp_deploy_identity.py` its GCP chart-values complement,
    `no-live-gcp-deploy-identity`) on top of the shared kernels
    `_guard/_common.py` (the `Violation` model, repo/git helpers, exception
    filtering) and `_guard/_workflow_model.py` (the `_dw_*` workflow-as-data
@@ -162,7 +162,10 @@ prove a live repository, publisher or workload-identity cutover.
   bounds peak memory (each worker loads the Django app), so it is raised only
   with headroom in mind given the suite's documented OOM history at high worker
   counts.
-- `.github/workflows/_gcp-dev.yml` now pins the selected GCP overlay’s `kustomization.yaml` image `newTag` values to `${SHORT_SHA}` before `kubectl apply -k`, preventing mutable `:latest` restarts from drifting to a different image than the commit being deployed.
+- `.github/workflows/_gcp-dev.yml` and `gcp-dev-destroy.yml` are thin wrappers
+  over the GCP deploy commands (ADR-070). The deploy renders each image by its
+  exact digest from the release manifest, so a mutable tag never selects a
+  running image.
 
 Deploy-time enforcement (ADR-035):
 
@@ -176,7 +179,9 @@ Deploy-time enforcement (ADR-035):
   (`SHIFTER_SKIP_OPERATOR_BOOTSTRAP`), never a silent conditional step skip. This
   is a runtime gate rather than an `adr_guard` static check; `docs/dev/deploy-secrets.md`
   and the spec are kept in step by the parity test in
-  `scripts/bootstrap/tests/test_preflight.py`.
+  `scripts/bootstrap/tests/test_preflight.py`. For GCP, `deploy.py preflight
+  --cloud gcp` validates the deployment input bundle (`--store` or `--inputs`)
+  with the same loader that `deploy.py gcp-deploy` uses (ADR-070).
 
 Documentation site (ADR-038):
 
@@ -477,12 +482,14 @@ The first slice intentionally stays small:
   (ADR-003-R5) invariant, keeps `contents: read` only, and carries a
   `timeout-minutes` backstop (#1220).
 
-  `TestGcpPrivateControlPlaneAccess` keeps both GCP deploy credential setup
-  points on fleet Connect Gateway and rejects the direct
-  `get-gke-credentials` action. The self-hosted runner has no route to the
-  private RFC1918 GKE control-plane endpoint, so replacing either gateway
-  refresh with direct credentials would make the workload apply time out
-  after otherwise successful Terraform and image-build stages (#1850).
+  `TestGcpPrivateControlPlaneAccess` keeps GCP deploy credentials on fleet
+  Connect Gateway. Since #2571 the deploy command fetches them in
+  `scripts/bootstrap/gcp_kube.py`. The test requires the fleet
+  `memberships get-credentials` call there. It rejects the direct
+  `get-gke-credentials` action and `clusters get-credentials`. The runner
+  has no route to the private RFC1918 GKE control-plane endpoint. Direct
+  credentials would make the workload apply time out after successful
+  Terraform and image-build stages (#1850).
 
   The manual-deploy invariant (`TestManualDeployDispatch`, #730) asserts that
   environment deploys are a `workflow_dispatch` naming the `environment` input
@@ -502,16 +509,19 @@ The first slice intentionally stays small:
 
   The GCP teardown guardrail
   (`test_gcp_workflows_keep_sensitive_tfvars_out_of_the_checkout`) asserts that
-  `gcp-dev-destroy.yml` is parameterized over the tenant: `GCP_ENVIRONMENT`,
-  `TF_DATA_DIR`, `TF_BACKEND_PREFIX`, and the destroy `environment`
-  (`<environment>-destroy`) all derive from the `environment` dispatch input
-  rather than being hardcoded to gcp-dev, so every GCP tenant
-  (gcp-dev / orthanc / sauron / balrog) tears down through the one workflow. It
+  `gcp-dev-destroy.yml` is parameterized over the tenant. `GCP_ENVIRONMENT` and
+  the destroy `environment` (`<environment>-destroy`) derive from the
+  `environment` dispatch input. Every GCP tenant (gcp-dev / orthanc /
+  sauron / balrog) tears down through the one workflow. The workflow keeps
+  its protected-ref check and calls `deploy.py gcp-destroy` with
+  `--confirm "${GCP_ENVIRONMENT}"` (ADR-070). The test also requires the
+  deployment inputs in a private directory under `RUNNER_TEMP`, which the job
+  removes. The CI adapter must create exclusive 0600 files in a 0700
+  directory. It
   runs on `ubuntu-latest` because teardown deletes resources through the GCP
-  APIs over WIF and needs no in-VPC or self-hosted runner access. The shared GCP
-  root declares `cloud_sql_deletion_protection` (default true) so the workflow's
-  rendered `false` actually lifts deletion protection at teardown instead of
-  being dropped as an undeclared `-var-file` entry. The `packer-gcp.yml` and
+  APIs over WIF and needs no in-VPC or self-hosted runner access. The destroy
+  command renders `cloud_sql_deletion_protection = false`, which the shared GCP
+  root declares (default true), so teardown lifts deletion protection. The `packer-gcp.yml` and
   `packer-gcp-validate.yml` environment enums name the gcp-dev tenant `gcp-dev`
   (mapped back to the `gcp-build-dev` / `gcp-validate-dev` Environments, whose
   validate identity is provisioned at standup via the tenant's cicd-oidc
@@ -528,9 +538,11 @@ The first slice intentionally stays small:
   layer media type `application/vnd.shifter.gce-image.tar.gz`, provenance
   annotations) gated on `publish_target=ghcr` and a protected dispatch ref, with
   the staging object keyed on `BUILT_IMAGE_ID` (not the build-step-local
-  `IMAGE_ID`). The retired GDC qcow2 `shifter-vm-*` publish contract is gone. The
-  tenant bootstrap consumes these via `scripts/bootstrap/gcp_base_images.py`
-  (`deploy.py gcp-images`), importing each as a native GCE image (issue #2309).
+  `IMAGE_ID`). The retired GDC qcow2 `shifter-vm-*` publish contract is gone.
+  When `GCP_RELEASE_REGISTRY` is set, the job also copies each artifact by
+  digest into the release registry (ADR-070). `deploy.py gcp-images` imports
+  each artifact as a native GCE image from an explicit `--source` prefix
+  (`scripts/bootstrap/gcp_base_images.py`, issues #2309 and #2571).
 
 - `portal-deploy-mode-source-of-truth`
   Enforces ADR-003-R4 for the AWS portal deploy path. `_shifter-platform.yml`
@@ -561,6 +573,24 @@ The first slice intentionally stays small:
   each SHA for Dependabot. Refresh guidance:
   `docs/architecture/rev1-build-deployment-provenance.md`.
 
+- `release-workflow-provenance`
+  Enforces ADR-070-R1 with ADR-004-R23, ADR-003-R5, and ADR-037-R1, R5, and R7
+  on `.github/workflows/release-gcp.yml`. It reads the workflow as data and
+  fails closed when the workflow is missing or cannot be parsed. Only
+  `workflow_dispatch` may start the workflow. Each job that authenticates to
+  GCP must bind the `gcp-release` Environment and run on a GitHub-hosted
+  runner. In that job, a step before the authentication step must reject every
+  ref except `refs/heads/main`. Every non-local action must pin a full commit
+  SHA. Every pushed image build must produce an SBOM and maximum provenance.
+  An `actions/attest-build-provenance` step in the same job must sign that
+  exact digest with `push-to-registry: true`. A deployment verifies this registry
+  copy of the attestation without GitHub. Before the deployer image attestation,
+  an unconditional step must scan the deployer digest with the blocking Trivy
+  gate (`--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`). The step must
+  use `platform/deployer/gcp/trivyignore.yaml`, which holds only time-boxed
+  vendor-binary exposures. The check runs at the `fast` and `ci` levels;
+  `scripts/adr_guard/tests/test_release_workflow.py` covers it.
+
 - `TFLint`
   Adds Terraform linting on top of `terraform fmt` and `terraform validate`.
   The initial profile is intentionally narrow: it leaves existing repo-wide
@@ -576,23 +606,27 @@ The first slice intentionally stays small:
   levels.
 
 - `kubeconform`
-  Validates Kubernetes manifests against official schemas. Catches misspelled
-  fields, invalid resource types, and schema violations before they reach a
-  cluster. Pinned to the target GKE Kubernetes version.
+  Validates the rendered Helm chart for every supported values file against
+  the official schemas (`k8s-schema` job). The GKE custom resources use a CRD
+  catalog pinned to one commit. Catches misspelled fields, invalid resource
+  types, and schema violations before they reach a cluster. Pinned to the
+  target GKE Kubernetes version.
 
 - `helm lint`
-  Validates the Helm-packaged GCP control plane. This is the correct validation
-  boundary for raw chart templates, which are not parseable by generic YAML
-  tooling before render time.
+  Validates the Helm chart, the only Kubernetes renderer (ADR-007). This is the
+  correct validation boundary for raw chart templates, which are not parseable
+  by generic YAML tooling before render time.
 
 - `kube-linter`
   Enforces Kubernetes security and best practices: non-root containers,
   read-only root filesystems, resource limits, privilege escalation prevention,
-  and more. Configured via `.kube-linter.yaml`.
+  and more. Configured via `.kube-linter.yaml`. The `chart-lint-security` job
+  runs it on the rendered chart for every supported values file.
 
 - `checkov-k8s`
-  CIS Kubernetes benchmark and container security checks on manifests in
-  `platform/k8s/`. A **blocking gate** under ADR-004-R11 since #2558
+  CIS Kubernetes benchmark and container security checks on the rendered Helm
+  chart for every supported values file (`security-k8s` job, #2571). A
+  **blocking gate** under ADR-004-R11 since #2558
   (`soft_fail: false`, no `continue-on-error`). This posture is separate from
   Terraform Checkov policy and from the Trivy configuration scan. Accepted-risk
   waivers use resource `checkov.io/skipN` annotations plus a matching
@@ -617,27 +651,24 @@ The first slice intentionally stays small:
   waiver registry; the ADR exceptions registry is the audit trail.
 
 - `k8s-image-registry`
-  Verifies that the staged GCP Kubernetes deployment assets still point at
-  Artifact Registry (`pkg.dev`), preventing accidental use of public or
-  untrusted registries while the GCP workflow and generated assets are being
-  reconciled around the Helm cutover.
+  Verifies that the image roots in the chart's GCP values files
+  (`platform/charts/shifter/values-gcp-*.yaml`) point at Artifact Registry
+  (`pkg.dev`), preventing accidental use of public or untrusted registries.
 
 - `k8s-pss-labels`
-  Architecture check ensuring namespace manifests carry Pod Security Standards
-  `pod-security.kubernetes.io/enforce` labels. Enforces ADR-006-R1.
+  Architecture check ensuring each Namespace template in the chart carries the
+  Pod Security Standards `pod-security.kubernetes.io/enforce` labels. The deploy
+  commands create the platform and jobs namespaces with the same labels.
+  Enforces ADR-006-R1.
 
 - `k8s-deployment-security-context`
-  Enforces ADR-006-R2 against two enforcement sources: (1) every YAML
-  document under `platform/k8s/gcp/base/` (recursive) whose `kind` is
-  `Deployment`, and (2) the rendered output of
+  Enforces ADR-006-R2 against the rendered output of
   `helm template platform/charts/shifter -f <values>` for each entry
-  in `HELM_VALUES_FILES` (`values-gcp-dev.yaml`, `values-gcp-prod.yaml`).
-  Per ADR-007 the chart is the authoritative deployment contract;
-  base manifests are supporting snapshots. Validating both sources
-  catches regressions where a chart template or values file removes
-  a required securityContext field even when the base snapshots
-  remain compliant. Kind-based filtering, not filename-based, means a
-  Deployment shipped under any filename or extension is scanned.
+  in `HELM_VALUES_FILES` (`values-aws-dev.yaml`, `values-aws-prod.yaml`,
+  `values-gcp-dev.yaml`, `values-gcp-prod.yaml`). The chart is the only
+  Kubernetes renderer (ADR-007, #2571), so the check reads exactly what a
+  deploy applies. Kind-based filtering, not filename-based, means a
+  Deployment rendered from any template is scanned.
   Multi-document files (`---` separator) and indentless YAML
   sequences are supported.
   Per pod template: `securityContext.seccompProfile.type` must be
@@ -653,7 +684,6 @@ The first slice intentionally stays small:
   subclass of `int`). Runs in the `ci` level (`--all --level ci`,
   including CI) and in a dedicated pre-commit hook `adr-guard-k8s`
   (separate from `adr-guard-fast`) that triggers on
-  `platform/k8s/gcp/base/*.{yaml,yml}` and
   `platform/charts/shifter/` changes. Not in the `fast` level, so
   unrelated `--level fast` invocations and the system-Python
   `adr-guard-fast` hook do not pull in the YAML or helm dependencies.
@@ -685,16 +715,15 @@ The first slice intentionally stays small:
   decomposed into focused helpers (`_check_container_basic_fields`,
   `_check_container_capabilities`, `_check_container_seccomp`,
   `_check_container_identity`, `_resolve_pod_spec`,
-  `_resolve_pod_sc`, `_validate_containers_list`, `_scan_targets`,
-  `_validate_base_files`, `_validate_chart_renders`) so each piece
+  `_resolve_pod_sc`, `_validate_containers_list`, `_chart_scan_requested`,
+  `_validate_chart_renders`) so each piece
   stays under SonarCloud's cognitive-complexity threshold and tests
   can target each clause independently.
 
 - `k8s-network-policy-coverage`
-  Enforces ADR-006-R3 against the base manifest snapshots under
-  `platform/k8s/gcp/base/` and the rendered Helm chart output for
+  Enforces ADR-006-R3 against the rendered Helm chart output for
   each supported values file. Every BigRAE namespace discovered in
-  those manifests must have a default-deny `NetworkPolicy` with an
+  that output must have a default-deny `NetworkPolicy` with an
   empty pod selector and both `Ingress` and `Egress` policy types.
   The check also rejects broad egress `ipBlock` CIDRs (`0.0.0.0/0`
   and `::/0`) in BigRAE NetworkPolicies, forcing policies to use
@@ -797,7 +826,7 @@ The first slice intentionally stays small:
 
 - `no-populated-secret-env-files`
   Architecture check that fails the build when a tracked
-  `*-secrets.env` file under `platform/k8s/` carries a real value on
+  `*-secrets.env` file under `platform/` carries a real value on
   any assignment. Comments (lines whose first non-whitespace
   character is `#`), blank lines, empty assignments (`KEY=`), and a
   small **fixed** synthetic-placeholder allowlist
@@ -810,16 +839,17 @@ The first slice intentionally stays small:
   The parser splits on the first `=` so non-identifier key shapes
   (`db.password=...`, `api-token=...`, `export DB_PASSWORD=...`) are
   still subject to the value check; inline `# ...` is **not**
-  honored as a comment (Kustomize / Docker env_file treats `#` as a
+  honored as a comment (the env-file format treats `#` as a
   comment only when it is the first non-whitespace character on a
   line); non-comment, non-blank lines without `=` are flagged as
   malformed. Containment uses `git ls-files` so gitignored local-dev
   files (for example, `platform-runtime-secrets.local.env`) are intentionally
   not scanned; a synthetic-tree test-mode fallback walks the
   filesystem for unit tests. The roots and the synthetic-placeholder
-  allowlist are centralized in `scripts/adr_guard/adr_guard.py` so
-  adding a future overlay (for example, `gcp-prod`) is automatic and adding
-  a new cluster tree is one entry. Failure reporting names the
+  allowlist are centralized in
+  `scripts/adr_guard/_guard/checks/secret_hygiene.py`. The root is the
+  whole `platform/` tree, so a secret env file in any new location is in
+  scope (#2571). Failure reporting names the
   repo-relative path and the variable name only; the rejected value
   is never echoed. Real runtime secrets must flow in at deploy time
   from GCP Secret Manager, a gitignored local env file, or a
@@ -974,8 +1004,9 @@ cd shifter/shifter_platform && uv run lint-imports --config ../../.importlinter
 TFLINT_CONFIG="$(pwd)/.tflint.hcl"; cd platform/terraform && tflint --recursive --config "$TFLINT_CONFIG"
 actionlint
 helm lint platform/charts/shifter -f platform/charts/shifter/values-gcp-dev.yaml
-kube-linter lint --config .kube-linter.yaml platform/k8s/
-kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.31.0 platform/k8s/gcp/base/*.yaml
+helm template quality-check platform/charts/shifter -f platform/charts/shifter/values-gcp-dev.yaml > /tmp/shifter-gcp-dev.yaml
+kube-linter lint --config .kube-linter.yaml /tmp/shifter-gcp-dev.yaml
+kubeconform -strict -summary -kubernetes-version 1.31.0 -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/3eb90d47aba8d61919d4419dd38301536e32a94b/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /tmp/shifter-gcp-dev.yaml
 ```
 
 Run on specific files:
@@ -1117,7 +1148,8 @@ loads and validates the declaration, and
 GCP WIF trust module keeps a repository-name default so the mandatory
 CKV_GCP_125 check resolves the trust subject; the identity-literals check does
 not flag it, because it matches the `owner/repo` pair and the IDs, not a bare
-org or repo string.
+org or repo string. `scripts/check_tf_gcp_wif_trust` rejects a default on the
+immutable IDs and on `purpose_contexts` (ADR-069-R3, ADR-070).
 
 ## Design Constraints
 
@@ -1148,6 +1180,22 @@ org or repo string.
   range telemetry env render. It applies `SHIFTER_CONFIG_OVERLAY_JSON` like the
   other three consumers, so the exact consumer count changes from 3 to 4. The
   invariant does not change: every consumer applies the overlay.
+- **GitHub-less GCP deploy (`scripts/adr_guard/tests/test_deploy_workflow.py`)**:
+  #2571 moves the GCP deploy logic from `_gcp-dev.yml` to the deploy commands
+  (ADR-070). The tests now read these sources for the same invariants:
+
+    | Invariant | Source that the tests read |
+    | --- | --- |
+    | HIGH and CRITICAL release scan | `gcp_release_scan.py` |
+    | Running-image evidence after superseded pods finish | `gcp_rollout.py`, `gcp_deploy_stages.py` |
+    | Private input files | `scripts/gcp/render_ci_deployment_inputs.py`, `gcp_terraform.py` |
+    | Connect Gateway credentials | `gcp_kube.py` |
+    | Operator password by variable name; Secrets through stdin | `_gcp-dev.yml`, `gcp_control_plane.py` |
+    | Single range-zone input (`settings.range_cells.zones`) | `scripts/gcp/render_ci_deployment_inputs.py`, `settings_gcp_deploy.py` |
+
+    The overlay invariant now counts CI adapter runs. Each run receives
+    `SHIFTER_CONFIG_OVERLAY_JSON` and applies it.
+
 # Private scenario boundary
 
 `AGENTS.md`, `.github/copilot-instructions.md`, and `.gc/plan-rules.md` require
@@ -1304,8 +1352,8 @@ one set of rule identifiers and diagnostics when their implementation is split.
 ### Operations runbook catalog
 
 The public operations handoff under `docs/runbooks/` retains the stable
-`RB001` through `RB022` incident identifiers. The existing ADR-guard unittest
-discovery runs `test_operations_runbooks.py`, which checks that all 22 pages are
+`RB001` through `RB023` incident identifiers. The existing ADR-guard unittest
+discovery runs `test_operations_runbooks.py`, which checks that all 23 pages are
 present and indexed, carry the required Symptom, Investigation, Resolution and
 Prevention sections in order, state an escalation boundary, and mark fenced
 shell examples as read-only. The same test rejects command examples that read
@@ -1314,10 +1362,43 @@ Helm. This is focused GEN-001 evidence within the existing test estate, not a
 new documentation schema, manifest, or adr_guard runtime check.
 
 The deployment cleanup uses one GCP Terraform execution root, explicit selected
-var-files and per-environment backend metadata. The shared Kustomize component
-preserves rendered behavior. The [ADR enforcement record](../../adr/README.md)
+var-files and per-environment backend metadata. #2571 removed the Kustomize
+component, and the Helm chart is now the only renderer (ADR-070). The [ADR enforcement record](../../adr/README.md)
 and [recovery procedure](../../dev/deployment-configuration.md) describe retained
 owners, callers and the evidence limit for undeployed environments.
 
 Canonical GitHub routing and the workflow expression model now use
 `Brad-Edwards/bigrae`, matching the operator-confirmed repository rename.
+
+## GitHub-less GCP deployment guardrails (ADR-070)
+
+[ADR-070](../../adr/070-github-less-gcp-deployment.md) moves the GCP deploy
+into the bootstrap CLI and removes the GitHub dependency of a deployment.
+These guardrails changed with it:
+
+- `release-workflow-provenance` (described above) guards the release
+  workflow that builds the images and the deployer image.
+- `scripts/check_tf_gcp_wif_trust` runs in the Terraform lint job. It now
+  covers the `release` purpose: the release identity binds only its own
+  subjects and holds no project-wide role. Each token-creator or act-as grant
+  outside the build self-grants must use the single `impersonation`
+  resource. That resource grants each named principal access only to the
+  identity of its own purpose. `impersonation_principals` must admit only `release_scan`,
+  `deploy`, and `destroy`, with `user:`, `group:`, or `serviceAccount:`
+  members. `github_repository_id`, `github_owner_id`, and `purpose_contexts`
+  must have no default (ADR-069-R3). The resolved-plan verifier requires no WIF
+  provider when no federated subject exists, and exactly one provider otherwise.
+  It also requires the token-creator grants to equal the named principals.
+- The Helm chart is the only Kubernetes renderer. The `k8s-lint` job is
+  removed, because `chart-lint-security` runs kube-linter on the renders.
+  `k8s-schema` renders the chart and runs `kubeconform -strict`, and
+  `security-k8s` runs Checkov on the renders. The `validate-gcp-manifests`
+  action is removed. The CKV_K8S_35 and CKV_K8S_38 exceptions now name the
+  chart templates; the CKV_K8S_43 exception is removed.
+- The pre-commit hook `adr-guard-gcp-overlay-identity` is now
+  `adr-guard-gcp-deploy-identity`. It runs `no-live-gcp-deploy-identity` on
+  the chart values files.
+- The `gcp_deployer` quality unit routes `platform/deployer/**` to two jobs.
+  `container-images-lint-security` runs the BuildKit check and the Trivy
+  configuration scan of the deployer Dockerfile. `gcp-deployer-image` builds
+  the image with a fixture release manifest and starts it.

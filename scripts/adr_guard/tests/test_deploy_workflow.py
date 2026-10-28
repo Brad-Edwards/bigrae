@@ -381,7 +381,9 @@ class TestChangeFilterCoverage(unittest.TestCase):
 
     def test_gcp_paths_trigger_gcp_filter(self):
         self.assertPathInFilter("platform/terraform/gcp/main.tf", "gcp")
-        self.assertPathInFilter("platform/k8s/gcp/base/deployment.yaml", "gcp")
+        self.assertPathInFilter("platform/charts/shifter/templates/web-deployment.yaml", "gcp")
+        self.assertPathInFilter("scripts/bootstrap/gcp_deploy.py", "gcp")
+        self.assertPathInFilter("scripts/smoke-test-gcp.sh", "gcp")
 
 
 class TestScenarioVerificationQualityRouting(unittest.TestCase):
@@ -651,28 +653,26 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertEqual(configured, discovered)
 
     def test_gcp_deploy_scans_each_exact_oci_digest(self):
-        path = REPO_ROOT / ".github/workflows/_gcp-dev.yml"
-        workflow = path.read_text(encoding="utf-8")
-        jobs = ADR_GUARD._dw_jobs(yaml.safe_load(path.read_text()), "_gcp-dev.yml")
+        """#2084, #2571: the scanner identity scans every exact digest before the rollout."""
+        jobs = ADR_GUARD._dw_jobs(_load("_gcp-dev.yml"), "_gcp-dev.yml")
         scanner = jobs["release_scan"]
         deploy = jobs["deploy"]
-        self.assertIn("Scan exact release image digests", workflow)
-        for digest in (
-            "PORTAL_IMAGE_DIGEST",
-            "PROVISIONER_IMAGE_DIGEST",
-            "GUACD_IMAGE_DIGEST",
-            "GUACAMOLE_CLIENT_IMAGE_DIGEST",
-            "OPENVPN_IMAGE_DIGEST",
-        ):
-            self.assertIn(digest, workflow)
-        self.assertIn("--exit-code 1", workflow)
-        self.assertIn("--severity HIGH,CRITICAL", workflow)
         self.assertEqual(scanner["environment"], "${{ inputs.release_scan_github_environment }}")
         self.assertIn("release_scan", deploy["needs"])
-        scan_env = "\n".join(str(step.get("env", "")) for step in scanner["steps"])
+        steps = ADR_GUARD._dw_job_steps(scanner)
+        run = "\n".join(str(step.get("run", "")) for step in steps)
+        self.assertIn("deploy.py gcp-release-scan", run)
+        self.assertIn("--identity ambient", run)
+        for name in ("portal", "provisioner", "guacd", "guacamole-client", "openvpn"):
+            self.assertIn(f'--image "{name}=', run)
+        scan_env = "\n".join(str(step.get("env", "")) for step in steps) + str(scanner.get("env", ""))
         self.assertNotIn("GCP_DEPLOY_SERVICE_ACCOUNT", scan_env)
         self.assertNotIn("GCP_BOOTSTRAP_ADMIN_PASSWORD", scan_env)
-        self.assertIn("TRIVY_ARCHIVE_SHA256", workflow)
+        self.assertIn("TRIVY_ARCHIVE_SHA256", str(scanner.get("env", "")))
+        scanner_source = (REPO_ROOT / "scripts/bootstrap/gcp_release_scan.py").read_text(encoding="utf-8")
+        self.assertIn('SEVERITIES = "HIGH,CRITICAL"', scanner_source)
+        self.assertRegex(scanner_source, r'"--exit-code",\s*"1",')
+        self.assertIn('"--ignore-unfixed"', scanner_source)
 
     def test_gcp_mutating_jobs_run_on_the_requested_tenant(self):
         jobs = ADR_GUARD._dw_jobs(_load("_gcp-dev.yml"), "_gcp-dev.yml")
@@ -820,14 +820,17 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertNotIn("release-evidence", identity[condition_start:condition_end])
 
     def test_gcp_deploy_records_running_workload_image_ids(self):
-        workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
+        """#2084, #2571: the deploy command records the running image of every workload."""
+        rollout = (REPO_ROOT / "scripts/bootstrap/gcp_rollout.py").read_text(encoding="utf-8")
+        stages = (REPO_ROOT / "scripts/bootstrap/gcp_deploy_stages.py").read_text(encoding="utf-8")
         verifier = (REPO_ROOT / "scripts/gcp/verify_running_image_ids.py").read_text(encoding="utf-8")
-        self.assertIn("Record running workload image IDs", workflow)
-        self.assertIn("scripts/gcp/verify_running_image_ids.py", workflow)
-        self.assertEqual(workflow.count("--expected-image"), 3)
+        self.assertIn("record_running_images(", stages)
+        self.assertIn('"verify_running_image_ids"', rollout)
+        self.assertEqual(rollout.count('"--expected-image"'), 3)
+        self.assertIn('"--list-deployments"', rollout)
+        self.assertIn('"running-pods.json"', rollout)
         self.assertIn("_RELEASE_CONTAINERS", verifier)
         self.assertIn("_RELEASE_DEPLOYMENTS", verifier)
-        self.assertIn("--list-deployments", workflow)
         self.assertIn('"initContainers"', verifier)
         self.assertIn("initContainerStatuses", verifier)
         self.assertIn('"containerStatuses",', verifier)
@@ -839,16 +842,13 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertIn("unexpected Shifter workload component", verifier)
         self.assertIn("_require_closed_names", verifier)
         self.assertIn("unexpected {kind} containers", verifier)
-        self.assertIn("${RUNNER_TEMP}/gcp-release-security/running-pods.json", workflow)
-        self.assertIn("Remove ephemeral deployment evidence", workflow)
 
     def test_gcp_deploy_waits_for_superseded_pods_before_image_evidence(self):
-        workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
-
-        wait = "select(.metadata.deletionTimestamp != null)"
-        record = "Record running workload image IDs"
-        self.assertIn(wait, workflow)
-        self.assertLess(workflow.index(wait), workflow.index(record))
+        """The rollout waits for terminating pods before it records the running images."""
+        rollout = (REPO_ROOT / "scripts/bootstrap/gcp_rollout.py").read_text(encoding="utf-8")
+        stages = (REPO_ROOT / "scripts/bootstrap/gcp_deploy_stages.py").read_text(encoding="utf-8")
+        self.assertIn('get("deletionTimestamp")', rollout)
+        self.assertLess(stages.index("wait_for_rollouts("), stages.index("record_running_images("))
 
     def test_gcp_promotion_authenticates_redacted_verdict_before_private_evidence(self):
         validate = (REPO_ROOT / ".github/workflows/packer-gcp-validate.yml").read_text(encoding="utf-8")
@@ -874,45 +874,48 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
             self.assertIn(marker, verifier)
 
     def test_gcp_workflows_keep_sensitive_tfvars_out_of_the_checkout(self):
+        """#2084, #2571: secret-bearing deploy inputs stay private and outside the checkout."""
         for name in ("_gcp-dev.yml", "gcp-dev-destroy.yml"):
             workflow = (REPO_ROOT / f".github/workflows/{name}").read_text(encoding="utf-8")
             self.assertNotIn("${TF_DIR}/local.auto.tfvars", workflow)
-            self.assertNotIn("${TF_DIR}/range_egress.auto.tfvars", workflow)
-            self.assertIn("${RUNNER_TEMP}", workflow)
-            self.assertIn("os.O_EXCL", workflow)
-            self.assertIn("umask 077", workflow)
-            self.assertIn("chmod 600", workflow)
-            self.assertIn("-var-file=", workflow)
+            self.assertIn('inputs="${RUNNER_TEMP}/deployment-inputs"', workflow)
+            cleanup = workflow.split("Remove ephemeral deployment inputs")[-1]
+            self.assertIn('"${RUNNER_TEMP}/deployment-inputs"', cleanup)
+        adapter = (REPO_ROOT / "scripts/gcp/render_ci_deployment_inputs.py").read_text(encoding="utf-8")
+        self.assertIn("os.O_EXCL", adapter)
+        self.assertIn("0o600", adapter)
+        self.assertIn("mode=0o700", adapter)
+        terraform = (REPO_ROOT / "scripts/bootstrap/gcp_terraform.py").read_text(encoding="utf-8")
+        self.assertIn("private_workdir", terraform)
+        self.assertIn("-var-file=", (REPO_ROOT / "scripts/bootstrap/gcp_terraform.py").read_text(encoding="utf-8"))
 
         destroy = yaml.safe_load((REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(encoding="utf-8"))
         destroy_env = destroy["jobs"]["destroy"]["env"]
-        # The teardown workflow is parameterized over the GCP tenant: the TF root,
-        # state prefix, and destroy Environment all derive from the dispatch input
-        # rather than being hardcoded to gcp-dev.
+        # The teardown workflow is parameterized over the GCP tenant: the state
+        # prefix and destroy Environment derive from the dispatch input.
         self.assertEqual(destroy_env["GCP_ENVIRONMENT"], "${{ inputs.environment }}")
-        self.assertEqual(
-            destroy_env["TF_DIR"],
-            "platform/terraform/gcp/environments/platform",
-        )
-        self.assertEqual(
-            destroy_env["TF_BACKEND_PREFIX"],
-            "shifter/${{ inputs.environment }}/platform-core",
-        )
-        self.assertEqual(
-            destroy["jobs"]["destroy"]["environment"],
-            "${{ inputs.environment }}-destroy",
-        )
+        self.assertEqual(destroy["jobs"]["destroy"]["environment"], "${{ inputs.environment }}-destroy")
+        destroy_text = (REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(encoding="utf-8")
+        self.assertIn("deploy.py gcp-destroy", destroy_text)
+        self.assertIn('--confirm "${GCP_ENVIRONMENT}"', destroy_text)
+        self.assertIn("refs/heads/dev|refs/heads/main) ;;", destroy_text)
         # A single upfront preflight fails with the full list of any secrets
         # missing from the selected <environment>-destroy Environment before
         # checkout/auth, rather than one render step at a time.
-        destroy_text = (REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(encoding="utf-8")
         self.assertIn("Preflight - required destroy secrets present", destroy_text)
         self.assertIn("-destroy' Environment is missing required secret(s)", destroy_text)
 
     def test_gcp_bootstrap_secrets_never_reach_process_argv(self):
+        """The operator password reaches the command by variable name; Secrets go through stdin."""
         workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
         self.assertNotIn("--from-literal", workflow)
-        self.assertIn("--from-env-file", workflow)
+        self.assertIn("--operator-password-env GCP_BOOTSTRAP_ADMIN_PASSWORD", workflow)
+        self.assertNotIn("${GCP_BOOTSTRAP_ADMIN_PASSWORD}", workflow)
+        control_plane = (REPO_ROOT / "scripts/bootstrap/gcp_control_plane.py").read_text(encoding="utf-8")
+        self.assertNotIn("--from-literal", control_plane)
+        start = control_plane.index("def sync_gcp_guacamole_runtime_secret")
+        sync = control_plane[start : control_plane.index("\ndef ", start + 1)]
+        self.assertIn('["kubectl", "apply", "-f", "-"]', sync)
 
     def test_gcp_checkov_decisions_are_resource_scoped(self):
         config = (REPO_ROOT / "platform/terraform/.checkov.yaml").read_text(encoding="utf-8")
@@ -971,11 +974,10 @@ class TestGcpPrivateControlPlaneAccess(unittest.TestCase):
     def test_gcp_deploy_never_reverts_to_direct_endpoint_credentials(self):
         workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
         self.assertNotIn("google-github-actions/get-gke-credentials@", workflow)
-        self.assertGreaterEqual(
-            workflow.count("gcloud container fleet memberships get-credentials"),
-            2,
-            "GCP deploy must configure Connect Gateway before bootstrap work and refresh it before applying workloads",
-        )
+        self.assertNotIn("container clusters get-credentials", workflow)
+        kube = (REPO_ROOT / "scripts/bootstrap/gcp_kube.py").read_text(encoding="utf-8")
+        self.assertRegex(kube, r'"fleet",\s*"memberships",\s*"get-credentials"')
+        self.assertNotRegex(kube, r'"clusters",\s*"get-credentials"')
 
 
 class TestGcpDeployPreflightInputs(unittest.TestCase):
@@ -994,9 +996,17 @@ class TestGcpDeployPreflightInputs(unittest.TestCase):
         self.assertIn("--component deploy", step.get("run", ""))
 
     def test_non_secret_overlay_reaches_every_ephemeral_config_consumer(self):
-        workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
-        self.assertEqual(workflow.count("SHIFTER_CONFIG_OVERLAY_JSON: ${{ vars.SHIFTER_CONFIG_OVERLAY_JSON }}"), 4)
-        self.assertEqual(workflow.count("python scripts/gcp/apply_shifter_config_overlay.py --config"), 4)
+        """Every CI adapter run receives the overlay variable, and the adapter applies it."""
+        for name in ("_gcp-dev.yml", "gcp-dev-destroy.yml"):
+            workflow = (REPO_ROOT / f".github/workflows/{name}").read_text(encoding="utf-8")
+            renders = workflow.count("python scripts/gcp/render_ci_deployment_inputs.py")
+            self.assertGreater(renders, 0)
+            self.assertEqual(
+                workflow.count("SHIFTER_CONFIG_OVERLAY_JSON: ${{ vars.SHIFTER_CONFIG_OVERLAY_JSON }}"), renders
+            )
+        adapter = (REPO_ROOT / "scripts/gcp/render_ci_deployment_inputs.py").read_text(encoding="utf-8")
+        self.assertIn("from apply_shifter_config_overlay import ConfigOverlayError, apply_overlay", adapter)
+        self.assertIn('apply_overlay(config_path, _text(env, "SHIFTER_CONFIG_OVERLAY_JSON"))', adapter)
 
 
 class TestRangePlacementSingleSource(unittest.TestCase):
@@ -1013,21 +1023,20 @@ class TestRangePlacementSingleSource(unittest.TestCase):
 
     def test_runtime_and_terraform_derive_from_the_same_variable(self):
         workflow = (REPO_ROOT / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
-        # Runtime CSV consumer (renderer -> ConfigMap -> platform placement).
-        self.assertIn("RANGE_NETWORK_ZONES: ${{ vars.RANGE_NETWORK_ZONES }}", workflow)
-        # Terraform list consumer (range_network_zones -> per-region NAT), derived
-        # from the SAME variable, never a separate independent input.
-        self.assertIn("TF_VAR_range_network_zones=", workflow)
-        self.assertGreaterEqual(
-            workflow.count("vars.RANGE_NETWORK_ZONES"),
-            2,
-            "RANGE_NETWORK_ZONES must feed both the runtime renderer and the "
-            "Terraform range_network_zones tfvar from one canonical operator variable",
+        # The CI adapter projects the one canonical variable onto settings.range_cells.zones.
+        self.assertEqual(
+            workflow.count("RANGE_NETWORK_ZONES: ${{ vars.RANGE_NETWORK_ZONES }}"),
+            workflow.count("python scripts/gcp/render_ci_deployment_inputs.py"),
         )
-        # The Terraform tfvar must be independent variables that could diverge; it is
-        # derived from RANGE_NETWORK_ZONES, so a standalone range_nat_regions input
-        # (the divergence hazard) must not reappear.
+        # No separate Terraform input can diverge from it.
+        self.assertNotIn("TF_VAR_range_network_zones", workflow)
         self.assertNotIn("range_nat_regions", workflow)
+        adapter = (REPO_ROOT / "scripts/gcp/render_ci_deployment_inputs.py").read_text(encoding="utf-8")
+        self.assertIn('("settings", "range_cells", "zones"), _csv(_text(env, "RANGE_NETWORK_ZONES"))', adapter)
+        # Both consumers derive from range_cells.zones.
+        projections = (REPO_ROOT / "shifter/installation/settings_gcp_deploy.py").read_text(encoding="utf-8")
+        self.assertIn('env["RANGE_NETWORK_ZONES"] = ",".join(range_cells.zones)', projections)
+        self.assertIn('"range_network_zones": list(range_cells.zones)', projections)
 
 
 class TestProvisionerDeployTestGate(unittest.TestCase):

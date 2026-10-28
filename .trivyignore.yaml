@@ -1,7 +1,10 @@
 # Exact-release image scan — exposure-management policy
 # ---------------------------------------------------------------------------
-# Consumed by the exact-release Trivy gate (`.github/workflows/_gcp-dev.yml`,
-# "Scan exact release digests") via `--ignorefile`. This file is the ONLY
+# Consumed by the exact-release Trivy gate (`deploy.py gcp-release-scan` and
+# `gcp-deploy`, scripts/bootstrap/gcp_release_scan.py; CI runs it in the
+# release_scan job of `.github/workflows/_gcp-dev.yml`) via `--ignorefile`.
+# The GCP deployer image has its own file,
+# platform/deployer/gcp/trivyignore.yaml. This file is the ONLY
 # sanctioned way to accept a HIGH/CRITICAL finding the gate would otherwise
 # block on. Every entry is a deliberate, documented, time-boxed exposure
 # decision — not a silent suppression.

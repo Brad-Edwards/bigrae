@@ -1,0 +1,81 @@
+# GCP deployer image scan — time-boxed vendor-binary exposures (#2571, ADR-070)
+# ---------------------------------------------------------------------------
+# Consumed only by the deployer image scans: the "Scan the deployer image" step
+# of .github/workflows/release-gcp.yml and the gcp-deployer-image job of
+# .github/workflows/_quality.yml. It does not apply to the control-plane image
+# gate, which reads the repository root .trivyignore.yaml.
+#
+# The gate runs: trivy image --scanners vuln --severity HIGH,CRITICAL
+#                --ignore-unfixed --ignorefile <this file> --exit-code 1
+#
+# Each entry below is a HIGH finding in a vendor binary that the image installs
+# at the newest vendor release. The fixed dependency exists upstream, but no
+# vendor build of that tool ships it yet. Each entry names the exact binary path
+# and expires on its `expired_at` date. After that date Trivy stops honoring the
+# entry and the gate blocks the release again. When a vendor ships a fixed
+# build, bump the tool in platform/deployer/gcp/Dockerfile and remove its entry.
+#
+# The deployer is a one-shot command-line image. It runs one operator command,
+# opens no network listener, and exits.
+
+vulnerabilities:
+  - id: CVE-2026-111943 # Go standard library
+    paths:
+      - opt/google-cloud-sdk/bin/gcloud-crc32c
+      - opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin
+      - usr/local/bin/helm
+      - usr/local/bin/oras
+    statement: >-
+      The newest vendor builds of gcloud-crc32c (gcloud 591.0.0), gke-gcloud-auth-plugin
+      (gcloud 591.0.0), Helm v3.22.1, and ORAS v1.3.6 use a Go standard library before
+      1.26.10 / 1.27.3. No vendor build with the fixed Go release exists yet. Bump each
+      tool when its vendor ships one. Tracking: #2571.
+    expired_at: 2026-11-30
+
+  - id: CVE-2026-78669 # golang.org/x/net and the Go standard library
+    paths:
+      - opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin
+      - usr/local/bin/kubectl
+    statement: >-
+      The newest vendor builds of gke-gcloud-auth-plugin (gcloud 591.0.0) and kubectl
+      v1.34.13 use golang.org/x/net before 0.60.0; the plugin also uses a Go standard
+      library before 1.26.9 / 1.27.2. No vendor build with the fix exists yet. Bump each
+      tool when its vendor ships one. Tracking: #2571.
+    expired_at: 2026-11-30
+
+  - id: CVE-2026-78667 # Go standard library
+    paths:
+      - opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin
+    statement: >-
+      The newest vendor build of gke-gcloud-auth-plugin (gcloud 591.0.0) uses a Go
+      standard library before 1.26.9 / 1.27.2. No vendor build with the fix exists yet.
+      Bump the plugin when Google ships one. Tracking: #2571.
+    expired_at: 2026-11-30
+
+  - id: CVE-2026-97031 # Go standard library
+    paths:
+      - opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin
+    statement: >-
+      The newest vendor build of gke-gcloud-auth-plugin (gcloud 591.0.0) uses a Go
+      standard library before 1.26.9 / 1.27.2. No vendor build with the fix exists yet.
+      Bump the plugin when Google ships one. Tracking: #2571.
+    expired_at: 2026-11-30
+
+  - id: CVE-2026-56851 # golang.org/x/text
+    paths:
+      - usr/local/bin/kubectl
+    statement: >-
+      The newest vendor build of kubectl v1.34.13 uses golang.org/x/text before 0.41.0.
+      No kubectl release with the fix exists yet. Bump kubectl when one ships.
+      Tracking: #2571.
+    expired_at: 2026-11-30
+
+  - id: CVE-2026-116587 # github.com/go-jose/go-jose/v4
+    paths:
+      - usr/local/bin/terraform
+      - usr/local/bin/trivy
+    statement: >-
+      The newest vendor builds of Terraform 1.16.7 and Trivy 0.76.1 use go-jose v4 before
+      4.1.6. No vendor build with the fix exists yet. Bump each tool when its vendor ships
+      one. Tracking: #2571.
+    expired_at: 2026-11-30

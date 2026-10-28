@@ -39,10 +39,10 @@ architectural defaults, and Kubernetes-specific validators previously in
   directory.
 - Plans that touch Python imports MUST pass
   `cd shifter/shifter_platform && uv run lint-imports --config ../../.importlinter`.
-- Plans that touch `platform/k8s/**` MUST pass
-  `kube-linter lint --config .kube-linter.yaml platform/k8s/`.
-- Plans that touch `platform/k8s/gcp/base/*.yaml` MUST pass
-  `kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.31.0 platform/k8s/gcp/base/*.yaml`.
+- Plans that touch `platform/charts/shifter/**` MUST render the chart with
+  `helm template quality-check platform/charts/shifter -f platform/charts/shifter/values-gcp-dev.yaml > /tmp/shifter-gcp-dev.yaml`
+  and MUST pass `kube-linter lint --config .kube-linter.yaml /tmp/shifter-gcp-dev.yaml`
+  and the pinned `kubeconform -strict` command in `AGENTS.md`.
 - Plans MUST NOT weaken CI or local enforcement silently. Rule
   exceptions require an entry in `docs/adr/exceptions.yaml` with an
   owner and expiry.

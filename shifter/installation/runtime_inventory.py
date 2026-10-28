@@ -2,9 +2,10 @@
 
 The root installation config (``shifter.yaml``) remains the public
 operator-authored contract.  This module records the checked-in runtime
-configuration files that still bridge that contract into provider-specific
-runtime env files, and validates their key-level shape without ever reading or
-printing values.
+configuration surfaces and validates their key-level shape without ever
+printing values. On GCP the shared Helm chart is the only renderer (#2571): the
+deploy command renders the runtime env into private generated values at deploy
+time, so the committed chart values must not carry renderer-owned env keys.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 # The AWS sets moved to runtime_inventory_aws (backend symmetry with the GCP
 # split). They are re-exported here so the established public import surface
@@ -42,12 +45,10 @@ __all__ = [
     "AWS_RENDERER_OWNED_RUNTIME_ENV_KEYS",
     "GCP_BACKEND_OWNER",
     "GCP_CAPACITY_RUNTIME_ENV_KEYS",
+    "GCP_CHART_VALUES_PATHS",
     "GCP_GENERATED_RUNTIME_ENV_KEYS",
-    "GCP_GENERATED_RUNTIME_ENV_PATH",
     "GCP_HELM_RENDERED_RUNTIME_ENV_KEYS",
     "GCP_SECRET_RUNTIME_ENV_KEYS",
-    "GCP_SECRET_RUNTIME_ENV_PATH",
-    "GCP_STATIC_RUNTIME_ENV_PATH",
     "RUNTIME_SURFACES",
     "RuntimeInventoryIssue",
     "RuntimeSurface",
@@ -57,10 +58,22 @@ __all__ = [
 
 _ENV_KEY_RE = re.compile(r"^([A-Za-z_]\w*)=", re.ASCII)
 
-GCP_STATIC_RUNTIME_ENV_PATH = Path("platform/k8s/gcp/overlays/gcp-dev/platform-runtime.env")
-GCP_GENERATED_RUNTIME_ENV_PATH = Path("platform/k8s/gcp/overlays/gcp-dev/platform-runtime.generated.env")
-GCP_SECRET_RUNTIME_ENV_PATH = Path("platform/k8s/gcp/overlays/gcp-dev/platform-runtime-secrets.env")
+# The committed chart values that a GCP deployment renders with: the shared defaults
+# and one file for each supported GCP profile.
+GCP_CHART_VALUES_PATHS: tuple[Path, ...] = (
+    Path("platform/charts/shifter/values.yaml"),
+    Path("platform/charts/shifter/values-gcp-dev.yaml"),
+    Path("platform/charts/shifter/values-gcp-prod.yaml"),
+)
 GCP_BACKEND_OWNER = "gcp backend"
+# Keys that a deploy-time renderer owns. A committed chart value for one of them
+# would survive a renderer change as a stale value.
+_GCP_RENDERER_OWNED_RUNTIME_ENV_KEYS: frozenset[str] = (
+    GCP_GENERATED_RUNTIME_ENV_KEYS
+    | GCP_OPTIONAL_GENERATED_RUNTIME_ENV_KEYS
+    | GCP_CAPACITY_RUNTIME_ENV_KEYS
+    | GCP_HELM_RENDERED_RUNTIME_ENV_KEYS
+)
 
 
 @dataclass(frozen=True)
@@ -100,23 +113,17 @@ RUNTIME_SURFACES: tuple[RuntimeSurface, ...] = (
         authority="checked-in MCP ops policy namespace",
         notes="Per-tool policy for the shifter-ops MCP server, not deployment secret storage.",
     ),
-    RuntimeSurface(
-        path=str(GCP_STATIC_RUNTIME_ENV_PATH),
-        owner=GCP_BACKEND_OWNER,
-        authority="checked-in static GCP runtime env",
-        notes="Non-secret env keys that are stable for the gcp-dev overlay.",
-    ),
-    RuntimeSurface(
-        path=str(GCP_GENERATED_RUNTIME_ENV_PATH),
-        owner=GCP_BACKEND_OWNER,
-        authority="comment-only generated GCP runtime env stub",
-        notes="Tracked stub stays assignment-free; required keys are rendered from Terraform outputs at deploy time.",
-    ),
-    RuntimeSurface(
-        path=str(GCP_SECRET_RUNTIME_ENV_PATH),
-        owner=GCP_BACKEND_OWNER,
-        authority="synthetic secret env placeholder",
-        notes="Must not contain real assignments in source control.",
+    *(
+        RuntimeSurface(
+            path=str(path),
+            owner=GCP_BACKEND_OWNER,
+            authority="checked-in chart values for GCP renders",
+            notes=(
+                "Non-secret chart values; the deploy command renders the runtime env into private "
+                "generated values at deploy time, so no renderer-owned env key is committed here."
+            ),
+        )
+        for path in GCP_CHART_VALUES_PATHS
     ),
     RuntimeSurface(
         path=".env",
@@ -156,108 +163,52 @@ def env_keys_from_file(path: Path) -> tuple[str, ...]:
     return tuple(keys)
 
 
-def _duplicate_key_issues(path: Path, keys: tuple[str, ...]) -> list[RuntimeInventoryIssue]:
-    """Return sanitized issues for duplicate env assignment keys."""
-
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for key in keys:
-        if key in seen:
-            duplicates.add(key)
-        seen.add(key)
-    if not duplicates:
-        return []
-    return [
-        RuntimeInventoryIssue(
-            str(path),
-            "duplicate env keys: " + ", ".join(sorted(duplicates)),
-        )
-    ]
-
-
 def _missing_file_issue(path: Path) -> RuntimeInventoryIssue:
     """Return a sanitized issue for a missing runtime inventory file."""
 
     return RuntimeInventoryIssue(str(path), "required runtime inventory file is missing")
 
 
-def _generated_stub_assignment_issues(path: Path, keys: tuple[str, ...]) -> list[RuntimeInventoryIssue]:
-    """Return issues when the checked-in generated runtime stub has assignments."""
+def _chart_runtime_env(path: Path) -> dict[object, object]:
+    """Return the ``runtimeEnv`` mapping of one chart values file.
 
-    if not keys:
-        return []
-    return [
-        RuntimeInventoryIssue(
-            str(path),
-            "checked-in generated runtime stub must be comment-only; assignments found for env keys: "
-            + ", ".join(sorted(set(keys))),
-        )
-    ]
+    Raises ``ValueError`` with a sanitized reason when the file or the mapping has
+    the wrong shape. The reason never contains a value from the file.
+    """
+
+    try:
+        values = yaml.safe_load(path.resolve().read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        raise ValueError("chart values file is not valid YAML") from None
+    if not isinstance(values, dict):
+        raise ValueError("chart values file must be a mapping")
+    runtime_env = values.get("runtimeEnv") or {}
+    if not isinstance(runtime_env, dict):
+        raise ValueError("runtimeEnv must be a mapping")
+    return runtime_env
 
 
-def _set_delta_issues(
-    *,
-    path: Path,
-    actual: set[str],
-    required: frozenset[str],
-    allowed_extra: frozenset[str] = frozenset(),
-) -> list[RuntimeInventoryIssue]:
-    """Return sanitized issues for missing and unregistered env keys."""
+def _chart_runtime_env_issues(path: Path, relative_path: Path) -> list[RuntimeInventoryIssue]:
+    """Return sanitized issues for renderer-owned env keys committed in chart values."""
 
-    issues: list[RuntimeInventoryIssue] = []
-    missing = sorted(required - actual)
-    extra = sorted(actual - required - allowed_extra)
-    if missing:
-        issues.append(RuntimeInventoryIssue(str(path), "missing env keys: " + ", ".join(missing)))
-    if extra:
-        issues.append(RuntimeInventoryIssue(str(path), "unregistered env keys: " + ", ".join(extra)))
-    return issues
+    try:
+        runtime_env = _chart_runtime_env(path)
+    except ValueError as exc:
+        return [RuntimeInventoryIssue(str(relative_path), str(exc))]
+    committed = sorted(str(key) for key in runtime_env if key in _GCP_RENDERER_OWNED_RUNTIME_ENV_KEYS)
+    message = "renderer-owned env keys must not be committed in chart values: " + ", ".join(committed)
+    return [RuntimeInventoryIssue(str(relative_path), message)] if committed else []
 
 
 def validate_runtime_inventory(repo_root: str | Path) -> list[RuntimeInventoryIssue]:
-    """Validate checked-in runtime env surfaces by path and key name only."""
+    """Validate checked-in runtime configuration surfaces by path and key name only."""
 
     root = Path(repo_root)
-    generated_path = _repo_path(root, GCP_GENERATED_RUNTIME_ENV_PATH)
-    static_path = _repo_path(root, GCP_STATIC_RUNTIME_ENV_PATH)
-    secret_path = _repo_path(root, GCP_SECRET_RUNTIME_ENV_PATH)
     issues: list[RuntimeInventoryIssue] = []
-
-    for path in (generated_path, static_path, secret_path):
+    for relative_path in GCP_CHART_VALUES_PATHS:
+        path = _repo_path(root, relative_path)
         if not path.is_file():
-            issues.append(_missing_file_issue(path))
-    if issues:
-        return issues
-
-    generated_keys = env_keys_from_file(generated_path)
-    static_keys = env_keys_from_file(static_path)
-    secret_keys = env_keys_from_file(secret_path)
-
-    issues.extend(_duplicate_key_issues(generated_path, generated_keys))
-    issues.extend(_duplicate_key_issues(static_path, static_keys))
-    issues.extend(_duplicate_key_issues(secret_path, secret_keys))
-
-    issues.extend(_generated_stub_assignment_issues(generated_path, generated_keys))
-    issues.extend(
-        _set_delta_issues(
-            path=secret_path,
-            actual=set(secret_keys),
-            required=GCP_SECRET_RUNTIME_ENV_KEYS,
-        )
-    )
-
-    generated_runtime_keys = (
-        GCP_GENERATED_RUNTIME_ENV_KEYS
-        | GCP_OPTIONAL_GENERATED_RUNTIME_ENV_KEYS
-        | GCP_CAPACITY_RUNTIME_ENV_KEYS
-        | GCP_HELM_RENDERED_RUNTIME_ENV_KEYS
-    )
-    overlap = sorted(generated_runtime_keys & set(static_keys))
-    if overlap:
-        issues.append(
-            RuntimeInventoryIssue(
-                str(GCP_GENERATED_RUNTIME_ENV_PATH),
-                f"renderer-owned env keys duplicate keys from {GCP_STATIC_RUNTIME_ENV_PATH}: " + ", ".join(overlap),
-            )
-        )
+            issues.append(_missing_file_issue(relative_path))
+            continue
+        issues.extend(_chart_runtime_env_issues(path, relative_path))
     return issues

@@ -226,11 +226,10 @@ class TestGcpValidationChecks:
         return {c.name for c in _gcp().validation_checks}
 
     def test_declares_the_canonical_gcp_validation_front_doors(self):
-        assert self._check_names() >= {
+        assert self._check_names() == {
             "root-config",
             "terraform-fmt",
             "helm-template",
-            "kustomize-render",
             "kube-linter",
         }
 
@@ -242,8 +241,18 @@ class TestGcpValidationChecks:
     def test_kube_linter_is_a_required_tool(self):
         assert "kube-linter" in {t.name for t in _gcp().required_tools}
 
+    def test_github_less_deploy_tools_replace_the_image_build(self):
+        # The deploy builds no images (#2571): it copies and scans release digests.
+        tool_names = {t.name for t in _gcp().required_tools}
+        assert {"oras", "trivy"} <= tool_names
+        assert "docker" not in tool_names
+
     def test_checks_target_gcp_owned_paths(self):
+        # The chart is the only GCP Kubernetes renderer (#2571), so both Kubernetes
+        # front doors read it with the GCP profile values or the chart defaults.
         checks = {c.name: c.command.argv for c in _gcp().validation_checks}
         assert "platform/terraform/gcp" in checks["terraform-fmt"]
         assert "platform/charts/shifter" in checks["helm-template"]
-        assert "platform/k8s/gcp/overlays/gcp-dev" in checks["kustomize-render"]
+        assert "platform/charts/shifter/values-gcp-dev.yaml" in checks["helm-template"]
+        assert "platform/charts/shifter" in checks["kube-linter"]
+        assert _gcp().owned_files.kubernetes == ("platform/charts/shifter",)

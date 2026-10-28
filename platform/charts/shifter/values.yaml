@@ -154,8 +154,8 @@ identity:
 # Provisioner Kubernetes-Job dispatch contract. taskRunner is the
 # ``shifter.dev/task-runner`` label value the fail-closed provisioner admission
 # policy binds against, and it selects the per-cloud environment allowlist the
-# policy enforces. Providers set this explicitly; the default preserves the GCP
-# contract that the static base manifest (platform/k8s/gcp/base) encodes.
+# policy enforces. Providers set this explicitly; the default is the GCP
+# contract.
 provisioner:
   taskRunner: gcp
 
@@ -453,8 +453,6 @@ network:
     - 3389
   # Ports the provisioner Jobs dial on range guests: guest SSH (22), the
   # container-host management sshd (2222), RDP (3389), and WinRM (5985/5986).
-  # Kept in step with scripts/gcp/render_private_service_netpol.py for the
-  # kustomize deploy path.
   rangeProvisionerPorts:
     - 22
     - 2222
