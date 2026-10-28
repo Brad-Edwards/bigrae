@@ -14,6 +14,14 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 8.1"
     }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 8.1"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.13"
+    }
   }
 }
 
@@ -22,8 +30,23 @@ provider "google" {
   region  = var.region
 }
 
+provider "google-beta" {
+  project = var.project_id
+  region  = var.region
+}
+
+# The registry and its customer-managed encryption key need these APIs. A fresh
+# project has Cloud KMS disabled (#2589).
+module "project_services" {
+  source = "../../modules/project-services"
+
+  project_id        = var.project_id
+  required_services = toset(["artifactregistry.googleapis.com", "cloudkms.googleapis.com"])
+}
+
 module "release_registry" {
-  source = "../../modules/portal/artifact-registry"
+  source     = "../../modules/portal/artifact-registry"
+  depends_on = [module.project_services]
 
   project_id                 = var.project_id
   project_number             = var.project_number
