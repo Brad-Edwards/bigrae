@@ -69,14 +69,15 @@ merging.
 
 ## BigRAE project specifics
 
-Local dev loop, quality gates, and per-package test commands are documented in
-[`docs/technical/dev/setup.md`](docs/technical/dev/setup.md).
-A summary of what every PR needs to pass:
+The local development loop is in
+[`docs/technical/dev/local-setup.md`](docs/technical/dev/local-setup.md). Every
+test, lint and policy command, with its CI job, is in the
+[command matrix](docs/dev/testing.md#command-matrix). Before you open a PR:
 
-- `pre-commit run --all-files`
-- `python3 scripts/adr_guard/adr_guard.py --all --level ci`
-- Per-touched-package tests (`uv run pytest` per pyproject root, `npm test` per
-  npm root)
+- Install the commit hooks once with `pre-commit install`. They run on each
+  commit.
+- Run `make policy`.
+- Run the matrix lanes for each package that you change.
 
 ADR enforcement, exceptions, and the registry live under [`docs/adr/`](docs/adr/);
 guardrail file changes (workflows, pre-commit config, `.gitleaks.toml`, etc.)

@@ -161,7 +161,6 @@ def infrastructure_stage(
     from gcp_prereqs import ensure_identity_platform, ensure_state_bucket, release_disabled_broker_load_balancer
     from gcp_runtime import gdc_config
     from gcp_terraform import (
-        adopt_identity_platform_config,
         backend_prefix,
         state_bucket_name,
         terraform_apply,
@@ -196,7 +195,6 @@ def infrastructure_stage(
     ensure_gcp_artifact_registry_service_identity(gdc_config(inputs))
     ctx = terraform_context(inputs, inputs.workdir, {})
     terraform_init(runner, ctx, state_bucket=bucket, prefix=backend_prefix(inputs.environment))
-    adopt_identity_platform_config(runner, ctx, project_id=inputs.project_id)
     if cluster_exists:
         release_disabled_broker_load_balancer(
             runner,

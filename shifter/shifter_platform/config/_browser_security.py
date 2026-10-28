@@ -1,33 +1,22 @@
 """Browser document security policy (ADR-036).
 
-Single code-owned artifact for the staged, deny-by-default browser security
-policy shared by the legacy Django templates and the platform SPA. It defines
-the reviewed CSP candidate, the validated ``report-only | enforce`` rollout
-seam, and the global Referrer-Policy / Permissions-Policy / Reporting-Endpoints
-header values.
+Single code-owned artifact for the deny-by-default browser security policy
+shared by the legacy Django templates and the platform SPA. It defines the
+reviewed CSP candidate, the validated ``enforce | report-only`` mode seam, and
+the global Referrer-Policy / Permissions-Policy / Reporting-Endpoints header
+values.
 
-Star-imported by :mod:`config.settings`. The candidate is deployed in
-``Content-Security-Policy-Report-Only`` first (this stage); enforcement promotes
-the *same* candidate to ``Content-Security-Policy`` by flipping
-``BROWSER_CSP_MODE`` after a policy review. Only the bounded mode is
-environment-bound; the policy and its source lists stay reviewed code-owned
-constants. See ``docs/architecture/browser-security-policy-preflight-1520.md``.
+Star-imported by :mod:`config.settings`. The candidate is enforced by default
+(#2090). ``BROWSER_CSP_MODE=report-only`` moves the *same* candidate to
+``Content-Security-Policy-Report-Only``. That is a degraded-security rollback
+state and needs an ADR-036 exception. Only the bounded mode is environment-bound;
+the policy and its source lists stay reviewed code-owned constants. See
+``docs/architecture/browser-csp-enforcement-design-2090.md``.
 
-Enforcement readiness
----------------------
-The candidate is deployed in report-only mode by this change. The public package
-CDNs (jsDelivr/unpkg) raised by the pre-push review are now self-hosted, so the
-only remaining external ``script-src`` origin is Google-owned ``gstatic`` (the
-Firebase SDK, not a public-publish registry). Before the candidate is promoted to
-enforcement (``BROWSER_CSP_MODE=enforce``) the following must still be closed
-(tracked as the enforcement follow-up, not report-only-baseline scope):
-
-1. Remove or nonce/hash the inventoried inline scripts, inline event handlers,
-   and inline styles that report-only surfaces (including Mermaid's runtime
-   ``<style>`` injection under ``style-src``).
-2. Verify same-origin ``wss`` is authorized by ``connect-src 'self'`` across the
-   platform's supported browsers (CSP Level 3 says it is; older engines differ)
-   and pin it with a browser-response test before enforcing.
+``style-src`` carries Django's per-response nonce because SPA libraries (the
+dialog scroll lock and xterm) create ``<style>`` elements at run time. Only the
+SPA host template reads the nonce; the SPA stamps it on script-created style
+elements. Scripts never get a nonce.
 """
 
 from __future__ import annotations
@@ -48,6 +37,7 @@ __all__ = [
     "SECURE_CSP_REPORT_ONLY",
     "SECURE_REFERRER_POLICY",
     "build_browser_csp",
+    "configured_csp_mode",
     "csp_settings_for_mode",
     "resolve_csp_mode",
 ]
@@ -67,8 +57,8 @@ _REPORTING_GROUP = "csp"
 # The Firebase JS SDK is served from gstatic; the client speaks to the Identity
 # Platform REST APIs below. The project-specific ``*.firebaseapp.com`` auth
 # domain is deliberately not derived here: it is only used by OAuth popup/redirect
-# flows this app does not use, and report-only surfaces any missing origin before
-# enforcement rather than the settings module re-reading identity env vars.
+# flows this app does not use; the deployed identity journeys verify the exact
+# origin set (#2117) rather than the settings module re-reading identity env vars.
 _FIREBASE_SDK_ORIGIN = "https://www.gstatic.com"
 _AUTH_API_ORIGINS = (
     "https://identitytoolkit.googleapis.com",
@@ -84,6 +74,11 @@ def resolve_csp_mode(raw: str) -> str:
     if mode not in _VALID_MODES:
         raise ImproperlyConfigured(f"BROWSER_CSP_MODE must be one of {_VALID_MODES!r}; got {raw!r}.")
     return mode
+
+
+def configured_csp_mode() -> str:
+    """Return the validated mode from the environment; enforcement is the default."""
+    return resolve_csp_mode(os.environ.get("BROWSER_CSP_MODE", "enforce"))
 
 
 def _storage_connect_origins() -> list[str]:
@@ -110,10 +105,10 @@ def build_browser_csp() -> dict[str, list[str]]:
 
     No ``unsafe-inline``/``unsafe-eval``/``unsafe-hashes``, wildcards, or broad
     schemes. Inline handlers and styles are denied outright
-    (``script-src-attr``/``style-src-attr`` ``'none'``); executable inline
-    ``<script>`` elements are surfaced as report-only violations rather than
-    silenced. External origins are exact and justified by the browser dependency
-    inventory.
+    (``script-src-attr``/``style-src-attr`` ``'none'``) and inline ``<script>``
+    elements are blocked. ``style-src`` admits only same-origin sheets and
+    elements that carry the per-response nonce. External origins are exact and
+    justified by the browser dependency inventory.
     """
     return {
         "default-src": [CSP.NONE],
@@ -126,17 +121,18 @@ def build_browser_csp() -> dict[str, list[str]]:
         "form-action": [CSP.SELF],
         "font-src": [CSP.SELF],
         "img-src": [CSP.SELF, "data:"],
-        # Terminal (xterm/split), scoreboard (Chart.js), and docs (Mermaid) assets
+        # Terminal (xterm/split) and scoreboard (Chart.js) assets
         # are vendored + served same-origin (ADR-036), so no public package CDN is
         # a script authority. ``gstatic`` is the Google-owned Firebase SDK origin.
         "script-src": [CSP.SELF, _FIREBASE_SDK_ORIGIN],
         "script-src-attr": [CSP.NONE],
-        "style-src": [CSP.SELF],
+        # Django replaces the sentinel only when a template read the nonce, so
+        # pages other than the SPA host send no style nonce.
+        "style-src": [CSP.SELF, CSP.NONCE],
         "style-src-attr": [CSP.NONE],
         # ``'self'`` authorizes same-origin ``ws``/``wss`` per CSP Level 3, which
-        # covers the portal's terminal/channels WebSockets. Cross-browser ``wss``
-        # matching under ``'self'`` is an enforcement-readiness verification item
-        # (see "Enforcement readiness" above).
+        # covers the portal's terminal/channels WebSockets. The hermetic browser
+        # lane pins this in Chromium (e2e/journeys/csp.spec.ts).
         "connect-src": [CSP.SELF, *_AUTH_API_ORIGINS, *_storage_connect_origins()],
         "report-uri": [CSP_REPORT_PATH],
         "report-to": [_REPORTING_GROUP],
@@ -195,5 +191,5 @@ REPORTING_ENDPOINTS_HEADER = f'{_REPORTING_GROUP}="{CSP_REPORT_PATH}"'
 # ---------------------------------------------------------------------------
 # Resolved settings (read by Django's native CSP middleware).
 # ---------------------------------------------------------------------------
-BROWSER_CSP_MODE = resolve_csp_mode(os.environ.get("BROWSER_CSP_MODE", "report-only"))
+BROWSER_CSP_MODE = configured_csp_mode()
 SECURE_CSP, SECURE_CSP_REPORT_ONLY = csp_settings_for_mode(BROWSER_CSP_MODE, build_browser_csp())

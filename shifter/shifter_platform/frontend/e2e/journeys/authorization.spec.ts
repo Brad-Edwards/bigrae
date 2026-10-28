@@ -3,7 +3,7 @@
 // #1526 preflight, a client "Access denied" is not proof of backend
 // authorization, so this journey asserts the real API 403 as well.
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/csp";
 
 import { ACTORS } from "../support/actors";
 

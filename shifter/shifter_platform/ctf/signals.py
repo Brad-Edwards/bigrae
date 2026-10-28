@@ -6,9 +6,10 @@ Connects to CMS signals to keep CTF data in sync with range status changes.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Literal
 
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Model
 from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
@@ -67,9 +68,12 @@ def _changed(instance: Model, fields: tuple[str, ...]) -> bool:
 
 
 from ctf.models import (  # noqa: E402 - Django signal senders are imported after setup
+    CTFChallenge,
     CTFCohort,
     CTFEvent,
+    CTFEventPage,
     CTFEventStaff,
+    CTFNotification,
     CTFParticipant,
     CTFSpareRange,
     CTFTeam,
@@ -391,3 +395,35 @@ def sync_ctf_spare_range_status(
             range_instance_id,
             previous_status,
         )
+
+
+# ---------------------------------------------------------------------------
+# Organizer content images (#2090, ADR-036)
+# ---------------------------------------------------------------------------
+
+# Fields whose change can add or remove an external image reference. A save
+# that names other update_fields cannot change the event's image set.
+_CONTENT_IMAGE_FIELDS: dict[type[Model], frozenset[str]] = {
+    CTFEvent: frozenset({"logo_url", "rules"}),
+    CTFChallenge: frozenset({"description", "solution", "deleted_at", "event"}),
+    CTFEventPage: frozenset({"body", "slug", "deleted_at", "event"}),
+    CTFNotification: frozenset({"body", "notification_type", "deleted_at", "event"}),
+}
+
+
+@receiver(post_save, sender=CTFEvent, dispatch_uid="ctf.content_images.event")
+@receiver(post_save, sender=CTFChallenge, dispatch_uid="ctf.content_images.challenge")
+@receiver(post_save, sender=CTFEventPage, dispatch_uid="ctf.content_images.page")
+@receiver(post_save, sender=CTFNotification, dispatch_uid="ctf.content_images.notification")
+def sync_content_images_on_save(
+    sender: type[Model], instance: Model, update_fields: frozenset[str] | None = None, **kwargs: object
+) -> None:
+    """After commit, sync the event's image copies with its saved content."""
+    if update_fields is not None and not (set(update_fields) & _CONTENT_IMAGE_FIELDS[sender]):
+        return
+    event_id = instance.pk if sender is CTFEvent else getattr(instance, "event_id", None)
+    if event_id is None:
+        return
+    from ctf.services.content_images import sync_event_content_images
+
+    transaction.on_commit(partial(sync_event_content_images, event_id))

@@ -35,6 +35,9 @@ def test_settings_import_fails_without_environment():
     env = {k: v for k, v in os.environ.items() if k not in {"ENVIRONMENT", "TESTING", "DJANGO_SETTINGS_MODULE"}}
     env.update(
         {
+            # Pin the dev-default posture so the only missing input is
+            # ENVIRONMENT, whatever the caller's own environment holds.
+            "DJANGO_DEBUG": "true",
             "DJANGO_SECRET_KEY": "import-test-secret",
             "DJANGO_SETTINGS_MODULE": "config.settings",
             "PYTHONPATH": os.pathsep.join([str(PLATFORM_DIR), str(SHIFTER_DIR)]),

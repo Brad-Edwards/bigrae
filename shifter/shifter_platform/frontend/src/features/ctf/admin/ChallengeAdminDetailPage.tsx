@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { useCtfOrganizerChallenge, useDeleteCtfChallenge } from "@/api/ctfAdmin";
+import { useCtfEventContentImages, useCtfOrganizerChallenge, useDeleteCtfChallenge } from "@/api/ctfAdmin";
 import type { CtfOrganizerChallengeDetail } from "@/api/types";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ContentImageProvider } from "../contentImages";
 import { formatDateTime, titleCase } from "../format";
 import { MarkdownContent } from "../MarkdownContent";
 import { ctfAdminChallengeEditPath, ctfAdminEventsPath } from "../routes";
@@ -84,18 +85,26 @@ function ChallengeBody({ challenge }: Readonly<{ challenge: CtfOrganizerChalleng
         </Card>
       ) : null}
 
-      {challenge.solution ? (
-        <Card>
-          <CardContent>
-            <h2 className="mb-2 text-sm font-semibold">Solution (organizer-only)</h2>
-            <MarkdownContent text={challenge.solution} />
-          </CardContent>
-        </Card>
-      ) : null}
+      {challenge.solution ? <SolutionCard challenge={challenge} /> : null}
     </div>
   );
 }
 
+
+/** Organizer preview of the solution, with images from their first-party copies (#2090). */
+function SolutionCard({ challenge }: Readonly<{ challenge: CtfOrganizerChallengeDetail }>) {
+  const images = useCtfEventContentImages(challenge.event_id);
+  return (
+    <Card>
+      <CardContent>
+        <h2 className="mb-2 text-sm font-semibold">Solution (organizer-only)</h2>
+        <ContentImageProvider images={images.data?.images}>
+          <MarkdownContent text={challenge.solution} />
+        </ContentImageProvider>
+      </CardContent>
+    </Card>
+  );
+}
 
 function formatTarget(challenge: CtfOrganizerChallengeDetail): string {
   if (!challenge.target_instance_name) return "—";

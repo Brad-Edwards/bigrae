@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:21.549608Z
-updated_at: 2026-03-26T07:14:37.237691Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-105: Regex Flag Validation
@@ -21,6 +21,5 @@ Regex flags enable challenges where the answer has acceptable variations (for ex
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `ctf/services/challenge.py` (verify_single_flag(), regex validation via re.fullmatch(), add_flag(), pattern syntax validation)
-- IMPLEMENTS → CODE_FILE `ctf/models.py` (CTFFlag model, flag_type field with regex option, case_sensitive field)
-- TESTS → TEST `tests/ctf/test_challenges.py` (Regex flag tests, fullmatch, case insensitive, invalid pattern rejection)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (verify_single_flag(), regex validation via re.fullmatch(), add_flag(), pattern syntax validation)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFFlag model, flag_type field with regex option, case_sensitive field)

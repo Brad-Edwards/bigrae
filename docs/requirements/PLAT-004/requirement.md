@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 1
 created_at: 2026-03-19T02:57:48.930387Z
-updated_at: 2026-05-09T05:11:30.442691Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # PLAT-004: Independent Multi-Deployment
@@ -26,4 +26,3 @@ Multiple independent deployments enable Shifter to serve different organizations
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#673` (PLAT-004: Independent Multi-Deployment)
 - IMPLEMENTS → CONFIG `platform/terraform/environments/dev/main.tf` (Independent AWS dev deployment environment)
 - IMPLEMENTS → CONFIG `platform/terraform/environments/prod/main.tf` (Independent AWS prod deployment environment)
-- IMPLEMENTS → CONFIG `platform/terraform/gcp/environments/gcp-dev/main.tf` (Independent GCP dev deployment environment)

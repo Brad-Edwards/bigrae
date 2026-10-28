@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:21.514764Z
-updated_at: 2026-10-05T17:17:34.223314Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-104: Static Flag Validation
@@ -22,7 +22,7 @@ Static flag validation is the most fundamental CTF mechanic, the participant fin
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (Flag submission service (submit_flag, duplicate prevention, submission recording))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (Flag verification service (verify_flag, static-flag normalization))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFSubmission model (submitted_flag, submitted_at, is_correct, participant/challenge FKs))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (Flag verification service (verify_flag, static-flag normalization))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFSubmission model (submitted_flag, submitted_at, is_correct, participant/challenge FKs))
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_submission.py` (Exact static flag submission tests through add_flag and submit_flag service path)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)

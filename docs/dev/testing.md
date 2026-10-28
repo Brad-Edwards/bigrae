@@ -5,31 +5,148 @@ and warning policy that makes the reported numbers trustworthy (REV1 Q6/Q7,
 issue #1529). CI (`.github/workflows/_quality.yml`) is the enforcement authority;
 the commands here reproduce its posture from a clean checkout.
 
-## Running tests from a clean checkout
+## Command matrix
 
-The repository `Makefile` is the entrypoint. Each test target syncs the package's
-pinned dependencies (`uv sync --group dev` / `npm ci`) and establishes the same
-environment CI uses, so a fresh clone runs tests without hand-setting variables.
-`make help` lists every target, including the non-test `devmain` promotion
-command (see `docs/DEVELOPMENT_WORKFLOW.md`).
+This matrix is the single list of verification commands. CI is the enforcement
+authority. Unless a row names another workflow, the CI job is in
+`.github/workflows/_quality.yml`. The `paths` job selects jobs for the changed
+paths, so a pull request runs only the jobs that own its changes.
 
-| Command | Lane |
-| --- | --- |
-| `make test-platform` | Platform fast lane (SQLite); the whole-package coverage floor |
-| `make test-platform-postgres` | PostgreSQL semantics lane (needs Postgres on `:5432`) |
-| `make test-platform-redis` | Redis channel-layer lane (needs Redis on `:6379`) |
-| `make test-provisioner` | Engine provisioner suite |
-| `make test-installation` / `test-bootstrap` / `test-check-layer-imports` | Package suites |
-| `make test-js` | Platform JavaScript (Jest) with coverage |
-| `make test-platform-e2e` | Authenticated SPA E2E (Playwright); needs a Chromium build |
-| `make test-platform-a11y` | Browser accessibility scans (Playwright + axe); needs a Chromium build |
-| `make test-adr-guard` | Repository-guard suite; mirrors the `adr-guard-tests` CI job |
-| `make test` | Every no-service lane at once |
+Run the lanes for the packages you change. `make test` runs every row marked
+**yes** in the `make test` column. Do not also run those child targets, because
+that runs the same suites twice. Each `make` target syncs pinned dependencies
+(`uv sync` or `npm ci`) and sets the CI posture. `make help` lists all targets.
 
-Running a package directly (`cd <pkg> && uv run pytest`) also works from a clean
-checkout: the platform test posture (`DEBUG`, SQLite backend, local provisioner
-off) is established in the settings themselves via `config._runtime_env.IS_TEST_RUN`,
-not injected by CI. Prerequisites: `uv`, and Node 20.19+ for the JavaScript lane.
+Base prerequisites: `uv` and Node 20.19+ with npm. The prerequisites column lists
+only additional tools or services.
+
+### Unit and package lanes
+
+| Lane | Local command | Prerequisites | CI job | `make test` |
+| --- | --- | --- | --- | --- |
+| Platform (SQLite, local only) | `make test-platform` | None | None; CI runs the PostgreSQL lane | yes |
+| Adapter SDK and packaging | `make test-adapter-sdk` | None | Tests (adapter SDK) | yes |
+| Engine provisioner | `make test-provisioner` | None | Tests (provisioner) | yes |
+| Packer helpers | `make test-packer` | None; Packer cases skip without Packer | Tests (packer) | yes |
+| Installation CLI | `make test-installation` | None | Tests (installation) | yes |
+| Bootstrap scripts | `make test-bootstrap` | None (unit selection) | Tests (bootstrap) | yes |
+| Layer-import checker | `make test-check-layer-imports` | None | Tests (check_layer_imports) | yes |
+| Helm chart contracts | `make test-charts` | Helm | Tests (charts) | yes |
+| Repository guard | `make test-adr-guard` | None | Tests (adr_guard) | yes |
+| GCP scripts | `uv run pytest tests/` in `scripts/gcp` | None (unit selection) | Tests (gcp scripts) | no |
+| OpenVPN | `uv run pytest tests/` in `shifter/engine/openvpn` | None | Tests (openvpn) | no |
+| Ops helper scripts | `uv run pytest tests/` in each `scripts/<helper>` | None | Tests (`<helper>`) | no |
+| Stack-smoke helpers | `python3 -m unittest discover -s scripts/stack-smoke -p 'test_*.py'` | None | Lint and security (stack smoke) | no |
+| UAT harness units | `uv run pytest tests/ -q` in each `uat/<harness>` | None | Tests (`<harness>`) | no |
+| Terraform contracts | `terraform init -backend=false`, then `terraform test`, in the suite directory | Terraform | Contract test (`<suite>`) | no |
+
+The ops helpers are `handle_sd_replacement`, `check_rds_pending_modifications`
+and `assert_portal_inspection`. The UAT harnesses are `event-load-harness` and
+`range-functional-smoke`. Their unit tests do not contact a deployment.
+
+CI also runs the `integration` marker for bootstrap and GCP scripts. The local
+commands select only unit tests for those packages. See
+[external tool integration tests](#external-tool-integration-tests).
+
+### Service and image lanes
+
+| Lane | Local command | Prerequisites | CI job |
+| --- | --- | --- | --- |
+| Platform (PostgreSQL, coverage floor) | `make test-platform-postgres` | PostgreSQL on `:5432` | Tests (shifter_platform, PostgreSQL `n`/6), Coverage (shifter_platform) |
+| Platform Redis channel layer | `make test-platform-redis` | Redis on `:6379` | Tests (shifter_platform, Redis channel layer) |
+| OpenFGA authorization | `./scripts/run_openfga_integration.sh` in `shifter/shifter_platform` | Docker | Tests (OpenFGA 1.20.0, PostgreSQL) |
+| Subnet migration proof | `uv run pytest engine/tests/test_subnet_allocation_migrations_postgres.py` in `shifter/shifter_platform` | Docker | Tests (migration proof) |
+| Guacamole authority | `mvn verify` in `shifter/engine/guacamole/authority-extension`, then the CI job's integration tests | Maven, Docker | Tests and compilation (Guacamole authority) |
+| guacd image | The CI job's image build, then `bash shifter/engine/guacamole/test-entrypoint.sh` | Docker | Tests (guacd image) |
+| Built-image stack smoke | `bash scripts/stack-smoke/stack_smoke.sh` | Docker | Stack smoke (built image) |
+| GCP deployer image | The CI job's fixture release manifest and image build, then `docker run --rm bigrae-deployer:ci gcp-deploy --help` and its Trivy scan | Docker | Tests (GCP deployer image) |
+
+The PostgreSQL and OpenFGA lanes run some of the same tests. They are not
+duplicates: each lane proves database or authorization behavior that the other
+lane cannot prove. The SQLite lane is a fast local lane; CI does not run it.
+
+### Frontend and browser lanes
+
+| Lane | Local command | Prerequisites | CI job | `make test` |
+| --- | --- | --- | --- | --- |
+| Legacy platform JavaScript (Jest) | `make test-js` | None | Tests JavaScript (shifter_platform) | yes |
+| React SPA lint, types, Vitest, build | `make test-spa` | None | SPA (shifter_platform frontend) | yes |
+| API contract and generated client | The command below, in `shifter/shifter_platform` | None | API contract (shifter_platform) | no |
+| Authenticated SPA journeys | `make test-platform-e2e` | Chromium (the target installs it) | SPA E2E (shifter_platform frontend) | no |
+| Browser accessibility | `make test-platform-a11y` | Chromium (the target installs it) | Accessibility (`deploy.yml`) | no |
+
+The API contract check needs the test posture, as in CI. The secret key is a
+synthetic, non-secret value:
+
+```bash
+TESTING=1 TEST_DB_BACKEND=sqlite DJANGO_DEBUG=true \
+  DJANGO_SECRET_KEY=shifter-local-make-test-key \
+  uv run python manage.py api_contract --check
+```
+
+The two browser targets build the SPA and use SQLite. CI uses PostgreSQL. Each
+target deletes `shifter/shifter_platform/db.sqlite3`. Do not run them at the same
+time or against an active development server. Both lanes fail on a Content
+Security Policy violation. See [browser security policy](#browser-security-policy).
+
+### MCP lanes
+
+| Lane | Local command | Prerequisites | CI job | `make test` |
+| --- | --- | --- | --- | --- |
+| MCP server packages | `make test-mcp` | None | Lint JavaScript (mcp/`<package>`), Tests JavaScript (mcp/`<package>`) | yes |
+
+`make test-mcp` runs `npm ci`, `npm run lint` and `npm test` in each package
+under `mcp/`. Lint allows zero warnings.
+
+### Policy and static checks
+
+| Check | Local command | CI job |
+| --- | --- | --- |
+| Architecture guard, imports, whitespace, changed prose | `make policy` | Architecture (adr conformance), Architecture (import linter), Docs prose (changed Markdown) in `vale.yml` |
+| Commit hooks | `pre-commit run` | None; the hooks run locally before each commit |
+| Workflows, Terraform, Kubernetes | The native commands in [AGENTS.md](https://github.com/Brad-Edwards/bigrae/blob/dev/AGENTS.md#required-checks) | Lint (GitHub Actions), Lint (terraform), Lint and security (Helm chart), Lint (k8s schemas) |
+
+`make policy` runs the ADR guard once. Do not also run the configured lint
+command (`adr_guard.py --all --level ci`) in the same pass. Vale checks only the
+committed Markdown changes against `origin/dev`.
+
+### Live qualification
+
+These checks run against a deployed tenant. They need operator authority and are
+not pull-request gates. A pass proves only the scope that its runbook states.
+
+| Check | Command or entrypoint | Runbook or status |
+| --- | --- | --- |
+| Post-deploy range smoke | `manage.py run_post_deploy_smoke`, run by the deploy workflows | Advisory: a failure opens an issue and does not block the deploy |
+| Participant terminal and Guacamole session | `uat/range-functional-smoke` | [Range functional smoke](https://github.com/Brad-Edwards/bigrae/blob/dev/uat/range-functional-smoke/README.md) |
+| Event load envelope | `event-load-harness` | [GCP event capacity](../ops/gcp-event-capacity.md) |
+| Range escape boundaries | `manage.py run_range_escape_validation` | [Range escape validation](../ops/range-escape-validation.md) |
+| Model broker transport | `scripts/gcp/probe_model_broker.py` | [Model broker probes](../ops/model-access-gcp-probes.md) |
+| Range audit telemetry | `scripts/gcp/verify_range_audit_telemetry.py` | [Range audit telemetry](../ops/gcp-range-audit-telemetry.md) |
+
+Range readiness or an open port does not prove a working terminal session. An
+accepted destroy request does not prove that teardown completed.
+
+You can also run a package directly (`cd <pkg> && uv run pytest`) from a clean
+checkout. The settings set the platform test posture (`DEBUG`, SQLite backend,
+local provisioner off) through `config._runtime_env.IS_TEST_RUN`; CI does not
+inject it.
+
+## CI platform lane
+
+CI runs the platform suite one time, against PostgreSQL. `pytest-split` divides
+the suite into six parallel shards. It uses the `least_duration` algorithm with
+no durations file, so it deals the tests out to the shards in turn. Each xdist
+worker clones its test database from one migrated template database. The
+`Coverage (shifter_platform)` job then does these steps:
+
+1. It combines the coverage data from all shards.
+2. It enforces the whole-package coverage floor.
+3. It makes sure that at least one `postgres`-marked test ran in a shard
+   (`scripts/check_postgres_lane_evidence.py`).
+
+A skipped `postgres`-marked test fails its shard. Keep each test fast. One slow
+test makes its shard slow, because the shards do not use recorded durations.
 
 ## Test posture (why a clean run matches CI)
 
@@ -91,12 +208,17 @@ A, and new security hotspots not fully reviewed. PR analysis waits for the gate
 `sonar-project.properties`; each owned Python package publishes its configured
 coverage report for Sonar to consume.
 
+The `sonar-rules-changed-lines` pre-commit hook finds most `new_violations`
+before a push. It applies the Python rules that fail the gate most often to the
+lines that changed against `origin/dev`. It does not run tests, so it does not
+check `new_coverage`.
+
 The released OpenFGA/PostgreSQL lane also publishes `coverage-openfga.xml`,
 including the native application and policy SQL duty tests. Sonar consumes both
 platform reports so service-only behavior contributes real coverage evidence.
 This supplemental report has no whole-package floor because it exercises a
-service-specific subset; the SQLite job still enforces the unchanged 87%
-package floor, and Sonar still enforces 80% changed-code coverage. Run it locally
+service-specific subset; the `Coverage (shifter_platform)` job still enforces the
+unchanged 87% package floor, and Sonar still enforces 80% changed-code coverage. Run it locally
 from `shifter/shifter_platform` with
 `./scripts/run_openfga_integration.sh --cov --cov-report=xml:coverage-openfga.xml --cov-fail-under=0`.
 
@@ -167,6 +289,20 @@ per R4/R6). The matrix reconciles fail-closed against the SPA route table
 or exclusion fails. Nightly multi-browser runs, deployed-target scans, the
 WCAG-EM manual audit, and the release-evidence gate are the remaining ADR-055
 tail tracked in [#2117](https://github.com/Brad-Edwards/bigrae/issues/2117).
+
+## Browser security policy
+
+The portal enforces the ADR-036 Content Security Policy. The browser lanes record
+each `securitypolicyviolation` event through `frontend/e2e/support/csp.ts`. A
+journey, accessibility scan or live Django page fails on any violation.
+
+`e2e/journeys/csp.spec.ts` checks the enforced header and blocked inline script
+and handlers. It also checks that same-origin WebSockets connect and off-origin
+connections are blocked. `e2e/journeys/django-pages.spec.ts` covers the live
+Django-rendered pages. These tests use Chromium only. The deployed identity
+provider, MFA and range terminal paths are outside the hermetic lanes; #2117
+owns that tier. [RB024](../runbooks/rb024-browser-csp-violation.md) is the
+operator procedure for a blocked feature.
 
 ## External tool integration tests
 

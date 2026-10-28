@@ -148,6 +148,9 @@ variable "deploy_roles" {
     "roles/monitoring.editor",
     "roles/iam.serviceAccountAdmin",
     "roles/resourcemanager.projectIamAdmin",
+    # Read the range guest images: gcp-deploy checks that each image in
+    # range-images.json exists before the rollout (#2608).
+    "roles/compute.imageUser",
     # Manage the dynamic-secret custom role DEFINITIONS created by the platform-core
     # deploy (portal/iam: shifterDynamicSecretCreator / shifterDynamicSecretLifecycle).
     # projectIamAdmin covers IAM bindings but not iam.roles.* on custom-role
@@ -185,6 +188,15 @@ variable "destroy_roles" {
     # on custom-role definitions, so destroy fails with IAM_PERMISSION_DENIED reading
     # projects/<p>/roles/<custom>. Mirrors the deploy_roles grant above (#2258, #2228).
     "roles/iam.roleAdmin",
+  ]
+}
+
+variable "deploy_identity_platform_permissions" {
+  description = "Permissions that identityPlatform:initializeAuth needs beyond roles/identityplatform.admin on a project without Firebase."
+  type        = list(string)
+  default = [
+    "firebase.projects.get",
+    "firebase.projects.update",
   ]
 }
 
@@ -341,4 +353,16 @@ variable "deployment_config_bucket_name" {
     )
     error_message = "deployment_config_bucket_name must be empty or a valid bucket name that differs from the release-evidence and state buckets."
   }
+}
+
+variable "enable_gcs_usage_log_delivery" {
+  description = <<-EOT
+    Grant the Google-managed group cloud-storage-analytics@google.com objectCreator
+    on the access-log prefix of the release-evidence bucket for usage logs of the
+    deployment config bucket. A Domain Restricted Sharing org policy
+    (iam.allowedPolicyMemberDomains) forbids the google.com group and fails the
+    binding with Error 412. Cloud Audit Logs record config bucket access either way.
+  EOT
+  type        = bool
+  default     = false
 }

@@ -1,12 +1,12 @@
 ---
 id: CTF-204
 title: "Awards/Bonus Points"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:22.000543Z
-updated_at: 2026-03-26T06:37:13.297578Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-204: Awards/Bonus Points
@@ -21,5 +21,5 @@ Awards enable organizers to recognize exceptional behavior (creative solutions, 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF models - no CTFAward model exists)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/submission.py` (CTFAward award and bonus points model)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#642` (CTF-204: Awards/Bonus Points)

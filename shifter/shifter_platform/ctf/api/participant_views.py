@@ -382,6 +382,40 @@ class ParticipantPagesView(APIView):
         )
 
 
+class ContentImageMapEntrySerializer(serializers.Serializer):
+    """One external image URL and its first-party copy."""
+
+    source_url = serializers.URLField()
+    url = serializers.CharField()
+
+
+class ParticipantContentImagesSerializer(serializers.Serializer):
+    """Ready image copies for content the participant can read (#2090)."""
+
+    images = ContentImageMapEntrySerializer(many=True)
+    pending = serializers.IntegerField(min_value=0, help_text="Visible images whose copies are not ready yet")
+
+
+class ParticipantContentImagesView(APIView):
+    """Map external image URLs to first-party copies for the participant (GET, #2090)."""
+
+    permission_classes = CTF_PARTICIPANT_PERMISSIONS
+    required_read_scopes = _PLAY_READ
+
+    @extend_schema(responses=ParticipantContentImagesSerializer)
+    def get(self, request: Request) -> Response:
+        """Return ready copies of images in content the participant can read now."""
+        from ctf.services.content_images import participant_image_state
+
+        participant = _resolve_active_participant(request)
+        if participant is None:
+            return _no_active_event_response(request)
+        mapping, pending = participant_image_state(participant)
+        return Response(
+            {"images": [{"source_url": src, "url": url} for src, url in sorted(mapping.items())], "pending": pending}
+        )
+
+
 class ParticipantBriefingView(APIView):
     """Return the active event's reserved participant briefing, or 404 (#1854).
 

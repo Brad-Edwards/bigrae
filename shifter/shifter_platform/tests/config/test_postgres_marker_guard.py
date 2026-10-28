@@ -17,6 +17,8 @@ fast SQLite lane too.
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -150,3 +152,101 @@ def test_postgres_lane_fails_when_a_marked_test_is_skipped(tmp_path):
     combined = result.stdout + result.stderr
     assert result.returncode != 0, f"guard did not fail on a skipped marked test.\n{combined}"
     assert "skipped" in combined.lower(), f"skip-branch message absent.\n{combined}"
+
+
+# --- Sharded lane (#2582) ---------------------------------------------------
+# CI splits the PostgreSQL lane into pytest-split shards. A shard may run zero
+# postgres-marked tests, so it writes evidence and the cross-shard checker owns
+# the "at least one ran" rule. A skipped marked test still fails its shard.
+
+_ISOLATED_UNMARKED_TESTS = """
+def test_unmarked_runs():
+    assert True
+"""
+
+
+def _run_isolated_shard(tmp_path: Path, tests: str) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
+    """Run the real guard hooks in an isolated one-shard pytest-split run."""
+    tmp_path.mkdir()
+    (tmp_path / "conftest.py").write_text(_ISOLATED_CONFTEST, encoding="utf-8")
+    (tmp_path / "pytest.ini").write_text("[pytest]\nmarkers =\n    postgres: pg lane marker\n", encoding="utf-8")
+    (tmp_path / "test_marked.py").write_text(tests, encoding="utf-8")
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("COV", "PYTEST"))}
+    env.update({"TESTING": "1", "TEST_DB_BACKEND": "postgres", "ENVIRONMENT": "test"})
+    result = subprocess.run(
+        args=[
+            sys.executable,
+            "-m",
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-p",
+            "no:django",
+            "-n0",
+            "--splits",
+            "1",
+            "--group",
+            "1",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    evidence = json.loads((tmp_path / "postgres-lane-evidence.json").read_text(encoding="utf-8"))
+    return result, evidence
+
+
+def test_sharded_lane_defers_zero_ran_rule_but_still_fails_on_skips(tmp_path):
+    """A shard with no marked tests passes and records evidence; a skip still fails."""
+    passing, evidence = _run_isolated_shard(tmp_path / "unmarked", _ISOLATED_UNMARKED_TESTS)
+    assert passing.returncode == 0, passing.stdout + passing.stderr
+    assert evidence == {"group": 1, "splits": 1, "ran": [], "skipped": []}
+
+    failing, evidence = _run_isolated_shard(tmp_path / "skipped", _ISOLATED_TESTS)
+    assert failing.returncode != 0, failing.stdout + failing.stderr
+    assert evidence["ran"] == ["test_marked.py::test_marked_runs", "test_marked.py::test_marked_skipped"]
+    assert evidence["skipped"] == ["test_marked.py::test_marked_skipped"]
+
+
+def _load_checker():
+    spec = importlib.util.spec_from_file_location(
+        "check_postgres_lane_evidence", _SHIFTER_PLATFORM / "scripts/check_postgres_lane_evidence.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _record(group: int, ran: list[str], skipped: list[str] | None = None, splits: int = 2) -> dict[str, object]:
+    return {"group": group, "splits": splits, "ran": ran, "skipped": skipped or []}
+
+
+@pytest.mark.parametrize(
+    ("evidence", "expected"),
+    [
+        ([_record(1, []), _record(2, ["t::a"])], None),
+        ([], "no shard evidence found"),
+        ([_record(1, []), _record(2, [])], "no postgres-marked tests ran in any shard"),
+        ([_record(1, ["t::a"])], "shard groups are incomplete or duplicated: [1]"),
+        ([_record(1, ["t::a"]), _record(1, ["t::b"])], "shard groups are incomplete or duplicated: [1, 1]"),
+        ([_record(1, ["t::a"]), _record(2, [], splits=3)], "shards disagree on the split count: [2, 3]"),
+        ([_record(1, ["t::a"]), _record(2, ["t::b"], ["t::b"])], "1 postgres-marked test(s) skipped: t::b"),
+    ],
+)
+def test_cross_shard_evidence_check(tmp_path, capsys, evidence, expected):
+    """The checker fails closed on every broken lane contract and passes a complete lane."""
+    paths = []
+    for index, record in enumerate(evidence):
+        path = tmp_path / f"evidence-{index}.json"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        paths.append(str(path))
+    status = _load_checker().main(paths)
+    captured = capsys.readouterr()
+    if expected is None:
+        assert status == 0, captured.err
+        assert "1 postgres-marked tests ran across 2 shards" in captured.out
+    else:
+        assert status == 1
+        assert expected in captured.err
