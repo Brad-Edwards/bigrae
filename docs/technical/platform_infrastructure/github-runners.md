@@ -113,8 +113,12 @@ fleet, so a GCP dev tenant could not stand up without an AWS one. Issue #1546
 adds a GCP-native runner so each dev tenant is self-contained: a GCP dev tenant
 runs its own CI/deploy, and neither dev tenant assumes the other exists. This is
 the dev-tenant amendment to the runner-isolation rule (ADR-053-R3, carried from
-ADR-033-R2; there is no product deployment model yet, and the current bootstrap
-is itself a dev-tenant deploy mechanism).
+ADR-033-R2).
+
+The runner serves only the GCP deployments that GitHub CI deploys. A GCP
+deployment that runs without GitHub needs no runner. An operator runs the
+deployer image of a published release (ADR-070, see the
+[GitHub-less GCP deployment guide](../handbook/gcp-github-less-deployment.md)).
 
 | Parameter | Value |
 |-----------|-------|

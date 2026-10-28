@@ -123,12 +123,11 @@ def _aws_generated_outputs() -> tuple[GeneratedOutput, ...]:
 
 # Canonical pre-mutation validation front doors for the AWS bundle. Each is a pure,
 # repository-relative argv array whose executable is a declared required tool — the fast,
-# credential-free checks a setup/doctor flow runs before touching infrastructure. AWS has no
-# ``platform/k8s/aws`` overlay; its Kubernetes surface is the shared chart, so helm-template
-# (rendered with the AWS profile values) is the k8s front door rather than a kustomize
-# overlay render or a raw-manifest kube-linter pass. The fuller pre-mutation suite (tflint
-# with init, checkov, kube-linter/kubeconform on the rendered chart, and effective-values
-# schema validation) stays CI-enforced and in the deploy lifecycle.
+# credential-free checks a setup/doctor flow runs before touching infrastructure. The AWS
+# Kubernetes surface is the shared chart, so helm-template (rendered with the AWS profile
+# values) is the k8s front door. The fuller pre-mutation suite (tflint with init, checkov,
+# kube-linter/kubeconform on the rendered chart, and effective-values schema validation)
+# stays CI-enforced and in the deploy lifecycle.
 _AWS_VALIDATION_CHECKS: tuple[ValidationCheck, ...] = (
     ROOT_CONFIG_CHECK,
     ValidationCheck(

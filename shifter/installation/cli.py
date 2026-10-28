@@ -32,6 +32,10 @@ name.
 artifact: ``contract export`` regenerates the committed artifact from the Pydantic contract
 and registry, and ``contract check`` runs the drift, breaking-change, and registry-
 conformance gates (also enforced in the ``installation`` test lane).
+
+``gcp-release-manifest`` (#2571) writes the validated ``bigrae.gcp-release.v1`` manifest
+that the release-driven GCP deploy command consumes: one source revision and the exact
+image identity of each control-plane image.
 """
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ from pathlib import Path
 from .cli_parser import build_parser
 from .doctor import CheckScope, CheckStatus, DoctorReport, run_doctor
 from .errors import InstallationConfigError
+from .gcp_release import build_release_manifest, render_release_manifest
 from .loader import default_root_config_path, load_root_config
 from .publication import (
     ARTIFACT_PATH,
@@ -322,6 +327,36 @@ def _cmd_contract(contract_command: str | None, output: str | None, parser: argp
     return 2
 
 
+def _cmd_gcp_release_manifest(args: argparse.Namespace) -> int:
+    """Write one validated GCP release manifest from explicit image identities."""
+    images: dict[str, str] = {}
+    for item in args.image:
+        name, separator, identity = item.partition("=")
+        if not separator or not name or not identity:
+            print("--image must be NAME=REPOSITORY@sha256:DIGEST", file=sys.stderr)
+            return 1
+        if name in images:
+            print(f"--image names {name!r} more than once", file=sys.stderr)
+            return 1
+        images[name] = identity
+    try:
+        manifest = build_release_manifest(
+            version=args.version,
+            source_revision=args.source_revision,
+            chart_version=args.chart_version,
+            images=images,
+        )
+    except InstallationConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    rendered = render_release_manifest(manifest)
+    if args.output:
+        Path(args.output).write_text(rendered, encoding="utf-8")
+    else:
+        sys.stdout.write(rendered)
+    return 0
+
+
 def _default_config_path() -> str:
     """Select the canonical default, rejecting conflicting compatibility input."""
     selected = default_root_config_path()
@@ -375,6 +410,8 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         exit_code = _cmd_doctor(args.path, args.repo_root, args.checks, as_json=args.as_json)
     elif args.command == "contract":
         exit_code = _cmd_contract(args.contract_command, getattr(args, "output", None), parser)
+    elif args.command == "gcp-release-manifest":
+        exit_code = _cmd_gcp_release_manifest(args)
     else:
         parser.print_help(sys.stderr)  # pragma: no cover - argparse rejects unknown subcommands first
         exit_code = 2

@@ -38,7 +38,12 @@ if [[ ! "${SMOKE_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] ||
   exit 2
 fi
 
-run_identity="${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}"
+# The deploy command passes SMOKE_RUN_ID; CI falls back to its run identity.
+run_identity="${SMOKE_RUN_ID:-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}}"
+if [[ ! "${run_identity}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+  echo "::error::Smoke run identity must be a lowercase DNS label fragment" >&2
+  exit 2
+fi
 job_name="post-deploy-smoke-${run_identity}"
 secret_name="${job_name}-identity"
 if ((${#secret_name} > 63)); then

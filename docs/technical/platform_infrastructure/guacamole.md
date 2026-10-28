@@ -279,12 +279,12 @@ that issued it (issue #928); `guacd` scales independently. This is enforced by
 ### GCP
 
 - `guacd`, `guacamole-client`, and `guacamole-bootstrap-prune` are Kubernetes
-  Deployments (Helm chart `platform/charts/shifter/templates/` and the kustomize
-  base `platform/k8s/gcp/base/`). `guacamoleClient.replicas` is 1.
+  Deployments (Helm chart `platform/charts/shifter/templates/`, the only GCP
+  renderer). `guacamoleClient.replicas` is 1.
 - `JSON_SECRET_KEY` and DB credentials reach the client via the
-  `guacamole-runtime` Kubernetes Secret. That Secret is created **out of band**
-  by the deploy bootstrap (`kubectl apply` from GCP Secret Manager, before the
-  Helm release). The Helm chart never carries the secret values; it references
+  `guacamole-runtime` Kubernetes Secret. `gcp-deploy` creates that Secret
+  **out of band** (`kubectl apply` from GCP Secret Manager, before the Helm
+  release). The Helm chart never carries the secret values; it references
   the Secret by name only (`envFrom.secretRef`), so credentials never enter
   chart values or Helm release history. `scripts/gcp/render_runtime_env.py` sets
   `GUACAMOLE_SECRET_ID`, `GUACAMOLE_BASE_URL`, and the in-cluster
@@ -340,7 +340,7 @@ fails validation.
 | Settings | `shifter/shifter_platform/config/_guacamole_settings.py` |
 | Frontend | `shifter/shifter_platform/static/js/terminal-guacamole.js` |
 | AWS infra | `platform/terraform/modules/guacamole/` |
-| GCP infra | `platform/charts/shifter/templates/guac*`, `platform/k8s/gcp/base/guac*` |
+| GCP infra | `platform/charts/shifter/templates/guac*` |
 | Topology invariant test | `shifter/shifter_platform/tests/platform/test_guacamole_topology.py` |
 
 ## Troubleshooting

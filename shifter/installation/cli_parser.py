@@ -272,6 +272,30 @@ def _add_contract_parser(subcommands: argparse._SubParsersAction) -> None:
     )
 
 
+def _add_release_manifest_parser(subcommands: argparse._SubParsersAction) -> None:
+    """Wire ``gcp-release-manifest``: write one validated GCP release manifest (#2571)."""
+    manifest = subcommands.add_parser(
+        "gcp-release-manifest",
+        help="Write a validated bigrae.gcp-release.v1 manifest for one built revision.",
+        description=(
+            "Write the GCP release manifest that the deploy command consumes: the version, the full "
+            "source revision, the Helm chart version, and the exact repository@sha256 identity of each "
+            "control-plane image. Every image must be named exactly once."
+        ),
+    )
+    manifest.add_argument("--version", required=True, help="Product version or CI label.")
+    manifest.add_argument("--source-revision", required=True, help="Full 40-character commit SHA.")
+    manifest.add_argument("--chart-version", required=True, help="Helm chart version of the revision.")
+    manifest.add_argument(
+        "--image",
+        action="append",
+        default=[],
+        metavar="NAME=REPOSITORY@sha256:DIGEST",
+        help="Exact identity of one release image (portal, provisioner, guacd, guacamole-client, openvpn).",
+    )
+    _add_output_argument(manifest, "release manifest")
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the ``shifter-config`` argument parser with every subcommand wired."""
     parser = argparse.ArgumentParser(
@@ -285,4 +309,5 @@ def build_parser() -> argparse.ArgumentParser:
     _add_init_parser(subcommands)
     _add_doctor_parser(subcommands)
     _add_contract_parser(subcommands)
+    _add_release_manifest_parser(subcommands)
     return parser

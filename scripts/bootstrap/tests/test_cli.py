@@ -29,51 +29,36 @@ def _skip_dependency_check(*_args, **_kwargs):
     """No-op CLI dependency boundary for parser/dispatch unit tests."""
 
 
-class _StopAfterImageHandoff(RuntimeError):
-    """Test sentinel raised at the first platform-cloud boundary."""
+class _BaseImageImportProcess:
+    """Simulate the registry and Compute Engine boundaries of a base-image import."""
 
-
-class _GcpBootstrapProcess:
-    """Simulate the public-image and first-platform process boundaries."""
-
-    def __init__(self, gh_identity, *, fail_publication: bool = False):
-        self.gh_identity = gh_identity
+    def __init__(self):
         self.calls: list[list[str]] = []
-        self.observed_image_env: dict[str, str | None] = {}
-        self.fail_publication = fail_publication
-        self.publication_count = 0
+        self.uploads: dict[str, str] = {}
 
     def __call__(self, cmd, **_kwargs):
         cmd = [str(token) for token in cmd]
         self.calls.append(cmd)
+        if cmd[:3] == ["gcloud", "storage", "cp"] and cmd[-1].startswith("gs://"):
+            self.uploads[cmd[-1]] = Path(cmd[-2]).read_text(encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         if cmd[:3] == ["gcloud", "auth", "list"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="operator@example.test\n", stderr="")
-        if cmd[0] == "gh":
-            return self._run_gh(cmd)
         if cmd[:3] == ["oras", "repo", "tags"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="gce-1\n", stderr="")
         if cmd[:3] == ["oras", "manifest", "fetch"]:
             if "--descriptor" in cmd:
-                return subprocess.CompletedProcess(
-                    cmd,
-                    0,
-                    stdout='{"digest":"sha256:' + ("a" * 64) + '"}',
-                    stderr="",
-                )
+                return subprocess.CompletedProcess(cmd, 0, stdout='{"digest":"sha256:' + ("a" * 64) + '"}', stderr="")
             reference = next(token for token in cmd if "shifter-gce-" in token)
             role = reference.split("shifter-gce-", 1)[1].split("@", 1)[0]
             manifest = {
                 "artifactType": gbi.GCE_IMAGE_ARTIFACT_TYPE,
                 "layers": [{"mediaType": gbi.GCE_IMAGE_MEDIA_TYPE, "digest": "sha256:" + ("b" * 64)}],
-                "annotations": {
-                    "com.shifter.image.role": role,
-                    "org.opencontainers.image.revision": "c" * 40,
-                },
+                "annotations": {"com.shifter.image.role": role, "org.opencontainers.image.revision": "c" * 40},
             }
             return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(manifest), stderr="")
         if cmd[:3] == ["oras", "blob", "fetch"]:
-            destination = Path(cmd[cmd.index("--output") + 1])
-            destination.write_bytes(b"rawdisk")
+            Path(cmd[cmd.index("--output") + 1]).write_bytes(b"rawdisk")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         if cmd[:4] == ["gcloud", "compute", "images", "describe"]:
             if "--format=json(description,labels,status,guestOsFeatures)" in cmd:
@@ -81,29 +66,7 @@ class _GcpBootstrapProcess:
             if "--format=value(status)" in cmd:
                 return subprocess.CompletedProcess(cmd, 0, stdout="READY\n", stderr="")
             if "--format=value(name)" in cmd:
-                keys = ("GCP_RANGE_LINUX_IMAGE", "GCP_RANGE_KALI_IMAGE", "GCP_RANGE_DC_IMAGE")
-                self.observed_image_env = {key: os.environ.get(key) for key in keys}
                 return subprocess.CompletedProcess(cmd, 0, stdout=f"{cmd[4]}\n", stderr="")
-        if cmd[:4] == ["gcloud", "storage", "buckets", "describe"] and "terraform-state" in cmd[4]:
-            raise _StopAfterImageHandoff("platform boundary reached")
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-    def _run_gh(self, cmd):
-        identity = self.gh_identity(cmd)
-        if identity is not None:
-            return identity
-        if cmd[:2] == ["gh", "api"] and "--paginate" in cmd:
-            return subprocess.CompletedProcess(
-                cmd,
-                0,
-                stdout="GCP_RANGE_DC_IMAGE\nGCP_RANGE_KALI_IMAGE\nGCP_RANGE_LINUX_IMAGE\n",
-                stderr="",
-            )
-        if cmd[:3] == ["gh", "api", "--method"]:
-            self.publication_count += 1
-            if self.fail_publication and self.publication_count == 2:
-                raise subprocess.CalledProcessError(1, cmd)
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
 
@@ -495,10 +458,6 @@ class TestMainCLI:
                     "example-gcp-project",
                     "--cluster-id",
                     "cluster1",
-                    "--range-backend",
-                    "gdc",
-                    "--shifter-config",
-                    str(shifter_config),
                     "--dry-run",
                 ],
             ),
@@ -569,151 +528,59 @@ class TestMainCLI:
 
             assert mock_gdc_bootstrap.call_args[1]["dry_run"] is True
 
-    def test_gdc_bootstrap_imports_public_images_and_hands_exact_refs_to_platform(
-        self, tmp_path, gh_identity_responder
-    ):
-        runner = _GcpBootstrapProcess(gh_identity_responder)
-        keys = ("GCP_RANGE_LINUX_IMAGE", "GCP_RANGE_KALI_IMAGE", "GCP_RANGE_DC_IMAGE")
-        expected = {
-            "GCP_RANGE_LINUX_IMAGE": "projects/proj/global/images/shifter-ubuntu-aaaaaaaaaaaa",
-            "GCP_RANGE_KALI_IMAGE": "projects/proj/global/images/shifter-kali-aaaaaaaaaaaa",
-            "GCP_RANGE_DC_IMAGE": "projects/proj/global/images/shifter-dc-aaaaaaaaaaaa",
-        }
-        shifter_config = tmp_path / "shifter.yaml"
-        shifter_config.write_text("version: 1\nbackend: gcp\n")
-        config = deploy.GDCBootstrapConfig(
-            project_id="proj",
-            environment="gcp-dev",
-            region="us-east1",
-            shifter_config_path=str(shifter_config),
-        )
-        deploy.set_assume_yes(True)
-        try:
-            with (
-                patch("subprocess.run", side_effect=runner),
-                patch.dict(
-                    os.environ,
-                    dict.fromkeys(keys, "before")
-                    | {
-                        "RANGE_NETWORK_ZONE": "us-east1-b",
-                        "GCP_RANGE_HOST_SERVICE_ACCOUNT_EMAIL": "range-host@example.test",
-                    },
-                    clear=False,
-                ),
-            ):
-                with pytest.raises(_StopAfterImageHandoff):
-                    deploy.gcp_bootstrap_with_public_images(config, dry_run=False)
-
-                assert runner.observed_image_env == expected
-                assert {key: os.environ.get(key) for key in keys} == dict.fromkeys(keys, "before")
-                assert runner.publication_count == 3
-                assert any(call[:3] == ["gcloud", "storage", "rm"] and "--recursive" in call for call in runner.calls)
-                # ADR-069: the GHCR owner and the published repository come from the resolved identity.
-                assert any("ghcr.io/example-org/shifter-gce-kali" in token for call in runner.calls for token in call)
-                published = [call for call in runner.calls if call[:3] == ["gh", "api", "--method"]]
-                assert all(
-                    "repos/example-org/example-repo/environments/gcp-dev/variables" in call[4] for call in published
-                )
-        finally:
-            deploy.set_assume_yes(False)
-
-    def test_combined_image_bootstrap_rejects_before_any_external_command(self, gh_identity_responder):
-        deploy.set_assume_yes(False)
-
-        def unexpected_command(cmd, *_args, **_kwargs):
-            # Only the read-only identity lookup runs, so that the operator can confirm it (ADR-069).
-            identity = gh_identity_responder(cmd)
-            if identity is None:
-                raise AssertionError("external command ran before combined bootstrap confirmation")
-            return identity
-
-        with (
-            patch("sys.stdin.isatty", return_value=False),
-            patch("subprocess.run", side_effect=unexpected_command),
-            pytest.raises(SystemExit) as exc,
-        ):
-            deploy.gcp_bootstrap_with_public_images(
-                deploy.GDCBootstrapConfig(project_id="proj"),
-                dry_run=False,
+    def test_gcp_images_imports_from_the_explicit_source_and_records_roles(self):
+        runner = _BaseImageImportProcess()
+        source = "us-central1-docker.pkg.dev/example-release/bigrae-release"
+        with patch("subprocess.run", side_effect=runner):
+            images = deploy.gcp_base_images_import(
+                "example-proj", "us-east1", source=source, store="gs://example-proj-deployment-config"
             )
+        assert set(images) == {"linux", "kali", "dc"}
+        assert all(ref.startswith("projects/example-proj/global/images/") for ref in images.values())
+        # The references land in the deployment config bucket, not in a GitHub Environment.
+        assert json.loads(runner.uploads["gs://example-proj-deployment-config/range-images.json"]) == images
+        # The source is explicit (#2571): no GitHub service and no repository-derived owner.
+        assert any(f"{source}/shifter-gce-kali" in token for call in runner.calls for token in call)
+        assert not any(call[0] == "gh" for call in runner.calls)
+        assert "DOCKER_CONFIG" not in os.environ
 
-        assert exc.value.code == 0
+    def test_gcp_images_prints_refs_without_a_store_and_skips_writes_in_dry_run(self, capsys):
+        runner = _BaseImageImportProcess()
+        with patch("subprocess.run", side_effect=runner):
+            images = deploy.gcp_base_images_import("proj", "us-east1", source="ghcr.io/example-org")
+            printed = capsys.readouterr().out
+            deploy.gcp_base_images_import(
+                "proj", "us-east1", source="ghcr.io/example-org", store="gs://b", dry_run=True
+            )
+        assert json.loads(printed[printed.index("{") :]) == images
+        assert runner.uploads == {}
 
-    def test_gdc_bootstrap_does_not_start_platform_after_image_publication_failure(self, gh_identity_responder):
-        runner = _GcpBootstrapProcess(gh_identity_responder, fail_publication=True)
-        deploy.set_assume_yes(True)
-        try:
-            with patch("subprocess.run", side_effect=runner), pytest.raises(SystemExit):
-                deploy.gcp_bootstrap_with_public_images(
-                    deploy.GDCBootstrapConfig(project_id="proj"),
-                    dry_run=False,
-                )
-        finally:
-            deploy.set_assume_yes(False)
-
-        assert runner.publication_count == 2
-        assert runner.observed_image_env == {}
-        assert not any(
-            call[:4] == ["gcloud", "storage", "buckets", "describe"] and "terraform-state" in call[4]
-            for call in runner.calls
-        )
-
-    def test_standalone_gcp_images_uses_code_owned_bucket_region(self):
+    def test_gcp_images_parser_requires_an_explicit_source(self):
         args = deploy._build_parser().parse_args(
-            [
-                "gcp-images",
-                "--project-id",
-                "proj",
-                "--environment",
-                "tenant",
-                "--region",
-                "europe-west1",
-            ]
+            ["gcp-images", "--project-id", "proj", "--source", "registry.example/x/y", "--region", "europe-west1"]
         )
+        assert (args.project_id, args.source, args.store, args.region) == (
+            "proj",
+            "registry.example/x/y",
+            "",
+            "europe-west1",
+        )
+        with pytest.raises(SystemExit):
+            deploy._build_parser().parse_args(["gcp-images", "--project-id", "proj"])
 
-        assert args.project_id == "proj"
-        assert args.environment == "tenant"
-        assert args.region == "europe-west1"
-        assert not hasattr(args, "staging_bucket")
-
-    def test_gcp_images_publishes_exact_rendered_refs(self):
-        refs = {
-            "GCP_RANGE_LINUX_IMAGE": "projects/proj/global/images/linux-digest",
-            "GCP_RANGE_KALI_IMAGE": "projects/proj/global/images/kali-digest",
-            "GCP_RANGE_DC_IMAGE": "projects/proj/global/images/dc-digest",
+    def test_range_images_from_imports_requires_the_complete_set(self):
+        complete = {
+            "GCP_RANGE_LINUX_IMAGE": "projects/p/global/images/l",
+            "GCP_RANGE_KALI_IMAGE": "projects/p/global/images/k",
+            "GCP_RANGE_DC_IMAGE": "projects/p/global/images/d",
         }
-        calls = []
-
-        def fake_run(cmd, dry_run=False, **_kwargs):
-            calls.append((cmd, dry_run))
-            if cmd[:2] == ["gh", "api"] and "--paginate" in cmd:
-                return subprocess.CompletedProcess(
-                    cmd,
-                    0,
-                    stdout="GCP_RANGE_DC_IMAGE\nGCP_RANGE_LINUX_IMAGE\n",
-                    stderr="",
-                )
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-        deploy._publish_range_image_env(
-            refs, "tenant", repository="example-org/example-repo", dry_run=False, command_runner=fake_run
-        )
-        variable_calls = [call for call, dry_run in calls if call[:3] == ["gh", "api", "--method"]]
-        assert len(variable_calls) == 3
-        assert all(
-            call[4].startswith("repos/example-org/example-repo/environments/tenant/variables")
-            for call in variable_calls
-        )
-        assert {
-            (
-                call[call.index("--method") + 1],
-                call[call.index("-f") + 1],
-                call[call.index("-f", call.index("-f") + 1) + 1],
-            )
-            for call in variable_calls
-        } == {
-            ("PATCH", f"name={name}", f"value={ref}") for name, ref in refs.items() if name != "GCP_RANGE_KALI_IMAGE"
-        } | {("POST", "name=GCP_RANGE_KALI_IMAGE", f"value={refs['GCP_RANGE_KALI_IMAGE']}")}
+        assert deploy.range_images_from_imports(complete) == {
+            "linux": "projects/p/global/images/l",
+            "kali": "projects/p/global/images/k",
+            "dc": "projects/p/global/images/d",
+        }
+        with pytest.raises(gbi.BaseImageError):
+            deploy.range_images_from_imports({"GCP_RANGE_LINUX_IMAGE": "x"})
 
     def test_gcp_images_requires_an_active_gcloud_identity_before_mutation(self):
         def fake_run(cmd, **_kwargs):
@@ -722,51 +589,17 @@ class TestMainCLI:
         with pytest.raises(RuntimeError, match="gcloud authentication"):
             deploy._validate_base_image_auth(command_runner=fake_run)
 
-    def test_gdc_bootstrap_defaults_to_gce_range_backend(self):
-        """gdc-bootstrap defaults to the gce range backend so no ABM substrate / SA key is built (#1716)."""
+    def test_gdc_bootstrap_always_selects_the_gdc_substrate(self):
+        """gdc-bootstrap builds only the legacy GDC substrate; gcp-deploy owns the control plane (#2571)."""
         mock_gdc_bootstrap = Mock()
-        with (
-            patch.dict("os.environ", {"GCP_RANGE_BACKEND": ""}, clear=False),
-            patch(
-                "sys.argv",
-                ["deploy.py", "gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"],
-            ),
+        with patch(
+            "sys.argv",
+            ["deploy.py", "gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"],
         ):
-            deploy.main(
-                dependency_checker=_skip_dependency_check,
-                gdc_bootstrapper=mock_gdc_bootstrap,
-            )
-
-            config = mock_gdc_bootstrap.call_args[0][0]
-            assert config.range_backend == "gce"
-            assert config.builds_gdc_substrate is False
-
-    def test_gdc_bootstrap_range_backend_gdc_selects_substrate(self):
-        """--range-backend gdc selects the ABM/GDC substrate-building path (#1716)."""
-        mock_gdc_bootstrap = Mock()
-        with (
-            patch(
-                "sys.argv",
-                [
-                    "deploy.py",
-                    "gdc-bootstrap",
-                    "--project-id",
-                    "example-gcp-project",
-                    "--cluster-id",
-                    "cluster1",
-                    "--range-backend",
-                    "gdc",
-                ],
-            ),
-        ):
-            deploy.main(
-                dependency_checker=_skip_dependency_check,
-                gdc_bootstrapper=mock_gdc_bootstrap,
-            )
-
-            config = mock_gdc_bootstrap.call_args[0][0]
-            assert config.range_backend == "gdc"
-            assert config.builds_gdc_substrate is True
+            deploy.main(dependency_checker=_skip_dependency_check, gdc_bootstrapper=mock_gdc_bootstrap)
+        config = mock_gdc_bootstrap.call_args[0][0]
+        assert config.range_backend == "gdc"
+        assert config.builds_gdc_substrate is True
 
     def test_gdc_bootstrap_defaults_to_gcp_dev_environment(self):
         """gdc-bootstrap defaults to the gcp-dev environment for back-compat."""
@@ -808,74 +641,6 @@ class TestMainCLI:
 
             config = mock_gdc_bootstrap.call_args[0][0]
             assert config.environment == "nazgul"
-
-    def test_gdc_bootstrap_terraform_identity_operator_adc(self):
-        """--terraform-identity operator-adc threads through to the config (#1718)."""
-        mock_gdc_bootstrap = Mock()
-        with (
-            patch(
-                "sys.argv",
-                [
-                    "deploy.py",
-                    "gdc-bootstrap",
-                    "--project-id",
-                    "example-gcp-project",
-                    "--cluster-id",
-                    "cluster1",
-                    "--terraform-identity",
-                    "operator-adc",
-                ],
-            ),
-        ):
-            deploy.main(
-                dependency_checker=_skip_dependency_check,
-                gdc_bootstrapper=mock_gdc_bootstrap,
-            )
-
-            config = mock_gdc_bootstrap.call_args[0][0]
-            assert config.terraform_identity == "operator-adc"
-            assert config.terraform_uses_operator_adc is True
-
-    def test_gdc_bootstrap_defaults_to_operator_adc_terraform_identity(self):
-        """gdc-bootstrap defaults to operator-adc (keyless, no owner-on-SA) terraform identity (#1738).
-
-        Asserts the config built directly from parsed CLI args/env, rather than routing
-        through deploy.main() + gdc_bootstrap_cluster, so this stays a focused unit test
-        of the config-building seam (ADR-019 boundary-mock policy).
-        """
-        with patch.dict("os.environ", {"SHIFTER_GCP_TERRAFORM_IDENTITY": ""}, clear=False):
-            parser = deploy._build_parser()
-            args = parser.parse_args(
-                ["gdc-bootstrap", "--project-id", "example-gcp-project", "--cluster-id", "cluster1"]
-            )
-            config = deploy._build_gdc_bootstrap_config(args)
-
-        assert config.terraform_identity == "operator-adc"
-        assert config.terraform_uses_operator_adc is True
-
-    def test_gdc_bootstrap_terraform_identity_bootstrap_sa_optout(self):
-        """--terraform-identity bootstrap-sa opts back into the tf-bootstrap SA path (#1738).
-
-        Asserts the config built directly from parsed CLI args, rather than routing through
-        deploy.main() + gdc_bootstrap_cluster, so this stays a focused unit test of the
-        config-building seam (ADR-019 boundary-mock policy).
-        """
-        parser = deploy._build_parser()
-        args = parser.parse_args(
-            [
-                "gdc-bootstrap",
-                "--project-id",
-                "example-gcp-project",
-                "--cluster-id",
-                "cluster1",
-                "--terraform-identity",
-                "bootstrap-sa",
-            ]
-        )
-        config = deploy._build_gdc_bootstrap_config(args)
-
-        assert config.terraform_identity == "bootstrap-sa"
-        assert config.terraform_uses_operator_adc is False
 
     def test_passes_yes_flag_to_gdc_bootstrap(self):
         """--yes makes later non-interactive confirmation prompts proceed."""

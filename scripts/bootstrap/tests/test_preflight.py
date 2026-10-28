@@ -9,6 +9,7 @@ import pytest
 import deploy
 import preflight
 from preflight import Cloud, Mode, Status
+from tests.gcp_test_support import write_bundle
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEPLOY_SECRETS_DOC = REPO_ROOT / "docs" / "dev" / "deploy-secrets.md"
@@ -144,9 +145,13 @@ class TestRunPreflightGcpCi:
         assert any("opt-out" in r.message for r in warns)
 
     def test_optional_secret_missing_is_warn_not_fail(self):
+        check = preflight.SecretCheck("OPTIONAL_INPUT", "Optional input", False, "Optional.")
+        assert preflight._eval_secret(check, {}).status is Status.WARN
+
+    def test_unused_cidr_secret_is_not_checked(self):
+        """CI never applied GCP_MASTER_AUTHORIZED_CIDRS; the private endpoint needs no CIDRs (#2571)."""
         report = preflight.run_preflight(Cloud.GCP, Mode.CI, "gcp-dev", env=dict(GCP_CI_ENV))
-        cidr = next(r for r in report.results if "authorized" in r.name.lower())
-        assert cidr.status is Status.WARN
+        assert all("GCP_MASTER_AUTHORIZED_CIDRS" not in result.message for result in report.results)
 
 
 class TestRunPreflightAwsCi:
@@ -263,32 +268,32 @@ class TestRunPreflightLocal:
         assert any(r.name == "eks root" and r.status is Status.FAIL for r in report.results)
         assert not report.ok
 
-    def test_gcp_local_reads_security_inputs(self, tmp_path):
-        tf_dir = tmp_path / "platform" / "terraform" / "gcp" / "environments" / "gcp-dev"
-        tf_dir.mkdir(parents=True)
-        (tf_dir / "terraform.tfvars").write_text(
-            'public_hostname = "gcp.example.test"\n'
-            "enable_managed_tls = true\n"
-            'gke_master_authorized_cidrs = ["10.42.0.0/16"]\n'
-        )
+    def test_gcp_local_validates_the_deployment_input_bundle(self, tmp_path):
+        """ADR-070: the local GCP preflight validates the bundle that gcp-deploy reads."""
+        bundle = write_bundle(tmp_path / "bundle")
         report = preflight.run_preflight(
-            Cloud.GCP, Mode.LOCAL, "gcp-dev", env={}, repo_root=tmp_path, tool_exists=lambda n: "/bin/x"
+            Cloud.GCP, Mode.LOCAL, "acme", env={}, tool_exists=lambda n: "/bin/x", gcp_inputs=str(bundle)
         )
-        assert any(r.name == "GCP control-plane inputs" and r.status is Status.OK for r in report.results)
+        assert any(r.name == "GCP deployment inputs" and r.status is Status.OK for r in report.results)
+        tools = {r.name for r in report.results if r.name.startswith("tool: ")}
+        assert {"tool: git", "tool: helm", "tool: oras", "tool: trivy", "tool: kubectl", "tool: gcloud"} <= tools
+        assert "tool: docker" not in tools
+        # The deployer image embeds its revision, so it needs no git.
+        image = preflight.tool_checks(Cloud.GCP, {"BIGRAE_SOURCE_REVISION": "0" * 40})
+        assert "git" not in {check.name for check in image}
 
     def test_gcp_local_flags_insecure_inputs(self, tmp_path):
-        tf_dir = tmp_path / "platform" / "terraform" / "gcp" / "environments" / "gcp-dev"
-        tf_dir.mkdir(parents=True)
-        (tf_dir / "terraform.tfvars").write_text(
-            'public_hostname = "gcp.example.test"\n'
-            "enable_managed_tls = false\n"
-            'gke_master_authorized_cidrs = ["10.42.0.0/16"]\n'
-        )
+        values = {"identity_allowed_email_domain": "example.com", "gke_master_authorized_cidrs": ["0.0.0.0/0"]}
+        bundle = write_bundle(tmp_path / "bundle", terraform_values=values)
         report = preflight.run_preflight(
-            Cloud.GCP, Mode.LOCAL, "gcp-dev", env={}, repo_root=tmp_path, tool_exists=lambda n: "/bin/x"
+            Cloud.GCP, Mode.LOCAL, "acme", env={}, tool_exists=lambda n: "/bin/x", gcp_inputs=str(bundle)
         )
         assert not report.ok
-        assert any("managed TLS" in result.message for result in report.failures)
+        assert any("world-open" in result.message for result in report.failures)
+
+    def test_gcp_local_requires_a_bundle(self):
+        report = preflight.run_preflight(Cloud.GCP, Mode.LOCAL, "acme", env={}, tool_exists=lambda n: "/bin/x")
+        assert any("--store" in result.message for result in report.failures)
 
 
 # --- Report rendering ---------------------------------------------------------

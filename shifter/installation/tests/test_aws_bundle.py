@@ -223,7 +223,7 @@ class TestAwsValidationChecks:
         assert "platform/charts/shifter/values-aws-dev.yaml" in checks["helm-template"]
 
     def test_does_not_declare_gcp_specific_checks(self):
-        # AWS has no platform/k8s/aws overlay; its k8s surface is the shared chart, validated
-        # by helm-template. kustomize-render / kube-linter are GCP-overlay-specific.
+        # The AWS k8s surface is the shared chart, validated by helm-template. No bundle
+        # declares the retired kustomize overlay render (#2571).
         names = self._check_names()
         assert "kustomize-render" not in names

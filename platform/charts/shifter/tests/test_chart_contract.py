@@ -52,9 +52,12 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
 # Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
+# Regenerated for #2571: the chart is the only GCP renderer. Worker readiness
+# probes now match the retired Kustomize base, stale comments are removed, and
+# the two registered Checkov exceptions annotate their chart Deployments.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "4ed3501583b1dd5dfe24dcd44f8fe985460af771eed4bdc15e12909efd34d164",
-    "gcp-prod": "40b84106196b45705050e93f39c8da82ae79bb4cdc2cd1b445a0e028ab89623b",
+    "gcp-dev": "a9a119e3bd41d73235dba18b531d73e2dd73a466eadd4384d3df7310abb986cc",
+    "gcp-prod": "460ee404ef33f948cb8565d475af5e5efcb0564ebe1a4f1d4aa6acd2a4d4648f",
 }
 
 

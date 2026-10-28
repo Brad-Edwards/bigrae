@@ -74,12 +74,15 @@ request increases ahead of the event:
      --projection desired-state --output /tmp/shifter-event-capacity.json
    ```
 
-3. Run the normal reviewed GCP deployment workflow with the rendered Terraform
-   bridge. The deploy applies the profile's pod counts, resources, autoscaler
-   bounds, and Guacamole connection ceiling, so a tier change through CI takes
-   full effect. Do not edit a node pool, Deployment, HPA, BackendConfig, Cloud SQL
-   instance, or Redis instance by hand. The p30 minimums themselves carry the
-   event; autoscaling is supplemental headroom.
+3. Deploy the changed `bigrae.yaml` through the normal GCP deploy. Without
+   GitHub, publish it with `scripts/bootstrap/deploy.py gcp-config publish`
+   and run `gcp-deploy`. A CI-deployed environment updates the
+   `SHIFTER_CONFIG_GCP_DEV` secret and dispatches `deploy.yml`. The deploy
+   renders the Terraform bridge itself. It applies the profile's pod counts,
+   resources, autoscaler bounds, and Guacamole connection ceiling, so a tier
+   change takes full effect. Do not edit a node pool, Deployment, HPA,
+   BackendConfig, Cloud SQL instance, or Redis instance by hand. The p30
+   minimums themselves carry the event; autoscaling is supplemental headroom.
 
 4. Wait for Terraform, GKE rollouts, HPAs, BackendConfigs, Cloud SQL, Redis,
    and the OpenVPN pool (when enabled) to stabilize. Guacamole client replicas must remain exactly one; portal and
@@ -151,8 +154,8 @@ Scale-down is deliberately separate from event qualification.
 
 1. Preserve the gate report and confirm no active event or long-lived RDP
    sessions depend on the event capacity.
-2. Select the normal lower profile in `bigrae.yaml` and run the same reviewed
-   deployment workflow. Never use `kubectl scale` or provider-console edits.
+2. Select the normal lower profile in `bigrae.yaml` and deploy it the same
+   way. Never use `kubectl scale` or provider-console edits.
 3. Allow the 300-second load-balancer drain and 330-second pod termination
    window to complete. HPA scale-down stabilization is 900 seconds.
 4. Re-render desired state and rerun the drift checker. A clean lower-profile

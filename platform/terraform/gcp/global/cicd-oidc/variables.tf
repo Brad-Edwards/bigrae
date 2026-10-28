@@ -72,3 +72,15 @@ variable "github_subject_format" {
     error_message = "github_subject_format must be default or immutable."
   }
 }
+
+variable "impersonation_principals" {
+  description = "Principals that may impersonate each lifecycle purpose identity without GitHub (release_scan, deploy, destroy)."
+  type        = map(list(string))
+  default     = {}
+}
+
+variable "deployment_config_bucket_name" {
+  description = "Bucket for the GitHub-less deployment input bundle. An empty value creates no bucket."
+  type        = string
+  default     = ""
+}

@@ -287,28 +287,30 @@ repos:
         files: ^platform/terraform/modules/portal/rds/main\.tf$
         pass_filenames: false
 
-  # k8s image-registry + PSS-label grep guards (fast, no schema downloads).
-  # kube-linter / kubeconform / helm lint are deferred to CI.
+  # Chart image-registry + PSS-label grep guards (fast, no schema downloads).
+  # helm lint, kube-linter, kubeconform, and Checkov on the rendered chart are
+  # deferred to CI. The bootstrap creates the shifter-platform and shifter-jobs
+  # namespaces; its unit tests check their PSS labels.
   - repo: local
     hooks:
       - id: k8s-image-registry
         name: k8s image registry check
         entry: >-
-          bash -c 'for f in platform/k8s/gcp/overlays/*/kustomization.yaml; do
-          if grep -E "newName:" "$f" | grep -qv "pkg\.dev/"; then
-          echo "ERROR: Images must use Artifact Registry (pkg.dev) in $f" && exit 1; fi; done'
+          bash -c 'for f in platform/charts/shifter/values-gcp-*.yaml; do
+          if sed -n "/^images:/,/^[^ ]/p" "$f" | grep -E "^  [A-Za-z]+: " | grep -qv "pkg\.dev/"; then
+          echo "ERROR: GCP chart images must use Artifact Registry (pkg.dev) in $f" && exit 1; fi; done'
         language: system
-        files: ^platform/k8s/gcp/overlays/.*/kustomization\.yaml$
+        files: ^platform/charts/shifter/values-gcp-.*\.yaml$
         pass_filenames: false
 
       - id: k8s-pss-labels
         name: architecture (k8s PSS labels)
         entry: >-
-          bash -c 'for f in platform/k8s/gcp/base/namespaces.yaml; do if ! grep
-          -q "pod-security.kubernetes.io/enforce" "$f"; then echo "ERROR: $f
+          bash -c 'for f in $(grep -l "^kind: Namespace" platform/charts/shifter/templates/*.yaml); do
+          if ! grep -q "pod-security.kubernetes.io/enforce" "$f"; then echo "ERROR: $f
           must include Pod Security Standards labels" && exit 1; fi; done'
         language: system
-        files: ^platform/k8s/gcp/base/namespaces\.yaml$
+        files: ^platform/charts/shifter/templates/.*\.yaml$
         pass_filenames: false
 
   # =============================================================================
@@ -346,14 +348,14 @@ repos:
         language: python
         additional_dependencies:
           - pyyaml>=6.0
-        files: ^(platform/k8s/gcp/base/.*\.ya?ml$|platform/charts/shifter/.*)
+        files: ^platform/charts/shifter/.*
         pass_filenames: true
         verbose: true
 
-      - id: adr-guard-gcp-overlay-identity
-        name: architecture (adr guard gcp overlay deploy identity)
+      - id: adr-guard-gcp-deploy-identity
+        name: architecture (adr guard gcp chart deploy identity)
         entry: python3 scripts/adr_guard/adr_guard.py --checks no-live-gcp-deploy-identity --files
         language: system
-        files: ^platform/k8s/gcp/overlays/.*
+        files: ^platform/charts/shifter/values.*\.ya?ml$
         pass_filenames: true
         verbose: true

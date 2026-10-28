@@ -1,16 +1,17 @@
-"""Reusable GCE base-image consumption for the supported GCP tenant bootstrap.
+"""Reusable GCE base-image consumption for the supported GCP deployment standup.
 
-A fresh GCP tenant should not re-bake its guest images. At bootstrap time this
-module discovers the minimum base guest set (Kali, Ubuntu, DC) from the public
-GHCR packages published by ``packer-gcp.yml``, validates each artifact and its
-provenance, pins an immutable digest, and imports the disk as a *native GCE
-image* in the target project - reusing an existing image when the digest is
-unchanged, creating a traceable new one when it changes. The caller wires the
-resulting ``GCP_RANGE_*_IMAGE`` references into the deployment (#2309).
+A fresh GCP deployment should not re-bake its guest images. This module discovers
+the minimum base guest set (Kali, Ubuntu, DC) from the OCI packages that
+``packer-gcp.yml`` publishes, validates each artifact and its provenance, pins an
+immutable digest, and imports the disk as a *native GCE image* in the target
+project - reusing an existing image when the digest is unchanged, creating a
+traceable new one when it changes (#2309).
 
-Sourcing is hard-coded to public GHCR. Private packages (#2312) and a shipped
-default image-pack installed through the content-pack/adapter seam are separate
-follow-ups.
+The source registry prefix is an explicit operator input (#2571): the release
+Artifact Registry repository for a GitHub-less deployment, or any other registry
+that holds the ``shifter-gce-<role>`` packages. It is never derived from a GitHub
+repository owner. The caller records the resulting image references in the
+deployment input bundle (``range-images.json``).
 
 Subprocess calls go through ``bootstrap_core.run_cmd`` / ``gcloud_resource_exists``
 so tests mock that boundary (ADR-019). The parsing/validation helpers are pure.
@@ -48,7 +49,7 @@ __all__ = [
 # The minimum reusable base set the supported GCE tenant bootstrap needs.
 BASE_IMAGE_ROLES = ("kali", "ubuntu", "dc")
 
-# OCI contract published by packer-gcp.yml (publish_target=ghcr).
+# OCI contract published by packer-gcp.yml to every configured base-image registry.
 GCE_IMAGE_ARTIFACT_TYPE = "application/vnd.shifter.gce-image.v1"
 GCE_IMAGE_MEDIA_TYPE = "application/vnd.shifter.gce-image.tar.gz"
 
@@ -64,8 +65,8 @@ _ROLE_TO_RANGE_ENV = {
 # runtime range guest uses Shielded VM Secure Boot, so all imported bases must
 # be marked UEFI compatible. Windows-family roles additionally need WINDOWS.
 # The premium Windows license is not carried by a raw disk export/import, so the
-# DC image imported from GHCR is verified for boot/licensing in the #2309 proof-2
-# tenant run.
+# DC image imported from a published base package is verified for boot/licensing
+# in the #2309 proof-2 tenant run.
 _WINDOWS_ROLES = frozenset({"dc"})
 
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -82,7 +83,7 @@ class ResolvedArtifact:
     """A validated, digest-pinned base-image artifact ready to import."""
 
     role: str
-    package: str  # e.g. ghcr.io/<owner>/shifter-gce-kali
+    package: str  # e.g. <registry prefix>/shifter-gce-kali
     digest: str  # sha256:<64 hex>
     disk_digest: str  # sha256:<64 hex> for the validated GCE disk layer
     revision: str  # provenance: the protected build source revision
@@ -109,15 +110,21 @@ class ImportedImage:
     reused: bool
 
 
-def package_for_role(role: str, ghcr_owner: str) -> str:
-    """Return the GHCR package path for a base role.
+_SOURCE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?(?:/[a-z0-9][a-z0-9._-]*)+$")
 
-    ``ghcr_owner`` is the lowercase owner of the resolved target repository
-    (ADR-069). packer-gcp.yml publishes under that owner.
-    """
+
+def validate_source(source: str) -> str:
+    """Return ``source`` when it is a registry prefix such as ``<host>/<project>/<repository>``."""
+    if not _SOURCE_RE.fullmatch(source):
+        raise BaseImageError("base-image source must be a registry prefix such as <host>/<project>/<repository>")
+    return source
+
+
+def package_for_role(role: str, source: str) -> str:
+    """Return the OCI package path for a base role under the explicit source prefix."""
     if role not in BASE_IMAGE_ROLES:
         raise BaseImageError(f"unsupported public base-image role {role!r}")
-    return f"ghcr.io/{ghcr_owner}/shifter-gce-{role}"
+    return f"{validate_source(source)}/shifter-gce-{role}"
 
 
 # --- Pure parsing / validation -----------------------------------------------
@@ -241,8 +248,8 @@ def _discover_newest_tag(package: str) -> str:
     if result is None or result.returncode != 0:
         stderr = (getattr(result, "stderr", "") or "").strip()
         raise BaseImageError(
-            f"no base image found at {package}; publish it via packer-gcp.yml "
-            f"(publish_target=ghcr) then re-run ({stderr or 'oras repo tags failed'})"
+            f"no base image found at {package}; publish it with packer-gcp.yml "
+            f"then re-run ({stderr or 'oras repo tags failed'})"
         )
     tags = [line for line in (result.stdout or "").splitlines() if line.strip()]
     newest = _newest_discovery_tag(tags)
@@ -271,9 +278,9 @@ def _fetch_manifest(package: str, digest: str) -> dict[str, object]:
     )
 
 
-def resolve_artifact(role: str, ghcr_owner: str) -> ResolvedArtifact:
-    """Discover, digest-pin, and validate the GHCR base-image artifact for a role."""
-    package = package_for_role(role, ghcr_owner)
+def resolve_artifact(role: str, source: str) -> ResolvedArtifact:
+    """Discover, digest-pin, and validate the base-image artifact for a role."""
+    package = package_for_role(role, source)
     digest = _fetch_digest(package, _discover_newest_tag(package))
     manifest = _fetch_manifest(package, digest)
     revision = validate_artifact_manifest(manifest, role=role)
@@ -515,7 +522,7 @@ def _delete_transfer_bucket(project: str, bucket: str) -> None:
 def discover_and_import(
     *,
     project: str,
-    ghcr_owner: str,
+    source: str,
     region: str = "us-central1",
     roles: tuple[str, ...] = BASE_IMAGE_ROLES,
     dry_run: bool = False,
@@ -527,10 +534,10 @@ def discover_and_import(
     missing or incompatible artifact raises :class:`BaseImageError` (no silent
     Packer bake, no blind accept).
     """
-    header("Reusable GCE base images (GHCR -> native GCE)")
+    header("Reusable GCE base images (registry -> native GCE)")
     artifacts: list[ResolvedArtifact] = []
     for role in roles:
-        artifact = resolve_artifact(role, ghcr_owner)
+        artifact = resolve_artifact(role, source)
         info(f"Resolved '{role}' -> {artifact.pinned_reference} (build {artifact.revision[:12]})")
         artifacts.append(artifact)
 

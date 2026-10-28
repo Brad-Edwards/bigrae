@@ -35,7 +35,6 @@ from bootstrap_core import (
     header,
     info,
     success,
-    validate_gcp_control_plane_security_inputs,
     warn,
 )
 
@@ -44,6 +43,8 @@ from bootstrap_core import (
 # FAIL, so "no operator" is always a deliberate, logged choice -- never an
 # empty-secret accident (contrast the old silent ``if: secrets != ''`` skip).
 SKIP_OPERATOR_ENV = "SHIFTER_SKIP_OPERATOR_BOOTSTRAP"
+# The deployer image embeds its source revision here (ADR-070).
+SOURCE_REVISION_ENV = "BIGRAE_SOURCE_REVISION"
 
 _AWS_ENVIRONMENTS = AWS_ENVIRONMENTS
 _AWS_ENV_SUFFIX = {"dev": "DEV", "prod": "PROD"}
@@ -250,12 +251,6 @@ def _gcp_secret_checks(component: str | None = None) -> list[SecretCheck]:
             f"Set GCP_BOOTSTRAP_ADMIN_PASSWORD, or opt out with {SKIP_OPERATOR_ENV}=true (see {_DOCS}).",
             opt_out_env=SKIP_OPERATOR_ENV,
         ),
-        SecretCheck(
-            "GCP_MASTER_AUTHORIZED_CIDRS",
-            "GKE authorized CIDRs",
-            False,
-            "Optional; empty locks the GKE control-plane to private endpoints only.",
-        ),
     ]
     if component != "deploy":
         checks.insert(
@@ -277,20 +272,33 @@ def secret_checks(cloud: Cloud, environment: str, component: str | None = None) 
     return _aws_secret_checks(environment, component)
 
 
-def tool_checks(cloud: Cloud) -> list[ToolCheck]:
+def tool_checks(cloud: Cloud, env: Mapping[str, str] | None = None) -> list[ToolCheck]:
     """Return the CLI tools a local deploy requires for a cloud."""
-    common = [
-        ToolCheck("git", "https://git-scm.com/downloads"),
-        ToolCheck("terraform", "https://developer.hashicorp.com/terraform/downloads"),
-    ]
+    env = os.environ if env is None else env
+    git = ToolCheck("git", "https://git-scm.com/downloads")
+    terraform = ToolCheck("terraform", "https://developer.hashicorp.com/terraform/downloads")
     if cloud is Cloud.GCP:
+        # The GitHub-less deploy builds no images (ADR-070); the deployer image holds these tools.
+        # A checkout proves its revision with git; the deployer image embeds its revision.
+        revision_tools = [] if (env.get(SOURCE_REVISION_ENV) or "").strip() else [git]
         return [
-            *common,
+            *revision_tools,
+            terraform,
             ToolCheck("gcloud", "https://cloud.google.com/sdk/docs/install"),
-            ToolCheck("docker", "https://docs.docker.com/engine/install/"),
+            ToolCheck(
+                "gke-gcloud-auth-plugin",
+                "https://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl#install_plugin",
+            ),
             ToolCheck("kubectl", "https://kubernetes.io/docs/tasks/tools/"),
+            ToolCheck("helm", "https://helm.sh/docs/intro/install/"),
+            ToolCheck("oras", "https://oras.land/docs/installation"),
+            ToolCheck("trivy", "https://trivy.dev/latest/getting-started/installation/"),
         ]
-    return [*common, ToolCheck("aws", "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")]
+    return [
+        git,
+        terraform,
+        ToolCheck("aws", "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"),
+    ]
 
 
 # Manual prerequisites the tooling cannot verify; surfaced for interactive
@@ -301,7 +309,7 @@ MANUAL_PREREQS: dict[Cloud, list[str]] = {
         "You can add DNS records for ACM certificate validation and the ALB CNAME.",
     ],
     Cloud.GCP: [
-        "gcloud is authenticated for the target project.",
+        "gcloud is authenticated as a principal that may impersonate the deploy, release-scan, and destroy identities.",
         "You can add the DNS A record for the public hostname (needed for managed TLS).",
     ],
 }
@@ -337,16 +345,37 @@ def _eval_tool(check: ToolCheck, tool_exists: Callable[[str], str | None]) -> Ch
     return CheckResult(f"tool: {check.name}", Status.FAIL, f"not found. Install: {check.install_url}")
 
 
-def _gcp_local_input_checks(environment: str, repo_root: Path) -> list[CheckResult]:
-    """Evaluate GCP local tfvars-overlay security posture via the shared validator."""
-    tf_dir = repo_root / "platform" / "terraform" / "gcp" / "environments" / environment
-    if not tf_dir.exists():
-        return [CheckResult("GCP tfvars", Status.FAIL, f"missing Terraform environment dir {tf_dir}")]
-    try:
-        validate_gcp_control_plane_security_inputs(tf_dir)
-    except ValueError as exc:
-        return [CheckResult("GCP control-plane inputs", Status.FAIL, str(exc))]
-    return [CheckResult("GCP control-plane inputs", Status.OK, "public hostname, managed TLS, and CIDRs are valid")]
+def _gcp_bundle_checks(source: str) -> list[CheckResult]:
+    """Validate a GitHub-less deployment input bundle without changing anything (ADR-070)."""
+    name = "GCP deployment inputs"
+    if not source:
+        return [
+            CheckResult(
+                name,
+                Status.FAIL,
+                "pass --store gs://<deployment-config-bucket> or --inputs <dir> "
+                "(see docs/technical/handbook/gcp-github-less-deployment.md)",
+            )
+        ]
+    import tempfile
+
+    from gcp_inputs import DeploymentInputError, load_deployment_inputs
+    from gcp_process import GcpCommandError, ProcessRunner
+    from gcp_terraform import render_var_files
+
+    with tempfile.TemporaryDirectory(prefix="bigrae-preflight-") as scratch:
+        try:
+            inputs = load_deployment_inputs(source, Path(scratch) / "inputs", ProcessRunner(), {})
+            render_var_files(inputs, Path(scratch))
+        except (DeploymentInputError, GcpCommandError, ValueError) as exc:
+            return [CheckResult(name, Status.FAIL, str(exc))]
+    return [
+        CheckResult(
+            name,
+            Status.OK,
+            f"{inputs.environment}: root config, Terraform values, public hostname, managed TLS, and CIDRs are valid",
+        )
+    ]
 
 
 def _aws_eks_local_input_checks(environment: str, base: Path) -> list[CheckResult]:
@@ -406,12 +435,15 @@ def run_preflight(
     env: Mapping[str, str] | None = None,
     repo_root: Path | None = None,
     tool_exists: Callable[[str], str | None] | None = None,
+    gcp_inputs: str = "",
 ) -> PreflightReport:
     """Evaluate every applicable prerequisite and return a structured report.
 
     Pure aside from the injected boundaries: ``env`` (defaults to the process
     environment), ``repo_root`` (defaults to :func:`get_repo_root`), and
-    ``tool_exists`` (defaults to :func:`shutil.which`).
+    ``tool_exists`` (defaults to :func:`shutil.which`). ``gcp_inputs`` names the
+    GCP deployment input bundle (a config bucket prefix or a directory) that a
+    local GCP preflight validates.
     """
     if cloud is Cloud.AWS and environment not in _AWS_ENVIRONMENTS:
         return PreflightReport(
@@ -428,9 +460,9 @@ def run_preflight(
     if mode is Mode.CI:
         results.extend(_eval_secret(check, env) for check in secret_checks(cloud, environment, component))
     else:
-        results.extend(_eval_tool(check, tool_exists) for check in tool_checks(cloud))
+        results.extend(_eval_tool(check, tool_exists) for check in tool_checks(cloud, env))
         if cloud is Cloud.GCP:
-            results.extend(_gcp_local_input_checks(environment, repo_root))
+            results.extend(_gcp_bundle_checks(gcp_inputs))
         elif component is not None:
             results.extend(_aws_local_input_checks(environment, component, repo_root))
     return PreflightReport(cloud=cloud.value, mode=mode.value, environment=environment, results=results)
@@ -453,6 +485,7 @@ def preflight_gate(
     *,
     component: str | None = None,
     headless: bool | None = None,
+    gcp_inputs: str = "",
 ) -> PreflightReport:
     """Run preflight, print the report, confirm manual prereqs, and fail-fast.
 
@@ -464,7 +497,7 @@ def preflight_gate(
     repository, and ``PATH``. Unit tests drive the pure :func:`run_preflight`
     directly (which takes injectable ``env`` / ``repo_root`` / ``tool_exists``).
     """
-    report = run_preflight(cloud, mode, environment, component=component)
+    report = run_preflight(cloud, mode, environment, component=component, gcp_inputs=gcp_inputs)
     header(f"Deploy preflight ({cloud.value} / {environment})")
     for result in report.results:
         _emit_result(result)

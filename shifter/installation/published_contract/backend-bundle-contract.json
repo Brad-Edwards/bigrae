@@ -2085,7 +2085,7 @@
       ],
       "contract_version": 1,
       "deploy": null,
-      "description": "Shifter on GCP: GKE workloads, Cloud SQL, Pub/Sub, GCS, Secret Manager, and Identity Platform identity, provisioned by the Terraform configuration under platform/terraform/gcp with Kubernetes overlays under platform/k8s/gcp and the shared Helm chart under platform/charts/shifter.",
+      "description": "Shifter on GCP: GKE workloads, Cloud SQL, Pub/Sub, GCS, Secret Manager, and Identity Platform identity, provisioned by the Terraform configuration under platform/terraform/gcp, with the workloads rendered by the shared Helm chart under platform/charts/shifter.",
       "docs": [
         "docs/architecture/root-configured-backend-bundles.md",
         "shifter/installation/README.md"
@@ -4209,16 +4209,17 @@
       "owned_files": {
         "docs": [
           "platform/terraform/gcp/README.md",
-          "platform/k8s/gcp/README.md"
+          "docs/technical/handbook/gcp-github-less-deployment.md",
+          "docs/runbooks/rb023-gcp-deployment.md"
         ],
         "examples": [
           "shifter/installation/examples/gcp.yaml"
         ],
         "infrastructure": [
-          "platform/terraform/gcp"
+          "platform/terraform/gcp",
+          "platform/deployer/gcp"
         ],
         "kubernetes": [
-          "platform/k8s/gcp",
           "platform/charts/shifter"
         ],
         "scripts": [
@@ -4226,7 +4227,9 @@
           "scripts/bootstrap"
         ],
         "workflows": [
-          ".github/workflows/_gcp-dev.yml"
+          ".github/workflows/_gcp-dev.yml",
+          ".github/workflows/gcp-dev-destroy.yml",
+          ".github/workflows/release-gcp.yml"
         ]
       },
       "required_secrets": [
@@ -4261,17 +4264,22 @@
         {
           "min_version": null,
           "name": "kubectl",
-          "purpose": "apply Kubernetes manifests under platform/k8s/gcp"
+          "purpose": "apply the objects outside the Helm release and check rollouts on the GKE cluster"
         },
         {
           "min_version": null,
           "name": "kube-linter",
-          "purpose": "lint the GCP Kubernetes manifests (platform/k8s/gcp) for security posture"
+          "purpose": "lint the rendered platform chart (platform/charts/shifter) for security posture"
         },
         {
           "min_version": null,
-          "name": "docker",
-          "purpose": "build the Shifter Platform container image"
+          "name": "oras",
+          "purpose": "copy release images and their attestations into the deployment registry"
+        },
+        {
+          "min_version": null,
+          "name": "trivy",
+          "purpose": "scan the exact release image digests before rollout"
         }
       ],
       "settings_schema": {
@@ -4432,6 +4440,159 @@
             "title": "GcpOpenFgaSettings",
             "type": "object"
           },
+          "GcpOperatorBootstrapSettings": {
+            "additionalProperties": false,
+            "description": "First Identity Platform operator and Django elevation lists.",
+            "properties": {
+              "admin_email": {
+                "default": "",
+                "description": "First Identity Platform operator. It must match the Identity Platform allow-list.",
+                "maxLength": 254,
+                "pattern": "^$|^[^@\\s,]+@[^@\\s,]+\\.[^@\\s,]+$",
+                "title": "Admin Email",
+                "type": "string"
+              },
+              "admin_password_secret_ref": {
+                "anyOf": [
+                  {
+                    "pattern": "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/secrets/[A-Za-z0-9_-]{1,255}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Versionless Secret Manager resource that holds the initial operator password.",
+                "title": "Admin Password Secret Ref"
+              },
+              "enabled": {
+                "default": true,
+                "description": "Create the first operator. Set false to skip operator creation deliberately.",
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              "staff_emails": {
+                "description": "Accounts elevated to Django staff on first sign-in.",
+                "items": {
+                  "maxLength": 254,
+                  "pattern": "^[^@\\s,]+@[^@\\s,]+\\.[^@\\s,]+$",
+                  "type": "string"
+                },
+                "title": "Staff Emails",
+                "type": "array"
+              },
+              "superuser_emails": {
+                "description": "Accounts elevated to Django superuser on first sign-in.",
+                "items": {
+                  "maxLength": 254,
+                  "pattern": "^[^@\\s,]+@[^@\\s,]+\\.[^@\\s,]+$",
+                  "type": "string"
+                },
+                "title": "Superuser Emails",
+                "type": "array"
+              }
+            },
+            "title": "GcpOperatorBootstrapSettings",
+            "type": "object"
+          },
+          "GcpParticipantOpenVpnSettings": {
+            "additionalProperties": false,
+            "description": "Participant OpenVPN opt-in (formerly RANGE_OPENVPN_ENABLED).",
+            "properties": {
+              "enabled": {
+                "default": false,
+                "description": "Deploy the shared participant OpenVPN pool.",
+                "title": "Enabled",
+                "type": "boolean"
+              }
+            },
+            "title": "GcpParticipantOpenVpnSettings",
+            "type": "object"
+          },
+          "GcpPostDeploySmokeSettings": {
+            "additionalProperties": false,
+            "description": "Identity for the advisory post-deploy range smoke (formerly SMOKE_TEST_USER_EMAIL).",
+            "properties": {
+              "user_email": {
+                "default": "",
+                "description": "Existing portal account that the smoke Job acts as. Empty skips the smoke.",
+                "maxLength": 254,
+                "pattern": "^$|^[^@\\s,]+@[^@\\s,]+\\.[^@\\s,]+$",
+                "title": "User Email",
+                "type": "string"
+              }
+            },
+            "title": "GcpPostDeploySmokeSettings",
+            "type": "object"
+          },
+          "GcpRangeCellSettings": {
+            "additionalProperties": false,
+            "description": "GCE range-cell placement and guest-profile inputs (formerly GitHub variables).",
+            "properties": {
+              "backend": {
+                "default": "gce",
+                "description": "Range backend selector (GCP_RANGE_BACKEND). gce is the supported default; gdc is legacy.",
+                "enum": [
+                  "gce",
+                  "gdc"
+                ],
+                "title": "Backend",
+                "type": "string"
+              },
+              "host_identity_pool_size": {
+                "default": 0,
+                "description": "Range-host identity pool size (GCP_RANGE_HOST_IDENTITY_POOL_SIZE and the Terraform pool).",
+                "minimum": 0,
+                "title": "Host Identity Pool Size",
+                "type": "integer"
+              },
+              "image_key_profiles": {
+                "additionalProperties": true,
+                "description": "Keyed guest image profiles (GCP_RANGE_IMAGE_KEY_PROFILES_JSON). The provisioner validates entries.",
+                "title": "Image Key Profiles",
+                "type": "object"
+              },
+              "private_google_access": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Private Google Access on range subnets (GCP_RANGE_PRIVATE_GOOGLE_ACCESS). Null keeps the default.",
+                "title": "Private Google Access"
+              },
+              "project_id": {
+                "default": "",
+                "description": "Range-cell project (GCP_RANGE_CELL_PROJECT_ID). Empty selects the deployment project.",
+                "pattern": "^$|^[a-z][a-z0-9-]{4,28}[a-z0-9]$",
+                "title": "Project Id",
+                "type": "string"
+              },
+              "zone": {
+                "default": "",
+                "description": "Primary range zone (RANGE_NETWORK_ZONE). The GCE backend requires it to launch a range.",
+                "pattern": "^$|^[a-z]+-[a-z]+[0-9]+-[a-z]$",
+                "title": "Zone",
+                "type": "string"
+              },
+              "zones": {
+                "description": "Optional ordered multi-region zone pool (RANGE_NETWORK_ZONES). Empty keeps one zone.",
+                "items": {
+                  "pattern": "^[a-z]+-[a-z]+[0-9]+-[a-z]$",
+                  "type": "string"
+                },
+                "title": "Zones",
+                "type": "array"
+              }
+            },
+            "title": "GcpRangeCellSettings",
+            "type": "object"
+          },
           "GcpRangeTelemetryPolicy": {
             "additionalProperties": false,
             "description": "Operator range telemetry policy for a GCP deployment.",
@@ -4447,6 +4608,30 @@
               }
             },
             "title": "GcpRangeTelemetryPolicy",
+            "type": "object"
+          },
+          "GcpReleaseTrustSettings": {
+            "additionalProperties": false,
+            "description": "Immutable repository identity that signs release provenance (ADR-069-R3, ADR-070).",
+            "properties": {
+              "github_owner_id": {
+                "description": "Numeric ID of that repository's owner.",
+                "pattern": "^[1-9][0-9]*$",
+                "title": "Github Owner Id",
+                "type": "string"
+              },
+              "github_repository_id": {
+                "description": "Numeric ID of the repository whose workflows sign releases.",
+                "pattern": "^[1-9][0-9]*$",
+                "title": "Github Repository Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "github_repository_id",
+              "github_owner_id"
+            ],
+            "title": "GcpReleaseTrustSettings",
             "type": "object"
           },
           "ModelBrokerRuntimeSettings": {
@@ -4678,6 +4863,13 @@
             "title": "Cloud Sql Iam Auth",
             "type": "boolean"
           },
+          "ctf_content_bucket": {
+            "default": "",
+            "description": "Private bucket of digest-pinned CTF content bundles. Empty disables the binding.",
+            "pattern": "^$|^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$",
+            "title": "Ctf Content Bucket",
+            "type": "string"
+          },
           "dynamic_secret_project_id": {
             "description": "Pre-existing deployment-scoped GCP project for provisioner-created range secrets. It may equal project_id for the supported single-project topology.",
             "maxLength": 30,
@@ -4702,6 +4894,26 @@
           },
           "openfga": {
             "$ref": "#/$defs/GcpOpenFgaSettings"
+          },
+          "operator_bootstrap": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/GcpOperatorBootstrapSettings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "First Identity Platform operator. The deploy command requires this block."
+          },
+          "participant_openvpn": {
+            "$ref": "#/$defs/GcpParticipantOpenVpnSettings",
+            "description": "Participant OpenVPN pool opt-in."
+          },
+          "post_deploy_smoke": {
+            "$ref": "#/$defs/GcpPostDeploySmokeSettings",
+            "description": "Identity for the advisory post-deploy range smoke."
           },
           "project_id": {
             "description": "GCP project id: 6-30 characters, a lowercase letter followed by lowercase letters, digits, and hyphens, not ending in a hyphen.",
@@ -4729,6 +4941,10 @@
             "title": "Provisioner Static Secret Refs",
             "type": "object"
           },
+          "range_cells": {
+            "$ref": "#/$defs/GcpRangeCellSettings",
+            "description": "GCE range-cell placement and guest-profile inputs."
+          },
           "range_telemetry": {
             "$ref": "#/$defs/GcpRangeTelemetryPolicy",
             "description": "Range audit telemetry (#2535): VPC Flow Logs on range subnets, Cloud NAT logging on range egress, and Vertex AI Data Access audit logs. Every control is on by default; an explicit change reduces coverage and cost as documented in docs/dev/gcp-range-cell-deploy.md."
@@ -4738,6 +4954,18 @@
             "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
             "title": "Region",
             "type": "string"
+          },
+          "release_trust": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/GcpReleaseTrustSettings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Repository identity that signs release provenance. The deploy command requires it."
           },
           "shared_service_capacity_profile": {
             "default": "gcp-shared-v1-p10",
@@ -4808,25 +5036,14 @@
             "argv": [
               "helm",
               "template",
-              "platform/charts/shifter"
+              "platform/charts/shifter",
+              "--values",
+              "platform/charts/shifter/values-gcp-dev.yaml"
             ],
-            "description": "Render the shared platform Helm chart to catch template errors."
+            "description": "Render the shared platform chart with the GCP profile values to catch template/value errors."
           },
-          "description": "Fail closed if the platform chart does not render.",
+          "description": "Fail closed if the platform chart does not render with the GCP values projection.",
           "name": "helm-template"
-        },
-        {
-          "blocking": true,
-          "command": {
-            "argv": [
-              "kubectl",
-              "kustomize",
-              "platform/k8s/gcp/overlays/gcp-dev"
-            ],
-            "description": "Render the GCP Kubernetes overlay to catch kustomize errors."
-          },
-          "description": "Fail closed if the GCP Kubernetes overlay does not render.",
-          "name": "kustomize-render"
         },
         {
           "blocking": true,
@@ -4836,9 +5053,9 @@
               "lint",
               "--config",
               ".kube-linter.yaml",
-              "platform/k8s/gcp/"
+              "platform/charts/shifter"
             ],
-            "description": "Lint the GCP Kubernetes manifests for workload security posture."
+            "description": "Lint the rendered platform chart for workload security posture."
           },
           "description": "Enforce the Kubernetes workload security posture (PSS, capabilities, limits).",
           "name": "kube-linter"

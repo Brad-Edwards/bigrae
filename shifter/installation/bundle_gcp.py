@@ -200,9 +200,12 @@ def _gcp_generated_outputs() -> tuple[GeneratedOutput, ...]:
 
 # Canonical pre-mutation validation front doors for the GCP bundle. Each is a pure,
 # repository-relative argv array whose executable is a declared required tool. They are the
-# fast, credential-free checks a setup/doctor flow runs before touching infrastructure;
-# the fuller pre-mutation suite (tflint with init, kubeconform, runtime-env rendering from
-# representative Terraform outputs, admission parity) stays CI-enforced in _gcp-dev.yml.
+# fast, credential-free checks a setup/doctor flow runs before touching infrastructure. The
+# shared Helm chart is the only GCP Kubernetes renderer (ADR-007, #2571), so helm-template
+# (rendered with the GCP profile values) and kube-linter on the chart are the Kubernetes
+# front doors. The fuller pre-mutation suite (tflint with init, kubeconform and Checkov on
+# every rendered profile, runtime-env rendering from representative Terraform outputs,
+# admission parity) stays CI-enforced in _quality.yml and in the gcp-deploy lifecycle.
 _GCP_VALIDATION_CHECKS: tuple[ValidationCheck, ...] = (
     ROOT_CONFIG_CHECK,
     ValidationCheck(
@@ -216,24 +219,22 @@ _GCP_VALIDATION_CHECKS: tuple[ValidationCheck, ...] = (
     ValidationCheck(
         name="helm-template",
         command=CommandSpec(
-            argv=("helm", "template", SHIFTER_CHART_PATH),
-            description="Render the shared platform Helm chart to catch template errors.",
+            argv=(
+                "helm",
+                "template",
+                SHIFTER_CHART_PATH,
+                "--values",
+                "platform/charts/shifter/values-gcp-dev.yaml",
+            ),
+            description="Render the shared platform chart with the GCP profile values to catch template/value errors.",
         ),
-        description="Fail closed if the platform chart does not render.",
-    ),
-    ValidationCheck(
-        name="kustomize-render",
-        command=CommandSpec(
-            argv=("kubectl", "kustomize", "platform/k8s/gcp/overlays/gcp-dev"),
-            description="Render the GCP Kubernetes overlay to catch kustomize errors.",
-        ),
-        description="Fail closed if the GCP Kubernetes overlay does not render.",
+        description="Fail closed if the platform chart does not render with the GCP values projection.",
     ),
     ValidationCheck(
         name="kube-linter",
         command=CommandSpec(
-            argv=("kube-linter", "lint", "--config", ".kube-linter.yaml", "platform/k8s/gcp/"),
-            description="Lint the GCP Kubernetes manifests for workload security posture.",
+            argv=("kube-linter", "lint", "--config", ".kube-linter.yaml", SHIFTER_CHART_PATH),
+            description="Lint the rendered platform chart for workload security posture.",
         ),
         description="Enforce the Kubernetes workload security posture (PSS, capabilities, limits).",
     ),
@@ -247,8 +248,8 @@ GCP_BUNDLE = BackendBundle(
     maturity=BackendMaturity.STABLE,
     description=(
         "Shifter on GCP: GKE workloads, Cloud SQL, Pub/Sub, GCS, Secret Manager, and Identity Platform "
-        "identity, provisioned by the Terraform configuration under platform/terraform/gcp with Kubernetes "
-        "overlays under platform/k8s/gcp and the shared Helm chart under platform/charts/shifter."
+        "identity, provisioned by the Terraform configuration under platform/terraform/gcp, with the "
+        "workloads rendered by the shared Helm chart under platform/charts/shifter."
     ),
     supported_profiles=frozenset({"prod", "dev"}),
     settings_model=GcpBackendSettings,
@@ -257,12 +258,16 @@ GCP_BUNDLE = BackendBundle(
         RequiredTool(name="terraform", purpose="provision GCP infrastructure (platform/terraform/gcp)"),
         RequiredTool(name="gcloud", purpose="Google Cloud SDK: authentication, GKE credentials, Secret Manager"),
         RequiredTool(name="helm", purpose="render and install the platform chart (platform/charts/shifter)"),
-        RequiredTool(name="kubectl", purpose="apply Kubernetes manifests under platform/k8s/gcp"),
+        RequiredTool(
+            name="kubectl",
+            purpose="apply the objects outside the Helm release and check rollouts on the GKE cluster",
+        ),
         RequiredTool(
             name="kube-linter",
-            purpose="lint the GCP Kubernetes manifests (platform/k8s/gcp) for security posture",
+            purpose="lint the rendered platform chart (platform/charts/shifter) for security posture",
         ),
-        RequiredTool(name="docker", purpose="build the Shifter Platform container image"),
+        RequiredTool(name="oras", purpose="copy release images and their attestations into the deployment registry"),
+        RequiredTool(name="trivy", purpose="scan the exact release image digests before rollout"),
     ),
     required_secrets=(
         RequiredSecret(
@@ -280,12 +285,20 @@ GCP_BUNDLE = BackendBundle(
     health_checks=(PORTAL_HEALTH_CHECK,),
     capabilities=AWS_AND_GCP_CAPABILITIES,
     owned_files=OwnedFiles(
-        infrastructure=("platform/terraform/gcp",),
-        kubernetes=("platform/k8s/gcp", SHIFTER_CHART_PATH),
+        infrastructure=("platform/terraform/gcp", "platform/deployer/gcp"),
+        kubernetes=(SHIFTER_CHART_PATH,),
         scripts=("scripts/gcp", "scripts/bootstrap"),
-        workflows=(".github/workflows/_gcp-dev.yml",),
+        workflows=(
+            ".github/workflows/_gcp-dev.yml",
+            ".github/workflows/gcp-dev-destroy.yml",
+            ".github/workflows/release-gcp.yml",
+        ),
         examples=("shifter/installation/examples/gcp.yaml",),
-        docs=("platform/terraform/gcp/README.md", "platform/k8s/gcp/README.md"),
+        docs=(
+            "platform/terraform/gcp/README.md",
+            "docs/technical/handbook/gcp-github-less-deployment.md",
+            "docs/runbooks/rb023-gcp-deployment.md",
+        ),
     ),
     docs=("docs/architecture/root-configured-backend-bundles.md", "shifter/installation/README.md"),
 )

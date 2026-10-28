@@ -86,9 +86,7 @@ metadata:
   # GKE Workload Identity: pods mint their GSA token from the node-local GKE
   # metadata server (169.254.169.254). Dataplane V2 enforces the default-deny
   # egress, so without this allow the token mint hangs and every Google API call
-  # (Secret Manager, Pub/Sub) fails on auth. Mirrors the kustomize base
-  # (platform/k8s/gcp/base/networkpolicies.yaml) so the Helm and kustomize deploy
-  # paths enforce the same posture.
+  # (Secret Manager, Pub/Sub) fails on auth.
   name: allow-platform-metadata-server-egress
   namespace: {{ .Values.namespaces.platform }}
   labels:
@@ -332,8 +330,7 @@ spec:
   # The provisioner Job reaches range guests during provisioning (host/guest SSH
   # setup and WinRM). Range VMs are
   # private-only, so without this the default-deny blocks the provisioner -> range
-  # path even though the per-range GCE firewall permits it. Kustomize parity:
-  # render_private_service_netpol.py emits the same rule.
+  # path even though the per-range GCE firewall permits it.
   podSelector: {}
   policyTypes:
     - Egress

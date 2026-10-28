@@ -28,7 +28,7 @@ tags. Teardown is explicit and scoped to the isolated EKS root:
 | Backend | Profiles | Required secrets | Settings validation |
 | --- | --- | --- | --- |
 | `aws` | `prod`, `dev` | `django_secret_key`, `db_password` | Closed model: `region` (required). |
-| `gcp` | `prod`, `dev` | `django_secret_key` | Closed model: `project_id` and `region` (required). |
+| `gcp` | `prod`, `dev` | `django_secret_key` | Closed model: `project_id` and `region` (required), plus the optional deployment-input blocks below. |
 
 Both the `aws` (#728) and `gcp` (#729) entries validate their `settings` against a closed
 model and each secret reference against a machine-readable grammar; unknown keys fail fast.
@@ -40,6 +40,18 @@ For AWS, `region` is required. For GCP, `project_id` and `region` are required.
 | --- | --- | --- |
 | `project_id` | yes | GCP project id (6-30 chars, a lowercase letter then lowercase letters/digits/hyphens, no trailing hyphen). |
 | `region` | yes | GCP region/location, for example `us-central1`. |
+| `range_cells` | no | GCE range-cell placement: `backend` (`gce` default or `gdc`), `zone`, `zones`, `project_id`, `host_identity_pool_size`, `private_google_access`, and `image_key_profiles` (32,768 bytes maximum). |
+| `participant_openvpn` | no | `enabled` (default `false`) deploys the shared participant OpenVPN pool. |
+| `ctf_content_bucket` | no | The private CTF content bucket name. |
+| `operator_bootstrap` | no | The first Identity Platform operator: `enabled` (default `true`), `admin_email`, `admin_password_secret_ref` (`projects/<project>/secrets/<id>`), `staff_emails`, and `superuser_emails`. `enabled` requires `admin_email`. |
+| `post_deploy_smoke` | no | `user_email`: the existing portal account for the advisory post-deploy smoke. Empty skips the smoke. |
+| `release_trust` | no | `github_repository_id` and `github_owner_id`: the numeric IDs of the repository that signs the release provenance. The GitHub-less deploy requires it. |
+
+The deployment-input blocks hold the GCP deploy inputs that GitHub variables and
+secrets held before #2571 (`settings_gcp_deploy.py`). The GCP deploy command
+(`scripts/bootstrap/deploy.py gcp-deploy`) projects them onto the runtime
+environment and the platform Terraform values. The values are public
+identifiers or secret references, never secret values.
 
 The GCP `django_secret_key` reference must be a Google Secret Manager resource name
 (`projects/<project>/secrets/<name>/versions/<version>`), a GitHub Actions secret name, an
@@ -193,8 +205,11 @@ uv run --project shifter/installation shifter-config render shifter.yaml \
 
 # GCP: emits `range_egress_mode` + `range_egress_allowed_cidrs`
 uv run --project shifter/installation shifter-config render shifter.yaml \
-  --output platform/terraform/gcp/environments/gcp-dev/range_egress.auto.tfvars
+  --output /private/staging/range_egress.auto.tfvars
 ```
+
+The GCP deploy command runs this render itself into its private var files, so a
+GCP deploy needs no manual render.
 
 The backend is read from `shifter.yaml`; the renderer emits the matching bridge
 variables. Without `--output` the rendered tfvars is written to stdout. The
@@ -236,11 +251,30 @@ uv run --project shifter/installation shifter-config runtime-inventory --check
 ```
 
 The runtime-inventory check compares file paths and env-key names only. It
-does not print values. Today it guards the GCP static runtime env, keeps the
-tracked generated runtime stub assignment-free, records the generated renderer
-key contract, and documents the boundary between the public `shifter.yaml`
-installation config, the checked-in `.shifter.yaml` MCP ops policy, and
-gitignored local `.env` files.
+does not print values. Today it guards the committed GCP chart values files,
+rejects a committed value for a renderer-owned runtime key, records the
+generated renderer key contract, and documents the boundary between the public
+`shifter.yaml` installation config, the checked-in `.shifter.yaml` MCP ops
+policy, and gitignored local `.env` files.
+
+## GCP Release Manifest
+
+`shifter-config gcp-release-manifest` writes the `bigrae.gcp-release.v1`
+manifest of one built revision: the version, the full source revision, the Helm
+chart version, and the exact `repository@sha256` identity of each control-plane
+image (`portal`, `provisioner`, `guacd`, `guacamole-client`, and `openvpn`). The
+release workflow and the CI deploy write it; the GCP deploy command reads it.
+
+```bash
+uv run --project shifter/installation shifter-config gcp-release-manifest \
+  --version 1.2.3 --source-revision <40-hex revision> --chart-version <chart version> \
+  --image portal=<registry>/portal@sha256:<digest> \
+  --image provisioner=<registry>/provisioner@sha256:<digest> \
+  --image guacd=<registry>/guacd@sha256:<digest> \
+  --image guacamole-client=<registry>/guacamole-client@sha256:<digest> \
+  --image openvpn=<registry>/openvpn@sha256:<digest> \
+  --output release.json
+```
 
 ## Backend Bundle Contract
 
@@ -304,11 +338,13 @@ express), so a bundle it accepts is one the internal contract accepts too.
 | `registry.py` | Supported backend bundle registry. |
 | `settings_aws.py` | Closed AWS operator settings model and secret-reference grammar. |
 | `settings_gcp.py` | Closed GCP operator settings model. |
+| `settings_gcp_deploy.py` | Closed GCP deployment-input settings and their runtime and Terraform projections. |
+| `gcp_release.py` | GCP release manifest model, parser, and writer. |
 | `publication.py` | Generate and check the published, versioned contract artifact. |
 | `runtime_inventory.py` | Runtime config surface inventory and env-key drift checker. |
 | `runtime_inventory_aws.py` | AWS backend runtime-env key inventories (required, renderer-owned, provisioner-forwarded). |
 | `runtime_inventory_gcp.py` | GCP backend runtime-env key inventories. |
-| `cli.py` | `shifter-config init`, `validate`, `doctor`, `render`, `runtime-inventory`, and `contract`. |
+| `cli.py` | `shifter-config init`, `validate`, `doctor`, `render`, `runtime-inventory`, `contract`, and `gcp-release-manifest`. |
 | `doctor.py` | Backend-aware `doctor` executor: tier-classified checks over the selected bundle. |
 | `scaffold.py` | `init` scaffolding: copy a checked example to a starting `shifter.yaml`. |
 | `render.py` | Render `settings.range_egress` into provider Terraform bridge tfvars. |

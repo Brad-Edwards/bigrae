@@ -33,6 +33,14 @@ from shared.gcp_range_telemetry import GcpRangeTelemetryPolicy
 from .capacity_profiles_gcp import CapacityProfileId, resolve_capacity_profile
 from .gcp_model_broker import GcpModelBrokerSettings
 from .model_broker_runtime import ModelBrokerRuntimeSettings
+from .settings_gcp_deploy import (
+    CTF_CONTENT_BUCKET_PATTERN,
+    GcpOperatorBootstrapSettings,
+    GcpParticipantOpenVpnSettings,
+    GcpPostDeploySmokeSettings,
+    GcpRangeCellSettings,
+    GcpReleaseTrustSettings,
+)
 
 # GCP project id grammar: 6-30 characters, starting with a lowercase letter, then lowercase
 # letters, digits, and hyphens, and not ending in a hyphen. This is Google's documented
@@ -167,6 +175,35 @@ class GcpBackendSettings(BaseModel):
     )
     model_broker: GcpModelBrokerSettings = Field(default_factory=GcpModelBrokerSettings)
     model_broker_runtime: ModelBrokerRuntimeSettings | None = None
+
+    # Deployment inputs that GitHub Environment variables and secrets held before #2571.
+    # A GitHub-less deployment keeps them here, in the Terraform values, or in Secret
+    # Manager (ADR-070). Values are identifiers or references, never secret payloads.
+    range_cells: GcpRangeCellSettings = Field(
+        default_factory=GcpRangeCellSettings,
+        description="GCE range-cell placement and guest-profile inputs.",
+    )
+    participant_openvpn: GcpParticipantOpenVpnSettings = Field(
+        default_factory=GcpParticipantOpenVpnSettings,
+        description="Participant OpenVPN pool opt-in.",
+    )
+    ctf_content_bucket: str = Field(
+        default="",
+        pattern=CTF_CONTENT_BUCKET_PATTERN,
+        description="Private bucket of digest-pinned CTF content bundles. Empty disables the binding.",
+    )
+    operator_bootstrap: GcpOperatorBootstrapSettings | None = Field(
+        default=None,
+        description="First Identity Platform operator. The deploy command requires this block.",
+    )
+    post_deploy_smoke: GcpPostDeploySmokeSettings = Field(
+        default_factory=GcpPostDeploySmokeSettings,
+        description="Identity for the advisory post-deploy range smoke.",
+    )
+    release_trust: GcpReleaseTrustSettings | None = Field(
+        default=None,
+        description="Repository identity that signs release provenance. The deploy command requires it.",
+    )
 
     @model_validator(mode="after")
     def validate_capacity_profile(self) -> GcpBackendSettings:

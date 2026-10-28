@@ -37,9 +37,11 @@ Secret Manager values, process environments, or complete Terraform outputs.
 
 Use the application service boundary for range, account, upload, and credential
 changes. Use the protected deployment workflow for infrastructure, image,
-migration, or workload changes. Direct SQL, hand-built events, local production
-Terraform/Helm, arbitrary `kubectl exec`, and deleting cloud resources by name
-are not recovery paths.
+migration, or workload changes. A GCP deployment without GitHub uses the
+release-driven `gcp-deploy` command instead (see the
+[GitHub-less GCP deployment guide](../technical/handbook/gcp-github-less-deployment.md)).
+Direct SQL, hand-built events, hand-run production Terraform or Helm, arbitrary
+`kubectl exec`, and deleting cloud resources by name are not recovery paths.
 
 Escalate when the safe mutation surface is absent, ownership is ambiguous,
 cleanup cannot be proven, a security boundary may have failed, or recovery
@@ -59,7 +61,8 @@ silently weakening containment, retention, admission, or cleanup checks.
 
 | Need | Start here |
 | --- | --- |
-| Install, upgrade, or roll back | [RB012](rb012-portal-deployment.md), [RB013](rb013-infrastructure-deployment.md), [RB015](rb015-database-migrations.md) |
+| Install, upgrade, or roll back | [RB012](rb012-portal-deployment.md), [RB013](rb013-infrastructure-deployment.md), [RB015](rb015-database-migrations.md), [RB023](rb023-gcp-deployment.md) |
+| GitHub-less GCP deploy, update, or teardown failure | [RB023](rb023-gcp-deployment.md) |
 | Back up, restore, and reconcile | [RB014](rb014-database-backup-restore.md), [RB003](rb003-orphaned-range-resources.md) |
 | Queue or provider dependency outage | [RB008](rb008-dead-letter-messages.md), [RB020](rb020-provisioner-timeout.md) |
 | Sensor or collector loss | [RB007](rb007-logs-not-flowing.md) |
@@ -95,6 +98,7 @@ silently weakening containment, retention, admission, or cleanup checks.
 | [RB020](rb020-provisioner-timeout.md) | Provisioner timeout |
 | [RB021](rb021-high-database-connections.md) | High database connections |
 | [RB022](rb022-firehose-delivery-lag.md) | AWS Firehose delivery lag |
+| [RB023](rb023-gcp-deployment.md) | GitHub-less GCP deploy, update, or teardown failed |
 
 Detailed current-state ownership is in the [architecture
 handbook](../technical/architecture.md). Existing provider procedures under

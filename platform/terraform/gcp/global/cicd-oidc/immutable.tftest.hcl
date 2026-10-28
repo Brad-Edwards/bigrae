@@ -34,7 +34,7 @@ run "immutable_repository_subjects" {
     source = "../../modules/cicd-oidc-identity"
   }
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.sub == 'repo:example@456/product@123:environment:customer-deploy'")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.sub == 'repo:example@456/product@123:environment:customer-deploy'")
     error_message = "Immutable trust must bind the reviewed owner and repository IDs."
   }
   assert {
@@ -60,7 +60,7 @@ run "renamed_repository_subjects" {
     }
   }
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.repository == 'example/renamed-product'")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.repository == 'example/renamed-product'")
     error_message = "Trust must bind the exact configured repository name."
   }
   assert {
@@ -78,11 +78,11 @@ run "explicit_legacy_repository_subjects" {
     github_subject_format = "default"
   }
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.sub == 'repo:example/product:environment:customer-deploy'")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.sub == 'repo:example/product:environment:customer-deploy'")
     error_message = "Explicit legacy trust must use only the selected legacy subject."
   }
   assert {
-    condition     = !strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "repo:example@456/product@123:")
+    condition     = !strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "repo:example@456/product@123:")
     error_message = "Legacy mode must not admit an immutable subject through fallback."
   }
 }

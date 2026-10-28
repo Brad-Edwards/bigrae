@@ -1,0 +1,12 @@
+# Terraform CLI configuration of the GCP deployer image (#2571).
+#
+# The image build mirrors every provider that the committed lock files select.
+# Terraform installs providers only from that mirror, so a deploy downloads no
+# provider. There is no direct installation method: a provider that is not in
+# the mirror stops terraform init.
+provider_installation {
+  filesystem_mirror {
+    path    = "/opt/bigrae/terraform-providers"
+    include = ["registry.terraform.io/hashicorp/*"]
+  }
+}

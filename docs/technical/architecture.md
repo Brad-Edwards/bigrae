@@ -77,8 +77,11 @@ The AWS bundle owns the Terraform modules and environments under
 `platform/terraform`. Vendor connector templates are not part of the package.
 GCP uses one Terraform execution root with separate environment values and state metadata.
 See [deployment configuration](../dev/deployment-configuration.md) for selection and recovery.
-GCP bootstrap and CI consume generated configuration from Terraform and Secret
-Manager; keep platform hosting separate from the range guest backend.
+A GCP deployment runs from a published release. Operators and CI use the same
+`deploy.py gcp-deploy` command, which reads the deployment input bundle from the
+deployment config bucket or a local directory. Secret values stay in Secret
+Manager (ADR-070, [GitHub-less GCP deployment guide](handbook/gcp-github-less-deployment.md)). Keep platform
+hosting separate from the range guest backend.
 
 | Boundary | GCP | AWS |
 | --- | --- | --- |
@@ -108,9 +111,9 @@ Control-plane workloads run as the non-root runtime identity UID 10001, with a
 read-only root filesystem, dropped capabilities, and the `RuntimeDefault` seccomp
 profile. The admission policies pin that identity for the provisioner,
 preparation, and acquisition Jobs. The Cloud SQL proxy keeps its own 65532
-identity. Kubernetes Checkov is a blocking gate for the manifests under
-`platform/k8s`; a scoped waiver uses a resource annotation with a matching
-`docs/adr/exceptions.yaml` entry (ADR-004-R11).
+identity. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
+each supported values file. A scoped waiver uses a chart template annotation
+with a matching `docs/adr/exceptions.yaml` entry (ADR-004-R11).
 
 The model-access broker is **parked and unsupported** under
 [ADR-068](../adr/068-model-access-broker-parked.md). Keep broker/model-access

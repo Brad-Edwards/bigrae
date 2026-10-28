@@ -7,13 +7,20 @@ GKE-based deployment of the BigRAE platform on Google Cloud.
 ```
 platform/
 ├── terraform/gcp/
-│   ├── modules/platform-core/    # All GCP infrastructure
-│   └── environments/gcp-dev/     # Environment config
-├── charts/shifter/               # Helm chart for the control plane
-└── k8s/gcp/                      # Base manifests and generated deployment assets
+│   ├── modules/platform-core/       # All GCP platform infrastructure
+│   ├── environments/platform/       # Shared platform root for every deployment
+│   ├── environments/<deployment>/   # Committed values of the CI-deployed tenants
+│   └── global/                      # cicd-oidc, release-registry, github-runner roots
+├── charts/shifter/                  # Helm chart: the only GCP Kubernetes renderer
+└── deployer/gcp/                    # Deployer image of one published release
 ```
 
-Terraform provisions GCP resources. The BigRAE control plane is packaged as a Helm chart, and bootstrap renders generated values from Terraform outputs plus Secret Manager payloads before installing the chart.
+Terraform provisions the GCP resources. The Helm chart packages the BigRAE
+control plane. The deploy command (`scripts/bootstrap/deploy.py gcp-deploy`)
+renders the generated values from the Terraform outputs, the root config, and
+the Secret Manager payloads. Then it installs the chart. A deployment that runs
+without GitHub keeps its own Terraform values in its deployment input bundle,
+not in this repository.
 
 ## Terraform Module: platform-core
 
@@ -58,7 +65,7 @@ Machine types and node counts are configurable per environment.
 
 ## Kubernetes Workloads
 
-Managed via Helm with base chart defaults, environment values, and bootstrap-generated runtime values.
+Managed via Helm with the chart defaults, the profile values, and the values that `gcp-deploy` generates.
 
 ### Chart Resources (`platform/charts/shifter/templates/`)
 
@@ -82,7 +89,7 @@ Managed via Helm with base chart defaults, environment values, and bootstrap-gen
 - `platform/charts/shifter/values.yaml` - chart defaults
 - `platform/charts/shifter/values-gcp-dev.yaml` - `gcp-dev` overrides
 - `platform/charts/shifter/values-gcp-prod.yaml` - `gcp-prod` overrides
-- bootstrap-generated values - live Terraform outputs, runtime env, image roots, secret payloads, and edge policy names
+- values that `gcp-deploy` generates - live Terraform outputs, runtime env, exact image identities, and edge policy names. Secret values are not in the Helm values.
 
 ## Networking
 
@@ -99,25 +106,35 @@ Live-fire ranges use GCE range cells (per-range subnets with tag firewall isolat
 
 ## Deployment Path
 
-The normal GCP deployment path is CI/CD:
+One command stands up and updates a GCP deployment:
+`scripts/bootstrap/deploy.py gcp-deploy` (ADR-070). The first install and each
+update use the same command and the same Helm renderer. There are two ways to
+run it:
 
-- push to `dev`: run Quality only; do not plan/apply infrastructure or deploy
-- push to `aws-dev`: deploy the AWS dev environment
-- push to `gcp-dev`: fast-validate and deploy the GCP dev environment
+- **Without GitHub:** an operator runs the deployer image of a published
+  release. The command reads the deployment input bundle from the deployment
+  config bucket and impersonates the purpose identities. See the
+  [GitHub-less GCP deployment guide](../handbook/gcp-github-less-deployment.md).
+- **Through GitHub CI:** a manual `deploy.yml` dispatch calls `_gcp-dev.yml`.
+  Each job renders the deployment input bundle from the GitHub secrets and
+  variables, then runs the same command as its federated purpose identity.
 
-The GCP deploy flow executed by CI:
+The command runs these stages:
 
-1. validates Terraform and Kubernetes manifests
-2. applies GCP Terraform
-3. builds and pushes control-plane images
-4. renders secure runtime env values from Terraform outputs and Secret Manager
-5. renders generated Helm values
-6. installs or upgrades the BigRAE chart
-7. waits for rollout and managed-certificate convergence
+1. load the deployment input bundle and take the deployment lock
+2. apply GCP Terraform and seed the first operator
+3. copy the release images into the deployment Artifact Registry (CI builds
+   its images there)
+4. scan each exact image digest for HIGH and CRITICAL findings as the
+   release-scan identity
+5. verify the provenance of each digest, render the Helm values, and run
+   `helm upgrade --install --atomic`
+6. record the running images, then wait for the ingress address and the
+   managed certificate
+7. run the advisory post-deploy smoke
 
-`gcp-dev` intentionally skips the repo-wide quality workflow on branch pushes so GCP break/fix work can iterate quickly. The provider-local validation in `_gcp-dev.yml` remains mandatory before deploy, while the full lint/test/security matrix still runs on PRs and on `dev`; production deploys are manual dispatches from `main`.
-
-`gdc-bootstrap` remains the operator bootstrap and recovery harness for first-time setup and controlled break-glass work, but it is no longer the normal deploy contract.
+`gdc-bootstrap` builds only the legacy GDC VM Runtime substrate for the `gdc`
+range backend. It does not deploy the control plane.
 
 ## Email delivery
 
@@ -125,7 +142,7 @@ GCP has no native Amazon SES equivalent, so a GCP deployment sends transactional
 
 Email is optional. With `email_backend` unset (the default), the portal uses Django's console backend and no email secret is created. To enable it:
 
-1. Set the email variables in your Terraform environment override (`local.auto.tfvars`, or rendered from CI secrets):
+1. Set the email variables in the Terraform values of the deployment (`terraform.tfvars` or `terraform.tfvars.json` in the deployment input bundle):
 
    ```hcl
    # SendGrid

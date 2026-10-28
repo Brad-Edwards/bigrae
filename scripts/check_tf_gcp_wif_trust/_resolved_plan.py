@@ -46,12 +46,22 @@ def _expected_bindings(expected: dict[str, Any]) -> set[tuple[str, str]]:
     }
 
 
+def _expected_impersonation(expected: dict[str, Any]) -> set[tuple[str, str]]:
+    """Return the authorized (service account, member) token-creator grants (ADR-070)."""
+    return {
+        (expected["service_accounts"][purpose], member)
+        for purpose, members in expected.get("impersonation", {}).items() for member in members
+    }
+
+
 def check_resolved_plan(plan: dict[str, Any], expected: dict[str, Any]) -> list[str]:
     """Require the entire provider/binding set, not the first matching resource.
 
     `expected` is generated from the authorized common record by the bootstrap
     caller, never loaded from an independently supplied policy file. Existing
     obsolete bindings may be deleted; identity foundations cannot be replaced.
+    A record with no federated subjects authorizes no provider (ADR-070); its
+    `impersonation` map names the only principals that may mint purpose tokens.
     """
     resources = plan.get("resource_changes")
     if not isinstance(resources, list) or not resources:
@@ -59,6 +69,8 @@ def check_resolved_plan(plan: dict[str, Any], expected: dict[str, Any]) -> list[
     errors: list[str] = []
     providers = []
     bindings: list[tuple[str, str]] = []
+    grants: list[tuple[str, str]] = []
+    authorized_grants = _expected_impersonation(expected)
     for resource in resources:
         kind = resource.get("type", "")
         change = resource.get("change", {})
@@ -87,8 +99,11 @@ def check_resolved_plan(plan: dict[str, Any], expected: dict[str, Any]) -> list[
             if any(_unknown(unknown.get(k)) for k in ("role", "member", "service_account_id")):
                 errors.append("Service-account policy contains unknown authority")
             role = value.get("role")
+            grant = (value.get("service_account_id", ""), value.get("member", ""))
             if role == "roles/iam.workloadIdentityUser":
-                bindings.append((value.get("service_account_id", ""), value.get("member", "")))
+                bindings.append(grant)
+            elif role == "roles/iam.serviceAccountTokenCreator" and grant in authorized_grants:
+                grants.append(grant)
             else:
                 # Build may act as itself; no other purpose can impersonate an
                 # identity or change its key. The provider's exact subjects are
@@ -100,10 +115,16 @@ def check_resolved_plan(plan: dict[str, Any], expected: dict[str, Any]) -> list[
                     and role in {"roles/iam.serviceAccountUser", "roles/iam.serviceAccountTokenCreator"}
                 ):
                     errors.append("Unexpected cross-purpose service-account authority")
-    if len(providers) != 1:
+    federated = any(expected["purpose_subjects"].values())
+    if not federated:
+        if providers:
+            errors.append("A deployment without federated subjects must contain no WIF provider")
+    elif len(providers) != 1:
         errors.append("Plan must contain exactly one inspected WIF provider")
     else:
         errors.extend(_provider_errors(providers[0], expected))
     if len(bindings) != len(set(bindings)) or set(bindings) != _expected_bindings(expected):
         errors.append("Resolved impersonation bindings differ from authorized purposes")
+    if len(grants) != len(set(grants)) or set(grants) != authorized_grants:
+        errors.append("Resolved operator impersonation grants differ from the named principals")
     return errors

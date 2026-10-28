@@ -1,0 +1,294 @@
+name: Release (GCP)
+
+# Builds one GCP release from protected main (#2571, ADR-070).
+#
+# A GitHub-less GCP deployment consumes a release; it builds nothing itself. This
+# workflow builds the five control-plane images once, pushes each image by
+# digest to the release Artifact Registry repository, and stores the SBOM and
+# the signed build provenance with each image. The provenance is a Sigstore
+# bundle that actions/attest-build-provenance pushes to the registry as an OCI
+# referrer (push-to-registry: true), so a deployment verifies it with the
+# Sigstore trust root and no GitHub API. The workflow then writes the release
+# manifest (bigrae.gcp-release.v1) and builds the deployer image, which embeds
+# the manifest, the source revision, the deploy tooling, and the pinned tools.
+# The deployer image is attested the same way.
+#
+# Configuration: the gcp-release GitHub Environment holds the secrets
+# GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_RELEASE_SERVICE_ACCOUNT (the release
+# purpose of the cicd-oidc-identity module) and the variable
+# GCP_RELEASE_REGISTRY (<location>-docker.pkg.dev/<project>/<repository>). The
+# WIF provider admits only this workflow on refs/heads/main in that
+# Environment (ADR-004-R23, ADR-037-R7).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version for the manifest. Empty uses version.txt.'
+        required: false
+        type: string
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: release-gcp
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish the GCP release
+    runs-on: ubuntu-latest
+    environment: gcp-release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      GCP_RELEASE_REGISTRY: ${{ vars.GCP_RELEASE_REGISTRY }}
+      RELEASE_VERSION_INPUT: ${{ inputs.version }}
+    steps:
+      # Reject every ref except protected main BEFORE checkout and cloud auth.
+      # The WIF attribute_condition admits only refs/heads/main for the release
+      # purpose, so this step is defense in depth (ADR-037-R7).
+      - name: Reject non-protected dispatch refs
+        run: |
+          case "${GITHUB_REF}" in
+            refs/heads/main) ;;
+            *)
+              echo "::error::release-gcp must run from refs/heads/main, not '${GITHUB_REF}'. The GCP WIF provider enforces the same rule. See ADR-037-R7."
+              exit 1
+              ;;
+          esac
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Validate the release configuration
+        run: |
+          set -euo pipefail
+          if ! [[ "${GCP_RELEASE_REGISTRY}" =~ ^[a-z0-9-]+-docker\.pkg\.dev/[a-z][a-z0-9-]{4,28}[a-z0-9]/[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+            echo "::error::Set the gcp-release Environment variable GCP_RELEASE_REGISTRY to <location>-docker.pkg.dev/<project>/<repository>."
+            exit 1
+          fi
+          version="${RELEASE_VERSION_INPUT:-$(tr -d '[:space:]' < version.txt)}"
+          chart_version="$(awk '$1 == "version:" { print $2; exit }' platform/charts/shifter/Chart.yaml)"
+          {
+            echo "RELEASE_REGISTRY_HOST=${GCP_RELEASE_REGISTRY%%/*}"
+            echo "RELEASE_VERSION=${version}"
+            echo "RELEASE_CHART_VERSION=${chart_version}"
+          } >> "${GITHUB_ENV}"
+
+      - id: auth
+        name: Authenticate as the release identity
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_RELEASE_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Login to the release registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.RELEASE_REGISTRY_HOST }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # The five control-plane images build exactly as the CI deploy builds them
+      # (_gcp-dev.yml): the same contexts, Dockerfiles, and build arguments, no
+      # cache, an SBOM, and maximum build provenance (ADR-037-R5).
+      - name: Build and push portal image
+        id: build-portal
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: ./shifter
+          file: ./shifter/shifter_platform/Dockerfile
+          build-args: |
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
+          push: true
+          tags: |
+            ${{ env.GCP_RELEASE_REGISTRY }}/portal:${{ github.sha }}
+          no-cache: true
+          provenance: mode=max
+          sbom: true
+      - name: Build and push provisioner image
+        id: build-provisioner
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: ./shifter
+          file: ./shifter/engine/provisioner/Dockerfile
+          build-args: |
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
+          push: true
+          tags: |
+            ${{ env.GCP_RELEASE_REGISTRY }}/provisioner:${{ github.sha }}
+          no-cache: true
+          provenance: mode=max
+          sbom: true
+      - name: Build and push guacd image
+        id: build-guacd
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: ./shifter/engine/guacd
+          push: true
+          tags: |
+            ${{ env.GCP_RELEASE_REGISTRY }}/guacd:${{ github.sha }}
+          no-cache: true
+          provenance: mode=max
+          sbom: true
+      - name: Build and push guacamole-client image
+        id: build-guacamole-client
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: ./shifter/engine/guacamole
+          push: true
+          tags: |
+            ${{ env.GCP_RELEASE_REGISTRY }}/guacamole-client:${{ github.sha }}
+          no-cache: true
+          provenance: mode=max
+          sbom: true
+      - name: Build and push OpenVPN pool image
+        id: build-openvpn
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: ./shifter/engine/openvpn
+          build-args: |
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
+          push: true
+          tags: |
+            ${{ env.GCP_RELEASE_REGISTRY }}/openvpn:${{ github.sha }}
+          no-cache: true
+          provenance: mode=max
+          sbom: true
+
+      # Sign the build provenance of each exact digest and push the Sigstore
+      # bundle to the registry next to the image (ADR-037-R5).
+      - name: Attest build provenance (portal)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/portal
+          subject-digest: ${{ steps.build-portal.outputs.digest }}
+          push-to-registry: true
+      - name: Attest build provenance (provisioner)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/provisioner
+          subject-digest: ${{ steps.build-provisioner.outputs.digest }}
+          push-to-registry: true
+      - name: Attest build provenance (guacd)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/guacd
+          subject-digest: ${{ steps.build-guacd.outputs.digest }}
+          push-to-registry: true
+      - name: Attest build provenance (guacamole-client)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/guacamole-client
+          subject-digest: ${{ steps.build-guacamole-client.outputs.digest }}
+          push-to-registry: true
+      - name: Attest build provenance (openvpn)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/openvpn
+          subject-digest: ${{ steps.build-openvpn.outputs.digest }}
+          push-to-registry: true
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      # The installation CLI validates the manifest: the schema, the full source
+      # revision, the chart version, and one exact repository@sha256 identity for
+      # each of the five images.
+      - name: Write the release manifest
+        env:
+          PORTAL_DIGEST: ${{ steps.build-portal.outputs.digest }}
+          PROVISIONER_DIGEST: ${{ steps.build-provisioner.outputs.digest }}
+          GUACD_DIGEST: ${{ steps.build-guacd.outputs.digest }}
+          GUACAMOLE_CLIENT_DIGEST: ${{ steps.build-guacamole-client.outputs.digest }}
+          OPENVPN_DIGEST: ${{ steps.build-openvpn.outputs.digest }}
+        working-directory: shifter/installation
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/release"
+          uv run --frozen shifter-config gcp-release-manifest \
+            --version "${RELEASE_VERSION}" \
+            --source-revision "${GITHUB_SHA}" \
+            --chart-version "${RELEASE_CHART_VERSION}" \
+            --image "portal=${GCP_RELEASE_REGISTRY}/portal@${PORTAL_DIGEST}" \
+            --image "provisioner=${GCP_RELEASE_REGISTRY}/provisioner@${PROVISIONER_DIGEST}" \
+            --image "guacd=${GCP_RELEASE_REGISTRY}/guacd@${GUACD_DIGEST}" \
+            --image "guacamole-client=${GCP_RELEASE_REGISTRY}/guacamole-client@${GUACAMOLE_CLIENT_DIGEST}" \
+            --image "openvpn=${GCP_RELEASE_REGISTRY}/openvpn@${OPENVPN_DIGEST}" \
+            --output "${RUNNER_TEMP}/release/release.json"
+
+      # The deployer image embeds the manifest and the source revision. Its build
+      # stops when the manifest is not valid or names another revision.
+      - name: Build and push deployer image
+        id: build-deployer
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: .
+          file: ./platform/deployer/gcp/Dockerfile
+          build-contexts: |
+            release=${{ runner.temp }}/release
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
+          push: true
+          tags: |
+            ${{ env.GCP_RELEASE_REGISTRY }}/deployer:${{ github.sha }}
+          no-cache: true
+          provenance: mode=max
+          sbom: true
+      - name: Install pinned Trivy
+        env:
+          TRIVY_VERSION: 0.76.1
+          TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/trivy-bin"
+          curl -fsSL -o "${RUNNER_TEMP}/trivy.tar.gz" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  ${RUNNER_TEMP}/trivy.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/trivy.tar.gz" -C "${RUNNER_TEMP}/trivy-bin" trivy
+      # A HIGH or CRITICAL finding with a fix blocks. The only accepted
+      # exposures are the time-boxed vendor-binary entries in
+      # platform/deployer/gcp/trivyignore.yaml.
+      - name: Scan the deployer image
+        env:
+          DEPLOYER_DIGEST: ${{ steps.build-deployer.outputs.digest }}
+        run: |
+          "${RUNNER_TEMP}/trivy-bin/trivy" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --ignorefile platform/deployer/gcp/trivyignore.yaml \
+            --db-repository mirror.gcr.io/aquasec/trivy-db \
+            --java-db-repository mirror.gcr.io/aquasec/trivy-java-db \
+            --exit-code 1 "${GCP_RELEASE_REGISTRY}/deployer@${DEPLOYER_DIGEST}"
+      - name: Attest build provenance (deployer)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/deployer
+          subject-digest: ${{ steps.build-deployer.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summarize the release
+        env:
+          DEPLOYER_DIGEST: ${{ steps.build-deployer.outputs.digest }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## GCP release ${RELEASE_VERSION}"
+            echo "- **Source revision:** \`${GITHUB_SHA}\`"
+            echo "- **Deployer image:** \`${GCP_RELEASE_REGISTRY}/deployer@${DEPLOYER_DIGEST}\`"
+            echo "- **Release manifest:** \`/opt/bigrae/release.json\` in the deployer image"
+            echo ""
+            echo '```json'
+            cat "${RUNNER_TEMP}/release/release.json"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove the local release manifest
+        if: always()
+        run: rm -rf "${RUNNER_TEMP}/release"
