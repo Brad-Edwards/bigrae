@@ -120,7 +120,8 @@ def test_a_failed_destroy_of_a_superseded_version_is_reported_without_key_materi
     enabled = [name for name, payload in fake.versions["server"] if payload is not None]
     assert enabled == ["projects/p/secrets/server/versions/1", "projects/p/secrets/server/versions/2"]
     err = capsys.readouterr().err
-    assert "::warning::cannot destroy superseded server version 1: gcloud exited 1" in err
+    assert "::warning::cannot destroy superseded secret version 1: gcloud exited 1" in err
+    assert "server" not in err
     assert "PRIVATE KEY" not in err
 
 

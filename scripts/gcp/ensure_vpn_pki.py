@@ -97,8 +97,9 @@ class SecretStore:
             if destroyed.returncode != 0:
                 # The new version is already stored and the pool must still reload it,
                 # so report the superseded version that stays enabled instead of failing.
+                # The version number identifies it; the secret name stays out of the log.
                 print(
-                    f"::warning::cannot destroy superseded {secret} version {number}: "
+                    f"::warning::cannot destroy superseded secret version {number}: "
                     f"gcloud exited {destroyed.returncode}",
                     file=sys.stderr,
                 )
