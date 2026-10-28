@@ -188,6 +188,15 @@ variable "destroy_roles" {
   ]
 }
 
+variable "deploy_identity_platform_permissions" {
+  description = "Permissions that identityPlatform:initializeAuth needs beyond roles/identityplatform.admin on a project without Firebase."
+  type        = list(string)
+  default = [
+    "firebase.projects.get",
+    "firebase.projects.update",
+  ]
+}
+
 variable "deploy_storage_permissions" {
   description = "Storage permissions for Terraform-managed platform buckets, bound only to their deterministic resource names."
   type        = list(string)
