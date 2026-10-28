@@ -49,7 +49,12 @@ def test_disabled_and_enabled_projection_use_real_chart(tmp_path):
     assert ("Deployment", "portal-web") not in identities
     assert ("ValidatingAdmissionPolicy", "restrict-provisioner-jobs") not in identities
     policy = next(doc for doc in docs if doc["metadata"]["name"] == "allow-platform-private-service-egress")
-    assert policy["spec"]["podSelector"]["matchExpressions"][0]["values"] == ["model-broker", "model-provider-egress"]
+    # The CTF content egress proxy reaches only public hosts, never private services (#2090).
+    assert policy["spec"]["podSelector"]["matchExpressions"][0]["values"] == [
+        "model-broker",
+        "model-provider-egress",
+        "content-egress",
+    ]
 
 
 def test_combining_manifests_replaces_shared_policies_before_any_apply():

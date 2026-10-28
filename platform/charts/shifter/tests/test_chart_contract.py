@@ -55,8 +55,8 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress
 # (merged with the UID 10001 and admission baseline).
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "4ad84379679022430c57bf9f94f646949de200154b950ffa4a89edd1e4fbe603",
-    "gcp-prod": "b48a3faf5a1eb117caee35ba32b6c7ff280c4c91e7f05f7058fc305dfd2c814e",
+    "gcp-dev": "bc1950b9d0de7bedd0a2177310e075ebb7358e92ce6b9a25ce85b23669765f57",
+    "gcp-prod": "684be8d98ef425a26797470226797c2e444b125eae8e4526ba1e52abd696ddac",
 }
 
 

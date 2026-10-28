@@ -13,6 +13,7 @@ metadata:
   namespace: {{ .Values.namespaces.platform }}
   labels:
     {{- include "shifter.partOfLabels" . | nindent 4 }}
+    app.kubernetes.io/component: content-egress
 spec:
   replicas: 1
   selector:
