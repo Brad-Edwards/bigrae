@@ -14,10 +14,18 @@ not a new public task-orchestration API. ``shared.cloud.get_task_runner()`` and
 
 from __future__ import annotations
 
-from ._profile import KubernetesTaskProfile, ProvisionerHardeningProfile, standard_provisioner_hardening
+from ._profile import (
+    PROVISIONER_RESOURCE_LIMITS,
+    PROVISIONER_RESOURCE_REQUESTS,
+    KubernetesTaskProfile,
+    ProvisionerHardeningProfile,
+    standard_provisioner_hardening,
+)
 from ._runner import KubernetesTaskRunner
 
 __all__ = (
+    "PROVISIONER_RESOURCE_LIMITS",
+    "PROVISIONER_RESOURCE_REQUESTS",
     "KubernetesTaskProfile",
     "KubernetesTaskRunner",
     "ProvisionerHardeningProfile",
