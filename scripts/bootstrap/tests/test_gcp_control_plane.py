@@ -1661,7 +1661,7 @@ class TestGceRangePreconditions:
             gcp_control_plane.check_gce_range_preconditions(config, env=env, image_exists=lambda *_: False)
         assert exc.value.code == 1
 
-    def test_image_lookup_denial_is_not_reported_as_missing(self, capsys, monkeypatch):
+    def test_image_lookup_denial_is_not_reported_as_missing(self, capsys):
         # A permission denial is not an absent image, and the opt-out flag does not hide it (#2608).
         denied = subprocess.CompletedProcess(
             [],
@@ -1670,8 +1670,7 @@ class TestGceRangePreconditions:
             "ERROR: (gcloud.compute.images.describe) Could not fetch resource:\n"
             " - Required 'compute.images.get' permission for 'projects/p/global/images/i'\n",
         )
-        monkeypatch.setattr(gcp_control_plane.subprocess, "run", lambda *a, **k: denied)
-        with pytest.raises(SystemExit) as exc:
+        with patch("subprocess.run", return_value=denied), pytest.raises(SystemExit) as exc:
             gcp_control_plane.check_gce_range_preconditions(
                 self._config(), allow_missing_range_images=True, env=dict(self._FULL_ENV)
             )
@@ -1680,10 +1679,10 @@ class TestGceRangePreconditions:
         assert "Required 'compute.images.get' permission" in output
         assert "not imported" not in output
 
-    def test_image_not_found_is_missing(self, monkeypatch):
+    def test_image_not_found_is_missing(self):
         absent = subprocess.CompletedProcess([], 1, "", " - The resource 'projects/p/global/images/i' was not found\n")
-        monkeypatch.setattr(gcp_control_plane.subprocess, "run", lambda *a, **k: absent)
-        assert gcp_control_plane._gce_image_exists("p", "image", "i") is False
+        with patch("subprocess.run", return_value=absent):
+            assert gcp_control_plane._gce_image_exists("p", "image", "i") is False
 
     def test_allow_flag_downgrades_failures_to_warning(self, capsys):
         env = dict(self._FULL_ENV)
