@@ -8,9 +8,9 @@
 # The gate runs: trivy image --scanners vuln --severity HIGH,CRITICAL
 #                --ignore-unfixed --ignorefile <this file> --exit-code 1
 #
-# Each entry below is a HIGH finding in a vendor binary that the image installs
-# at the newest vendor release. The fixed dependency exists upstream, but no
-# vendor build of that tool ships it yet. Each entry names the exact binary path
+# Each entry names a vendor-binary exposure or a platform-specific false positive
+# in the newest vendor release. The statement records which applies and why.
+# Each entry names the exact binary path
 # and expires on its `expired_at` date. After that date Trivy stops honoring the
 # entry and the gate blocks the release again. When a vendor ships a fixed
 # build, bump the tool in platform/deployer/gcp/Dockerfile and remove its entry.
@@ -19,6 +19,22 @@
 # opens no network listener, and exits.
 
 vulnerabilities:
+  - id: CVE-2026-56857 # Go standard library; Windows-only false positive
+    paths:
+      - opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin
+    statement: >-
+      Not affected on Linux. The official Go advisory GO-2026-6604 restricts both
+      affected imports to GOOS=windows: https://vuln.go.dev/ID/GO-2026-6604.json
+      and https://pkg.go.dev/vuln/GO-2026-6604. The Google component manifest for
+      591.0.0 and the latest rapid manifest both name plugin 0.5.20, archive
+      20261016073856, SHA-256
+      7ca2be31d6faa232b733cd3e91b98e182771516732d7230c19196b51cde7f823.
+      Its verified binary reports go1.27.1, GOOS=linux and GOARCH=amd64;
+      the Windows junction implementation is absent from this Linux build.
+      Recheck the vendor artifact and advisory before expiry. Owner: @Brad-Edwards.
+      Tracking: #2321.
+    expired_at: 2026-11-30
+
   - id: CVE-2026-111943 # Go standard library
     paths:
       - opt/google-cloud-sdk/bin/gcloud-crc32c

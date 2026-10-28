@@ -15,103 +15,69 @@ ad-hoc `JsonResponse` function views.
 - Mount app routers through `config/api_urls.py` so the public path remains
   `/api/v1/...` and the OpenAPI schema sees every migrated route.
 
-## Authentication And Scopes
+## Authentication And Authority
 
-The platform DRF defaults authenticate in this order:
+DRF attempts `ApiTokenAuthentication` before `SessionAuthentication`. A supplied
+invalid bearer fails closed; it cannot fall through to a browser session.
+The bearer adapter verifies personal tokens or configured service credentials.
+Browser requests require a live native session reference.
 
-1. `shared.api_tokens.authentication.ApiTokenAuthentication`
-2. `rest_framework.authentication.SessionAuthentication`
+Resolve the request through `shared.api.principals.authenticated_credential`
+and pass its current `CredentialContext` to the owning service. A Django user,
+a legacy group flag, or a service principal's responsible human is not authority.
+Use the native principal for policy, resource custody and audit attribution.
 
-New endpoints should use platform bearer tokens and session auth. Do not accept
-new API key formats outside the shared token model.
+Credential scopes and action ceilings narrow access. They do not grant an
+operation by themselves. The owning service checks current policy for the exact
+action and resource, lifecycle state, and account, organization or workspace.
+Use `shared.authorization.operations` and `shared.api_tokens.scopes` for the
+published action and compatibility-scope vocabulary. Do not copy those catalogs
+into a view or infer permission from a scope name.
 
-Token scopes come from `shared.api_tokens.scopes`. Compose
-`shared.api_tokens.permissions.require_scope(read_scope, write_scope)` with the
-endpoint's session/domain permission. Scopes admit a token to an endpoint class;
-they do not replace object ownership, event membership, staff checks, CMS
-authoring checks, or service-layer state validation.
+The mounted audit API is `PolicyAuditLogViewSet`, registered by
+`management.api.account_admin_urls`. It resolves the current credential and
+uses `authorized_audit_events` to enforce native audit policy. Legacy staff
+flags do not authorize audit reads.
 
-Active Mission Control scopes:
+## CMS Boundaries
 
-| Scope | Grants |
-| --- | --- |
-| `mission_control:range:read` | Current range, agents, and scenarios reads. |
-| `mission_control:range:write` | Range launch and lifecycle mutations. |
-| `mission_control:vpn-profile:read` | Download the current owned Mission Control range's private OpenVPN profile. |
-| `mission_control:upload:write` | Agent upload initiate, complete, and cancel. |
-| `mission_control:guacamole:read` | Guacamole RDP/SSH bootstrap, status, and opener endpoints. |
-| `mission_control:ngfw:read` | NGFW listing. |
-| `mission_control:ngfw:write` | NGFW create and destroy. |
-| `mission_control:credentials:write` | Mission Control credential create and delete. |
+Register CMS endpoints through `config/api_urls.py`. Views own HTTP parsing,
+serializers, response status and schema metadata. Content and tenant-pack
+services own admission, validation, persistence and cleanup.
 
-Active CMS authoring scopes:
+Use `cms.api.permissions.cms_actor_credential` to obtain current proof. Pass
+that proof to the existing content service; do not substitute `ApiToken.created_by`
+or grant access from staff or legacy group membership. Service policy checks
+remain required after HTTP admission. Private content images require current
+policy or eligible participation and visible content. Policy outages fail closed.
 
-| Scope | Grants |
-| --- | --- |
-| `cms:authoring:read` | CMS authoring reads such as scenario-editor YAML validation, subject to CMS authoring checks. |
-| `cms:authoring:write` | CMS authoring mutations such as YAML scenario creation, subject to CMS authoring checks. |
+Keep YAML parsing, scenario validation, audit and persistence in their owning
+services. Do not put bearer tokens, CSRF tokens, private YAML, provider responses
+or process arguments in logs or documentation examples.
 
-The audit read API is the deliberate exception to platform token
-authentication: it accepts staff and superuser Django sessions only and has no
-token scope.
+## Mission Control Boundaries
 
-## CMS Migration Guardrails
+Register Mission Control JSON endpoints under `/api/v1/`. Use
+`MissionControlAPIView.actor_credential` and the canonical CMS and Engine
+service facades. Each operation retains current proof, exact resource custody,
+policy, lifecycle and retained-request checks. Temporary participant credentials
+remain limited to their admitted event and allowed lifecycle operations.
 
-CMS JSON endpoints that move under `/api/v1/cms/` should register through
-`config/api_urls.py`; server-rendered scenario-editor pages stay on their
-existing HTML routes. DRF views may translate request/response shape, status
-codes, and schema metadata, but must continue to call
-`cms.scenario_editor.services` for business behavior.
+The current-range response contains the server-owned cleanup deadline, maximum
+deadline, extension increment and current extension eligibility. Extension is a
+bodyless `POST`; callers cannot choose a deadline or increment. The owning
+service authorizes the current credential before changing the lease.
 
-Preserve the second-stage CMS authoring gate after scope admission. API-token
-requests act as `ApiToken.created_by`, and the resolved actor must still be an
-active staff user or active `Threat Research` group member through
-`shared.auth.can_edit_cms_authoring`. Services keep using
-`shared.auth.validate_cms_authoring_user`; do not recreate group checks in
-serializers or treat `cms:authoring:*` as a role.
+VPN profile delivery is a separate bodyless `POST` with its own native action
+check. It returns a bounded `application/x-openvpn-profile` attachment with
+private, no-store caching. Do not place profile bytes in JSON or query state.
 
-YAML parsing, scenario schema validation, audit, and persistence stay
-service-owned. Keep bearer tokens, CSRF tokens, YAML bodies, examples, docs
-snippets, and process arguments out of logs.
-
-## Mission Control Migration Guardrails
-
-Mission Control JSON endpoints that move under `/api/v1/` should register
-through `config/api_urls.py`; `mission_control/urls.py` remains for
-server-rendered pages and temporary legacy compatibility only. DRF views may
-translate request/response shape, status codes, and schema metadata, but must
-continue to call the canonical service facades: `cms.services` for range,
-agent, upload, credential, NGFW, scenario, and script workflows; `engine.services`
-for terminal/Guacamole connection resolution already exposed through the
-Mission Control helpers; and `mission_control.guacamole_bootstrap` for the
-pollable signed-URL flow.
-
-Preserve the existing second-stage authorization after scope admission. Range
-lifecycle mutations still enforce `shared.auth.block_ctf_participant_only(...)`
-semantics and service-layer ownership/state checks. Staff or Threat Research
-authoring checks should use the shared predicates in `shared.auth`; do not
-recreate group-name logic in serializers or view classes. Token scopes stay in
-`shared.api_tokens.scopes`; add explicit new scopes there when a Mission Control
-subsurface needs a different token audience instead of hard-coding strings or
-overloading `mission_control:range:*`.
-
-The current-range response includes a safe server-owned lease projection for
-the SPA: the cleanup deadline, immutable maximum deadline, fixed extension
-increment, and whether extension is currently allowed. Range extension is a
-bodyless `POST` authorized by `mission_control:range:write`; callers cannot
-choose a deadline or increment. VPN profile delivery is a separate bodyless
-`POST` authorized by the exact `mission_control:vpn-profile:read` scope. It
-returns a bounded `application/x-openvpn-profile` attachment with private,
-no-store caching and never places profile bytes in JSON or browser query state.
-
-Reuse existing request/domain contracts. Serializer fields may wrap current
-`shared.schemas` Pydantic contracts such as credential and app specs, but should
-not fork their validation rules. Upload and Guacamole responses carry secret or
-secret-adjacent material: presigned URLs, upload tokens, and signed Guacamole
-URLs must never be logged, included in OpenAPI examples, or returned more
-broadly than the current flow allows. The Guacamole bootstrap status endpoint
-must keep owner-scoped polling, single-use URL delivery, expiry handling,
-`Retry-After`, and worker-capacity behavior.
+Reuse the existing typed domain and RAES contracts rather than copying their
+validation rules. Presigned upload URLs, upload tokens and Guacamole URLs are
+sensitive. Keep them out of logs and OpenAPI examples. The Guacamole API uses
+`mission_control.guacamole_authority` and the existing bootstrap/session services.
+Polling and one-time URL consumption retain current proof and custody checks,
+expiry, `Retry-After` and worker-capacity handling.
 
 ## Errors
 
@@ -134,12 +100,22 @@ Use `shared.api.errors.api_error_response(...)` for explicit DRF error
 responses. Do not return raw exception text, provider payloads, bearer tokens,
 cookies, CSRF tokens, presigned URLs, or signed Guacamole URLs.
 
+The explicit helper accepts authored public messages. Map caught exceptions to
+fixed public messages before calling it; stripping line breaks does not remove
+confidential exception content. For validation details, pass the actual
+`detail_serializer` so only its declared field names enter the response. The
+shared exception handler uses the view's declared serializer. Nested serializers
+and list indices retain their error structure; unknown keys become
+`non_field_errors`, and unrecognized error text becomes `Invalid value.`.
+Structured domain details, such as pack-removal blockers, belong in the owning
+adapter's fixed-field projection with enumerated states and no private labels.
+
 ## Schema And Docs
 
 OpenAPI is served from `/api/v1/schema/`; Swagger UI is served from
 `/api/v1/docs/`. These endpoints use the same platform authentication posture
-as the non-public API: an authenticated session user or a valid platform API
-token can read the contract. Swagger UI assets are served from the pinned local
+as the non-public API: a current native session or verified bearer credential
+can read the contract. Swagger UI assets are served from the pinned local
 `drf-spectacular-sidecar` package, not from a third-party CDN.
 
 Keep examples secret-free. Show header names and placeholder values, not real

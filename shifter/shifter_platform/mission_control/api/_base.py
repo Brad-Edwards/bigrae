@@ -66,6 +66,7 @@ class MissionControlAPIView(APIView):
             message="Invalid request",
             status_code=status.HTTP_400_BAD_REQUEST,
             details=serializer.errors,
+            detail_serializer=serializer,
             request=self.request,
         )
 

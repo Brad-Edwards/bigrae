@@ -82,8 +82,11 @@ def test_missing_proof_does_not_start_a_catalog_job(chart):
         IdentityCutoverError, match="Native application is active; catalog setup is incomplete"
     ) as error:
         initialize_catalog(runner, chart, credential_file=None, hostname="portal.example.test")
-    assert "https://portal.example.test" in str(error.value)
-    assert "--catalog-credential-file" in str(error.value)
+    assert str(error.value) == (
+        "Native application is active; catalog setup is incomplete. Finish DNS/TLS for https://portal.example.test, "
+        "sign in as a native administrator and obtain a current content credential. "
+        "Rerun this deployment with --catalog-credential-file <private 0600 bearer file>."
+    )
     assert runner.calls == []
 
 

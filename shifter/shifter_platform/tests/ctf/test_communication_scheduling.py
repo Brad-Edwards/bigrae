@@ -152,7 +152,11 @@ def test_scheduler_handler_reschedules_when_not_yet_due(organizer_user, ctf_even
     assert not RecipientSnapshot.objects.filter(intent=intent).exists()
 
 
-def test_run_task_now_early_releases_a_scheduled_communication(organizer_user, ctf_event, organizer_credential):
+def test_run_task_now_early_releases_a_scheduled_communication(
+    organizer_user, ctf_event, organizer_credential, caplog, monkeypatch
+):
+    import logging
+
     from ctf.enums import ScheduledTaskStatus
     from ctf.services.event.scheduling import run_task_now
 
@@ -160,12 +164,21 @@ def test_run_task_now_early_releases_a_scheduled_communication(organizer_user, c
     _campaign, intent, _declaration_credential = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
 
-    run_task_now(ctf_event.id, task.id, actor_id=organizer_credential)
+    logger = logging.getLogger("ctf.services.event.scheduling")
+    monkeypatch.setattr(logger, "handlers", [*logger.handlers, caplog.handler])
+    with caplog.at_level(logging.INFO, logger="ctf.services.event.scheduling"):
+        run_task_now(ctf_event.id, task.id, actor_id=organizer_credential)
 
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.RELEASED.value
     assert RecipientSnapshot.objects.filter(intent=intent).count() == 1
     task.refresh_from_db()
     assert task.status == ScheduledTaskStatus.COMPLETED.value
+    records = [record for record in caplog.records if record.name == "ctf.services.event.scheduling"]
+    assert records[-1].getMessage() == (
+        f"Communication task {task.pk} early-released now by principal {organizer_credential.principal.uuid}"
+    )
+    assert str(organizer_credential.credential_uuid) not in records[-1].getMessage()
+    assert "CredentialContext" not in records[-1].getMessage()
 
 
 def test_run_task_now_denies_comm_early_release_without_notification_authority(

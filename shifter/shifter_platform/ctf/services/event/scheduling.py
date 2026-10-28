@@ -314,7 +314,8 @@ def _run_communication_task_now(task: CTFScheduledTask, actor_id: object | None,
     CTFScheduledTask.objects.filter(pk=task.pk, status=ScheduledTaskStatus.PENDING.value).update(
         status=ScheduledTaskStatus.COMPLETED.value, executed_at=timezone.now(), updated_at=timezone.now()
     )
-    logger.info("Communication task %s early-released now by actor %s", task.pk, actor_id)
+    principal_uuid = actor_id.principal.uuid if isinstance(actor_id, CredentialContext) else None
+    logger.info("Communication task %s early-released now by principal %s", task.pk, safe_log_value(principal_uuid))
 
 
 def _pending_cleanup_tasks(event_id: UUID) -> QuerySet[CTFScheduledTask]:

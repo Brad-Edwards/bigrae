@@ -50,11 +50,11 @@ logger = logging.getLogger(__name__)
 def _authority_error(error: CTFError) -> _CtfApiError:
     """Keep known domain failures identical across authority commands and reads."""
     if isinstance(error, CTFNotFoundError):
-        result = _CtfApiError(status_code=404, code="not_found", message=str(error))
+        result = _CtfApiError(status_code=404, code="not_found", message="Resource not found")
     elif isinstance(error, CTFPermissionError):
         result = _CtfApiError(status_code=403, code="permission_denied", message="Forbidden")
     elif isinstance(error, CTFValidationError):
-        result = _CtfApiError(status_code=400, code="invalid", message=str(error))
+        result = _CtfApiError(status_code=400, code="invalid", message="Invalid request")
     elif isinstance(error, CTFStateError) or error.code in {
         "CTF_AUTHORITY_UNAVAILABLE",
         "CTF_EVENT_AUTHORITY_UNAVAILABLE",
@@ -80,6 +80,7 @@ class EventStaffView(APIView):
     """List (GET) or assign (POST) delegated staff on an owned event."""
 
     permission_classes = CTF_ORGANIZER_PERMISSIONS
+    serializer_class = EventStaffAssignRequestSerializer
     required_read_scopes = _EVENT_READ
     required_write_scopes = _EVENT_WRITE
 
@@ -150,6 +151,7 @@ class EventOwnershipTransferView(APIView):
     """Transfer canonical ownership to a co-organizer (POST, owner-only, #1922)."""
 
     permission_classes = CTF_ORGANIZER_PERMISSIONS
+    serializer_class = EventOwnershipTransferRequestSerializer
     required_write_scopes = _EVENT_WRITE
 
     @extend_schema(request=EventOwnershipTransferRequestSerializer, responses=EventMutationResultSerializer)
