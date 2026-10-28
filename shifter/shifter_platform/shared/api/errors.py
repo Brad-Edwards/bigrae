@@ -10,6 +10,7 @@ from rest_framework.views import exception_handler as drf_exception_handler
 from shared.errors import classify_user_message, safe_user_message
 
 _REQUIRED_FIELD_MESSAGE = "This field is required."
+_INVALID_FIELD_MESSAGE = "Invalid value."
 
 _STATUS_MESSAGES = {
     status.HTTP_400_BAD_REQUEST: "Invalid request",
@@ -22,7 +23,7 @@ _STATUS_MESSAGES = {
 
 _VALIDATION_DETAIL_MESSAGES = {
     "blank": "This field may not be blank.",
-    "invalid": "Invalid value.",
+    "invalid": _INVALID_FIELD_MESSAGE,
     "max_length": "Value is too long.",
     "min_length": "Value is too short.",
     "null": "This field may not be null.",
@@ -143,17 +144,17 @@ def _normalize_detail(data: object, field: serializers.Field | None = None) -> o
     if isinstance(data, ErrorDetail):
         normalized: object = _VALIDATION_DETAIL_TEXT_MESSAGES.get(
             str(data),
-            _VALIDATION_DETAIL_MESSAGES.get(data.code, "Invalid value."),
+            _VALIDATION_DETAIL_MESSAGES.get(data.code, _INVALID_FIELD_MESSAGE),
         )
     elif isinstance(data, str):
-        normalized = _VALIDATION_DETAIL_TEXT_MESSAGES.get(data, "Invalid value.")
+        normalized = _VALIDATION_DETAIL_TEXT_MESSAGES.get(data, _INVALID_FIELD_MESSAGE)
     elif isinstance(data, dict):
         normalized = _normalize_mapping_details(data, field)
     elif isinstance(data, (list, tuple)):
         child = field.child if isinstance(field, (serializers.ListSerializer, serializers.ListField)) else field
         normalized = [_normalize_detail(item, child) for item in data]
     else:
-        normalized = "Invalid value."
+        normalized = _INVALID_FIELD_MESSAGE
     return normalized
 
 
