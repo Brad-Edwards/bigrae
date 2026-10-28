@@ -63,6 +63,12 @@ The current enforcement stack has six parts:
    roots, exclusions and the 100% threshold remain unchanged. This avoids the
    tool's repeated recursive include expansion through ignored `node_modules`
    trees; those directories are not application quality inputs.
+   The source roots, exclusions, Ruff rules and 100% threshold are one fixed
+   policy in `scripts/adr_guard/changed_python_quality.py`. The wrapper accepts
+   no external arguments: attempts to change refs, linter flags or scope fail
+   before any subprocess. Its Git and quality commands use the literal
+   `origin/dev` reference and argument vectors, with explicit Git option/path
+   boundaries; no CLI text is forwarded into either command.
    The wrapper's regression tests use standard-library `unittest`, as required
    by the Python 3.11 ADR test lane; they need no pytest dependency.
 

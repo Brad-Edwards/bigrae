@@ -88,21 +88,21 @@ class ChangedPythonQualityTests(unittest.TestCase):
 
         with patch.object(QUALITY.subprocess, "run", run):
             self.assertEqual(
-                QUALITY.changed_paths(self.root, "origin/dev"),
+                QUALITY.changed_paths(self.root),
                 {"owned/committed.py", "owned/staged name.py", "owned/unstaged\nname.py"},
             )
         self.assertEqual(
             [command for command, _ in calls],
             [
-                ["git", "diff", "--name-only", "-z", "origin/dev...HEAD"],
-                ["git", "diff", "--name-only", "-z", "--cached"],
-                ["git", "diff", "--name-only", "-z"],
+                ("git", "diff", "--name-only", "-z", "--end-of-options", "origin/dev...HEAD", "--"),
+                ("git", "diff", "--name-only", "-z", "--cached", "--"),
+                ("git", "diff", "--name-only", "-z", "--"),
             ],
         )
         self.assertTrue(all(options["check"] and options["cwd"] == self.root for _, options in calls))
 
     def test_literal_names_rules_and_failure_status_reach_real_cli_boundary(self) -> None:
-        name = "owned/nested/name [x]*?\nfile.py"
+        name = "scripts/adr_guard/nested/name [x]*?\nfile.py"
         path = self.root / name
         path.parent.mkdir(parents=True)
         path.write_text("# synthetic fixture\n", encoding="utf-8")
@@ -112,11 +112,10 @@ class ChangedPythonQualityTests(unittest.TestCase):
             calls.append((command, options))
             return SimpleNamespace(stdout=name.encode() + b"\0", returncode=7)
 
-        rules = ["--violations=ruff.check", "--fail-under=100", "--options=--isolated --select ANN201"]
         with patch.object(QUALITY, "REPO_ROOT", self.root), patch.object(QUALITY.subprocess, "run", run):
-            self.assertEqual(QUALITY.main([*rules, "--include", "owned/**", "--exclude", *EXCLUDES]), 7)
+            self.assertEqual(QUALITY.main([]), 7)
         command, options = calls[-1]
-        self.assertEqual(command[:4], ["diff-quality", *rules])
+        self.assertEqual(command[: len(QUALITY.QUALITY_COMMAND)], list(QUALITY.QUALITY_COMMAND))
         literal = command[command.index("--include") + 1]
         self.assertEqual(literal, glob.escape(name))
         self.assertEqual(glob.glob(str(self.root / literal)), [str(path)])
@@ -131,7 +130,7 @@ class ChangedPythonQualityTests(unittest.TestCase):
             return SimpleNamespace(stdout=b"other/module.py\0")
 
         with patch.object(QUALITY, "REPO_ROOT", self.root), patch.object(QUALITY.subprocess, "run", run):
-            self.assertEqual(QUALITY.main(["--violations=ruff.check", "--fail-under=100", "--include", "owned/**"]), 0)
+            self.assertEqual(QUALITY.main([]), 0)
         self.assertEqual(len(calls), 3)
         self.assertTrue(all(command[0] == "git" for command in calls))
 
@@ -144,7 +143,34 @@ class ChangedPythonQualityTests(unittest.TestCase):
             patch.object(QUALITY.subprocess, "run", fail),
             self.assertRaises(subprocess.CalledProcessError),
         ):
-            QUALITY.main(["--violations=ruff.check", "--fail-under=100", "--include", "owned/**"])
+            QUALITY.main([])
+
+    def test_external_arguments_cannot_reconfigure_or_inject_subprocesses(self) -> None:
+        attempts = (
+            ["--compare-branch=origin/dev"],
+            ["--compare-branch=--output=/tmp/untrusted"],
+            ["--compare-branch", "origin/dev; echo untrusted"],
+            ["--options=--config untrusted.toml"],
+            ["--fail-under=0"],
+            ["--include", "other/**"],
+            ["--exclude", "**"],
+            ["--violations=untrusted"],
+            ["--config-file=untrusted.toml"],
+            ["--"],
+            [""],
+        )
+        for argv in attempts:
+            with self.subTest(argv=argv), patch.object(QUALITY.subprocess, "run") as run:
+                self.assertEqual(QUALITY.main(argv), 2)
+                run.assert_not_called()
+
+    def test_process_arguments_are_rejected_before_any_git_or_quality_call(self) -> None:
+        with (
+            patch.object(QUALITY.sys, "argv", ["changed_python_quality.py", "--fail-under=0"]),
+            patch.object(QUALITY.subprocess, "run") as run,
+        ):
+            self.assertEqual(QUALITY.main(), 2)
+            run.assert_not_called()
 
     def test_hook_keeps_pinned_tools_and_zero_tolerance(self) -> None:
         config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())
@@ -153,7 +179,31 @@ class ChangedPythonQualityTests(unittest.TestCase):
         )
         self.assertEqual(hook["entry"], "python scripts/adr_guard/changed_python_quality.py")
         self.assertEqual(hook["additional_dependencies"], ["diff-cover==11.0.0", "ruff==0.15.18"])
-        self.assertIn("--fail-under=100", hook["args"])
+        self.assertNotIn("args", hook)
+        self.assertEqual(
+            QUALITY.SOURCE_INCLUDES,
+            (
+                "shifter/shifter_platform/**",
+                "shifter/engine/provisioner/**",
+                "shifter/engine/openvpn/**",
+                "shifter/packer/**",
+                "shifter/installation/**",
+                "scripts/bootstrap/**",
+                "scripts/check_layer_imports/**",
+                "scripts/adr_guard/**",
+            ),
+        )
+        self.assertEqual(QUALITY.SOURCE_EXCLUDES, tuple(EXCLUDES))
+        self.assertEqual(
+            QUALITY.QUALITY_COMMAND[:4],
+            ("diff-quality", "--violations=ruff.check", "--compare-branch=origin/dev", "--fail-under=100"),
+        )
+        self.assertEqual(
+            QUALITY.RUFF_OPTIONS,
+            "--isolated --line-length 120 "
+            "--select C901,PLR0911,PLR0913,D101,D102,D103,ANN001,ANN002,ANN003,ANN201,ANN202,ANN204,ANN401,E501 "
+            "--config lint.mccabe.max-complexity=10 --config lint.pylint.max-returns=3 --config lint.pylint.max-args=7",
+        )
         self.assertIs(hook["pass_filenames"], False)
 
 

@@ -2,23 +2,53 @@
 
 from __future__ import annotations
 
-import argparse
 import fnmatch
 import glob
 import os
 import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SOURCE_INCLUDES = (
+    "shifter/shifter_platform/**",
+    "shifter/engine/provisioner/**",
+    "shifter/engine/openvpn/**",
+    "shifter/packer/**",
+    "shifter/installation/**",
+    "scripts/bootstrap/**",
+    "scripts/check_layer_imports/**",
+    "scripts/adr_guard/**",
+)
+SOURCE_EXCLUDES = ("**/tests/**", "**/test_*.py", "**/conftest.py", "**/migrations/**", "**/documentation/**")
+RUFF_OPTIONS = (
+    "--isolated --line-length 120 "
+    "--select C901,PLR0911,PLR0913,D101,D102,D103,ANN001,ANN002,ANN003,ANN201,ANN202,ANN204,ANN401,E501 "
+    "--config lint.mccabe.max-complexity=10 "
+    "--config lint.pylint.max-returns=3 "
+    "--config lint.pylint.max-args=7"
+)
+QUALITY_COMMAND = (
+    "diff-quality",
+    "--violations=ruff.check",
+    "--compare-branch=origin/dev",
+    "--fail-under=100",
+    f"--options={RUFF_OPTIONS}",
+)
+GIT_DIFF_COMMANDS = (
+    ("git", "diff", "--name-only", "-z", "--end-of-options", "origin/dev...HEAD", "--"),
+    ("git", "diff", "--name-only", "-z", "--cached", "--"),
+    ("git", "diff", "--name-only", "-z", "--"),
+)
 
 
-def changed_paths(root: Path, compare_branch: str) -> set[str]:
+def changed_paths(root: Path) -> set[str]:
     """Read committed, staged and unstaged Git paths using the gate's diff semantics."""
     paths: set[str] = set()
-    for revision in ((f"{compare_branch}...HEAD",), ("--cached",), ()):
+    for command in GIT_DIFF_COMMANDS:
         result = subprocess.run(
-            ["git", "diff", "--name-only", "-z", *revision],
+            command,
             cwd=root,
             check=True,
             stdout=subprocess.PIPE,
@@ -75,28 +105,23 @@ def selected_paths(root: Path, paths: set[str], includes: Sequence[str], exclude
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Pass literal eligible paths and unchanged rules to the pinned diff-quality CLI."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--compare-branch", default="origin/dev")
-    parser.add_argument("--include", nargs="+", required=True)
-    parser.add_argument("--exclude", nargs="+", default=[])
-    options, quality_args = parser.parse_known_args(argv)
-    paths = selected_paths(
-        REPO_ROOT, changed_paths(REPO_ROOT, options.compare_branch), options.include, options.exclude
-    )
+    """Run the fixed hook policy; reject external arguments before any subprocess."""
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv:
+        print("This fixed-purpose quality hook accepts no arguments.", file=sys.stderr)
+        return 2
+    paths = selected_paths(REPO_ROOT, changed_paths(REPO_ROOT), SOURCE_INCLUDES, SOURCE_EXCLUDES)
     if not paths:
         print("No eligible changed Python files in the configured quality scope.")
         return 0
     command = [
-        "diff-quality",
-        *quality_args,
-        "--compare-branch",
-        options.compare_branch,
+        *QUALITY_COMMAND,
         "--include",
         *(glob.escape(path) for path in paths),
+        "--exclude",
+        *SOURCE_EXCLUDES,
     ]
-    if options.exclude:
-        command.extend(["--exclude", *options.exclude])
     return subprocess.run(command, cwd=REPO_ROOT, check=False).returncode
 
 

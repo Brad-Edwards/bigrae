@@ -317,6 +317,8 @@ feed one coverage gate; separate jobs prove Redis, released OpenFGA, browser
 and built-image behavior. Local changed-line checks use Git's changed paths
 to select owned Python files without walking installed dependencies. The same
 pinned quality checker, rule set and zero-violation threshold still apply.
+The wrapper owns this fixed policy and rejects command-line arguments before
+running Git or the checker.
 See the [test contract](../dev/testing.md) and
 [enforcement details](dev/adr-enforcement.md) for each gate's scope.
 
