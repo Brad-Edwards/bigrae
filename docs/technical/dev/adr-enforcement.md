@@ -87,7 +87,7 @@ The integration branch's Bandit jobs also cover these tools and the three
 inspection scripts. ShellCheck covers smoke and container scripts.
 MCP lint jobs reject security warnings, and the shared package has a test-matrix
 entry. The existing kube-linter job supplies blocking Kubernetes security policy.
-Checkov's separate Kubernetes recommendations remain advisory under ADR-004-R11.
+Checkov's separate Kubernetes checks are a blocking gate under ADR-004-R11 (#2558).
 Helm lint and rendered kube-linter checks run together, including when optional
 tests are skipped. BuildKit and Trivy validate container build inputs. A local guacd
 container proves non-root execution, drive permissions and listener readiness.
@@ -592,9 +592,16 @@ The first slice intentionally stays small:
 
 - `checkov-k8s`
   CIS Kubernetes benchmark and container security checks on manifests in
-  `platform/k8s/`. Currently soft-fail while existing manifests are being
-  hardened. This posture is separate from Terraform Checkov policy and must not
-  be used to justify Terraform soft-fail.
+  `platform/k8s/`. A **blocking gate** under ADR-004-R11 since #2558
+  (`soft_fail: false`, no `continue-on-error`). This posture is separate from
+  Terraform Checkov policy and from the Trivy configuration scan. Accepted-risk
+  waivers use resource `checkov.io/skipN` annotations plus a matching
+  `docs/adr/exceptions.yaml` entry (`rule_id: ADR-004-R11`, owner, reason with
+  the Checkov policy ID, `expires_on`, `paths`).
+
+  Making the Trivy configuration scan blocking is tracked separately in #2566;
+  the [#2558 architecture preflight](../../architecture/blocking-config-security-preflight-2558.md)
+  records the cross-repository contracts for that follow-up.
 
 - `checkov-terraform`
   IaC security scan over first-party Terraform in `platform/terraform/`. A

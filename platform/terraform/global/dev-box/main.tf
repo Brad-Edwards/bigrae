@@ -189,9 +189,22 @@ resource "aws_iam_role_policy" "dev_permissions" {
     Version = "2012-10-17"
     Statement = [
       {
+        # Read, write, and list objects only. Bucket configuration, policy,
+        # and deletion stay with the deploy role (AWS-0345).
         Sid    = "S3Access"
         Effect = "Allow"
-        Action = ["s3:*"]
+        Action = [
+          "s3:ListBucket",
+          "s3:ListBucketVersions",
+          "s3:ListBucketMultipartUploads",
+          "s3:GetBucketLocation",
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts",
+        ]
         Resource = [
           "arn:aws:s3:::shifter-*",
           "arn:aws:s3:::shifter-*/*"

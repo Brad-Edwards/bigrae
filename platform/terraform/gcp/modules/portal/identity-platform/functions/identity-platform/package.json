@@ -12,6 +12,6 @@
     "node-forge": "file:./vendor/node-forge"
   },
   "overrides": {
-    "qs": "^6.16.1"
+    "qs": "6.16.1"
   }
 }

@@ -53,8 +53,8 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
 # Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "7c852a1d9a813fe4edce0f70e34bb46171136ad55836f9aaffe10dbed0427ed9",
-    "gcp-prod": "0b02cbfbac9e99953bf8af620a7ef805707028b534b96e2aadfb541c047c8c1b",
+    "gcp-dev": "4ed3501583b1dd5dfe24dcd44f8fe985460af771eed4bdc15e12909efd34d164",
+    "gcp-prod": "40b84106196b45705050e93f39c8da82ae79bb4cdc2cd1b445a0e028ab89623b",
 }
 
 

@@ -2,6 +2,33 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
+    "reason": "CKV_K8S_35 (prefer secret files over environment variables): the guacamole-client Deployment reads the guacamole-runtime Secret through envFrom. The pinned Guacamole 1.6.0 image has a confirmed file-secret regression (GUACAMOLE-2119): its entrypoint has no _FILE variable support, and it links the PostgreSQL authentication extension through an environment-variable-driven feature framework. A correct file-delivery fix must fork the custom image entrypoint to build guacamole.properties from a mounted file and link the extension without the environment path, which is a higher-risk change to participant remote access. The image fork is tracked in #2565. An inline `# checkov:skip=CKV_K8S_35` on the guacamole-client container points back to this entry.",
+    "expires_on": "2027-04-28",
+    "paths": [
+      "platform/k8s/gcp/base/guacamole-client-deployment.yaml"
+    ]
+  },
+  {
+    "rule_id": "ADR-004-R11",
+    "owner": "@Brad-Edwards",
+    "reason": "CKV_K8S_43 (image should use digest): verified false positive. The GCP base manifests pin a placeholder image tag (:0.0.0) by design. Every deploy path rewrites each image reference to an attested digest before apply: _gcp-dev.yml performs the verified digest rewrite, bootstrap validates the digest, and the chart image schema and ADR-037 provenance bind the digest. The deployed artifact therefore always uses a digest; only the un-deployable template trips the check. Each affected Deployment carries a `checkov.io/skip1: CKV_K8S_43` annotation pointing back to this entry.",
+    "expires_on": "2027-10-28",
+    "paths": [
+      "platform/k8s/gcp/base/"
+    ]
+  },
+  {
+    "rule_id": "ADR-004-R11",
+    "owner": "@Brad-Edwards",
+    "reason": "CKV_K8S_38 (service account token only mounted where necessary): verified false positive for the worker-provisioner-launcher Deployment. This dedicated launcher requires Kubernetes API access to create and manage provisioner Jobs under ADR-006-R4, so automountServiceAccountToken is necessary for this controller. Ordinary workers and provisioner execution Jobs keep automount disabled. The `checkov.io/skip2: CKV_K8S_38` annotation on worker-provisioner-launcher-deployment.yaml points back to this entry.",
+    "expires_on": "2027-10-28",
+    "paths": [
+      "platform/k8s/gcp/base/worker-provisioner-launcher-deployment.yaml"
+    ]
+  },
+  {
+    "rule_id": "ADR-004-R11",
+    "owner": "@Brad-Edwards",
     "reason": "CKV_GCP_38 (boot disk CSEK): the GCP-native dev-tenant runner (#1546) boot disk relies on Google-managed at-rest encryption (AES-256) rather than a customer-supplied/managed key. CSEK/CMEK would require provisioning and managing a KMS key + IAM in the dedicated runner root for marginal defense-in-depth over Google's default encryption, on a private, re-creatable dev-tenant runner. Inline `# checkov:skip=CKV_GCP_38` on google_compute_instance.runner points back to this entry; a CMEK upgrade is tracked with the runner hardening follow-up (#1613 area).",
     "expires_on": "2027-07-13",
     "paths": [

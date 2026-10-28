@@ -7,16 +7,12 @@
 # still has no fix at the review date. Do NOT add entries for findings that have
 # a patched version — bump the dependency instead.
 
-# deepmerge 4.3.1 prototype poisoning in mergeObject() (CWE-1321, LOW).
-# - No upstream fix: 4.3.1 is the latest release and the last affected version,
-#   and the latest jest-config (30.5.2) still requires ^4.3.1.
-# - Not reachable: the only consumer is jest-config in the dev-only Jest runner
-#   for shifter/shifter_platform/static/js tests. It merges Jest defaults with the
-#   repository's own Jest config; no external or user input reaches the merge,
-#   and deepmerge ships in no runtime artifact.
-# - Scoped to this one advisory; other deepmerge advisories still fail the scan.
-# - Remove when deepmerge or jest-config ships a fix. Lapses on the date below.
 [[IgnoredVulns]]
 id = "GHSA-gcqx-w48m-w2h4"
-ignoreUntil = 2027-01-28
-reason = "deepmerge 4.3.1 has no fixed release; reachable only from the dev-only jest-config merge of repository-owned Jest config (#2052)."
+ignoreUntil = 2027-04-28
+# CVE-2026-93753. deepmerge@4.3.1 is a dev-only transitive dependency, pulled in
+# by jest-config for the test harness. It is not in the runtime or request path.
+# The advisory has no upstream fix: 4.3.1 is the latest published release and the
+# last affected version (affected >=4.2.0, <=4.3.1; patched: none). Bump and
+# remove this entry once a fixed release ships; re-evaluate at ignoreUntil.
+reason = "deepmerge CVE-2026-93753: no upstream fix (4.3.1 is latest and last-affected); dev-only test transitive via jest-config, not runtime-reachable."

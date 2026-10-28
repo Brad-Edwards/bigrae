@@ -89,8 +89,8 @@ def preparation_task(
         ttl_seconds_after_finished=3600,
         hardening=ProvisionerHardeningProfile(
             container_name=CONTAINER,
-            run_as_uid=1000,
-            run_as_gid=1000,
+            run_as_uid=10001,
+            run_as_gid=10001,
             writable_mounts=(
                 ("tmp", "/tmp", "Memory", "64Mi"),  # noqa: S108  # nosec B108  # NOSONAR
             ),

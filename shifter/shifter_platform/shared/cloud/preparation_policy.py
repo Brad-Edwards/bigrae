@@ -160,8 +160,8 @@ def _sandbox_checks(pull_check: str) -> list[tuple[str, str]]:
         ),
         (
             """
-            variables.c.securityContext.runAsNonRoot && variables.c.securityContext.runAsUser == 1000 &&
-            variables.c.securityContext.runAsGroup == 1000 &&
+            variables.c.securityContext.runAsNonRoot && variables.c.securityContext.runAsUser == 10001 &&
+            variables.c.securityContext.runAsGroup == 10001 &&
             !variables.c.securityContext.allowPrivilegeEscalation &&
             variables.c.securityContext.readOnlyRootFilesystem && (!has(variables.c.securityContext.privileged)
             || !variables.c.securityContext.privileged) && variables.c.securityContext.capabilities.drop ==

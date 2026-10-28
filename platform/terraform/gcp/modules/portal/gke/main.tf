@@ -177,7 +177,9 @@ resource "google_container_node_pool" "web" {
   }
 
   node_config {
+    # Pin the hardened COS containerd node image. This is the GKE default.
     machine_type    = var.web_machine_type
+    image_type      = "COS_CONTAINERD"
     service_account = var.node_service_account_email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
     labels          = merge(var.common_labels, { role = "web" })
@@ -217,7 +219,9 @@ resource "google_container_node_pool" "workers" {
   }
 
   node_config {
+    # Pin the hardened COS containerd node image. This is the GKE default.
     machine_type    = var.worker_machine_type
+    image_type      = "COS_CONTAINERD"
     service_account = var.node_service_account_email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
     labels          = merge(var.common_labels, { role = "workers" })
@@ -262,7 +266,9 @@ resource "google_container_node_pool" "provisioner" {
   }
 
   node_config {
+    # Pin the hardened COS containerd node image. This is the GKE default.
     machine_type    = var.provisioner_machine_type
+    image_type      = "COS_CONTAINERD"
     service_account = var.node_service_account_email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
     # `role` is retained for observability, but the security-relevant nodeSelector
@@ -329,7 +335,9 @@ resource "google_container_node_pool" "access" {
   }
 
   node_config {
+    # Pin the hardened COS containerd node image. This is the GKE default.
     machine_type    = var.access_machine_type
+    image_type      = "COS_CONTAINERD"
     service_account = var.node_service_account_email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
     # `role` is retained for observability, but the security-relevant nodeSelector
