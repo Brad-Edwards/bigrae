@@ -37,6 +37,13 @@ _PROVISIONER_WORKSPACE_SIZE_LIMIT = "256Mi"
 # volumes are the only paths the runtime user can write to. workspace is
 # memory-backed so terraform.tfvars.json (which can carry secrets) never persists
 # on disk.
+# Requests and limits of the provisioner container. Without requests the Job pod
+# is BestEffort: the scheduler does not count it when it places pods, and the
+# kubelet evicts it first under node memory pressure (#2606). One Job runs one
+# Terraform plan/apply with providers from the image mirror; the memory-backed
+# workspace (256Mi) counts against the memory limit.
+PROVISIONER_RESOURCE_REQUESTS: Mapping[str, str] = {"cpu": "250m", "memory": "512Mi", "ephemeral-storage": "1Gi"}
+PROVISIONER_RESOURCE_LIMITS: Mapping[str, str] = {"cpu": "2", "memory": "2Gi", "ephemeral-storage": "4Gi"}
 _PROVISIONER_WRITABLE_MOUNTS: tuple[WritableMount, ...] = (
     ("provisioner-workspace", "/var/run/provisioner/workspace", "Memory", _PROVISIONER_WORKSPACE_SIZE_LIMIT),
     ("tmp", "/tmp", None, None),  # noqa: S108 # nosec B108 — Kubernetes mount path, not a tempfile API call

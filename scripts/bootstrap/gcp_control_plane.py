@@ -1168,15 +1168,28 @@ def _parse_gce_image_reference(reference: str, default_project: str) -> tuple[st
     return default_project, "family", ref
 
 
+class GceImageLookupError(RuntimeError):
+    """The deploy identity could not read a range guest image for a reason other than absence."""
+
+
 def _gce_image_exists(project: str, kind: str, name: str) -> bool:
-    """Return True when the referenced GCE image (or image family) resolves in the project."""
+    """Return True when the referenced GCE image (or image family) resolves in the project.
+
+    Only a not-found answer means the image is absent. Any other failure, for example
+    a missing ``compute.images.get`` permission, raises ``GceImageLookupError`` (#2608).
+    """
     if kind == "family":
         cmd = ["gcloud", "compute", "images", "describe-from-family", name]
     else:
         cmd = ["gcloud", "compute", "images", "describe", name]
     cmd += ["--project", project, "--format=value(name)"]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)  # nosec B603 B607
-    return result.returncode == 0 and bool(result.stdout.strip())
+    if result.returncode == 0:
+        return bool(result.stdout.strip())
+    if "was not found" in result.stderr:
+        return False
+    reason = next((line.strip(" -") for line in reversed(result.stderr.splitlines()) if line.strip()), "")
+    raise GceImageLookupError(f"cannot read {kind} '{name}' in project '{project}': {reason}")
 
 
 def _missing_gce_range_images(
@@ -1230,7 +1243,11 @@ def check_gce_range_preconditions(
     project = _range_cell_project_id(config, env)
 
     missing_vars = [name for name in _REQUIRED_GCE_RANGE_VARS if not (env.get(name) or "").strip()]
-    missing_images = _missing_gce_range_images(env, project, image_exists)
+    try:
+        missing_images = _missing_gce_range_images(env, project, image_exists)
+    except GceImageLookupError as exc:
+        error(f"Range guest image check failed: {exc}. Grant the deploy identity read access to the images.")
+        sys.exit(1)
 
     if not missing_vars and not missing_images:
         success(f"GCE range preconditions satisfied (range-cell project {project}).")
