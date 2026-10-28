@@ -25,7 +25,9 @@ so they fire on a real regression without coupling to YAML formatting.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
+import re
 import threading
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -230,11 +232,38 @@ def test_page_smoke_rejects_redirect_before_forwarding_session_cookie() -> None:
         server.server_close()
 
 
+def _assert_image_user_preserved(script: str) -> None:
+    """Only the isolated empty bearer-file ownership setup may override the image UID."""
+    # Pin the entire setup command: it runs chown without runtime configuration
+    # or application startup, and mounts only the private file.
+    expected = (
+        'smoke_run --rm --user 0 --entrypoint chown -v "$FIXTURE_DIR/catalog-credential:/run/catalog-credential" '
+        '"$SMOKE_IMAGE" "$(smoke_run --rm --entrypoint id "$SMOKE_IMAGE" -u)" /run/catalog-credential'
+    )
+    logical_lines = re.sub(r"[ \t]*\\\n[ \t]*", " ", script).splitlines()
+    overrides = [line.strip() for line in logical_lines if "--user" in line or re.search(r"(?:^|\s)-u\S*", line)]
+    assert overrides == [expected], "application commands must retain the image user"
+
+
 def test_harness_does_not_override_image_user(smoke_script: str) -> None:
-    # The /home/appuser HOME regression is only caught when the container runs as
-    # the image's non-root user; the harness must not pass --user/-u to escape it.
-    assert "--user" not in smoke_script
-    assert "-u 0" not in smoke_script
+    # Portal, workers, migrations, bootstrap and token issuance must use the image
+    # user so the HOME check still catches production container regressions.
+    _assert_image_user_preserved(smoke_script)
+
+
+@pytest.mark.parametrize("override", ["--user 0", "--user=root", "-u 0", "-uroot"])
+def test_image_user_contract_rejects_application_overrides(smoke_script: str, override: str) -> None:
+    changed = smoke_script.replace('smoke_run -d --name "$WEB"', f'smoke_run {override} -d --name "$WEB"')
+    assert changed != smoke_script
+    with pytest.raises(AssertionError, match="retain the image user"):
+        _assert_image_user_preserved(changed)
+
+
+def test_image_user_contract_rejects_broadening_root_file_setup(smoke_script: str) -> None:
+    changed = smoke_script.replace("--user 0 --entrypoint chown", "--user 0 --network host --entrypoint chown")
+    assert changed != smoke_script
+    with pytest.raises(AssertionError, match="retain the image user"):
+        _assert_image_user_preserved(changed)
 
 
 def test_harness_asserts_home_directory_writable(smoke_script: str) -> None:
@@ -270,16 +299,58 @@ def test_harness_drives_real_oidc_login(smoke_script: str) -> None:
     assert "OIDC_ISSUER_URL" in smoke_script
 
 
-def test_harness_has_no_direct_session_shortcut(smoke_script: str) -> None:
+def _assert_no_direct_session_shortcut(script: str) -> None:
+    """Permit reading the callback's decoded user ID, never constructing session authority."""
     # Acceptance criterion (#988): the #922 direct-session shortcut must not
     # return - no SessionStore mint, no force_login, no /dev-login bypass.
-    assert "SessionStore" not in smoke_script
-    assert "_auth_user_id" not in smoke_script
-    assert "force_login" not in smoke_script
-    assert "/dev-login" not in smoke_script
+    assert "SessionStore" not in script
+    assert "force_login" not in script
+    assert "/dev-login" not in script
+    inspected = 0
+    for source in re.findall(r"(?<!\S)-c\s+'([^']*)'", script):
+        if "_auth_user_id" not in source:
+            continue
+        tree = ast.parse(source)
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and node.value == "_auth_user_id":
+                _assert_decoded_session_read(node, parents[node])
+                inspected += 1
+    assert script.count("_auth_user_id") == inspected, "authentication key occurs outside a decoded-session read"
+
+
+def _assert_decoded_session_read(key: ast.Constant, parent: ast.AST) -> None:
+    """The auth key may only be the argument of get_decoded().get(...)."""
+    assert isinstance(parent, ast.Call) and parent.args and parent.args[0] is key, (
+        "authentication key must only be read"
+    )
+    assert isinstance(parent.func, ast.Attribute) and parent.func.attr == "get", "authentication key must only be read"
+    decoded = parent.func.value
+    assert isinstance(decoded, ast.Call) and isinstance(decoded.func, ast.Attribute)
+    assert decoded.func.attr == "get_decoded", "authentication key must come from the callback session"
+
+
+def test_harness_has_no_direct_session_shortcut(smoke_script: str) -> None:
+    _assert_no_direct_session_shortcut(smoke_script)
     # The session value is handed off by file path, never on argv.
     assert "--session-file" in smoke_script
     assert "--session " not in smoke_script
+
+
+@pytest.mark.parametrize(
+    "shortcut",
+    [
+        'session["_auth_user_id"] = "1"',
+        'session.update({"_auth_user_id": "1"})',
+        'PrincipalSession.objects.create(session_data={"_auth_user_id": "1"})',
+        "SessionStore()",
+        "client.force_login(user)",
+    ],
+)
+def test_session_contract_rejects_minting_shortcuts(smoke_script: str, shortcut: str) -> None:
+    changed = smoke_script + f"\npython manage.py shell -c '{shortcut}'\n"
+    with pytest.raises(AssertionError):
+        _assert_no_direct_session_shortcut(changed)
 
 
 def test_harness_proves_first_login_provisioning(smoke_script: str) -> None:
