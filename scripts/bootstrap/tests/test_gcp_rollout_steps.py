@@ -11,6 +11,7 @@ import yaml
 import gcp_helm
 from bootstrap_core import get_repo_root
 from gcp_control_plane import _load_python_script_module
+from gcp_evidence import EvidenceRun
 from gcp_helm import (
     MANAGED_BY_LABEL,
     RELEASE_NAME_ANNOTATION,
@@ -87,7 +88,7 @@ class TestRuntimeEnv:
             runner, inputs, sample_gcp_outputs(PROJECT), provisioner_digest="sha256:" + "2" * 64, workdir=inputs.workdir
         )
         call = runner.calls[0]
-        assert call.inherit_env is False and "OPERATOR_SECRET" not in call.env
+        assert "OPERATOR_SECRET" not in call.env and call.env["PATH"] == "/bin"
         assert call.env["RANGE_NETWORK_ZONE"] == "us-central1-a"
         assert call.argv[call.argv.index("--engine-image-digest") + 1] == "sha256:" + "2" * 64
         assert runtime["X"] == "renderer"
@@ -190,9 +191,10 @@ class TestHelm:
         retire = FakeRunner().on(["kubectl", "get"], get)
         removed = remove_retired_objects(retire, {})
         assert "secret/platform-runtime-secrets" not in removed
-        assert "networkpolicy.networking.k8s.io/allow-platform-google-apis-egress" in removed
-        assert len(retire.find("kubectl", "delete")) == 3
-        assert gcp_helm.RETIRED_KUSTOMIZE_OBJECTS
+        assert removed == ["networkpolicy.networking.k8s.io/allow-platform-google-apis-egress"]
+        assert len(retire.find("kubectl", "delete")) == 1
+        retired_names = {name for _, _, name in gcp_helm.RETIRED_KUSTOMIZE_OBJECTS}
+        assert retired_names.isdisjoint({"allow-portal-to-guacamole-client", "allow-portal-egress-to-guacamole-client"})
 
 
 class TestRolloutChecks:
@@ -250,10 +252,7 @@ class TestRolloutChecks:
             {},
             identities=_identities(),
             model_broker_enabled=False,
-            source_revision=REVISION,
-            evidence_bucket="acme-shifter-release-evidence",
-            run_id="r",
-            attempt=1,
+            evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 1),
             workdir=tmp_path,
         )
         assert record.prefix == f"deployments/{REVISION}/r/1"
@@ -266,10 +265,7 @@ class TestRolloutChecks:
                 {},
                 identities=_identities(),
                 model_broker_enabled=False,
-                source_revision=REVISION,
-                evidence_bucket="acme-shifter-release-evidence",
-                run_id="r",
-                attempt=1,
+                evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 1),
                 workdir=tmp_path,
             )
 
@@ -350,8 +346,7 @@ class TestOpenVpn:
             runner,
             {},
             pool=POOL,
-            image_root=POOL["image_root"],
-            digest=digest,
+            image=f"{POOL['image_root']}@{digest}",
             project_id=PROJECT,
             pki_changed=False,
             sleep=lambda _: None,
@@ -368,8 +363,7 @@ class TestOpenVpn:
                 FakeRunner(),
                 {},
                 pool=POOL,
-                image_root=POOL["image_root"],
-                digest="latest",
+                image=f"{POOL['image_root']}@latest",
                 project_id=PROJECT,
                 pki_changed=False,
             )
@@ -378,8 +372,7 @@ class TestOpenVpn:
                 FakeRunner(),
                 {},
                 pool=POOL,
-                image_root="other",
-                digest="sha256:" + "5" * 64,
+                image="other@sha256:" + "5" * 64,
                 project_id=PROJECT,
                 pki_changed=False,
             )
@@ -394,8 +387,7 @@ class TestOpenVpn:
                 unhealthy,
                 {},
                 pool=POOL,
-                image_root=POOL["image_root"],
-                digest="sha256:" + "5" * 64,
+                image=current,
                 project_id=PROJECT,
                 pki_changed=False,
                 sleep=lambda _: None,
@@ -407,8 +399,7 @@ class TestOpenVpn:
                 denied,
                 {},
                 pool=POOL,
-                image_root=POOL["image_root"],
-                digest="sha256:" + "5" * 64,
+                image=current,
                 project_id=PROJECT,
                 pki_changed=False,
             )

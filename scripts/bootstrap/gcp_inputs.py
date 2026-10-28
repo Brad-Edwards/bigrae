@@ -96,6 +96,7 @@ def write_private_file(path: Path, text: str) -> Path:
 
 
 def _copy_local(source: Path, workdir: Path) -> dict[str, Path]:
+    """Copy the bundle files of a local directory into ``workdir``."""
     if not source.is_dir():
         raise DeploymentInputError(f"deployment input directory {source} does not exist")
     copied: dict[str, Path] = {}
@@ -113,6 +114,7 @@ def _copy_local(source: Path, workdir: Path) -> dict[str, Path]:
 
 
 def _copy_gcs(source: str, workdir: Path, runner: ProcessRunner, env: Mapping[str, str | None]) -> dict[str, Path]:
+    """Copy the bundle objects of a ``gs://`` config store into ``workdir``."""
     base = gcs_object_url(source, "").rstrip("/")
     listing = runner.run(["gcloud", "storage", "ls", f"{base}/"], env=env).stdout.split()
     present = {url.rsplit("/", 1)[-1] for url in listing if url.startswith(f"{base}/") and not url.endswith("/")}
@@ -139,6 +141,7 @@ def fetch_bundle(source: str, workdir: Path, runner: ProcessRunner, env: Mapping
 
 
 def _read_json_object(path: Path, what: str) -> dict[str, object]:
+    """Read a JSON file that must hold one object."""
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

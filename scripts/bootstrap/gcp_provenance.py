@@ -23,15 +23,20 @@ import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Protocol
 
 from bootstrap_core import info, success
 from gcp_oci import SIGSTORE_BUNDLE_ARTIFACT_TYPE, ImageReference, OciClient, OciError
 
+if TYPE_CHECKING:
+    from sigstore.models import Bundle
+    from sigstore.verify import Verifier
+    from sigstore.verify.policy import AllOf, VerificationPolicy
+
 GITHUB_ACTIONS_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 SLSA_PROVENANCE_V1 = "https://slsa.dev/provenance/v1"
 IN_TOTO_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-_NUMERIC_ID_RE = re.compile(r"^[1-9][0-9]*$")
+_NUMERIC_ID_RE = re.compile(r"^[1-9]\d*$", re.ASCII)
 _REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -54,7 +59,15 @@ class ReleaseTrust:
             raise ProvenanceError("release trust requires a full 40-character source revision")
 
 
-def sigstore_policy(trust: ReleaseTrust) -> Any:
+class DsseVerifier(Protocol):
+    """The part of ``sigstore.verify.Verifier`` that the provenance check uses."""
+
+    def verify_dsse(self, bundle: Bundle, policy: VerificationPolicy) -> tuple[str, bytes]:
+        """Verify a DSSE bundle against ``policy`` and return its payload type and payload."""
+        ...
+
+
+def sigstore_policy(trust: ReleaseTrust) -> AllOf:
     """Build the sigstore-python verification policy for ``trust``."""
     from sigstore.verify import policy
 
@@ -89,7 +102,8 @@ def check_statement(payload_type: str, payload: bytes, digest: str) -> None:
         raise ProvenanceError("attestation subject does not name the exact image digest")
 
 
-def _default_verifier() -> Any:
+def _default_verifier() -> Verifier:
+    """Return the verifier for the Sigstore public-good production instance."""
     from sigstore.verify import Verifier
 
     return Verifier.production()
@@ -100,7 +114,7 @@ def verify_image_provenance(
     trust: ReleaseTrust,
     *,
     oci: OciClient,
-    verifier: Any,
+    verifier: DsseVerifier,
 ) -> None:
     """Verify that at least one stored attestation of ``identity`` satisfies ``trust``."""
     from sigstore.errors import Error as SigstoreError
@@ -140,7 +154,7 @@ def verify_release_provenance(
     *,
     token_provider: Callable[[], str],
     oci: OciClient | None = None,
-    verifier: Any = None,
+    verifier: DsseVerifier | None = None,
 ) -> None:
     """Verify every release image before any runtime mutation (ADR-037-R6)."""
     client = oci or OciClient(token_provider)

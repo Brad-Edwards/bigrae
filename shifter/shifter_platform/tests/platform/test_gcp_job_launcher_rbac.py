@@ -1,7 +1,7 @@
 """GCP job-launcher token mounting and RBAC stay confined to the provisioner launcher.
 
 Split from ``test_gcp_job_launcher_manifests`` (admission policy) along the
-behavior boundary; both render the same base manifests and Helm chart.
+behavior boundary; both render the same Helm chart.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from tests.platform.test_gcp_job_launcher_manifests import (
     _deployment_pod_spec,
     _deployments,
     _job_launcher_role,
-    _load_base_documents,
     _load_helm_documents,
     _metadata_namespace,
     _rbac_subjects,
@@ -27,7 +26,6 @@ from tests.platform.test_gcp_job_launcher_manifests import (
 @pytest.mark.parametrize(
     ("source_name", "loader"),
     [
-        ("base", _load_base_documents),
         ("helm", _load_helm_documents),
     ],
 )
@@ -69,7 +67,6 @@ def test_only_gcp_job_launchers_mount_service_account_tokens(
 @pytest.mark.parametrize(
     ("source_name", "loader"),
     [
-        ("base", _load_base_documents),
         ("helm", _load_helm_documents),
     ],
 )
@@ -90,7 +87,7 @@ def test_job_launcher_rbac_subjects_match_token_mounting_workloads(
     )
 
 
-@pytest.mark.parametrize("loader", [_load_base_documents, _load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents])
 def test_portal_scheduler_and_general_workers_cannot_mutate_provisioner_objects(loader: Any) -> None:
     documents = loader()
     subjects = _rbac_subjects(documents)
@@ -108,7 +105,6 @@ def test_portal_scheduler_and_general_workers_cannot_mutate_provisioner_objects(
 @pytest.mark.parametrize(
     ("source_name", "loader"),
     [
-        ("base", _load_base_documents),
         ("helm", _load_helm_documents),
     ],
 )

@@ -67,6 +67,7 @@ def ensure_pki(
 
 
 def _latest_release(runner: ProcessRunner, env: Mapping[str, str | None], secret: str, project_id: str) -> str:
+    """Return the recorded pool release, or an empty string before the first record."""
     result = runner.run(
         ["gcloud", "secrets", "versions", "access", "latest", f"--secret={secret}", f"--project={project_id}"],
         env=env,
@@ -80,6 +81,7 @@ def _latest_release(runner: ProcessRunner, env: Mapping[str, str | None], secret
 
 
 def _healthy(health: str) -> bool:
+    """Return True when every backend of the pool reports HEALTHY."""
     try:
         payload = json.loads(health)
     except json.JSONDecodeError:
@@ -99,13 +101,16 @@ def roll_out_pool(
     env: Mapping[str, str | None],
     *,
     pool: Mapping[str, str],
-    image_root: str,
-    digest: str,
+    image: str,
     project_id: str,
     pki_changed: bool,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Record the approved pool image, replace servers when needed, and wait for health."""
+    """Record the approved pool image, replace servers when needed, and wait for health.
+
+    ``image`` is the exact openvpn release identity (``<image root>@sha256:<digest>``).
+    """
+    image_root, _, digest = image.rpartition("@")
     if not _DIGEST_RE.fullmatch(digest):
         raise OpenVpnError("the openvpn release image has no exact digest")
     if pool.get("image_root") != image_root:

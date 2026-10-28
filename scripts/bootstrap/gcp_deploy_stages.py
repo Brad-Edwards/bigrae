@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from bootstrap_core import get_repo_root, header, info, success, warn
+from gcp_evidence import EvidenceRun
 from gcp_inputs import DeploymentInputs
 from gcp_kube import cluster_name, kube_env
 from gcp_process import ProcessRunner, scoped_environment, script_argv
@@ -69,7 +70,8 @@ def apply_broker_overlay(
         env={"SHIFTER_CONFIG_OVERLAY_FILE": str(overlay), "SHIFTER_CONFIG_OVERLAY_JSON": None},
     )
     root_config = load_root_config(inputs.config_path)
-    return dataclasses.replace(
+    # dataclasses.replace returns the type of its argument (DeploymentInputs).
+    return dataclasses.replace(  # NOSONAR - S5886 reports the TypeVar bound, not DeploymentInputs.
         inputs, root_config=root_config, settings=GcpBackendSettings.from_root_settings(root_config.settings)
     )
 
@@ -89,7 +91,9 @@ def reconcile_foundation_image_network(runner: ProcessRunner, inputs: Deployment
     )
 
 
-def verify_range_telemetry(runner: ProcessRunner, inputs: DeploymentInputs, outputs: Mapping[str, Mapping]) -> None:
+def verify_range_telemetry(
+    runner: ProcessRunner, inputs: DeploymentInputs, outputs: Mapping[str, Mapping[str, object]]
+) -> None:
     """Read back the range audit telemetry controls against ``settings.range_telemetry``."""
     network = str(outputs.get("range_network_name", {}).get("value", "")).strip()
     owned = outputs.get("range_telemetry_terraform_resources", {}).get("value")
@@ -131,7 +135,7 @@ def check_range_preconditions(
     )
 
 
-def seed_operator(inputs: DeploymentInputs, outputs: Mapping, *, password: str) -> None:
+def seed_operator(inputs: DeploymentInputs, outputs: Mapping[str, Mapping[str, object]], *, password: str) -> None:
     """Create the first Identity Platform operator when operator bootstrap is enabled."""
     from gcp_control_plane import ensure_gcp_identity_platform_operator
     from gcp_runtime import gdc_config
@@ -240,7 +244,9 @@ def read_infrastructure(runner: ProcessRunner, inputs: DeploymentInputs) -> Infr
     return InfrastructureResult(outputs=outputs, kube=kube)
 
 
-def sync_policy_credentials(runner: ProcessRunner, inputs: DeploymentInputs, outputs: Mapping) -> bool:
+def sync_policy_credentials(
+    runner: ProcessRunner, inputs: DeploymentInputs, outputs: Mapping[str, Mapping[str, object]]
+) -> bool:
     """Synchronize the policy datastore credentials when native policy is enabled."""
     native = outputs.get("native_identity", {}).get("value") or {}
     if not (isinstance(native, Mapping) and native.get("openfga_enabled")):
@@ -280,10 +286,7 @@ class RolloutRequest:
     """Everything the rollout stage needs besides the inputs and the infrastructure."""
 
     identities: Mapping[str, str]
-    source_revision: str
-    evidence_bucket: str
-    run_id: str
-    attempt: int
+    evidence: EvidenceRun
     first_install: bool
 
 
@@ -350,13 +353,11 @@ def rollout_stage(
         restart_workloads(runner, {}, model_broker_enabled=broker_enabled)
         wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled)
         if pool:
-            image_root, _, digest = request.identities["openvpn"].rpartition("@")
             roll_out_pool(
                 runner,
                 {},
                 pool=pool,
-                image_root=image_root,
-                digest=digest,
+                image=request.identities["openvpn"],
                 project_id=inputs.project_id,
                 pki_changed=pki_changed,
             )
@@ -365,10 +366,7 @@ def rollout_stage(
             {},
             identities=request.identities,
             model_broker_enabled=broker_enabled,
-            source_revision=request.source_revision,
-            evidence_bucket=request.evidence_bucket,
-            run_id=request.run_id,
-            attempt=request.attempt,
+            evidence=request.evidence,
             workdir=inputs.workdir,
         )
         wait_for_ingress_address(runner, {})

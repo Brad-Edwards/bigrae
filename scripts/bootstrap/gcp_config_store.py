@@ -37,6 +37,7 @@ from gcp_process import ProcessRunner
 
 
 def _require_store(store: str) -> str:
+    """Return ``store`` when it is a valid ``gs://`` config store URL."""
     gcs_object_url(store, "")
     return store
 

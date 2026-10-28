@@ -23,7 +23,8 @@ INDEX_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json"
 MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 SIGSTORE_BUNDLE_ARTIFACT_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json"
 _IDENTITY_RE = re.compile(
-    r"^(?P<host>[a-z0-9][a-z0-9.-]*(?::[0-9]+)?)/(?P<name>[a-z0-9][a-z0-9._/-]*)@(?P<digest>sha256:[0-9a-f]{64})$"
+    r"^(?P<host>[a-z0-9][a-z0-9.-]*(?::\d+)?)/(?P<name>[a-z0-9][a-z0-9._/-]*)@(?P<digest>sha256:[0-9a-f]{64})$",
+    re.ASCII,
 )
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
@@ -77,7 +78,8 @@ class OciClient:
                 status = getattr(response, "status", 200)
         except urllib_error.HTTPError as exc:
             return exc.code, b""
-        except (urllib_error.URLError, TimeoutError, OSError):
+        except OSError:
+            # URLError and TimeoutError are OSError subclasses.
             raise OciError(f"registry {host} is unreachable") from None
         if len(body) > _MAX_DOCUMENT_BYTES:
             raise OciError("registry document exceeds the size limit")

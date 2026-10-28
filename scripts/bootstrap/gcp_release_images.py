@@ -29,7 +29,7 @@ DEPLOYMENT_ROOT_KEYS = {
     "openvpn": "openvpn",
 }
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
+_TAG_RE = re.compile(r"^\w[\w.-]{0,127}$", re.ASCII)
 
 
 class ReleaseImageError(RuntimeError):

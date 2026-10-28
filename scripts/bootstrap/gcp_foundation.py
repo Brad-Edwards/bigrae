@@ -62,13 +62,14 @@ def _require_gcp_name(field: str, value: object, pattern: re.Pattern[str]) -> st
     return value
 
 
-def _require_inputs(inputs: dict, required: frozenset[str]) -> None:
+def _require_inputs(inputs: dict[str, object], required: frozenset[str]) -> None:
+    """Stop when any ``required`` foundation input is missing."""
     missing = sorted(required - inputs.keys())
     if missing:
         raise ValueError("Missing foundation inputs: " + ", ".join(missing))
 
 
-def _validate_github_less(inputs: dict) -> None:
+def _validate_github_less(inputs: dict[str, object]) -> None:
     """Check the GitHub-less inputs: named principals for every lifecycle purpose and no GitHub IDs."""
     _require_inputs(inputs, _COMMON_INPUTS | _GITHUB_LESS_INPUTS)
     github = sorted(field for field in _GITHUB_INPUTS if inputs.get(field))
@@ -97,7 +98,7 @@ def _validate_github_less(inputs: dict) -> None:
             raise ValueError(f"Foundation input {field} must be {expected!r}; the deploy commands use that bucket")
 
 
-def _verify_github_repository(inputs: dict) -> None:
+def _verify_github_repository(inputs: dict[str, object]) -> None:
     """Bind the GitHub mode to the immutable repository IDs that GitHub reports."""
     result = run_cmd(["gh", "api", f"repos/{inputs['github_org']}/{inputs['github_repo']}"], capture=True)
     repository = json.loads(result.stdout)

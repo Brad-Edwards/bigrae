@@ -29,13 +29,12 @@ MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 RELEASE_NAME_ANNOTATION = "meta.helm.sh/release-name"
 RELEASE_NAMESPACE_ANNOTATION = "meta.helm.sh/release-namespace"
 HOOK_ANNOTATION = "helm.sh/hook"
-#: Objects that only the removed Kustomize overlay rendered. The chart replaces them
-#: with differently named policies, and the empty runtime Secret has no consumer.
+#: Objects that only the removed Kustomize overlay rendered. The chart's provider-API
+#: egress policies allow the same Google API ranges, and the empty runtime Secret has
+#: no consumer.
 RETIRED_KUSTOMIZE_OBJECTS: tuple[tuple[str, str, str], ...] = (
     ("networkpolicy.networking.k8s.io", "shifter-platform", "allow-platform-google-apis-egress"),
     ("networkpolicy.networking.k8s.io", "shifter-jobs", "allow-jobs-google-apis-egress"),
-    ("networkpolicy.networking.k8s.io", "shifter-platform", "allow-portal-egress-to-guacamole-client"),
-    ("networkpolicy.networking.k8s.io", "shifter-platform", "allow-portal-to-guacamole-client"),
     ("secret", "shifter-platform", "platform-runtime-secrets"),
 )
 
@@ -117,7 +116,9 @@ def helm_values_args(values_files: Sequence[Path]) -> list[str]:
     return args
 
 
-def render_chart(runner: ProcessRunner, env: Mapping[str, str | None], values_files: Sequence[Path]) -> list[dict]:
+def render_chart(
+    runner: ProcessRunner, env: Mapping[str, str | None], values_files: Sequence[Path]
+) -> list[dict[str, object]]:
     """Render the release locally and return its documents."""
     result = runner.run(
         [
@@ -157,12 +158,14 @@ def owned_objects(documents: Sequence[Mapping[str, object]]) -> list[tuple[str, 
 
 
 def _scope_args(namespace: str) -> list[str]:
+    """Return the kubectl namespace arguments; a cluster-scoped object has none."""
     return ["-n", namespace] if namespace else []
 
 
 def _live_items(
     runner: ProcessRunner, env: Mapping[str, str | None], kind: str, namespace: str
 ) -> dict[str, Mapping[str, object]]:
+    """Return the metadata of the live objects of one type, keyed by name."""
     result = runner.run(["kubectl", "get", kind, *_scope_args(namespace), "-o", "json"], env=env, check=False)
     if result.returncode != 0:
         return {}
@@ -173,6 +176,41 @@ def _live_items(
     return {
         str(item.get("metadata", {}).get("name")): item.get("metadata", {}) for item in items if isinstance(item, dict)
     }
+
+
+def _owned_by_release(metadata: Mapping[str, object], target: str) -> bool:
+    """Return True when the Shifter release already owns a live object.
+
+    An object that another Helm release owns stops the deploy.
+    """
+    annotations = metadata.get("annotations") or {}
+    labels = metadata.get("labels") or {}
+    if not isinstance(annotations, Mapping):
+        annotations = {}
+    if not isinstance(labels, Mapping):
+        labels = {}
+    owner = annotations.get(RELEASE_NAME_ANNOTATION)
+    owner_namespace = annotations.get(RELEASE_NAMESPACE_ANNOTATION)
+    if owner not in (None, RELEASE_NAME) or owner_namespace not in (None, RELEASE_NAMESPACE):
+        raise HelmReleaseError(f"{target} belongs to another Helm release; refusing to adopt it")
+    return owner == RELEASE_NAME and owner_namespace == RELEASE_NAMESPACE and labels.get(MANAGED_BY_LABEL) == "Helm"
+
+
+def _adopt(runner: ProcessRunner, env: Mapping[str, str | None], target: str, namespace: str) -> None:
+    """Add the Helm ownership label and annotations to one live object."""
+    scoped = [target, *_scope_args(namespace)]
+    runner.run(["kubectl", "label", *scoped, f"{MANAGED_BY_LABEL}=Helm", "--overwrite"], env=env)
+    runner.run(
+        [
+            "kubectl",
+            "annotate",
+            *scoped,
+            f"{RELEASE_NAME_ANNOTATION}={RELEASE_NAME}",
+            f"{RELEASE_NAMESPACE_ANNOTATION}={RELEASE_NAMESPACE}",
+            "--overwrite",
+        ],
+        env=env,
+    )
 
 
 def adopt_objects(
@@ -187,35 +225,9 @@ def adopt_objects(
         live = _live_items(runner, env, kind, namespace)
         for name in names:
             metadata = live.get(name)
-            if metadata is None:
+            if metadata is None or _owned_by_release(metadata, f"{kind}/{name}"):
                 continue
-            annotations = metadata.get("annotations") or {}
-            labels = metadata.get("labels") or {}
-            owner = annotations.get(RELEASE_NAME_ANNOTATION) if isinstance(annotations, Mapping) else None
-            owner_namespace = (
-                annotations.get(RELEASE_NAMESPACE_ANNOTATION) if isinstance(annotations, Mapping) else None
-            )
-            if (
-                owner == RELEASE_NAME
-                and owner_namespace == RELEASE_NAMESPACE
-                and labels.get(MANAGED_BY_LABEL) == "Helm"
-            ):
-                continue
-            if owner not in (None, RELEASE_NAME) or owner_namespace not in (None, RELEASE_NAMESPACE):
-                raise HelmReleaseError(f"{kind}/{name} belongs to another Helm release; refusing to adopt it")
-            target = [f"{kind}/{name}", *_scope_args(namespace)]
-            runner.run(["kubectl", "label", *target, f"{MANAGED_BY_LABEL}=Helm", "--overwrite"], env=env)
-            runner.run(
-                [
-                    "kubectl",
-                    "annotate",
-                    *target,
-                    f"{RELEASE_NAME_ANNOTATION}={RELEASE_NAME}",
-                    f"{RELEASE_NAMESPACE_ANNOTATION}={RELEASE_NAMESPACE}",
-                    "--overwrite",
-                ],
-                env=env,
-            )
+            _adopt(runner, env, f"{kind}/{name}", namespace)
             adopted.append(f"{kind}/{name}")
     if adopted:
         info(f"Adopted {len(adopted)} existing objects into the Helm release")

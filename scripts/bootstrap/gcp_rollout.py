@@ -18,7 +18,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from bootstrap_core import get_repo_root, info, success, warn
-from gcp_evidence import EvidenceRecord, evidence_prefix, store_evidence, store_verdict
+from gcp_evidence import EvidenceRecord, EvidenceRun, store_evidence_set
 from gcp_inputs import private_workdir, write_private_file
 from gcp_process import GcpCommandError, ProcessRunner, script_argv
 
@@ -41,6 +41,7 @@ class RolloutError(RuntimeError):
 
 
 def _broker_flag(enabled: bool) -> str:
+    """Return the command-line text of the model broker flag."""
     return "true" if enabled else "false"
 
 
@@ -109,10 +110,7 @@ def record_running_images(
     *,
     identities: Mapping[str, str],
     model_broker_enabled: bool,
-    source_revision: str,
-    evidence_bucket: str,
-    run_id: str,
-    attempt: int,
+    evidence: EvidenceRun,
     workdir: Path,
 ) -> EvidenceRecord:
     """Verify every running image against the approved digests and store the evidence."""
@@ -133,7 +131,7 @@ def record_running_images(
                 "--output",
                 str(evidence_file),
                 "--source-sha",
-                source_revision,
+                evidence.source_revision,
                 "--expected-image",
                 f"portal={identities['portal']}",
                 "--expected-image",
@@ -146,14 +144,12 @@ def record_running_images(
     except GcpCommandError as exc:
         raise RolloutError(f"running workloads do not match the approved release: {exc}") from None
     evidence_file.chmod(0o600)
-    prefix = evidence_prefix("deployments", source_revision, run_id, attempt)
-    record = store_evidence(runner, env, bucket=evidence_bucket, prefix=prefix, files=[evidence_file])
-    store_verdict(
+    record = store_evidence_set(
         runner,
         env,
-        bucket=evidence_bucket,
-        record=record,
-        source_revision=source_revision,
+        evidence,
+        evidence_class="deployments",
+        files=[evidence_file],
         result="passed",
         workdir=directory,
     )
@@ -193,6 +189,7 @@ def wait_for_ingress_address(
 
 
 def _certificate(runner: ProcessRunner, env: Mapping[str, str | None]) -> tuple[list[str], str]:
+    """Return the domains and the status of the managed certificate; both are empty when it is absent."""
     result = runner.run(
         ["kubectl", "get", "managedcertificate", CERTIFICATE_NAME, "-n", PLATFORM_NAMESPACE, "-o", "json"],
         env=env,

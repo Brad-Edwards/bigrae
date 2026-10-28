@@ -77,28 +77,24 @@ class TestReleaseManifest:
 
 
 class TestReleaseManifestCommand:
-    def test_writes_validated_manifest(self, tmp_path: Path):
-        output = tmp_path / "release.json"
-        argv = [
-            "gcp-release-manifest",
-            "--version",
-            "1.4.0",
-            "--source-revision",
-            REVISION,
-            "--chart-version",
-            "0.2.0",
-            "--output",
-            str(output),
-        ]
+    def test_writes_validated_manifest_to_stdout_only(self, capsys: pytest.CaptureFixture[str]):
+        argv = ["gcp-release-manifest", "--version", "1.4.0", "--source-revision", REVISION, "--chart-version", "0.2.0"]
         for name, identity in _images().items():
             argv += ["--image", f"{name}={identity}"]
         assert main(argv) == 0
-        assert load_release_manifest(output).images == _images()
+        assert parse_release_manifest(capsys.readouterr().out).images == _images()
+        # The command opens no caller-named file; a shell redirect selects the destination.
+        with pytest.raises(SystemExit):
+            main([*argv, "--output", "release.json"])
 
     def test_rejects_malformed_and_duplicate_images(self, capsys: pytest.CaptureFixture[str]):
         base = ["gcp-release-manifest", "--version", "1", "--source-revision", REVISION, "--chart-version", "0.2.0"]
         assert main([*base, "--image", "portal"]) == 1
+        assert "--image: must be NAME=REPOSITORY@sha256:DIGEST" in capsys.readouterr().err
         portal = _images()["portal"]
         assert main([*base, "--image", f"portal={portal}", "--image", f"portal={portal}"]) == 1
+        assert "release.images.portal: is named more than once" in capsys.readouterr().err
         assert main([*base, "--image", f"portal={portal}"]) == 1
-        assert "release.images" in capsys.readouterr().err
+        captured = capsys.readouterr()
+        assert "release.images" in captured.err
+        assert captured.out == ""

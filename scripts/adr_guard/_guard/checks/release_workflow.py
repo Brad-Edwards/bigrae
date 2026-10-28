@@ -82,9 +82,7 @@ def _trigger_events(on: object) -> set[str]:
     """Return the event names of a workflow ``on:`` value."""
     if isinstance(on, str):
         return {on}
-    if isinstance(on, list):
-        return {str(event) for event in on}
-    if isinstance(on, dict):
+    if isinstance(on, (list, dict)):
         return {str(event) for event in on}
     return set()
 
@@ -115,6 +113,16 @@ def _step_with(step: object) -> dict[str, object]:
     return {}
 
 
+def _uses_action(step: object, action: str) -> bool:
+    """True when the step uses ``action`` at any ref."""
+    return (_dw_step_uses(step) or "").startswith(action)
+
+
+def _subject_build_ids(step: object) -> list[str]:
+    """Return the IDs of the build steps whose digest output the step signs."""
+    return _STEP_DIGEST_REF.findall(str(_step_with(step).get("subject-digest", "")))
+
+
 def _auth_job_violations(job_id: str, job: dict[str, object], steps: list[object]) -> list[Violation]:
     """Environment, runner, and ref-guard rules for a job that authenticates to GCP."""
     violations: list[Violation] = []
@@ -141,42 +149,42 @@ def _auth_job_violations(job_id: str, job: dict[str, object], steps: list[object
     return violations
 
 
+def _build_step_violations(job_id: str, step: object, attested: set[str]) -> list[Violation]:
+    """SBOM, provenance, and attestation rules for one pushed image build."""
+    settings = _step_with(step)
+    step_id = step.get("id") if isinstance(step, dict) else None
+    label = f"build step '{step_id}'" if step_id else "an unnamed build step"
+    violations: list[Violation] = []
+    if str(settings.get("provenance", "")).strip() != "mode=max" or not _is_true(settings.get("sbom")):
+        violations.append(
+            _violation("ADR-037-R5", f"job '{job_id}' {label} must set provenance: mode=max and sbom: true")
+        )
+    if not step_id or step_id not in attested:
+        violations.append(
+            _violation(
+                "ADR-037-R5",
+                f"job '{job_id}' {label} pushes an image that no attestation step signs by its exact digest",
+            )
+        )
+    return violations
+
+
 def _attestation_violations(job_id: str, steps: list[object]) -> list[Violation]:
     """SBOM, provenance, and registry-attestation rules for the image builds of one job."""
-    violations: list[Violation] = []
-    attested: set[str] = set()
+    attestations = [step for step in steps if _uses_action(step, _ATTEST_ACTION)]
+    violations = [
+        _violation(
+            "ADR-037-R5",
+            f"job '{job_id}' has an attestation step without push-to-registry: true; a deployment "
+            "verifies the registry copy of the bundle",
+        )
+        for step in attestations
+        if not _is_true(_step_with(step).get("push-to-registry"))
+    ]
+    attested = {build_id for step in attestations for build_id in _subject_build_ids(step)}
     for step in steps:
-        uses = _dw_step_uses(step) or ""
-        if not uses.startswith(_ATTEST_ACTION):
-            continue
-        settings = _step_with(step)
-        if not _is_true(settings.get("push-to-registry")):
-            violations.append(
-                _violation(
-                    "ADR-037-R5",
-                    f"job '{job_id}' has an attestation step without push-to-registry: true; a deployment "
-                    "verifies the registry copy of the bundle",
-                )
-            )
-        attested.update(_STEP_DIGEST_REF.findall(str(settings.get("subject-digest", ""))))
-    for step in steps:
-        uses = _dw_step_uses(step) or ""
-        settings = _step_with(step)
-        if not uses.startswith(_BUILD_ACTION) or not _is_true(settings.get("push")):
-            continue
-        step_id = step.get("id") if isinstance(step, dict) else None
-        label = f"build step '{step_id}'" if step_id else "an unnamed build step"
-        if str(settings.get("provenance", "")).strip() != "mode=max" or not _is_true(settings.get("sbom")):
-            violations.append(
-                _violation("ADR-037-R5", f"job '{job_id}' {label} must set provenance: mode=max and sbom: true")
-            )
-        if not step_id or step_id not in attested:
-            violations.append(
-                _violation(
-                    "ADR-037-R5",
-                    f"job '{job_id}' {label} pushes an image that no attestation step signs by its exact digest",
-                )
-            )
+        if _uses_action(step, _BUILD_ACTION) and _is_true(_step_with(step).get("push")):
+            violations.extend(_build_step_violations(job_id, step, attested))
     return violations
 
 
@@ -194,27 +202,32 @@ def _scans_deployer_digest(step: object, build_id: str) -> bool:
     return all(token in script for token in _DEPLOYER_SCAN_TOKENS) and digest in str(step.get("env", "")) + script
 
 
+def _is_deployer_build(step: object) -> bool:
+    """True when the step builds the deployer image."""
+    return _uses_action(step, _BUILD_ACTION) and DEPLOYER_DOCKERFILE in str(_step_with(step).get("file", ""))
+
+
+def _attestation_index(steps: list[object], start: int, build_id: object) -> int:
+    """Return the index of the first step from ``start`` that attests ``build_id``, or ``len(steps)``."""
+    return next(
+        (
+            index
+            for index in range(start, len(steps))
+            if _uses_action(steps[index], _ATTEST_ACTION) and build_id in _subject_build_ids(steps[index])
+        ),
+        len(steps),
+    )
+
+
 def _deployer_scan_violations(job_id: str, steps: list[object]) -> list[Violation]:
     """The deployer image is scanned by its exact digest before its attestation."""
-    builds = [
-        (index, step)
-        for index, step in enumerate(steps)
-        if (_dw_step_uses(step) or "").startswith(_BUILD_ACTION)
-        and DEPLOYER_DOCKERFILE in str(_step_with(step).get("file", ""))
-    ]
     violations: list[Violation] = []
-    for index, step in builds:
+    for index, step in enumerate(steps):
+        if not _is_deployer_build(step):
+            continue
         build_id = step.get("id") if isinstance(step, dict) else None
-        attest_index = next(
-            (
-                later
-                for later in range(index + 1, len(steps))
-                if (_dw_step_uses(steps[later]) or "").startswith(_ATTEST_ACTION)
-                and build_id in _STEP_DIGEST_REF.findall(str(_step_with(steps[later]).get("subject-digest", "")))
-            ),
-            len(steps),
-        )
-        if not build_id or not any(_scans_deployer_digest(scan, build_id) for scan in steps[index + 1 : attest_index]):
+        scans = steps[index + 1 : _attestation_index(steps, index + 1, build_id)]
+        if not build_id or not any(_scans_deployer_digest(scan, build_id) for scan in scans):
             violations.append(
                 _violation(
                     "ADR-070-R1",
@@ -226,45 +239,69 @@ def _deployer_scan_violations(job_id: str, steps: list[object]) -> list[Violatio
     return violations
 
 
+def _trigger_violations(workflow: dict[str, object]) -> list[Violation]:
+    """Only workflow_dispatch starts the release workflow."""
+    events = _trigger_events(workflow.get("on"))
+    if events == {"workflow_dispatch"}:
+        return []
+    return [
+        _violation(
+            "ADR-004-R23",
+            f"the release workflow must start only from workflow_dispatch, not {sorted(events) or 'no event'}",
+        )
+    ]
+
+
+def _job_violations(job_id: str, job: dict[str, object]) -> list[Violation]:
+    """Every contract violation of one release workflow job."""
+    steps = _dw_job_steps(job)
+    violations: list[Violation] = []
+    if any(_dw_step_uses_cloud_auth(step) for step in steps):
+        violations.extend(_auth_job_violations(job_id, job, steps))
+    violations.extend(_attestation_violations(job_id, steps))
+    violations.extend(_deployer_scan_violations(job_id, steps))
+    return violations
+
+
+def _pin_violations(workflow: dict[str, object]) -> list[Violation]:
+    """Every non-local action is pinned to a full commit SHA."""
+    return [
+        _violation("ADR-037-R1", f"job '{job_id}' uses '{ref}'; pin a full 40-hex commit SHA")
+        for job_id, ref in _dw_iter_uses_refs(workflow)
+        if not ref.startswith("./") and not _dw_uses_is_sha_pinned(ref)
+    ]
+
+
 def _workflow_violations(workflow: dict[str, object]) -> list[Violation]:
     """Every contract violation of one parsed release workflow."""
-    violations: list[Violation] = []
-    events = _trigger_events(workflow.get("on"))
-    if events != {"workflow_dispatch"}:
-        violations.append(
-            _violation(
-                "ADR-004-R23",
-                f"the release workflow must start only from workflow_dispatch, not {sorted(events) or 'no event'}",
-            )
-        )
+    violations = _trigger_violations(workflow)
     jobs = workflow.get("jobs")
     if not isinstance(jobs, dict) or not jobs:
         return [*violations, _violation("ADR-037-R5", "the release workflow has no jobs")]
     for job_id, job in jobs.items():
-        if not isinstance(job, dict):
-            continue
-        steps = _dw_job_steps(job)
-        if any(_dw_step_uses_cloud_auth(step) for step in steps):
-            violations.extend(_auth_job_violations(job_id, job, steps))
-        violations.extend(_attestation_violations(job_id, steps))
-        violations.extend(_deployer_scan_violations(job_id, steps))
-    for job_id, ref in _dw_iter_uses_refs(workflow):
-        if not ref.startswith("./") and not _dw_uses_is_sha_pinned(ref):
-            violations.append(_violation("ADR-037-R1", f"job '{job_id}' uses '{ref}'; pin a full 40-hex commit SHA"))
-    return violations
+        if isinstance(job, dict):
+            violations.extend(_job_violations(job_id, job))
+    return [*violations, *_pin_violations(workflow)]
+
+
+def _load_release_workflow(repo_root: Path) -> dict[str, object] | Violation:
+    """Return the parsed release workflow, or the violation that stops the check."""
+    # Local import: keeps PyYAML optional for non-workflow checks.
+    import yaml
+
+    if not (repo_root / RELEASE_WORKFLOW_PATH).is_file():
+        return _violation("ADR-037-R5", "the GCP release workflow is missing")
+    try:
+        return _dw_load_workflow(repo_root, RELEASE_WORKFLOW_PATH)
+    except (_DwShapeError, yaml.YAMLError) as exc:
+        return _violation("ADR-037-R5", f"the release workflow could not be parsed: {exc}")
 
 
 def check_release_workflow(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Fail closed unless the GCP release workflow keeps its provenance contract."""
-    # Local import: keeps PyYAML optional for non-workflow checks.
-    import yaml
-
     if not _relevant(files):
         return []
-    if not (repo_root / RELEASE_WORKFLOW_PATH).is_file():
-        return [_violation("ADR-037-R5", "the GCP release workflow is missing")]
-    try:
-        workflow = _dw_load_workflow(repo_root, RELEASE_WORKFLOW_PATH)
-    except (_DwShapeError, yaml.YAMLError) as exc:
-        return [_violation("ADR-037-R5", f"the release workflow could not be parsed: {exc}")]
+    workflow = _load_release_workflow(repo_root)
+    if isinstance(workflow, Violation):
+        return [workflow]
     return _workflow_violations(workflow)

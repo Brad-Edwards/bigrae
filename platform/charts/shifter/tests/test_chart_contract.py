@@ -54,10 +54,11 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
 # Regenerated for #2571: the chart is the only GCP renderer. Worker readiness
 # probes now match the retired Kustomize base, stale comments are removed, and
-# the two registered Checkov exceptions annotate their chart Deployments.
+# the two registered Checkov exceptions annotate their chart Deployments. The
+# portal-to-Guacamole token API policies moved from the retired base to the chart.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "a9a119e3bd41d73235dba18b531d73e2dd73a466eadd4384d3df7310abb986cc",
-    "gcp-prod": "460ee404ef33f948cb8565d475af5e5efcb0564ebe1a4f1d4aa6acd2a4d4648f",
+    "gcp-dev": "287d0a99ff652eeedcf4ba17ddb33d72c8e80c5cb2747c48dc9e557dbf627876",
+    "gcp-prod": "67e594f1f291e171e641e5cfac402fbb5956ef1302e53cbe840dd02cdab9318d",
 }
 
 

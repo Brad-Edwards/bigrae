@@ -35,7 +35,7 @@ from gcp_deploy import (
 )
 from gcp_deploy_stages import require_tools
 from gcp_identity import PurposeIdentities
-from gcp_inputs import load_deployment_inputs
+from gcp_inputs import DeploymentInputs, load_deployment_inputs
 from gcp_lock import DeployLock
 from gcp_process import ProcessRunner, scoped_environment
 
@@ -57,7 +57,7 @@ class DestroyOptions:
     trusted_owner_id: str = ""
 
 
-def _verify_release_tooling(runner: ProcessRunner, options: DestroyOptions, inputs) -> None:
+def _verify_release_tooling(runner: ProcessRunner, options: DestroyOptions, inputs: DeploymentInputs) -> None:
     """Verify the release images and the tooling revision before teardown (operator mode)."""
     from gcp_prereqs import access_token
     from gcp_provenance import verify_release_provenance

@@ -24,7 +24,8 @@ _SUBJECT = "GCP release manifest"
 RELEASE_IMAGE_NAMES: tuple[str, ...] = ("portal", "provisioner", "guacd", "guacamole-client", "openvpn")
 ReleaseImageName = Literal["portal", "provisioner", "guacd", "guacamole-client", "openvpn"]
 
-_IMAGE_IDENTITY_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$")
+# re.ASCII keeps \d to the digits 0-9, as in the other character classes.
+_IMAGE_IDENTITY_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::\d+)?/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$", re.ASCII)
 _REVISION_PATTERN = r"^[0-9a-f]{40}$"
 _VERSION_PATTERN = r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$"
 _CHART_VERSION_PATTERN = r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"

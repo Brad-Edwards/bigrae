@@ -13,6 +13,7 @@ import pytest
 from sigstore.errors import VerificationError
 
 import gcp_provenance
+from gcp_evidence import EvidenceRun
 from gcp_oci import (
     INDEX_MEDIA_TYPE,
     SIGSTORE_BUNDLE_ARTIFACT_TYPE,
@@ -256,10 +257,7 @@ class TestReleaseScan:
             runner,
             {"X": "scan"},
             identities=identities,
-            source_revision=REVISION,
-            evidence_bucket="acme-shifter-release-evidence",
-            run_id="r",
-            attempt=1,
+            evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 1),
             workdir=tmp_path,
             ignore_file=tmp_path / ".trivyignore.yaml",
         )
@@ -279,10 +277,7 @@ class TestReleaseScan:
                 runner,
                 {},
                 identities=release_images(),
-                source_revision=REVISION,
-                evidence_bucket="acme-shifter-release-evidence",
-                run_id="r",
-                attempt=1,
+                evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 1),
                 workdir=tmp_path,
                 ignore_file=tmp_path / ".trivyignore.yaml",
             )
@@ -296,10 +291,7 @@ class TestReleaseScan:
                 no_token,
                 {},
                 identities=release_images(),
-                source_revision=REVISION,
-                evidence_bucket="b-evidence",
-                run_id="r",
-                attempt=1,
+                evidence=EvidenceRun("b-evidence", REVISION, "r", 1),
                 workdir=tmp_path,
                 ignore_file=tmp_path / "i",
             )
@@ -310,10 +302,7 @@ class TestReleaseScan:
                 broken,
                 {},
                 identities=release_images(),
-                source_revision=REVISION,
-                evidence_bucket="b-evidence",
-                run_id="r",
-                attempt=1,
+                evidence=EvidenceRun("b-evidence", REVISION, "r", 1),
                 workdir=tmp_path,
                 ignore_file=tmp_path / "i",
             )

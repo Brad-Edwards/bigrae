@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bootstrap_core import error, info, success
-from gcp_evidence import EvidenceRecord, evidence_prefix, store_evidence, store_verdict
+from gcp_evidence import EvidenceRecord, EvidenceRun, store_evidence_set
 from gcp_inputs import private_workdir, write_private_file
 from gcp_process import GcpCommandError, ProcessRunner
 
@@ -77,17 +77,18 @@ def scan_release(
     scan_env: Mapping[str, str | None],
     *,
     identities: Mapping[str, str],
-    source_revision: str,
-    evidence_bucket: str,
-    run_id: str,
-    attempt: int,
+    evidence: EvidenceRun,
     workdir: Path,
-    trivy: str = "trivy",
     ignore_file: Path,
+    trivy: str = "trivy",
 ) -> ScanOutcome:
     """Scan every exact identity, store the evidence, and fail closed on a finding."""
     results = private_workdir(workdir / "release-scan")
-    manifest = {"schema_version": 2, "source_sha": source_revision, "images": dict(sorted(identities.items()))}
+    manifest = {
+        "schema_version": 2,
+        "source_sha": evidence.source_revision,
+        "images": dict(sorted(identities.items())),
+    }
     files = [
         write_private_file(results / "release-manifest.json", json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     ]
@@ -105,16 +106,13 @@ def scan_release(
         if report.is_file():
             report.chmod(0o600)
             files.append(report)
-    prefix = evidence_prefix("release-scans", source_revision, run_id, attempt)
-    record = store_evidence(runner, scan_env, bucket=evidence_bucket, prefix=prefix, files=files)
-    outcome = "success" if not failed else "failure"
-    store_verdict(
+    record = store_evidence_set(
         runner,
         scan_env,
-        bucket=evidence_bucket,
-        record=record,
-        source_revision=source_revision,
-        result=outcome,
+        evidence,
+        evidence_class="release-scans",
+        files=files,
+        result="success" if not failed else "failure",
         workdir=results,
     )
     return ScanOutcome(passed=not failed, failed_images=tuple(failed), record=record)

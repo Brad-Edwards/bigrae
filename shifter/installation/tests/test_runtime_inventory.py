@@ -113,6 +113,15 @@ def test_runtime_inventory_reports_missing_and_malformed_values_files(tmp_path):
     ]
 
 
+def test_runtime_inventory_reports_a_values_file_that_is_not_a_mapping(tmp_path):
+    _write_chart_values(tmp_path)
+    (tmp_path / GCP_DEV_VALUES).write_text("- not\n- a mapping\n", encoding="utf-8")
+
+    assert validate_runtime_inventory(tmp_path) == [
+        RuntimeInventoryIssue(GCP_DEV_VALUES, "chart values file must be a mapping"),
+    ]
+
+
 def test_cloud_provider_is_a_generated_runtime_env_key():
     """CLOUD_PROVIDER is renderer-owned (PLAT-2005): the GCP backend runtime-env
 

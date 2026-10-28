@@ -30,11 +30,13 @@ from gcp_inputs import RANGE_IMAGE_ROLES
 
 LIFECYCLE_COMMANDS = frozenset({"gcp-deploy", "gcp-release-scan", "gcp-smoke", "gcp-destroy", "gcp-config"})
 _IDENTITY_HELP = "impersonate (operator, default) or ambient (the caller already is the purpose identity, CI)"
+_STORE_HELP = "Deployment config bucket prefix"
 
 
 def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the input source, deployment name, and identity arguments."""
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--store", help="Deployment config bucket prefix, gs://<bucket>[/<prefix>]")
+    source.add_argument("--store", help=f"{_STORE_HELP}, gs://<bucket>[/<prefix>]")
     source.add_argument("--inputs", help="Local deployment input directory (CI adapter output or a draft bundle)")
     parser.add_argument("--environment", default="", help="Deployment name (default: deployment.name)")
     parser.add_argument("--identity", choices=("impersonate", "ambient"), default="impersonate", help=_IDENTITY_HELP)
@@ -44,6 +46,7 @@ def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_lock_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the deployment lock arguments."""
     parser.add_argument(
         "--lock", choices=("gcs", "external"), default="gcs", help="gcs (config bucket lock) or external (CI)"
     )
@@ -51,12 +54,14 @@ def _add_lock_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_trust_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the release manifest and provenance trust arguments."""
     parser.add_argument("--release-manifest", default="", help="Release manifest (default: the deployer image's)")
     parser.add_argument("--trusted-repository-id", default="", help="CI only: the running repository ID")
     parser.add_argument("--trusted-owner-id", default="", help="CI only: the running repository owner ID")
 
 
 def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the evidence run arguments."""
     parser.add_argument("--run-id", default="", help="Evidence run id (default: a generated id)")
     parser.add_argument("--attempt", type=int, default=1, help="Evidence run attempt")
     parser.add_argument(
@@ -111,20 +116,21 @@ def add_lifecycle_subparsers(subparsers: argparse._SubParsersAction) -> None:
     config = subparsers.add_parser("gcp-config", help="Manage the deployment config bucket")
     actions = config.add_subparsers(dest="config_action", required=True)
     publish_parser = actions.add_parser("publish", help="Validate a local bundle and upload it")
-    publish_parser.add_argument("--store", required=True, help="Deployment config bucket prefix")
+    publish_parser.add_argument("--store", required=True, help=_STORE_HELP)
     publish_parser.add_argument("--inputs", required=True, help="Local bundle directory")
     pull_parser = actions.add_parser("pull", help="Download the bundle into a private directory")
-    pull_parser.add_argument("--store", required=True, help="Deployment config bucket prefix")
+    pull_parser.add_argument("--store", required=True, help=_STORE_HELP)
     pull_parser.add_argument("--output", required=True, help="Target directory")
     show_parser = actions.add_parser("show", help="Validate the stored bundle and print a summary")
-    show_parser.add_argument("--store", required=True, help="Deployment config bucket prefix")
+    show_parser.add_argument("--store", required=True, help=_STORE_HELP)
     image_parser = actions.add_parser("set-range-image", help="Record one exact range guest image reference")
-    image_parser.add_argument("--store", required=True, help="Deployment config bucket prefix")
+    image_parser.add_argument("--store", required=True, help=_STORE_HELP)
     image_parser.add_argument("--role", required=True, choices=RANGE_IMAGE_ROLES, help="Range guest role")
     image_parser.add_argument("--image", required=True, help="projects/<project>/global/images/[family/]<name>")
 
 
 def _deploy_options(args: argparse.Namespace) -> DeployOptions:
+    """Build ``gcp-deploy`` or ``gcp-smoke`` options; an argument that the command lacks takes its default."""
     return DeployOptions(
         source=args.store or args.inputs,
         environment=args.environment,
@@ -151,6 +157,7 @@ def _deploy_options(args: argparse.Namespace) -> DeployOptions:
 
 
 def _handle_config(args: argparse.Namespace) -> int:
+    """Run one ``gcp-config`` action."""
     if args.config_action == "publish":
         publish(args.store, args.inputs)
     elif args.config_action == "pull":

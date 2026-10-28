@@ -131,8 +131,6 @@ class Call:
     argv: list[str]
     env: dict[str, str]
     input_text: str | None
-    cwd: str | None
-    inherit_env: bool
 
 
 @dataclass
@@ -162,13 +160,11 @@ class FakeRunner:
         capture: bool = True,
         timeout: float | None = None,
         sensitive: bool = False,
-        cwd: str | None = None,
-        inherit_env: bool = True,
     ) -> ProcessResult:
         del capture, timeout, sensitive
         command = [str(part) for part in argv]
-        child_env = merged_env(self.base if inherit_env else {}, env)
-        self.calls.append(Call(command, child_env, input_text, cwd, inherit_env))
+        child_env = merged_env(self.base, env)
+        self.calls.append(Call(command, child_env, input_text))
         result = ProcessResult(0)
         for prefix, response in self.responses:
             if command[: len(prefix)] == list(prefix):

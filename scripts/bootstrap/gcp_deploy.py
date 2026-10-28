@@ -22,9 +22,11 @@ import secrets
 import shutil
 import subprocess  # nosec B404
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from bootstrap_core import error, get_repo_root, header, info, success, warn
 from gcp_deploy_stages import (
@@ -35,11 +37,17 @@ from gcp_deploy_stages import (
     require_tools,
     rollout_stage,
 )
+from gcp_evidence import EvidenceRun
 from gcp_identity import PurposeIdentities
 from gcp_inputs import DeploymentInputs, is_gcs_url, load_deployment_inputs, resolve_operator_password
 from gcp_lock import DeployLock, acquire_lock, break_lock, release_lock
 from gcp_process import ProcessRunner, scoped_environment
 from gcp_smoke import SMOKE_FAILED_EXIT_STATUS, run_smoke
+
+if TYPE_CHECKING:
+    from installation.gcp_release import GcpReleaseManifest
+
+    from gcp_provenance import ReleaseTrust
 
 STAGES = ("all", "infrastructure", "rollout")
 DEFAULT_RELEASE_MANIFEST_ENV = "BIGRAE_RELEASE_MANIFEST"
@@ -146,7 +154,7 @@ def check_tooling_revision(source_revision: str, *, repo_root: Path | None = Non
     info("Deploy tooling matches the release revision")
 
 
-def load_manifest(path: str):
+def load_manifest(path: str) -> GcpReleaseManifest:
     """Load the release manifest from ``path`` or the deployer image default."""
     from installation.errors import InstallationConfigError
     from installation.gcp_release import load_release_manifest
@@ -160,7 +168,7 @@ def load_manifest(path: str):
         raise GcpDeployError(str(exc)) from None
 
 
-def release_trust(inputs: DeploymentInputs, options: DeployOptions, source_revision: str):
+def release_trust(inputs: DeploymentInputs, options: DeployOptions, source_revision: str) -> ReleaseTrust:
     """Resolve the provenance trust anchor from config, or from the CI runtime context."""
     from gcp_provenance import ReleaseTrust
 
@@ -182,6 +190,7 @@ def evidence_bucket(options: DeployOptions, project_id: str) -> str:
 
 
 def _identities(options: DeployOptions, inputs: DeploymentInputs, destroy: str = "") -> PurposeIdentities:
+    """Resolve the purpose identities of one run from its options."""
     return PurposeIdentities.resolve(
         mode=options.identity_mode,  # type: ignore[arg-type]
         project_id=inputs.project_id,
@@ -208,8 +217,14 @@ def input_fetch_env(options: DeployOptions) -> dict[str, str | None]:
 
 
 def acquire_deploy_lock(
-    runner: ProcessRunner, options: DeployOptions, inputs: DeploymentInputs, env: dict, command: str, run_id: str
+    runner: ProcessRunner,
+    options: DeployOptions,
+    inputs: DeploymentInputs,
+    env: Mapping[str, str | None],
+    command: str,
+    run_id: str,
 ) -> DeployLock | None:
+    """Take the deployment lock in the config bucket, or return None for an external lock."""
     if options.lock == "external":
         info("Deployment lock: external (the caller serializes deploys)")
         return None
@@ -221,14 +236,18 @@ def acquire_deploy_lock(
         return acquire_lock(runner, options.source, {}, command=command, run_id=run_id, workdir=inputs.workdir)
 
 
-def release_deploy_lock(runner: ProcessRunner, lock: DeployLock | None, env: dict) -> None:
+def release_deploy_lock(runner: ProcessRunner, lock: DeployLock | None, env: Mapping[str, str | None]) -> None:
+    """Release a lock that this run holds."""
     if lock is None:
         return
     with scoped_environment(env):
         release_lock(runner, lock, {})
 
 
-def _import_images(runner, inputs: DeploymentInputs, infrastructure: InfrastructureResult, manifest) -> dict[str, str]:
+def _import_images(
+    runner: ProcessRunner, inputs: DeploymentInputs, infrastructure: InfrastructureResult, manifest: GcpReleaseManifest
+) -> dict[str, str]:
+    """Import the release images into the deployment registry and return their identities."""
     from gcp_release_images import deployment_image_roots, import_release_images
 
     return import_release_images(
@@ -241,29 +260,97 @@ def _import_images(runner, inputs: DeploymentInputs, infrastructure: Infrastruct
     )
 
 
-def _scan(
-    runner, identities: dict[str, str], *, source_revision: str, bucket: str, run_id: str, attempt: int, workdir: Path
-) -> None:
+def _scan(runner: ProcessRunner, identities: Mapping[str, str], evidence: EvidenceRun, workdir: Path) -> None:
+    """Scan the exact release digests and store the evidence; a finding stops the run."""
     from gcp_release_scan import run_release_scan
 
     run_release_scan(
         runner,
         {},
         identities=identities,
-        source_revision=source_revision,
-        evidence_bucket=bucket,
-        run_id=run_id,
-        attempt=attempt,
+        evidence=evidence,
         workdir=workdir,
         ignore_file=get_repo_root() / ".trivyignore.yaml",
     )
 
 
-def _verify(runner, identities: dict[str, str], trust) -> None:
+def _verify(runner: ProcessRunner, identities: Mapping[str, str], trust: ReleaseTrust) -> None:
+    """Verify the provenance of every image identity against the trust anchor."""
     from gcp_prereqs import access_token
     from gcp_provenance import verify_release_provenance
 
     verify_release_provenance(identities, trust, token_provider=lambda: access_token(runner, {}))
+
+
+def _release(options: DeployOptions, inputs: DeploymentInputs) -> tuple[GcpReleaseManifest | None, ReleaseTrust | None]:
+    """Load the release manifest and its trust anchor when the run needs them.
+
+    CI builds its images after the infrastructure stage, so only a CI
+    infrastructure run has no release manifest yet.
+    """
+    if options.stage == "infrastructure" and not operator_mode(options.identity_mode):
+        return None, None
+    manifest = load_manifest(options.release_manifest)
+    return manifest, release_trust(inputs, options, manifest.source_revision)
+
+
+def _required_release(
+    manifest: GcpReleaseManifest | None, trust: ReleaseTrust | None
+) -> tuple[GcpReleaseManifest, ReleaseTrust]:
+    """Return the release manifest and its trust anchor, or stop when the run has none."""
+    if manifest is None or trust is None:
+        raise GcpDeployError("this stage requires the release manifest and its trust anchor")
+    return manifest, trust
+
+
+def _operator_gates(
+    runner: ProcessRunner, manifest: GcpReleaseManifest, trust: ReleaseTrust, env: Mapping[str, str | None]
+) -> None:
+    """Prove that the tooling is the release revision and that the release images verify (ADR-070-R6)."""
+    check_tooling_revision(manifest.source_revision)
+    with scoped_environment(env):
+        _verify(runner, dict(manifest.images), trust)
+
+
+def _infrastructure(
+    runner: ProcessRunner, options: DeployOptions, inputs: DeploymentInputs
+) -> tuple[DeploymentInputs, InfrastructureResult]:
+    """Run the infrastructure stage, or read its outputs for a rollout-only run."""
+    if options.stage in ("all", "infrastructure"):
+        # Only the infrastructure stage seeds the first operator.
+        password = resolve_operator_password(inputs, runner, {}, password_env=options.operator_password_env)
+        inputs, infrastructure = infrastructure_stage(
+            runner,
+            inputs,
+            operator_password=password,
+            reconcile_foundation=options.reconcile_foundation_image_network,
+        )
+    else:
+        infrastructure = read_infrastructure(runner, inputs)
+    if options.image_roots_output:
+        from gcp_release_images import write_image_roots
+
+        write_image_roots(Path(options.image_roots_output), infrastructure.outputs)
+    return inputs, infrastructure
+
+
+def _smoke(
+    runner: ProcessRunner,
+    options: DeployOptions,
+    inputs: DeploymentInputs,
+    infrastructure: InfrastructureResult,
+    run_id: str,
+) -> bool:
+    """Run the advisory smoke after a full deploy. Return True when it passed or did not run."""
+    if options.stage != "all" or not options.smoke:
+        return True
+    with scoped_environment(infrastructure.kube):
+        return run_smoke(
+            runner,
+            {},
+            user_email=inputs.settings.post_deploy_smoke.user_email,  # type: ignore[attr-defined]
+            run_id=run_id,
+        )
 
 
 def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -> int:
@@ -275,6 +362,7 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
     run_id = options.run_id or new_run_id()
     workdir = Path(tempfile.mkdtemp(prefix="bigrae-gcp-deploy-"))
     lock: DeployLock | None = None
+    deploy_env: dict[str, str | None] = {}
     try:
         inputs = load_deployment_inputs(
             options.source,
@@ -285,72 +373,42 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
         )
         identities = _identities(options, inputs)
         deploy_env = identities.env("deploy")
-        operator = operator_mode(options.identity_mode)
-        # CI builds its images after the infrastructure stage, so only a CI
-        # infrastructure run has no release manifest yet.
-        manifest = load_manifest(options.release_manifest) if operator or options.stage != "infrastructure" else None
-        trust = release_trust(inputs, options, manifest.source_revision) if manifest is not None else None
+        manifest, trust = _release(options, inputs)
         header(f"GCP deploy: {inputs.environment} ({options.stage})")
-        if operator:
+        if operator_mode(options.identity_mode):
             # Before any change, every operator stage proves that its tooling is
             # the release revision and that the release images verify against the
             # deployment trust anchor (ADR-070-R6).
-            check_tooling_revision(manifest.source_revision)
-            with scoped_environment(deploy_env):
-                _verify(runner, dict(manifest.images), trust)
+            _operator_gates(runner, *_required_release(manifest, trust), deploy_env)
         lock = acquire_deploy_lock(runner, options, inputs, deploy_env, "gcp-deploy", run_id)
         with scoped_environment(deploy_env):
-            if options.stage in ("all", "infrastructure"):
-                # Only the infrastructure stage seeds the first operator.
-                password = resolve_operator_password(inputs, runner, {}, password_env=options.operator_password_env)
-                inputs, infrastructure = infrastructure_stage(
-                    runner,
-                    inputs,
-                    operator_password=password,
-                    reconcile_foundation=options.reconcile_foundation_image_network,
-                )
-            else:
-                infrastructure = read_infrastructure(runner, inputs)
-            if options.image_roots_output:
-                from gcp_release_images import write_image_roots
-
-                write_image_roots(Path(options.image_roots_output), infrastructure.outputs)
+            inputs, infrastructure = _infrastructure(runner, options, inputs)
             if options.stage == "infrastructure":
                 return 0
+            manifest, trust = _required_release(manifest, trust)
             from gcp_deploy_stages import check_range_preconditions
 
             check_range_preconditions(inputs, infrastructure.outputs, allow_missing=options.allow_missing_range_images)
             images = _import_images(runner, inputs, infrastructure, manifest)
-        bucket = evidence_bucket(options, inputs.project_id)
+        evidence = EvidenceRun(
+            bucket=evidence_bucket(options, inputs.project_id),
+            source_revision=manifest.source_revision,
+            run_id=run_id,
+            attempt=options.attempt,
+        )
         if scans_release(options.stage, options.identity_mode):
             with scoped_environment(identities.env("release_scan")):
-                _scan(runner, images, source_revision=manifest.source_revision, bucket=bucket, run_id=run_id,
-                      attempt=options.attempt, workdir=workdir)  # fmt: skip
+                _scan(runner, images, evidence, workdir)
         with scoped_environment(deploy_env):
             _verify(runner, images, trust)
-            request = RolloutRequest(
-                identities=images,
-                source_revision=manifest.source_revision,
-                evidence_bucket=bucket,
-                run_id=run_id,
-                attempt=options.attempt,
-                first_install=options.first_install,
-            )
+            request = RolloutRequest(identities=images, evidence=evidence, first_install=options.first_install)
             rollout_stage(runner, inputs, infrastructure, request)
-            smoke_ok = True
-            if options.stage == "all" and options.smoke:
-                with scoped_environment(infrastructure.kube):
-                    smoke_ok = run_smoke(
-                        runner,
-                        {},
-                        user_email=inputs.settings.post_deploy_smoke.user_email,  # type: ignore[attr-defined]
-                        run_id=run_id,
-                    )
+            smoke_ok = _smoke(runner, options, inputs, infrastructure, run_id)
         success(f"GCP deployment {inputs.environment} is current at release {manifest.version}")
         return 0 if smoke_ok else SMOKE_FAILED_EXIT_STATUS
     finally:
         try:
-            release_deploy_lock(runner, lock, identities.env("deploy") if lock is not None else {})
+            release_deploy_lock(runner, lock, deploy_env)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
 
@@ -385,15 +443,13 @@ def run_release_scan_command(options: ScanOptions, *, runner: ProcessRunner | No
     workdir = Path(tempfile.mkdtemp(prefix="bigrae-gcp-scan-"))
     try:
         with scoped_environment(identities.env("release_scan")):
-            _scan(
-                runner,
-                dict(manifest.images),
-                source_revision=manifest.source_revision,
+            evidence = EvidenceRun(
                 bucket=options.evidence_bucket or f"{options.project_id}-release-evidence",
+                source_revision=manifest.source_revision,
                 run_id=options.run_id or new_run_id(),
                 attempt=options.attempt,
-                workdir=workdir,
             )
+            _scan(runner, dict(manifest.images), evidence, workdir)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return 0

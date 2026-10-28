@@ -260,10 +260,12 @@ policy, and gitignored local `.env` files.
 ## GCP Release Manifest
 
 `shifter-config gcp-release-manifest` writes the `bigrae.gcp-release.v1`
-manifest of one built revision: the version, the full source revision, the Helm
-chart version, and the exact `repository@sha256` identity of each control-plane
-image (`portal`, `provisioner`, `guacd`, `guacamole-client`, and `openvpn`). The
-release workflow and the CI deploy write it; the GCP deploy command reads it.
+manifest of one built revision to standard output: the version, the full source
+revision, the Helm chart version, and the exact `repository@sha256` identity of
+each control-plane image (`portal`, `provisioner`, `guacd`, `guacamole-client`,
+and `openvpn`). The release workflow and the CI deploy write it; the GCP deploy
+command reads it. The command opens no output file. Use a shell redirect to
+write the manifest to a file.
 
 ```bash
 uv run --project shifter/installation shifter-config gcp-release-manifest \
@@ -273,7 +275,7 @@ uv run --project shifter/installation shifter-config gcp-release-manifest \
   --image guacd=<registry>/guacd@sha256:<digest> \
   --image guacamole-client=<registry>/guacamole-client@sha256:<digest> \
   --image openvpn=<registry>/openvpn@sha256:<digest> \
-  --output release.json
+  > release.json
 ```
 
 ## Backend Bundle Contract

@@ -47,9 +47,25 @@ def merged_env(base: Mapping[str, str], overlay: Mapping[str, str | None] | None
     return merged
 
 
+def isolated_env(base: Mapping[str, str], overlay: Mapping[str, str | None]) -> dict[str, str | None]:
+    """Return an overlay that removes every ``base`` key and then applies ``overlay``.
+
+    A child that runs with this overlay sees only the keys of ``overlay``.
+    """
+    return {**dict.fromkeys(base), **overlay}
+
+
 def _tail(text: str) -> str:
+    """Return the last non-empty lines of ``text`` for a failure message."""
     lines = [line for line in text.strip().splitlines() if line.strip()]
     return "\n".join(lines[-_STDERR_TAIL_LINES:])
+
+
+def _failure(command: Sequence[str], result: ProcessResult, *, sensitive: bool) -> GcpCommandError:
+    """Return the bounded failure for a non-zero exit; ``sensitive`` omits the streams."""
+    message = f"{' '.join(command[:2]).strip()} failed with exit status {result.returncode}"
+    detail = "" if sensitive else _tail(result.stderr or result.stdout)
+    return GcpCommandError(f"{message}: {detail}" if detail else message)
 
 
 class ProcessRunner:
@@ -75,32 +91,28 @@ class ProcessRunner:
         capture: bool = True,
         timeout: float | None = None,
         sensitive: bool = False,
-        cwd: str | None = None,
-        inherit_env: bool = True,
     ) -> ProcessResult:
         """Run ``argv`` and return its result.
 
         ``env`` entries overlay the base environment; a ``None`` value removes the key.
-        ``inherit_env=False`` starts from an empty environment, so a renderer sees only
+        An :func:`isolated_env` overlay removes every base key, so a renderer sees only
         the inputs it is given. ``sensitive`` suppresses the
         captured streams from the failure message, for commands that read secrets.
         """
         command = [str(part) for part in argv]
         if not command or not command[0]:
             raise GcpCommandError("refusing to run an empty command")
-        child_env = merged_env(self.base_env if inherit_env else {}, env)
         info(f"Running: {_redact_argv_for_log(command)}")
         try:
             # An argv list with no shell; the command layer builds every argv.
             completed = subprocess.run(  # nosec B603
                 command,
-                env=child_env,
+                env=merged_env(self.base_env, env),
                 input=input_text,
                 capture_output=capture,
                 text=True,
                 check=False,
                 timeout=timeout,
-                cwd=cwd,
             )
         except FileNotFoundError:
             raise GcpCommandError(f"required tool {command[0]!r} is not on PATH") from None
@@ -108,10 +120,7 @@ class ProcessRunner:
             raise GcpCommandError(f"{command[0]} timed out after {timeout} seconds") from None
         result = ProcessResult(completed.returncode, completed.stdout or "", completed.stderr or "")
         if check and result.returncode != 0:
-            detail = "" if sensitive else _tail(result.stderr or result.stdout)
-            message = f"{command[0]} {command[1] if len(command) > 1 else ''}".strip()
-            message = f"{message} failed with exit status {result.returncode}"
-            raise GcpCommandError(f"{message}: {detail}" if detail else message)
+            raise _failure(command, result, sensitive=sensitive)
         return result
 
 

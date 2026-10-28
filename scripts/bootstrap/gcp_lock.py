@@ -19,7 +19,7 @@ from pathlib import Path
 from gcp_inputs import LOCK_OBJECT, gcs_object_url, write_private_file
 from gcp_process import GcpCommandError, ProcessRunner
 
-_GENERATION_RE = re.compile(r"^[0-9]+$")
+_GENERATION_RE = re.compile(r"^\d+$", re.ASCII)
 _PRECONDITION_MARKERS = ("412", "precondition", "conditionnotmet")
 
 
@@ -41,6 +41,7 @@ def lock_url(store: str) -> str:
 
 
 def _describe_holder(runner: ProcessRunner, url: str, env: Mapping[str, str | None]) -> str:
+    """Return a short description of the run that holds the lock."""
     try:
         payload = json.loads(runner.run(["gcloud", "storage", "cat", url], env=env).stdout)
     except (GcpCommandError, json.JSONDecodeError):

@@ -106,3 +106,38 @@ def store_verdict(
     except GcpCommandError:
         raise GcpCommandError("failed to store the redacted release verdict") from None
     return path
+
+
+@dataclass(frozen=True)
+class EvidenceRun:
+    """The private bucket and the run coordinates of the evidence that one run stores."""
+
+    bucket: str
+    source_revision: str
+    run_id: str
+    attempt: int
+
+
+def store_evidence_set(
+    runner: ProcessRunner,
+    env: Mapping[str, str | None],
+    run: EvidenceRun,
+    *,
+    evidence_class: EvidenceClass,
+    files: Sequence[Path],
+    result: str,
+    workdir: Path,
+) -> EvidenceRecord:
+    """Store the raw evidence files of one run and the redacted verdict next to them."""
+    prefix = evidence_prefix(evidence_class, run.source_revision, run.run_id, run.attempt)
+    record = store_evidence(runner, env, bucket=run.bucket, prefix=prefix, files=files)
+    store_verdict(
+        runner,
+        env,
+        bucket=run.bucket,
+        record=record,
+        source_revision=run.source_revision,
+        result=result,
+        workdir=workdir,
+    )
+    return record

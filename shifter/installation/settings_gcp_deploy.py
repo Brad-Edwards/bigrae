@@ -154,6 +154,7 @@ CTF_CONTENT_BUCKET_PATTERN = rf"^$|{_BUCKET_NAME_PATTERN}"
 
 
 def _bool_text(value: bool) -> str:
+    """Return the runtime env text of a boolean: ``true`` or ``false``."""
     return "true" if value else "false"
 
 

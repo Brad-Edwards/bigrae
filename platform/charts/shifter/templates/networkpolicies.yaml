@@ -201,6 +201,53 @@ spec:
       ports:
         - protocol: TCP
           port: 4822
+---
+# The portal calls the Guacamole token API through the in-cluster
+# guacamole-client Service (GUACAMOLE_API_BASE_URL). Both halves of the
+# pod-to-pod path allow only portal to guacamole-client on TCP 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-portal-to-guacamole-client
+  namespace: {{ .Values.namespaces.platform }}
+  labels:
+    {{- include "shifter.partOfLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: guacamole-client
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: portal
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-portal-egress-to-guacamole-client
+  namespace: {{ .Values.namespaces.platform }}
+  labels:
+    {{- include "shifter.partOfLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: portal
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: guacamole-client
+      ports:
+        - protocol: TCP
+          port: 8080
 {{- if .Values.network.providerApiCidrs }}
 ---
 apiVersion: networking.k8s.io/v1

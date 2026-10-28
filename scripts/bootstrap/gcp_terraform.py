@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -36,6 +36,8 @@ IDENTITY_PLATFORM_CONFIG_ADDRESS = (
     "module.platform_core.module.portal_identity_platform.google_identity_platform_config.platform"
 )
 SQL_INSTANCE_SUFFIX = "google_sql_database_instance.platform"
+# Terraform also reads TF_INPUT=0; each command that prompts carries the flag too.
+_NO_INPUT = "-input=false"
 KMS_KEY_SUFFIXES = ("google_kms_crypto_key.artifact_registry", "google_kms_key_ring.artifact_registry")
 COMMAND_OWNED_KEYS = frozenset(
     {
@@ -98,6 +100,7 @@ class TerraformContext:
 
 
 def _hcl_assignment_names(text: str) -> set[str]:
+    """Return the top-level names that ``text`` assigns (``name = value``)."""
     names: set[str] = set()
     for line in text.splitlines():
         head, separator, _ = line.partition("=")
@@ -156,7 +159,10 @@ def render_var_files(inputs: DeploymentInputs, workdir: Path, *, destroy: bool =
         overridden = owned_keys_in_values(values_copy)
         if overridden:
             warn(f"Root-config values override these {values_path.name} values: " + ", ".join(overridden))
-    settings_file = write_private_file(directory / "settings.auto.tfvars", render_tfvars(inputs.root_config))  # type: ignore[arg-type]
+    settings_file = write_private_file(
+        directory / "settings.auto.tfvars",
+        render_tfvars(inputs.root_config),  # type: ignore[arg-type]
+    )
     deployment_file = write_private_file(
         directory / "zz-deployment.auto.tfvars.json",
         json.dumps(deployment_values(inputs, destroy=destroy), indent=2, sort_keys=True) + "\n",
@@ -188,7 +194,7 @@ def terraform_init(runner: ProcessRunner, ctx: TerraformContext, *, state_bucket
         ctx.argv(
             "init",
             "-reconfigure",
-            "-input=false",
+            _NO_INPUT,
             f"-backend-config=bucket={state_bucket}",
             f"-backend-config=prefix={prefix}",
         ),
@@ -212,13 +218,14 @@ def adopt_identity_platform_config(runner: ProcessRunner, ctx: TerraformContext,
         return
     info("Importing the pre-provisioned Identity Platform config")
     runner.run(
-        ctx.argv("import", "-input=false", *ctx.var_file_args(), IDENTITY_PLATFORM_CONFIG_ADDRESS, project_id),
+        ctx.argv("import", _NO_INPUT, *ctx.var_file_args(), IDENTITY_PLATFORM_CONFIG_ADDRESS, project_id),
         env=ctx.env,
         capture=False,
     )
 
 
 def _is_permission_propagation(text: str) -> bool:
+    """Return True when ``text`` shows an IAM change that has not propagated yet."""
     lowered = text.lower()
     return any(marker in lowered for marker in _RETRYABLE_PERMISSION_MARKERS)
 
@@ -229,10 +236,10 @@ def terraform_apply(
     *,
     max_attempts: int = 12,
     sleep_seconds: int = 10,
-    sleep=time.sleep,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     """Apply the platform root, retrying only IAM propagation failures."""
-    argv = ctx.argv("apply", "-auto-approve", "-input=false", *ctx.var_file_args())
+    argv = ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args())
     for attempt in range(1, max_attempts + 1):
         result = runner.run(argv, env=ctx.env, check=False)
         if result.stdout:
@@ -272,7 +279,7 @@ def lift_sql_deletion_protection(runner: ProcessRunner, ctx: TerraformContext) -
     for address in matches:
         info(f"Lifting Cloud SQL deletion protection on {address}")
         runner.run(
-            ctx.argv("apply", "-auto-approve", "-input=false", *ctx.var_file_args(), f"-target={address}"),
+            ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), f"-target={address}"),
             env=ctx.env,
             capture=False,
         )
@@ -287,9 +294,11 @@ def drop_unremovable_kms_resources(runner: ProcessRunner, ctx: TerraformContext)
             runner.run(ctx.argv("state", "rm", address), env=ctx.env)
 
 
-def terraform_destroy(runner: ProcessRunner, ctx: TerraformContext, *, sleep=time.sleep) -> None:
+def terraform_destroy(
+    runner: ProcessRunner, ctx: TerraformContext, *, sleep: Callable[[float], None] = time.sleep
+) -> None:
     """Destroy the platform root with bounded retries for provider-side convergence."""
-    argv = ctx.argv("destroy", "-auto-approve", "-input=false", *ctx.var_file_args())
+    argv = ctx.argv("destroy", "-auto-approve", _NO_INPUT, *ctx.var_file_args())
     for attempt in range(1, _DESTROY_ATTEMPTS + 1):
         try:
             runner.run(argv, env=ctx.env, capture=False)

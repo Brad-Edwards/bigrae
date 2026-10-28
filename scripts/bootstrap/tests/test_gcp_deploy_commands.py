@@ -86,7 +86,9 @@ def stages(monkeypatch):
     )
     monkeypatch.setattr(gcp_deploy, "_import_images", lambda runner, inputs, infra, manifest: dict(manifest.images))
     monkeypatch.setattr(
-        gcp_deploy, "_scan", lambda runner, images, **kwargs: seen.append(("scan", os.environ.get(IMPERSONATION_KEY)))
+        gcp_deploy,
+        "_scan",
+        lambda runner, images, evidence, workdir: seen.append(("scan", os.environ.get(IMPERSONATION_KEY))),
     )
     monkeypatch.setattr(
         gcp_deploy, "_verify", lambda runner, images, trust: seen.append(("verify", os.environ.get(IMPERSONATION_KEY)))
@@ -277,6 +279,10 @@ class TestDeployHelpers:
         assert release_trust(
             untrusted, DeployOptions(source="x", trusted_repository_id="7", trusted_owner_id="8"), REVISION
         )
+        # A stage that needs the release stops when the run holds none (fail closed).
+        with pytest.raises(GcpDeployError, match="requires the release manifest"):
+            gcp_deploy._required_release(None, trust)
+        assert gcp_deploy._required_release(load_manifest(str(manifest)), trust)[1] is trust
 
     def test_require_tools(self, monkeypatch):
         monkeypatch.setattr(gcp_deploy_stages, "tool_available", lambda name: name != "helm")
@@ -329,7 +335,7 @@ class TestOtherCommands:
         monkeypatch.setattr(
             gcp_deploy,
             "_scan",
-            lambda runner, images, **kw: seen.append((os.environ.get(IMPERSONATION_KEY), kw["bucket"])),
+            lambda runner, images, evidence, workdir: seen.append((os.environ.get(IMPERSONATION_KEY), evidence.bucket)),
         )
         options = ScanOptions(release_manifest=str(manifest), project_id=PROJECT, environment="acme")
         assert run_release_scan_command(options, runner=FakeRunner()) == 0

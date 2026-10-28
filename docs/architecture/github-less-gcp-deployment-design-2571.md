@@ -274,8 +274,10 @@ Helm` label and the `meta.helm.sh/release-name` and
 `meta.helm.sh/release-namespace` annotations (Helm 3.2 adoption). An object
 that another Helm release owns stops the command. After a successful upgrade,
 it removes the Kustomize-only objects in a closed list: the two
-`*-google-apis-egress` policies, the two portal and guacamole-client policies,
-and the empty `platform-runtime-secrets` Secret.
+`*-google-apis-egress` policies and the empty `platform-runtime-secrets`
+Secret. The chart's provider-API egress policies allow the same Google API
+ranges. The chart renders the two portal and guacamole-client policies with
+their Kustomize names, so the command adopts them.
 
 ### Teardown
 

@@ -222,7 +222,7 @@ jobs:
             --image "guacd=${GCP_RELEASE_REGISTRY}/guacd@${GUACD_DIGEST}" \
             --image "guacamole-client=${GCP_RELEASE_REGISTRY}/guacamole-client@${GUACAMOLE_CLIENT_DIGEST}" \
             --image "openvpn=${GCP_RELEASE_REGISTRY}/openvpn@${OPENVPN_DIGEST}" \
-            --output "${RUNNER_TEMP}/release/release.json"
+            > "${RUNNER_TEMP}/release/release.json"
 
       # The deployer image embeds the manifest and the source revision. Its build
       # stops when the manifest is not valid or names another revision.

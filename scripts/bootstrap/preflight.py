@@ -102,6 +102,22 @@ class CheckResult:
     message: str
 
 
+@dataclass(frozen=True)
+class PreflightHost:
+    """The process environment, repository, and PATH lookup that a preflight reads.
+
+    A ``None`` field selects the real host: :data:`os.environ`, :func:`get_repo_root`,
+    and :func:`shutil.which`. Tests inject their own values.
+    """
+
+    env: Mapping[str, str] | None = None
+    repo_root: Path | None = None
+    tool_exists: Callable[[str], str | None] | None = None
+
+
+_REAL_HOST = PreflightHost()
+
+
 @dataclass
 class PreflightReport:
     """The full set of evaluated checks for one preflight run."""
@@ -359,7 +375,7 @@ def _gcp_bundle_checks(source: str) -> list[CheckResult]:
         ]
     import tempfile
 
-    from gcp_inputs import DeploymentInputError, load_deployment_inputs
+    from gcp_inputs import load_deployment_inputs
     from gcp_process import GcpCommandError, ProcessRunner
     from gcp_terraform import render_var_files
 
@@ -367,7 +383,7 @@ def _gcp_bundle_checks(source: str) -> list[CheckResult]:
         try:
             inputs = load_deployment_inputs(source, Path(scratch) / "inputs", ProcessRunner(), {})
             render_var_files(inputs, Path(scratch))
-        except (DeploymentInputError, GcpCommandError, ValueError) as exc:
+        except (GcpCommandError, ValueError) as exc:  # DeploymentInputError is a ValueError.
             return [CheckResult(name, Status.FAIL, str(exc))]
     return [
         CheckResult(
@@ -432,18 +448,14 @@ def run_preflight(
     environment: str,
     *,
     component: str | None = None,
-    env: Mapping[str, str] | None = None,
-    repo_root: Path | None = None,
-    tool_exists: Callable[[str], str | None] | None = None,
     gcp_inputs: str = "",
+    host: PreflightHost = _REAL_HOST,
 ) -> PreflightReport:
     """Evaluate every applicable prerequisite and return a structured report.
 
-    Pure aside from the injected boundaries: ``env`` (defaults to the process
-    environment), ``repo_root`` (defaults to :func:`get_repo_root`), and
-    ``tool_exists`` (defaults to :func:`shutil.which`). ``gcp_inputs`` names the
-    GCP deployment input bundle (a config bucket prefix or a directory) that a
-    local GCP preflight validates.
+    Pure aside from the injected ``host`` boundaries (:class:`PreflightHost`).
+    ``gcp_inputs`` names the GCP deployment input bundle (a config bucket prefix or
+    a directory) that a local GCP preflight validates.
     """
     if cloud is Cloud.AWS and environment not in _AWS_ENVIRONMENTS:
         return PreflightReport(
@@ -452,9 +464,9 @@ def run_preflight(
             environment,
             [CheckResult("environment", Status.FAIL, "AWS environment must be dev or prod")],
         )
-    env = os.environ if env is None else env
-    repo_root = get_repo_root() if repo_root is None else repo_root
-    tool_exists = shutil.which if tool_exists is None else tool_exists
+    env = os.environ if host.env is None else host.env
+    repo_root = get_repo_root() if host.repo_root is None else host.repo_root
+    tool_exists = shutil.which if host.tool_exists is None else host.tool_exists
 
     results: list[CheckResult] = []
     if mode is Mode.CI:
@@ -495,7 +507,7 @@ def preflight_gate(
 
     This is the production entrypoint; it reads the real process environment,
     repository, and ``PATH``. Unit tests drive the pure :func:`run_preflight`
-    directly (which takes injectable ``env`` / ``repo_root`` / ``tool_exists``).
+    directly (which takes an injectable :class:`PreflightHost`).
     """
     report = run_preflight(cloud, mode, environment, component=component, gcp_inputs=gcp_inputs)
     header(f"Deploy preflight ({cloud.value} / {environment})")

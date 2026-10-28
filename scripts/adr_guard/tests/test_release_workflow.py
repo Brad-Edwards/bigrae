@@ -117,6 +117,16 @@ class ReleaseWorkflowProvenanceTests(unittest.TestCase):
             with self.subTest(on=on):
                 self.assert_one(workflow(on=on), "ADR-004-R23", "only from workflow_dispatch")
 
+    def test_scalar_list_and_empty_triggers_are_read(self) -> None:
+        dispatch = "on:\n  workflow_dispatch:\n"
+        self.assertEqual(self.run_check(workflow().replace(dispatch, "on: workflow_dispatch\n")), [])
+        self.assertEqual(self.run_check(workflow().replace(dispatch, "on: [workflow_dispatch]\n")), [])
+        self.assert_one(workflow().replace(dispatch, "on:\n"), "ADR-004-R23", "no event")
+
+    def test_a_build_step_without_inputs_pushes_nothing(self) -> None:
+        bare_build = f"      - uses: docker/build-push-action@{SHA} # v5.4.0\n"
+        self.assertEqual(self.run_check(workflow(steps=REF_GUARD + CHECKOUT + AUTH + bare_build)), [])
+
     def test_the_authenticating_job_binds_the_release_environment_on_a_hosted_runner(self) -> None:
         self.assert_one(workflow(environment=""), "ADR-004-R23", "gcp-release")
         self.assert_one(workflow(environment="    environment: gcp-dev\n"), "ADR-004-R23", "gcp-release")

@@ -7,6 +7,8 @@
 # ``kubectl exec`` connection through GKE Connect Gateway.
 set -euo pipefail
 
+# The deploy command runs this script from any working directory.
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VARIANT="linux"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -82,7 +84,7 @@ deployment_file="${temporary_directory}/portal-deployment.json"
 job_file="${temporary_directory}/smoke-job.json"
 kubectl -n "${namespace}" get deployment/portal-web -o json \
   --request-timeout="${KUBECTL_REQUEST_TIMEOUT}" > "${deployment_file}"
-python3 scripts/gcp/render_smoke_job.py \
+python3 "${script_directory}/gcp/render_smoke_job.py" \
   --deployment "${deployment_file}" \
   --output "${job_file}" \
   --name "${job_name}" \

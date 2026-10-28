@@ -344,7 +344,7 @@ jobs:
             --image "guacd=${fixture}/guacd@${digest}" \
             --image "guacamole-client=${fixture}/guacamole-client@${digest}" \
             --image "openvpn=${fixture}/openvpn@${digest}" \
-            --output "${RUNNER_TEMP}/release/release.json"
+            > "${RUNNER_TEMP}/release/release.json"
       - name: Build the deployer image
         run: |
           docker buildx build -f platform/deployer/gcp/Dockerfile \

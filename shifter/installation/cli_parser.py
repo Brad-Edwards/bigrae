@@ -273,14 +273,15 @@ def _add_contract_parser(subcommands: argparse._SubParsersAction) -> None:
 
 
 def _add_release_manifest_parser(subcommands: argparse._SubParsersAction) -> None:
-    """Wire ``gcp-release-manifest``: write one validated GCP release manifest (#2571)."""
+    """Wire ``gcp-release-manifest``: write one validated GCP release manifest to stdout (#2571)."""
     manifest = subcommands.add_parser(
         "gcp-release-manifest",
-        help="Write a validated bigrae.gcp-release.v1 manifest for one built revision.",
+        help="Write a validated bigrae.gcp-release.v1 manifest for one built revision to stdout.",
         description=(
-            "Write the GCP release manifest that the deploy command consumes: the version, the full "
-            "source revision, the Helm chart version, and the exact repository@sha256 identity of each "
-            "control-plane image. Every image must be named exactly once."
+            "Write the GCP release manifest that the deploy command consumes to standard output: the "
+            "version, the full source revision, the Helm chart version, and the exact repository@sha256 "
+            "identity of each control-plane image. Every image must be named exactly once. Use a shell "
+            "redirect to write the manifest to a file."
         ),
     )
     manifest.add_argument("--version", required=True, help="Product version or CI label.")
@@ -293,7 +294,6 @@ def _add_release_manifest_parser(subcommands: argparse._SubParsersAction) -> Non
         metavar="NAME=REPOSITORY@sha256:DIGEST",
         help="Exact identity of one release image (portal, provisioner, guacd, guacamole-client, openvpn).",
     )
-    _add_output_argument(manifest, "release manifest")
 
 
 def build_parser() -> argparse.ArgumentParser:

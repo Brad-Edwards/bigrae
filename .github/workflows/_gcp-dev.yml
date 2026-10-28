@@ -425,7 +425,7 @@ jobs:
             --image "guacd=${GUACD_IMAGE}" \
             --image "guacamole-client=${GUACAMOLE_CLIENT_IMAGE}" \
             --image "openvpn=${OPENVPN_IMAGE}" \
-            --output "${RUNNER_TEMP}/release.json"
+            > "${RUNNER_TEMP}/release.json"
       - name: Scan exact release image digests
         # HIGH and CRITICAL findings block the rollout. The command writes the raw
         # evidence and the redacted verdict to the private release-evidence bucket.
@@ -555,7 +555,7 @@ jobs:
             --image "guacd=${GUACD_IMAGE}" \
             --image "guacamole-client=${GUACAMOLE_CLIENT_IMAGE}" \
             --image "openvpn=${OPENVPN_IMAGE}" \
-            --output "${RUNNER_TEMP}/release.json"
+            > "${RUNNER_TEMP}/release.json"
       - name: Run the rollout stage
         # Provenance verification bound to this repository's immutable IDs and the
         # source revision, the Helm release, the migrations, the secret syncs, the

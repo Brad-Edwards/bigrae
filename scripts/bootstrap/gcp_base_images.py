@@ -110,7 +110,7 @@ class ImportedImage:
     reused: bool
 
 
-_SOURCE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?(?:/[a-z0-9][a-z0-9._-]*)+$")
+_SOURCE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::\d+)?(?:/[a-z0-9][a-z0-9._-]*)+$", re.ASCII)
 
 
 def validate_source(source: str) -> str:

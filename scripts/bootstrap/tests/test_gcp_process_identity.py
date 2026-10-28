@@ -9,7 +9,15 @@ from pathlib import Path
 import pytest
 
 from gcp_identity import IdentityError, PurposeIdentities, derived_service_account, validate_service_account
-from gcp_process import GcpCommandError, ProcessRunner, merged_env, minimal_env, scoped_environment, script_argv
+from gcp_process import (
+    GcpCommandError,
+    ProcessRunner,
+    isolated_env,
+    merged_env,
+    minimal_env,
+    scoped_environment,
+    script_argv,
+)
 
 PY = sys.executable
 
@@ -20,7 +28,7 @@ class TestProcessRunner:
         script = "import os,sys; print(os.environ.get('KEEP'), os.environ.get('DROP'), os.environ.get('NEW'))"
         result = runner.run([PY, "-c", script], env={"DROP": None, "NEW": "3"})
         assert result.stdout.strip() == "1 None 3"
-        clean = runner.run([PY, "-c", script], env={"NEW": "4"}, inherit_env=False)
+        clean = runner.run([PY, "-c", script], env=isolated_env(runner.base_env, {"NEW": "4"}))
         assert clean.stdout.strip() == "None None 4"
 
     def test_failure_reports_a_bounded_tail_unless_sensitive(self):
@@ -57,6 +65,10 @@ class TestProcessRunner:
     def test_helpers(self, tmp_path: Path):
         assert merged_env({"A": "1", "B": "2"}, {"A": None, "C": "3"}) == {"B": "2", "C": "3"}
         assert minimal_env({"PATH": "/bin", "HOME": "/h", "SECRET": "x"}) == {"PATH": "/bin", "HOME": "/h"}
+        assert isolated_env({"PATH": "/bin", "SECRET": "x"}, {"PATH": "/usr/bin"}) == {
+            "PATH": "/usr/bin",
+            "SECRET": None,
+        }
         (tmp_path / "scripts" / "gcp").mkdir(parents=True)
         (tmp_path / "scripts" / "gcp" / "tool.py").write_text("print(1)\n")
         assert script_argv(tmp_path, "tool", "--x") == [sys.executable, str(tmp_path / "scripts/gcp/tool.py"), "--x"]

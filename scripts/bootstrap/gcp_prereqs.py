@@ -54,6 +54,7 @@ def access_token(runner: ProcessRunner, env: Mapping[str, str | None]) -> str:
 def _google_api(
     url: str, *, token: str, project_id: str, method: str = "GET", body: bytes | None = None, opener: Opener
 ) -> int:
+    """Call one allowed Google API endpoint and return the HTTP status."""
     parsed = urllib_parse.urlparse(url)
     if parsed.scheme != "https" or parsed.netloc not in {
         "identitytoolkit.googleapis.com",
@@ -76,7 +77,8 @@ def _google_api(
             return int(getattr(response, "status", 200))
     except urllib_error.HTTPError as exc:
         return exc.code
-    except (urllib_error.URLError, TimeoutError, OSError):
+    except OSError:
+        # URLError and TimeoutError are OSError subclasses.
         raise PrerequisiteError("the Google API endpoint is unreachable") from None
 
 
@@ -112,7 +114,10 @@ def ensure_identity_platform(
     success("Identity Platform initialized")
 
 
-def _bucket_policy(runner: ProcessRunner, env: Mapping[str, str | None], bucket: str, project_id: str) -> dict:
+def _bucket_policy(
+    runner: ProcessRunner, env: Mapping[str, str | None], bucket: str, project_id: str
+) -> dict[str, object]:
+    """Return the IAM policy of the state bucket."""
     result = runner.run(
         ["gcloud", "storage", "buckets", "get-iam-policy", f"gs://{bucket}", "--project", project_id, "--format=json"],
         env=env,

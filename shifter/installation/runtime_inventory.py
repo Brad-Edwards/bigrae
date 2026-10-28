@@ -169,27 +169,35 @@ def _missing_file_issue(path: Path) -> RuntimeInventoryIssue:
     return RuntimeInventoryIssue(str(path), "required runtime inventory file is missing")
 
 
-def _chart_runtime_env_issues(path: Path, relative_path: Path) -> list[RuntimeInventoryIssue]:
-    """Return sanitized issues for renderer-owned env keys committed in chart values."""
+def _chart_runtime_env(path: Path) -> dict[object, object]:
+    """Return the ``runtimeEnv`` mapping of one chart values file.
+
+    Raises ``ValueError`` with a sanitized reason when the file or the mapping has
+    the wrong shape. The reason never contains a value from the file.
+    """
 
     try:
         values = yaml.safe_load(path.resolve().read_text(encoding="utf-8")) or {}
     except yaml.YAMLError:
-        return [RuntimeInventoryIssue(str(relative_path), "chart values file is not valid YAML")]
+        raise ValueError("chart values file is not valid YAML") from None
     if not isinstance(values, dict):
-        return [RuntimeInventoryIssue(str(relative_path), "chart values file must be a mapping")]
+        raise ValueError("chart values file must be a mapping")
     runtime_env = values.get("runtimeEnv") or {}
     if not isinstance(runtime_env, dict):
-        return [RuntimeInventoryIssue(str(relative_path), "runtimeEnv must be a mapping")]
+        raise ValueError("runtimeEnv must be a mapping")
+    return runtime_env
+
+
+def _chart_runtime_env_issues(path: Path, relative_path: Path) -> list[RuntimeInventoryIssue]:
+    """Return sanitized issues for renderer-owned env keys committed in chart values."""
+
+    try:
+        runtime_env = _chart_runtime_env(path)
+    except ValueError as exc:
+        return [RuntimeInventoryIssue(str(relative_path), str(exc))]
     committed = sorted(str(key) for key in runtime_env if key in _GCP_RENDERER_OWNED_RUNTIME_ENV_KEYS)
-    if not committed:
-        return []
-    return [
-        RuntimeInventoryIssue(
-            str(relative_path),
-            "renderer-owned env keys must not be committed in chart values: " + ", ".join(committed),
-        )
-    ]
+    message = "renderer-owned env keys must not be committed in chart values: " + ", ".join(committed)
+    return [RuntimeInventoryIssue(str(relative_path), message)] if committed else []
 
 
 def validate_runtime_inventory(repo_root: str | Path) -> list[RuntimeInventoryIssue]:

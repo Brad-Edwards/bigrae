@@ -103,7 +103,10 @@ and image prerequisites. GCE does not support the NGFW range capability.
 
 ADR-056 defines provider-enforced guest containment. ADR-057 separates GKE
 Dataplane V2 NetworkPolicy reachability, Google Workload Identity, Job admission,
-and application authorization. These controls do not provide authenticated
+and application authorization. The Helm chart renders the NetworkPolicies. Each
+BigRAE namespace denies traffic by default, and explicit policies allow each
+required path, for example the portal to the in-cluster Guacamole token API.
+These controls do not provide authenticated
 pod-to-pod mTLS; a service mesh remains unadopted. No documentation or unit-test
 result proves complete escape detection or live containment qualification.
 

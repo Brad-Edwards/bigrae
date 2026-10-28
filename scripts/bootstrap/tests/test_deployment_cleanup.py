@@ -37,6 +37,8 @@ def test_preflight_rejects_retired_environment_before_checking_dependencies(mode
     def unexpected_tool_check(_name):
         pytest.fail("retired environment reached tool checks")
 
-    report = preflight.run_preflight(preflight.Cloud.AWS, mode, "proof", env={}, tool_exists=unexpected_tool_check)
+    report = preflight.run_preflight(
+        preflight.Cloud.AWS, mode, "proof", host=preflight.PreflightHost(env={}, tool_exists=unexpected_tool_check)
+    )
     assert not report.ok
     assert report.failures[0].name == "environment"

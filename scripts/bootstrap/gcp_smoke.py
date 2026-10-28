@@ -38,7 +38,6 @@ def run_smoke(
             ["bash", str(repo_root / "scripts" / "smoke-test-gcp.sh"), "--variant", variant],
             env={**env, "SMOKE_TEST_USER_EMAIL": user_email, "SMOKE_RUN_ID": run_id},
             capture=False,
-            cwd=str(repo_root),
         )
     except GcpCommandError:
         warn("The post-deploy smoke failed; the deployment itself completed")

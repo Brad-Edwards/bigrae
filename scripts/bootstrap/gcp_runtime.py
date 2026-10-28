@@ -21,7 +21,7 @@ from pathlib import Path
 from bootstrap_core import GDCBootstrapConfig, get_repo_root
 from gcp_control_plane import parse_env_contract, render_gcp_platform_runtime_env
 from gcp_inputs import DeploymentInputs, private_workdir, write_private_file
-from gcp_process import ProcessRunner, minimal_env, script_argv
+from gcp_process import ProcessRunner, isolated_env, minimal_env, script_argv
 
 
 def gdc_config(inputs: DeploymentInputs) -> GDCBootstrapConfig:
@@ -80,8 +80,7 @@ def compose_runtime_env(
             "--output",
             str(rendered_file),
         ),
-        env=env,
-        inherit_env=False,
+        env=isolated_env(runner.base_env, env),
     )
     static = parse_env_contract(render_gcp_platform_runtime_env(gdc_config(inputs)))
     rendered = parse_env_contract(rendered_file.read_text(encoding="utf-8"))

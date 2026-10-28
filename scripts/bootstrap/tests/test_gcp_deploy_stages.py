@@ -19,6 +19,7 @@ from gcp_deploy_stages import (
     rollout_stage,
     seed_operator,
 )
+from gcp_evidence import EvidenceRun
 from gcp_inputs import load_deployment_inputs
 from gcp_process import ProcessResult
 from tests.gcp_test_support import PROJECT, REVISION, FakeRunner, root_config, sample_gcp_outputs, write_bundle
@@ -118,10 +119,7 @@ class TestRolloutStage:
                 name: f"host/{name}@sha256:" + "1" * 64
                 for name in ("portal", "provisioner", "guacd", "guacamole-client", "openvpn")
             },
-            source_revision=REVISION,
-            evidence_bucket="b-evidence",
-            run_id="r",
-            attempt=1,
+            evidence=EvidenceRun("b-evidence", REVISION, "r", 1),
             first_install=False,
         )
         infra = InfrastructureResult(outputs=outputs, kube={"KUBECONFIG": "/work/kubeconfig"})
@@ -155,10 +153,7 @@ class TestRolloutStage:
                 name: f"host/{name}@sha256:" + "1" * 64
                 for name in ("portal", "provisioner", "guacd", "guacamole-client", "openvpn")
             },
-            source_revision=REVISION,
-            evidence_bucket="b-evidence",
-            run_id="r",
-            attempt=1,
+            evidence=EvidenceRun("b-evidence", REVISION, "r", 1),
             first_install=True,
         )
         rollout_stage(runner, inputs, InfrastructureResult(outputs=outputs, kube={}), request)
