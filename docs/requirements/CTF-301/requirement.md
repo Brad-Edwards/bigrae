@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:22.133832Z
-updated_at: 2026-03-30T04:46:19.505995Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-301: Hint Creation
@@ -21,6 +21,6 @@ Hints are the primary scaffolding mechanism for participants who are stuck. Prog
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFHint model - text, penalty, order fields with FK to challenge)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFHint model - text, penalty, order fields with FK to challenge)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/hint.py` (Hint service - add_hint, update_hint, remove_hint, get_hints CRUD)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_hint.py` (TestHintCRUD - add, remove, ordering tests for hint creation)

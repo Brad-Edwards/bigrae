@@ -1,12 +1,12 @@
 ---
 id: CTF-601
 title: "Participant Registration"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:22.755543Z
-updated_at: 2026-03-26T06:10:35.143869Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-601: Participant Registration
@@ -21,12 +21,10 @@ Self-registration is the primary onboarding path for CTF participants. CTFd supp
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF models - CTFParticipant with unique email constraint and CTFEvent with registration_deadline)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant.py` (Participant service - invite_participant, bulk_import, auto-registration logic)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification.py` (Notification service - send_invitations, email rendering (no registration confirmation))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms.py` (CTF forms - CTFParticipantForm collects name and email (organizer-facing))
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_auth.py` (Auth tests - TestCTFRegisterView magic link token validation)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_participant_views.py` (Participant view tests - add, import, list, detail, API participant CRUD)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_services/test_notification.py` (Notification service tests - invitation sending, credentials, rendering)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTF models - CTFParticipant with unique email constraint and CTFEvent with registration_deadline)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/bulk_import.py` (Participant service - bulk_import_participants)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (Notification service - send_invitations, email rendering (no registration confirmation))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms/` (CTF forms - CTFParticipantForm collects name and email (organizer-facing))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_auth.py` (Auth tests - TestCTFRegisterView magic link token validation)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Notification service tests - invitation sending, credentials, rendering)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#650` (CTF-601: Participant Registration)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (CTF views - ctf_register (magic link auth, not self-registration), admin_participant_add)

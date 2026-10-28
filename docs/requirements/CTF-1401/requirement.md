@@ -1,12 +1,12 @@
 ---
 id: CTF-1401
 title: "Plugin System"
-status: DRAFT
+status: ACTIVE
 type: NON_FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:24.343589Z
-updated_at: 2026-03-26T06:34:44.483750Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1401: Plugin System
@@ -21,5 +21,5 @@ Extensibility allows the platform to support custom challenge types (for example
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/apps.py` (CTF AppConfig - would host plugin loading)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/extensions.py` (Extension points: register_flag_validator and register_scoring_strategy for external Django apps)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#638` (CTF-1401: Plugin System)

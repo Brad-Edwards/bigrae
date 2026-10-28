@@ -10,7 +10,7 @@ const createRootMock = vi.fn(() => ({ render: renderMock, unmount: vi.fn() }));
 vi.mock("react-dom/client", () => ({ createRoot: createRootMock }));
 // The entrypoint's mount behaviour is what is under test, not the route table
 // (covered by router.test.tsx). Stub the router so importing main.tsx does not
-// pull the entire page graph (xterm, mermaid, every feature) into this test.
+// pull the entire page graph (xterm, every feature) into this test.
 const { routerStub } = vi.hoisted(() => ({ routerStub: { id: "router-stub" } }));
 vi.mock("@/router", () => ({ router: routerStub }));
 
@@ -19,6 +19,8 @@ beforeEach(() => {
   renderMock.mockClear();
   createRootMock.mockClear();
   document.body.innerHTML = "";
+  document.head.innerHTML = "";
+  delete (document as { createElement?: unknown }).createElement;
 });
 
 describe("main entrypoint", () => {
@@ -46,6 +48,21 @@ describe("main entrypoint", () => {
     const routerProvider = queryProvider.props.children;
     expect(routerProvider.type).toBe(RouterProvider);
     expect(routerProvider.props.router).toBe(routerStub);
+  });
+
+  it("stamps the host's CSP nonce on script-created style elements before mounting", async () => {
+    const meta = document.createElement("meta");
+    meta.setAttribute("property", "csp-nonce");
+    meta.setAttribute("nonce", "host-nonce");
+    document.head.append(meta);
+    const root = document.createElement("div");
+    root.id = "root";
+    document.body.appendChild(root);
+
+    await import("./main");
+
+    expect(document.createElement("style").getAttribute("nonce")).toBe("host-nonce");
+    expect(createRootMock).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing when the #root container is absent", async () => {

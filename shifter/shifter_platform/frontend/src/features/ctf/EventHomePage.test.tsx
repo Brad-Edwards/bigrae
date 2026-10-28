@@ -9,6 +9,7 @@ vi.mock("@/api/client", () => ({ apiFetch: vi.fn() }));
 import { apiFetch } from "@/api/client";
 import { ApiError } from "@/api/errors";
 
+import { ContentImageProvider } from "./contentImages";
 import { EventHomePage } from "./EventHomePage";
 
 const mockApi = vi.mocked(apiFetch);
@@ -55,6 +56,32 @@ function withSchedule() {
   base.event = { ...base.event, event_start: start, event_end: end, rules: "Play **fair**." };
   return base;
 }
+
+describe("EventHomePage logo under the enforced CSP (#2090)", () => {
+  function withLogo() {
+    const base = currentEvent() as { event: Record<string, unknown>; participant: Record<string, unknown> };
+    base.event = { ...base.event, logo_url: "https://cdn.example.test/logo.png" };
+    return base;
+  }
+
+  it("shows the first-party copy of an external logo", async () => {
+    mockApi.mockResolvedValue(withLogo());
+    renderRoute(
+      <ContentImageProvider images={[{ source_url: "https://cdn.example.test/logo.png", url: "/api/v1/ctf/content-images/9/" }]}>
+        <EventHomePage />
+      </ContentImageProvider>,
+    );
+    const logo = await screen.findByAltText("Spring CTF logo");
+    expect(logo).toHaveAttribute("src", "/api/v1/ctf/content-images/9/");
+  });
+
+  it("shows no logo while the external logo has no ready copy", async () => {
+    mockApi.mockResolvedValue(withLogo());
+    renderRoute(<EventHomePage />);
+    expect(await screen.findByText("Spring CTF")).toBeInTheDocument();
+    expect(screen.queryByAltText("Spring CTF logo")).toBeNull();
+  });
+});
 
 describe("EventHomePage", () => {
   it("lists past announcements", async () => {

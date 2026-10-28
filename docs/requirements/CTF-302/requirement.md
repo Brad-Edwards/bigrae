@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:22.183715Z
-updated_at: 2026-03-30T04:50:19.769553Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-302: Hint Point Penalties
@@ -21,6 +21,6 @@ Variable hint costs let organizers calibrate the trade-off between help and scor
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFHint.penalty field - per-hint percentage penalty (0-100), different per hint, zero allowed)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFHint.penalty field - per-hint percentage penalty (0-100), different per hint, zero allowed)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/hint.py` (add_hint with penalty param, get_total_hint_penalty cumulative calculation)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_hint.py` (TestHintUsage - total penalty calculation, penalty capping at 100, per-hint penalty values)

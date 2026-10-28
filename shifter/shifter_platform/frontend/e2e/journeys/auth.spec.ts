@@ -2,7 +2,8 @@
 // SPA. Exercises the server-side login redirect, a successful authenticated
 // session bootstrap, and session revocation on logout.
 
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect } from "../support/csp";
 
 import { ACTORS } from "../support/actors";
 
@@ -16,8 +17,8 @@ async function devLogin(page: Page, email: string): Promise<void> {
   ]);
 }
 
-test("anonymous SPA navigation redirects to the login page", async ({ browser }) => {
-  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+test("anonymous SPA navigation redirects to the login page", async ({ newGuardedContext }) => {
+  const context = await newGuardedContext({ storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
   await page.goto("/mission-control");
   await expect(page).toHaveURL(/dev-login/);
@@ -37,10 +38,10 @@ test.describe("as an authenticated standard user", () => {
   });
 });
 
-test("logout revokes the session so the SPA redirects to login again", async ({ browser }) => {
+test("logout revokes the session so the SPA redirects to login again", async ({ newGuardedContext }) => {
   // A dedicated throwaway session so revoking it does not poison the shared
   // storageState sessions the other journeys reuse.
-  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const context = await newGuardedContext({ storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
 
   await devLogin(page, "e2e-logout@example.com");

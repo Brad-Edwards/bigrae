@@ -728,8 +728,14 @@ The first slice intentionally stays small:
   The check also rejects broad egress `ipBlock` CIDRs (`0.0.0.0/0`
   and `::/0`) in BigRAE NetworkPolicies, forcing policies to use
   explicit GCLB, Google API, private service, and in-cluster service
-  ranges. Runs in the `ci` level and shares the Helm-rendered
-  validation boundary with `k8s-deployment-security-context`.
+  ranges. The one exception (#2090) is the boundary policy of a
+  designated egress proxy (`content-egress`, `model-provider-egress`).
+  It must select only that component, admit ingress only from named
+  pods, allow only TCP 443, and exclude every private, shared,
+  loopback, link-local, multicast, and reserved IPv4 range
+  (`REQUIRED_PUBLIC_EGRESS_EXCEPT`). Runs in the `ci` level and shares
+  the Helm-rendered validation boundary with
+  `k8s-deployment-security-context`.
 
 - `eks-cross-stack-sourcing`
   Enforces ADR-044-R6 against the AWS EKS Terraform roots under
@@ -1350,8 +1356,8 @@ one set of rule identifiers and diagnostics when their implementation is split.
 ### Operations runbook catalog
 
 The public operations handoff under `docs/runbooks/` retains the stable
-`RB001` through `RB023` incident identifiers. The existing ADR-guard unittest
-discovery runs `test_operations_runbooks.py`, which checks that all 23 pages are
+`RB001` through `RB024` incident identifiers. The existing ADR-guard unittest
+discovery runs `test_operations_runbooks.py`, which checks that all 24 pages are
 present and indexed, carry the required Symptom, Investigation, Resolution and
 Prevention sections in order, state an escalation boundary, and mark fenced
 shell examples as read-only. The same test rejects command examples that read

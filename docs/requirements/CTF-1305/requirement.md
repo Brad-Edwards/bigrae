@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T20:39:10.693422Z
-updated_at: 2026-03-26T06:38:56.462239Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1305: Submission History
@@ -21,12 +21,10 @@ Submission history is essential for organizers to detect cheating, debug flag is
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/admin.py::CTFSubmissionAdmin` (CTFSubmissionAdmin - Organizer view/search/filter of all submissions)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py::CTFSubmission` (CTFSubmission model - Records all submission attempts with correctness, flag, timestamp, participant)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py::challenge_detail` (challenge_detail view - Participant views own submissions per challenge)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py::api_submissions` (api_submissions - Participant API to view own submission history)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py::admin_participant_detail` (admin_participant_detail - Organizer views participant submission history)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/admin/` (CTFSubmissionAdmin - Organizer view/search/filter of all submissions)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFSubmission model - Records all submission attempts with correctness, flag, timestamp, participant)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (challenge_detail view - Participant views own submissions per challenge)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (api_submissions - Participant API to view own submission history)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (admin_participant_detail - Organizer views participant submission history)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (Submission service - get_participant_submissions, get_challenge_submissions, get_correct_submissions)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_people.py::admin_participant_detail` (Organizer participant detail view - submission history context)
-- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_participant_views.py` (Admin participant detail tests - organizer-visible submission history)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)
