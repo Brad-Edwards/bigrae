@@ -59,6 +59,7 @@ commands select only unit tests for those packages. See
 | Guacamole authority | `mvn verify` in `shifter/engine/guacamole/authority-extension`, then the CI job's integration tests | Maven, Docker | Tests and compilation (Guacamole authority) |
 | guacd image | The CI job's image build, then `bash shifter/engine/guacamole/test-entrypoint.sh` | Docker | Tests (guacd image) |
 | Built-image stack smoke | `bash scripts/stack-smoke/stack_smoke.sh` | Docker | Stack smoke (built image) |
+| GCP deployer image | The CI job's fixture release manifest and image build, then `docker run --rm bigrae-deployer:ci gcp-deploy --help` and its Trivy scan | Docker | Tests (GCP deployer image) |
 
 The SQLite, PostgreSQL and OpenFGA lanes run some of the same tests. They are not
 duplicates: each lane proves database or authorization behavior that the other
@@ -103,7 +104,7 @@ under `mcp/`. Lint allows zero warnings.
 | --- | --- | --- |
 | Architecture guard, imports, whitespace, changed prose | `make policy` | Architecture (adr conformance), Architecture (import linter), Docs prose (changed Markdown) in `vale.yml` |
 | Commit hooks | `pre-commit run` | None; the hooks run locally before each commit |
-| Workflows, Terraform, Kubernetes | The native commands in [AGENTS.md](https://github.com/Brad-Edwards/bigrae/blob/dev/AGENTS.md#required-checks) | Lint (GitHub Actions), Lint (terraform), Lint (k8s manifests), Lint (k8s schemas) |
+| Workflows, Terraform, Kubernetes | The native commands in [AGENTS.md](https://github.com/Brad-Edwards/bigrae/blob/dev/AGENTS.md#required-checks) | Lint (GitHub Actions), Lint (terraform), Lint and security (Helm chart), Lint (k8s schemas) |
 
 `make policy` runs the ADR guard once. Do not also run the configured lint
 command (`adr_guard.py --all --level ci`) in the same pass. Vale checks only the
@@ -279,7 +280,7 @@ and handlers. It also checks that same-origin WebSockets connect and off-origin
 connections are blocked. `e2e/journeys/django-pages.spec.ts` covers the live
 Django-rendered pages. These tests use Chromium only. The deployed identity
 provider, MFA and range terminal paths are outside the hermetic lanes; #2117
-owns that tier. [RB023](../runbooks/rb023-browser-csp-violation.md) is the
+owns that tier. [RB024](../runbooks/rb024-browser-csp-violation.md) is the
 operator procedure for a blocked feature.
 
 ## External tool integration tests

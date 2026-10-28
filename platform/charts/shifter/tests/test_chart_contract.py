@@ -52,11 +52,14 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
 # Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
-# Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress
-# (merged with the UID 10001 and admission baseline).
+# Regenerated for #2571: the chart is the only GCP renderer. Worker readiness
+# probes now match the retired Kustomize base, stale comments are removed, and
+# the two registered Checkov exceptions annotate their chart Deployments. The
+# portal-to-Guacamole token API policies moved from the retired base to the chart.
+# Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "bc1950b9d0de7bedd0a2177310e075ebb7358e92ce6b9a25ce85b23669765f57",
-    "gcp-prod": "684be8d98ef425a26797470226797c2e444b125eae8e4526ba1e52abd696ddac",
+    "gcp-dev": "603adf8e8ff68f168041fa305ae61b519035c3612ce3f41fc7b5f64f903a78f8",
+    "gcp-prod": "cc25c36465208cd48da2ae3830ee07f8285b1273e383b6fd48caf842d6a6c4bf",
 }
 
 

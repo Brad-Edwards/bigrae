@@ -50,8 +50,9 @@ records that change.
 - The current contract already owns deployment utilities, guard tooling, stack
   smoke, container inputs, charts, Kubernetes and all four MCP packages.
   MCP lint uses `--max-warnings 0`; Kubernetes security ownership uses blocking
-  kube-linter. Advisory Checkov/Trivy jobs are separate signals. Credit actual
-  commands, paths and failure propagation rather than a job's name.
+  kube-linter and Checkov on the rendered chart. The Trivy configuration scan is
+  an advisory signal. Credit actual commands, paths and failure propagation
+  rather than a job's name.
 - [#1698](https://github.com/Brad-Edwards/bigrae/issues/1698) is closed. Its
   ownership-gap work landed through #2557 and #2560; its final report covers the
   later repository-identity change in #2559. Its body cites ADR-004-R23, but

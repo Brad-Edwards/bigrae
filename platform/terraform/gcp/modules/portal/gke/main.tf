@@ -44,8 +44,8 @@ resource "google_container_cluster" "platform" {
 
   # GKE Dataplane V2 (#1295): a Standard, VPC-native cluster does NOT enforce
   # Kubernetes NetworkPolicy unless an enforcing datapath is selected. Without
-  # this, the committed default-deny NetworkPolicies (platform/k8s/gcp/base/
-  # networkpolicies.yaml: default-deny-platform / default-deny-jobs) are admitted
+  # this, the chart's default-deny NetworkPolicies (platform/charts/shifter/
+  # templates/networkpolicies.yaml: default-deny-platform / default-deny-jobs) are admitted
   # by the API server but silently unenforced, so the "default-deny network
   # boundary" the control plane relies on does not exist. ADVANCED_DATAPATH is
   # the Cilium-based Dataplane V2 provider; it enforces NetworkPolicy natively

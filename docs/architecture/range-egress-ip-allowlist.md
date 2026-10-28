@@ -17,8 +17,8 @@ workflow](#operator-workflow) below). The renderer preflight is
 [range-egress-allowlist-render-preflight-958.md](range-egress-allowlist-render-preflight-958.md).
 
 Issue #1015 wired that renderer into the deploy paths: the AWS (`_range.yml`)
-and GCP (`_gcp-dev.yml`) deploy workflows and `scripts/bootstrap/deploy.py`'s
-GCP control-plane apply now run `shifter-config render` against the deployment's
+deploy workflow and the GCP deploy command (`scripts/bootstrap/deploy.py
+gcp-deploy`, which `_gcp-dev.yml` also runs since #2571) render the deployment's
 `shifter.yaml` at plan/apply time, so the egress allowlist is single-source
 end-to-end and is no longer carried as an independently maintained copy in a
 deploy secret (see [CI and scripted deploys](#ci-and-scripted-deploys) below).
@@ -202,19 +202,17 @@ overrides, so re-rendering the allowlist never clobbers those.
 
 ## CI and scripted deploys
 
-The CI and scripted deploy paths run the same `shifter-config render` so they
-never consume a second copy of the allowlist (#1015). The deployment's
-`shifter.yaml` reaches them as a GitHub Actions secret (or a resolved path for
-the local scripted bootstrap); each path writes it to an ephemeral file and
-renders the backend bridge tfvars before Terraform consumes the variables. A
-missing config fails the deploy loud; it never silently falls back to
-`status-quo`.
+The CI and scripted deploy paths run the same renderer so they never consume a
+second copy of the allowlist (#1015). The deployment's `shifter.yaml` reaches
+them as a GitHub Actions secret, or as `bigrae.yaml` in the GCP deployment
+input bundle. Each path writes it to an ephemeral file. Then it renders the
+backend bridge tfvars before Terraform consumes the variables. A missing config fails
+the deploy loud; it never silently falls back to `status-quo`.
 
 | Deploy path | Config source | Renders |
 | ----------- | ------------- | ------- |
 | `.github/workflows/_range.yml` (AWS `dev`/`prod`, plan + apply) | `SHIFTER_CONFIG_DEV_RANGE` / `SHIFTER_CONFIG_PROD_RANGE` secret (strict `inputs.is_dev` selection) | `victim_allowed_cidrs.auto.tfvars` in the env's range dir |
-| `.github/workflows/_gcp-dev.yml` (GCP deploy) | `SHIFTER_CONFIG_GCP_DEV` secret | `range_egress.auto.tfvars` in the gcp-dev env dir |
-| `scripts/bootstrap/deploy.py gdc-bootstrap` (GCP control-plane apply) | `--shifter-config` → `$SHIFTER_CONFIG` → repo-root `shifter.yaml` | `range_egress.auto.tfvars` in the gcp-dev env dir |
+| `scripts/bootstrap/deploy.py gcp-deploy` (GCP deploy, from an operator or `_gcp-dev.yml`) | `bigrae.yaml` in the deployment input bundle; CI renders it from the `SHIFTER_CONFIG_GCP_DEV` secret | `settings.auto.tfvars` in a private temporary directory |
 
 The config secret carries `shifter.yaml`, which holds secret *references* rather
 than secret values; the deploy steps still treat it as sensitive (written by

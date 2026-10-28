@@ -241,7 +241,7 @@ sequenceDiagram
   release verifier includes the `content-egress` workload.
 - The quality-path contract needs no change. Existing frontend, platform, chart
   and guard units own the changed paths.
-- [RB023](../runbooks/rb023-browser-csp-violation.md) gives the bounded rollback.
+- [RB024](../runbooks/rb024-browser-csp-violation.md) gives the bounded rollback.
 
 ## Non-goals
 

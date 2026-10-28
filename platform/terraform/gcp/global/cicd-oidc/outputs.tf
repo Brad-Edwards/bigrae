@@ -1,5 +1,5 @@
 output "workload_identity_provider" {
-  description = "GitHub OIDC provider resource name; set as the GCP_WORKLOAD_IDENTITY_PROVIDER GitHub secret."
+  description = "GitHub OIDC provider resource name; set as the GCP_WORKLOAD_IDENTITY_PROVIDER GitHub secret. Null without GitHub federation."
   value       = module.cicd_oidc_identity.workload_identity_provider
 }
 
@@ -36,4 +36,14 @@ output "release_evidence_bucket_name" {
 output "destroy_service_account_email" {
   description = "Platform destroy service account email; set as GCP_DESTROY_SERVICE_ACCOUNT."
   value       = module.cicd_oidc_identity.destroy_service_account_email
+}
+
+output "release_service_account_email" {
+  description = "Release publisher service account email; set as GCP_RELEASE_SERVICE_ACCOUNT in the gcp-release Environment."
+  value       = module.cicd_oidc_identity.release_service_account_email
+}
+
+output "deployment_config_bucket_name" {
+  description = "Deployment config bucket for the GitHub-less input bundle (gcp-deploy --store gs://<name>)."
+  value       = module.cicd_oidc_identity.deployment_config_bucket_name
 }

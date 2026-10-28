@@ -13,6 +13,8 @@ DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 SMOKE_SCRIPT = REPO_ROOT / "scripts" / "smoke-test.sh"
 GCP_SMOKE_SCRIPT = REPO_ROOT / "scripts" / "smoke-test-gcp.sh"
 WINDOWS_SCRIPT = REPO_ROOT / "scripts" / "smoke-test-windows.sh"
+GCP_SMOKE_COMMAND = REPO_ROOT / "scripts" / "bootstrap" / "gcp_smoke.py"
+GCP_CONTROL_PLANE = REPO_ROOT / "scripts" / "bootstrap" / "gcp_control_plane.py"
 
 
 def test_platform_workflow_declares_post_deploy_smoke_job() -> None:
@@ -57,20 +59,26 @@ def test_gcp_dev_workflow_declares_post_deploy_smoke_job() -> None:
     workflow = yaml.safe_load(GCP_DEV_WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["post-deploy-smoke"]
     assert job["continue-on-error"] is True
-    assert any("scripts/smoke-test-gcp.sh" in step.get("run", "") for step in job["steps"])
+    smoke = next(step for step in job["steps"] if step.get("id") == "smoke")
+    # The CI job runs the same command as an operator; the command runs the script (#2571).
+    assert "deploy.py gcp-smoke" in smoke["run"]
+    assert smoke["env"]["SMOKE_TEST_USER_EMAIL"] == "${{ secrets.SMOKE_TEST_USER_EMAIL }}"
+    assert '"scripts" / "smoke-test-gcp.sh"' in GCP_SMOKE_COMMAND.read_text(encoding="utf-8")
     assert job["needs"] in ("deploy", ["deploy"])
     assert "needs.deploy.result == 'success'" in job["if"]
     assert "inputs.deploy_changes" in job["if"]
     assert "github.event_name != 'pull_request'" in job["if"]
-    assert job["env"]["SMOKE_TEST_USER_EMAIL"] == "${{ secrets.SMOKE_TEST_USER_EMAIL }}"
 
 
 def test_gcp_migration_job_applies_and_waits_for_the_canonical_bootstrap_manifest() -> None:
-    text = GCP_DEV_WORKFLOW.read_text(encoding="utf-8")
-    migration = text[text.index("Run database migrations and bootstrap") : text.index("Sync Guacamole runtime secret")]
-    assert "scripts/gcp/render_migration_job.py" in migration
-    assert 'kubectl apply -f "${migration_manifest}"' in migration
-    assert 'kubectl wait --for=condition=complete "job/${job}"' in migration
+    """The deploy command applies the canonical migration Job and waits for it (#2571)."""
+    text = GCP_CONTROL_PLANE.read_text(encoding="utf-8")
+    start = text.index("def run_gcp_database_migrations")
+    migration = text[start : text.index("\ndef ", start + 1)]
+    assert "render_gcp_migration_manifests" in migration
+    assert '["kubectl", "apply", "-f", "-"]' in migration
+    assert '"--for=condition=complete"' in migration
+    assert "from installation.gcp_migrations import render_migration_job" in text
 
 
 def test_deploy_workflow_forwards_smoke_secret_to_gcp_dev() -> None:

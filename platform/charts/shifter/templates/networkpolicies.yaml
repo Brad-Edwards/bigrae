@@ -86,9 +86,7 @@ metadata:
   # GKE Workload Identity: pods mint their GSA token from the node-local GKE
   # metadata server (169.254.169.254). Dataplane V2 enforces the default-deny
   # egress, so without this allow the token mint hangs and every Google API call
-  # (Secret Manager, Pub/Sub) fails on auth. Mirrors the kustomize base
-  # (platform/k8s/gcp/base/networkpolicies.yaml) so the Helm and kustomize deploy
-  # paths enforce the same posture.
+  # (Secret Manager, Pub/Sub) fails on auth.
   name: allow-platform-metadata-server-egress
   namespace: {{ .Values.namespaces.platform }}
   labels:
@@ -208,6 +206,53 @@ spec:
       ports:
         - protocol: TCP
           port: 4822
+---
+# The portal calls the Guacamole token API through the in-cluster
+# guacamole-client Service (GUACAMOLE_API_BASE_URL). Both halves of the
+# pod-to-pod path allow only portal to guacamole-client on TCP 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-portal-to-guacamole-client
+  namespace: {{ .Values.namespaces.platform }}
+  labels:
+    {{- include "shifter.partOfLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: guacamole-client
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: portal
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-portal-egress-to-guacamole-client
+  namespace: {{ .Values.namespaces.platform }}
+  labels:
+    {{- include "shifter.partOfLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: portal
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: guacamole-client
+      ports:
+        - protocol: TCP
+          port: 8080
 {{- if .Values.network.providerApiCidrs }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -337,8 +382,7 @@ spec:
   # The provisioner Job reaches range guests during provisioning (host/guest SSH
   # setup and WinRM). Range VMs are
   # private-only, so without this the default-deny blocks the provisioner -> range
-  # path even though the per-range GCE firewall permits it. Kustomize parity:
-  # render_private_service_netpol.py emits the same rule.
+  # path even though the per-range GCE firewall permits it.
   podSelector: {}
   policyTypes:
     - Egress

@@ -1,6 +1,6 @@
 output "workload_identity_provider" {
-  description = "Deployment's GitHub OIDC provider resource name (GCP_WORKLOAD_IDENTITY_PROVIDER)."
-  value       = google_iam_workload_identity_pool_provider.github.name
+  description = "Deployment's GitHub OIDC provider resource name (GCP_WORKLOAD_IDENTITY_PROVIDER); null when GitHub federation is disabled."
+  value       = try(google_iam_workload_identity_pool_provider.github[0].name, null)
 }
 
 output "packer_build_service_account_email" {
@@ -36,4 +36,14 @@ output "release_evidence_bucket_name" {
 output "destroy_service_account_email" {
   description = "Platform destroy identity (GCP_DESTROY_SERVICE_ACCOUNT); null when this purpose is disabled."
   value       = try(google_service_account.destroy[0].email, null)
+}
+
+output "release_service_account_email" {
+  description = "Release publisher identity (GCP_RELEASE_SERVICE_ACCOUNT); null when the release purpose is disabled."
+  value       = try(google_service_account.release[0].email, null)
+}
+
+output "deployment_config_bucket_name" {
+  description = "Deployment config bucket for the GitHub-less input bundle; null when it is disabled."
+  value       = try(google_storage_bucket.deployment_config[0].name, null)
 }

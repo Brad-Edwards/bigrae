@@ -198,6 +198,6 @@ stored in AWS SSM `/shifter/ami/*`.
 - **GDC VM Runtime** - OS images stored in GCS, imported as `VirtualMachineDisk` CRDs. Image URLs configured in `GDCVMRuntimeConfig` (`GDC_*_IMAGE_URL`).
 - **Scenario Pods** - Standard container images from Artifact Registry.
 - **VM-Series NGFW** - OVA image stored in GCS, bootstrapped via GCS bucket.
-- **Control-plane containers** - Built and pushed to Artifact Registry by `_gcp-dev.yml`.
+- **Control-plane containers** - Built once for each release by `release-gcp.yml` and pushed to the release registry; `gcp-deploy` copies them into the deployment Artifact Registry. A CI deploy through `_gcp-dev.yml` builds them directly into the deployment Artifact Registry.
 
 See [GDC Provisioning](gdc-provisioning) for details.

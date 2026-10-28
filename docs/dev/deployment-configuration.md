@@ -3,18 +3,26 @@
 ## GCP source and state
 
 The platform has one Terraform execution root: `platform/terraform/gcp/environments/platform`.
-Each `environments/<environment>/terraform.tfvars` file contains environment values.
-Private HCL and JSON var-file overrides remain in that environment directory.
-Bootstrap loads `terraform.tfvars`, `terraform.tfvars.json`, then both auto-var-file formats in lexical order.
-Bootstrap loads these files explicitly and uses that directory's `.terraform` metadata.
-CI passes the selected committed values before its private generated var-files.
+The `gcp-deploy` command runs it for the CI path and for the path without GitHub (ADR-070).
+It writes these var files into a private directory and passes them in this order:
+
+1. `terraform.tfvars`, then `terraform.tfvars.json`, from the deployment input bundle;
+2. `settings.auto.tfvars`, rendered from the `bigrae.yaml` settings;
+3. `zz-deployment.auto.tfvars.json`, with the values that `bigrae.yaml` owns.
+
+A later file wins, so the values that `bigrae.yaml` owns win over a conflicting operator value.
+The command uses a private `TF_DATA_DIR` for each run.
+
+A deployment without GitHub keeps its bundle in its deployment config bucket, not in this repository.
+A CI deployment keeps its values in `environments/<environment>/terraform.tfvars`.
+The CI adapter copies that file into the bundle and adds the GitHub secret values in `terraform.tfvars.json`.
 
 The state location remains the existing bucket and `shifter/<environment>/platform-core` prefix.
 Module names, resource addresses, provider locks and outputs are unchanged.
 Changing the source directory requires no resource import or `terraform state mv`.
 Foundation identity and runner state remain separate.
 
-For manual operations, select values and metadata before initialization:
+For manual operations on a CI deployment, select values and metadata before initialization:
 
 ```bash
 environment=gcp-dev

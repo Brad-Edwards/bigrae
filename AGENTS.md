@@ -52,8 +52,9 @@ When the change touches the relevant subsystem, run the stack-native checker too
 cd shifter/shifter_platform && uv run lint-imports --config ../../.importlinter
 TFLINT_CONFIG="$(pwd)/.tflint.hcl"; cd platform/terraform && tflint --recursive --config "$TFLINT_CONFIG"
 actionlint
-kube-linter lint --config .kube-linter.yaml platform/k8s/
-kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.31.0 platform/k8s/gcp/base/*.yaml
+helm template quality-check platform/charts/shifter -f platform/charts/shifter/values-gcp-dev.yaml > /tmp/shifter-gcp-dev.yaml
+kube-linter lint --config .kube-linter.yaml /tmp/shifter-gcp-dev.yaml
+kubeconform -strict -summary -kubernetes-version 1.31.0 -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/3eb90d47aba8d61919d4419dd38301536e32a94b/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /tmp/shifter-gcp-dev.yaml
 ```
 
 For local edits or targeted validation:

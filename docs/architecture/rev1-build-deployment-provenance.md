@@ -20,7 +20,8 @@ the enforced rules are `ADR-037-R1..R6`.
 | Downloaded CLIs integrity-verified | provisioner `terraform`/`pulumi`, `kubeconform`, `kube-linter` | `sha256sum -c` before use (`ADR-037-R3`) |
 | Python runtime deps hash-pinned | provisioner image | `pip install --require-hashes` from reviewed locks (`ADR-037-R4`) |
 | SBOM + signed provenance for release images | portal, provisioner, guacd, guacamole-client builds | `docker/build-push-action` `provenance: mode=max` + `sbom: true`, then `actions/attest-build-provenance` (`ADR-037-R5`) |
-| Deploy verifies attestation before rollout | AWS ECS (portal, provisioner, guacd, guacamole-client) + GKE | `gh attestation verify oci://<image@digest> --repo Brad-Edwards/shifter` (`ADR-037-R6`) |
+| Deploy verifies attestation before rollout | AWS ECS (portal, provisioner, guacd, guacamole-client) | `gh attestation verify oci://<image@digest> --repo Brad-Edwards/shifter` (`ADR-037-R6`) |
+| Deploy verifies attestation before rollout | GKE (portal, provisioner, guacd, guacamole-client, openvpn) | `gcp-deploy` verifies the registry-stored Sigstore bundle of each digest with the Sigstore trust root, with no GitHub API (`ADR-037-R6`, ADR-070) |
 
 ## Refresh procedures
 
@@ -55,8 +56,11 @@ Dependabot is the reminder, not the guarantee.
 ### Downloaded CLIs
 
 `terraform` and `pulumi` are verified in `shifter/engine/provisioner/Dockerfile`
-against HashiCorp's `SHA256SUMS` and Pulumi's `-checksums.txt`. `kubeconform` is
-verified against its release `CHECKSUMS` manifest. `kube-linter` publishes a
+against HashiCorp's `SHA256SUMS` and Pulumi's `-checksums.txt`. The GCP deployer
+image (`platform/deployer/gcp/Dockerfile`) verifies `terraform`, `helm`,
+`kubectl`, `trivy`, `oras`, and `gke-gcloud-auth-plugin` against SHA-256 values
+pinned in that Dockerfile. Change each version and its SHA-256 value together.
+`kubeconform` is verified against its release `CHECKSUMS` manifest. `kube-linter` publishes a
 cosign `.sig` but no SHA manifest, so its tarball sha256 is pinned in
 `_quality.yml` (`KUBE_LINTER_SHA256`) and verified before extraction; bump it
 with the version.
@@ -81,7 +85,7 @@ main dependency and is intentionally not duplicated in the GCP lock.
 
 Release image builds embed an SBOM and maximum BuildKit provenance and create a
 GitHub OIDC-signed attestation (`actions/attest-build-provenance`) bound to the
-fully qualified image name and the exact `@sha256` digest. Deployment verifies
+fully qualified image name and the exact `@sha256` digest. The AWS deployment verifies
 that attestation with `gh attestation verify` against the fixed
 `Brad-Edwards/shifter` repository identity and the exact digest before it mutates
 any runtime. Any verifier failure, missing attestation, repository mismatch, or
@@ -93,10 +97,26 @@ The image-building reusable workflows request the `attestations` token scope, so
 workflow cannot request a broader `GITHUB_TOKEN` scope than its caller, so
 omitting this grant fails the run at startup.
 
+The GCP path stores each attestation with its image (#2571, ADR-070). The
+release workflow (`release-gcp.yml`) and the CI build in `_gcp-dev.yml` attest
+with `push-to-registry: true`, so the Sigstore bundle is an OCI referrer of the
+image digest. `gcp-deploy` reads the referrers from the registry and verifies
+each bundle with the Sigstore public-good trust root. The policy requires:
+
+- the GitHub Actions OIDC issuer;
+- the immutable source repository ID and owner ID (`settings.release_trust`, or
+  the GitHub context in CI);
+- a source revision equal to the release manifest revision.
+
+The in-toto statement must name the exact image digest and use the SLSA
+provenance v1 predicate. Any failure stops
+the deploy before the rollout; there is no bypass.
+
 ## Scope: OCI images vs. Packer VM images
 
 The attestation and verification controls apply to the **OCI** release images
-(portal, provisioner, guacd, guacamole-client). Packer AMI/GCE artifacts are
+(portal, provisioner, guacd, guacamole-client; on GCP also openvpn and the
+deployer image). Packer AMI/GCE artifacts are
 **not** OCI images and are **not** represented as OCI provenance. Their
 credentialed workflows are covered by the action SHA-pin control (`ADR-037-R1`);
 attesting the immutable Packer manifest keyed by the AMI/GCE image identifier is

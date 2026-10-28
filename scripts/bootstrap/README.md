@@ -22,11 +22,18 @@ The `deploy.py` CLI provides an interactive walkthrough for bootstrapping a bare
   organizations that deny `iam:AttachRolePolicy` via SCP.
 - Optionally deploys Terraform infrastructure
 
-**GCP Bootstrap:**
+**GCP:**
 
-The default control plane uses GKE and the shared Helm chart.
-GCE range cells are the default guest backend.
-The following GDC substrate operations apply only when that backend is explicitly selected:
+- `gcp-foundation` applies the foundation: the state bucket, the purpose
+  identities, the release-evidence bucket, and optionally the image-build
+  network. Without GitHub, it also creates the deployment config bucket.
+- `gcp-deploy`, `gcp-release-scan`, `gcp-smoke`, `gcp-destroy`, and `gcp-config`
+  stand up, update, scan, smoke-test, and tear down one deployment from a
+  published release, and manage its inputs (ADR-070). The control plane uses GKE
+  and the shared Helm chart. GCE range cells are the default guest backend.
+- `gcp-images` imports the base guest images from an explicit registry.
+- `gdc-bootstrap` builds only the legacy GDC VM Runtime substrate. The following
+  operations apply only to the `gdc` range backend:
 
 - required GDC/GKE/GCP APIs and IAM bindings
 - the custom VPC/subnet/firewall substrate for the eval cluster
@@ -68,7 +75,27 @@ repository read the target from the `gh` default repository of this clone. Set
 the default once in each clone with `gh repo set-default <owner>/<repo>`.
 Bootstrap reads the repository and owner IDs from the GitHub API and shows the
 identity before it writes. When no default is set, the command stops. The
-`gcp-foundation` command reads the repository from its inputs file instead.
+`gcp-foundation` command reads the repository from its inputs file instead. The
+GCP lifecycle commands and `gcp-images` use no GitHub service.
+
+### GCP lifecycle commands (ADR-070)
+
+| Command | Purpose |
+| --- | --- |
+| `gcp-deploy --store gs://<bucket>` | Stand up or update one deployment from the release manifest of the deployer image. Add `--first-install` until DNS points at the ingress address. |
+| `gcp-release-scan --release-manifest <file> --project-id <project> --environment <environment>` | Scan the exact images of a release as the release-scan identity. |
+| `gcp-smoke --store gs://<bucket>` | Run the advisory post-deploy range smoke. |
+| `gcp-destroy --store gs://<bucket> --confirm <environment>` | Tear down the platform resources as the destroy identity. |
+| `gcp-config publish\|pull\|show\|set-range-image --store gs://<bucket>` | Publish, pull, and show the deployment input bundle, and record one range image. |
+
+Each lifecycle command reads a deployment input bundle from `--store
+gs://<bucket>[/<prefix>]` or `--inputs <dir>`. By default, the command
+impersonates the purpose identity of each stage (`--identity impersonate`). CI
+uses `--identity ambient`, because the job credentials already are that
+identity. `gcp-deploy` exits with status 3 when only the advisory smoke failed.
+Run `deploy.py <command> --help` for every flag. The procedure is in
+`docs/technical/handbook/gcp-github-less-deployment.md`. Failure handling is in
+`docs/runbooks/rb023-gcp-deployment.md`.
 
 ## Fresh AWS Account Order
 
@@ -135,10 +162,10 @@ firewall/NAT path during image pulls, secret hydration and log delivery.
 
 ## Fresh GCP Account Order
 
-GCP standup mirrors the AWS order: prepare identity and images first, bootstrap
-the substrate, then deploy. The maintained end-to-end walkthrough is the GCP
-Deployment section of
-`docs/technical/dev/setup.md`.
+GCP standup mirrors the AWS order: apply the foundation first, then prepare the
+inputs and images, then deploy. A deployment without GitHub follows
+`docs/technical/handbook/gcp-github-less-deployment.md`. The CI path follows the steps below and
+the GCP Deployment section of `docs/technical/dev/setup.md`.
 
 > **Before starting:** In the target GCP project, enable every Google Cloud API
 > required by the selected Shifter configuration and enable every configured AI
@@ -150,7 +177,14 @@ Deployment section of
 > deployment can succeed while participant model calls fail with a misleading
 > model-not-found response.
 
-For a fresh project, copy `gcp-foundation.example.tfvars.json` to an
+For a deployment without GitHub, copy
+`gcp-foundation.github-less.example.tfvars.json` to an operator-owned file
+outside the repository. It names the principals that may impersonate the
+deploy, release-scan, and destroy identities, and the deployment config bucket.
+Do not set `purpose_contexts` or any GitHub input in that file; the command
+rejects them in this mode.
+
+For a CI deployment, copy `gcp-foundation.example.tfvars.json` to an
 operator-owned file outside the repository. Supply the project ID and number,
 numeric GitHub repository and owner IDs, bucket names, and exact purpose
 Environment/branch/workflow tuples. Obtain IDs with `gcloud projects describe`
@@ -169,8 +203,9 @@ to allow that same protected branch. No secret payload belongs in this file.
 
 This enables the foundation APIs, creates the private versioned state bucket,
 and applies the independently owned `cicd-oidc` root from a saved plan under
-operator credentials. The evidence bucket has an irreversible 90-day retention
-lock. `enable_image_build_network=true` creates a foundation-owned custom VPC,
+operator credentials. Without GitHub, the root creates no Workload Identity pool
+or provider, and it creates the deployment config bucket. The evidence bucket
+has an irreversible 90-day retention lock. `enable_image_build_network=true` creates a foundation-owned custom VPC,
 private subnet, Cloud NAT, and IAP-only build/validation ingress before any
 platform deployment. It has no peering to runner or runtime networks. Publish
 its network/subnet outputs as `GCP_PACKER_NETWORK` / `GCP_PACKER_SUBNETWORK` in
@@ -182,19 +217,23 @@ The image-build network's Terraform resources live in
 `platform/terraform/gcp/modules/image-build-network`, instantiated by the
 foundation root. Six `moved` blocks keep existing networks in the same
 `cicd-oidc` state when upgrading from the former root-level resource addresses.
-For an existing tenant that needs the Linux management SSH port, set the
-tenant Environment variable `GCP_FOUNDATION_INPUTS_JSON` to its reviewed,
-non-secret foundation input JSON, then manually dispatch **Deploy** from that
-tenant branch with its matching `environment` and
-`gcp_reconcile_foundation_image_network=true`. The tenant runner uses the
-existing deploy identity to apply only an action-allowlisted saved plan; all
-other foundation resources must remain no-op. The stage checks the live
+For an existing tenant that needs the Linux management SSH port, put its
+reviewed, non-secret foundation input JSON in the deployment input bundle as
+`foundation-inputs.json`, and run `gcp-deploy --reconcile-foundation-image-network`.
+A CI deployment sets the tenant Environment variable
+`GCP_FOUNDATION_INPUTS_JSON` instead, then manually dispatches **Deploy** from
+that tenant branch with its matching `environment` and
+`gcp_reconcile_foundation_image_network=true`. The command uses the existing
+deploy identity to apply only an action-allowlisted saved plan; all other
+foundation resources must remain no-op. The stage checks the live
 image-build network and firewall before and after, retains the existing
 `cicd-oidc` backend, and is skipped for ordinary deployments. Its plan uses
 `-refresh=false` so the deploy identity does not need read access to the
 foundational Workload Identity pool; the live image-build resources are checked
 separately. Do not use this narrowly gated migration stage for general
 foundation identity changes.
+
+The CI path:
 
 1. Create the GCP project and enable the required APIs.
 2. Apply the foundational OIDC/WIF identity root
@@ -245,70 +284,44 @@ foundation identity changes.
 3. Configure the GCP deployment secrets and variables in
    `docs/dev/deploy-secrets.md` (the `gcp-dev` section), including
    `SHIFTER_CONFIG_GCP_DEV` and the GCE range-cell variables.
-4. Bootstrap the GKE control plane and GCE range plane with one local command.
-   On a fresh project, opt into the public base-image import so the exact image
-   references are available to the same process before platform preconditions
-   run. Before invoking it, replace any stale tenant values in the gitignored
-   `platform/terraform/gcp/environments/<env>/local.auto.tfvars`; in particular,
-   `project_id`, `dynamic_secret_project_id`, and `public_hostname` must describe
-   the selected tenant. Terraform auto-loads that file, and `shifter.yaml` does
-   not override its ingress hostname:
-
-   ```bash
-   ./scripts/bootstrap/deploy.py gdc-bootstrap \
-     --project-id <project> --environment <env> \
-     --region <region> --zone <zone> \
-     --shifter-config /path/to/shifter.yaml \
-     --import-public-base-images --yes
-   ```
-
-   Supply `GCP_RANGE_HOST_SERVICE_ACCOUNT_EMAIL` using the Terraform naming
-   contract, which removes hyphens from the `shifter-<environment>` account-id
-   prefix. Do not preserve the environment's hyphens when guessing the localpart.
-   After the first apply, read the authoritative value from the environment
-   root's `range_host_service_account_email` output and use that exact value in
-   the GitHub Environment and every local retry.
-
-   Leave the current kubeconfig context on this tenant until the command exits.
-   The bootstrap selects the tenant's Connect Gateway context, and its later
-   migration, Helm, and certificate polls use that shared current context. Run
-   concurrent work against another cluster with a separate `KUBECONFIG` rather
-   than changing the bootstrap process's context.
-
-   This first discovers and validates the complete public Kali, Ubuntu, and DC
-   base set. It imports missing digests through a private per-run bucket in the
-   selected project and region, removes that bucket and every transfer object on
-   success or failure, requires all three native GCE images to be `READY`, and
-   publishes the exact digest-derived references to the selected GitHub
-   Environment. The command overlays those same
-   `GCP_RANGE_{LINUX,KALI,DC}_IMAGE` values for its platform bootstrap, then
-   restores the caller's environment. A retry reuses matching `READY` images;
-   it never dispatches Packer or falls back to a tenant bake.
-
-   Use the standalone refresh command when the platform already exists:
+4. Import the range guest images from an explicit registry and print their
+   exact references:
 
    ```bash
    ./scripts/bootstrap/deploy.py gcp-images \
-     --project-id <project> --environment <env> --region <region>
+     --project-id <project> --source <registry prefix> --region <region>
    ```
 
-   Add `--dry-run` to either command to perform public discovery, manifest
-   validation, auth validation, and existing-image inspection without pulling
-   disk payloads or mutating GCP or GitHub.
+   Set the printed references as the `GCP_RANGE_LINUX_IMAGE`,
+   `GCP_RANGE_KALI_IMAGE`, and `GCP_RANGE_DC_IMAGE` variables. A deployment
+   without GitHub passes `--store gs://<bucket>` instead, and the command writes
+   `range-images.json`. The command first discovers and validates the complete
+   Kali, Ubuntu, and DC base set. It imports missing digests through a private
+   per-run bucket in the selected project and region, removes that bucket and
+   every transfer object on success or failure, and requires all three native
+   GCE images to be `READY`. A retry reuses matching `READY` images; it never
+   dispatches Packer or falls back to a tenant bake. Add `--dry-run` to perform
+   discovery, manifest validation, auth validation, and existing-image
+   inspection without pulling disk payloads or mutating GCP.
 
    Publishing the base set is the protected `packer-gcp.yml` workflow's job
-   (`publish_target=ghcr`); separate candidate qualification
-   (`packer-gcp-validate.yml`) remains optional and off by default. See
-   `docs/dev/gcp-range-cell-deploy.md` and `docs/architecture/gcp-guest-images.md`.
-5. The same `gdc-bootstrap` invocation applies the GCP Terraform (GKE, Cloud SQL,
-   Memorystore, Pub/Sub), builds and pushes the control-plane images, renders
-   Helm values from Terraform outputs and Secret Manager, migrates the database
-   and registers the shipped scenario catalog, then installs the Shifter Helm
-   release. Catalog registration uses the same idempotent command as deploy CI.
+   (`publish_target=ghcr`). When `GCP_RELEASE_REGISTRY` is set, the workflow
+   also copies each base image to the release registry. Separate candidate
+   qualification (`packer-gcp-validate.yml`) remains optional and off by
+   default. See `docs/dev/gcp-range-cell-deploy.md` and
+   `docs/architecture/gcp-guest-images.md`.
+5. Run the first deploy through CI as a manual dispatch with
+   `gcp_require_active_certificate=false`:
+   `gh workflow run deploy.yml --ref <branch> -f environment=<environment> -f gcp_require_active_certificate=false`.
+   The CI adapter renders the deployment input bundle from the GitHub values,
+   and the jobs run `gcp-deploy`, `gcp-release-scan`, and `gcp-smoke`. The deploy
+   applies the GCP Terraform (GKE, Cloud SQL, Memorystore, Pub/Sub), builds and
+   attests the control-plane images, migrates the database and registers the
+   shipped scenario catalog, then installs the Shifter Helm release.
 6. Subsequent deploys run through CI as a manual dispatch:
-   `gh workflow run deploy.yml --ref <branch> -f environment=gcp-dev` (see the
-   CI/CD trigger matrix in `docs/technical/dev/ci-cd.md`). Branch names no longer
-   trigger deploys.
+   `gh workflow run deploy.yml --ref <branch> -f environment=<environment>` (see
+   the CI/CD trigger matrix in `docs/technical/dev/ci-cd.md`). Branch names no
+   longer trigger deploys.
 7. Point the configured hostname at the reserved global ingress IP so the
    Google-managed TLS certificate can activate.
 
@@ -316,14 +329,16 @@ foundation identity changes.
 ```bash
 ./scripts/bootstrap/deploy.py preflight --cloud aws --env dev
 ./scripts/bootstrap/deploy.py preflight --cloud aws --env dev --component portal
-./scripts/bootstrap/deploy.py preflight --cloud gcp --env gcp-dev
+./scripts/bootstrap/deploy.py preflight --cloud gcp --env <environment> --store gs://<bucket>
 # --headless : non-interactive; fail on any missing required prerequisite, no prompts
 ```
 The shared, fail-safe prerequisite gate (`preflight.py`): checks tools, secrets,
 and config and reports every gap up front before any change. The same checks run
 in the CI deploy workflows. `bootstrap`, `terraform`, and `full` run it
 automatically at the start; it is interactive by default (auto-headless off a
-TTY). The first Identity Platform operator credentials are required unless
+TTY). For GCP, the local preflight checks the deploy tools and validates the
+deployment input bundle from `--store` or `--inputs`. In CI, the first Identity
+Platform operator credentials are required unless
 `SHIFTER_SKIP_OPERATOR_BOOTSTRAP=true` is set (the skip is logged, never silent).
 See `docs/dev/deploy-secrets.md`.
 
@@ -448,14 +463,9 @@ unless each runner is online with the expected label.
 
 ### Bootstrap a Repeatable GDC VM Runtime Cluster
 
-When operator credentials and runtime inputs have been explicitly supplied in
-the process environment, set `SHIFTER_BOOTSTRAP_ENV_SOURCE=process`. The GCP
-bootstrap then uses only those process values for operator/runtime environment
-resolution and does not discover additional credential files or sibling
-checkout inputs. The explicitly selected root config and Terraform overlay
-remain separate deployment inputs. The default `files` mode preserves the
-file-backed operator workflow within the selected checkout only; sibling
-checkouts are never searched. Unknown modes fail closed.
+`gdc-bootstrap` builds only the legacy GDC VM Runtime substrate for the `gdc`
+range backend. It deploys no control plane; `gcp-deploy` deploys the control
+plane for every range backend.
 
 ```bash
 ./scripts/bootstrap/deploy.py gdc-bootstrap --project-id example-gcp-project --cluster-id cluster1
@@ -470,11 +480,12 @@ repo-specific fixes from the live spike:
 
 ## Options
 
-- `--env` (required): `dev` or `prod` (`gcp-dev` for the `preflight --cloud gcp` path)
+- `--env` (required): `dev` or `prod` (the deployment name for the `preflight --cloud gcp` path)
 - `--profile` (required): AWS CLI profile name
 - `--dry-run` (optional): Show what would happen without making changes
 - `--cloud` (preflight only): `aws` or `gcp`
 - `--component` (preflight only): `core`, `range`, or `portal` to scope AWS overlay checks
+- `--store` / `--inputs` (GCP preflight only): the deployment input bundle to validate
 - `--headless` (bootstrap/terraform/full/preflight): non-interactive; fail on missing prerequisites without prompting (auto-detected off a TTY)
 - `--yes` (bootstrap/terraform/full/account-recovery): non-interactive; assume "yes" for routine confirmation prompts so the flow runs without a TTY. Does not authorize the destructive sweep (issue #1639)
 - `--sweep` (account-recovery only): delete the owned leftovers found by detection (explicit destructive opt-in; detection is read-only without it)
@@ -495,13 +506,18 @@ repo-specific fixes from the live spike:
 ./scripts/bootstrap/deploy.py runners --help
 ./scripts/bootstrap/deploy.py full --help
 ./scripts/bootstrap/deploy.py gdc-bootstrap --help
+./scripts/bootstrap/deploy.py gcp-foundation --help
+./scripts/bootstrap/deploy.py gcp-images --help
+./scripts/bootstrap/deploy.py gcp-deploy --help
+./scripts/bootstrap/deploy.py gcp-destroy --help
+./scripts/bootstrap/deploy.py gcp-config --help
 ```
 
 ## Shared deployment configuration and retained callers
 
 GCP platform Terraform runs from `platform/terraform/gcp/environments/platform`.
-Bootstrap passes the selected environment's values and local overrides explicitly.
-Each environment uses its own `TF_DATA_DIR` and existing state prefix.
+`gcp-deploy` passes the bundle's Terraform values and its generated var files explicitly.
+Each run uses a private `TF_DATA_DIR` and the existing `shifter/<environment>/platform-core` state prefix.
 AWS production roots remain owned by @Brad-Edwards and are called by `terraform`/`full` and the EKS lifecycle.
 The optional portal CTFd module retains that owner and its portal-root caller.
 See `docs/dev/deployment-configuration.md` for state selection and archived cleanup procedures.

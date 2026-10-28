@@ -19,7 +19,8 @@ that uses the repository identity.
 
 | Place | Change |
 | --- | --- |
-| `gh attestation verify` in `_gcp-dev.yml`, `_shifter-engine.yml`, `_shifter-platform.yml` | `--repo "${GITHUB_REPOSITORY}" --signer-repo "${GITHUB_REPOSITORY}"`. The images come from the same repository run, and a reusable workflow signs them. |
+| `gh attestation verify` in `_shifter-engine.yml`, `_shifter-platform.yml` | `--repo "${GITHUB_REPOSITORY}" --signer-repo "${GITHUB_REPOSITORY}"`. The images come from the same repository run, and a reusable workflow signs them. |
+| GCP provenance check in `scripts/bootstrap/gcp_provenance.py` (#2571) | The immutable repository and owner IDs. `_gcp-dev.yml` passes `github.repository_id` and `github.repository_owner_id` as `--trusted-repository-id` and `--trusted-owner-id`; a deployment without GitHub sets `settings.release_trust`. |
 | Sonar gate in `_quality.yml` | Compare `github.repository_id` and `github.repository_owner_id` only. The guard checks that both values equal the declaration. |
 | Image source labels in the Dockerfiles | A build argument carries `${github.server_url}/${github.repository}`. Local builds leave the label empty. No workflow builds the preparation image; images derived from it pass the argument. |
 | GHCR namespace in `packer-gcp.yml` | No change. It already uses `${GITHUB_REPOSITORY_OWNER,,}`. |

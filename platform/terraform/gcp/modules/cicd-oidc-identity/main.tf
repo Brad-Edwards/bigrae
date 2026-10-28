@@ -1,12 +1,18 @@
-# GitHub Actions -> GCP federation for purpose-scoped CI identities.
+# Purpose-scoped GCP identities. GitHub Actions reaches them through optional
+# Workload Identity Federation; operators reach the lifecycle identities through
+# service-account impersonation by named principals only (ADR-004-R23, ADR-070).
 
 locals {
+  # An empty purpose_contexts map disables GitHub federation: no pool, no
+  # provider, and no federated binding exist.
+  federation_enabled   = length(var.purpose_contexts) > 0
   build_enabled        = contains(keys(var.purpose_contexts), "build")
   validate_enabled     = contains(keys(var.purpose_contexts), "validate")
   promote_enabled      = contains(keys(var.purpose_contexts), "promote")
-  release_scan_enabled = contains(keys(var.purpose_contexts), "release_scan")
-  deploy_enabled       = contains(keys(var.purpose_contexts), "deploy")
-  destroy_enabled      = contains(keys(var.purpose_contexts), "destroy")
+  release_scan_enabled = contains(keys(var.purpose_contexts), "release_scan") || contains(keys(var.impersonation_principals), "release_scan")
+  deploy_enabled       = contains(keys(var.purpose_contexts), "deploy") || contains(keys(var.impersonation_principals), "deploy")
+  destroy_enabled      = contains(keys(var.purpose_contexts), "destroy") || contains(keys(var.impersonation_principals), "destroy")
+  release_enabled      = contains(keys(var.purpose_contexts), "release")
 
   service_account_ids = {
     build        = "${replace(var.name_prefix, "-", "")}-packer"
@@ -15,6 +21,7 @@ locals {
     release_scan = "${replace(var.name_prefix, "-", "")}-scan"
     deploy       = "${replace(var.name_prefix, "-", "")}-deploy"
     destroy      = "${replace(var.name_prefix, "-", "")}-destroy"
+    release      = "${replace(var.name_prefix, "-", "")}-release"
   }
   service_account_emails = {
     for purpose, account_id in local.service_account_ids : purpose => "${account_id}@${var.project_id}.iam.gserviceaccount.com"
@@ -24,7 +31,7 @@ locals {
   }
   subject_prefix = var.github_subject_format == "immutable" ? "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" : "repo:${var.github_org}/${var.github_repo}"
   purpose_subjects = {
-    for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy"] :
+    for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy", "release"] :
     purpose => distinct([for context in lookup(var.purpose_contexts, purpose, []) : "${local.subject_prefix}:environment:${context.environment}"])
   }
   federated_subjects = toset(flatten(values(local.purpose_subjects)))
@@ -64,9 +71,20 @@ locals {
     toset([local.terraform_state_bucket_name]),
     var.platform_external_bucket_names,
   )
+  # One token-creator grant per named principal and lifecycle purpose.
+  impersonation_grants = merge(concat([{}], [
+    for purpose, members in var.impersonation_principals : {
+      for member in members : "${purpose}/${member}" => { purpose = purpose, member = member }
+    }
+  ])...)
+  deployment_config_enabled = var.deployment_config_bucket_name != ""
+  # Usage logs of the config bucket go to the retained evidence bucket under one
+  # prefix, so the analytics writer can create objects under that prefix only.
+  deployment_config_log_prefix = "deployment-config-access"
 }
 
 resource "google_iam_workload_identity_pool" "github" {
+  count                     = local.federation_enabled ? 1 : 0
   project                   = var.project_id
   workload_identity_pool_id = "${var.name_prefix}-github"
   display_name              = "GitHub Actions (${var.environment})"
@@ -76,8 +94,9 @@ resource "google_iam_workload_identity_pool" "github" {
 # Preserve the provider address during migration. Bootstrap validates the
 # resolved plan against the common inventory and scans that exact saved plan.
 resource "google_iam_workload_identity_pool_provider" "github" {
+  count                              = local.federation_enabled ? 1 : 0
   project                            = var.project_id
-  workload_identity_pool_id          = google_iam_workload_identity_pool.github.workload_identity_pool_id
+  workload_identity_pool_id          = google_iam_workload_identity_pool.github[0].workload_identity_pool_id
   workload_identity_pool_provider_id = "github"
   display_name                       = "GitHub OIDC"
   attribute_mapping = {
@@ -93,6 +112,18 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
+}
+
+# Federation became optional (ADR-070). These moves keep the existing pool and
+# provider of a federated deployment in place.
+moved {
+  from = google_iam_workload_identity_pool.github
+  to   = google_iam_workload_identity_pool.github[0]
+}
+
+moved {
+  from = google_iam_workload_identity_pool_provider.github
+  to   = google_iam_workload_identity_pool_provider.github[0]
 }
 
 resource "google_service_account" "packer_build" {
@@ -134,6 +165,15 @@ resource "google_service_account" "destroy" {
   project      = var.project_id
   account_id   = "${replace(var.name_prefix, "-", "")}-destroy"
   display_name = "Shifter ${var.environment} platform destroyer"
+}
+
+# The release publisher pushes release images and their attestations. The
+# release-registry root grants it write access to the release repository only.
+resource "google_service_account" "release" {
+  count        = local.release_enabled ? 1 : 0
+  project      = var.project_id
+  account_id   = "${replace(var.name_prefix, "-", "")}-release"
+  display_name = "Shifter release publisher"
 }
 
 resource "google_service_account_iam_member" "packer_build_wif" {
@@ -182,6 +222,25 @@ resource "google_service_account_iam_member" "destroy_wif" {
   service_account_id = local.service_account_names.destroy
   role               = "roles/iam.workloadIdentityUser"
   member             = each.value
+}
+
+resource "google_service_account_iam_member" "release_wif" {
+  depends_on         = [google_service_account.release, google_iam_workload_identity_pool_provider.github]
+  for_each           = local.purpose_subject_principals.release
+  service_account_id = local.service_account_names.release
+  role               = "roles/iam.workloadIdentityUser"
+  member             = each.value
+}
+
+# Operators run the GitHub-less commands as a lifecycle purpose identity through
+# impersonation. Only the named principals receive the token-creator role, and
+# only on the identity of the purpose they are named for. No key exists.
+resource "google_service_account_iam_member" "impersonation" {
+  depends_on         = [google_service_account.release_scan, google_service_account.deploy, google_service_account.destroy]
+  for_each           = local.impersonation_grants
+  service_account_id = local.service_account_names[each.value.purpose]
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = each.value.member
 }
 
 resource "google_service_account_iam_member" "packer_build_act_as_self" {
@@ -578,4 +637,107 @@ resource "google_storage_bucket_iam_member" "destroy_state_bucket_reader" {
   bucket     = local.terraform_state_bucket_name
   role       = "roles/storage.legacyBucketReader"
   member     = "serviceAccount:${local.service_account_emails.destroy}"
+}
+
+# GitHub-less deployment inputs (ADR-070): bigrae.yaml, the Terraform values,
+# and generated references. The bucket holds no secret values; Secret Manager
+# holds them. It outlives platform-core like the state and evidence buckets.
+resource "google_storage_bucket" "deployment_config" {
+  count                       = local.deployment_config_enabled ? 1 : 0
+  name                        = var.deployment_config_bucket_name
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+  labels = {
+    environment = replace(var.environment, "_", "-")
+    managed_by  = "terraform"
+    project     = "shifter"
+  }
+
+  versioning {
+    enabled = true
+  }
+
+  logging {
+    log_bucket        = google_storage_bucket.release_evidence.name
+    log_object_prefix = local.deployment_config_log_prefix
+  }
+}
+
+# Cloud Storage writes usage logs as this Google group. The grant is limited to
+# the access-log prefix, so the group can not create release evidence.
+resource "google_storage_bucket_iam_member" "deployment_config_access_log_writer" {
+  count  = local.deployment_config_enabled ? 1 : 0
+  bucket = google_storage_bucket.release_evidence.name
+  role   = "roles/storage.objectCreator"
+  member = "group:cloud-storage-analytics@google.com"
+
+  condition {
+    title       = "deployment-config-access-logs-only"
+    description = "Cloud Storage may create usage-log objects for the deployment config bucket only."
+    expression  = "resource.name.startsWith('projects/_/buckets/${google_storage_bucket.release_evidence.name}/objects/${local.deployment_config_log_prefix}')"
+  }
+}
+
+# The lifecycle identities read the inputs and manage only the deployment lock.
+resource "google_storage_bucket_iam_member" "deploy_config_reader" {
+  depends_on = [google_service_account.deploy]
+  count      = local.deployment_config_enabled && local.deploy_enabled ? 1 : 0
+  bucket     = google_storage_bucket.deployment_config[0].name
+  role       = "roles/storage.objectViewer"
+  member     = "serviceAccount:${local.service_account_emails.deploy}"
+}
+
+resource "google_storage_bucket_iam_member" "deploy_config_lock" {
+  depends_on = [google_service_account.deploy]
+  count      = local.deployment_config_enabled && local.deploy_enabled ? 1 : 0
+  bucket     = google_storage_bucket.deployment_config[0].name
+  role       = "roles/storage.objectAdmin"
+  member     = "serviceAccount:${local.service_account_emails.deploy}"
+
+  condition {
+    title       = "deployment-lock-only"
+    description = "Deploy may create and delete the deployment lock only."
+    expression  = "resource.name.startsWith('projects/_/buckets/${google_storage_bucket.deployment_config[0].name}/objects/locks/')"
+  }
+}
+
+resource "google_storage_bucket_iam_member" "destroy_config_reader" {
+  depends_on = [google_service_account.destroy]
+  count      = local.deployment_config_enabled && local.destroy_enabled ? 1 : 0
+  bucket     = google_storage_bucket.deployment_config[0].name
+  role       = "roles/storage.objectViewer"
+  member     = "serviceAccount:${local.service_account_emails.destroy}"
+}
+
+resource "google_storage_bucket_iam_member" "destroy_config_lock" {
+  depends_on = [google_service_account.destroy]
+  count      = local.deployment_config_enabled && local.destroy_enabled ? 1 : 0
+  bucket     = google_storage_bucket.deployment_config[0].name
+  role       = "roles/storage.objectAdmin"
+  member     = "serviceAccount:${local.service_account_emails.destroy}"
+
+  condition {
+    title       = "deployment-lock-only"
+    description = "Destroy may create and delete the deployment lock only."
+    expression  = "resource.name.startsWith('projects/_/buckets/${google_storage_bucket.deployment_config[0].name}/objects/locks/')"
+  }
+}
+
+# The principals that may deploy publish the inputs. The principals that may
+# only destroy read them.
+resource "google_storage_bucket_iam_member" "deployment_config_publisher" {
+  for_each = local.deployment_config_enabled ? toset(lookup(var.impersonation_principals, "deploy", [])) : toset([])
+  bucket   = google_storage_bucket.deployment_config[0].name
+  role     = "roles/storage.objectAdmin"
+  member   = each.value
+}
+
+resource "google_storage_bucket_iam_member" "deployment_config_destroy_reader" {
+  for_each = local.deployment_config_enabled ? toset(lookup(var.impersonation_principals, "destroy", [])) : toset([])
+  bucket   = google_storage_bucket.deployment_config[0].name
+  role     = "roles/storage.objectViewer"
+  member   = each.value
 }

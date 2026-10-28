@@ -20,12 +20,12 @@ in `(0, 1]`. The installation package ships it through the
 | Terraform projection | `installation.render.render_tfvars` | `range_telemetry = {...}` in the GCP bridge tfvars |
 | Runtime projection | `installation.render.render_gcp_range_telemetry_env` (`bigrae-config render-gcp-range-telemetry-env`) | `GCP_RANGE_TELEMETRY_POLICY_JSON=...` |
 | Runtime env file | `scripts/gcp/render_runtime_env.py` | Canonical JSON in the `platform-runtime` ConfigMap |
-| Provisioner Job | `engine.ecs._env`, both provisioner-Job admission policies | Forwarded literal env value |
+| Provisioner Job | `engine.ecs._env`, the chart provisioner-Job admission policy | Forwarded literal env value |
 | Provisioner config | `config._gce.GCERangeCellConfig.range_telemetry` | Parsed policy. Unset means default-on. Blank or invalid fails before any Compute call. |
 
-The bootstrap deploy and `_gcp-dev.yml` run both projections from the same
-`bigrae.yaml`. Terraform therefore cannot apply one policy while the provisioner
-applies another.
+`gcp-deploy` runs both projections from the same `bigrae.yaml`, for an
+operator and for `_gcp-dev.yml`. Terraform therefore cannot apply one policy
+while the provisioner applies another.
 
 ## Resource ownership
 
@@ -86,10 +86,11 @@ VPC (`shifter-range-<id>`). Ownership decides the result:
 
 A failed readback in either project is `FAIL`, never an empty deployment. The
 script never prints provider payloads, IAM members, or command output.
-`gcp_control_plane.verify_gcp_range_audit_telemetry` runs it after
-`apply_gcp_control_plane_terraform`, and resolves the range-cell project with
-`_range_cell_project_id`. The prepare job in `_gcp-dev.yml` runs it after
-`Terraform apply`, with `vars.GCP_RANGE_CELL_PROJECT_ID`. The deploy identity
+`gcp_deploy_stages.verify_range_telemetry` runs it in the infrastructure stage
+of `gcp-deploy`, after Terraform apply. It uses `settings.range_cells.project_id`
+as the range-cell project, or the deployment project when that setting is
+empty. The `prepare` job in `_gcp-dev.yml` runs the same stage; its CI adapter
+maps `vars.GCP_RANGE_CELL_PROJECT_ID` onto that setting. The deploy identity
 reads the platform project through `roles/resourcemanager.projectIamAdmin` and
 `roles/compute.networkAdmin`. A separate range-cell project must grant the
 deploy identity Compute read access; otherwise the readback fails.
@@ -99,7 +100,7 @@ deploy identity Compute read access; otherwise the readback fails.
 - Policy: `shifter/shifter_platform/tests/shared/test_gcp_range_telemetry_policy.py`
 - Settings and render: `shifter/installation/tests/test_settings_gcp.py`, `test_render.py`
 - Runtime env: `scripts/gcp/tests/test_render_runtime_env.py`
-- Bootstrap: `scripts/bootstrap/tests/test_gcp_control_plane.py`, `test_gdc_cluster.py`
+- Deploy command: `scripts/bootstrap/tests/test_gcp_deploy_commands.py`, `test_gcp_deploy_stages.py`, `test_gcp_helm_values.py`
 - Provisioner: `test_config.py`, `test_gcp_range_cell_resources.py`,
   `test_gcp_shared_nat.py`, `test_gcp_range_cells.py`, `test_raes_gcp_plan.py`
 - Readback: `scripts/gcp/tests/test_verify_range_audit_telemetry.py`

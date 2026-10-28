@@ -12,7 +12,7 @@ from .._common import (
 from ._k8s_security_manifests import (
     HELM_CHART_DIR,
     HELM_VALUES_FILES,
-    K8S_BASE_DEPLOYMENT_DIR,
+    _chart_scan_requested,
     _check_container_basic_fields,
     _check_container_capabilities,
     _check_container_identity,
@@ -27,9 +27,7 @@ from ._k8s_security_manifests import (
     _render_chart_for_validation,
     _resolve_pod_sc,
     _resolve_pod_spec,
-    _scan_targets,
     _v,
-    _validate_base_files,
     _validate_chart_renders,
     _validate_containers_list,
     _validate_deployment_documents,
@@ -48,7 +46,6 @@ from ._k8s_security_network_policy import (
     _network_policy_name,
     _network_policy_violation,
     _shifter_network_policy_docs,
-    _validate_network_policy_base_files,
     _validate_network_policy_chart_renders,
     _validate_network_policy_documents,
 )
@@ -57,18 +54,11 @@ from ._k8s_security_network_policy import (
 def check_k8s_deployment_security_context(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Verify pod, container, and init-container securityContext on Deployments (ADR-006-R2).
 
-    Two enforcement sources are scanned per ADR-006-R2 and ADR-007:
-
-    1. **Base manifest snapshots** under `platform/k8s/gcp/base/` (recursive):
-       every YAML document with `kind: Deployment` is validated regardless of
-       filename or extension.
-    2. **Helm chart rendered output**: the chart at
-       `platform/charts/shifter` is rendered via `helm template` for each
-       supported values file in `HELM_VALUES_FILES`, and every Deployment
-       document in the rendered output is validated. Per ADR-007 the chart is
-       the authoritative deployment contract; this catches regressions where
-       a chart template or values file removes a required securityContext
-       field even if the base snapshots remain compliant.
+    The chart at `platform/charts/shifter` is the only Kubernetes renderer
+    (ADR-007, #2571). It is rendered via `helm template` for each supported
+    values file in `HELM_VALUES_FILES`, and every Deployment document in the
+    rendered output is validated, so the check reads exactly what a deploy
+    applies.
 
     Honors pod-level securityContext inheritance for runAsNonRoot, runAsUser,
     and runAsGroup (Kubernetes lets these be set on the pod and inherited by
@@ -86,30 +76,16 @@ def check_k8s_deployment_security_context(repo_root: Path, files: list[str] | No
       - runAsNonRoot: true (effective)
       - runAsUser, runAsGroup are positive integers (effective; booleans rejected)
     """
-    scan_base, scan_chart, base_files = _scan_targets(repo_root, files)
-    if not (scan_base or scan_chart):
+    if not _chart_scan_requested(files):
         return []
-
-    violations: list[Violation] = []
-    if scan_base:
-        violations.extend(_validate_base_files(repo_root, base_files))
-    if scan_chart:
-        violations.extend(_validate_chart_renders(repo_root))
-    return violations
+    return _validate_chart_renders(repo_root)
 
 
 def check_k8s_network_policy_coverage(repo_root: Path, files: list[str] | None) -> list[Violation]:
-    """Verify Shifter namespaces are isolated by default-deny NetworkPolicies."""
-    scan_base, scan_chart, base_files = _scan_targets(repo_root, files)
-    if not (scan_base or scan_chart):
+    """Verify Shifter namespaces in the chart render are isolated by default-deny NetworkPolicies."""
+    if not _chart_scan_requested(files):
         return []
-
-    violations: list[Violation] = []
-    if scan_base:
-        violations.extend(_validate_network_policy_base_files(repo_root, base_files))
-    if scan_chart:
-        violations.extend(_validate_network_policy_chart_renders(repo_root))
-    return violations
+    return _validate_network_policy_chart_renders(repo_root)
 
 
 # The check helpers live in the two private sibling modules above; they are
@@ -118,10 +94,10 @@ def check_k8s_network_policy_coverage(repo_root: Path, files: list[str] | None) 
 __all__ = [
     "HELM_CHART_DIR",
     "HELM_VALUES_FILES",
-    "K8S_BASE_DEPLOYMENT_DIR",
     "_ADR_GUARD_PATH",
     "_as_network_policy_violations",
     "_broad_egress_network_policy_violations",
+    "_chart_scan_requested",
     "_check_container_basic_fields",
     "_check_container_capabilities",
     "_check_container_identity",
@@ -147,14 +123,11 @@ __all__ = [
     "_repo_relative",
     "_resolve_pod_sc",
     "_resolve_pod_spec",
-    "_scan_targets",
     "_shifter_network_policy_docs",
     "_v",
-    "_validate_base_files",
     "_validate_chart_renders",
     "_validate_containers_list",
     "_validate_deployment_documents",
-    "_validate_network_policy_base_files",
     "_validate_network_policy_chart_renders",
     "_validate_network_policy_documents",
     "check_k8s_deployment_security_context",

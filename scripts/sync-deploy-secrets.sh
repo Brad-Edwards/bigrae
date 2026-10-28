@@ -2,10 +2,12 @@
 #
 # Sync per-environment deploy overlays into the matching GitHub Actions secrets.
 #
-# Since #1250 the AWS/GCP deploy workflows render each environment's real
+# Since #1250 the AWS deploy workflows render each environment's real
 # Terraform values from GitHub secrets (TF_VARS_<ENV>_PORTAL / _RANGE / _CORE
-# and SHIFTER_CONFIG_<ENV>_RANGE / SHIFTER_CONFIG_GCP_DEV) into a gitignored
-# local.auto.tfvars at deploy time. Operators keep the same values as local
+# and SHIFTER_CONFIG_<ENV>_RANGE) into a gitignored local.auto.tfvars at deploy
+# time. GCP deployments keep their inputs in the deployment config bucket
+# instead (#2571, ADR-070); publish them with
+# `scripts/bootstrap/deploy.py gcp-config publish`. Operators keep the same values as local
 # `local.auto.tfvars` overlays (used for local `terraform` and symlinked into
 # worktrees by scripts/setup-worktree.sh). This script is the repeatable bridge
 # between those local overlays and the secrets, so the running deployment size
@@ -27,8 +29,9 @@ matching GitHub Actions secrets with `gh secret set`.
 
 Required:
   --env ENV            Environment to sync. Repeatable. One of:
-                       dev, prod, gcp-dev, or `all` (= dev prod).
-                       gcp-dev must be named explicitly; it is not in `all`.
+                       dev, prod, or `all` (= dev prod).
+                       GCP inputs are not synced here: publish them with
+                       `scripts/bootstrap/deploy.py gcp-config publish`.
 
 Options:
   --stack STACK        Stack to sync. Repeatable. One of:
@@ -49,7 +52,6 @@ Source mapping (relative to the repo root):
   TF_VARS_<ENV>_RANGE        platform/terraform/environments/<env>/range/local.auto.tfvars
   TF_VARS_<ENV>_CORE         platform/terraform/environments/<env>/local.auto.tfvars
   SHIFTER_CONFIG_<ENV>_RANGE --bigrae-config (the deployment bigrae.yaml)
-  SHIFTER_CONFIG_GCP_DEV     --bigrae-config (the deployment bigrae.yaml)
 
 A required source file that is missing is a hard error (fail loud), so a
 partial overlay never silently skips a secret.
@@ -64,7 +66,7 @@ EOF
 
 # Which (env, stack) pairs actually have a secret, and how each secret's source
 # is resolved. Keep this in step with the `env:` blocks in
-# .github/workflows/_shifter-platform.yml, _core.yml, _range.yml, _gcp-dev.yml
+# .github/workflows/_shifter-platform.yml, _core.yml, _range.yml
 # and the table in docs/dev/deploy-secrets.md.
 #
 # Records: "ENV STACK SECRET_NAME KIND", where KIND is `tfvars` (source is the
@@ -78,7 +80,6 @@ KNOWN_RECORDS=(
   "prod  core   TF_VARS_PROD_CORE         tfvars"
   "dev     config SHIFTER_CONFIG_DEV_RANGE   shifter"
   "prod    config SHIFTER_CONFIG_PROD_RANGE  shifter"
-  "gcp-dev config SHIFTER_CONFIG_GCP_DEV     shifter"
 )
 
 DEFAULT_STACKS=(portal range core)
@@ -118,10 +119,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#ENVS[@]} -eq 0 ]]; then
-  echo "error: at least one --env is required (dev, prod, gcp-dev, or all)" >&2
+  echo "error: at least one --env is required (dev, prod, or all)" >&2
   usage >&2
   exit 2
 fi
+for env in "${ENVS[@]}"; do
+  if [[ "$env" == gcp-* ]]; then
+    echo "error: $env is a GCP environment. GCP deployment inputs live in the deployment config bucket; publish them with scripts/bootstrap/deploy.py gcp-config publish (see docs/technical/handbook/gcp-github-less-deployment.md)." >&2
+    exit 2
+  fi
+done
 if [[ ${#STACKS[@]} -eq 0 ]]; then
   STACKS=("${DEFAULT_STACKS[@]}")
 fi

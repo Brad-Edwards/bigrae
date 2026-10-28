@@ -9,14 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .._common import (
-    Violation,
-    _repo_relative,
-)
+from .._common import Violation
 from ._k8s_security_manifests import (
     HELM_VALUES_FILES,
-    K8S_BASE_DEPLOYMENT_DIR,
-    _iter_yaml_documents,
     _render_chart_for_validation,
 )
 
@@ -244,20 +239,6 @@ def _validate_network_policy_documents(docs: list[object], rel: str) -> list[Vio
     ]
 
 
-def _validate_network_policy_base_files(repo_root: Path, base_files: list[Path]) -> list[Violation]:
-    """Validate NetworkPolicy coverage across the base manifest snapshots."""
-    violations: list[Violation] = []
-    docs: list[object] = []
-    for path in base_files:
-        rel = _repo_relative(path, repo_root)
-        parsed, parse_violations = _iter_yaml_documents(path.read_text(encoding="utf-8"), rel)
-        docs.extend(parsed)
-        violations.extend(_as_network_policy_violations(parse_violations))
-    if base_files:
-        violations.extend(_validate_network_policy_documents(docs, K8S_BASE_DEPLOYMENT_DIR))
-    return violations
-
-
 def _validate_network_policy_chart_renders(repo_root: Path) -> list[Violation]:
     """Validate NetworkPolicy coverage across every rendered chart output."""
     violations: list[Violation] = []
@@ -282,7 +263,6 @@ __all__ = [
     "_network_policy_name",
     "_network_policy_violation",
     "_shifter_network_policy_docs",
-    "_validate_network_policy_base_files",
     "_validate_network_policy_chart_renders",
     "_validate_network_policy_documents",
 ]

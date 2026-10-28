@@ -115,10 +115,12 @@ terraform init -backend=false -lockfile=readonly
 terraform validate
 ```
 
-CI bootstraps a GCS backend bucket named `${project_id}-terraform-state` for
-the selected environment on manual deployment before running `terraform init`.
-
-The `gcp-dev` tfvars file carries the public edge and operator-access settings:
+`scripts/bootstrap/deploy.py gcp-deploy` creates and hardens the GCS backend
+bucket `${project_id}-terraform-state` before it runs `terraform init`, for an
+operator and for CI. A deployment that runs without GitHub keeps its Terraform
+values in its deployment input bundle. The committed `gcp-dev` tfvars file
+carries the public edge and operator-access settings of that CI-deployed
+environment:
 
 ```hcl
 public_hostname             = "shifter.example.com"
@@ -130,8 +132,10 @@ dns_zone_dns_name       = ""
 dns_record_ttl          = 300
 ```
 
-`gdc-bootstrap` fails before Terraform apply if these inputs are missing.
-Routine GCP applies happen through CI/CD on `gcp-dev`.
+`gcp-deploy` sets `public_hostname` from `deployment.domain` and sets
+`enable_managed_tls = true`; those values win over a tfvars value. It fails
+before Terraform apply unless `gke_master_authorized_cidrs` is empty or holds
+only connected RFC1918 networks. Applies of the GCP platform root run through `gcp-deploy`.
 
 ### Plan
 
@@ -333,7 +337,7 @@ For GCP work:
 1. Add reusable modules under `platform/terraform/gcp/modules/`
 2. Wire them into `platform/terraform/gcp/environments/platform/`
 3. Provision provider-native shared services there first: Pub/Sub, GCS, Secret Manager, Cloud SQL, Memorystore, ingress IPs
-4. Stage matching chart or generated deployment assets under `platform/charts/shifter/` and `platform/k8s/gcp/` as appropriate
+4. Stage the matching chart changes under `platform/charts/shifter/`; the chart is the only GCP Kubernetes renderer
 5. Keep the remote backend, deploy credentials, and rendered runtime config aligned with the Terraform outputs
 6. Do not weaken or replace the existing AWS environment trees while expanding GCP
 

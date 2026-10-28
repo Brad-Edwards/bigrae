@@ -60,7 +60,14 @@ commands.
    The immutable `github_repository_id`/`github_owner_id` still have no default
    and are the binding anchor, so a fork or rename cannot federate. Real
    deployments set the name through per-environment tfvars; the default is read
-   only by the scanner.
+   only by the scanner. `purpose_contexts` also has no default. A GCP deployment
+   without GitHub federation ([ADR-070](070-github-less-gcp-deployment.md))
+   sets `purpose_contexts` to `{}` and both IDs to empty strings explicitly.
+   The module accepts empty IDs only without federation, and
+   `scripts/check_tf_gcp_wif_trust` rejects a default on these variables. The
+   provenance trust anchor of a GCP deployment is `settings.release_trust` in
+   its root config: the immutable repository and owner IDs that sign its
+   releases. CI passes the IDs of the running repository instead.
 4. **Operator tooling uses the `gh` default repository.** A script resolves its
    target from the clone's `gh` default repository (set with
    `gh repo set-default`, read with `gh repo set-default --view`), from an

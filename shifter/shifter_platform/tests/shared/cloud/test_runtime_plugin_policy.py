@@ -1,11 +1,10 @@
 """Admission evaluates actual worker manifests and rejects privilege overrides."""
 
 from copy import deepcopy
-from pathlib import Path
+from functools import cache
 from uuid import uuid4
 
 import pytest
-import yaml
 from celpy import CELEvalError
 
 from shared.cloud.kubernetes._job_manifest import _build_env, _build_job
@@ -13,22 +12,38 @@ from shared.cloud.runtime_plugins import PLUGIN_CONTAINER, plugin_task_profile
 from tests.platform.test_gcp_job_launcher_manifests import _load_helm_documents
 from tests.shared.cloud.test_preparation_installation import ManifestClient, allows
 
-BASE = Path(__file__).resolve().parents[5] / "platform/k8s/gcp/base/runtime-plugins.yaml"
+PLUGIN_NAMESPACE = "shifter-plugins"
+PLUGIN_POLICY = "restrict-runtime-plugin-jobs"
+
+
+@cache
+def _rendered_boundary() -> tuple[dict, ...]:
+    """Render the GCP chart once; the chart is the only GCP renderer (#2571)."""
+    return tuple(
+        item
+        for item in _load_helm_documents()
+        if item["metadata"].get("namespace") == PLUGIN_NAMESPACE
+        or (item["kind"] == "Namespace" and item["metadata"]["name"] == PLUGIN_NAMESPACE)
+        or item["metadata"]["name"] == PLUGIN_POLICY
+    )
 
 
 def resources():
-    return list(yaml.safe_load_all(BASE.read_text()))
+    """The runtime-plugin boundary objects in the rendered GCP chart."""
+    return deepcopy(list(_rendered_boundary()))
 
 
-def test_helm_and_static_plugin_boundaries_match():
-    rendered = _load_helm_documents()
-    for expected in resources():
-        actual = next(
-            item
-            for item in rendered
-            if item["kind"] == expected["kind"] and item["metadata"]["name"] == expected["metadata"]["name"]
-        )
-        assert actual == expected
+def test_chart_renders_the_complete_plugin_boundary():
+    assert sorted((item["kind"], item["metadata"]["name"]) for item in resources()) == [
+        ("Namespace", PLUGIN_NAMESPACE),
+        ("NetworkPolicy", "plugin-deny-all"),
+        ("ResourceQuota", "plugin-budget"),
+        ("Role", "plugin-controller"),
+        ("RoleBinding", "plugin-controller"),
+        ("ServiceAccount", "plugin-worker"),
+        ("ValidatingAdmissionPolicy", PLUGIN_POLICY),
+        ("ValidatingAdmissionPolicyBinding", PLUGIN_POLICY),
+    ]
 
 
 @pytest.fixture

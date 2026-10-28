@@ -72,9 +72,10 @@ Deployment facts (verified):
   loops per instance, each serving HTTP and websockets. The per-session figures
   below are therefore *per worker*; see "Effective capacity" for the
   per-instance and fleet ceilings.
-- GCP runs 2 `portal-web` replicas by default
-  (`platform/k8s/gcp/base/web-deployment.yaml`, pod memory limit 1Gi). AWS runs
-  the portal container on EC2, single instance or ASG.
+- GCP runs 2 `portal-web` replicas by default, with a pod memory limit of 1Gi
+  (Helm chart `platform/charts/shifter/values.yaml`). The `gcp-dev` profile
+  values raise the limit to 2Gi. A selected capacity profile sets the
+  replicas. AWS runs the portal container on EC2, single instance or ASG.
 
 Per-session cost:
 

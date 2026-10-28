@@ -97,5 +97,62 @@ class ResolvedPlanTests(unittest.TestCase):
                 self.assertTrue(check_resolved_plan(plan, expected))
 
 
+def impersonation_fixture():
+    """A deployment without GitHub federation: named operators only (ADR-070)."""
+    account = "projects/example-foundation/serviceAccounts/new-deploy@example-foundation.iam.gserviceaccount.com"
+    expected = {
+        "attribute_condition": "",
+        "project_id": "example-foundation",
+        "project_number": "789",
+        "name_prefix": "new",
+        "purpose_subjects": {},
+        "service_accounts": {"deploy": account},
+        "impersonation": {"deploy": ["group:operators@example.com"]},
+    }
+    plan = {"resource_changes": [{
+        "address": "module.cicd_oidc_identity.google_service_account_iam_member.impersonation",
+        "type": "google_service_account_iam_member",
+        "change": {"actions": ["create"], "after_unknown": {}, "after": {
+            "service_account_id": account, "role": "roles/iam.serviceAccountTokenCreator",
+            "member": "group:operators@example.com",
+        }},
+    }]}
+    return plan, expected
+
+
+class ImpersonationPlanTests(unittest.TestCase):
+    def test_named_principals_without_federation_are_accepted(self):
+        plan, expected = impersonation_fixture()
+        self.assertEqual(check_resolved_plan(plan, expected), [])
+
+    def test_unnamed_or_cross_purpose_grants_are_rejected(self):
+        for key, value in [
+            ("member", "group:everyone@example.com"),
+            ("member", "allUsers"),
+            ("service_account_id", "projects/example/serviceAccounts/new-destroy@example.iam.gserviceaccount.com"),
+            ("role", "roles/iam.serviceAccountUser"),
+        ]:
+            with self.subTest(key=key, value=value):
+                plan, expected = impersonation_fixture()
+                plan["resource_changes"][0]["change"]["after"][key] = value
+                self.assertTrue(check_resolved_plan(plan, expected))
+
+    def test_missing_grant_and_unexpected_provider_are_rejected(self):
+        plan, expected = impersonation_fixture()
+        plan["resource_changes"].append(copy.deepcopy(plan["resource_changes"][0]))
+        plan["resource_changes"][1]["change"]["after"]["member"] = "user:owner@example.com"
+        self.assertTrue(check_resolved_plan(plan, expected))
+        plan, expected = impersonation_fixture()
+        expected["impersonation"]["deploy"].append("user:owner@example.com")
+        self.assertTrue(check_resolved_plan(plan, expected))
+        federated_plan, _ = fixture()
+        plan, expected = impersonation_fixture()
+        plan["resource_changes"].append(federated_plan["resource_changes"][0])
+        self.assertIn(
+            "A deployment without federated subjects must contain no WIF provider",
+            check_resolved_plan(plan, expected),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

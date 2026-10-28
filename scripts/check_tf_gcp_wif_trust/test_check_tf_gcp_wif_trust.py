@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from .check_tf_gcp_wif_trust import _strip_hcl_comments, check_file
-from .test_resolved_plan import ResolvedPlanTests  # noqa: F401 - existing CI entry point
+from .test_resolved_plan import ImpersonationPlanTests, ResolvedPlanTests  # noqa: F401 - existing CI entry point
 
 MODULE = (
     Path(__file__).resolve().parents[2]
@@ -104,8 +104,8 @@ class GenericSourceTests(unittest.TestCase):
     def test_checkov_waiver_is_rejected(self):
         self.assertTrue(
             self.check_changed(
-                "# GitHub Actions",
-                "# checkov:skip=CKV_GCP_125:waiver\n# GitHub Actions",
+                "# Purpose-scoped GCP identities",
+                "# checkov:skip=CKV_GCP_125:waiver\n# Purpose-scoped GCP identities",
             )
         )
 
@@ -188,6 +188,60 @@ class GenericSourceTests(unittest.TestCase):
             "release-scan identity must have no project-wide IAM role",
         )
 
+    def test_release_publisher_cannot_have_a_project_wide_role(self):
+        resource = (MODULE / "main.tf").read_text()
+        addition = '\nresource "google_project_iam_member" "invalid_release_role" {\n  project = var.project_id\n  role = "roles/viewer"\n  member = "serviceAccount:${local.service_account_emails.release}"\n}\n'
+        self.assert_violation(
+            self.check_changed(resource, resource + addition),
+            "release publisher identity must have no project-wide IAM role",
+        )
+
+    def test_impersonation_grant_cannot_be_widened(self):
+        for before, after in [
+            ("member             = each.value.member", 'member             = "allUsers"'),
+            (
+                "service_account_id = local.service_account_names[each.value.purpose]",
+                "service_account_id = local.service_account_names.deploy",
+            ),
+            ("for_each           = local.impersonation_grants", "for_each           = var.extra_grants"),
+        ]:
+            with self.subTest(after=after):
+                self.assert_violation(
+                    self.check_changed(before, after),
+                    "impersonation grants must use the impersonation resource",
+                )
+        resource = (MODULE / "main.tf").read_text()
+        addition = '\nresource "google_service_account_iam_member" "side_door" {\n  service_account_id = local.service_account_names.deploy\n  role = "roles/iam.serviceAccountUser"\n  member = "user:someone@example.com"\n}\n'
+        self.assert_violation(
+            self.check_changed(resource, resource + addition),
+            "side_door: impersonation grants must use the impersonation resource",
+        )
+
+    def test_impersonation_purposes_and_members_are_closed(self):
+        for before, after in [
+            ('contains(["release_scan", "deploy", "destroy"], purpose)', 'contains(["release_scan", "deploy", "destroy", "build"], purpose)'),
+            ('can(regex("^(user|group|serviceAccount):', 'can(regex("^(user|group|serviceAccount|domain):'),
+        ]:
+            with self.subTest(after=after):
+                self.assert_violation(
+                    self.check_changed(before, after, "variables.tf"),
+                    "impersonation_principals must admit only release_scan, deploy, and destroy",
+                )
+
+    def test_federation_anchors_have_no_default(self):
+        for name in ("github_repository_id", "github_owner_id"):
+            with self.subTest(name=name):
+                before = f'variable "{name}" {{'
+                self.assert_violation(
+                    self.check_changed(before, before + '\n  default = ""', "inventory.tf"),
+                    f"{name} must have no default",
+                )
+        before = 'variable "purpose_contexts" {'
+        self.assert_violation(
+            self.check_changed(before, before + "\n  default = {}", "inventory.tf"),
+            "purpose_contexts must have no default",
+        )
+
     def test_deploy_and_destroy_role_sets_must_be_independently_derived(self):
         default = re.search(
             r"default\s*=\s*(\[.*?])", self.variable_block("destroy_roles"), re.S
@@ -233,6 +287,7 @@ class GenericSourceTests(unittest.TestCase):
             "release_scan_service_account_email",
             "deploy_service_account_email",
             "destroy_service_account_email",
+            "release_service_account_email",
         ):
             with self.subTest(name=name):
                 self.assert_violation(

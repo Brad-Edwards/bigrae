@@ -10,7 +10,6 @@ import pytest
 from tests.platform.test_gcp_job_launcher_manifests import (
     PROVISIONER_LAUNCHER_USERNAME,
     _canonical_admission_job,
-    _load_base_documents,
     _load_helm_documents,
     _policy,
     _semantic_policy_allows,
@@ -79,7 +78,7 @@ def _native_database_admission_job() -> tuple[dict[str, Any], dict[str, str]]:
     return job, parameters
 
 
-@pytest.mark.parametrize("loader", [_load_base_documents, _load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents])
 def test_native_database_admission_accepts_only_the_exact_host_selected_sidecar(loader):
     policy = _policy(loader())
     canonical, parameters = _native_database_admission_job()

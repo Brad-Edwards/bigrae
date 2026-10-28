@@ -19,12 +19,11 @@ provider cannot shrink storage; drift accepts a retained larger disk after
 profile scale-down but still rejects an undersized disk.
 
 The installation setting `shared_service_capacity_profile` is the only selector.
-Provider, deployment, traffic, and gate profiles remain distinct concepts. GCP
-bootstrap merges the Helm projection into ordinary generated values, and the
-normal release renderer reapplies that same projection to the Kustomize manifest
-before every rollout. This keeps normal deployment ordering authoritative and
-prevents a release from retaining the profile identity while silently restoring
-static-base workload resources.
+Provider, deployment, traffic, and gate profiles remain distinct concepts.
+`gcp-deploy` merges the Helm projection into the generated values of every
+rollout. The Helm chart is the only GCP renderer (ADR-007, ADR-070). Thus a
+release can not keep the profile identity and silently restore the default
+workload resources.
 
 The p30 profile provisions five portal replicas, two guacd replicas, one
 Guacamole client, regional `db-custom-4-15360` Cloud SQL, 8 GiB Standard HA

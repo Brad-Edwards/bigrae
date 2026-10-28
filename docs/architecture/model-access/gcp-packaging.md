@@ -36,37 +36,33 @@ The release must retain that controller authority and verify its actual rules.
 No blanket range-to-node/pod/management allow is added by this package.
 
 `project_model_broker` validates Terraform output and the real bounded catalog,
-then creates Helm transport values. Local bootstrap and Actions share the
-same readback check against current root settings, including platform project
-and region, before invoking that projection.
-The Actions Kustomize compatibility lane invokes `render_model_broker.py`:
-it renders the actual chart and selects its broker/control resources and the
-application egress policies that must exclude the broker. At the combined
-manifest boundary, every incumbent platform egress policy receives the broker
-exclusion, independent of chart, Kustomize or generated names. The dedicated
-broker policy owns DNS as well as control/provider/identity transport. This
-narrowing updates the existing policy objects before applying broker workloads.
-The control deployment checksum binds the actual combined `platform-runtime`
-ConfigMap data, so config-only releases also roll its pods. Control inherits
-the applied Engine worker's runtime references (including the Actions Secret
-reference), and the enabled control deployment participates in the existing
-post-secret-sync restart. Broker runtime references remain isolated. It does not
-copy manifests or alter provisioner admission. Disabling in Actions removes and waits for the
-explicit broker/control resource set with foreground deletion and a bounded
-wait for dependent pods before restoring application policies. The deployment's ordinary manifests
-restore its normal application policies. Changes in the chart therefore
-reach both deployment paths.
+then creates Helm transport values. `gcp-deploy` runs the same readback check
+against current root settings, including platform project and region, before
+invoking that projection.
 
-For a tenant with a checked-in GCP model overlay template, the branch-dispatched
-workflow binds the deployment project and current public CA, seals the catalog
-digest, and applies that overlay in both the Terraform preparation and workload
-jobs. The environment variable overlay remains a fallback for deployments
-without a checked-in template. The compatibility renderer projects the enabled
-catalog path and digest into `platform-runtime` and mounts the catalog ConfigMap
-in every deployment that consumes that runtime ConfigMap. This keeps the portal,
-workers, and control service on the same catalog revision. The workflow also
-retires explicitly inventoried qualification objects only after their generated
-replacement policies are present.
+The Helm chart is the only GCP renderer (#2571, ADR-070). `gcp-deploy` renders
+the broker and control resources and the application egress policies in one
+Helm release, for an operator and for CI. The dedicated broker policy owns DNS
+as well as control/provider/identity transport. The control deployment
+checksum binds the `platform-runtime` ConfigMap data, so config-only releases
+also roll its pods. The enabled control deployment participates in the
+restart after the secret sync. Broker runtime references remain isolated. The
+deploy does not alter provisioner admission. Before Terraform releases the VIP
+of a disabled broker, the deploy deletes the broker's internal LoadBalancer
+Service.
+
+For a deployment with a reviewed GCP model overlay template, the deployment
+input bundle carries `model-broker-overlay.template.json`. `gcp-deploy` binds
+the deployment project and current public CA, seals the catalog digest, and
+applies that overlay in both the infrastructure and rollout stages. A
+CI-deployed environment keeps its template under `platform/deploy/gcp/<env>/`.
+For an environment without a template, the `SHIFTER_CONFIG_OVERLAY_JSON`
+variable remains a fallback. The chart projects the enabled catalog path
+and digest into `platform-runtime` and mounts the catalog ConfigMap in every
+deployment that consumes that runtime ConfigMap. This keeps the portal,
+workers, and control service on the same catalog revision. The deploy also
+retires the objects in `retired-cluster-artifacts.json` only after the Helm
+release has applied their replacement policies.
 
 ## Process and credential inventory
 
@@ -189,12 +185,12 @@ that the entire umbrella requirement is operational.
 
 | Issue #2123 criterion | Artifact of record | Verification |
 | --- | --- | --- |
-| Dedicated isolated broker and canonical configuration | `installation/gcp_model_broker.py`, `bundle_gcp.py`, Helm `model-broker.yaml`, `render_model_broker.py` | Installation projection and catalog tests; real Helm render and combined-manifest tests; exact running-image inventory tests. |
+| Dedicated isolated broker and canonical configuration | `installation/gcp_model_broker.py`, `bundle_gcp.py`, Helm `model-broker.yaml`, `scripts/bootstrap/gcp_helm.py` | Installation projection and catalog tests; real Helm render tests; exact running-image inventory tests. |
 | Exact model identity authority and onboarding | Terraform `portal/iam/model_broker.tf`, `probe_model_broker.py` | Existing IAM guard with escalation mutations; onboarding readback failures and positive controls. |
 | Explicit broker egress with retained denies | `shared/model_access/network.py`, `gcp_range_cell_firewall.py` | Effective rules deny neighboring addresses/ports, reject strict none, unsafe clients and overlapping intra-range destinations. |
 | Source-preserving private transport and trusted binding | Helm internal Service, existing GKE Dataplane V2, `gcp_range_cell_resources.py`, `peer_matches_binding` | Rendered Service/source ranges, foreign/header-shaped source tests, operator LB/CNI probe procedure. Live qualification is the M10 release gate. |
 | Broker egress, private Engine TLS and rotation | Helm `model-broker-network.yaml`, `model-access-control.yaml`, versioned TLS references | Additive policy selection tests, Kubernetes schema/security checks, documented rotation and stream probes. |
-| Guard and quality integration | Existing IAM guard, GCP quality job, chart-derived Actions lane, ADR-059/061 | Escalation tests, full repository policy/completion gates, configured reviews and CI; existing provisioner admission retained. |
+| Guard and quality integration | Existing IAM guard, GCP quality job, the chart-only deploy, ADR-059/061 | Escalation tests, full repository policy/completion gates, configured reviews and CI; existing provisioner admission retained. |
 
 ### Guest egress projection
 
