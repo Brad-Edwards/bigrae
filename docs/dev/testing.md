@@ -15,8 +15,8 @@ command (see `docs/DEVELOPMENT_WORKFLOW.md`).
 
 | Command | Lane |
 | --- | --- |
-| `make test-platform` | Platform fast lane (SQLite); the whole-package coverage floor |
-| `make test-platform-postgres` | PostgreSQL semantics lane (needs Postgres on `:5432`) |
+| `make test-platform` | Platform fast local lane (SQLite) |
+| `make test-platform-postgres` | Platform CI lane: PostgreSQL suite and the whole-package coverage floor (needs Postgres on `:5432`) |
 | `make test-platform-redis` | Redis channel-layer lane (needs Redis on `:6379`) |
 | `make test-provisioner` | Engine provisioner suite |
 | `make test-installation` / `test-bootstrap` / `test-check-layer-imports` | Package suites |
@@ -30,6 +30,22 @@ Running a package directly (`cd <pkg> && uv run pytest`) also works from a clean
 checkout: the platform test posture (`DEBUG`, SQLite backend, local provisioner
 off) is established in the settings themselves via `config._runtime_env.IS_TEST_RUN`,
 not injected by CI. Prerequisites: `uv`, and Node 20.19+ for the JavaScript lane.
+
+## CI platform lane
+
+CI runs the platform suite one time, against PostgreSQL. `pytest-split` divides
+the suite into six parallel shards. The shards use the test durations in
+`shifter/shifter_platform/.test_durations` for balance. The
+`Coverage (shifter_platform)` job then does these steps:
+
+1. It combines the coverage data from all shards.
+2. It enforces the whole-package coverage floor.
+3. It makes sure that at least one `postgres`-marked test ran in a shard
+   (`scripts/check_postgres_lane_evidence.py`).
+
+A skipped `postgres`-marked test fails its shard. When the shards become
+unbalanced, refresh the durations from `shifter/shifter_platform` with the
+`test-platform-postgres` command line plus `--store-durations`.
 
 ## Test posture (why a clean run matches CI)
 
@@ -91,12 +107,17 @@ A, and new security hotspots not fully reviewed. PR analysis waits for the gate
 `sonar-project.properties`; each owned Python package publishes its configured
 coverage report for Sonar to consume.
 
+The `sonar-rules-changed-lines` pre-commit hook finds most `new_violations`
+before a push. It applies the Python rules that fail the gate most often to the
+lines that changed against `origin/dev`. It does not run tests, so it does not
+check `new_coverage`.
+
 The released OpenFGA/PostgreSQL lane also publishes `coverage-openfga.xml`,
 including the native application and policy SQL duty tests. Sonar consumes both
 platform reports so service-only behavior contributes real coverage evidence.
 This supplemental report has no whole-package floor because it exercises a
-service-specific subset; the SQLite job still enforces the unchanged 87%
-package floor, and Sonar still enforces 80% changed-code coverage. Run it locally
+service-specific subset; the `Coverage (shifter_platform)` job still enforces the
+unchanged 87% package floor, and Sonar still enforces 80% changed-code coverage. Run it locally
 from `shifter/shifter_platform` with
 `./scripts/run_openfga_integration.sh --cov --cov-report=xml:coverage-openfga.xml --cov-fail-under=0`.
 

@@ -102,6 +102,7 @@ dev = [
     "types-bleach>=6.3.0.20260508",
     "types-Markdown>=3.7.0",
     "cel-python>=0.5.0",
+    "pytest-split>=0.10.0",
 ]
 
 [tool.pytest.ini_options]

@@ -1660,130 +1660,33 @@ jobs:
   # Python Tests
   # ===========================================================================
 
+  # ===========================================================================
+  # shifter_platform application suite (#1524, #2582)
+  #
+  # Runs the broad application suite one time, against a real PostgreSQL
+  # backend, so production persistence semantics (transactions, model/DB
+  # constraints, select_for_update / skip_locked, and the Range subnet-index
+  # LOCK TABLE ... IN EXCLUSIVE MODE branch) are exercised for real.
+  # TEST_DB_BACKEND=postgres selects the stock PostgreSQL backend via
+  # config._database_settings; pytest-django owns the per-worker test-database
+  # lifecycle. pytest-split divides the suite into parallel shards, balanced by
+  # the recorded `.test_durations`. Each shard uploads its coverage data and its
+  # postgres-marker evidence; shifter-platform-coverage combines them, applies
+  # the cross-shard marker guard, and enforces the whole-package coverage floor.
+  # It is required through the reusable-workflow -> PR Gate chain.
+  # ===========================================================================
   shifter-platform-tests:
     permissions:
       contents: read
-    name: Tests (shifter_platform)
+    name: Tests (shifter_platform, PostgreSQL ${{ matrix.group }}/6)
     needs: [paths, shifter-platform-lint, shifter-platform-lint-js, shifter-platform-sast]
     if: ${{ !inputs.skip_tests && ((needs.paths.outputs.run_all == 'true' || needs.paths.outputs.shifter_platform == 'true')) }}
     runs-on: ubuntu-latest
-    services:
-      # Redis backs the real-stack ASGI/Channels integration evidence (#924).
-      # It is consumed only by the dedicated redis-posture step below; the main
-      # test step stays on the in-memory channel layer (no REDIS_HOST), so the
-      # default test ergonomics are unchanged. The production-semantics
-      # PostgreSQL backend now lives in the dedicated shifter-platform-tests-postgres
-      # job (#1524); this SQLite job carries no PostgreSQL service or DB_* bundle.
-      redis:
-        image: redis:7.4.9
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-
-      - name: Install dependencies
-        working-directory: shifter/shifter_platform
-        run: uv sync --group dev
-
-      - name: Run tests
-        working-directory: shifter/shifter_platform
-        env:
-          TESTING: "1"
-          # Explicit SQLite selection (#1524): the fast lane and the sole
-          # coverage publisher. PostgreSQL semantics are proven by the dedicated
-          # shifter-platform-tests-postgres job, so no DB_* bundle here.
-          TEST_DB_BACKEND: sqlite
-          DJANGO_DEBUG: "true"
-          DJANGO_SECRET_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          uv run python manage.py collectstatic --noinput
-          # ``--cov`` (no path) measures the production roots declared in
-          # pyproject ``[tool.coverage.run] source`` and honours its ``omit`` +
-          # ``fail_under`` (#1529 / REV1 Q6): config, not the command line, owns
-          # the coverage universe and the non-regression floor. ``tests/`` runs in
-          # full: the former ``--ignore=tests/documentation`` was dropped when the
-          # Django docs app and its suite were retired (#1591), so no path is
-          # excluded here.
-          uv run pytest tests/ -m "not redis and not postgres" --cov --cov-report=term-missing --cov-report=xml:coverage.xml
-
-      - name: Test and build independent adapter SDK
-        working-directory: shifter/shifter_adapter_sdk
-        run: |
-          uv sync --frozen --all-extras
-          uv run --all-extras pytest tests/
-          uv build
-          (cd dist && sha256sum ./*.whl ./*.tar.gz > SHA256SUMS)
-
-      - name: Preserve SDK candidate distributions
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: adapter-sdk-candidate-${{ github.sha }}
-          path: shifter/shifter_adapter_sdk/dist/*
-          if-no-files-found: error
-          retention-days: 14
-
-      # Real-stack Redis channel-layer evidence (#924). Runs only the
-      # redis-marked integration tests against the Redis service, with xdist
-      # disabled (-n0) for deterministic stateful isolation. CHANNEL_LAYER_BACKEND
-      # / REDIS_HOST are scoped to this step, so the main suite above stays
-      # in-memory.
-      - name: Run Redis channel-layer integration tests
-        working-directory: shifter/shifter_platform
-        env:
-          TESTING: "1"
-          # Redis posture is a channel-layer service, not a database backend:
-          # these tests run against SQLite explicitly (#1524), no DB_* bundle.
-          TEST_DB_BACKEND: sqlite
-          DJANGO_DEBUG: "true"
-          DJANGO_SECRET_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
-          CHANNEL_LAYER_BACKEND: redis
-          REDIS_HOST: localhost
-          REDIS_PORT: "6379"
-        run: |
-          uv run pytest tests/integration/asgi -m redis -n0 -p no:cacheprovider
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-shifter-platform
-          path: shifter/shifter_platform/coverage.xml
-          if-no-files-found: error
-          retention-days: 1
-
-  # ===========================================================================
-  # PostgreSQL semantics lane (#1524)
-  #
-  # Runs the broad shifter_platform application suite against a real PostgreSQL
-  # backend so production persistence semantics (transactions, model/DB
-  # constraints, select_for_update / skip_locked, and the Range subnet-index
-  # LOCK TABLE ... IN EXCLUSIVE MODE branch) are exercised for real — the
-  # SQLite lane above cannot prove them. TEST_DB_BACKEND=postgres selects the
-  # stock PostgreSQL backend via config._database_settings; pytest-django owns
-  # the per-worker test-database lifecycle (no manual CREATE DATABASE / migrate).
-  # This runs in parallel with the SQLite job (its own service, its own cost)
-  # and does not publish coverage — the SQLite job retains the whole-package
-  # floor, while OpenFGA publishes supplemental service coverage for Sonar.
-  # It is required through the reusable-workflow -> PR Gate
-  # chain: a failure here fails `quality`, which fails the PR Gate.
-  # ===========================================================================
-  shifter-platform-tests-postgres:
-    permissions:
-      contents: read
-    name: Tests (shifter_platform, PostgreSQL)
-    needs: [paths, shifter-platform-lint, shifter-platform-sast]
-    if: ${{ !inputs.skip_tests && ((needs.paths.outputs.run_all == 'true' || needs.paths.outputs.shifter_platform == 'true')) }}
-    runs-on: ubuntu-latest
-    # Generous first-run headroom; tune from the STEP_SUMMARY runtime once the
-    # lane has representative history (#1524).
-    timeout-minutes: 45
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4, 5, 6]
     services:
       postgres:
         image: postgres:16
@@ -1809,11 +1712,10 @@ jobs:
         run: uv sync --group dev
 
       # Broad application scope against real PostgreSQL, excluding tests owned by
-      # another real service posture (redis/OpenFGA) and the separately-tracked
-      # documentation suite. No --cov: the SQLite job publishes coverage. The
-      # root-conftest fail-closed marker guard asserts >=1 postgres-marked test
-      # is collected and fails on any skipped postgres-marked test; the vendor
-      # test asserts Django resolved to PostgreSQL from inside the process.
+      # another real service posture (redis/OpenFGA). `--cov-fail-under=0`: one
+      # shard cannot measure the whole-package floor; the coverage job enforces
+      # it on the combined data. The root-conftest marker guard fails a shard on
+      # any skipped postgres-marked test and writes postgres-lane-evidence.json.
       - name: Run application suite against PostgreSQL
         working-directory: shifter/shifter_platform
         env:
@@ -1826,51 +1728,151 @@ jobs:
           DB_NAME: shifter
           DB_USER: test
           DB_PASSWORD: test
+          SHARD_GROUP: ${{ matrix.group }}
         run: |
           uv run python manage.py collectstatic --noinput
-          start=$(date +%s)
-          set +e
           uv run pytest tests/ -m "not redis and not openfga" \
+            --splits 6 --group "$SHARD_GROUP" \
+            --cov --cov-report= --cov-fail-under=0 \
             --junit-xml=postgres-junit.xml -p no:cacheprovider
-          status=$?
-          set -e
-          elapsed=$(( $(date +%s) - start ))
-          # Structured runtime/cost + counts from JUnit (not a grep of pytest
-          # prose), appended to the job summary. Never prints secrets.
-          python3 - "$elapsed" postgres-junit.xml <<'PY'
-          import os
-          import sys
-          import xml.etree.ElementTree as ET
 
-          elapsed = int(sys.argv[1])
-          suites = ET.parse(sys.argv[2]).getroot().findall("testsuite") or [ET.parse(sys.argv[2]).getroot()]
-          tests = sum(int(s.get("tests", 0)) for s in suites)
-          failures = sum(int(s.get("failures", 0)) for s in suites)
-          errors = sum(int(s.get("errors", 0)) for s in suites)
-          skipped = sum(int(s.get("skipped", 0)) for s in suites)
-          passed = tests - failures - errors - skipped
-          lines = [
-              "## PostgreSQL semantics lane (#1524)",
-              "- backend: postgresql (image pin: postgres:16)",
-              f"- collected: {tests}  passed: {passed}  failed: {failures}  errors: {errors}  skipped: {skipped}",
-              f"- elapsed: {elapsed // 60}m{elapsed % 60:02d}s (~{elapsed / 60:.1f} hosted-runner minutes)",
-          ]
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary:
-              with open(summary, "a", encoding="utf-8") as handle:
-                  handle.write("\n".join(lines) + "\n")
-          print("\n".join(lines))
-          PY
-          exit "$status"
+      - name: Upload shard coverage data and marker evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-data-shifter-platform-${{ matrix.group }}
+          path: |
+            shifter/shifter_platform/.coverage
+            shifter/shifter_platform/postgres-lane-evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Upload PostgreSQL lane JUnit (failure evidence)
+      - name: Upload shard JUnit (failure evidence)
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: postgres-lane-junit
+          name: postgres-lane-junit-${{ matrix.group }}
           path: shifter/shifter_platform/postgres-junit.xml
           if-no-files-found: warn
           retention-days: 1
+
+  shifter-platform-coverage:
+    permissions:
+      contents: read
+    name: Coverage (shifter_platform)
+    needs: [paths, shifter-platform-tests]
+    if: ${{ !inputs.skip_tests && ((needs.paths.outputs.run_all == 'true' || needs.paths.outputs.shifter_platform == 'true')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      - name: Install dependencies
+        working-directory: shifter/shifter_platform
+        run: uv sync --group dev
+
+      - name: Download shard coverage data and marker evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-data-shifter-platform-*
+          path: shifter/shifter_platform/shards
+
+      # The "at least one postgres-marked test ran" rule (#1524) spans shards.
+      - name: Check PostgreSQL lane marker evidence across shards
+        working-directory: shifter/shifter_platform
+        run: uv run python scripts/check_postgres_lane_evidence.py shards/*/postgres-lane-evidence.json
+
+      # `coverage report` honours pyproject `[tool.coverage.report] fail_under`
+      # (#1529 / REV1 Q6): the whole-package non-regression floor.
+      - name: Combine coverage and enforce the floor
+        working-directory: shifter/shifter_platform
+        run: |
+          uv run coverage combine shards/*/.coverage
+          uv run coverage report --show-missing
+          uv run coverage xml -o coverage.xml
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-shifter-platform
+          path: shifter/shifter_platform/coverage.xml
+          if-no-files-found: error
+          retention-days: 1
+
+  # Real-stack Redis channel-layer evidence (#924). Runs only the redis-marked
+  # integration tests against the Redis service, with xdist disabled (-n0) for
+  # deterministic stateful isolation. Redis is a channel-layer service, not a
+  # database backend, so these tests run on SQLite (#1524).
+  shifter-platform-redis:
+    permissions:
+      contents: read
+    name: Tests (shifter_platform, Redis channel layer)
+    needs: [paths, shifter-platform-lint, shifter-platform-sast]
+    if: ${{ !inputs.skip_tests && ((needs.paths.outputs.run_all == 'true' || needs.paths.outputs.shifter_platform == 'true')) }}
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4.9
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      - name: Install dependencies
+        working-directory: shifter/shifter_platform
+        run: uv sync --group dev
+
+      - name: Run Redis channel-layer integration tests
+        working-directory: shifter/shifter_platform
+        env:
+          TESTING: "1"
+          TEST_DB_BACKEND: sqlite
+          DJANGO_DEBUG: "true"
+          DJANGO_SECRET_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+          CHANNEL_LAYER_BACKEND: redis
+          REDIS_HOST: localhost
+          REDIS_PORT: "6379"
+        run: |
+          uv run pytest tests/integration/asgi -m redis -n0 -p no:cacheprovider
+
+  adapter-sdk-tests:
+    permissions:
+      contents: read
+    name: Tests (adapter SDK)
+    needs: [paths, shifter-platform-lint, shifter-platform-sast]
+    if: ${{ !inputs.skip_tests && ((needs.paths.outputs.run_all == 'true' || needs.paths.outputs.shifter_platform == 'true')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      - name: Test and build independent adapter SDK
+        working-directory: shifter/shifter_adapter_sdk
+        run: |
+          uv sync --frozen --all-extras
+          uv run --all-extras pytest tests/
+          uv build
+          (cd dist && sha256sum ./*.whl ./*.tar.gz > SHA256SUMS)
+
+      - name: Preserve SDK candidate distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: adapter-sdk-candidate-${{ github.sha }}
+          path: shifter/shifter_adapter_sdk/dist/*
+          if-no-files-found: error
+          retention-days: 14
 
   shifter-platform-openfga:
     permissions:
@@ -1893,8 +1895,8 @@ jobs:
       - name: Run released OpenFGA conformance
         working-directory: shifter/shifter_platform
         # Supplemental real-service evidence for Sonar's changed-code gate.
-        # The SQLite job retains the whole-package 87% non-regression floor;
-        # this service-only selection cannot measure that whole-package floor.
+        # The shifter-platform-coverage job enforces the whole-package 87%
+        # non-regression floor; this service-only selection cannot measure it.
         run: ./scripts/run_openfga_integration.sh --cov --cov-report=xml:coverage-openfga.xml --cov-fail-under=0
 
       - name: Upload OpenFGA and native SQL coverage
@@ -2864,7 +2866,7 @@ jobs:
     if: ${{ always() && !cancelled() && !inputs.skip_tests && needs.paths.outputs.run_sonar == 'true' }}
     needs:
       - paths
-      - shifter-platform-tests
+      - shifter-platform-coverage
       - shifter-platform-openfga
       - shifter-platform-js-tests
       - shifter-platform-spa
@@ -2891,7 +2893,7 @@ jobs:
       - name: Download shifter_platform coverage
         if: >-
           ${{ (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.shifter_platform == 'true')
-          && needs.shifter-platform-tests.result == 'success' }}
+          && needs.shifter-platform-coverage.result == 'success' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: coverage-shifter-platform
