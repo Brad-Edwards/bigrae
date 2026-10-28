@@ -17,6 +17,7 @@ from uuid import UUID
 __all__ = [
     "CleanupVerificationView",
     "is_cleanup_verified_absent",
+    "is_range_generation_cleanup_verified_absent",
     "latest_cleanup_verification",
     "record_cleanup_verification",
 ]
@@ -53,6 +54,42 @@ def is_cleanup_verified_absent(request_id: str | UUID) -> bool:
 
     view = latest_cleanup_verification(request_id)
     return view is not None and view.outcome == CleanupVerificationOutcome.VERIFIED_ABSENT.value
+
+
+def is_range_generation_cleanup_verified_absent(request_id: UUID, cms_range_uuid: UUID, native_id: int) -> bool:
+    """Require accepted destroy evidence for this exact native resource generation."""
+    from django.db import transaction
+
+    from engine.models import CleanupVerificationOutcome, ProvisionerLaunchIntent, Range, RangeCleanupVerification
+
+    from ._launch_authority import assert_launch_authority_binding
+
+    with transaction.atomic():
+        runtime = (
+            Range.objects.select_for_update(of=("self",))
+            .select_related("request")
+            .filter(pk=native_id, request__request_id=request_id, cms_range_uuid=cms_range_uuid, status="destroyed")
+            .first()
+        )
+        if runtime is None or runtime.resource_generation is None or runtime.provisioner_operation_id is None:
+            return False
+        intent = ProvisionerLaunchIntent.objects.filter(operation_id=runtime.provisioner_operation_id).first()
+        if (
+            intent is None
+            or intent.payload.get("operation") != "destroy"
+            or intent.payload.get("request_id") != str(request_id)
+        ):
+            return False
+        try:
+            assert_launch_authority_binding(intent, runtime)
+        except ValueError:
+            return False
+        evidence = (
+            RangeCleanupVerification.objects.filter(request_id=request_id, operation_id=intent.operation_id)
+            .order_by("-created_at", "-pk")
+            .first()
+        )
+        return evidence is not None and evidence.outcome == CleanupVerificationOutcome.VERIFIED_ABSENT
 
 
 def record_cleanup_verification(

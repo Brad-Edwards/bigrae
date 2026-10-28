@@ -21,6 +21,13 @@ prepared without replacing production routes or legacy authority. The coordinate
 S8 activation in #2321 binds these paths and maps historical facts. Prepared
 Django-admin writes are disabled in favor of the canonical validated commands.
 
+ADR-066 S8 supersession: Production workspace creation, discovery, rename,
+archive, restore and ownership commands use live principal policy and explicit
+account ancestry. Retained IDs and range bindings remain stable. Creation
+records exact parent publication intent and supports receipt-bound recovery.
+Individual accounts have no workspaces. This supersedes the S1 and S4
+coexistence boundary above.
+
 ## Rationale
 
 Workspace lifecycle is the core of a usable shared-infrastructure admin layer. ADR-066 replaces the per-user personal-workspace default with typed account hierarchy while preserving existing workspace IDs and archival behavior. The S1 account creation service establishes dormant structure; S8 must converge it with the lifecycle API and principal membership in one authority cutover.
@@ -52,3 +59,6 @@ Workspace lifecycle is the core of a usable shared-infrastructure admin layer. A
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_account_policy_lifecycle.py` (Prepared lifecycle and fact-only integer ownership compatibility)
 - IMPLEMENTS → GITHUB_ISSUE `2321` (S8 activation of the prepared policy-native workspace lifecycle)
 - TESTS → TEST `shifter/shifter_platform/frontend/src/features/administer/accounts/WorkspaceAdministrationPanel.test.tsx` (Activated workspace lifecycle UI contract)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_hierarchy_publication.py` (Resumable publication of created workspace ancestry)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_prepared_admin_routes.py` (Recovery of workspace creation after policy publication failure)
+- TESTS → TEST `shifter/shifter_platform/frontend/e2e/journeys/workspace-lifecycle.spec.ts` (Create, rename, archive and restore through native account administration and released policy service)

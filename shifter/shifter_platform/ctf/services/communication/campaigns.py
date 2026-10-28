@@ -31,8 +31,14 @@ from ctf.communication_contracts import (
 from ctf.enums_communication import CampaignStatus
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import CommunicationCampaign, CommunicationTargetEvent, CTFEvent, MessageRevision
-from ctf.services.actors import EventActor, event_actor_credential, event_actor_user
-from ctf.services.communication.admission import AdmissionActor, lock_authorized_campaign, reauthorize
+from ctf.services.actors import EventActor, event_actor_credential, event_actor_user, event_actor_user_id
+from ctf.services.communication.admission import (
+    AdmissionActor,
+    lock_authorized_campaign,
+    prepare_admission,
+    prepare_campaign_admission,
+    reauthorize,
+)
 from ctf.services.communication.backpressure import enforce_operation_rate
 from ctf.services.unified_authorization import require_event_action
 from shared.identity_scope import ResourceScope
@@ -111,9 +117,7 @@ def _authorized_target_events(
     if not target_event_ids:
         raise CTFCommunicationError("A campaign must target at least one event", code="CTF_COMMUNICATION_NO_TARGETS")
     unique_ids = list(dict.fromkeys(target_event_ids))
-    events = {
-        event.id: event for event in CTFEvent.objects.select_for_update().filter(id__in=unique_ids).order_by("pk")
-    }
+    events = {event.id: event for event in CTFEvent.objects.filter(id__in=unique_ids).order_by("pk")}
     resolved: list[CTFEvent] = []
     for event_id in unique_ids:
         event = events.get(event_id)
@@ -144,7 +148,14 @@ def create_campaign(
 ) -> CommunicationCampaign:
     """Create a draft campaign confined to one workspace with an initial revision."""
     credential = event_actor_credential(principal_actor)
-    actor = actor or AdmissionActor(credential=credential)
+    from shared.credentials import CredentialContext
+
+    actor = actor or AdmissionActor(
+        credential=credential,
+        compatibility_user_id=(
+            None if isinstance(principal_actor, CredentialContext) else event_actor_user_id(principal_actor)
+        ),
+    )
     if actor.credential != credential or actor.system:
         raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
     scope, binding = _resolve_parent(parent_type, parent_uuid)
@@ -159,10 +170,18 @@ def create_campaign(
         allowed_link_hosts=settings.CTF_COMMUNICATION_ALLOWED_LINK_HOSTS,
     )
 
+    events = _authorized_target_events(
+        principal_actor, scope, binding, validate_campaign_targets(draft.target_event_ids)
+    )
+    prospective = CommunicationCampaign(
+        scope_kind=scope.kind,
+        account_id=binding.account_id,
+        organization_id=binding.organization_id,
+        workspace_id=workspace_id,
+    )
+    actor = prepare_admission(prospective, events, actor)
     with transaction.atomic():
-        events = _authorized_target_events(
-            credential, scope, binding, validate_campaign_targets(draft.target_event_ids)
-        )
+        events = list(CTFEvent.objects.select_for_update().filter(pk__in=[event.pk for event in events]).order_by("pk"))
         if maintenance:
             from ctf.models import CommunicationCutover
 
@@ -174,12 +193,6 @@ def create_campaign(
             if rate_id is None:
                 raise CTFCommunicationError("Campaign scope is unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED")
             enforce_operation_rate(credential.principal.uuid, rate_kind, rate_id)
-        prospective = CommunicationCampaign(
-            scope_kind=scope.kind,
-            account_id=binding.account_id,
-            organization_id=binding.organization_id,
-            workspace_id=workspace_id,
-        )
         actor = reauthorize(prospective, events, actor, operation="create")
         campaign = CommunicationCampaign.objects.create(
             id=campaign_id or uuid4(),
@@ -282,6 +295,7 @@ def revise_message(
         {"subject": subject, "body": body},
         allowed_link_hosts=settings.CTF_COMMUNICATION_ALLOWED_LINK_HOSTS,
     )
+    actor = prepare_campaign_admission(campaign, actor)
     with transaction.atomic():
         campaign = lock_authorized_campaign(campaign, actor, operation="revise")
         if campaign.status != CampaignStatus.DRAFT.value:

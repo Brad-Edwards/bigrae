@@ -13,9 +13,12 @@ from shared.model_access.core_models import ClosedModel
 class ModelSourceConfiguration(Protocol):
     """Structural source fields needed for transient credential validation."""
 
-    provider: str
-    principal: str
-    project: str
+    @property
+    def provider(self) -> str: ...
+    @property
+    def principal(self) -> str: ...
+    @property
+    def project(self) -> str: ...
 
 
 INVALID_SERVICE_ACCOUNT = "invalid service account credential"

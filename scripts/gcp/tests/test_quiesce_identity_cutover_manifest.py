@@ -11,6 +11,7 @@ assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 quiesce = MODULE.quiesce
+probe_prerequisites = MODULE.probe_prerequisites
 
 
 def _document(kind: str, name: str, namespace: str = "shifter-platform") -> dict:
@@ -42,3 +43,50 @@ def test_quiesced_release_stops_effects_without_stopping_policy_or_retaining_hpa
         "shifter-platform/deployment/portal-web",
         "shifter-platform/deployment/worker-engine",
     )
+
+
+def test_probe_prerequisites_never_apply_workloads_or_autoscalers() -> None:
+    source = yaml.safe_dump_all(
+        [
+            _document(kind, kind.lower())
+            for kind in (
+                "Namespace",
+                "ServiceAccount",
+                "ConfigMap",
+                "Secret",
+                "Deployment",
+                "CronJob",
+                "Job",
+                "HorizontalPodAutoscaler",
+                "StatefulSet",
+                "DaemonSet",
+            )
+        ]
+    )
+    documents = list(yaml.safe_load_all(probe_prerequisites(source)))
+    assert {item["kind"] for item in documents} == {"Namespace", "ServiceAccount", "ConfigMap", "Secret"}
+
+
+def test_probe_includes_only_existing_network_prerequisites_before_starting_job() -> None:
+    source = yaml.safe_dump_all(
+        [
+            _document("NetworkPolicy", "allow-platform-native-sql-egress"),
+            _document("NetworkPolicy", "allow-jobs-native-sql-egress", "shifter-jobs"),
+            _document("NetworkPolicy", "allow-platform-dns-egress"),
+            _document("NetworkPolicy", "allow-platform-metadata-server-egress"),
+            _document("NetworkPolicy", "allow-platform-google-apis-egress"),
+            _document("NetworkPolicy", "allow-platform-provider-apis-egress"),
+            _document("NetworkPolicy", "unrelated-policy"),
+            _document("NetworkPolicy", "allow-platform-native-sql-egress", "unrelated-namespace"),
+            _document("Deployment", "portal-web"),
+        ]
+    )
+    documents = list(yaml.safe_load_all(probe_prerequisites(source)))
+    assert [(row["metadata"]["namespace"], row["metadata"]["name"]) for row in documents] == [
+        ("shifter-platform", "allow-platform-native-sql-egress"),
+        ("shifter-jobs", "allow-jobs-native-sql-egress"),
+        ("shifter-platform", "allow-platform-dns-egress"),
+        ("shifter-platform", "allow-platform-metadata-server-egress"),
+        ("shifter-platform", "allow-platform-google-apis-egress"),
+        ("shifter-platform", "allow-platform-provider-apis-egress"),
+    ]

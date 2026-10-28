@@ -39,6 +39,67 @@ def _clear_login_rate_limit_cache():
     caches["launch_rate_limit"].clear()
 
 
+@pytest.mark.parametrize("failure", ["revoked", "read_only", "foreign"])
+def test_generated_seats_require_current_participant_management_authority(
+    ctf_event, organizer_credential, standard_user, live_session_credential, failure
+):
+    from dataclasses import replace
+
+    from ctf.exceptions import CTFPermissionError
+    from ctf.models import CTFParticipant
+    from management.models import PrincipalSession
+    from shared.authorization import CredentialCeiling
+
+    actor = organizer_credential
+    if failure == "revoked":
+        PrincipalSession.objects.filter(credential_uuid=actor.credential_uuid).delete()
+    elif failure == "read_only":
+        actor = replace(actor, ceiling=CredentialCeiling(frozenset({"event.read"})))
+    else:
+        actor = live_session_credential(standard_user)
+    users_before = User.objects.count()
+    with pytest.raises(CTFPermissionError):
+        create_participant_accounts(ctf_event.pk, count=1, actor=actor)
+    assert User.objects.count() == users_before
+    assert not CTFParticipant.objects.filter(event=ctf_event).exists()
+
+
+@pytest.mark.parametrize("task_status", ["pending", "running"])
+@pytest.mark.parametrize("admission", ["single", "bulk", "generated"])
+def test_admission_defers_provisioning_owned_by_another_credential(
+    ctf_event, organizer_credential, task_status, admission
+):
+    from uuid import uuid4
+
+    from ctf.enums import ScheduledTaskType
+    from ctf.models import CTFScheduledTask
+    from shared.operation_authority import credential_reference_fields
+
+    fields = credential_reference_fields(organizer_credential)
+    fields["credential_uuid"] = uuid4()
+    task = CTFScheduledTask.objects.create(
+        event=ctf_event,
+        task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
+        status=task_status,
+        scheduled_for=timezone.now(),
+        **fields,
+    )
+    original = {key: getattr(task, key) for key in fields}
+    if admission == "single":
+        created = [add_participant(ctf_event.pk, "", "New seat", actor=organizer_credential)]
+    elif admission == "bulk":
+        created = bulk_import_participants(ctf_event.pk, "name,email\nNew seat,\n", actor=organizer_credential)[
+            "created"
+        ]
+    else:
+        created = create_participant_accounts(ctf_event.pk, count=1, actor=organizer_credential)
+    assert len(created) == 1
+    task.refresh_from_db()
+    assert {key: getattr(task, key) for key in fields} == original
+    assert task.status == task_status
+    assert CTFScheduledTask.objects.filter(event=ctf_event, task_type=task.task_type).count() == 1
+
+
 def test_account_creation_never_reuses_platform_user_by_email(
     ctf_event, standard_user, organizer_credential, monkeypatch
 ):

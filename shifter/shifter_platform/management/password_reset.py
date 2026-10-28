@@ -30,7 +30,7 @@ from django.core.validators import validate_email
 from django.db import transaction
 
 from management import admin_services, services
-from management.policy import require_principal_administration
+from management.policy import fence_principal_administration, require_principal_administration
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.authorization import AuthorizationProvider
 from shared.credential_delivery import credential_delivery_allowed
@@ -137,7 +137,7 @@ def request_password_reset(
             exhausted, or the public origin is unavailable.
     """
     if actor is not None:
-        require_principal_administration(actor, provider)
+        actor = require_principal_administration(actor, provider)
     eligible, reason = reset_eligibility(user)
     if not eligible:
         raise PasswordResetError("reset_ineligible", f"This account is not eligible for a password reset ({reason}).")
@@ -174,6 +174,8 @@ def request_password_reset(
         )
 
     with transaction.atomic():
+        if actor is not None:
+            fence_principal_administration(actor)
         audit_log(
             AuditEvent(
                 entity_type=AuditEntityType.USER,

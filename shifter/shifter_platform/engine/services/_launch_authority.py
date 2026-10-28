@@ -82,6 +82,12 @@ def admit_launch_authority(
     action = "range.manage"
     parent = projection.parent
     if payload.get("operation") in {"provision", "activate"}:
+        if parent.type == "event":
+            from shared.range_workspace_aggregate import require_range_event_association
+
+            if parent.uuid is None:
+                raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+            require_range_event_association(request_uuid, parent.uuid)
         target = parent
         action = "event.manage_ranges" if parent.type == "event" else f"{parent.type}.launch_range"
     if authority_action is not None:
@@ -264,6 +270,13 @@ def prepare_launch_authority(
 
 def assert_admitted_launch_binding(fields: dict[str, object], runtime: Range | Instance) -> None:
     """Fence scope/owner/backend drift after admission and before durable commit."""
+    if fields.get("authority_kind") in {"principal", "warm_pool"}:
+        from shared.credentials import resolve_local_credential
+        from shared.operation_authority import credential_reference_from_fields
+
+        admitted = credential_reference_from_fields(fields)
+        if resolve_local_credential(admitted) != admitted:
+            raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
     if fields and fields["authority_binding_digest"] != range_runtime_binding_digest(runtime):
         raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
     from engine.models import Instance
@@ -272,21 +285,29 @@ def assert_admitted_launch_binding(fields: dict[str, object], runtime: Range | I
         _assert_admitted_device_binding(fields, runtime)
         return
     if fields and fields.get("authority_kind") == "principal":
-        leaf = TargetRef("range", runtime.cms_range_uuid)
         from shared.operation_authority import authority_resource_scope
+        from workspaces.services import resource_scope_from_ids
 
         scope = authority_resource_scope(fields)
-        # A newly created CTF range reaches the durable outbox before the
-        # owning CTF row can record the returned request/range identifiers.
-        # Its admitted event parent is already fenced into both the runtime
-        # row and binding digest; later worker authorization requires the CTF
-        # aggregate resolver as usual.
-        event_parent = fields.get("authority_parent_uuid") if fields.get("authority_parent_type") == "event" else None
-        if event_parent is not None:
-            if runtime.event_uuid != event_parent:
-                raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
-        elif resolve_credential_scope(leaf) != scope:
+        runtime_scope = resource_scope_from_ids(
+            kind=runtime.scope_kind,
+            account_id=runtime.account_id,
+            organization_id=runtime.organization_id,
+            workspace_id=runtime.workspace_id,
+        )
+        if runtime.cms_range_uuid != fields.get("authority_resource_uuid") or runtime_scope != scope:
             raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+        # CTF creation remains deferred until its aggregate records an exact
+        # participant, spare or recovery association. Workers recheck that binding.
+        event_parent = fields.get("authority_parent_uuid") if fields.get("authority_parent_type") == "event" else None
+        if event_parent is not None and runtime.event_uuid != event_parent:
+            raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+        if event_parent is not None:
+            from shared.range_workspace_aggregate import require_range_event_association
+
+            if runtime.request is None or not isinstance(event_parent, UUID):
+                raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+            require_range_event_association(runtime.request.request_id, event_parent)
     if (
         fields
         and fields.get("authority_kind") == "warm_pool"
@@ -394,6 +415,25 @@ def _principal_launch_fields(payload: dict[str, object], credential: CredentialC
     if payload.get("resource") in {"range", "raes-range"} and "request_id" in payload:
         runtime = Range.objects.filter(request__request_id=UUID(str(payload["request_id"]))).first()
     if credential is not None:
+        if runtime is not None and runtime.scope_kind == "installation" and payload.get("operation") == "provision":
+            from shared.identity_scope import ResourceScope
+
+            from ._principal_range_create import _assert_creation_origin, _installation_creation_authority
+
+            current = resolve_current_credential(credential)
+            if current.principal.kind != "service":
+                raise PermissionError(_OPERATION_AUTHORITY_UNAVAILABLE)
+            _assert_creation_origin(runtime, current)
+            require_authorization(
+                AuthorizationRequest(
+                    current.principal,
+                    "installation.launch_range",
+                    TargetRef("installation"),
+                    ResourceScope("installation"),
+                    current.ceiling,
+                )
+            )
+            return _installation_creation_authority(current, runtime)
         return admit_launch_authority(payload, credential)
     if runtime is not None and runtime.owner_principal_uuid is not None:
         raise PermissionError(_OPERATION_AUTHORITY_UNAVAILABLE)

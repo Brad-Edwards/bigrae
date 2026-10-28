@@ -29,7 +29,11 @@ def admit_assigned_range_vpn(credential: CredentialContext, request_id: UUID, ev
         raise ValueError(_PARTICIPATION_DENIED)
     participant = participant_for_credential(credential, event_uuid)
     instance_id = cms_find_range_instance_id(request_id)
-    if instance_id is None or participant.range_instance_id != instance_id:
+    if (
+        instance_id is None
+        or participant.range_instance_id != instance_id
+        or participant.range_request_id != request_id
+    ):
         raise ValueError(_PARTICIPATION_DENIED)
 
 

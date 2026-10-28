@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from shared.pack_references import PackReference, PackReferenceSet, bind_pack_reference_projection
 
-from ..enums import EVENT_TERMINAL_STATUSES, EventCapability, ScheduledTaskStatus, ScheduledTaskType
+from ..enums import EVENT_TERMINAL_STATUSES, ScheduledTaskStatus, ScheduledTaskType
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -26,11 +26,9 @@ if TYPE_CHECKING:
 _LAUNCHING_TASK_STATUSES = (ScheduledTaskStatus.PENDING.value, ScheduledTaskStatus.RUNNING.value)
 
 
-def project_ctf_pack_references(scenario_id: str, limit: int, actor: User) -> PackReferenceSet:
+def project_ctf_pack_references(scenario_id: str, limit: int, actor: User | None) -> PackReferenceSet:
     """Return at most ``limit`` CTF references to ``scenario_id`` and their total."""
     from ctf.models import CTFEvent, CTFScheduledTask
-
-    from .authorization import events_with_capability
 
     events = CTFEvent.objects.filter(scenario_id=scenario_id).exclude(
         status__in=[status.value for status in EVENT_TERMINAL_STATUSES]
@@ -50,14 +48,10 @@ def project_ctf_pack_references(scenario_id: str, limit: int, actor: User) -> Pa
             : max(limit - len(rows), 0)
         ]
     ]
-    readable = set(
-        events_with_capability(actor, capability=EventCapability.CONFIG)
-        .filter(pk__in={row[1] for row in rows})
-        .values_list("pk", flat=True)
-    )
-    references = tuple(
-        PackReference(kind, status, name if event_id in readable else None) for kind, event_id, status, name in rows
-    )
+    # Blocker discovery runs under the content-removal fence. Counts remain
+    # complete; optional labels are omitted rather than authorized through
+    # legacy roles or remote policy while the producer holds SQL locks.
+    references = tuple(PackReference(kind, status, None) for kind, event_id, status, name in rows)
     return PackReferenceSet(references, events.count() + tasks.count())
 
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ctf.exceptions import CTFValidationError
 from ctf.models import CTFEvent
-from ctf.services.actors import EventActor, event_actor_credential, event_actor_user_id
+from ctf.services.actors import EventActionAdmission, EventActor, event_actor_user_id
 from shared.model_access import ContractError
 from shared.model_access.sources import (
     ModelSourceCredentialReference,
@@ -16,36 +18,57 @@ from workspaces.services import OrganizationAuthorizationError, WorkspaceAuthori
 SPONSOR_UNAVAILABLE = "source.sponsor_unavailable"
 
 
-def set_event_model_sources(
-    event: CTFEvent, actor: EventActor | None, selection: object, *, expected_revision: int | None
-) -> None:
-    """Caller holds the event mutex; source policy changes use explicit CAS."""
+def validate_event_model_source_selection(credential, workspace_id, selection) -> ModelSourceSelection:
+    """Validate placement and sponsorship before any event declaration is committed."""
     from ctf.bridges import cms_resolve_model_source_sponsorship
-    from ctf.services.unified_authorization import require_event_action
+
+    try:
+        selected = ModelSourceSelection.model_validate(selection)
+        if selected.aliases:
+            if workspace_id is None:
+                raise ContractError(SPONSOR_UNAVAILABLE)
+            cms_resolve_model_source_sponsorship(credential, workspace_id, selected)
+        return selected
+    except (ValueError, ContractError, WorkspaceAuthorizationError, OrganizationAuthorizationError):
+        raise CTFValidationError("Selected model sources are unavailable.", code="source_unavailable") from None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedEventModelSources:
+    admission: EventActionAdmission
+    selection: ModelSourceSelection
+    expected_revision: int | None
+
+
+def prepare_event_model_sources(event, actor, selection, *, expected_revision):
+    """Admit exact event and source authority outside the event transaction."""
+    from ctf.services.authorization import admit_event_actions
 
     if actor is None:
         raise CTFValidationError("An organizer must authorize model sources.", code="source_sponsor_unavailable")
-    credential = event_actor_credential(actor)
-    require_event_action(credential, event.pk, "event.manage_config")
-    if expected_revision != event.model_source_revision:
+    admission = admit_event_actions(actor, event, "event.manage_config")
+    selected = validate_event_model_source_selection(admission.credential, event.workspace_id, selection)
+    return PreparedEventModelSources(admission, selected, expected_revision)
+
+
+def commit_event_model_sources(event: CTFEvent, prepared: PreparedEventModelSources) -> None:
+    """Fence a prepared source change under the caller's event mutex."""
+    from ctf.services.authorization import assert_event_action
+
+    assert_event_action(prepared.admission, event, "event.manage_config")
+    if prepared.expected_revision != event.model_source_revision:
         raise CTFValidationError(
             "Model sources changed. Reload this event before saving.", code="source_revision_conflict"
         )
-    try:
-        selected = ModelSourceSelection.model_validate(selection)
-        if selected == ModelSourceSelection.model_validate(event.model_sources):
-            return
-        if selected.aliases:
-            if event.workspace_id is None:
-                raise ContractError(SPONSOR_UNAVAILABLE)
-            cms_resolve_model_source_sponsorship(credential, event.workspace_id, selected)
-    except (ValueError, ContractError, WorkspaceAuthorizationError, OrganizationAuthorizationError):
-        raise CTFValidationError("Selected model sources are unavailable.", code="source_unavailable") from None
+    selected = prepared.selection
+    credential = prepared.admission.credential
+    if selected == ModelSourceSelection.model_validate(event.model_sources):
+        return
     event.model_sources = selected.model_dump(mode="json")
     event.model_source_authority = (
         ModelSourceCredentialReference.from_credential(credential).model_dump(mode="json") if selected.aliases else None
     )
-    event.model_source_actor_id = event_actor_user_id(actor) if selected.aliases else None
+    event.model_source_actor_id = event_actor_user_id(credential) if selected.aliases else None
     event.model_source_revision += 1
     from shared.audit import AuditActorType, AuditEvent, audit_log
 
@@ -61,6 +84,15 @@ def set_event_model_sources(
             new_state={"event_model_source_revision": event.model_source_revision},
         ),
         strict=True,
+    )
+
+
+def set_event_model_sources(
+    event: CTFEvent, actor: EventActor | None, selection: object, *, expected_revision: int | None
+) -> None:
+    """Prepare outside SQL; aggregate callers use the explicit prepare/commit pair."""
+    commit_event_model_sources(
+        event, prepare_event_model_sources(event, actor, selection, expected_revision=expected_revision)
     )
 
 

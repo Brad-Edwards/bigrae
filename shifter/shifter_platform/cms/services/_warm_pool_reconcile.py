@@ -1,7 +1,8 @@
 """Warm-pool reconciler: converge the pool toward its declared policy (#28).
 
-Deployment-owned, provider-neutral. Each pass, for every bucket in the effective
-deployment policy, it:
+Deployment-owned, provider-neutral. Each pass advances a bounded page of retained
+cleanup obligations, even when policy is disabled or a bucket was removed. For
+configured buckets it then:
 
 - **finalizes** retiring generations whose range destroy has been observed,
   releasing their held capacity only then (never at claim or destroy-request time);
@@ -105,16 +106,25 @@ def _warm_pool_credential():
     return resolve_service_credential_reference(reference, audience=settings.GCP_SERVICE_TOKEN_AUDIENCE)
 
 
-def reconcile_warm_pool(*, now: datetime | None = None) -> dict[str, int]:
+def reconcile_warm_pool(*, now: datetime | None = None, cleanup_cursor: int = 0) -> dict[str, int]:
     """Run one warm-pool reconcile pass. Returns a bounded per-outcome summary."""
     moment = now or timezone.now()
     policy: WarmPoolRuntimePolicy = settings.WARM_POOL_POLICY
     summary = {"provisioned": 0, "retired": 0, "finalized": 0, "buckets": 0}
-    if not policy.is_active():
-        return summary
-    from engine.services import retire_removed_bucket_generations
+    from engine.services import reconcile_retained_warm_generations
 
-    for bucket in policy.buckets:
+    active_buckets = policy.buckets if policy.is_active() else ()
+    progress = reconcile_retained_warm_generations(
+        tuple(bucket.id for bucket in active_buckets),
+        now=moment,
+        stall_grace_seconds=max(600, policy.replenish_interval_seconds * 3),
+        after_pk=cleanup_cursor,
+    )
+    summary.update(retired=progress.retired, finalized=progress.finalized, cleanup_cursor=progress.next_cursor)
+    if not active_buckets:
+        return summary
+
+    for bucket in active_buckets:
         summary["buckets"] += 1
         try:
             _reconcile_bucket(bucket, policy, moment, summary)
@@ -122,9 +132,6 @@ def reconcile_warm_pool(*, now: datetime | None = None) -> dict[str, int]:
             # A single bucket's failure must not stop the others; the next pass
             # retries. Bounded, sanitized log only.
             logger.exception("warm-pool reconcile failed for bucket=%s", bucket.id)
-    # Retire generations whose bucket was removed/narrowed out of the effective
-    # policy, so they stop being claimable rather than lingering globally.
-    summary["retired"] += retire_removed_bucket_generations([b.id for b in policy.buckets])
     _emit_pool_gauges(policy)
     return summary
 
@@ -157,16 +164,7 @@ def _reconcile_bucket(
     """Converge one bucket: finalize, recover stalled, retire stale/excess, replenish."""
     from engine.services import (
         active_generation_count,
-        finalize_retiring_generations,
-        recover_stalled_generations,
     )
-
-    summary["finalized"] += finalize_retiring_generations(bucket.id)
-    # Crash-safety: retire generations stuck non-terminal (a failed prepare/activate
-    # or a dispatch that crashed before any result) so no strand keeps counting
-    # toward the ceiling. Grace scales with the replenish cadence.
-    stall_grace = max(600, policy.replenish_interval_seconds * 3)
-    summary["retired"] += recover_stalled_generations(bucket.id, stall_grace_seconds=stall_grace, now=moment)
 
     identity = _resolve_bucket_identity(bucket)
     if identity is None:
@@ -277,7 +275,7 @@ def _provision_warm_generation(bucket: WarmPoolBucketPolicy, policy: WarmPoolRun
 
     Returns True on a dispatched preparation. Failures are logged and swallowed so
     one bad preparation does not abort the pass; capacity drawn for a failed
-    dispatch is released.
+    dispatch remains tracked until native cleanup or fenced non-creation settles it.
     """
     from cms.services._range_backend_admission import assert_backend_admitted
 
@@ -304,14 +302,14 @@ def _warm_prepare_dispatch(
     """Reserve, draw capacity, and dispatch one warm-prepare (helper of ``_provision_warm_generation``).
 
     Returns True on a dispatched preparation, False on a capacity refusal or any
-    failure. All allocated capacity and reservation state is cleaned up on the
-    non-dispatch paths.
+    failure. Never-realized reservations can release their draw; realized work
+    retains it until exact-generation provider absence is verified.
     """
     from cms.services._raes_range_create import _load_raes_source_or_raise
+    from cms.services._scoped_range_launch import revalidate_scoped_launch
     from engine.services import (
         WarmGenerationDraft,
-        admit_warm_generation_capacity,
-        create_warm_generation,
+        reserve_warm_generation,
         warm_capacity_scope_ref,
     )
 
@@ -320,12 +318,18 @@ def _warm_prepare_dispatch(
     request_id: UUID | None = None
     try:
         source = _load_raes_source_or_raise(bucket.scenario)
+        if compatibility != _bucket_compatibility_digest(
+            bucket, package_digest=source.package_digest, lock_digest=source.lock_digest
+        ):
+            # Identity selection and source loading are separate reads. A new
+            # revision must not be stamped with the previous revision's key.
+            return False
         request_id = uuid4()
-        credential = _reserve_warm_intent(_warm_pool_credential(), source, request_id)
+        credential = revalidate_scoped_launch(_warm_pool_credential(), ResourceScope("installation"), source)
 
         # Create the ledger row BEFORE dispatch so the provision suppresses
         # participant access (quarantine), and draw capacity before provider work.
-        create_warm_generation(
+        reserved = reserve_warm_generation(
             WarmGenerationDraft(
                 bucket_id=bucket.id,
                 compatibility_digest=compatibility,
@@ -339,14 +343,10 @@ def _warm_prepare_dispatch(
                 idle_deadline=timezone.now() + timedelta(seconds=bucket.idle_ttl_seconds),
             )
         )
-        # Capacity admission is a real gate, not advisory: a refused (REJECTED)
-        # capacity or cost assessment must stop the warm provision. Clean up the
-        # reserved generation and skip rather than dispatching over the ceiling.
-        admission = admit_warm_generation_capacity(scope_ref=scope_ref, draw_key=draw_key)
-        if admission.blocking:
+        if reserved is None:
             logger.warning("warm-pool: capacity refused for bucket=%s; skipping preparation", bucket.id)
-            _abandon_preparation(request_id, draw_key)
             return False
+        credential = _reserve_warm_intent(credential, source, request_id)
 
         from cms.services._raes_dispatch import (
             RaesDispatchOptions,
@@ -427,18 +427,21 @@ def _abandon_preparation(request_id: UUID | None, draw_key: UUID) -> None:
     idempotent so cleanup never raises out of the pass.
     """
     from cms.models import RangeInstance
-    from engine.services import release_warm_generation_capacity, retire_generations_for_request
+    from engine.services import abandon_warm_preparation
 
     try:
-        release_warm_generation_capacity(draw_key)
+        abandoned = abandon_warm_preparation(request_id, draw_key)
     except Exception:
-        logger.exception("warm-pool cleanup: capacity release failed")
-    if request_id is not None:
+        logger.exception("warm-pool cleanup: retirement failed")
+        return
+    if request_id is not None and abandoned:
         try:
-            retire_generations_for_request(request_id)
-        except Exception:
-            logger.exception("warm-pool cleanup: ledger retire failed")
-        try:
-            RangeInstance.objects.filter(request__request_id=request_id).update(status=ResourceStatus.FAILED.value)
+            RangeInstance.objects.filter(
+                request__request_id=request_id,
+                scope_kind="installation",
+                account_id__isnull=True,
+                organization_id__isnull=True,
+                workspace_id__isnull=True,
+            ).update(status=ResourceStatus.FAILED.value)
         except Exception:
             logger.exception("warm-pool cleanup: range-instance fail-mark failed")

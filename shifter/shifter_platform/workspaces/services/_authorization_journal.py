@@ -38,6 +38,7 @@ from ._authorization_commands import (
     NativeRelationshipChange,
     PolicyMutationRequest,
     PolicyMutationResult,
+    RetainedEventAuthorityPolicyMutationRequest,
 )
 
 _RECONCILE_LEASE = timedelta(seconds=30)
@@ -88,7 +89,14 @@ def _request_payload(request: MutationRequest) -> dict[str, object]:
             "target": str(request.target.uuid) if request.target.uuid else None,
             "effect": request.effect.value,
             "trusted_context": (
-                "event_ownership_handoff" if isinstance(request, EventOwnershipHandoffPolicyMutationRequest) else ""
+                "event_ownership_handoff"
+                if isinstance(request, EventOwnershipHandoffPolicyMutationRequest)
+                or (
+                    isinstance(request, RetainedEventAuthorityPolicyMutationRequest)
+                    and request.plan.kind == "transfer"
+                    and request.subject.uuid == request.actor.uuid
+                )
+                else ""
             ),
         }
     return {**common, **_native_payload(request.change)}
@@ -375,6 +383,9 @@ def _change_from_operation(operation: AuthorizationOperation) -> VersionedRelati
 def _assert_request_provider(request: MutationRequest, provider: AuthorizationProvider) -> None:
     """Require the requested immutable model and an identified provider store."""
     if not provider.store_id or provider.model_id != request.model_id:
+        raise AuthorizationMutationConflict("authorization provider binding changed")
+    plan = getattr(request, "plan", None)
+    if plan is not None and (plan.store_id, plan.model_id) != (provider.store_id, provider.model_id):
         raise AuthorizationMutationConflict("authorization provider binding changed")
 
 

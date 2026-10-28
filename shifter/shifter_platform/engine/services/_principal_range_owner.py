@@ -7,7 +7,7 @@ from django.db import transaction
 
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.authorization import TargetRef
-from shared.credentials import CredentialContext
+from shared.credentials import CredentialContext, resolve_local_credential
 from shared.identity_scope import PrincipalRef
 from shared.principal_port import resolve_principal
 
@@ -92,7 +92,12 @@ def commit_range_owner_move(prepared: PreparedRangeOwnerMove) -> bool:
     if not isinstance(prepared, PreparedRangeOwnerMove):
         raise ValueError("Range owner unavailable")
     with transaction.atomic():
+        resolve_range_scope_binding(prepared.source.scope, for_update=True)
+        if prepared.event_uuid is None and prepared.new_owner.uuid != prepared.source.owner_principal_uuid:
+            resolve_range_scope_binding(prepared.source.scope, member=prepared.new_owner, for_update=True)
         row = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=prepared.source.native_id)
+        if resolve_local_credential(prepared.credential) != prepared.credential:
+            raise ValueError("Range owner authority changed")
         if row.request_id is None:
             raise ValueError("Range request unavailable")
         request = Request.objects.select_for_update().get(pk=row.request_id)

@@ -28,6 +28,8 @@ def _authorization_routes(prefix: str, target_type: str) -> list[URLPattern]:
 
 
 urlpatterns = [
+    path("administer/scopes/", profiles.AdministrationScopeCollectionView.as_view()),
+    path("administer/organizations/", accounts.IntegrationOrganizationCollectionView.as_view()),
     path(
         "organizations/<uuid:target_uuid>/authorization/operations/<uuid:operation_uuid>/",
         authorization.ScopedAuthorizationOperationView.as_view(),

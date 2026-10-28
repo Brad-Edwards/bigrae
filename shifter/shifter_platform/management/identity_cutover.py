@@ -11,6 +11,9 @@ from django.utils import timezone
 
 from management.models import Principal, PrincipalConflictError, PrincipalSession, ProviderBinding
 from shared.api_tokens.models import ApiToken
+from shared.identity_scope import PrincipalRef
+
+from .principals import bind_principal_provider_identity
 
 
 def identity_cutover_principals() -> dict[int, UUID]:
@@ -77,9 +80,7 @@ def apply_identity_provider_bindings(provider_bindings: Mapping[int, tuple[str, 
             if existing.principal_id != principal.pk:
                 raise PrincipalConflictError("provider binding tuple conflicts")
             continue
-        if ProviderBinding.objects.filter(principal=principal).exists():
-            raise PrincipalConflictError("principal already has a different provider binding")
-        ProviderBinding.objects.create(principal=principal, issuer=issuer, subject=subject)
+        bind_principal_provider_identity(PrincipalRef(principal.uuid, "human"), issuer, subject)
 
 
 def bootstrap_principal_uuid(issuer: str, subject: str) -> UUID | None:

@@ -43,10 +43,23 @@ class EventStaffMemberSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
 
+class EventAuthorityPendingSerializer(serializers.Serializer):
+    """Observational receipt for an exact pending domain authority command."""
+
+    id = serializers.UUIDField(read_only=True)
+    kind = serializers.ChoiceField(choices=("assign", "revoke", "transfer"), read_only=True)
+    target_principal_uuid = serializers.UUIDField(read_only=True)
+    requested_role = serializers.CharField(read_only=True, allow_blank=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    total_effects = serializers.IntegerField(read_only=True)
+    completed_effects = serializers.IntegerField(read_only=True)
+
+
 class EventStaffListResponseSerializer(serializers.Serializer):
     """Envelope for the event staff listing."""
 
     staff = EventStaffMemberSerializer(many=True, read_only=True)
+    pending_transition = EventAuthorityPendingSerializer(read_only=True, allow_null=True)
 
 
 class EventStaffAssignRequestSerializer(serializers.Serializer):

@@ -10,7 +10,7 @@
  * response shapes are generated). Response types come from `./types`
  * (generated) as usual.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiDownload, apiFetch } from "./client";
 import { ApiError } from "./errors";
@@ -105,10 +105,20 @@ export function useScenarios(workspace = "") {
 }
 
 export function useLaunchWorkspaces() {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: missionControlKeys.launchWorkspaces,
-    queryFn: ({ signal }) => apiFetch<LaunchWorkspaceListResponse>("/mission-control/launch-workspaces/", { signal }),
+    initialPageParam: 0,
+    queryFn: ({ signal, pageParam }) => apiFetch<LaunchWorkspaceListResponse>("/mission-control/launch-workspaces/", {
+      signal, query: { offset: pageParam, limit: 100 },
+    }),
+    getNextPageParam: (last, _pages, offset) =>
+      last.workspaces.length && offset + last.workspaces.length < last.count ? offset + last.workspaces.length : undefined,
   });
+  return { ...query, data: query.data ? {
+    count: query.data.pages[0].count,
+    personal_available: query.data.pages[0].personal_available,
+    workspaces: Array.from(new Map(query.data.pages.flatMap(page => page.workspaces).map(item => [item.uuid, item])).values()),
+  } : undefined };
 }
 
 export function useNgfwList() {

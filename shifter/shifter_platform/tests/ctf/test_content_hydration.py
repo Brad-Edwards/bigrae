@@ -249,6 +249,39 @@ def test_event_creation_composes_hydration_atomically(organizer_user, monkeypatc
 
 
 @pytest.mark.django_db
+def test_event_is_unavailable_to_other_contexts_during_content_initialization(organizer_user, monkeypatch) -> None:
+    from contextvars import Context
+
+    from ctf.services.credential_scope import event_credential_scope
+
+    resolved = _resolved()
+    monkeypatch.setattr("ctf.bridges.cms_list_scenarios", lambda _user, **_kwargs: [("scenario-one", "Scenario One")])
+    monkeypatch.setattr("ctf.services.content_resolution.resolve_scenario_ctf_content", lambda _scenario: resolved)
+    hydrate = hydrate_event_ctf_content
+
+    def checked_hydration(event_uuid, content, **kwargs):
+        assert CTFEvent.objects.get(pk=event_uuid).initialization_intent is not None
+        with pytest.raises(ValueError):
+            Context().run(event_credential_scope, event_uuid)
+        return hydrate(event_uuid, content, **kwargs)
+
+    monkeypatch.setattr("ctf.services.content_hydration.hydrate_event_ctf_content", checked_hydration)
+    now = timezone.now()
+    event = create_event(
+        organizer_user,
+        {
+            "name": "Initializing content",
+            "scenario_id": "scenario-one",
+            "event_start": now,
+            "event_end": now + timedelta(hours=1),
+        },
+    )
+    assert event.initialization_intent is None
+    assert event.challenges.count() == 2
+    assert event_credential_scope(event.pk).account_uuid is not None
+
+
+@pytest.mark.django_db
 def test_event_creation_authorizes_configured_scenario_before_resolution(organizer_user, monkeypatch) -> None:
     monkeypatch.setattr(
         "ctf.services.content_resolution.resolve_scenario_ctf_content",

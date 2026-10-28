@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 from uuid import UUID
 
 from shared.audit import (
@@ -23,16 +23,25 @@ if TYPE_CHECKING:
     from shared.identity_scope import PrincipalRef
 
 
-def _actor_fields(actor: object | None) -> dict[str, object]:
+class _ActorFields(TypedDict):
+    actor_type: str
+    actor_id: int | None
+    actor_principal_uuid: NotRequired[UUID]
+
+
+def _actor_fields(actor: object | None) -> _ActorFields:
     """Return canonical human, service-principal, or system attribution."""
     from django.contrib.auth import get_user_model
 
+    from ctf.services.actors import EventActionAdmission
     from shared.credentials import CredentialContext
 
+    if isinstance(actor, EventActionAdmission):
+        actor = actor.credential
     if isinstance(actor, CredentialContext):
         from shared.audit import principal_actor_fields
 
-        return dict(principal_actor_fields(actor.principal))
+        return {**principal_actor_fields(actor.principal)}
     if isinstance(actor, int):
         return {"actor_type": AuditActorType.USER, "actor_id": actor}
     if isinstance(actor, get_user_model()):
@@ -390,7 +399,7 @@ def audit_spare_provisioning(
 
 def audit_vpn_profile_download(
     *,
-    actor_id: object | None,
+    actor_id: int | None,
     participant_id: UUID,
     range_instance_id: int,
     generation: UUID,

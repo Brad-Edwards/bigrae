@@ -141,16 +141,18 @@ class TestRealtimeBus:
         publish_event_notification(ctf_event_active, "announcement", {"subject": "s"})
         assert not WebSocketNotification.objects.exists()
 
-    def test_subscription_authorization(self, ctf_event_active, participant_user, organizer_user, django_user_model):
+    def test_subscription_authorization(
+        self, ctf_event_active, participant_user, organizer_user, django_user_model, live_session_credential
+    ):
         from ctf.services.notification.realtime import _can_subscribe, event_topic
 
         _register(ctf_event_active, "member", user=participant_user)
         stranger = django_user_model.objects.create_user(username="s@test.com", email="s@test.com")
         topic = event_topic(ctf_event_active.pk)
 
-        assert _can_subscribe(organizer_user, topic) is True
-        assert _can_subscribe(participant_user, topic) is True
-        assert _can_subscribe(stranger, topic) is False
+        assert _can_subscribe(live_session_credential(organizer_user), topic) is True
+        assert _can_subscribe(live_session_credential(participant_user), topic) is True
+        assert _can_subscribe(live_session_credential(stranger), topic) is False
 
     def test_first_blood_published_once(self, ctf_event_active, participant_user, monkeypatch):
         from ctf.enums import ChallengeCategory, ChallengeDifficulty

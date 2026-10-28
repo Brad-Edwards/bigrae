@@ -223,15 +223,40 @@ def verify_principal_range_replay(
         raise ValueError("Range ownership conflict")
     if existing.range_config != compiled_plan:
         raise ValueError("Range plan conflict")
-    from engine.models import ProvisionerLaunchIntent
+    _assert_creation_origin(existing, bindings.credential)
+
+
+def _assert_creation_origin(runtime: Range, credential: CredentialContext) -> None:
+    """The native generation's creation receipt owns its original exact proof."""
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
     from shared.operation_authority import credential_reference_fields
 
-    original = ProvisionerLaunchIntent.objects.filter(
-        authority_resource_uuid=existing.cms_range_uuid, payload__operation="provision"
-    ).first()
-    if original is not None and any(
-        getattr(original, key) != value for key, value in credential_reference_fields(bindings.credential).items()
-    ):
+    expected = credential_reference_fields(credential)
+    if runtime.scope_kind in {"account", "installation"} and runtime.owner_principal_uuid is not None:
+        if runtime.request is None or runtime.resource_generation is None:
+            raise ValueError("Range creation origin authority conflict")
+        receipts = list(
+            RangeAuthorityChange.objects.filter(
+                range=runtime,
+                operation="create",
+                resource_generation=runtime.resource_generation,
+                request_uuid=runtime.request.request_id,
+                authority_resource_uuid=runtime.cms_range_uuid,
+            )[:2]
+        )
+        if len(receipts) != 1 or any(getattr(receipts[0], key) != value for key, value in expected.items()):
+            raise ValueError("Range creation origin authority conflict")
+        if runtime.scope_kind == "installation":
+            from ._launch_authority import range_runtime_binding_digest
+
+            if receipts[0].authority_kind != "warm_pool" or receipts[
+                0
+            ].authority_binding_digest != range_runtime_binding_digest(runtime):
+                raise ValueError("Warm creation custody changed")
+    originals = ProvisionerLaunchIntent.objects.filter(
+        authority_resource_uuid=runtime.cms_range_uuid, payload__operation="provision"
+    )
+    if any(any(getattr(original, key) != value for key, value in expected.items()) for original in originals):
         raise ValueError("Range initiating authority conflict")
 
 
@@ -242,7 +267,7 @@ def dispatch_principal_raes_range(
     from django.db import transaction
 
     from engine.launch_intents import _enqueue_admitted_provisioner_launch
-    from engine.models import ProvisionerLaunchIntent
+    from engine.models import ProvisionerLaunchIntent, Range
     from shared.audit import AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 
     from ._launch_authority import prepare_launch_authority
@@ -253,13 +278,25 @@ def dispatch_principal_raes_range(
     request_id = runtime.request.request_id
     command = ["raes-range", "provision", "--request-id", str(request_id)]
     payload = {"version": 1, "resource": "raes-range", "operation": "provision", "request_id": str(request_id)}
-    if prepared is not None:
-        if prepared.bindings.credential != credential:
-            raise PermissionError("Range creation authority changed")
-        authority = admitted_creation_authority(prepared, runtime)
-    else:
-        authority = prepare_launch_authority(payload, credential)
+    if prepared is not None and prepared.bindings.credential != credential:
+        raise PermissionError("Range creation authority changed")
+    authority = prepare_launch_authority(payload, credential) if prepared is None else None
     with transaction.atomic():
+        runtime = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=runtime.pk)
+        if runtime.request is None or runtime.request.request_id != request_id:
+            raise ValueError("Range creation origin changed")
+        _assert_creation_origin(runtime, credential)
+        if resolve_local_credential(credential) != credential:
+            raise PermissionError("Range creation authority changed")
+        if prepared is not None:
+            # This is a local commit fence, including ancestry row locks; full
+            # policy admission was already performed by prepare_raes_range_creation.
+            authority = admitted_creation_authority(prepared, runtime)
+        if authority is None:
+            raise PermissionError("Range creation authority unavailable")
+        from shared.operation_authority import credential_reference_from_fields
+
+        _assert_creation_origin(runtime, credential_reference_from_fields(authority))
         identifier = _enqueue_admitted_provisioner_launch(command, payload, authority)
         intent = ProvisionerLaunchIntent.objects.get(intent_id=identifier)
         audit_log(

@@ -168,3 +168,24 @@ class TestRebuildRecovery:
 
         with pytest.raises(PermissionError, match="Instance unavailable"):
             get_rdp_connection_info(human_session_credential(participant.user), old_range.instance_uuid)
+
+
+@pytest.mark.django_db
+def test_old_generation_cleanup_remains_authorized_after_the_participant_is_repointed(
+    rich_participant,
+    organizer_credential,
+):
+    from ctf.services.range.recovery import recover_participant_range
+    from engine.models import ProvisionerLaunchIntent, Range
+    from engine.services._launch_authority import authorize_launch_authority
+
+    participant, old = rich_participant
+    result = recover_participant_range(participant.pk, strategy="rebuild", operator=organizer_credential)
+    assert result["phase"] == "completed"
+    participant.refresh_from_db()
+    assert participant.range_instance_id != old.pk
+    intent = ProvisionerLaunchIntent.objects.get(
+        payload__request_id=str(old.request.request_id), payload__operation="destroy"
+    )
+    assert intent.authority_kind == "cleanup"
+    authorize_launch_authority(intent, Range.objects.get(pk=old.range_id))

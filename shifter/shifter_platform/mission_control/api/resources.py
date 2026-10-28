@@ -9,19 +9,15 @@ from drf_spectacular.utils import extend_schema
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from cms.services import create_credential as cms_create_credential
 from cms.services import create_ngfw as cms_create_ngfw
 from cms.services import delete_credential as cms_delete_credential
+from cms.services import destroy_ngfw as cms_destroy_ngfw
 from cms.services import list_ngfws as cms_list_ngfws
-from mission_control.api._base import (
-    MissionControlAPIView,
-    MissionControlReadAPIView,
-    _credentials_write_permission,
-    _ngfw_read_permission,
-    _ngfw_write_permission,
-    _validated,
-)
+from mission_control.api._base import MissionControlAPIView, MissionControlReadAPIView, _validated
 from mission_control.api.permissions import HasMissionControlActor
 from mission_control.api.rate_limit import NGFWLaunchRateThrottle
+from mission_control.api.scope import ResourcePlacementSerializer, resource_placement
 from mission_control.api.serializers import (
     CredentialCreateResponseSerializer,
     CredentialCreateSerializer,
@@ -32,10 +28,10 @@ from mission_control.api.serializers import (
     NGFWListResponseSerializer,
     SuccessResponseSerializer,
 )
-from mission_control.views._credentials import _CredentialError, _persist_credential, _validate_credential_spec
-from mission_control.views._ngfw import _extract_ngfw_create_payload, _NgfwError, _run_ngfw_destroy
+from mission_control.views._ngfw import _extract_ngfw_create_payload
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
 from shared.api.schema import ApiErrorSerializer
+from shared.authorization.operations import scope_actions
 from shared.errors import classify_user_message
 from shared.exceptions import CMSError
 from shared.log_sanitize import safe_log_value
@@ -46,7 +42,9 @@ logger = logging.getLogger(__name__)
 class NGFWCreateView(MissionControlAPIView):
     """Create a new NGFW."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _ngfw_write_permission()]
+    required_actions = scope_actions("manage_devices")
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
     # Backpressure (#322): per-actor + fleet admission budget, before CMS.
     throttle_classes = [NGFWLaunchRateThrottle]
 
@@ -61,27 +59,41 @@ class NGFWCreateView(MissionControlAPIView):
         if error is not None:
             return error
         assert data is not None
-        user = self.actor_user()
+        user = self.actor_credential()
         payload = _extract_ngfw_create_payload(data)
         try:
-            ngfw_ref = cms_create_ngfw(user=user, **payload)
+            ngfw_ref = cms_create_ngfw(user=user, scope=resource_placement(user, data), **payload)
         except (TypeError, ValueError, CMSError) as exc:
-            logger.exception("NGFW creation failed: user=%s name=%s", user.pk, safe_log_value(payload.get("name", "")))
+            logger.exception(
+                "NGFW creation failed: user=%s name=%s", user.principal.uuid, safe_log_value(payload.get("name", ""))
+            )
             return self.bad_request(classify_user_message(str(exc), default="NGFW could not be created"))
 
-        logger.info("NGFW provisioning started: user=%s app_id=%s", safe_log_value(user.email), ngfw_ref.app_id)
+        logger.info(
+            "NGFW provisioning started: user=%s app_id=%s", safe_log_value(str(user.principal.uuid)), ngfw_ref.app_id
+        )
         return Response({"id": str(ngfw_ref.app_id), "name": payload["name"], "status": "provisioning"}, status=201)
 
 
 class NGFWListView(MissionControlReadAPIView):
     """List user's NGFWs."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _ngfw_read_permission()]
+    required_actions = scope_actions("read_devices")
 
-    @extend_schema(responses=NGFWListResponseSerializer, operation_id="api_v1_mission_control_ngfw_list")
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
+
+    @extend_schema(
+        parameters=[ResourcePlacementSerializer],
+        responses=NGFWListResponseSerializer,
+        operation_id="api_v1_mission_control_ngfw_list",
+    )
     def get(self, request: Request) -> Response:
         """Return NGFWs owned by the authenticated actor."""
-        ngfws = cms_list_ngfws(self.actor_user())
+        query = ResourcePlacementSerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        actor = self.actor_credential()
+        scope = resource_placement(actor, query.validated_data)
+        ngfws = cms_list_ngfws(actor, scope=scope)
         return Response(
             {
                 "ngfws": [
@@ -101,7 +113,9 @@ class NGFWListView(MissionControlReadAPIView):
 class NGFWDestroyView(MissionControlAPIView):
     """Destroy an NGFW."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _ngfw_write_permission()]
+    required_actions = scope_actions("manage_devices")
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
 
     @extend_schema(
         request=NGFWDestroySerializer,
@@ -114,17 +128,17 @@ class NGFWDestroyView(MissionControlAPIView):
         if error is not None:
             return error
         assert data is not None
-        user = self.actor_user()
+        user = self.actor_credential()
         try:
-            _run_ngfw_destroy(user, app_id, data.get("confirm_name", ""))
+            cms_destroy_ngfw(user, app_id, data.get("confirm_name", ""))
         except Http404:
             raise
-        except _NgfwError as err:
-            return err.response
+        except CMSError:
+            return self.bad_request("Device action unavailable")
 
         logger.info(
             "NGFW deprovisioning started: user=%s app_id=%s",
-            safe_log_value(user.email),
+            safe_log_value(str(user.principal.uuid)),
             safe_log_value(app_id),
         )
         return Response({"status": "deprovisioning"})
@@ -133,7 +147,9 @@ class NGFWDestroyView(MissionControlAPIView):
 class CredentialCreateView(MissionControlAPIView):
     """Create a credential."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _credentials_write_permission()]
+    required_actions = scope_actions("manage_credentials")
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
 
     @extend_schema(
         request=CredentialCreateSerializer,
@@ -147,32 +163,39 @@ class CredentialCreateView(MissionControlAPIView):
             return error
         assert data is not None
 
-        user = self.actor_user()
+        user = self.actor_credential()
         credential_type_slug = data["credential_type"]
-        payload = dict(data)
-        payload["user_id"] = user.id
+        scope = resource_placement(user, data)
+        payload = {
+            key: value
+            for key, value in data.items()
+            if key not in {"credential_type", "account_uuid", "organization_uuid", "workspace_uuid"}
+        }
         if payload.get("expires_at") == "":
             payload["expires_at"] = None
         try:
-            spec = _validate_credential_spec(payload, credential_type_slug)
-            kwargs = spec.model_dump(exclude={"user_id"})
-            cred_ref = _persist_credential(user, credential_type_slug, kwargs)
-        except _CredentialError as err:
-            return err.response
+            cred_ref = cms_create_credential(user, credential_type_slug, scope=scope, **payload)
+        except (CMSError, ValueError):
+            return self.bad_request("Credential could not be created")
 
         logger.info(
             "Credential created: user=%s credential_id=%s type=%s",
-            safe_log_value(user.email),
+            safe_log_value(str(user.principal.uuid)),
             cred_ref.credential_id,
             safe_log_value(credential_type_slug),
         )
-        return Response({"id": cred_ref.credential_id, "name": spec.name, "credential_type": credential_type_slug}, 201)
+        return Response(
+            {"id": cred_ref.credential_id, "name": payload.get("name", ""), "credential_type": credential_type_slug},
+            201,
+        )
 
 
 class CredentialDeleteView(MissionControlAPIView):
     """Soft-delete a credential."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _credentials_write_permission()]
+    required_actions = scope_actions("manage_credentials")
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
 
     @extend_schema(
         request=None,
@@ -181,7 +204,7 @@ class CredentialDeleteView(MissionControlAPIView):
     )
     def post(self, request: Request, credential_id: int) -> Response:
         """Delete a credential visible to the authenticated actor."""
-        user = self.actor_user()
+        user = self.actor_credential()
         try:
             cms_delete_credential(user, credential_id)
         except CMSError:
@@ -189,7 +212,7 @@ class CredentialDeleteView(MissionControlAPIView):
 
         logger.info(
             "Credential deleted: user=%s credential_id=%s",
-            safe_log_value(user.email),
+            safe_log_value(str(user.principal.uuid)),
             safe_log_value(credential_id),
         )
         return Response({"success": True})

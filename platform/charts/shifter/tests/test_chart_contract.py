@@ -52,9 +52,10 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
 # Regenerated for #2321: every Python runtime receives the pinned OpenFGA binding.
+# Verified against the committed S8 chart; the AWS labeler change preserves both GCP renders.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "6b221b4fe9a9c43b97cab7c6c37ee014dfdfbb6c490f8a8b1f83900e71d71f59",
-    "gcp-prod": "31176eef17edb3794ca33d434606c0983b24f0a6d5a89ca0b4ddde6428349623",
+    "gcp-dev": "ffa5ef2d5c0cba6e05b19c0e91c0e36a53e26f6b32bba99f0956e4d8dde223fc",
+    "gcp-prod": "577f3a2e05c82a1caeed721c329c869000b5a3bec14ee9d0b6009872d4b084bf",
 }
 
 
@@ -150,6 +151,12 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         rendered = _helm(
             "template", "contract-test", str(CHART_DIR), "-f", str(VALUES_FILES["aws-dev"]),
             "--set", "runtimePluginPool.labeler.enabled=true",
+            "--set", "openfga.enabled=true",
+            "--set", "openfga.storeId=01J00000000000000000000001",
+            "--set", "openfga.modelId=01J00000000000000000000000",
+            "--set", "openfga.databaseCidrs={10.60.0.12/32}",
+            "--set", "openfga.runtimeDatabaseUser=synthetic_runtime",
+            "--set", "openfga.adminDatabaseUser=synthetic_admin",
             "--set", f"runtimePluginPool.labeler.nodeGroupAsg={node_group}",
             "--set", f"identity.serviceAccountRoleArns.nodePoolLabeler={labeler_role}",
             "--set", "runtimeEnv.AWS_REGION=us-east-2",
@@ -169,6 +176,9 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         container = docs[("Deployment", "node-pool-labeler")]["spec"]["template"]["spec"]["containers"][0]
         self.assertEqual(container["command"], ["python", "-m", "shared.cloud.eks_node_pool_labeler"])
         self.assertIn({"name": "RUNTIME_PLUGIN_NODE_GROUP_ASG", "value": node_group}, container["env"])
+        pod = docs[("Deployment", "node-pool-labeler")]["spec"]["template"]["spec"]
+        self.assertEqual({volume["name"] for volume in pod["volumes"]}, {"tmp"})
+        self.assertEqual({volume["name"] for volume in container["volumeMounts"]}, {"tmp"})
         self.assertIn(("NetworkPolicy", "allow-node-pool-labeler-kubernetes-api-egress"), docs)
         # GKE applies the pool label itself; the labeler never renders there.
         _, gcp = _render(VALUES_FILES["gcp-dev"])

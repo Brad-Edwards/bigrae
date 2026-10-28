@@ -9,7 +9,7 @@ from cms.exceptions import CMSError
 from cms.models import App
 from workspaces.services import resolve_resource_scope, resource_scope_from_ids
 
-from ._content_authority import require_content_scope
+from ._content_authority import fence_content_scope, require_content_scope
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -119,7 +119,6 @@ def destroy_scoped_device(credential: CredentialContext, identifier: UUID | str,
     from django.utils import timezone
 
     from engine.services import commit_ngfw_lifecycle, prepare_ngfw_lifecycle
-    from shared.credentials import resolve_local_credential
     from shared.schemas.app import NGFWAppRef
 
     try:
@@ -138,15 +137,11 @@ def destroy_scoped_device(credential: CredentialContext, identifier: UUID | str,
         ):
             raise ValueError("Device runtime binding changed")
         with transaction.atomic():
+            fence_content_scope(current, scope)
             row = _device_rows(for_destruction=True).select_for_update(of=("self",)).get(pk=snapshot.pk)
             if row.instance is None:
                 raise CMSError(_DEVICE_UNAVAILABLE)
-            if (
-                _request_scope(row) != scope
-                or row.name != confirm_name
-                or row.instance_id != snapshot.instance_id
-                or resolve_local_credential(current) != current
-            ):
+            if _request_scope(row) != scope or row.name != confirm_name or row.instance_id != snapshot.instance_id:
                 raise ValueError("Device changed")
             commit_ngfw_lifecycle(prepared)
             now = timezone.now()
@@ -170,15 +165,34 @@ def admit_device_remote_authority(credential: CredentialContext, identifier: UUI
         scope = _request_scope(snapshot)
         current = require_content_scope(credential, scope, "access_devices")
         fields = admit_native_device_access(current, identifier)
-        if (
-            fields["authority_resource_uuid"] != snapshot.instance.pk
-            or fields["authority_owner_uuid"] != snapshot.instance.request.owner_principal_uuid
-            or fields["authority_scope_kind"] != scope.kind
-            or fields["authority_account_uuid"] != scope.account_uuid
-            or fields["authority_organization_uuid"] != scope.organization_uuid
-            or fields["authority_workspace_uuid"] != scope.workspace_uuid
-        ):
-            raise ValueError("Device projections changed")
+        _assert_device_remote_projection(snapshot, fields, scope)
         return fields
     except Exception:
         raise CMSError("Device access unavailable") from None
+
+
+def _assert_device_remote_projection(row: App, fields: dict[str, object], scope: ResourceScope) -> None:
+    if row.instance is None or (
+        fields["authority_resource_uuid"] != row.instance.pk
+        or fields["authority_owner_uuid"] != row.instance.request.owner_principal_uuid
+        or fields["authority_scope_kind"] != scope.kind
+        or fields["authority_account_uuid"] != scope.account_uuid
+        or fields["authority_organization_uuid"] != scope.organization_uuid
+        or fields["authority_workspace_uuid"] != scope.workspace_uuid
+    ):
+        raise ValueError("Device projections changed")
+
+
+def assert_device_remote_authority_binding(authority: dict[str, object], identifier: str) -> None:
+    """Lock both device registries before consuming an admitted remote URL."""
+    from cms.models import Instance, Request
+    from engine.services import lock_native_device_access_binding
+
+    row = _device_rows().select_for_update(of=("self",)).get(pk=UUID(identifier), status="ready")
+    row.instance = Instance.objects.select_for_update().get(pk=row.instance_id, status="ready", deleted_at__isnull=True)
+    row.instance.request = Request.objects.select_for_update().get(pk=row.instance.request_id, deleted_at__isnull=True)
+    scope = _request_scope(row)
+    fields = lock_native_device_access_binding(identifier)
+    _assert_device_remote_projection(row, fields, scope)
+    if any(authority.get(name) != value for name, value in fields.items()):
+        raise ValueError("Device remote binding changed")

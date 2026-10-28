@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 
@@ -20,10 +22,19 @@ def _references(range_obj: Range, previous: dict[str, object] | None = None) -> 
         ("engine", f"range:{range_obj.uuid}"),
     }
     if previous is None or previous.get("owner_principal_uuid") != range_obj.owner_principal_uuid:
+        from management.services import model_access_user_references_for_principals
+
+        owners = []
         if range_obj.owner_principal_uuid is not None:
             refs.add(("management", f"principal:{range_obj.owner_principal_uuid}"))
-        if previous is not None and previous.get("owner_principal_uuid") is not None:
-            refs.add(("management", f"principal:{previous['owner_principal_uuid']}"))
+            owners.append(range_obj.owner_principal_uuid)
+        previous_owner = previous.get("owner_principal_uuid") if previous is not None else None
+        if previous_owner is not None:
+            if not isinstance(previous_owner, UUID):
+                raise ValueError("Previous range owner identity unavailable")
+            refs.add(("management", f"principal:{previous_owner}"))
+            owners.append(previous_owner)
+        refs.update((ref.owner, ref.reference) for ref in model_access_user_references_for_principals(tuple(owners)))
     if previous is None or previous.get("workspace_id") != range_obj.workspace_id:
         if range_obj.workspace_id is not None:
             refs.add(("workspaces", f"workspace-id:{range_obj.workspace_id}"))

@@ -4,25 +4,22 @@ import threading
 from uuid import uuid4
 
 import pytest
-from django.contrib.auth.models import User
 from django.db import connection, transaction
 
 from cms.models import RaesPackageSource, TenantPackArchive
 from cms.services import PackRemovalConflict, fence_pack_reference, request_tenant_pack_removal
+from tests.cms.test_runtime_plugins import tenant as tenant
 from tests.cms.test_tenant_pack_upload import PackStorage
-from workspaces.models import Organization, OrganizationMembership
 
 pytestmark = [pytest.mark.postgres, pytest.mark.django_db(transaction=True)]
 
 
 @pytest.fixture
-def tenant_pack(settings, monkeypatch):
+def tenant_pack(settings, monkeypatch, tenant):
     settings.RAES_PACKAGE_BUCKET = "test-private-pack-storage"
     storage = PackStorage()
     monkeypatch.setattr("shared.cloud.get_object_storage", lambda: storage)
-    actor = User.objects.create_user(username="fence-admin")
-    organization = Organization.objects.create(name="Fence tenant")
-    OrganizationMembership.objects.create(user=actor, organization=organization, role="admin")
+    actor, organization = tenant
     ref = f"tenant-packs/{organization.uuid}/{uuid4()}.tar.gz"
     storage.objects[(settings.RAES_PACKAGE_BUCKET, ref)] = b"archive"
     source = RaesPackageSource.objects.create(
@@ -35,7 +32,9 @@ def tenant_pack(settings, monkeypatch):
         package_ref=ref,
         package_version="1",
         package_digest="sha256:" + "a" * 64,
-        registered_by=actor,
+        owner_principal_uuid=actor.credential.principal.uuid,
+        scope_kind="account",
+        account_uuid=organization.account.uuid,
     )
     TenantPackArchive.objects.create(
         organization_uuid=organization.uuid,
@@ -68,7 +67,7 @@ def test_removal_never_waits_behind_a_reference_writer_and_then_wins(tenant_pack
     assert fenced.wait(timeout=30)
     try:
         with pytest.raises(PackRemovalConflict) as busy:
-            request_tenant_pack_removal(actor, organization.uuid, source.scenario_id, source.package_digest)
+            request_tenant_pack_removal(actor.credential, organization.uuid, source.scenario_id, source.package_digest)
         assert busy.value.code == "pack_busy"
         assert RaesPackageSource.objects.filter(pk=source.pk).exists()
     finally:
@@ -76,7 +75,7 @@ def test_removal_never_waits_behind_a_reference_writer_and_then_wins(tenant_pack
         thread.join(timeout=30)
     assert not failures
 
-    result = request_tenant_pack_removal(actor, organization.uuid, source.scenario_id, source.package_digest)
+    result = request_tenant_pack_removal(actor.credential, organization.uuid, source.scenario_id, source.package_digest)
     assert result.state == "completed"
     assert not storage.objects
 

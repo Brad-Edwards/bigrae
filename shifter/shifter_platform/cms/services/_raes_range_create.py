@@ -200,6 +200,7 @@ def create_raes_native_range(
     remote_access_teardown_at: datetime | None = None,
     model_admission_subject: OwnedReference | None = None,
     model_launch_scope: ModelLaunchScope | None = None,
+    request_uuid: UUID | None = None,
 ) -> RangeContext:
     """Launch a registered RAES package through the native provisioning path.
 
@@ -228,8 +229,9 @@ def create_raes_native_range(
             remote_access_teardown_at=remote_access_teardown_at,
             model_admission_subject=model_admission_subject,
             model_launch_scope=model_launch_scope,
+            request_uuid=request_uuid,
         )
-    if scope is not None or model_sources:
+    if scope is not None or model_sources or request_uuid is not None:
         raise CMSError("Range launch scope unavailable")
     return _create_raes_native_range_impl(
         user,

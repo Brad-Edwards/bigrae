@@ -12,6 +12,93 @@ __all__ = ["principal_range"]
 pytestmark = [pytest.mark.django_db]
 
 
+@pytest.mark.parametrize("link", ["participant", "spare", "spare-request"])
+def test_force_delete_retained_event_preserves_native_cleanup_after_event_is_gone(lifecycle_range, link):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from ctf.models import CTFEvent, CTFParticipant, CTFSpareRange
+    from ctf.services.credential_scope import event_credential_scope
+    from ctf.services.event import force_delete_event
+    from engine.launch_intents import authorize_provisioner_payload, enqueue_provisioner_launch
+    from engine.models import ProvisionerLaunchIntent
+    from management.models import ProviderBinding, ServiceCredentialAdmission
+    from management.services import resolve_service_credential
+
+    fixture = lifecycle_range
+    admission = ServiceCredentialAdmission.objects.select_related("binding").get(
+        uuid=fixture.credential.credential_uuid
+    )
+    from uuid import uuid4
+
+    binding = ProviderBinding.objects.create(
+        principal=admission.binding.principal, issuer=admission.binding.issuer, subject=str(uuid4())
+    )
+    admission = ServiceCredentialAdmission.objects.create(
+        binding=binding, audience=admission.audience, scopes=[*admission.scopes, "authorization:event.delete"]
+    )
+    credential = resolve_service_credential(
+        issuer=admission.binding.issuer, subject=admission.binding.subject, audience=admission.audience
+    )
+    event = CTFEvent.objects.create(
+        name="Synthetic retained event",
+        owner_principal_uuid=fixture.owner.uuid,
+        creator_principal_uuid=fixture.owner.uuid,
+        scope_kind="account",
+        account_id=fixture.account.id,
+        scenario_id="synthetic",
+        authorization_publication_state="confirmed",
+        event_start=timezone.now(),
+        event_end=timezone.now() + timedelta(hours=1),
+    )
+    for row in (fixture.instance, fixture.realized):
+        row.event_uuid = event.pk
+        row.save(update_fields=["event_uuid"])
+    if link == "participant":
+        CTFParticipant.objects.create(
+            event=event,
+            principal_uuid=fixture.owner.uuid,
+            name="Synthetic seat",
+            range_instance_id=fixture.instance.pk,
+            status="active",
+        )
+    else:
+        spare = CTFSpareRange.objects.create(
+            event=event,
+            range_instance_id=fixture.instance.pk,
+            request_id=fixture.request.request_id,
+            status="ready",
+        )
+    fixture.realized.status = "resuming"
+    fixture.realized.save(update_fields=["status"])
+    enqueue_provisioner_launch(
+        ["range", "resume", "--request-id", str(fixture.request.request_id)], credential=fixture.credential
+    )
+    fixture.realized.refresh_from_db()
+    fixture.realized.status = "ready"
+    fixture.realized.save(update_fields=["status"])
+    if link == "spare-request":
+        # Runnable work needs an exact association. Retained cleanup must still
+        # work after that pointer is gone and only its accepted request remains.
+        spare.range_instance_id = None
+        spare.save(update_fields=["range_instance_id", "updated_at"])
+    event.delete(soft=True)
+    with pytest.raises(ValueError):
+        event_credential_scope(event.pk)
+
+    result = force_delete_event(event.pk, credential, event.name)
+
+    assert result["ranges_destroyed"] == 1
+    assert not CTFEvent.all_objects.filter(pk=event.pk).exists()
+    cleanup = ProvisionerLaunchIntent.objects.get(authority_kind="cleanup")
+    assert cleanup.payload["operation"] == "destroy"
+    assert cleanup.cleanup_origin_operation_uuid is not None
+    admission.is_active = False
+    admission.save(update_fields=["is_active"])
+    authorize_provisioner_payload(cleanup.payload, expected_operation_id=cleanup.operation_id)
+
+
 @pytest.mark.parametrize("failed_deleted", [False, True])
 def test_service_administrator_destroys_through_the_native_authority_outbox(lifecycle_range, failed_deleted):
     from django.utils import timezone

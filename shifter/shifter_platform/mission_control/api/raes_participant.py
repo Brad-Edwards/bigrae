@@ -50,7 +50,7 @@ class _RaesParticipantRecordListView(MissionControlReadAPIView):
 
     def get(self, request: Request, request_id: UUID) -> Response:
         """Return newest-first redacted records for the owned range's request_id."""
-        actor = self.actor_user()
+        actor = self.actor_credential()
         # Authorize BEFORE touching the sidecar. Not-owned and unknown both 404.
         try:
             get_range_by_request_id(actor, str(request_id))

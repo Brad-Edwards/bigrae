@@ -59,6 +59,7 @@ class Command(BaseCommand):
             reconcile_tenant_pack_removals,
             relocate_tenant_pack_archive,
         )
+        from cms.services._scoped_uploads import reconcile_upload_cleanup
 
         if not 1 <= options["interval"] <= 3600 or not 1 <= options["batch_size"] <= 100:
             raise CommandError("Invalid tenant pack removal reconciler bounds")
@@ -75,9 +76,22 @@ class Command(BaseCommand):
             signal.signal(signal.SIGINT, lambda *_: stopped.set())
         while not stopped.is_set():
             HEARTBEAT_FILE.touch()
-            completed = reconcile_tenant_pack_removals(limit=options["batch_size"])
+            failed = False
+            try:
+                completed = reconcile_tenant_pack_removals(limit=options["batch_size"])
+            except Exception as exc:
+                completed, failed = 0, True
+                logger.error("Pack cleanup pass failed error_type=%s", type(exc).__name__)
             HEARTBEAT_FILE.touch()
-            logger.info("reconcile_tenant_pack_removals: pass complete completed=%d", completed)
+            try:
+                uploads = reconcile_upload_cleanup(limit=options["batch_size"])
+            except Exception as exc:
+                uploads, failed = 0, True
+                logger.error("Installer cleanup pass failed error_type=%s", type(exc).__name__)
+            HEARTBEAT_FILE.touch()
+            logger.info("CMS cleanup pass complete packs=%d uploads=%d", completed, uploads)
             if not options["loop"]:
+                if failed:
+                    raise CommandError("A CMS cleanup pass failed; retained cleanup will retry")
                 return
             stopped.wait(options["interval"])

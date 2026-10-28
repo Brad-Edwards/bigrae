@@ -6,7 +6,6 @@ import logging
 from typing import Any, cast
 from uuid import UUID
 
-from django.contrib.auth.models import User
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.request import Request
@@ -42,13 +41,7 @@ from cms.services import (
 from cms.services import (
     mission_control_launch_workspaces as cms_mission_control_launch_workspaces,
 )
-from mission_control.api._base import (
-    MissionControlAPIView,
-    MissionControlReadAPIView,
-    _range_write_permission,
-    _raw_request,
-    _validated,
-)
+from mission_control.api._base import MissionControlAPIView, MissionControlReadAPIView, _raw_request, _validated
 from mission_control.api._retry_launch import LaunchChoices, RetrySafeLaunchMixin
 from mission_control.api.permissions import HasMissionControlActor, block_participant_lifecycle_permission
 from mission_control.api.rate_limit import RangeLaunchRateThrottle
@@ -58,6 +51,7 @@ from mission_control.api.serializers import (
     LaunchRangeResponseSerializer,
     LaunchRangeSerializer,
     LaunchWorkspaceListResponseSerializer,
+    LaunchWorkspacePageQuerySerializer,
     RangeLeaseResponseSerializer,
     RangeLifecycleSerializer,
     ScenarioListResponseSerializer,
@@ -70,6 +64,7 @@ from shared.api.principals import authenticated_credential
 from shared.api.schema import ApiErrorSerializer
 from shared.api.strict_json import ModelSelectionJSONParser
 from shared.audit import AuditAction
+from shared.authorization.operations import scope_actions
 from shared.credentials import CredentialContext
 from shared.errors import classify_user_message
 from shared.exceptions import CMSError
@@ -78,6 +73,16 @@ from shared.log_sanitize import safe_log_value
 from shared.raes.presentation import build_range_participant_runtime_projection, build_range_raes_projection
 
 logger = logging.getLogger(__name__)
+
+
+def _catalog_error(view: MissionControlAPIView, exc: CMSError) -> Response:
+    """Translate content denial and provider unavailability without provider text."""
+    unavailable = exc.details.get("code") == "authority-unavailable"
+    return view.error_response(
+        code="catalog_unavailable" if unavailable else "content_not_available",
+        message="Content catalog is not available.",
+        status_code=503 if unavailable else 403,
+    )
 
 
 def _selected_workspace(request: Request) -> UUID | None:
@@ -135,7 +140,6 @@ class ExtendRangeLeaseView(MissionControlAPIView):
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
         HasMissionControlActor,
-        _range_write_permission(),
         block_participant_lifecycle_permission("extend"),
     ]
 
@@ -177,12 +181,13 @@ class ExtendRangeLeaseView(MissionControlAPIView):
 class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
     """Launch a new cyber range."""
 
+    required_actions = scope_actions("launch_range")
+
     parser_classes = [ModelSelectionJSONParser, FormParser, MultiPartParser]
 
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
         HasMissionControlActor,
-        _range_write_permission(),
         block_participant_lifecycle_permission("launch"),
     ]
     # Backpressure (#322): per-actor + fleet admission budget, before CMS.
@@ -233,12 +238,12 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
                 message="Selected workspace is not available.",
                 status_code=403,
             )
-        return self._dispatch_launch(request, self.actor_user(), credential, scope, data)
+        return self._dispatch_launch(request, self.actor_credential(), credential, scope, data)
 
     def _launch_range(
         self,
         request: Request,
-        user: User,
+        user: CredentialContext,
         credential: CredentialContext,
         scope: ResourceScope,
         data: dict[str, Any],
@@ -246,7 +251,10 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
     ) -> Response:
         """Launch a range once the request body has passed serializer checks."""
         scenario = str(data.get("scenario", "basic"))
-        valid_scenarios = {s["id"] for s in cms_list_launchable_scenarios(credential, "range_launch", scope=scope)}
+        try:
+            valid_scenarios = {s["id"] for s in cms_list_launchable_scenarios(credential, "range_launch", scope=scope)}
+        except CMSError as exc:
+            return _catalog_error(self, exc)
         if scenario not in valid_scenarios:
             return self.bad_request("Invalid scenario")
 
@@ -292,7 +300,7 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
     def _create_range(
         self,
         request: Request,
-        user: User,
+        user: CredentialContext,
         credential: CredentialContext,
         scope: ResourceScope,
         scenario: str,
@@ -319,7 +327,7 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
 
         logger.info(
             "Range launched: user=%s request_id=%s agent=%s scenario=%s",
-            safe_log_value(user.email),
+            safe_log_value(str(user.principal.uuid)),
             range_ctx.request_id,
             safe_log_value(range_ctx.agent_name),
             safe_log_value(scenario),
@@ -332,7 +340,7 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
         )
         return Response({"success": True, "range": range_ctx.model_dump(mode="json")})
 
-    def _launch_failure_response(self, exc: CMSError, user: User, scenario: str) -> Response:
+    def _launch_failure_response(self, exc: CMSError, user: CredentialContext, scenario: str) -> Response:
         """Map a launch-time CMS failure to its bounded HTTP response.
 
         Kept distinct from the generic 400: an unavailable workspace scope is an
@@ -340,20 +348,24 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
         Conflict (ADR-046-R10), never a 403 or a request-rate 429.
         """
         if isinstance(exc, WorkspaceLaunchDenied):
-            logger.info("Range launch workspace denied: user=%s scenario=%s", user.pk, safe_log_value(scenario))
+            logger.info(
+                "Range launch workspace denied: user=%s scenario=%s", user.principal.uuid, safe_log_value(scenario)
+            )
             return self.error_response(
                 code="workspace_not_available",
                 message="Selected workspace is not available.",
                 status_code=403,
             )
         if isinstance(exc, WorkspaceLaunchQuotaExceeded):
-            logger.info("Range launch quota exhausted: user=%s scenario=%s", user.pk, safe_log_value(scenario))
+            logger.info(
+                "Range launch quota exhausted: user=%s scenario=%s", user.principal.uuid, safe_log_value(scenario)
+            )
             return self.error_response(
                 code="workspace_range_quota_exceeded",
                 message="This workspace has reached its concurrent range limit.",
                 status_code=409,
             )
-        logger.exception("Range creation failed: user=%s scenario=%s", user.pk, safe_log_value(scenario))
+        logger.exception("Range creation failed: user=%s scenario=%s", user.principal.uuid, safe_log_value(scenario))
         text = str(exc).lower()
         if "already have" in text or "active range" in text:
             response_msg = "You already have an active range"
@@ -386,7 +398,7 @@ class RangeLifecycleView(MissionControlAPIView):
             return error
         assert data is not None
 
-        user = self.actor_user()
+        user = self.actor_credential()
         credential = authenticated_credential(request)
         request_id = str(data["request_id"]) if data.get("request_id") else None
         range_id = data.get("range_id")
@@ -396,7 +408,7 @@ class RangeLifecycleView(MissionControlAPIView):
                 logger.info(
                     "Range %s: user=%s request_id=%s",
                     self.log_verb,
-                    safe_log_value(user.email),
+                    safe_log_value(str(user.principal.uuid)),
                     safe_log_value(request_id),
                 )
             else:
@@ -404,14 +416,14 @@ class RangeLifecycleView(MissionControlAPIView):
                 logger.info(
                     "Range %s: user=%s range_id=%s",
                     self.log_verb,
-                    safe_log_value(user.email),
+                    safe_log_value(str(user.principal.uuid)),
                     safe_log_value(range_id),
                 )
         except CMSError as exc:
             logger.exception(
                 "Range %s failed: user=%s request_id=%s range_id=%s",
                 self.log_verb,
-                user.pk,
+                user.principal.uuid,
                 safe_log_value(request_id),
                 safe_log_value(range_id),
             )
@@ -497,6 +509,8 @@ class ResumeRangeView(RangeLifecycleView):
 class AgentListView(MissionControlReadAPIView):
     """Return the authenticated user's agent list."""
 
+    required_actions = scope_actions("read_content", installation=True)
+
     @extend_schema(
         parameters=[OpenApiParameter("workspace_uuid", type=str, required=False)],
         responses=AgentListResponseSerializer,
@@ -517,9 +531,13 @@ class AgentListView(MissionControlReadAPIView):
                 message="Selected workspace is not available.",
                 status_code=403,
             )
+        try:
+            agents = cms_list_agents(credential, scope=scope)
+        except CMSError as exc:
+            return _catalog_error(self, exc)
         return Response(
             {
-                "agents": cms_list_agents(credential, scope=scope),
+                "agents": agents,
                 "max_file_size_bytes": cms_max_agent_file_size_bytes(),
             }
         )
@@ -528,7 +546,10 @@ class AgentListView(MissionControlReadAPIView):
 class LaunchWorkspaceListView(MissionControlReadAPIView):
     """Discover launchable workspaces independently of catalog selection."""
 
+    required_actions = ("workspace.launch_range",)
+
     @extend_schema(
+        parameters=[LaunchWorkspacePageQuerySerializer],
         responses=LaunchWorkspaceListResponseSerializer,
         operation_id="api_v1_mission_control_launch_workspaces_list",
     )
@@ -536,10 +557,13 @@ class LaunchWorkspaceListView(MissionControlReadAPIView):
         """Return active workspaces admitted by exact launch-range policy."""
         from shared.authorization import configured_authorization_provider
 
+        query = LaunchWorkspacePageQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         try:
             page = cms_mission_control_launch_workspaces(
                 authenticated_credential(request),
                 configured_authorization_provider(),
+                **query.validated_data,
             )
         except (AccountScopeError, ValueError):
             return self.error_response(
@@ -567,6 +591,8 @@ class LaunchWorkspaceListView(MissionControlReadAPIView):
 class ScenarioListView(MissionControlReadAPIView):
     """Return available range scenarios."""
 
+    required_actions = scope_actions("read_content", installation=True)
+
     @extend_schema(
         parameters=[OpenApiParameter("workspace_uuid", type=str, required=False)],
         responses=ScenarioListResponseSerializer,
@@ -587,5 +613,8 @@ class ScenarioListView(MissionControlReadAPIView):
                 message="Selected workspace is not available.",
                 status_code=403,
             )
-        scenarios = cms_list_launchable_scenarios(credential, "range_launch", scope=scope)
+        try:
+            scenarios = cms_list_launchable_scenarios(credential, "range_launch", scope=scope)
+        except CMSError as exc:
+            return _catalog_error(self, exc)
         return Response({"scenarios": scenarios})

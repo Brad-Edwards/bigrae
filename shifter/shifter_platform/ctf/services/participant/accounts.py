@@ -216,15 +216,28 @@ def create_participant_accounts(
 ) -> list[CTFParticipant]:
     """Create isolated participant seats and enqueue canonical provisioning."""
     _validate_account_request(count, email)
+    from ctf.services.authorization import admit_event_actions, assert_event_action
+
+    try:
+        candidate = CTFEvent.objects.get(pk=event_id)
+    except CTFEvent.DoesNotExist:
+        raise CTFNotFoundError("Event not found", details={"event_id": str(event_id)}) from None
+    participant_admission = admit_event_actions(actor, candidate, "event.manage_participants")
+    provisioning_admission = None
+    with suppress(CTFPermissionError):
+        provisioning_admission = admit_event_actions(actor, candidate, "event.manage_ranges")
 
     created: list[CTFParticipant] = []
     with transaction.atomic():
         event, active_count = _event_for_account_creation(event_id, count)
+        assert_event_action(participant_admission, event, "event.manage_participants")
         # Reject an invalid event-wide credential before accepting any
         # provisioning work. The subsequent seat writes share this transaction.
         _event_shared_participant_password(event)
-        with suppress(CTFPermissionError):
-            request_event_provisioning(event_id, source="participant_accounts", actor_id=actor)
+        if provisioning_admission is not None:
+            request_event_provisioning(
+                event_id, source="participant_accounts", actor_id=provisioning_admission, defer_if_busy=True
+            )
             # Participant-only delegates may create seats but cannot request a
             # range wave; the organizer can enqueue provisioning separately.
         for index in range(count):
@@ -291,6 +304,13 @@ def rename_participant_username(
     from ctf.services.authorization import assert_event_action
 
     normalized = normalize_participant_username(username)
+    from ctf.services.authorization import admit_event_actions
+
+    try:
+        candidate = CTFParticipant.objects.select_related("event").get(pk=participant_id)
+    except CTFParticipant.DoesNotExist:
+        raise CTFValidationError("Participant unavailable") from None
+    actor = admit_event_actions(actor, candidate.event, "event.manage_participants")
     with transaction.atomic():
         participant = _locked_rename_target(participant_id)
         try:

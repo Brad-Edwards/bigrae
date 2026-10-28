@@ -157,13 +157,16 @@ def build_identity_cutover_plan(facts: IdentityCutoverFacts) -> dict[str, object
         },
         "audit": {"events": retained_audit_event_count(), "action": "retain_immutable"},
     }
+    account_blockers = account_plan["blockers"]
+    if not isinstance(account_blockers, list):
+        raise ValueError("Cutover account plan is invalid")
     payload: dict[str, object] = {
         "schema": "shifter.identity-cutover-plan/v1",
         "individuals": account_plan["individuals"],
         "organizations": account_plan["organizations"],
         "memberships": account_plan["memberships"],
         "dispositions": dispositions,
-        "blockers": list(account_plan["blockers"]) + domain_blockers,
+        "blockers": account_blockers + domain_blockers,
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
     payload["plan_digest"] = hashlib.sha256(canonical).hexdigest()

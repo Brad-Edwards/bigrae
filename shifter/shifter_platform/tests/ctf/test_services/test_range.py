@@ -11,7 +11,6 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
-from django.db import transaction
 from django.utils import timezone
 
 from cms.models import RangeInstance
@@ -25,6 +24,8 @@ from ctf.services.range import batch, provision
 from engine.models import Instance, Range
 from engine.models import Request as EngineRequest
 from shared.enums import RangeSource, RequestType, ResourceStatus
+
+from .test_range_recovery import event_with_scenario  # noqa: F401 -- shared native range fixture
 
 # Opaque #1325 workspace scope binding (ADR-046-R3). These suites do not
 # exercise tenancy; a fixed scalar stands in for the value the CMS launch
@@ -127,39 +128,32 @@ class TestProvisionParticipantRange:
         assert ctf_participant.range_instance_id == 42
 
     @pytest.mark.django_db
-    def test_provision_success_persists_assignment(self, ctf_participant, organizer_credential):
-        """The launch runs after the claim commits; success persists the assignment.
+    @pytest.mark.usefixtures("event_with_scenario")
+    def test_provision_success_persists_assignment(self, ctf_participant, organizer_credential, monkeypatch):
+        """The real queue is empty until CTF records its exact runtime association."""
+        from engine.models import ProvisionerLaunchIntent
+        from engine.services._launch_authority import authorize_launch_authority
+        from shared.authorization import configured_authorization_provider
 
-        A feature-artifact launch waits for the launcher, which cannot see an
-        attempt claimed inside an open transaction (ADR-034-R12). pytest-django
-        wraps each test in an outer atomic block, so a savepoint depth of zero is
-        the signal that the launch is not inside the claim's own block.
-        """
-        mock_result = RangeProvisionResult(request_id=uuid4())
-        observed = {}
+        provider = configured_authorization_provider()
+        original = provider.check
+        observed = []
 
-        def launch(**_kwargs):
-            observed["savepoints"] = len(transaction.get_connection().savepoint_ids)
-            observed["status"] = CTFParticipant.objects.get(pk=ctf_participant.pk).range_status
-            return mock_result
+        def check(request):
+            for intent in ProvisionerLaunchIntent.objects.filter(payload__operation="provision"):
+                runtime = Range.objects.get(request__request_id=intent.payload["request_id"])
+                assert CTFParticipant.objects.filter(pk=ctf_participant.pk, range_instance_id__isnull=False).exists()
+                observed.append(runtime.pk)
+            return original(request)
 
-        with (
-            patch("ctf.bridges.cms_create_range", side_effect=launch) as mock_create,
-            patch("ctf.bridges.cms_find_range_instance_id", return_value=99),
-        ):
-            result = range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
-
-        assert observed == {"savepoints": 0, "status": "provisioning"}
-        assert result["status"] == "provisioning"
-        mock_create.assert_called_once()
-        launch_options = mock_create.call_args.kwargs["launch_options"]
-        assert launch_options.credential == organizer_credential
-        assert launch_options.owner_principal.uuid == ctf_participant.principal_uuid
-        assert launch_options.event_uuid == ctf_participant.event_id
-
+        monkeypatch.setattr(provider, "check", check)
+        result = range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
         ctf_participant.refresh_from_db()
-        assert ctf_participant.range_instance_id == 99
-        assert ctf_participant.range_status == "provisioning"
+        assert result["range_instance_id"] == ctf_participant.range_instance_id
+        intent = ProvisionerLaunchIntent.objects.get(payload__operation="provision")
+        runtime = Range.objects.get(request__request_id=intent.payload["request_id"])
+        authorize_launch_authority(intent, runtime)
+        assert observed == [runtime.pk]
 
     @pytest.mark.django_db
     def test_in_flight_provisioning_blocks_reprovision(self, ctf_participant, organizer_credential):
@@ -190,15 +184,15 @@ class TestProvisionParticipantRange:
 
     @pytest.mark.django_db
     def test_provision_cms_failure(self, ctf_participant, organizer_credential):
-        """CMS errors are wrapped in CTFRangeError and release the claim for a retry."""
-        with (
-            patch("ctf.bridges.cms_create_range", side_effect=RuntimeError("CMS down")),
-            pytest.raises(CTFRangeError, match="Range provisioning failed"),
-        ):
+        """A real unavailable source leaves one durable request for a retry."""
+        from ctf.models import CTFRangeLaunch
+
+        with pytest.raises(CTFRangeError, match="Range provisioning failed"):
             range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
 
         ctf_participant.refresh_from_db()
-        assert ctf_participant.range_status == ""
+        assert ctf_participant.range_status == "provisioning"
+        assert ctf_participant.range_request_id == CTFRangeLaunch.objects.get().pk
         assert ctf_participant.range_instance_id is None
 
     @pytest.mark.django_db
@@ -263,8 +257,8 @@ class TestGetRangeStatus:
             mock_participant.save.assert_not_called()
 
     @pytest.mark.django_db
-    def test_projects_vpn_profile_availability_from_cms(self, ctf_participant):
-        """Project readiness through the real CTF -> CMS -> Engine boundary."""
+    def test_omits_vpn_profile_availability_without_a_live_credential(self, ctf_participant):
+        """Do not project credential availability without live participant proof."""
         from workspaces.services import resolve_personal_workspace
 
         user = ctf_participant.user
@@ -322,7 +316,7 @@ class TestGetRangeStatus:
         result = range_service.get_range_status(ctf_participant.pk)
 
         assert result["status"] == "ready"
-        assert result["vpn_profile_available"] is True
+        assert result["vpn_profile_available"] is False
         ctf_participant.refresh_from_db()
         assert ctf_participant.range_status == "ready"
 

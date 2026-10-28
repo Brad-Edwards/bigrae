@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 from uuid import UUID
 
-from django.contrib.auth.base_user import AbstractBaseUser
-from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
 from django.db.models import Model, QuerySet
 from pydantic import ValidationError
 
-from ctf.enums import EventCapability, SpareRangeStatus
+from ctf.enums import SpareRangeStatus
 from ctf.exceptions import CTFError
 from ctf.models import CTFCohort, CTFEvent, CTFParticipant, CTFSpareRange, CTFTeam
 from shared.model_access import (
@@ -77,12 +74,10 @@ def _uuid_ids(values: tuple[str, ...]) -> tuple[UUID, ...]:
 
 
 def _require_event_authority(actor: object, events: tuple[CTFEvent, ...]) -> None:
-    """Require range-management authority over every selected event."""
-    from ctf.services.authorization import resolve_event_authority
+    """Parked selectors cannot reintroduce retired event authority."""
+    from shared.model_access.availability import require_model_access_available
 
-    user = cast(AbstractBaseUser | AnonymousUser | None, actor)
-    if any(resolve_event_authority(user, event, capability=EventCapability.RANGES) is None for event in events):
-        raise ModelAccessSelectorError()
+    require_model_access_available()
 
 
 def _events_for_ids(ids: tuple[UUID, ...]) -> tuple[CTFEvent, ...]:
@@ -340,6 +335,9 @@ def resolve_model_access_selector(
     selector: SharingSelector | dict[str, object],
 ) -> SelectorResolution:
     """Resolve a complete CTF atomic selector under owner-domain row locks."""
+    from shared.model_access.availability import require_model_access_available
+
+    require_model_access_available()
     try:
         parsed = selector if isinstance(selector, SharingSelector) else SharingSelector.model_validate(selector)
     except ValidationError as exc:

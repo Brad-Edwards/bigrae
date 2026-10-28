@@ -56,15 +56,14 @@ def test_invalid_demand_is_not_dropped_by_enforcing_path(ctf_event, settings):
         project_event_model_scope(ctf_event, uuid4(), OwnedReference(owner="ctf", reference="draw:test"))
 
 
-def test_event_owned_spare_has_explicit_preparation_authority_and_revokes_on_consumption(
+def test_retained_event_spare_accounting_has_exact_authority_and_revokes_on_consumption(
     ctf_event, django_user_model, settings
 ):
     from django.db import transaction
 
-    from cms.services._model_allocation import prepare_model_access_for_dispatch
     from ctf.models import CTFSpareRange
     from engine.models import ModelLaunchPreparationRecord
-    from engine.services import record_model_observations
+    from engine.services import prepare_model_launch, record_model_observations
     from engine.services._model_allocation_launch import allocate_launch_models
 
     from ..cms.test_model_allocation_dispatch import setup_launch
@@ -83,7 +82,16 @@ def test_event_owned_spare_has_explicit_preparation_authority_and_revokes_on_con
     _, _, observations = allocation_inputs(django_user_model)
     record_model_observations(settings.MODEL_ACCESS_CATALOG, lambda _: observations)
     with transaction.atomic():
-        prepare_model_access_for_dispatch(request.request_id, range_id=request.range_id)
+        # Retained Engine accounting consumes closed scope facts directly. The
+        # mounted and CMS broker composition remain unavailable under ADR-068.
+        prepare_model_launch(
+            request_id=request.request_id,
+            owner_ref=request.owner_ref,
+            needs=(request.need,),
+            scope=scope,
+            authority_revisions=scope.authority_revisions,
+            catalog=settings.MODEL_ACCESS_CATALOG,
+        )
         (allocation,) = allocate_launch_models(
             {"resource": "raes-range", "operation": "provision", "request_id": str(request.request_id)},
             request.operation_id,
@@ -128,14 +136,10 @@ def test_system_preparation_rejects_spare_from_another_event(ctf_event, django_u
 
 
 def test_delegated_event_range_manager_can_prepare_the_owners_range(
-    ctf_event, django_user_model, settings, monkeypatch
+    ctf_event, django_user_model, settings, live_session_credential, allow_all_policy, monkeypatch
 ):
-    from types import SimpleNamespace
-
     from cms.services import _model_allocation
-    from management.services import principal_for_user
-    from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind
-    from shared.credentials import CredentialContext
+    from shared.operation_authority import credential_reference_fields
 
     from ..cms.test_model_allocation_dispatch import setup_launch
 
@@ -144,26 +148,19 @@ def test_delegated_event_range_manager_can_prepare_the_owners_range(
     instance.event_uuid = ctf_event.pk
     instance.save(update_fields=["range_source", "event_uuid"])
     delegate = django_user_model.objects.create_user(username="delegated-model-preparer")
-    delegate_principal = principal_for_user(delegate)
-    credential = CredentialContext(
-        delegate_principal,
-        "session",
-        uuid4(),
-        CredentialCeiling(frozenset({"event.manage_ranges"})),
-        frozenset(),
-    )
+    credential = live_session_credential(delegate)
+    authority = credential_reference_fields(credential)
+    for name, value in authority.items():
+        setattr(instance.request, name, value)
+    instance.request.save(update_fields=list(authority))
     seen = []
+    check = allow_all_policy.check
 
     def _check(authority_request):
         seen.append(authority_request)
-        return AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")
+        return check(authority_request)
 
-    monkeypatch.setattr(_model_allocation, "credential_reference_from_record", lambda _row: credential)
-    monkeypatch.setattr(_model_allocation, "resolve_current_credential", lambda original: original)
-    monkeypatch.setattr(
-        "shared.authorization.port._provider_factory",
-        lambda: SimpleNamespace(check=_check),
-    )
+    monkeypatch.setattr(allow_all_policy, "check", _check)
 
     current = _model_allocation._authorize_preparation(
         instance,
@@ -257,7 +254,7 @@ def test_event_uses_authored_scenario_envelope_when_no_manual_demand_is_set(ctf_
     assert scope.scope_id == ctf_event.pk
 
 
-def test_event_sponsor_funds_source_for_participant_without_source_membership(
+def test_event_sponsor_source_is_retained_but_broker_dispatch_remains_parked(
     ctf_event, django_user_model, settings, organizer_credential, monkeypatch
 ):
     from unittest.mock import Mock
@@ -266,10 +263,11 @@ def test_event_sponsor_funds_source_for_participant_without_source_membership(
 
     from cms.models import ScenarioModelNeeds
     from cms.services._model_allocation import prepare_model_access_for_dispatch
+    from cms.services._model_source_selection import resolve_sponsored_sources
     from ctf.models import CTFEvent
     from ctf.services.event.model_sources import set_event_model_sources
+    from engine.models import ModelAllocation, ModelLaunchPreparationRecord
     from engine.services import create_model_source
-    from engine.services._model_allocation_launch import allocate_launch_models
     from tests.cms.test_model_allocation_dispatch import setup_launch
     from tests.engine.services.test_model_sources import configuration, direct_source_catalog
     from workspaces.models import Account, Organization, OrganizationMembership, Workspace, WorkspaceMembership
@@ -323,12 +321,10 @@ def test_event_sponsor_funds_source_for_participant_without_source_membership(
     instance.range_source = "ctf"
     instance.model_launch_scope = scope.model_dump(mode="json")
     instance.save(update_fields=["range_source", "model_launch_scope"])
-    with transaction.atomic():
+    compiled, _ = resolve_sponsored_sources(scope.source_sponsorship, catalog=settings.MODEL_ACCESS_CATALOG)
+    assert any(binding.source_id == source.id for binding in compiled.source_bindings)
+    assert "synthetic-secret" not in str(compiled)
+    with pytest.raises(ContractError, match=r"allocation\.authority_unavailable"):
         prepare_model_access_for_dispatch(request.request_id, range_id=request.range_id)
-        (allocation,) = allocate_launch_models(
-            {"resource": "raes-range", "operation": "provision", "request_id": str(request.request_id)},
-            request.operation_id,
-        )
-    assert next(iter(allocation.alias_shards.values())).startswith(f"source-{source.id.hex}")
-    assert "synthetic-secret" not in str(allocation.snapshot)
-    assert allocation.snapshot["request"]["scope_kind"] == "event"
+    assert not ModelLaunchPreparationRecord.objects.exists()
+    assert not ModelAllocation.objects.exists()

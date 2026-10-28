@@ -86,7 +86,7 @@ export function useAssignCtfEventStaff(eventId: string) {
   return useMutation({
     mutationFn: (body: CtfEventStaffAssignRequest) =>
       apiFetch<CtfEventStaffMember>(`${BASE}/events/${eventId}/staff-members/`, { method: "POST", body }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) }),
   });
 }
 
@@ -95,7 +95,7 @@ export function useRevokeCtfEventStaff(eventId: string) {
   return useMutation({
     mutationFn: (principalUuid: string) =>
       apiFetch<unknown>(`${BASE}/events/${eventId}/staff-members/${principalUuid}/`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) }),
   });
 }
 
@@ -109,10 +109,10 @@ export function useTransferCtfEventOwnership(eventId: string) {
         body: { principal_uuid: principalUuid },
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) });
       queryClient.invalidateQueries({ queryKey: ctfKeys.event(eventId) });
       queryClient.invalidateQueries({ queryKey: ctfKeys.events() });
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ctfKeys.eventStaff(eventId) }),
   });
 }
 

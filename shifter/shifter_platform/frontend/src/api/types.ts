@@ -1,6 +1,9 @@
 /** Shared types re-exported from the generated OpenAPI schema. */
 import type { components } from "./schema";
 
+export type ContentScopeOption = components["schemas"]["ContentScopeOption"];
+export type ContentScopePage = components["schemas"]["ContentScopePage"];
+
 export type AuditLog = components["schemas"]["AuditLog"];
 export type PaginatedAuditLogList = components["schemas"]["PaginatedAuditLogList"];
 export type Bootstrap = components["schemas"]["Bootstrap"];

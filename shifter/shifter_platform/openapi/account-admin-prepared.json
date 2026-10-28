@@ -610,6 +610,16 @@
                         },
                         "description": ""
                     },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HierarchyPendingReceipt"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
                     "401": {
                         "content": {
                             "application/json": {
@@ -713,17 +723,18 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedSubdivisionCommand"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PatchedSubdivisionCommand"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PatchedSubdivisionCommand"
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                    "name"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 200
+                                    }
+                                }
                             }
                         }
                     }
@@ -1081,17 +1092,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SubdivisionCommand"
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/SubdivisionCommand"
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/SubdivisionCommand"
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
                             }
                         }
                     },
@@ -1111,6 +1122,16 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/OrganizationView"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HierarchyPendingReceipt"
                                 }
                             }
                         },
@@ -1428,17 +1449,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SubdivisionCommand"
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/SubdivisionCommand"
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/SubdivisionCommand"
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
                             }
                         }
                     },
@@ -1458,6 +1479,16 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/WorkspaceView"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HierarchyPendingReceipt"
                                 }
                             }
                         },
@@ -4157,16 +4188,6 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ReplaceLeasePolicy"
                             }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
-                            }
                         }
                     },
                     "required": true
@@ -4236,16 +4257,6 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ResetLeasePolicy"
                             }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ResetLeasePolicy"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ResetLeasePolicy"
-                            }
                         }
                     },
                     "required": true
@@ -4302,16 +4313,6 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
-                            }
-                        },
-                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/ReplaceLeasePolicy"
                             }
@@ -4374,16 +4375,6 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ResetLeasePolicy"
                             }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ResetLeasePolicy"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ResetLeasePolicy"
-                            }
                         }
                     },
                     "required": true
@@ -4402,6 +4393,90 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/MissionControlLeasePolicySettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/administer/organizations/": {
+            "get": {
+                "operationId": "prepared_integration_organizations_list",
+                "description": "Discover organizations authorized for one integration administration action.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "integration",
+                        "schema": {
+                            "enum": [
+                                "adapters",
+                                "model_sources"
+                            ],
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "description": "* `adapters` - adapters\n* `model_sources` - model_sources",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "default": 50
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
+                        }
+                    }
+                ],
+                "tags": [
+                    "administer"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OrganizationPage"
                                 }
                             }
                         },
@@ -4562,6 +4637,90 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/PersonalCredentialPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/administer/scopes/": {
+            "get": {
+                "operationId": "administer_scopes_retrieve",
+                "description": "Discover descendant administration without a parent account selector.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "enum": [
+                                "organization",
+                                "workspace"
+                            ],
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "description": "* `organization` - organization\n* `workspace` - workspace",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "default": 50
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
+                        }
+                    }
+                ],
+                "tags": [
+                    "administer"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AdministrationScopePage"
                                 }
                             }
                         },
@@ -8044,7 +8203,7 @@
                 "description": "Closed account declaration with an explicit individual principal.",
                 "properties": {
                     "kind": {
-                        "$ref": "#/components/schemas/KindEnum"
+                        "$ref": "#/components/schemas/AccountCommandKindEnum"
                     },
                     "name": {
                         "type": "string",
@@ -8053,12 +8212,25 @@
                     "individual_principal_uuid": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "publication_receipt": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 },
                 "required": [
                     "kind",
                     "name"
                 ]
+            },
+            "AccountCommandKindEnum": {
+                "enum": [
+                    "individual",
+                    "team",
+                    "enterprise"
+                ],
+                "type": "string",
+                "description": "* `individual` - individual\n* `team` - team\n* `enterprise` - enterprise"
             },
             "AccountMemberCommand": {
                 "type": "object",
@@ -8169,10 +8341,15 @@
                             "type": "string"
                         },
                         "readOnly": true
+                    },
+                    "has_descendant_scopes": {
+                        "type": "boolean",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "accounts",
+                    "has_descendant_scopes",
                     "individual_account",
                     "installation_actions",
                     "principal_kind",
@@ -8298,6 +8475,79 @@
                     "last_login",
                     "user_type",
                     "username"
+                ]
+            },
+            "AdministrationScope": {
+                "type": "object",
+                "description": "An independently authorized scope and non-secret routing ancestry.",
+                "properties": {
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AdministrationScopeKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "account_uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "organization_uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "is_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "account_uuid",
+                    "is_default",
+                    "kind",
+                    "name",
+                    "organization_uuid",
+                    "uuid"
+                ]
+            },
+            "AdministrationScopeKindEnum": {
+                "enum": [
+                    "organization",
+                    "workspace"
+                ],
+                "type": "string",
+                "description": "* `organization` - organization\n* `workspace` - workspace"
+            },
+            "AdministrationScopePage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdministrationScope"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "count",
+                    "results"
                 ]
             },
             "ApiError": {
@@ -8842,6 +9092,35 @@
                 "type": "string",
                 "description": "* `status-quo` - Inherit deployment baseline\n* `none` - Zero egress (no outbound NAT path)"
             },
+            "HierarchyPendingReceipt": {
+                "type": "object",
+                "description": "A committed creation awaiting policy publication.",
+                "properties": {
+                    "uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "publication_receipt": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "publication_state": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PublicationStateEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "publication_receipt",
+                    "publication_state",
+                    "uuid"
+                ]
+            },
             "IssuePersonalCredential": {
                 "type": "object",
                 "description": "Validate a closed personal credential issue or rotation command.",
@@ -9068,15 +9347,6 @@
                     "target_uuid",
                     "token"
                 ]
-            },
-            "KindEnum": {
-                "enum": [
-                    "individual",
-                    "team",
-                    "enterprise"
-                ],
-                "type": "string",
-                "description": "* `individual` - individual\n* `team` - team\n* `enterprise` - enterprise"
             },
             "LeasePolicy": {
                 "type": "object",
@@ -9471,16 +9741,6 @@
                     "last_name": {
                         "type": "string",
                         "maxLength": 150
-                    }
-                }
-            },
-            "PatchedSubdivisionCommand": {
-                "type": "object",
-                "description": "One bounded display name for a real business-account subdivision.",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "maxLength": 200
                     }
                 }
             },
@@ -9989,6 +10249,13 @@
                     "source_principal_uuid"
                 ]
             },
+            "PublicationStateEnum": {
+                "enum": [
+                    "pending"
+                ],
+                "type": "string",
+                "description": "* `pending` - pending"
+            },
             "RangeScopeBinding": {
                 "type": "object",
                 "description": "Bounded, read-only projection of a range scoped to a workspace.\n\nExplicit fields only (never a ``ModelSerializer``): no internal workspace or\nrange id, range spec, instance/IP/access detail, credential, or ORM object is\nexposed.",
@@ -10311,6 +10578,23 @@
                     "name": {
                         "type": "string",
                         "maxLength": 200
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
+            "SubdivisionCreationCommand": {
+                "type": "object",
+                "description": "Retry a committed subdivision through its exact publication receipt.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "publication_receipt": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 },
                 "required": [

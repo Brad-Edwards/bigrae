@@ -368,6 +368,22 @@ def test_reclaimed_lease_fences_stale_worker_result() -> None:
     assert current.attempts == 0
 
 
+def test_reclaimed_lease_fences_stale_worker_before_dispatch(settings, k8s_boundary) -> None:
+    """A reclaimed lease must block the provider effect, not only its result write."""
+    from engine.management.commands.drain_provisioner_launch_outbox import Command
+
+    _intent()
+    _configure_aws(settings)
+    claimed = Command._claim_next()
+    assert claimed is not None
+    type(claimed).objects.filter(pk=claimed.pk).update(next_attempt_at=claimed.next_attempt_at + timedelta(minutes=5))
+    k8s_boundary.batch_api.create_namespaced_job.return_value = _job("synthetic-stale-lease")
+
+    Command()._launch(claimed)
+
+    k8s_boundary.batch_api.create_namespaced_job.assert_not_called()
+
+
 def test_drainer_rejects_forged_intent_without_authorized_domain_state(settings, k8s_boundary) -> None:
     row = _intent()
     from engine.models import Range

@@ -17,7 +17,6 @@ import logging
 import re
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from django.db import OperationalError, transaction
@@ -30,15 +29,22 @@ from cms.models import (
     TenantPackArchive,
     TenantPackRemoval,
 )
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, RequestAudit, audit_log
+from shared.audit import (
+    AuditAction,
+    AuditActorType,
+    AuditEntityType,
+    AuditEvent,
+    RequestAudit,
+    audit_log,
+    principal_actor_fields,
+)
+from shared.credentials import CredentialContext
 from shared.exceptions import ValidationError
 from shared.log_sanitize import safe_log_value
 from shared.pack_references import PackReferenceUnavailable
 
 from ._pack_references import PackBlocker, find_pack_blockers
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+from ._tenant_pack_authority import TenantPackAdmission, admit_tenant_pack, fence_tenant_pack
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +86,7 @@ class PackRemovalView:
 
 
 def request_tenant_pack_removal(
-    user: User,
+    user: CredentialContext,
     organization_uuid: UUID,
     pack_id: str,
     expected_digest: str,
@@ -98,21 +104,31 @@ def request_tenant_pack_removal(
     if not _PACK_ID.fullmatch(pack_id) or not _DIGEST.fullmatch(expected_digest):
         raise ValidationError(_UNAVAILABLE)
     attribution = audit or RequestAudit()
-    removal_id = _commit_removal(user, organization_uuid, pack_id, expected_digest, attribution)
+    admitted = admit_tenant_pack(user, organization_uuid)
+    from engine.services import prepare_runtime_plugin_pack_binding_removal
+    from shared.runtime_plugin_binding import RuntimePluginScope
+
+    binding_admission = prepare_runtime_plugin_pack_binding_removal(
+        admitted.credential,
+        RuntimePluginScope(organization_uuid=organization_uuid, pack_id=pack_id, pack_digest=expected_digest),
+    )
+    removal_id = _commit_removal(admitted, pack_id, expected_digest, attribution, binding_admission)
     reconcile_tenant_pack_removal(removal_id)
     return _view(TenantPackRemoval.objects.get(pk=removal_id))
 
 
 def _commit_removal(
-    user: User, organization_uuid: UUID, pack_id: str, expected_digest: str, attribution: RequestAudit
+    admitted: TenantPackAdmission, pack_id: str, expected_digest: str, attribution: RequestAudit, binding_admission
 ) -> UUID:
     """Fence, guard, capture and delete catalog state; return the removal id."""
     from engine.services import remove_runtime_plugin_pack_binding
-    from workspaces.services import get_organization_profile
+
+    from ._content_authority import content_scope
 
     with transaction.atomic():
-        # The organization mutex serializes membership revocation with this write.
-        organization_uuid = get_organization_profile(user, organization_uuid, lock=True).uuid
+        fence_tenant_pack(admitted)
+        organization_uuid = admitted.organization_uuid
+        user = admitted.credential
         try:
             source = RaesPackageSource.objects.select_for_update(nowait=True).filter(scenario_id=pack_id).first()
         except OperationalError as exc:
@@ -123,7 +139,7 @@ def _commit_removal(
             ) from None
         if source is None:
             return _resumable(organization_uuid, pack_id, expected_digest)
-        if source.organization_uuid != organization_uuid:
+        if source.organization_uuid != organization_uuid or content_scope(source) != admitted.scope:
             raise ValidationError(_UNAVAILABLE)
         if source.package_digest != expected_digest:
             raise PackRemovalConflict("pack_changed", "The pack changed; reload its current version before removing")
@@ -134,12 +150,13 @@ def _commit_removal(
             package_name=source.package_identity,
             package_version=source.package_version,
             package_digest=source.package_digest,
-            requested_by=user,
+            requested_by=None,
+            requested_by_principal_uuid=user.principal.uuid,
             request_id=attribution.request_id or "",
             next_attempt_at=timezone.now(),
         )
         archives = _capture_archives(source, removal)
-        remove_runtime_plugin_pack_binding(user, organization_uuid, pack_id, audit=attribution)
+        remove_runtime_plugin_pack_binding(binding_admission, organization_uuid, pack_id, audit=attribution)
         ScenarioModelNeeds.objects.filter(scenario_id=pack_id).delete()
         ScenarioMetadata.objects.filter(scenario_id=pack_id).delete()
         source.delete()
@@ -151,7 +168,6 @@ def _commit_removal(
                 entity_id=0,
                 entity_ref=pack_id,
                 action=AuditAction.DELETE,
-                actor_type=AuditActorType.USER,
                 previous_state={
                     "organization_uuid": str(organization_uuid),
                     "scenario_id": pack_id,
@@ -179,7 +195,7 @@ def _resumable(organization_uuid: UUID, pack_id: str, expected_digest: str) -> U
     return removal.id
 
 
-def _refuse_references(pack_id: str, user: User) -> None:
+def _refuse_references(pack_id: str, user: CredentialContext) -> None:
     """Raise a conflict naming the references the actor may see that still use the pack."""
     try:
         blockers = find_pack_blockers(pack_id, user)
@@ -259,7 +275,12 @@ def reconcile_tenant_pack_removal(removal_id: UUID) -> bool:
                 archive.pk,
             )
             continue
-        TenantPackArchive.objects.filter(pk=archive.pk, removal=removal).delete()
+        # One absent observation cannot close a still-unknown upload. A late
+        # server write must remain owned by future exact-key cleanup attempts.
+        if removal.upload_outcome != "unknown":
+            TenantPackArchive.objects.filter(pk=archive.pk, removal=removal).delete()
+    if removal.upload_outcome == "unknown":
+        failure = failure or "upload_outcome_unknown"
     return _settle(removal.id, lease_id, failure)
 
 
@@ -380,7 +401,7 @@ def _settle(removal_id: UUID, lease_id: UUID, failure: str) -> bool:
         removal.lease_id = None
         removal.lease_expires_at = None
         remaining = removal.archives.count()
-        if failure or remaining:
+        if failure or remaining or removal.upload_outcome == "unknown":
             removal.attempts += 1
             removal.last_failure_code = failure or _STORAGE_DELETE_FAILED
             delay = min(_MAX_BACKOFF_SECONDS, 30 * 2 ** min(removal.attempts, 10))
@@ -413,14 +434,12 @@ def _settle(removal_id: UUID, lease_id: UUID, failure: str) -> bool:
         return True
 
 
-def _audit(attribution: RequestAudit, user: User, event: AuditEvent) -> None:
+def _audit(attribution: RequestAudit, user: CredentialContext, event: AuditEvent) -> None:
     """Write a strict audit event with the request's attribution."""
     audit_log(
         replace(
             event,
-            actor_type=attribution.actor_type or AuditActorType.USER,
-            actor_id=attribution.actor_id if attribution.actor_type else user.id,
-            actor_principal_uuid=attribution.actor_principal_uuid,
+            **principal_actor_fields(user.principal),
             request_id=attribution.request_id,
             source_ip=attribution.source_ip,
             user_agent=attribution.user_agent,

@@ -36,6 +36,7 @@ from ctf.services.event.staff import (
     actor_has_event_capability,
     assign_event_staff,
     list_event_staff,
+    pending_event_authority,
     revoke_event_staff,
     transfer_event_ownership,
 )
@@ -91,6 +92,7 @@ __all__ = (
     "list_event_staff",
     "open_registration",
     "pause_event",
+    "pending_event_authority",
     "publish_event_relationships",
     "resume_event",
     "revoke_event_staff",

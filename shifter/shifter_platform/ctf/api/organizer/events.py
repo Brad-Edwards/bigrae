@@ -30,6 +30,7 @@ from ctf.api.organizer._base import (
     _resolve_owned_event,
 )
 from ctf.api.serializers import (
+    CtfScenarioListQuerySerializer,
     CtfScenarioListResponseSerializer,
     EventDetailSerializer,
     EventListQuerySerializer,
@@ -50,25 +51,28 @@ if TYPE_CHECKING:
 
     from ctf.models import CTFEvent
 
-# Canonical page-size bound for the authority-aware event list. The platform-admin
-# path (all live events) is always bounded to this even when the caller omits
-# pagination; an ordinary organizer keeps the historical full-list response
-# (ADR-052-R3, ADR-040).
+# Bound both policy discovery and serialized pages. Counts cover every readable
+# candidate, not merely the current page (ADR-052-R3, ADR-040).
 _EVENT_LIST_PAGE_SIZE = 200
+_EVENT_LIST_CANDIDATE_LIMIT = 1000
 
 
-def _authorized_event_page(events, credential, *, page: int | None, page_size: int | None) -> list[CTFEvent]:
-    """Apply the requested page after policy filtering, in bounded database batches."""
-    from ctf.exceptions import CTFPermissionError
+def _authorized_event_page(events, credential, *, page: int | None, page_size: int | None):
+    """Filter a finite candidate set before paging; broad discovery must be refined."""
+    from ctf.exceptions import CTFPermissionError, CTFValidationError
     from ctf.services.unified_authorization import require_event_action
 
     size = page_size or _EVENT_LIST_PAGE_SIZE
-    start = ((page or 1) - 1) * size if page is not None or page_size is not None else 0
+    number = page or 1
+    start = (number - 1) * size
     stop = start + size
     readable: list[CTFEvent] = []
+    candidates = list(events[: _EVENT_LIST_CANDIDATE_LIMIT + 1])
+    if len(candidates) > _EVENT_LIST_CANDIDATE_LIMIT:
+        raise CTFValidationError("Refine event filters", code="CTF_EVENT_DISCOVERY_LIMIT")
     offset = 0
-    while len(readable) < stop:
-        batch = list(events[offset : offset + _EVENT_LIST_PAGE_SIZE])
+    while offset < len(candidates):
+        batch = candidates[offset : offset + _EVENT_LIST_PAGE_SIZE]
         if not batch:
             break
         offset += len(batch)
@@ -78,9 +82,14 @@ def _authorized_event_page(events, credential, *, page: int | None, page_size: i
             except CTFPermissionError:
                 continue
             readable.append(event)
-            if len(readable) == stop:
-                break
-    return readable[start:stop]
+    return readable[start:stop], {
+        "count": len(readable),
+        "active_count": sum(event.status in {"registration", "active", "paused"} for event in readable),
+        "team_mode_count": sum(event.team_mode for event in readable),
+        "page": number,
+        "page_size": size,
+        "next_page": number + 1 if stop < len(readable) else None,
+    }
 
 
 def _event_projection_context(request: Request, credential, events: Sequence[CTFEvent]) -> dict[str, Any]:
@@ -94,13 +103,16 @@ def _event_projection_context(request: Request, credential, events: Sequence[CTF
     checks: list[AuthorizationRequest] = []
     for event in events:
         scope = event_credential_scope(event.pk)
+        target = TargetRef("event", event.pk)
         for capability, action in capability_action_pairs():
+            if not credential.ceiling.permits(action, target):
+                continue
             indexed.append((event.pk, capability))
             checks.append(
                 AuthorizationRequest(
                     credential.principal,
                     action,
-                    TargetRef("event", event.pk),
+                    target,
                     scope,
                     credential.ceiling,
                 )
@@ -136,10 +148,9 @@ class EventListView(APIView):
     def get(self, request: Request) -> Response:
         """Return the events the actor may administer (authority-aware, bounded).
 
-        A platform administrator sees all live events; an ordinary organizer sees
-        owned plus live staff-assigned events. Search/status/stable-owner/ordering
-        are allowlisted data filters; the admin path is bounded to the canonical
-        page size. The v1 ``{"events": [...]}`` envelope is unchanged (ADR-040).
+        Every row and aggregate count uses the same live event-read policy.
+        Search/status/stable-owner/ordering are allowlisted data filters. Bounded
+        pages include continuation and counts for the complete readable result.
         """
         from ctf.exceptions import CTFError
         from ctf.models import CTFEvent
@@ -159,25 +170,27 @@ class EventListView(APIView):
         owner = params.get("owner_principal_uuid")
         if owner:
             events = events.filter(owner_principal_uuid=owner)
-        ordering = params.get("ordering")
-        if ordering:
-            events = events.order_by(ordering, "id")
+        events = events.order_by(params.get("ordering") or "-event_start", "id")
 
         try:
-            rows = _authorized_event_page(
+            rows, pagination = _authorized_event_page(
                 events,
                 credential,
                 page=params.get("page"),
                 page_size=params.get("page_size"),
             )
         except CTFError as exc:
-            raise _CtfApiError(
+            if exc.code == "CTF_EVENT_DISCOVERY_LIMIT":
+                return _CtfApiError(
+                    code="event_discovery_limit", message="Refine event filters.", status_code=400
+                ).to_response(request)
+            return _CtfApiError(
                 code="dependency_unavailable",
                 message="Service unavailable",
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            ) from exc
+            ).to_response(request)
         context = _event_projection_context(request, credential, rows)
-        return Response({"events": EventSummarySerializer(rows, many=True, context=context).data})
+        return Response({"events": EventSummarySerializer(rows, many=True, context=context).data, **pagination})
 
     @extend_schema(request=EventWriteSerializer, responses={201: EventMutationResultSerializer})
     def post(self, request: Request) -> Response:
@@ -297,7 +310,7 @@ class ForceDeleteEventView(APIView):
     @extend_schema(request=ForceDeleteEventRequestSerializer, responses=ForceDeleteEventResultSerializer)
     def post(self, request: Request, event_id: UUID) -> Response:
         """Validate the confirmation name and force-delete the event."""
-        from ctf.exceptions import CTFValidationError
+        from ctf.exceptions import CTFStateError, CTFValidationError
         from ctf.models import CTFEvent
 
         try:
@@ -321,6 +334,10 @@ class ForceDeleteEventView(APIView):
                     result = ctf_services.force_delete_event(event_id, _credential(request), confirmation_name)
                 except CTFValidationError:
                     _raise_invalid_event()
+                except CTFStateError:
+                    raise _CtfApiError(
+                        status_code=503, code="event_cleanup_unavailable", message="Event range cleanup is unavailable."
+                    ) from None
             return Response(result)
         except _CtfApiError as exc:
             return exc.to_response(request)
@@ -332,10 +349,35 @@ class ScenarioListView(APIView):
     permission_classes = CTF_ORGANIZER_PERMISSIONS
     required_read_scopes = _EVENT_READ
 
-    @extend_schema(responses=CtfScenarioListResponseSerializer)
+    @extend_schema(
+        operation_id="ctf_scenario_options_retrieve",
+        parameters=[CtfScenarioListQuerySerializer],
+        responses=CtfScenarioListResponseSerializer,
+    )
     def get(self, request: Request) -> Response:
         """Return scenario id/name pairs from the CMS registry."""
-        import ctf.bridges as ctf_bridges
+        from rest_framework.exceptions import ValidationError
 
-        scenarios = [{"id": sid, "name": name} for sid, name in ctf_bridges.cms_list_scenarios(_credential(request))]
+        import ctf.bridges as ctf_bridges
+        from shared.exceptions import CMSError
+        from shared.identity_scope import ResourceScope
+
+        if any(len(request.query_params.getlist(key)) != 1 for key in request.query_params):
+            raise ValidationError("Invalid request")
+        query = CtfScenarioListQuerySerializer(data=request.query_params.dict())
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+        scope = ResourceScope(data["scope_kind"], data.get("account"), data.get("organization"), data.get("workspace"))
+        try:
+            scenarios = [
+                {"id": sid, "name": name}
+                for sid, name in ctf_bridges.cms_list_scenarios(_credential(request), scope=scope)
+            ]
+        except CMSError as exc:
+            unavailable = exc.details.get("code") == "authority-unavailable"
+            return _CtfApiError(
+                code="dependency_unavailable" if unavailable else "forbidden",
+                message="Service unavailable" if unavailable else "Permission denied",
+                status_code=503 if unavailable else 403,
+            ).to_response(request)
         return Response({"scenarios": scenarios})

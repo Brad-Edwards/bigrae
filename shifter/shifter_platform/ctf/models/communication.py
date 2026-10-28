@@ -157,9 +157,12 @@ class CommunicationCampaign(CTFBaseModel):
     def save(self, *args, **kwargs) -> None:
         """Project retained human attribution to its stable principal on create."""
         if self._state.adding and self.created_by_id is not None and not self.creator_principal_uuid:
+            creator = self.created_by
+            if creator is None:
+                raise ValueError("Human attribution unavailable")
             from shared.principal_port import principal_for_user
 
-            self.creator_principal_uuid = principal_for_user(self.created_by).uuid
+            self.creator_principal_uuid = principal_for_user(creator).uuid
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:

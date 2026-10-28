@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from cms.models import RaesPackageSource, RangeInstance
+    from engine.services import RaesRangeRef
     from shared.authorization import TargetRef
     from shared.credentials import CredentialContext
     from shared.identity_scope import PrincipalRef, ResourceScope
@@ -146,7 +147,7 @@ class CmsRaesDispatchPort:
 
         from cms.models import RangeInstance
         from cms.services._model_allocation import needs_model_preparation, prepare_model_access_for_dispatch
-        from cms.services._scoped_range_launch import revalidate_scoped_launch
+        from cms.services._scoped_range_launch import revalidate_scoped_launch, source_launch_metadata
         from engine.services import dispatch_created_raes_range, prepare_raes_range_creation
 
         if self.credential is None or self.scope is None or self.source is None:
@@ -167,13 +168,17 @@ class CmsRaesDispatchPort:
             authority_action=self.authority_action,
             authority_target=self.authority_target,
         )
+        metadata = source_launch_metadata(self.source.scenario_id)
+        if not metadata[0]:
+            raise ValueError("Range source unavailable")
         instance = RangeInstance.objects.select_related("request").get(request__request_id=self.request_id)
+        prepare_models = needs_model_preparation(self.request_id)
         bindings = RangeBindings(
             delivery=delivery,
             participant_access=tuple(participant_access),
             artifact=artifacts,
             runtime_plugin_scope=self.runtime_plugin_scope,
-            defer_dispatch=True,
+            defer_dispatch=prepare_models or self.authority_target is not None,
             openvpn_deadline=self._openvpn_deadline(),
             credential=current,
             resource_scope=self.scope,
@@ -183,19 +188,45 @@ class CmsRaesDispatchPort:
             authority_target=self.authority_target,
         )
         prepared = prepare_raes_range_creation(bindings, self.workspace_id, instance.user_id, compiled_plan)
-        prepare_models = needs_model_preparation(self.request_id)
         with transaction.atomic():
+            if instance.launch_intent_digest:
+                from shared.range_workspace_aggregate import fence_range_event_launch
+
+                if (
+                    self.authority_target is None
+                    or self.authority_target.type != "event"
+                    or self.authority_target.uuid is None
+                ):
+                    raise ValueError("Range launch intent unavailable")
+                fence_range_event_launch(UUID(self.request_id), self.authority_target.uuid)
             row = RangeInstance.objects.select_for_update(of=("self",)).select_related("request").get(pk=instance.pk)
-            self._assert_principal_launch_row(row, current)
-            create_raes_range(
-                request_id=self.request_id,
-                user_id=row.user_id,
-                compiled_plan=compiled_plan,
-                workspace_id=self.workspace_id,
-                backend_admission=self.backend_admission,
-                egress_mode=self.egress_mode,
-                bindings=replace(bindings, prepared_creation=prepared),
-            )
+            self._assert_principal_launch_row(row, current, metadata)
+            ref: ShifterDispatchResult | RaesRangeRef
+            if row.launch_intent_digest and self.authority_target is not None and row.range_id is not None:
+                from engine.services import project_range_authority
+
+                projection = project_range_authority(UUID(self.request_id))
+                if (
+                    projection.native_id,
+                    projection.public_uuid,
+                    projection.scope,
+                    projection.owner_principal_uuid,
+                    projection.parent,
+                ) != (row.range_id, row.uuid, self.scope, row.owner_principal_uuid, self.authority_target):
+                    raise ValueError("Range replay runtime changed")
+                ref = ShifterDispatchResult(
+                    request_id=self.request_id, accepted=True, status=row.status, range_id=str(projection.native_uuid)
+                )
+            else:
+                ref = create_raes_range(
+                    request_id=self.request_id,
+                    user_id=row.user_id,
+                    compiled_plan=compiled_plan,
+                    workspace_id=self.workspace_id,
+                    backend_admission=self.backend_admission,
+                    egress_mode=self.egress_mode,
+                    bindings=replace(bindings, prepared_creation=prepared),
+                )
             if self.scope.kind == "installation":
                 from engine.services import native_range_id_by_request
 
@@ -209,21 +240,30 @@ class CmsRaesDispatchPort:
             row.range_id = native_id
             row.save(update_fields=["range_id"])
         if prepare_models:
-            prepare_model_access_for_dispatch(UUID(self.request_id), range_id=native_id)
-        ref = dispatch_created_raes_range(UUID(self.request_id), credential=current, prepared_creation=prepared)
+            prepare_model_access_for_dispatch(UUID(self.request_id), range_id=UUID(ref.range_id))
+            if self.authority_target is None:
+                ref = dispatch_created_raes_range(UUID(self.request_id), credential=current, prepared_creation=prepared)
         return ShifterDispatchResult(
             request_id=ref.request_id, accepted=ref.accepted, status=ref.status, range_id=ref.range_id
         )
 
-    def _assert_principal_launch_row(self, row: RangeInstance, current: CredentialContext) -> None:
+    def _assert_principal_launch_row(
+        self, row: RangeInstance, current: CredentialContext, metadata: tuple[bool, bool]
+    ) -> None:
         """Fence locked native custody and the original source before dispatch."""
-        from cms.models import RaesPackageSource
-        from cms.services._scoped_range_launch import source_launch_binding
+        from cms.services._pack_fence import fence_pack_reference
+        from cms.services._scoped_range_launch import source_launch_binding, source_launch_metadata
         from shared.credentials import resolve_local_credential
         from workspaces.services import resolve_resource_scope
 
         if self.scope is None or self.source is None or row.request is None:
             raise ValueError("Range creation authority unavailable")
+        if row.launch_intent_digest:
+            from shared.operation_authority import credential_reference_fields
+
+            if any(getattr(row.request, key) != value for key, value in credential_reference_fields(current).items()):
+                raise ValueError("Range original proof changed")
+        source = fence_pack_reference(self.source.scenario_id, expected_digest=self.source.package_digest)
         resolved = resolve_resource_scope(self.scope)
         if (
             resolve_local_credential(current) != current
@@ -240,7 +280,10 @@ class CmsRaesDispatchPort:
             )
             or (row.scope_kind, row.account_id, row.organization_id, row.workspace_id)
             != (resolved.kind, resolved.account_id, resolved.organization_id, resolved.workspace_id)
-            or not RaesPackageSource.objects.filter(pk=self.source.pk, **source_launch_binding(self.source)).exists()
+            or source is None
+            or source_launch_binding(source) != source_launch_binding(self.source)
+            or source_launch_metadata(self.source.scenario_id) != metadata
+            or not metadata[0]
         ):
             raise ValueError("Range launch changed")
 

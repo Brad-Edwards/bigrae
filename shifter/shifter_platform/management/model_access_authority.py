@@ -161,6 +161,18 @@ def model_access_principals_for_users(user_ids: tuple[int, ...]) -> tuple[tuple[
     return rows
 
 
+def model_access_user_references_for_principals(principal_uuids: tuple[UUID, ...]) -> tuple[OwnedReference, ...]:
+    """Map durable owners to the exact user references published by identity selectors."""
+    from management.models import Principal
+
+    return tuple(
+        OwnedReference(owner="management", reference=f"user:{user_id}")
+        for user_id in Principal.objects.filter(uuid__in=principal_uuids, user_id__isnull=False)
+        .order_by("user_id")
+        .values_list("user_id", flat=True)
+    )
+
+
 def resolve_model_preparation_user(user_id: int) -> int:
     """Prove an inactive, passwordless identity without granting active-user access.
 

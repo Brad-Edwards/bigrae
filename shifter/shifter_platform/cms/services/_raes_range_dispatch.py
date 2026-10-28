@@ -66,6 +66,7 @@ def create_range_dispatch(  # NOSONAR -- stable cross-service facade retained fo
     owner_principal: PrincipalRef | None = None,
     authority_action: str | None = None,
     authority_target: TargetRef | None = None,
+    request_uuid: UUID | None = None,
 ) -> RangeContext:
     """Launch a registered RAES scenario through the authoritative path.
 
@@ -95,8 +96,15 @@ def create_range_dispatch(  # NOSONAR -- stable cross-service facade retained fo
             remote_access_teardown_at=remote_access_teardown_at,
             model_admission_subject=model_admission_subject,
             model_launch_scope=model_launch_scope,
+            request_uuid=request_uuid,
         )
-    if scope is not None or owner_principal is not None or authority_action is not None or authority_target is not None:
+    if (
+        scope is not None
+        or owner_principal is not None
+        or authority_action is not None
+        or authority_target is not None
+        or request_uuid is not None
+    ):
         raise CMSError("Range launch scope unavailable")
     return dispatch_range_launch(
         user,

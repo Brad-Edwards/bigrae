@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -216,7 +217,7 @@ def admin_event_detail(request: HttpRequest, event_id: UUID) -> HttpResponse:
         status_form = EventStatusForm(request.POST, event=event)
         if status_form.is_valid():
             action = status_form.cleaned_data["action"]
-            action_table = {
+            action_table: dict[str, Callable[..., bool]] = {
                 "schedule": schedule_event,
                 "activate": activate_event,
                 "pause": pause_event,
@@ -233,7 +234,7 @@ def admin_event_detail(request: HttpRequest, event_id: UUID) -> HttpResponse:
             if success:
                 logger.info(
                     "User %s changed event %s status via action: %s",
-                    request.user.email,
+                    getattr(request.user, "email", ""),
                     event.pk,
                     action,
                 )
@@ -352,7 +353,7 @@ def admin_event_edit(request: HttpRequest, event_id: UUID) -> HttpResponse:
     if not event.is_modifiable:
         logger.warning(
             "User %s attempted to edit non-modifiable event %s",
-            request.user.email,
+            getattr(request.user, "email", ""),
             event.pk,
         )
         return redirect("ctf:admin_event_detail", event_id=event.pk)

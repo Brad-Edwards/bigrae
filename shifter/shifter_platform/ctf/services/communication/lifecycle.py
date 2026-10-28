@@ -25,7 +25,7 @@ from ctf.models import (
     DeliveryAttempt,
     RecipientSnapshot,
 )
-from ctf.services.communication.admission import AdmissionActor, lock_authorized_campaign
+from ctf.services.communication.admission import AdmissionActor, lock_authorized_campaign, prepare_campaign_admission
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ def cancel_campaign(campaign: CommunicationCampaign, *, actor: AdmissionActor) -
     Returns the number of delivery commands cancelled.
     """
     now = timezone.now()
+    actor = prepare_campaign_admission(campaign, actor)
     with transaction.atomic():
         # Lock the campaign so a concurrent release (which also locks it) cannot
         # materialize new work between this cancellation and its commit.

@@ -199,6 +199,10 @@ def create_raes_range(
     )
     user_model = get_user_model()
     with transaction.atomic():
+        if principal_fields and bindings.resource_scope is not None and bindings.resource_scope.kind == "installation":
+            from ._range_authority_history import lock_warm_range_creation
+
+            lock_warm_range_creation(request_uuid)
         scope = bindings.runtime_plugin_scope
         pin = (
             resolve_runtime_plugin_pin(scope, compiled_plan, backend=str(binding_fields.get("range_backend") or ""))
@@ -248,6 +252,12 @@ def create_raes_range(
         _persist_range_bindings(range_obj, bindings)
         persist_runtime_plugin_pin(range_obj, pin)
         _write_operation_receipt(request_uuid, range_id=str(range_obj.uuid))
+        if principal_fields:
+            from ._range_authority_history import record_range_authority_change
+
+            if bindings.credential is None:
+                raise ValueError("Range creation authority unavailable")
+            record_range_authority_change(range_obj, bindings.credential, "create", "")
 
     return _dispatch_range_creation(range_obj, request_uuid, bindings)
 
@@ -489,7 +499,11 @@ def _dispatch_range_creation(range_obj: Range, request_uuid: UUID, bindings: Ran
     if bindings.defer_dispatch:
         return RaesRangeRef(str(request_uuid), str(range_obj.uuid), range_obj.status, True)
     if bindings.credential is not None:
-        return dispatch_created_raes_range(request_uuid, credential=bindings.credential)
+        return dispatch_created_raes_range(
+            request_uuid,
+            credential=bindings.credential,
+            prepared_creation=bindings.prepared_creation,
+        )
     return dispatch_created_raes_range(request_uuid)
 
 

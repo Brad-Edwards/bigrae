@@ -32,18 +32,17 @@ from shared.exceptions import ValidationError
 from shared.raes.operation_input import parse_raes_operation_input
 from shared.range_instantiation_policy import BackendAdmission, InstantiationPurpose
 from shared.runtime_plugin_binding import RuntimePluginScope
-from workspaces.models import Organization, OrganizationMembership
+from tests.cms.test_runtime_plugins import tenant as tenant
+from workspaces.models import Organization
 from workspaces.services import OrganizationAuthorizationError
 
 pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
-def pack(monkeypatch):
+def pack(monkeypatch, tenant):
     monkeypatch.setattr("engine.services._raes_range.start_raes_range_provisioning", lambda request: None)
-    actor = User.objects.create_user(username="pack-admin")
-    organization = Organization.objects.create(name="Example")
-    OrganizationMembership.objects.create(user=actor, organization=organization, role="admin")
+    actor, organization = tenant
     manifest = {
         "protocol": "shifter.runtime-plugin/v1",
         "plugin_id": "example.adapter",
@@ -54,17 +53,23 @@ def pack(monkeypatch):
         "capabilities": ["guest.configure", "guest.verify"],
         "required_bindings": ["server"],
     }
-    installed = install_runtime_plugin(actor, organization.uuid, manifest)
+    installed = install_runtime_plugin(actor.credential, organization.uuid, manifest)
     RuntimePluginInstallation.objects.filter(pk=installed.id).update(state="ready")
     scope = RuntimePluginScope(organization_uuid=organization.uuid, pack_id="example", pack_digest="sha256:" + "b" * 64)
     binding = bind_runtime_plugin(
-        actor,
+        actor.credential,
         RuntimePluginScope(organization_uuid=organization.uuid, pack_digest=scope.pack_digest, pack_id="example"),
         installed.id,
         {"targets": {"server": "node.web"}},
     )
     return SimpleNamespace(
-        actor=actor, organization=organization, installed=installed, manifest=manifest, scope=scope, binding=binding
+        actor=actor,
+        credential=actor.credential,
+        organization=organization,
+        installed=installed,
+        manifest=manifest,
+        scope=scope,
+        binding=binding,
     )
 
 
@@ -88,17 +93,17 @@ def launch(pack, *, backend="gce"):
 def test_existing_range_keeps_original_version_after_pack_upgrade_and_retirement(pack):
     target = launch(pack)
     original = retained_runtime_plugin_pin(target)
-    replacement = install_runtime_plugin(pack.actor, pack.organization.uuid, {**pack.manifest, "version": "2"})
+    replacement = install_runtime_plugin(pack.credential, pack.organization.uuid, {**pack.manifest, "version": "2"})
     RuntimePluginInstallation.objects.filter(pk=replacement.id).update(state="ready")
     bind_runtime_plugin(
-        pack.actor,
+        pack.credential,
         RuntimePluginScope(
             organization_uuid=pack.organization.uuid, pack_digest=pack.scope.pack_digest, pack_id="example"
         ),
         replacement.id,
         {"targets": {"server": "node.web"}},
     )
-    change_runtime_plugin(pack.actor, pack.organization.uuid, pack.installed.id, "retire")
+    change_runtime_plugin(pack.credential, pack.organization.uuid, pack.installed.id, "retire")
     assert retained_runtime_plugin_pin(target) == original
     from engine.operation_inputs import operation_input_payload
 
@@ -111,7 +116,7 @@ def test_existing_range_keeps_original_version_after_pack_upgrade_and_retirement
 
 def test_tenant_admin_image_profile_is_pinned_with_the_adapter_target(pack):
     binding = bind_runtime_plugin(
-        pack.actor,
+        pack.credential,
         pack.scope,
         pack.installed.id,
         {
@@ -142,7 +147,7 @@ def test_tenant_admin_image_profile_is_pinned_with_the_adapter_target(pack):
 
 def test_pre_upgrade_pin_without_defaulted_profile_field_remains_usable_for_cleanup(pack):
     bind_runtime_plugin(
-        pack.actor,
+        pack.credential,
         pack.scope,
         pack.installed.id,
         {
@@ -186,7 +191,7 @@ def test_pre_upgrade_pin_without_defaulted_profile_field_remains_usable_for_clea
 def test_image_profile_cannot_name_an_undeclared_binding(pack):
     with pytest.raises(ValidationError, match="declaration"):
         bind_runtime_plugin(
-            pack.actor,
+            pack.credential,
             pack.scope,
             pack.installed.id,
             {
@@ -200,7 +205,7 @@ def test_image_profile_cannot_name_an_undeclared_binding(pack):
 
 def test_image_profile_provider_must_match_the_admitted_backend(pack):
     bind_runtime_plugin(
-        pack.actor,
+        pack.credential,
         pack.scope,
         pack.installed.id,
         {
@@ -220,18 +225,21 @@ def test_image_profile_provider_must_match_the_admitted_backend(pack):
 
 @pytest.mark.parametrize("action", ["disable", "retire"])
 def test_disabled_or_retired_selection_blocks_new_range_before_dispatch(pack, action):
-    change_runtime_plugin(pack.actor, pack.organization.uuid, pack.installed.id, action)
+    change_runtime_plugin(pack.credential, pack.organization.uuid, pack.installed.id, action)
     with pytest.raises(ValidationError, match="not enabled and ready"):
         launch(pack)
     assert not Range.objects.exists()
 
 
-def test_binding_cannot_select_another_tenant_executable(pack):
-    other = Organization.objects.create(name="Other")
-    OrganizationMembership.objects.create(user=pack.actor, organization=other, role="admin")
+def test_binding_cannot_select_another_tenant_executable(pack, live_session_credential):
+    from workspaces.services import create_account
+
+    other_account = create_account(kind="team", name="Other")
+    other = Organization.objects.get(account_id=other_account.id, is_default=True)
+    pack.actor.policy_accounts.add(other_account.uuid)
     with pytest.raises(ValidationError, match="unavailable"):
         bind_runtime_plugin(
-            pack.actor,
+            pack.credential,
             RuntimePluginScope(organization_uuid=other.uuid, pack_digest=pack.scope.pack_digest, pack_id="example"),
             pack.installed.id,
             {"targets": {"server": "node.web"}},
@@ -239,7 +247,7 @@ def test_binding_cannot_select_another_tenant_executable(pack):
     outsider = User.objects.create_user(username="staff-outsider", is_staff=True)
     with pytest.raises(OrganizationAuthorizationError):
         bind_runtime_plugin(
-            outsider,
+            live_session_credential(outsider),
             RuntimePluginScope(
                 organization_uuid=pack.organization.uuid, pack_digest=pack.scope.pack_digest, pack_id="example"
             ),
@@ -248,9 +256,37 @@ def test_binding_cannot_select_another_tenant_executable(pack):
         )
 
 
+def test_content_authorized_removal_deletes_only_the_exact_pack_selection(pack):
+    from engine.models import RuntimePluginPackBinding
+    from engine.services import prepare_runtime_plugin_pack_binding_removal, remove_runtime_plugin_pack_binding
+    from shared.authorization import CredentialCeiling
+
+    content_actor = replace(pack.credential, ceiling=CredentialCeiling(frozenset({"organization.manage_content"})))
+    admission = prepare_runtime_plugin_pack_binding_removal(content_actor, pack.scope)
+    assert remove_runtime_plugin_pack_binding(admission, pack.organization.uuid, pack.scope.pack_id)
+    assert not RuntimePluginPackBinding.objects.filter(pk=pack.binding.id).exists()
+    assert RuntimePluginInstallation.objects.filter(pk=pack.installed.id).exists()
+
+
+@pytest.mark.parametrize("change", ["credential", "selection"])
+def test_prepared_pack_binding_removal_refuses_changed_proof_or_selection(pack, change):
+    from engine.models import RuntimePluginPackBinding
+    from engine.services import prepare_runtime_plugin_pack_binding_removal, remove_runtime_plugin_pack_binding
+    from management.models import PrincipalSession
+
+    admission = prepare_runtime_plugin_pack_binding_removal(pack.credential, pack.scope)
+    if change == "credential":
+        PrincipalSession.objects.filter(credential_uuid=pack.credential.credential_uuid).delete()
+    else:
+        RuntimePluginPackBinding.objects.filter(pk=pack.binding.id).update(pack_digest="sha256:" + "c" * 64)
+    with pytest.raises(ValidationError):
+        remove_runtime_plugin_pack_binding(admission, pack.organization.uuid, pack.scope.pack_id)
+    assert RuntimePluginPackBinding.objects.filter(pk=pack.binding.id).exists()
+
+
 def test_missing_guest_fails_without_persisting_a_range(pack):
     bind_runtime_plugin(
-        pack.actor,
+        pack.credential,
         RuntimePluginScope(
             organization_uuid=pack.organization.uuid, pack_digest=pack.scope.pack_digest, pack_id="example"
         ),
@@ -348,11 +384,8 @@ def test_warm_claim_cannot_skip_a_disabled_plugin_binding(pack, monkeypatch, liv
     from cms.services._warm_pool_claim import WarmClaimRequest, attempt_warm_claim
     from shared.enums import RangeSource
     from shared.identity_scope import ResourceScope
-    from workspaces.models import Account
 
-    account = Account.objects.create(kind="team", name="Synthetic plugin account")
-    pack.organization.account = account
-    pack.organization.save(update_fields=["account"])
+    account = pack.organization.account
 
     monkeypatch.setattr("cms.services._warm_pool_claim._resolve_claim_candidates", lambda *args: [("pool", "digest")])
     monkeypatch.setattr(
@@ -374,7 +407,7 @@ def test_warm_claim_cannot_skip_a_disabled_plugin_binding(pack, monkeypatch, liv
         request_id=uuid4(),
     )
     assert attempt_warm_claim(request) is None
-    change_runtime_plugin(pack.actor, pack.organization.uuid, pack.installed.id, "disable")
+    change_runtime_plugin(pack.credential, pack.organization.uuid, pack.installed.id, "disable")
     assert attempt_warm_claim(replace(request, request_id=uuid4())) is None
     claim.assert_not_called()
 

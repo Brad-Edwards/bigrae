@@ -1,6 +1,7 @@
 """Prepared principal/account presentation, with no staff or membership grant inference."""
 
 from dataclasses import dataclass
+from typing import Literal
 from uuid import UUID
 
 from shared.authorization import ACTION_CATALOG, AuthorizationProvider, AuthorizationRequest, TargetRef
@@ -10,6 +11,7 @@ from workspaces.models import Account
 
 from ._account import AccountScopeError
 from ._account_policy_admin import AccountAdminPage, AccountAdminView, _active_actor, admin_list_accounts
+from ._account_policy_reads import admin_list_descendant_scopes, admin_list_integration_organizations
 
 _SCOPE_UNAVAILABLE = "Scope unavailable"
 
@@ -23,13 +25,15 @@ class AccountPrincipalContext:
     accounts: AccountAdminPage
     individual_account: AccountAdminView | None
     installation_actions: tuple[str, ...]
+    organization_actions: tuple[str, ...] = ()
+    has_descendant_scopes: bool = False
 
 
 def admin_principal_context(
     actor: CredentialContext, provider: AuthorizationProvider, *, offset: int = 0, limit: int = 50
 ) -> AccountPrincipalContext:
     """An individual has a direct account; a service never impersonates its contact."""
-    _active_actor(actor)
+    actor = _active_actor(actor)
     accounts = admin_list_accounts(actor, provider, offset=offset, limit=limit)
     requests = tuple(
         AuthorizationRequest(
@@ -48,7 +52,22 @@ def admin_principal_context(
         individual = _individual_account(actor, provider)
     except Exception as exc:
         raise AccountScopeError(_SCOPE_UNAVAILABLE) from exc
-    return AccountPrincipalContext(actor.principal.uuid, actor.principal.kind, accounts, individual, allowed)
+    integrations: tuple[Literal["adapters", "model_sources"], ...] = ("adapters", "model_sources")
+    descendant_kinds: tuple[Literal["organization", "workspace"], ...] = ("organization", "workspace")
+    organization_actions = tuple(
+        f"organization.manage_{integration}"
+        for integration in integrations
+        if admin_list_integration_organizations(actor, provider, integration=integration, limit=1).count
+    )
+    return AccountPrincipalContext(
+        actor.principal.uuid,
+        actor.principal.kind,
+        accounts,
+        individual,
+        allowed,
+        organization_actions,
+        any(admin_list_descendant_scopes(actor, provider, kind=kind, limit=1).count for kind in descendant_kinds),
+    )
 
 
 def _individual_account(actor: CredentialContext, provider: AuthorizationProvider) -> AccountAdminView | None:

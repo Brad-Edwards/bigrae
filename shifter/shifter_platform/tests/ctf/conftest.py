@@ -68,13 +68,18 @@ def _legacy_decision(allowed: bool):
 def _relationship_event_decision(request, relationships):
     from ctf.models import CTFEvent, CTFParticipant
     from management.models import Principal
-    from shared.authorization.model import grant_relation_for_action
+    from shared.authorization.model import deny_relation_for_action, grant_relation_for_action
 
-    event = CTFEvent.objects.filter(pk=request.target.uuid, deleted_at__isnull=True).first()
+    events = CTFEvent.all_objects if request.action == "event.delete" else CTFEvent.objects
+    event = events.filter(pk=request.target.uuid).first()
     principal = Principal.objects.select_related("user").filter(uuid=request.principal.uuid, is_active=True).first()
     if event is None or principal is None:
         return _legacy_decision(False)
     user = principal.user
+    subject = f"principal:{principal.uuid}"
+    target = f"event:{event.pk}"
+    if (subject, deny_relation_for_action(request.action), target) in relationships:
+        return _legacy_decision(False)
     if user is not None and user.is_superuser:
         return _legacy_decision(True)
     participates = CTFParticipant.objects.filter(
@@ -82,9 +87,11 @@ def _relationship_event_decision(request, relationships):
     ).exists()
     if request.action == "event.participate" or (request.action == "event.read" and participates):
         return _legacy_decision(participates)
-    subject = f"principal:{principal.uuid}"
-    target = f"event:{event.pk}"
-    if (subject, "direct_administrator", target) in relationships:
+    if (subject, "direct_administrator", target) in relationships and (
+        subject,
+        "deny_administrator",
+        target,
+    ) not in relationships:
         return _legacy_decision(True)
     return _legacy_decision((subject, grant_relation_for_action(request.action), target) in relationships)
 
@@ -146,31 +153,40 @@ def _legacy_policy_check(request, relationships):
         from workspaces.models import Account, AccountMembership, OrganizationMembership, WorkspaceMembership
 
         if request.target.type == "account":
-            organizer = Account.objects.filter(
-                uuid=request.target.uuid,
-                individual_principal_uuid=request.principal.uuid,
-            ).exists() or AccountMembership.objects.filter(
-                account__uuid=request.target.uuid,
-                principal_uuid=request.principal.uuid,
-            ).exists()
+            organizer = (
+                Account.objects.filter(
+                    uuid=request.target.uuid,
+                    individual_principal_uuid=request.principal.uuid,
+                ).exists()
+                or AccountMembership.objects.filter(
+                    account__uuid=request.target.uuid,
+                    principal_uuid=request.principal.uuid,
+                ).exists()
+            )
         elif request.target.type == "organization":
-            organizer = OrganizationMembership.objects.filter(
-                organization__uuid=request.target.uuid,
-                user=user,
-                role="admin",
-            ).exists() or OrganizationMembership.objects.filter(
-                organization__uuid=request.target.uuid,
-                principal_uuid=request.principal.uuid,
-            ).exists()
+            organizer = (
+                OrganizationMembership.objects.filter(
+                    organization__uuid=request.target.uuid,
+                    user=user,
+                    role="admin",
+                ).exists()
+                or OrganizationMembership.objects.filter(
+                    organization__uuid=request.target.uuid,
+                    principal_uuid=request.principal.uuid,
+                ).exists()
+            )
         elif request.target.type == "workspace":
-            organizer = WorkspaceMembership.objects.filter(
-                workspace__uuid=request.target.uuid,
-                user=user,
-                role__in=("owner", "admin"),
-            ).exists() or WorkspaceMembership.objects.filter(
-                workspace__uuid=request.target.uuid,
-                principal_uuid=request.principal.uuid,
-            ).exists()
+            organizer = (
+                WorkspaceMembership.objects.filter(
+                    workspace__uuid=request.target.uuid,
+                    user=user,
+                    role__in=("owner", "admin"),
+                ).exists()
+                or WorkspaceMembership.objects.filter(
+                    workspace__uuid=request.target.uuid,
+                    principal_uuid=request.principal.uuid,
+                ).exists()
+            )
     return _legacy_decision(bool(organizer or (user is not None and user.is_superuser)))
 
 

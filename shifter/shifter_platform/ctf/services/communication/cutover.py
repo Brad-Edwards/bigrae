@@ -79,6 +79,7 @@ def _draft(row: CTFNotification) -> CommunicationCampaign:
             organization_id=row.event.organization_id,
             workspace_id=row.event.workspace_id,
         )
+        parent_uuid: UUID | None
         if scope.workspace_uuid is not None:
             parent_type, parent_uuid = "workspace", scope.workspace_uuid
         elif scope.organization_uuid is not None:

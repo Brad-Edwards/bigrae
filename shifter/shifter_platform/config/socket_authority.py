@@ -45,6 +45,10 @@ def _authorize_terminal_scope(scope: dict[str, object], path: str, credential: C
 
 def _authorize_status_scope(credential: CredentialContext, path: str) -> bool:
     """Authorize exact status resources while refusing unregistered authenticated routes."""
+    if path == "/ws/notifications/":
+        # This admits transport only. The consumer rechecks the actual proof and
+        # owning event policy on every subscription, replay and delivery.
+        return credential.principal.kind == "human"
     status = _RANGE_STATUS.fullmatch(path)
     if status:
         from cms.services import get_range_by_request_id

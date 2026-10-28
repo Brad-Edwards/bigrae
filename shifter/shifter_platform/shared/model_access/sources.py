@@ -159,22 +159,20 @@ class ModelSourceCredentialReference(ClosedModel):
 
     def credential(self) -> CredentialContext:
         """Rebuild the trusted reference for live owner revalidation."""
-        from types import SimpleNamespace
+        from shared.operation_authority import credential_reference_from_fields
 
-        from shared.operation_authority import credential_reference_from_record
-
-        return credential_reference_from_record(
-            SimpleNamespace(
-                initiating_principal_uuid=self.principal_uuid,
-                initiating_principal_kind=self.principal_kind,
-                credential_kind=self.credential_kind,
-                credential_uuid=self.credential_uuid,
-                credential_ceiling_actions="\n".join(self.ceiling_actions),
-                credential_target_type=self.target_type,
-                credential_target_uuid=self.target_uuid,
-                credential_scopes="\n".join(self.scopes),
-                credential_event_uuid=self.event_uuid,
-            )
+        return credential_reference_from_fields(
+            {
+                "initiating_principal_uuid": self.principal_uuid,
+                "initiating_principal_kind": self.principal_kind,
+                "credential_kind": self.credential_kind,
+                "credential_uuid": self.credential_uuid,
+                "credential_ceiling_actions": "\n".join(self.ceiling_actions),
+                "credential_target_type": self.target_type,
+                "credential_target_uuid": self.target_uuid,
+                "credential_scopes": "\n".join(self.scopes),
+                "credential_event_uuid": self.event_uuid,
+            }
         )
 
 

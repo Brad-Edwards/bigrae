@@ -10,6 +10,30 @@ import yaml
 
 _POLICY_DEPLOYMENTS = frozenset({"openfga", "openfga-admin"})
 _NAMESPACES = frozenset({"shifter-platform", "shifter-jobs"})
+_PROBE_KINDS = frozenset({"Namespace", "ServiceAccount", "ConfigMap", "Secret"})
+_PROBE_NETWORK_POLICIES = frozenset(
+    f"allow-{lane}-{purpose}-egress"
+    for lane in ("platform", "jobs")
+    for purpose in ("dns", "metadata-server", "google-apis", "provider-apis", "native-sql")
+)
+
+
+def probe_prerequisites(manifest: str) -> str:
+    """Install pod references without changing any running workload or reconciler."""
+    documents = [
+        document
+        for document in yaml.safe_load_all(manifest)
+        if isinstance(document, dict)
+        and (
+            document.get("kind") in _PROBE_KINDS
+            or (
+                document.get("kind") == "NetworkPolicy"
+                and document.get("metadata", {}).get("namespace") in _NAMESPACES
+                and document.get("metadata", {}).get("name") in _PROBE_NETWORK_POLICIES
+            )
+        )
+    ]
+    return yaml.safe_dump_all(documents, sort_keys=False)
 
 
 def quiesce(manifest: str) -> tuple[str, tuple[str, ...]]:
@@ -45,8 +69,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--probe-prerequisites", action="store_true")
     args = parser.parse_args()
-    rendered, stopped = quiesce(args.manifest.read_text(encoding="utf-8"))
+    manifest = args.manifest.read_text(encoding="utf-8")
+    if args.probe_prerequisites:
+        args.output.write_text(probe_prerequisites(manifest), encoding="utf-8")
+        return 0
+    rendered, stopped = quiesce(manifest)
     args.output.write_text(rendered, encoding="utf-8")
     print(f"Prepared maintenance manifest with {len(stopped)} stopped effect producers.")
     return 0

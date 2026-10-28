@@ -1043,6 +1043,7 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                 "config": {
                     "engine.services": [
                         "apply_identity_cutover_resources",
+                        "identity_cutover_contract_gaps",
                         "identity_cutover_resource_disposition",
                         "pending_identity_cutover_work",
                     ],
@@ -1057,6 +1058,7 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                         "admin_principal_context",
                         "policy_admin_registrations",
                         "IdentityCutoverConflict",
+                        "IdentityCutoverStateView",
                         "activate_identity_cutover",
                         "apply_identity_cutover_sql",
                         "begin_identity_cutover",
@@ -1068,6 +1070,7 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                         "plan_identity_cutover_accounts",
                         "record_identity_cutover_bootstrap",
                         "record_identity_cutover_policy_intent",
+                        "verify_identity_cutover_hierarchy",
                     ],
                     "management.api.policy_views": ["PolicyAdminView"],
                     "workspaces.api.serializers": ["AuthorizationMutationSerializer"],
@@ -1084,6 +1087,21 @@ class SymbolFacadeAllowlistTests(unittest.TestCase):
                 }
             },
         )
+
+    def test_config_cutover_verifier_uses_only_the_sanctioned_tenancy_symbol(self) -> None:
+        config = (ADR_GUARD.REPO_ROOT / "scripts/check_layer_imports/layer_imports.yaml").read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            rel = "shifter/shifter_platform/config/management/commands/identity_cutover.py"
+            self._write_layer_repo(
+                repo_root, rel, "from workspaces.services import verify_identity_cutover_hierarchy\n", config=config
+            )
+            self.assertEqual(ADR_GUARD.check_layer_imports(repo_root, [rel]), [])
+            self._write_layer_repo(
+                repo_root, rel, "from workspaces.services import create_account\n", config=config
+            )
+            violations = ADR_GUARD.check_layer_imports(repo_root, [rel])
+            self.assertTrue(any(item.rule_id == "ADR-001-R4" for item in violations))
 
     def test_unrestricted_layer_is_unaffected(self) -> None:
         config = (

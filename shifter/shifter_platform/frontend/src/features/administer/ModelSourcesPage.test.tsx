@@ -12,8 +12,7 @@ const api = vi.mocked(apiFetch);
 beforeEach(() => { api.mockReset(); });
 
 function policyOrganizations(url: string) {
-  if (url === "/accounts/") return { count: 1, results: [{ uuid: "account-1", name: "Account", kind: "team" }] };
-  if (url === "/accounts/account-1/organizations/") {
+  if (url === "/administer/organizations/") {
     return { count: 1, results: [{ uuid: "org-1", name: "Workshop" }] };
   }
   return undefined;
@@ -26,19 +25,14 @@ it("allows tenant administrators to add a source from the tenant", async () => {
   expect(screen.getByLabelText("Provider")).toBeInTheDocument();
 });
 
-it("does not enumerate organizations for individual accounts", async () => {
-  api.mockImplementation(async (url) => {
-    if (url === "/accounts/") {
-      return { count: 2, results: [
-        { uuid: "personal", name: "Personal", kind: "individual" },
-        { uuid: "account-1", name: "Account", kind: "team" },
-      ] };
-    }
-    return policyOrganizations(url) ?? { results: [] };
-  });
+it("discovers organization grants without requiring parent account discovery", async () => {
+  api.mockImplementation(async (url) => policyOrganizations(url) ?? { results: [] });
   renderRoute(<ModelSourcesPage />);
   await screen.findByRole("button", { name: "Add model source" });
-  expect(api).not.toHaveBeenCalledWith("/accounts/personal/organizations/", expect.anything());
+  expect(api).toHaveBeenCalledWith("/administer/organizations/", expect.objectContaining({
+    query: { integration: "model_sources", offset: 0, limit: 25 },
+  }));
+  expect(api).not.toHaveBeenCalledWith("/accounts/", expect.anything());
 });
 
 it("does not show credential controls on denied organization access", async () => {

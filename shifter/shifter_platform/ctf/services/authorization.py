@@ -222,17 +222,44 @@ def assert_event_capability(actor_id: object, event: CTFEvent, capability: str) 
 
 def assert_event_action(actor: object, event: CTFEvent, action: str) -> None:
     """Require the sole live policy decision for one owning-service action."""
-    from ctf.services.actors import event_actor_credential
+    from ctf.services.actors import EventActionAdmission
     from ctf.services.unified_authorization import require_event_action, require_retained_event_delete
 
-    try:
-        credential = event_actor_credential(actor)  # type: ignore[arg-type]
-    except ValueError as exc:
-        raise CTFPermissionError(
-            "Actor lacks the required event capability",
-            details={"event_id": str(event.id)},
-        ) from exc
+    if isinstance(actor, EventActionAdmission):
+        try:
+            actor.validate(event, action)
+        except ValueError:
+            raise CTFPermissionError("Event admission changed") from None
+        return
     if action == "event.delete" and event.deleted_at is not None:
-        require_retained_event_delete(credential, event.pk)
+        require_retained_event_delete(actor, event.pk)
     else:
-        require_event_action(credential, event.pk, action)
+        require_event_action(actor, event.pk, action)
+
+
+def admit_event_actions(actor: object, event: CTFEvent, *actions: str):
+    """Evaluate policy before locks; pass this closed admission to nested mutators."""
+    from ctf.exceptions import CTFError
+    from ctf.services.actors import EventActionAdmission, current_event_actor_credential
+    from shared.credentials import CredentialUnavailable
+
+    if isinstance(actor, EventActionAdmission):
+        for action in actions:
+            assert_event_action(actor, event, action)
+        return actor
+    from django.contrib.auth import get_user_model
+
+    from ctf.services.actors import event_actor_user_id
+
+    compatibility_user_id = event_actor_user_id(actor) if isinstance(actor, (int, get_user_model())) else None
+    try:
+        credential = current_event_actor_credential(actor)
+    except CredentialUnavailable:
+        raise CTFError("CTF authority unavailable", code="CTF_AUTHORITY_UNAVAILABLE") from None
+    except ValueError:
+        raise CTFPermissionError("CTF authority denied") from None
+    for action in actions:
+        assert_event_action(actor if compatibility_user_id is not None else credential, event, action)
+    return EventActionAdmission(
+        credential, event.pk, frozenset(actions), EventActionAdmission.event_binding(event), compatibility_user_id
+    )

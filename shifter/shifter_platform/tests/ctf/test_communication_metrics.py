@@ -34,11 +34,12 @@ def test_admission_denied_drops_an_unknown_scope_class():
     assert client.calls == []  # dropped entirely, never published under a bogus label
 
 
-def test_admission_denied_emits_a_closed_scope():
+@pytest.mark.parametrize("scope", ["workspace", "account"])
+def test_admission_denied_emits_a_closed_scope(scope):
     client = _CapturingClient()
-    assert metrics.emit_admission_denied(scope_class="workspace", client=client) is True
+    assert metrics.emit_admission_denied(scope_class=scope, client=client) is True
     dims = client.calls[0]["MetricData"][0]["Dimensions"]
-    assert {"Name": "ScopeClass", "Value": "workspace"} in dims
+    assert {"Name": "ScopeClass", "Value": scope} in dims
 
 
 def test_worker_metrics_are_fail_soft(db):

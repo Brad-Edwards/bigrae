@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.db import transaction
 
+from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from engine.services import (
     admit_range_model_policy_change,
@@ -21,9 +22,7 @@ from ._model_source_selection import resolve_model_source_sponsorship
 REVISION_CONFLICT = "source.revision_conflict"
 
 
-def _authorized_instance(
-    actor: CredentialContext, request_id: UUID, action: str, *, locked: bool = False
-) -> RangeInstance:
+def _authorized_instance(actor: CredentialContext, request_id: UUID, action: str) -> RangeInstance:
     """Resolve one range and require its exact policy action."""
     from ._unified_authorization import require_range_action
 
@@ -31,15 +30,33 @@ def _authorized_instance(
     instance = query.filter(request__request_id=request_id).first()
     if instance is None:
         raise WorkspaceAuthorizationError("Range access denied")
-    require_range_action(actor, instance.uuid, action)
-    if not locked:
-        return instance
-    if resolve_local_credential(actor) != actor:
+    try:
+        require_range_action(actor, instance.uuid, action)
+    except CMSError as exc:
+        if exc.details.get("code") == "authority-unavailable":
+            raise
+        raise WorkspaceAuthorizationError("Range access denied") from None
+    return instance
+
+
+def _lock_admitted_instance(actor: CredentialContext, snapshot: RangeInstance) -> RangeInstance:
+    """Fence local credential, ancestry and policy revision after live admission."""
+    current = RangeInstance.objects.select_for_update().get(pk=snapshot.pk)
+    fields = (
+        "request_id",
+        "range_id",
+        "owner_principal_uuid",
+        "scope_kind",
+        "account_id",
+        "organization_id",
+        "workspace_id",
+        "model_source_policy_revision",
+    )
+    if resolve_local_credential(actor) != actor or any(
+        getattr(current, name) != getattr(snapshot, name) for name in fields
+    ):
         raise WorkspaceAuthorizationError("Range access denied")
-    locked_instance = query.select_for_update(of=("self",)).filter(pk=instance.pk).first()
-    if locked_instance is None:
-        raise WorkspaceAuthorizationError("Range access denied")
-    return locked_instance
+    return current
 
 
 def get_range_model_sources(actor: CredentialContext, *, request_id: UUID) -> dict[str, object]:
@@ -79,8 +96,12 @@ def change_range_model_sources(
     """
     from ._model_allocation import _snapshot_needs, prepare_model_access_for_dispatch
 
+    snapshot = _authorized_instance(actor, request_id, "range.manage")
+    if snapshot.workspace_id is None:
+        raise ContractError("source.range_unavailable")
+    sponsorship = resolve_model_source_sponsorship(actor, snapshot.workspace_id, selection)
     with transaction.atomic():
-        instance = _authorized_instance(actor, request_id, "range.manage", locked=True)
+        instance = _lock_admitted_instance(actor, snapshot)
         if instance.model_source_policy_revision != expected_revision:
             raise ContractError(REVISION_CONFLICT)
         if not _snapshot_needs(instance):
@@ -88,7 +109,6 @@ def change_range_model_sources(
         workspace_id = instance.workspace_id
         if workspace_id is None:
             raise ContractError("source.range_unavailable")
-        sponsorship = resolve_model_source_sponsorship(actor, workspace_id, selection)
         retry_pending = (
             instance.model_source_policy_error == "source.admission_pending"
             and instance.model_source_sponsorship == sponsorship.model_dump(mode="json")
@@ -115,12 +135,13 @@ def change_range_model_sources(
             ]
         )
     try:
+        admitted_snapshot = _authorized_instance(actor, request_id, "range.manage")
+        (view,) = resolve_model_access_range_views(request_uuids=(request_id,))
+        prepare_model_access_for_dispatch(request_id, range_id=view.range_uuid, renew=True, credential=actor)
         with transaction.atomic():
-            current = _authorized_instance(actor, request_id, "range.manage", locked=True)
+            current = _lock_admitted_instance(actor, admitted_snapshot)
             if current.model_source_policy_revision != revision:
                 raise ContractError(REVISION_CONFLICT)
-            (view,) = resolve_model_access_range_views(request_uuids=(request_id,))
-            prepare_model_access_for_dispatch(request_id, range_id=view.range_uuid, renew=True)
             admitted = admit_range_model_policy_change(request_id=request_id, expected_revision=revision)
             current.model_source_policy_error = "" if admitted else "source.admission_unavailable"
             current.save(update_fields=["model_source_policy_error"])
@@ -141,10 +162,23 @@ def revoke_range_model_sources(actor: CredentialContext, *, request_id: UUID) ->
     real-actor audit. Returns the refreshed range source status; re-enrollment is
     the existing selection-change (renew) flow, never a browser-delivered token.
     """
-    from engine.services import revoke_range_model_access
+    from engine.services import operation_id_for_request, project_range_authority, revoke_range_model_access
 
-    _authorized_instance(actor, request_id, "range.manage")
-    revoke_range_model_access(request_id=request_id, actor_principal_uuid=actor.principal.uuid)
+    try:
+        native = project_range_authority(request_id)
+        operation_id = operation_id_for_request(request_id)
+    except Exception:
+        raise WorkspaceAuthorizationError("Range access denied") from None
+    snapshot = _authorized_instance(actor, request_id, "range.manage")
+    with transaction.atomic():
+        _lock_admitted_instance(actor, snapshot)
+        revoke_range_model_access(
+            request_id=request_id,
+            credential=actor,
+            expected_range=native,
+            expected_operation_id=UUID(operation_id) if operation_id is not None else None,
+            expected_policy_revision=snapshot.model_source_policy_revision,
+        )
     return get_range_model_sources(actor, request_id=request_id)
 
 

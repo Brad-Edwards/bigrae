@@ -8,8 +8,7 @@ and re-exported here so callers continue to use
 ``from cms.services import X``.
 
 The re-exports also rebind names that tests historically patch at
-``cms.services.<name>`` (``assets_create_agent``, ``assets_delete_agent``,
-``audit_log``, the ``engine_*`` aliases, ``RangeInstance``) so existing
+``cms.services.<name>`` (``audit_log``, the ``engine_*`` aliases, ``RangeInstance``) so existing
 ``unittest.mock.patch`` targets still work.
 
 The cross-layer re-export (``cms.signals.*``) is
@@ -25,9 +24,6 @@ from __future__ import annotations
 # Rebound here so the patch target resolves at the package level, which means
 # submodules that look these up at call time through ``cms.services`` honour
 # the mock for free.
-from cms.assets.services import AgentUploadSpec
-from cms.assets.services import create_agent as assets_create_agent
-from cms.assets.services import delete_agent as assets_delete_agent
 from cms.exceptions import CMSError, RangeScopeAdminError, WorkspaceLaunchDenied, WorkspaceLaunchQuotaExceeded
 from cms.models import AgentConfig, RangeInstance
 from cms.scenarios.images import project_scenario_images
@@ -87,6 +83,7 @@ from ._agents import (
 )
 from ._content_authority import set_catalog_publication
 from ._content_ingestion import PackRegistrationRequest, RegisteredPack, register_pack
+from ._content_scope_options import content_scope_options
 from ._credential_scope import range_credential_scope
 from ._credentials import (
     create_credential,
@@ -104,7 +101,6 @@ from ._identity_cutover import (
 from ._identity_cutover import (
     pending_identity_cutover_work as pending_identity_cutover_work,
 )
-from ._identity_cutover import verify_identity_cutover_hierarchy as verify_identity_cutover_hierarchy
 from ._model_access_sharing import (
     ModelAccessSelectorError,
     find_model_access_selected_ranges,
@@ -134,12 +130,14 @@ from ._policy_range_scope import policy_list_range_scope_bindings, policy_rebind
 from ._principal_scopes import AccountScopeError as AccountScopeError
 from ._principal_scopes import mission_control_launch_workspaces as mission_control_launch_workspaces
 from ._principal_scopes import mission_control_range_scope as mission_control_range_scope
+from ._principal_scopes import mission_control_resource_scope as mission_control_resource_scope
 from ._queries import (
     find_range_instance_id_by_request,
     get_principal_range_target_instances,
     get_range_spec_by_id,
     get_range_status_by_id,
     get_range_target_instances,
+    is_event_range_cleanup_verified_absent,
 )
 from ._raes_range_create import create_raes_native_range
 from ._raes_range_dispatch import create_range_dispatch
@@ -223,6 +221,7 @@ from ._range_workspace_admin import (
     rebind_range_workspace,
 )
 from ._receipt import ReceiptRangeBindingUnavailable, confirm_ctf_receipt_binding, project_ctf_receipt_binding
+from ._remote_authority import assert_remote_authority_binding as assert_remote_authority_binding
 from ._retry_safe_launch import RetrySafeLaunchOutcome, bind_first_use_launch, resolve_retry_recovery
 from ._scenarios import (
     get_scenario,
@@ -231,7 +230,12 @@ from ._scenarios import (
     validate_scenario_requirements,
 )
 from ._scoped_devices import admit_device_remote_authority as admit_device_remote_authority
-from ._scoped_range_lifecycle import run_event_range_lifecycle
+from ._scoped_range_lifecycle import (
+    destroy_event_range_for_deletion,
+    destroy_event_range_for_recovery,
+    dispatch_bound_event_range,
+    run_event_range_lifecycle,
+)
 from ._scoped_range_owner import reassign_event_range_owner
 from ._tenant_pack_removal import (
     PackRemovalConflict,
@@ -272,7 +276,6 @@ create_range = create_range_dispatch
 __all__ = (
     "TRANSFERABLE_RESOURCE_KINDS",
     "AgentConfig",
-    "AgentUploadSpec",
     "AuditEvent",
     "CMSError",
     "CleanupObligation",
@@ -308,8 +311,6 @@ __all__ = (
     "RetrySafeLaunchOutcome",
     "WorkspaceLaunchDenied",
     "WorkspaceLaunchQuotaExceeded",
-    "assets_create_agent",
-    "assets_delete_agent",
     "attempt_warm_claim",
     "audit_log",
     "bind_first_use_launch",
@@ -321,6 +322,7 @@ __all__ = (
     "confirm_ctf_receipt_binding",
     "confirm_tenant_pack_archive_absent",
     "connect_range_terminal",
+    "content_scope_options",
     "create_agent",
     "create_credential",
     "create_ngfw",
@@ -330,9 +332,12 @@ __all__ = (
     "create_range_dispatch",
     "delete_agent",
     "delete_credential",
+    "destroy_event_range_for_deletion",
+    "destroy_event_range_for_recovery",
     "destroy_ngfw",
     "destroy_range",
     "destroy_range_by_request_id",
+    "dispatch_bound_event_range",
     "engine_admit_range_capacity",
     "engine_assess_declared_event_capacity",
     "engine_cancel_range_by_request",
@@ -393,6 +398,7 @@ __all__ = (
     "has_mission_control_openvpn_profile",
     "has_ready_active_range",
     "initiate_upload",
+    "is_event_range_cleanup_verified_absent",
     "list_agents",
     "list_credentials",
     "list_launchable_scenarios",

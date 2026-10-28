@@ -6,8 +6,12 @@ architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-25 for the issue #2321 S8 identity cutover.
+**Reviewed:** 2026-10-27 for the issue #2321 S8 identity cutover.
 This describes source behavior, not a certificate of a live deployment.
+
+The [identity and lifecycle contracts](shifter_platform/identity-lifecycle-contracts.md)
+define the detailed DFDs, state transitions, failure recovery and lock order.
+Their implementation gaps remain explicit in the S8 proposal.
 
 ## System context and trust boundaries
 
@@ -51,6 +55,20 @@ so repository and clean/legacy fixture evidence is not live-cloud acceptance.
 [account administration](shifter_platform/account-administration.md) explain the
 implemented slices. ADR-054's dedicated-customer model is superseded by ADR-066;
 it is not the current target for all installations.
+
+Workspaces persists each new hierarchy parent edge before policy publication.
+Its bounded recovery command resumes the recorded intent without rebuilding
+objects. Integration discovery uses exact organization or installation actions
+and credential ceilings, independently of parent account-read permission.
+Management translates principal ownership into the stable user-selector
+references that Engine invalidates when a range moves. CTF keeps new events
+unavailable until their recorded model/content initialization commits; recovery
+revalidates the original credential and pinned content before completing it.
+Permanent event deletion commits native cleanup for each retained range before
+removing its aggregate records. Failed cleanup admission preserves those records.
+Owner-handoff recovery can read back its exact admitted revoke after the source
+loses administrative authority; it requires the original live credential and
+does not replay a provider write.
 
 ## Deployables and cloud boundaries
 
@@ -185,6 +203,13 @@ backed by `.importlinter` and model-boundary checks. The following is its reader
 Cross-domain access uses public service facades and validated scalar identifiers,
 not another app's model or a private split-package module. Concrete per-symbol
 allowlists remain authoritative when a table entry is broader.
+
+The identity-cutover command composes the tenancy-owned hierarchy verifier
+directly through `workspaces.services.verify_identity_cutover_hierarchy`.
+The same sanctioned facade supplies the typed `IdentityCutoverStateView` for
+the command's bounded state response.
+ADR-001's exact composition allowlist sanctions this import; CMS does not forward
+tenancy verification through its own service facade.
 
 ## API and extension contracts
 

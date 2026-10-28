@@ -11,10 +11,11 @@ from typing import Any
 
 from rest_framework import serializers
 
+from mission_control.api.scope import ResourcePlacementSerializer
 from mission_control.api.serializers import AGENT_TYPE_CHOICES
 
 
-class UploadInitiateSerializer(serializers.Serializer):
+class UploadInitiateSerializer(ResourcePlacementSerializer):
     """Validate agent-upload initiation requests."""
 
     name = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)

@@ -6,10 +6,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
-from workspaces.identity_mapping import plan_legacy_account_mapping
+from workspaces.identity_mapping import legacy_membership_role_blocker, plan_legacy_account_mapping
 from workspaces.models import (
     Account,
     AuthorizationGroup,
@@ -42,6 +42,27 @@ class IdentityCutoverStateView:
     bootstrap_principal_uuid: UUID | None
     bootstrap_verified_at: object | None
     admission_invalidated_at: object | None
+
+
+def _plan_int(item: Mapping[str, object], key: str) -> int:
+    """Read a persisted scalar identifier without coercing arbitrary objects."""
+    value = item.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise IdentityCutoverConflict("cutover plan shape changed")
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise IdentityCutoverConflict("cutover plan shape changed") from exc
+
+
+def _plan_uuid(item: Mapping[str, object], key: str) -> UUID:
+    value = item.get(key)
+    if not isinstance(value, (UUID, str)):
+        raise IdentityCutoverConflict("cutover plan shape changed")
+    try:
+        return UUID(str(value))
+    except ValueError as exc:
+        raise IdentityCutoverConflict("cutover plan shape changed") from exc
 
 
 def _state_view(state: IdentityCutoverState) -> IdentityCutoverStateView:
@@ -109,17 +130,24 @@ def identity_cutover_resource_mappings(plan: Mapping[str, object]) -> dict[int, 
     organizations = plan.get("organizations")
     if not isinstance(individuals, Sequence) or not isinstance(organizations, Sequence):
         raise IdentityCutoverConflict("cutover resource plan is invalid")
+    retired_organizations: set[int | None] = set()
     for item in individuals:
         if not isinstance(item, Mapping):
             raise IdentityCutoverConflict("cutover resource plan is invalid")
-        account = Account.objects.get(individual_principal_uuid=item["principal_uuid"])
-        mappings[int(item["legacy_workspace_id"])] = (account.pk, None, None)
+        retired_organizations.add(_plan_int(item, "legacy_organization_id"))
+        account = Account.objects.get(individual_principal_uuid=_plan_uuid(item, "principal_uuid"))
+        mappings[_plan_int(item, "legacy_workspace_id")] = (account.pk, None, None)
     for item in organizations:
         if not isinstance(item, Mapping):
             raise IdentityCutoverConflict("cutover resource plan is invalid")
-        organization = Organization.objects.get(pk=int(item["organization_id"]), account__isnull=False)
-        for workspace_id in Workspace.objects.filter(organization=organization).values_list("pk", flat=True):
-            mappings[workspace_id] = (organization.account_id, organization.pk, workspace_id)
+        Organization.objects.get(pk=_plan_int(item, "organization_id"), account__isnull=False)
+    _verify_retained_hierarchy(retired_organizations)
+    # Existing account bindings are just as authoritative as bindings applied
+    # by this plan. Include every retained workspace without inventing a parent.
+    for workspace_id, account_id, organization_id in Workspace.objects.filter(
+        organization__account__isnull=False
+    ).values_list("pk", "organization__account_id", "organization_id"):
+        mappings[workspace_id] = (account_id, organization_id, workspace_id)
     return mappings
 
 
@@ -129,7 +157,10 @@ def identity_cutover_relationships(plan: Mapping[str, object]) -> set[tuple[str,
     for account_uuid in Account.objects.order_by("uuid").values_list("uuid", flat=True):
         relationships.add(("installation:root", "installation", f"account:{account_uuid}"))
     for organization in Organization.objects.filter(account__isnull=False).select_related("account").order_by("uuid"):
-        relationships.add((f"account:{organization.account.uuid}", "account", f"organization:{organization.uuid}"))
+        account = organization.account
+        if account is None:
+            raise IdentityCutoverConflict("retained organization account is unavailable")
+        relationships.add((f"account:{account.uuid}", "account", f"organization:{organization.uuid}"))
     for workspace in Workspace.objects.filter(organization__account__isnull=False).select_related("organization"):
         relationships.add(
             (f"organization:{workspace.organization.uuid}", "organization", f"workspace:{workspace.uuid}")
@@ -142,18 +173,24 @@ def identity_cutover_relationships(plan: Mapping[str, object]) -> set[tuple[str,
             raise IdentityCutoverConflict("cutover relationship plan is invalid")
         role = str(item.get("role", ""))
         scope_kind = str(item.get("scope_kind", ""))
+        if legacy_membership_role_blocker(scope_kind, role) is not None:
+            raise IdentityCutoverConflict("legacy membership policy disposition is required")
         if (scope_kind, role) not in {("organization", "admin"), ("workspace", "owner")}:
             continue
         model = Organization if scope_kind == "organization" else Workspace
-        target_uuid = model.objects.only("uuid").get(pk=int(item["scope_id"])).uuid
+        target_uuid = model.objects.only("uuid").get(pk=_plan_int(item, "scope_id")).uuid
         relationships.add(
             (f"principal:{item['principal_uuid']}", "direct_administrator", f"{scope_kind}:{target_uuid}")
         )
     return relationships
 
 
-def get_identity_cutover_state(*, plan_digest: str | None = None) -> IdentityCutoverStateView | None:
+def get_identity_cutover_state(
+    *, plan_digest: str | None = None, allow_missing_schema: bool = False
+) -> IdentityCutoverStateView | None:
     """Read the singleton state, optionally pinned to one plan digest."""
+    if allow_missing_schema and IdentityCutoverState._meta.db_table not in connection.introspection.table_names():
+        return None
     query = IdentityCutoverState.objects.filter(key=1)
     if plan_digest is not None:
         query = query.filter(plan_digest=plan_digest)
@@ -267,10 +304,12 @@ def verify_identity_cutover_hierarchy(plan: Mapping[str, object]) -> None:
     organizations = plan.get("organizations")
     if not isinstance(individuals, Sequence) or not isinstance(organizations, Sequence):
         raise IdentityCutoverConflict("cutover plan shape changed")
+    retired_organizations: set[int | None] = set()
     for item in individuals:
         if not isinstance(item, Mapping):
             raise IdentityCutoverConflict("cutover plan shape changed")
-        account = Account.objects.filter(individual_principal_uuid=item.get("principal_uuid")).first()
+        retired_organizations.add(_plan_int(item, "legacy_organization_id"))
+        account = Account.objects.filter(individual_principal_uuid=_plan_uuid(item, "principal_uuid")).first()
         if account is None or account.kind != Account.Kind.INDIVIDUAL:
             raise IdentityCutoverConflict("individual account hierarchy is incomplete")
         if Organization.objects.filter(account=account).exists():
@@ -278,25 +317,78 @@ def verify_identity_cutover_hierarchy(plan: Mapping[str, object]) -> None:
     for item in organizations:
         if not isinstance(item, Mapping):
             raise IdentityCutoverConflict("cutover plan shape changed")
-        organization = Organization.objects.filter(pk=item.get("organization_id"), account__isnull=False).first()
-        if organization is None or not organization.is_default:
+        organization = Organization.objects.filter(pk=_plan_int(item, "organization_id"), account__isnull=False).first()
+        if organization is None or organization.account_id is None or not organization.is_default:
             raise IdentityCutoverConflict("shared account default organization is incomplete")
         if Organization.objects.filter(account_id=organization.account_id, is_default=True).count() != 1:
             raise IdentityCutoverConflict("shared account default organization is ambiguous")
-        workspace_id = item.get("default_workspace_id")
+        workspace_id = _plan_int(item, "default_workspace_id")
         if not Workspace.objects.filter(pk=workspace_id, organization=organization, is_default=True).exists():
             raise IdentityCutoverConflict("shared organization default workspace is incomplete")
         if Workspace.objects.filter(organization=organization, is_default=True).count() != 1:
             raise IdentityCutoverConflict("shared organization default workspace is ambiguous")
+    _verify_retained_hierarchy(retired_organizations)
+    _verify_membership_dispositions(plan)
+
+
+def _verify_membership_dispositions(plan: Mapping[str, object]) -> None:
+    """No retained user-keyed role or omitted membership may survive activation."""
+    for model in (OrganizationMembership, WorkspaceMembership):
+        if model.objects.filter(user_id__isnull=False).exists() or model.objects.exclude(role="").exists():
+            raise IdentityCutoverConflict("legacy membership disposition is incomplete")
+    memberships = plan.get("memberships", [])
+    if not isinstance(memberships, Sequence):
+        raise IdentityCutoverConflict("cutover membership plan shape changed")
+    for item in memberships:
+        if not isinstance(item, Mapping):
+            raise IdentityCutoverConflict("cutover membership plan shape changed")
+        scope_kind, role = str(item.get("scope_kind", "")), str(item.get("role", ""))
+        if legacy_membership_role_blocker(scope_kind, role) is not None:
+            raise IdentityCutoverConflict("legacy membership policy disposition is required")
+        model = OrganizationMembership if scope_kind == "organization" else WorkspaceMembership
+        scope_id = _plan_int(item, "scope_id")
+        principal_uuid = _plan_uuid(item, "principal_uuid")
+        if not model.objects.filter(
+            **{f"{scope_kind}_id": scope_id},
+            user__isnull=True,
+            principal_uuid=principal_uuid,
+            role="",
+        ).exists():
+            raise IdentityCutoverConflict("planned membership disposition is incomplete")
+        if (
+            role == "owner"
+            and not WorkspaceOwnership.objects.filter(workspace_id=scope_id, principal_uuid=principal_uuid).exists()
+        ):
+            raise IdentityCutoverConflict("planned workspace owner disposition is incomplete")
+
+
+def _verify_retained_hierarchy(retired_organizations: set[int | None]) -> None:
+    """Check all retained facts, including those already on the prepared schema."""
+    for account in Account.objects.iterator():
+        children = Organization.objects.filter(account=account)
+        if account.kind == Account.Kind.INDIVIDUAL:
+            if children.exists():
+                raise IdentityCutoverConflict("individual account hierarchy has unexpected subdivisions")
+        elif children.filter(is_default=True).count() != 1:
+            raise IdentityCutoverConflict("shared account default organization is incomplete")
+    for organization in Organization.objects.exclude(pk__in=retired_organizations).select_related("account").iterator():
+        if organization.account is None or organization.account.kind == Account.Kind.INDIVIDUAL:
+            raise IdentityCutoverConflict("retained organization account is unavailable")
+        defaults = Workspace.objects.filter(organization=organization, is_default=True)
+        if (
+            defaults.count() != 1
+            or not defaults.filter(archived_at__isnull=True, personal_for_user__isnull=True).exists()
+        ):
+            raise IdentityCutoverConflict("shared organization default workspace is incomplete")
 
 
 def _apply_individual(item: Mapping[str, object]) -> None:
     """Archive one synthetic personal subdivision and preserve its durable facts."""
     try:
-        principal_uuid = UUID(str(item["principal_uuid"]))
-        user_id = int(item["user_id"])
-        organization_id = int(item["legacy_organization_id"])
-        workspace_id = int(item["legacy_workspace_id"])
+        principal_uuid = _plan_uuid(item, "principal_uuid")
+        user_id = _plan_int(item, "user_id")
+        organization_id = _plan_int(item, "legacy_organization_id")
+        workspace_id = _plan_int(item, "legacy_workspace_id")
     except (KeyError, TypeError, ValueError) as exc:
         raise IdentityCutoverConflict("cutover plan shape changed") from exc
     organization = Organization.objects.select_for_update().filter(pk=organization_id).first()
@@ -345,8 +437,8 @@ def _apply_individual(item: Mapping[str, object]) -> None:
 def _apply_shared_organization(item: Mapping[str, object]) -> None:
     """Bind one retained organization and its planned default workspace."""
     try:
-        organization_id = int(item["organization_id"])
-        workspace_id = int(item["default_workspace_id"])
+        organization_id = _plan_int(item, "organization_id")
+        workspace_id = _plan_int(item, "default_workspace_id")
         account_kind = str(item["account_kind"])
     except (KeyError, TypeError, ValueError) as exc:
         raise IdentityCutoverConflict("cutover plan shape changed") from exc
@@ -373,12 +465,15 @@ def _apply_membership(item: Mapping[str, object]) -> None:
     """Replace one legacy user/role row with its principal membership and owner fact."""
     try:
         scope_kind = str(item["scope_kind"])
-        scope_id = int(item["scope_id"])
-        user_id = int(item["user_id"])
-        principal_uuid = UUID(str(item["principal_uuid"]))
+        scope_id = _plan_int(item, "scope_id")
+        user_id = _plan_int(item, "user_id")
+        principal_uuid = _plan_uuid(item, "principal_uuid")
         role = str(item["role"])
     except (KeyError, TypeError, ValueError) as exc:
         raise IdentityCutoverConflict("cutover plan shape changed") from exc
+    if legacy_membership_role_blocker(scope_kind, role) is not None:
+        raise IdentityCutoverConflict("legacy membership policy disposition is required")
+    model: type[OrganizationMembership] | type[WorkspaceMembership]
     if scope_kind == "organization":
         model = OrganizationMembership
         parent_field = "organization_id"
@@ -391,9 +486,11 @@ def _apply_membership(item: Mapping[str, object]) -> None:
         raise IdentityCutoverConflict("cutover membership scope changed")
     rows = model.objects.select_for_update().filter(**{parent_field: scope_id})
     legacy = rows.filter(user_id=user_id, principal_uuid__isnull=True).first()
-    principal = rows.filter(user_id=None, principal_uuid=principal_uuid).first()
+    principal = rows.filter(user__isnull=True, principal_uuid=principal_uuid).first()
     if legacy is None and principal is None:
         raise IdentityCutoverConflict("planned membership changed")
+    if legacy is not None and legacy.role != role:
+        raise IdentityCutoverConflict("planned membership role changed")
     if legacy is not None and principal is not None:
         legacy.delete()
     elif legacy is not None:
@@ -401,5 +498,5 @@ def _apply_membership(item: Mapping[str, object]) -> None:
         legacy.principal_uuid = principal_uuid
         legacy.role = ""
         legacy.save(update_fields=["user", "principal_uuid", "role", "updated_at"])
-    if rows.filter(user_id=None, principal_uuid=principal_uuid).count() != 1:
+    if rows.filter(user__isnull=True, principal_uuid=principal_uuid).count() != 1:
         raise IdentityCutoverConflict("planned membership changed")

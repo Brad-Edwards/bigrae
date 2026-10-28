@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Self
 from uuid import UUID
 
 from shared.audit import RequestAudit
@@ -15,28 +16,12 @@ from shared.authorization import (
     RelationshipSubject,
     RoleAssignmentChange,
     TargetRef,
+    action_definition,
 )
+from shared.authorization.inventory import RetainedEventAuthorityPlan
 from shared.identity_scope import PrincipalRef, ResourceScope
 
 AUTHORIZATION_MUTATION_CONFIRMED = "confirmed"
-
-_EVENT_STAFF_HANDOFF_ACTIONS = frozenset(
-    {
-        "event.delete",
-        "event.manage_awards",
-        "event.manage_challenges",
-        "event.manage_communications",
-        "event.manage_config",
-        "event.manage_content",
-        "event.manage_lifecycle",
-        "event.manage_participants",
-        "event.manage_ranges",
-        "event.manage_scoring",
-        "event.manage_submissions",
-        "event.manage_teams",
-        "event.read",
-    }
-)
 
 
 class AuthorizationMutationConflict(RuntimeError):
@@ -70,7 +55,7 @@ class PolicyMutationRequest:
 
 @dataclass(frozen=True, slots=True)
 class EventOwnershipHandoffPolicyMutationRequest(PolicyMutationRequest):
-    """Trusted former-owner staff grant emitted only by the ownership command."""
+    """Legacy journal request, accepted only for already-admitted readback/recovery."""
 
     def __post_init__(self) -> None:
         super(EventOwnershipHandoffPolicyMutationRequest, self).__post_init__()
@@ -80,7 +65,7 @@ class EventOwnershipHandoffPolicyMutationRequest(PolicyMutationRequest):
             or self.subject.kind != "principal"
             or self.subject.uuid != self.actor.uuid
             or self.effect != PolicyEffect.GRANT
-            or self.action not in _EVENT_STAFF_HANDOFF_ACTIONS
+            or not action_definition(self.action).delegable
         ):
             raise ValueError("event ownership handoff must grant a closed staff action set to the former owner")
 
@@ -120,3 +105,94 @@ class NativeRelationshipMutationRequest:
 
 
 type MutationRequest = PolicyMutationRequest | NativeRelationshipMutationRequest
+
+
+@dataclass(frozen=True, slots=True)
+class RetainedEventOwnershipTransferMutationRequest(NativeRelationshipMutationRequest):
+    """Settle one admitted handoff without requiring its recipient to remain active."""
+
+    plan: RetainedEventAuthorityPlan = field(kw_only=True)
+
+    @classmethod
+    def from_request(cls, request: NativeRelationshipMutationRequest, plan: RetainedEventAuthorityPlan) -> Self:
+        return cls(
+            actor=request.actor,
+            credential=request.credential,
+            change=request.change,
+            scope=request.scope,
+            idempotency_key=request.idempotency_key,
+            model_id=request.model_id,
+            audit=request.audit,
+            plan=plan,
+        )
+
+    def __post_init__(self) -> None:
+        super(RetainedEventOwnershipTransferMutationRequest, self).__post_init__()
+        change = self.change
+        if (
+            not isinstance(self.plan, RetainedEventAuthorityPlan)
+            or self.plan.kind != "transfer"
+            or not isinstance(change, AdministrativeRoleChange)
+            or change.policy_code != "event_administrator"
+            or change.effect != PolicyEffect.GRANT
+            or change.target != TargetRef("event", self.plan.event_uuid)
+            or change.subject != RelationshipSubject("principal", self.plan.target_uuid)
+            or self.scope != self.plan.scope
+            or self.idempotency_key != f"event-owner-{self.plan.transition_uuid.hex}-grant-target"
+            or self.model_id != self.plan.model_id
+            or not any(
+                effect.key == self.idempotency_key
+                and effect.subject_uuid == change.subject.uuid
+                and effect.policy_code == change.policy_code
+                and not effect.action
+                and effect.effect == change.effect
+                for effect in self.plan.effects
+            )
+        ):
+            raise ValueError("Retained event ownership transfer does not match")
+
+
+@dataclass(frozen=True, slots=True)
+class RetainedEventAuthorityPolicyMutationRequest(PolicyMutationRequest):
+    """One exact effect of a retained domain-owned staff or ownership plan."""
+
+    plan: RetainedEventAuthorityPlan = field(kw_only=True)
+
+    @classmethod
+    def from_request(cls, request: PolicyMutationRequest, plan: RetainedEventAuthorityPlan) -> Self:
+        return cls(
+            actor=request.actor,
+            credential=request.credential,
+            subject=request.subject,
+            action=request.action,
+            target=request.target,
+            scope=request.scope,
+            effect=request.effect,
+            idempotency_key=request.idempotency_key,
+            model_id=request.model_id,
+            audit=request.audit,
+            plan=plan,
+        )
+
+    def __post_init__(self) -> None:
+        super(RetainedEventAuthorityPolicyMutationRequest, self).__post_init__()
+        if (
+            not isinstance(self.plan, RetainedEventAuthorityPlan)
+            or self.target != TargetRef("event", self.plan.event_uuid)
+            or self.subject.uuid
+            != (self.plan.previous_owner_uuid if self.plan.kind == "transfer" else self.plan.target_uuid)
+            or self.subject.kind != "principal"
+            or self.scope != self.plan.scope
+            or (self.plan.kind == "transfer" and self.effect != PolicyEffect.GRANT)
+            or (self.plan.kind == "revoke" and self.effect != PolicyEffect.REVOKE)
+            or self.model_id != self.plan.model_id
+            or not any(
+                effect.key == self.idempotency_key
+                and effect.subject_uuid == self.subject.uuid
+                and effect.action == self.action
+                and not effect.policy_code
+                and effect.effect == self.effect
+                for effect in self.plan.effects
+            )
+        ):
+            raise ValueError("Retained event authority effect does not match")

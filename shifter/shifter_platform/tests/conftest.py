@@ -167,6 +167,13 @@ def live_session_credential(settings):
     return issue
 
 
+@pytest.fixture(autouse=True)
+def _native_service_credential_audience(settings):
+    """Use one explicit synthetic audience for native credential reference tests."""
+    if not settings.GCP_SERVICE_TOKEN_AUDIENCE:
+        settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+
+
 @pytest.fixture
 def provisioner_workload_config(settings):
     """Install the non-secret native workload identity used by launch tests."""

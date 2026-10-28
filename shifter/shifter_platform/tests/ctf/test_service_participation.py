@@ -175,7 +175,7 @@ def test_native_service_can_be_admitted_and_read_its_participant_projection_via_
     ServiceCredentialAdmission.objects.create(
         binding=ProviderBinding.objects.get(principal__uuid=service.uuid),
         audience=settings.GCP_SERVICE_TOKEN_AUDIENCE,
-        scopes=["authorization:event.participate"],
+        scopes=["authorization:event.participate", "ctf:play:read"],
     )
     claims = {
         "iss": "https://accounts.google.com",
@@ -213,3 +213,54 @@ def test_native_service_can_be_admitted_and_read_its_participant_projection_via_
     assert client.get(path).status_code == 403
     Principal.objects.filter(uuid=service.uuid).update(is_active=False)
     assert client.get(path).status_code == 401
+
+
+@pytest.mark.parametrize("method", ["post", "delete"])
+def test_read_only_service_http_proof_cannot_mutate_webhooks(ctf_event, settings, monkeypatch, method):
+    from uuid import uuid4
+
+    from rest_framework.test import APIClient
+
+    from config import service_identity
+    from management.models import Principal, ProviderBinding, ServiceCredentialAdmission
+    from shared.authorization import (
+        AdministrativeRoleChange,
+        PolicyEffect,
+        RelationshipSubject,
+        TargetRef,
+        configured_authorization_provider,
+    )
+
+    settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+    principal = Principal.objects.create(kind="service", name="Synthetic communication reader")
+    subject = "123456789012345678902"
+    binding = ProviderBinding.objects.create(principal=principal, issuer="https://accounts.google.com", subject=subject)
+    ServiceCredentialAdmission.objects.create(
+        binding=binding,
+        audience=settings.GCP_SERVICE_TOKEN_AUDIENCE,
+        scopes=["ctf:communication:read", "authorization:event.manage_communications"],
+    )
+    configured_authorization_provider().write_relationships(
+        AdministrativeRoleChange(
+            RelationshipSubject("principal", principal.uuid),
+            "event_administrator",
+            TargetRef("event", ctf_event.pk),
+            PolicyEffect.GRANT,
+        )
+    )
+    monkeypatch.setattr(
+        service_identity.id_token,
+        "verify_oauth2_token",
+        lambda *args, **kwargs: {
+            "iss": "https://accounts.google.com",
+            "aud": settings.GCP_SERVICE_TOKEN_AUDIENCE,
+            "sub": subject,
+            "email": "synthetic-reader@project.iam.gserviceaccount.com",
+            "email_verified": True,
+        },
+    )
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION="Bearer header.payload.signature")
+    url = f"/api/v1/ctf/events/{ctf_event.pk}/webhooks/" if method == "post" else f"/api/v1/ctf/webhooks/{uuid4()}/"
+    response = getattr(client, method)(url, {}, format="json")
+    assert response.status_code == 403

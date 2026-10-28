@@ -39,6 +39,20 @@ provider-secret reads for policy keys.
 
 ## Owner and publication order
 
+Before upgrading a retained database, use the old release to drain legacy spare
+ranges and settle their retained rows. Migration `ctf.0071` refuses to remove
+`owner_user` while any legacy spare row remains, including consumed or
+soft-deleted rows. It preserves those rows on refusal. A new database has no
+legacy spare rows and can proceed.
+Migration `ctf.0076` also blocks unfinished legacy event staff or ownership
+transitions. Finish them on the previous release before upgrading. The new
+release requires exact versioned effect plans and cannot reconstruct an
+unfinished legacy declaration safely. Confirmed history is preserved.
+Unsupported legacy workspace administrator roles also block cutover. They need
+a reviewed policy disposition; the new direct administrator role would add
+owner-transfer permission. Cutover inventories memberships in already-bound
+organizations as well as organizations that still need conversion.
+
 The deployment database owner runs application migrations, then
 `manage.py reconcile_gcp_database_duties`, before policy datastore migrations.
 The owner must actually own the application schema and have authority over the
@@ -66,6 +80,43 @@ Qualify overlapping-key and CA rotations with the supported client lifecycle;
 mounted-file changes alone do not reload an established client.
 
 ## Live acceptance evidence
+
+The identity status probe installs namespace, service-account, configuration,
+secret and DNS, metadata-server, Google API and native SQL network prerequisites.
+The complete set is required on a fresh namespace before proxy authentication
+and SQL connection establishment. The probe does not stop application
+workloads. When the probe requires cutover, maintenance validates all workload
+inventories before effects. It removes autoscalers, suspends scheduled work,
+stops application workloads and waits for their pods to become terminal or
+absent. Only then does it apply the stopped release and run migration. Policy
+services remain available. When model access is disabled, broker retirement
+precedes restoration of broader default egress policy.
+An incomplete probe, database failure, or unknown status aborts deployment
+before workload changes. An absent legacy cutover table is a known
+pre-cutover state. An activated result must also pass the runtime binding check.
+
+For interrupted application publication, restore the policy service first.
+Run `python manage.py reconcile_hierarchy_publications --limit 100` to resume
+pending account, organization and workspace edges. For a pending event, run
+`python manage.py resume_ctf_event_initialization <event-uuid>`. A trusted operator
+may add `--credential-reference '<current-reference-json>'` when the original
+credential has expired. Supply only the non-secret reference schema; the command
+resolves and checks the current proof and permissions. Add `--abort` to remove
+an unusable pending declaration under current parent authority. Aborting refuses
+any event with participant or spare allocation. Default event recovery
+revalidates the original credential and pinned content. Explicit recovery checks
+the supplied current credential and permissions instead of replaying a revoked
+proof. Changed content remains blocked. Neither command substitutes a new owner
+or grants administrator authority.
+
+The event's **Event staff** card shows an interrupted staff or ownership change.
+Use **Retry pending change** to resume its exact recorded declaration, or
+**Check status** to refresh its confirmation state. Recovery permits an admitted
+current administrator to finish a retained plan after recipient deactivation;
+new grants still require an active recipient. If the source administrator revoke already took effect, recovery
+reads back that exact admitted change without another provider write. Permanent
+event deletion queues native cleanup before removing event records. If cleanup
+cannot be queued, the records remain available for retry.
 
 Use synthetic fixtures and retain deployment-specific evidence privately.
 Check all of the following before activation:

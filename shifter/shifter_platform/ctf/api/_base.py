@@ -139,7 +139,9 @@ class HasCTFEndpointScope(permissions.BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         auth = getattr(request, "auth", None)
-        if not isinstance(auth, ApiToken) and not (isinstance(auth, CredentialContext) and auth.kind == "personal"):
+        if not isinstance(auth, ApiToken) and not (
+            isinstance(auth, CredentialContext) and auth.kind in {"personal", "service"}
+        ):
             return True
         required = _required_scopes_for_method(request.method, view)
         return any(has_scope(auth.scopes, scope) for scope in required)

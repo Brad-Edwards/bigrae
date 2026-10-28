@@ -20,6 +20,7 @@ from workspaces.services import (
     create_account_organization,
     create_account_workspace,
     ensure_default_hierarchy,
+    resolve_range_scope_binding,
     resolve_resource_scope,
 )
 
@@ -126,6 +127,36 @@ def test_cross_account_or_missing_ancestry_fails_closed():
     ):
         with pytest.raises(AccountScopeError, match="Scope unavailable"):
             resolve_resource_scope(scope)
+
+
+@pytest.mark.parametrize("mutation", ["archive", "reparent"])
+def test_locked_range_scope_binding_rechecks_workspace_without_requiring_membership(monkeypatch, mutation):
+    account = create_account(kind="team", name="Customer")
+    organization = Organization.objects.get(account_id=account.id, is_default=True)
+    workspace = Workspace.objects.create(organization=organization, name="Content workspace")
+    other = create_account_organization(account.uuid, "Other")
+    scope = ResourceScope("account", account.uuid, organization.uuid, workspace.uuid)
+    assert resolve_range_scope_binding(scope).workspace_id == workspace.id
+    select_for_update = Workspace.objects.select_for_update
+
+    def change_before_workspace_lock(*args, **kwargs):
+        from django.utils import timezone
+
+        change = {"archived_at": timezone.now()} if mutation == "archive" else {"organization": other.id}
+        Workspace.objects.filter(pk=workspace.pk).update(**change)
+        return select_for_update(*args, **kwargs)
+
+    monkeypatch.setattr(Workspace.objects, "select_for_update", change_before_workspace_lock)
+    with pytest.raises(AccountScopeError, match="Scope unavailable"), transaction.atomic():
+        resolve_range_scope_binding(scope, for_update=True)
+
+
+def test_required_scope_membership_rejects_missing_subject():
+    from workspaces.services import assert_scope_principal_member
+
+    account = create_account(kind="team", name="Customer")
+    with pytest.raises(AccountScopeError, match="Scope unavailable"):
+        assert_scope_principal_member(ResourceScope("account", account.uuid), None)
 
 
 def test_individual_rejects_organization_even_if_a_corrupt_row_is_attached():

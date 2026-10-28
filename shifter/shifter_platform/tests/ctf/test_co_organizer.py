@@ -319,13 +319,13 @@ class TestOwnershipTransfer:
 class TestCoOrganizerRealtime:
     """Realtime authorization is consistent: co-organizers subscribe and receive (#1922)."""
 
-    def test_co_organizer_can_subscribe(self, co_organized_event, co_organizer_user):
+    def test_co_organizer_can_subscribe(self, co_organized_event, co_organizer_user, live_session_credential):
         from ctf.services.notification.realtime import _can_subscribe, event_topic
 
-        assert _can_subscribe(co_organizer_user, event_topic(co_organized_event.id)) is True
+        assert _can_subscribe(live_session_credential(co_organizer_user), event_topic(co_organized_event.id)) is True
 
     def test_removed_co_organizer_cannot_subscribe(
-        self, co_organized_event, authenticated_organizer_client, co_organizer_user
+        self, co_organized_event, authenticated_organizer_client, co_organizer_user, live_session_credential
     ):
         from ctf.services.notification.realtime import _can_subscribe, event_topic
 
@@ -338,7 +338,7 @@ class TestCoOrganizerRealtime:
                 "principal_uuid": co_organizer_user.identity_principal.uuid,
             },
         )
-        assert _can_subscribe(co_organizer_user, event_topic(co_organized_event.id)) is False
+        assert _can_subscribe(live_session_credential(co_organizer_user), event_topic(co_organized_event.id)) is False
 
     def test_default_recipients_include_owner_and_co_organizer(
         self, co_organized_event, organizer_user, co_organizer_user, monkeypatch
@@ -381,34 +381,36 @@ class TestAuthorityTransitionDurability:
     """Provider interruption leaves one resumable, event-serialized intent."""
 
     def test_interrupted_assignment_resumes_same_intent(
-        self, ctf_event, organizer_user, co_organizer_user, monkeypatch
+        self, ctf_event, organizer_credential, co_organizer_user, monkeypatch
     ):
         from ctf.exceptions import CTFStateError
         from ctf.models import CTFEventAuthorityTransition, CTFEventStaff
         from ctf.services.event import staff as staff_service
+        from shared.authorization import AuthorizationProviderError, configured_authorization_provider
 
-        original_publish = staff_service._publish_staff_role
+        provider = configured_authorization_provider()
+        original_publish = provider.write_relationships
 
         def _interrupt(*args, **kwargs):
             assert CTFEventAuthorityTransition.objects.filter(
                 event=ctf_event,
                 state=CTFEventAuthorityTransition.State.PENDING,
             ).exists()
-            raise CTFStateError("simulated provider interruption")
+            raise AuthorizationProviderError("simulated provider interruption")
 
-        monkeypatch.setattr(staff_service, "_publish_staff_role", _interrupt)
+        monkeypatch.setattr(provider, "write_relationships", _interrupt)
         with pytest.raises(CTFStateError):
             staff_service.assign_event_staff(
                 ctf_event.id,
-                organizer_user,
+                organizer_credential,
                 co_organizer_user.identity_principal.uuid,
                 "co_organizer",
             )
 
-        monkeypatch.setattr(staff_service, "_publish_staff_role", original_publish)
+        monkeypatch.setattr(provider, "write_relationships", original_publish)
         staff_service.assign_event_staff(
             ctf_event.id,
-            organizer_user,
+            organizer_credential,
             co_organizer_user.identity_principal.uuid,
             "co_organizer",
         )
@@ -421,21 +423,23 @@ class TestAuthorityTransitionDurability:
         assert CTFEventAuthorityTransition.objects.get(event=ctf_event).state == "confirmed"
 
     def test_pending_assignment_blocks_conflicting_assignment(
-        self, ctf_event, organizer_user, co_organizer_user, monkeypatch
+        self, ctf_event, organizer_credential, co_organizer_user, monkeypatch
     ):
         from ctf.exceptions import CTFStateError, CTFValidationError
         from ctf.services.event import staff as staff_service
+        from shared.authorization import AuthorizationProviderError, configured_authorization_provider
 
+        provider = configured_authorization_provider()
         second = _organizer("second-coorg@test.com")
 
         def _interrupt(*_args, **_kwargs):
-            raise CTFStateError("simulated interruption")
+            raise AuthorizationProviderError("simulated interruption")
 
-        monkeypatch.setattr(staff_service, "_publish_staff_role", _interrupt)
+        monkeypatch.setattr(provider, "write_relationships", _interrupt)
         with pytest.raises(CTFStateError):
             staff_service.assign_event_staff(
                 ctf_event.id,
-                organizer_user,
+                organizer_credential,
                 co_organizer_user.identity_principal.uuid,
                 "co_organizer",
             )
@@ -443,7 +447,7 @@ class TestAuthorityTransitionDurability:
         with pytest.raises(CTFValidationError, match="concurrently"):
             staff_service.assign_event_staff(
                 ctf_event.id,
-                organizer_user,
+                organizer_credential,
                 second.identity_principal.uuid,
                 "moderator",
             )
@@ -547,34 +551,46 @@ class TestReviewCycle2Regressions:
         _demote(co_organizer_user)
         assert resolve_event_authority(co_organizer_user, co_organized_event, capability=cap) is None
 
-    def test_demoted_co_organizer_denied_participants_scoreboard(self, co_organized_event, co_organizer_user, rf):
-        """C2-F3: the public participants-only scoreboard rechecks current eligibility."""
+    def test_participants_scoreboard_rechecks_current_native_policy(
+        self, co_organized_event, co_organizer_user, rf, live_session_credential, monkeypatch
+    ):
         from ctf.api.views import _scoreboard_access_allowed
-        from ctf.enums import ScoreboardVisibility
+        from shared.authorization import AuthorizationDecision, DecisionKind, configured_authorization_provider
 
-        co_organized_event.scoreboard_visibility = ScoreboardVisibility.PARTICIPANTS.value
-        eligible_req = rf.get("/")
-        eligible_req.user = co_organizer_user
-        assert _scoreboard_access_allowed(co_organized_event, eligible_req) is True
-        _demote(co_organizer_user)
-        demoted_req = rf.get("/")
-        demoted_req.user = co_organizer_user
-        assert _scoreboard_access_allowed(co_organized_event, demoted_req) is False
+        co_organized_event.scoreboard_visibility = "participants"
+        request = rf.get("/")
+        request.user = co_organizer_user
+        request.credential_context = live_session_credential(co_organizer_user)
+        assert _scoreboard_access_allowed(co_organized_event, request) is True
+        provider = configured_authorization_provider()
+        monkeypatch.setattr(
+            provider, "check", lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied")
+        )
+        assert _scoreboard_access_allowed(co_organized_event, request) is False
 
-    def test_demoted_co_organizer_cannot_subscribe(self, co_organized_event, co_organizer_user):
-        """C2-F3: realtime subscription rechecks current eligibility."""
+    def test_notification_subscription_rechecks_current_native_policy(
+        self, co_organized_event, co_organizer_user, live_session_credential, monkeypatch
+    ):
         from ctf.services.notification.realtime import _can_subscribe, event_topic
+        from shared.authorization import AuthorizationDecision, DecisionKind, configured_authorization_provider
 
-        assert _can_subscribe(co_organizer_user, event_topic(co_organized_event.id)) is True
-        _demote(co_organizer_user)
-        assert _can_subscribe(co_organizer_user, event_topic(co_organized_event.id)) is False
+        credential = live_session_credential(co_organizer_user)
+        topic = event_topic(co_organized_event.pk)
+        assert _can_subscribe(credential, topic) is True
+        provider = configured_authorization_provider()
+        monkeypatch.setattr(
+            provider, "check", lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied")
+        )
+        assert _can_subscribe(credential, topic) is False
 
-    def test_recipient_projection_excludes_demoted_co_organizer(self, co_organized_event, co_organizer_user):
-        """C2-F3: the organizer-recipient projection drops demoted accounts."""
+    def test_recipient_projection_uses_principal_activity_not_global_group(self, co_organized_event, co_organizer_user):
         from ctf.services.event.staff import eligible_co_organizer_ids
+        from management.models import Principal
 
         assert co_organizer_user.pk in eligible_co_organizer_ids(co_organized_event)
         _demote(co_organizer_user)
+        assert co_organizer_user.pk in eligible_co_organizer_ids(co_organized_event)
+        Principal.objects.filter(user=co_organizer_user).update(is_active=False)
         assert co_organizer_user.pk not in eligible_co_organizer_ids(co_organized_event)
 
 

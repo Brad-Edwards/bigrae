@@ -9,6 +9,7 @@ from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, pr
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.range_workspace_aggregate import range_in_domain_aggregate
+from workspaces.services import lock_resource_scope_bindings, resource_scope_from_ids
 
 from ._unified_authorization import require_range_action
 
@@ -25,6 +26,10 @@ def reassign_event_range_owner(
             raise ValueError("Event range unavailable")
         prepared = prepare_event_range_owner_move(credential, candidate.request.request_id, new_owner, event_uuid)
         with transaction.atomic():
+            from shared.range_workspace_aggregate import fence_range_event_association
+
+            fence_range_event_association(candidate.request.request_id, event_uuid)
+            lock_resource_scope_bindings((prepared.source.scope, _snapshot_scope(candidate)))
             row = RangeInstance.objects.select_for_update().get(pk=candidate.pk)
             request = Request.objects.select_for_update().get(pk=candidate.request_id)
             if row.event_uuid != event_uuid or row.owner_principal_uuid != candidate.owner_principal_uuid:
@@ -68,6 +73,7 @@ def reassign_scoped_range_owner(
             raise ValueError("Range belongs to an immutable aggregate")
         prepared = prepare_range_owner_move(credential, snapshot.request.request_id, new_owner)
         with transaction.atomic():
+            lock_resource_scope_bindings((prepared.source.scope, _snapshot_scope(snapshot)))
             row = RangeInstance.objects.select_for_update().get(pk=snapshot.pk)
             request = Request.objects.select_for_update().get(pk=snapshot.request_id)
             if row.status != snapshot.status or row.owner_principal_uuid != snapshot.owner_principal_uuid:
@@ -96,3 +102,12 @@ def reassign_scoped_range_owner(
             )
     except Exception:
         raise CMSError("Range ownership unavailable") from None
+
+
+def _snapshot_scope(row):
+    return resource_scope_from_ids(
+        kind=row.scope_kind,
+        account_id=row.account_id,
+        organization_id=row.organization_id,
+        workspace_id=row.workspace_id,
+    )

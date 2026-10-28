@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from cms.api.model_sources import ModelSourceViewSerializer
 from cms.api.preparation_adapters import PreparationSerializer
+from cms.exceptions import CMSError
 from cms.services import model_source_alias_options
 from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
@@ -15,7 +16,12 @@ from shared.api.principals import authenticated_credential
 from shared.api_tokens.permissions import require_scope
 from shared.api_tokens.scopes import AUTHORIZATION_ACTION_SCOPES
 from shared.model_access import ContractError
-from workspaces.services import AccountScopeError, OrganizationAuthorizationError, workspace_option
+from workspaces.services import (
+    AccountScopeError,
+    OrganizationAuthorizationError,
+    hierarchy_target_scope,
+    workspace_option,
+)
 
 
 class SourceOptionsQuerySerializer(PreparationSerializer):
@@ -73,7 +79,10 @@ class ModelSourceOptionsView(APIView):
             if selected:
                 workspace = workspace_option(selected)
                 aliases, available = model_source_alias_options(
-                    authenticated_credential(request), workspace.organization_uuid, values["scenario"]
+                    authenticated_credential(request),
+                    workspace.organization_uuid,
+                    values["scenario"],
+                    scope=hierarchy_target_scope("workspace", selected),
                 )
                 workspaces.append(
                     {
@@ -83,11 +92,13 @@ class ModelSourceOptionsView(APIView):
                         "is_personal": False,
                     }
                 )
-        except (AccountScopeError, OrganizationAuthorizationError, ContractError, ValueError):
+        except (AccountScopeError, OrganizationAuthorizationError, ContractError, ValueError, CMSError) as exc:
             return api_error_response(
                 code="source_options_unavailable",
                 message="Model sources are unavailable for this workspace and scenario.",
-                status_code=403,
+                status_code=503
+                if isinstance(exc, CMSError) and exc.details.get("code") == "authority-unavailable"
+                else 403,
                 request=request,
             )
         return Response(

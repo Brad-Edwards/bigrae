@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -417,15 +419,68 @@ def test_actual_actions_policies_are_narrowed_and_control_rolls_with_runtime():
 def test_disable_waits_for_dependents_and_control_restarts_after_secret_sync():
     root = Path(__file__).resolve().parents[3]
     steps = yaml.safe_load((root / ".github/workflows/_gcp-dev.yml").read_text())["jobs"]["deploy"]["steps"]
-    apply = next(step["run"] for step in steps if "scripts/gcp/render_model_broker.py" in step.get("run", ""))
-    delete = apply[apply.index("kubectl delete deployment") : apply.index("kubectl delete service,")]
+    restart_index = next(
+        index for index, step in enumerate(steps) if step.get("name") == "Restart control-plane deployments"
+    )
+    restart = steps[restart_index]["run"]
+    delete = restart[restart.index("kubectl delete deployment") : restart.index("kubectl delete service,")]
     assert "--cascade=foreground" in delete and "--wait=true" in delete and "--timeout=180s" in delete
     assert (
-        apply.index("kubectl delete deployment")
-        < apply.index("kubectl delete networkpolicy")
-        < apply.index("kubectl apply")
+        restart.index("kubectl delete deployment")
+        < restart.index("kubectl delete networkpolicy")
+        < restart.index("kubectl apply")
     )
     sync = next(index for index, step in enumerate(steps) if step.get("name") == "Sync Guacamole runtime secret")
-    restart = next(step["run"] for step in steps[sync + 1 :] if step.get("name") == "Restart control-plane deployments")
+    assert sync < restart_index
     assert 'if [ "${MODEL_BROKER_ENABLED}" = true ]; then' in restart
     assert "kubectl rollout restart deployment/model-access-control" in restart
+
+
+@pytest.mark.parametrize(
+    ("enabled", "failure"), [(False, ""), (False, "deployment"), (False, "networkpolicy"), (True, "")]
+)
+def test_actual_restart_step_retires_disabled_broker_before_any_policy_apply(tmp_path, enabled, failure):
+    root = Path(__file__).resolve().parents[3]
+    steps = yaml.safe_load((root / ".github/workflows/_gcp-dev.yml").read_text())["jobs"]["deploy"]["steps"]
+    script = next(step["run"] for step in steps if step.get("name") == "Restart control-plane deployments")
+    binary = tmp_path / "kubectl"
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json,os,sys\n"
+        "args=sys.argv[1:]\n"
+        "with open(os.environ['KUBECTL_LOG'],'a') as handle: handle.write(json.dumps(args)+'\\n')\n"
+        "if args[:2]==['delete',os.environ['FAIL_DELETE']]: sys.exit(9)\n"
+    )
+    binary.chmod(0o700)
+    log = tmp_path / "kubectl.jsonl"
+    result = subprocess.run(
+        ["/bin/bash", "-c", script],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "KUBECTL_LOG": str(log),
+            "FAIL_DELETE": failure,
+            "MODEL_BROKER_ENABLED": str(enabled).lower(),
+            "PLATFORM_NATIVE_MANIFEST": str(tmp_path / "disabled-platform.yaml"),
+        },
+    )
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    if failure:
+        assert result.returncode == 9
+        assert calls[-1][:2] == ["delete", failure]
+        assert not any(call[0] in {"apply", "rollout"} for call in calls)
+        return
+    assert result.returncode == 0, result.stderr
+    apply_index = next(index for index, call in enumerate(calls) if call[0] == "apply")
+    if enabled:
+        assert not any(call[0] == "delete" for call in calls)
+        assert ["rollout", "restart", "deployment/model-access-control", "-n", "shifter-platform"] in calls[
+            apply_index + 1 :
+        ]
+    else:
+        deployment_index = next(index for index, call in enumerate(calls) if call[:2] == ["delete", "deployment"])
+        policy_indices = [index for index, call in enumerate(calls) if call[:2] == ["delete", "networkpolicy"]]
+        assert deployment_index < min(policy_indices) <= max(policy_indices) < apply_index
+        assert {"--cascade=foreground", "--wait=true", "--timeout=180s"} <= set(calls[deployment_index])

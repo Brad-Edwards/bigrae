@@ -33,4 +33,5 @@ def test_ctf_read_and_play_scopes_remain_separate() -> None:
     assert read.permits("event.read", target)
     assert not read.permits("event.participate", target)
     assert play.permits("event.participate", target)
+    assert "range.access" in play.actions
     assert not play.permits("event.manage_ranges", target)

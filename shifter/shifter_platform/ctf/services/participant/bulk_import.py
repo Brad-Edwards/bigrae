@@ -124,7 +124,7 @@ def bulk_import_participants(
     with transaction.atomic():
         if participants_data:
             with suppress(CTFPermissionError):
-                request_event_provisioning(event.pk, source="participant_accounts", actor_id=actor)
+                request_event_provisioning(event.pk, source="participant_accounts", actor_id=actor, defer_if_busy=True)
                 # Participant-only delegates may import without gaining range authority.
         # Lock the event so the capacity check and the inserts cannot race past
         # max_participants under concurrent imports (#1145).

@@ -258,6 +258,7 @@ export function RangeLaunchPage() {
             ))}
           </select>
         ) : null}
+        {launchWorkspaces.hasNextPage ? <Button type="button" disabled={launchWorkspaces.isFetchingNextPage} onClick={() => launchWorkspaces.fetchNextPage()}>Load more workspaces</Button> : null}
       </div>
 
       <LaunchOptionsSection

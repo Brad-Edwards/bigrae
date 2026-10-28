@@ -138,10 +138,15 @@ def provision_event_ranges_throttled(
         spinup_window_seconds,
     )
 
+    from django.db.models import Q
+
+    from ctf.models import CTFRangeLaunch
+
+    pending = CTFRangeLaunch.objects.filter(event_id=event_id, dispatched_at=None).values_list("pk", flat=True)
     participants = list(
         CTFParticipant.objects.filter(
+            Q(range_instance_id__isnull=True) | Q(range_request_id__in=pending),
             event_id=event_id,
-            range_instance_id__isnull=True,
         )
     )
 

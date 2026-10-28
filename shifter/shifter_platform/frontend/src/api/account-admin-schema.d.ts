@@ -802,6 +802,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/administer/organizations/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Discover organizations authorized for one integration administration action. */
+        get: operations["prepared_integration_organizations_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administer/principals/{principal_uuid}/event-creation-grants/": {
         parameters: {
             query?: never;
@@ -828,6 +845,23 @@ export interface paths {
         };
         /** @description Prepared safe credential inspection, including for inactive owners. */
         get: operations["administer_principals_personal_credentials_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/administer/scopes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Discover descendant administration without a parent account selector. */
+        get: operations["administer_scopes_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1531,11 +1565,20 @@ export interface components {
     schemas: {
         /** @description Closed account declaration with an explicit individual principal. */
         AccountCommand: {
-            kind: components["schemas"]["KindEnum"];
+            kind: components["schemas"]["AccountCommandKindEnum"];
             name: string;
             /** Format: uuid */
             individual_principal_uuid?: string;
+            /** Format: uuid */
+            publication_receipt?: string;
         };
+        /**
+         * @description * `individual` - individual
+         *     * `team` - team
+         *     * `enterprise` - enterprise
+         * @enum {string}
+         */
+        AccountCommandKindEnum: "individual" | "team" | "enterprise";
         /** @description Add one active principal without inferring a group or role. */
         AccountMemberCommand: {
             /** Format: uuid */
@@ -1565,6 +1608,7 @@ export interface components {
             readonly accounts: components["schemas"]["AccountPage"];
             readonly individual_account: components["schemas"]["AccountView"] | null;
             readonly installation_actions: string[];
+            readonly has_descendant_scopes: boolean;
         };
         /** @description Public account fields; internal database IDs never cross the API. */
         AccountView: {
@@ -1612,6 +1656,28 @@ export interface components {
             readonly date_joined: string;
             /** Format: date-time */
             readonly last_login: string | null;
+        };
+        /** @description An independently authorized scope and non-secret routing ancestry. */
+        AdministrationScope: {
+            readonly kind: components["schemas"]["AdministrationScopeKindEnum"];
+            /** Format: uuid */
+            readonly uuid: string;
+            readonly name: string;
+            /** Format: uuid */
+            readonly account_uuid: string;
+            /** Format: uuid */
+            readonly organization_uuid: string;
+            readonly is_default: boolean;
+        };
+        /**
+         * @description * `organization` - organization
+         *     * `workspace` - workspace
+         * @enum {string}
+         */
+        AdministrationScopeKindEnum: "organization" | "workspace";
+        AdministrationScopePage: {
+            readonly count: number;
+            readonly results: components["schemas"]["AdministrationScope"][];
         };
         /**
          * @description Schema-only component for the canonical platform API error envelope.
@@ -1890,6 +1956,14 @@ export interface components {
          * @enum {string}
          */
         EgressPolicyEnum: "status-quo" | "none";
+        /** @description A committed creation awaiting policy publication. */
+        HierarchyPendingReceipt: {
+            /** Format: uuid */
+            readonly uuid: string;
+            /** Format: uuid */
+            readonly publication_receipt: string;
+            readonly publication_state: components["schemas"]["PublicationStateEnum"];
+        };
         /** @description Validate a closed personal credential issue or rotation command. */
         IssuePersonalCredential: {
             name: string;
@@ -2045,13 +2119,6 @@ export interface components {
             /** @description Shown once. Never returned by list or detail operations. */
             token: string;
         };
-        /**
-         * @description * `individual` - individual
-         *     * `team` - team
-         *     * `enterprise` - enterprise
-         * @enum {string}
-         */
-        KindEnum: "individual" | "team" | "enterprise";
         /** @description The canonical four-field policy projection. */
         LeasePolicy: {
             initial_days: number;
@@ -2204,10 +2271,6 @@ export interface components {
             first_name?: string;
             last_name?: string;
         };
-        /** @description One bounded display name for a real business-account subdivision. */
-        PatchedSubdivisionCommand: {
-            name?: string;
-        };
         /** @description Project non-secret personal credential lifecycle metadata. */
         PersonalCredential: {
             /** Format: uuid */
@@ -2350,6 +2413,11 @@ export interface components {
             destination_principal_uuid: string;
         };
         /**
+         * @description * `pending` - pending
+         * @enum {string}
+         */
+        PublicationStateEnum: "pending";
+        /**
          * @description Bounded, read-only projection of a range scoped to a workspace.
          *
          *     Explicit fields only (never a ``ModelSerializer``): no internal workspace or
@@ -2480,6 +2548,12 @@ export interface components {
         /** @description One bounded display name for a real business-account subdivision. */
         SubdivisionCommand: {
             name: string;
+        };
+        /** @description Retry a committed subdivision through its exact publication receipt. */
+        SubdivisionCreationCommand: {
+            name: string;
+            /** Format: uuid */
+            publication_receipt?: string;
         };
         /**
          * @description Read-only workspace lifecycle projection (#1940, PLAT-233).
@@ -2921,6 +2995,14 @@ export interface operations {
                     "application/json": components["schemas"]["AccountView"];
                 };
             };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HierarchyPendingReceipt"];
+                };
+            };
             /** @description Authentication failed. */
             401: {
                 headers: {
@@ -2991,9 +3073,9 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["PatchedSubdivisionCommand"];
-                "application/x-www-form-urlencoded": components["schemas"]["PatchedSubdivisionCommand"];
-                "multipart/form-data": components["schemas"]["PatchedSubdivisionCommand"];
+                "application/json": {
+                    name: string;
+                };
             };
         };
         responses: {
@@ -3203,9 +3285,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SubdivisionCommand"];
-                "application/x-www-form-urlencoded": components["schemas"]["SubdivisionCommand"];
-                "multipart/form-data": components["schemas"]["SubdivisionCommand"];
+                "application/json": components["schemas"]["SubdivisionCreationCommand"];
+                "application/x-www-form-urlencoded": components["schemas"]["SubdivisionCreationCommand"];
+                "multipart/form-data": components["schemas"]["SubdivisionCreationCommand"];
             };
         };
         responses: {
@@ -3215,6 +3297,14 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationView"];
+                };
+            };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HierarchyPendingReceipt"];
                 };
             };
             /** @description Authentication failed. */
@@ -3380,9 +3470,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SubdivisionCommand"];
-                "application/x-www-form-urlencoded": components["schemas"]["SubdivisionCommand"];
-                "multipart/form-data": components["schemas"]["SubdivisionCommand"];
+                "application/json": components["schemas"]["SubdivisionCreationCommand"];
+                "application/x-www-form-urlencoded": components["schemas"]["SubdivisionCreationCommand"];
+                "multipart/form-data": components["schemas"]["SubdivisionCreationCommand"];
             };
         };
         responses: {
@@ -3392,6 +3482,14 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceView"];
+                };
+            };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HierarchyPendingReceipt"];
                 };
             };
             /** @description Authentication failed. */
@@ -5004,8 +5102,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReplaceLeasePolicy"];
-                "application/x-www-form-urlencoded": components["schemas"]["ReplaceLeasePolicy"];
-                "multipart/form-data": components["schemas"]["ReplaceLeasePolicy"];
             };
         };
         responses: {
@@ -5049,8 +5145,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ResetLeasePolicy"];
-                "application/x-www-form-urlencoded": components["schemas"]["ResetLeasePolicy"];
-                "multipart/form-data": components["schemas"]["ResetLeasePolicy"];
             };
         };
         responses: {
@@ -5092,8 +5186,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReplaceLeasePolicy"];
-                "application/x-www-form-urlencoded": components["schemas"]["ReplaceLeasePolicy"];
-                "multipart/form-data": components["schemas"]["ReplaceLeasePolicy"];
             };
         };
         responses: {
@@ -5135,8 +5227,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ResetLeasePolicy"];
-                "application/x-www-form-urlencoded": components["schemas"]["ResetLeasePolicy"];
-                "multipart/form-data": components["schemas"]["ResetLeasePolicy"];
             };
         };
         responses: {
@@ -5146,6 +5236,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MissionControlLeasePolicySettings"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    prepared_integration_organizations_list: {
+        parameters: {
+            query: {
+                /**
+                 * @description * `adapters` - adapters
+                 *     * `model_sources` - model_sources
+                 */
+                integration: "adapters" | "model_sources";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationPage"];
                 };
             };
             /** @description Authentication failed. */
@@ -5233,6 +5368,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonalCredentialPage"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    administer_scopes_retrieve: {
+        parameters: {
+            query: {
+                /**
+                 * @description * `organization` - organization
+                 *     * `workspace` - workspace
+                 */
+                kind: "organization" | "workspace";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministrationScopePage"];
                 };
             };
             /** @description Authentication failed. */

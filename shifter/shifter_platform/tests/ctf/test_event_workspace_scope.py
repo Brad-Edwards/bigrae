@@ -61,7 +61,9 @@ def test_create_event_rejects_an_existing_foreign_account(organizer_user, django
         individual_principal_uuid=foreign.identity_principal.uuid,
     )
 
-    with pytest.raises(CTFValidationError):
+    from ctf.exceptions import CTFPermissionError
+
+    with pytest.raises(CTFPermissionError):
         create_event(organizer_user, _event_data(account=foreign_account.uuid))
 
 
@@ -113,3 +115,82 @@ def test_update_rejects_a_different_account_instead_of_ignoring_it(ctf_event):
         update_event(ctf_event.pk, {"account": own_uuid}, actor_id=ctf_event.created_by_id).account_id
         == ctf_event.account_id
     )
+
+
+def test_invalid_source_placement_creates_no_event(organizer_credential):
+    from ctf.services.event import create_event_for_credential
+
+    before = CTFEvent.objects.count()
+    with pytest.raises(CTFValidationError, match="model sources"):
+        create_event_for_credential(
+            organizer_credential,
+            _event_data(
+                model_sources={
+                    "aliases": [
+                        {
+                            "logical_alias": "helper",
+                            "sources": [{"source_id": str(uuid4()), "revision": 1}],
+                        }
+                    ]
+                }
+            ),
+        )
+    assert CTFEvent.objects.count() == before
+
+
+@pytest.mark.parametrize("recovery", ["creator", "administrator"])
+def test_pending_event_initialization_recovers_with_current_authority_after_original_expiry(
+    organizer_user,
+    organizer_credential,
+    admin_user,
+    live_session_credential,
+    monkeypatch,
+    recovery,
+):
+    from ctf.services.event import create_event_for_credential
+    from ctf.services.event.initialization import resume_event_initialization
+    from management.models import PrincipalSession
+    from shared.authorization import AuthorizationProviderError, configured_authorization_provider
+
+    provider = configured_authorization_provider()
+    original = provider.read_relationships
+
+    def unavailable(change):
+        raise AuthorizationProviderError("synthetic readback unavailable")
+
+    monkeypatch.setattr(provider, "read_relationships", unavailable)
+    with pytest.raises(CTFStateError):
+        create_event_for_credential(organizer_credential, _event_data())
+    pending = CTFEvent.objects.get(name="Scoped Event")
+    PrincipalSession.objects.filter(credential_uuid=organizer_credential.credential_uuid).update(
+        expire_date=timezone.now() - timedelta(seconds=1)
+    )
+    monkeypatch.setattr(provider, "read_relationships", original)
+    with pytest.raises(CTFStateError):
+        resume_event_initialization(pending.pk)
+    current = live_session_credential(organizer_user if recovery == "creator" else admin_user)
+    completed = resume_event_initialization(pending.pk, recovery_credential=current)
+    assert completed.initialization_intent is None
+    assert completed.owner_principal_uuid == organizer_credential.principal.uuid
+
+
+def test_current_owner_can_abort_an_invalid_pending_initialization(organizer_credential):
+    from django.contrib.auth import get_user_model
+
+    from ctf.services.event.initialization import abort_event_initialization
+    from management.services import human_principal_user_id
+    from shared.model_access.sources import ModelSourceCredentialReference
+    from tests.ctf.test_content_hydration import _event
+
+    user = get_user_model().objects.get(pk=human_principal_user_id(organizer_credential.principal))
+    pending = _event(user)
+    pending.initialization_intent = {
+        "authority": ModelSourceCredentialReference.from_credential(organizer_credential).model_dump(mode="json"),
+        "model_sources": {
+            "aliases": [{"logical_alias": "helper", "sources": [{"source_id": str(uuid4()), "revision": 1}]}]
+        },
+        "content_digest": None,
+    }
+    pending.save(update_fields=["initialization_intent"])
+    abort_event_initialization(pending.pk, organizer_credential)
+    assert not CTFEvent.all_objects.filter(pk=pending.pk).exists()

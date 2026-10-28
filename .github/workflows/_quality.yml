@@ -862,30 +862,10 @@ jobs:
     if: ${{ !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.shifter_platform == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: shifter
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
       TESTING: "1"
-      TEST_DB_BACKEND: postgres
       DJANGO_DEBUG: "true"
       DJANGO_SECRET_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DB_NAME: shifter
-      DB_USER: test
-      DB_PASSWORD: test
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -911,20 +891,18 @@ jobs:
         working-directory: shifter/shifter_platform/frontend
         run: npm run build
 
-      - name: Prepare hermetic stack (static, migrations, synthetic actors)
+      - name: Collect static files
         working-directory: shifter/shifter_platform
         run: |
           uv run python manage.py collectstatic --noinput
-          uv run python manage.py migrate --noinput
-          uv run python manage.py seed_e2e
 
       - name: Install Playwright browser
         working-directory: shifter/shifter_platform/frontend
         run: npx playwright install --with-deps chromium
 
       - name: Authenticated E2E (Playwright)
-        working-directory: shifter/shifter_platform/frontend
-        run: npm run test:e2e
+        working-directory: shifter/shifter_platform
+        run: ./scripts/run_openfga_integration.sh --browser npm run test:e2e
 
   # ===========================================================================
   # /api/v1/ OpenAPI contract gates (#1329, ADR-040)

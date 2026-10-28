@@ -91,7 +91,7 @@ Key seams:
 
 - **Ledger (claim authority).** `engine.models.WarmRangeGeneration` is the row-plus-
   constraint claim authority. Its state (`provisioning`, `ready`, `claimed`,
-  `unhealthy`, `retiring`, `terminal`) is *private* allocation state, deliberately
+  `activated`, `unhealthy`, `retiring`, `terminal`) is *private* allocation state, deliberately
   distinct from `Range.Status`: a warm-prepared range may be Engine-`READY` while the
   pool treats it as claimable only when the ledger row is `ready`.
 - **Atomic claim.** `engine.services.claim_ready_generation` transitions one ready,
@@ -102,7 +102,8 @@ Key seams:
 - **Compatibility.** `shared.warm_pool.compatibility` computes the canonical digest
   (registered package + lock digest + admitted placement/posture) that both the
   reconciler and the launch claim compare. Warm eligibility is RAES-native only (the
-  ownership-neutral `operation_input`); legacy `user_id`-bearing intent is cold-only.
+  ownership-neutral `operation_input`). The loaded package and lock digests must
+  match the selected compatibility key before a reservation is made.
 - **Activation.** The provisioner `raes-range activate` operation scrubs every
   pre-claim credential/VPN/access identity, realizes the claimant's fresh access, and
   negatively verifies the prior access is revoked (`shared.warm_pool.activation_input`,
@@ -111,12 +112,25 @@ Key seams:
 - **Reconciler.** `cms.services.reconcile_warm_pool` (worker
   `reconcile_warm_pool`) replenishes shortfalls, retires expired/incompatible/excess
   and unhealthy generations through canonical `destroy`, and releases capacity only
-  after provider absence is observed. Capacity is drawn through the Engine ledger
-  (`engine.services.admit_warm_generation_capacity`); warm ranges are first-class
-  capacity consumers. An active policy requires the non-secret
+  after provider absence is observed. Engine reserves the generation, global and
+  bucket counts, and capacity draw in one database transaction. Provider work
+  follows that commit. An active policy requires the non-secret
   `WARM_POOL_SERVICE_CREDENTIAL_UUID` reference. The referenced active service
   admission supplies the installation-scoped `installation.launch_range` authority;
   no dummy human, personal workspace, or stored cloud key owns preparation.
+- **Retained recovery.** The production `reconcile_warm_pool --loop` worker
+  advances pages of at most 100 retained obligations, including disabled or
+  removed buckets. The cursor wraps after the last page. A one-shot invocation
+  covers only one page. Unknown cleanup retains the same resource generation
+  and schedules another exact-origin destroy operation after a delay that grows
+  from 60 seconds to one hour. Old operation inputs and results remain immutable.
+  Capacity stays held until current-generation absence is verified. Activation
+  timeout starts at `claimed_at`, independent of the age of pool preparation.
 - **Observability.** `shared.warm_pool.metrics` publishes gauges and claim outcomes
   to the `Shifter/WarmPool` namespace; warm lifecycle events are audited under the
   `warm_*` `AuditAction` vocabulary.
+
+See [identity and lifecycle contracts](identity-lifecycle-contracts.md) for the
+DFDs, lock order and recovery tests. Concurrent workers must use the same policy
+snapshot to enforce the same limits. Stop workers with an old configuration
+before treating a reduced limit as installation-wide.

@@ -3,6 +3,16 @@
 from django.db import migrations
 
 
+def require_legacy_spares_drained(apps, schema_editor):
+    """Retain ownership evidence until old spare generations are dispositioned."""
+    spares = apps.get_model("ctf", "CTFSpareRange")
+    if spares._base_manager.using(schema_editor.connection.alias).exists():
+        raise RuntimeError(
+            "Identity cutover cannot remove legacy spare ownership while spare rows remain; "
+            "drain and disposition them under the previous release before upgrading."
+        )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,6 +20,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(require_legacy_spares_drained, migrations.RunPython.noop),
         migrations.RemoveField(
             model_name='ctfsparerange',
             name='owner_user',

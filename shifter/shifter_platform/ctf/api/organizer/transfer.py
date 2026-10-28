@@ -148,7 +148,7 @@ class EventWebhooksView(APIView):
         hooks = CTFWebhook.objects.filter(event_id=event_id, deleted_at__isnull=True).order_by("created_at")
         return Response({"webhooks": [_webhook_payload(h) for h in hooks]})
 
-    @extend_schema(request=WebhookWriteSerializer, responses=WebhookSerializer)
+    @extend_schema(request=WebhookWriteSerializer, responses={200: WebhookSerializer})
     @audit_admin_event_mutation("webhook.create", action=AuditAction.CREATE)
     def post(self, request: Request, event_id: UUID) -> Response:
         """Register a webhook endpoint."""
@@ -173,7 +173,7 @@ class EventWebhooksView(APIView):
                 )
             except CTFValidationError:
                 _raise_bad_request("Webhook destination is unavailable.")
-            return Response(_webhook_payload(webhook), status=status.HTTP_201_CREATED)
+            return Response(_webhook_payload(webhook), status=status.HTTP_200_OK)
         except _CtfApiError as exc:
             return exc.to_response(request)
 

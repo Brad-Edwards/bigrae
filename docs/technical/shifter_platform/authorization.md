@@ -1,6 +1,10 @@
 # OpenFGA authorization service
 
-Issue #2315 introduces the S2 authorization model and administration surface. It does not perform the S8 cutover of existing protected application surfaces. Until that later slice, this service is exercised by the authorization administration API and conformance tests only; existing permission checks are not fallbacks for an OpenFGA denial.
+Issue #2315 introduced the authorization model and administration surface.
+Issue #2321 applies the S8 source cutover to protected application surfaces.
+Current credentials, SQL ancestry and the pinned OpenFGA model govern admission.
+There is no legacy permission fallback. No live deployment is claimed.
+The [integration contracts](identity-lifecycle-contracts.md) define publication, recovery and trust boundaries.
 
 ## Ownership boundaries
 

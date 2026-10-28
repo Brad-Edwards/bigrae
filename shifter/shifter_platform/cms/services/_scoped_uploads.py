@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -15,6 +16,7 @@ from cms.exceptions import CMSError
 from cms.models import AgentConfig, AgentType, AgentUpload, AgentUploadBudget
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.cloud import get_object_storage
+from shared.cloud.exceptions import ObjectPreconditionError
 from shared.operation_authority import (
     authority_resource_scope,
     credential_reference_fields,
@@ -23,7 +25,7 @@ from shared.operation_authority import (
 from shared.operation_envelope import canonical_payload_digest
 from shared.s3 import sanitize_s3_filename
 
-from ._content_authority import content_scope_fields, require_content_scope
+from ._content_authority import content_scope_fields, fence_content_scope, require_content_scope
 
 if TYPE_CHECKING:
     from typing import Any
@@ -40,6 +42,14 @@ _INVALID_UPLOAD_METADATA = "Invalid upload metadata"
 
 
 _CONTENT_UNAVAILABLE = "Content unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class _UploadAdmission:
+    row: AgentUpload
+    scope: ResourceScope
+    current: CredentialContext
+    initiator: CredentialContext
 
 
 def _scope_digest(scope: ResourceScope) -> str:
@@ -106,6 +116,7 @@ def _reserve_upload(values: dict[str, Any], scope: ResourceScope) -> AgentUpload
         if used_bytes + reserved_bytes + values["file_size"] > settings.AGENT_USER_STORAGE_QUOTA_MB * 1024 * 1024:
             raise CMSError("Storage quota exceeded")
         row = AgentUpload.objects.create(**values)
+        fence_content_scope(credential_reference_from_record(row), scope)
 
         audit_log(
             AuditEvent(
@@ -146,8 +157,13 @@ def initiate_scoped_upload(
         )
         if scope is None:
             raise CMSError(_CONTENT_UNAVAILABLE)
-        require_content_scope(credential, scope, "manage_content")
-        token = generate_scoped_upload_token(row)
+        current = require_content_scope(credential_reference_from_record(row), scope, "manage_content")
+        with transaction.atomic():
+            row = AgentUpload.objects.select_for_update().get(pk=row.pk)
+            fence_content_scope(current, scope)
+            if row.state != "issued" or row.expires_at <= timezone.now():
+                raise CMSError(_UPLOAD_UNAVAILABLE)
+            token = generate_scoped_upload_token(row)
         return {"presigned_url": url, "s3_key": row.staging_key, "upload_token": token, "expected_os": row.os_slug}
     except Exception:
         # A provider timeout can have issued a capability. Preserve custody and
@@ -156,7 +172,7 @@ def initiate_scoped_upload(
         raise CMSError(_UPLOAD_UNAVAILABLE) from None
 
 
-def _authorized_upload(credential: CredentialContext, token: str) -> tuple[AgentUpload, ResourceScope]:
+def _authorized_upload(credential: CredentialContext, token: str) -> _UploadAdmission:
     """Revalidate the signed upload reference and original credential authority."""
     from uuid import UUID
 
@@ -181,15 +197,46 @@ def _authorized_upload(credential: CredentialContext, token: str) -> tuple[Agent
         )
         if scope is None:
             raise CMSError(_CONTENT_UNAVAILABLE)
-        require_content_scope(credential, scope, "manage_content")
-        require_content_scope(credential_reference_from_record(row), scope, "manage_content")
+        current = require_content_scope(credential, scope, "manage_content")
+        initiator = require_content_scope(credential_reference_from_record(row), scope, "manage_content")
         if row.expires_at <= timezone.now() or row.scope_digest != _scope_digest(scope):
             raise ValueError(_INVALID_UPLOAD_REFERENCE)
         if row.storage_provider != str(settings.CLOUD_PROVIDER) or payload["s3_key"] != row.staging_key:
             raise ValueError("Invalid storage binding")
-        return row, scope
+        return _UploadAdmission(row, scope, current, initiator)
     except Exception:
         raise CMSError(_UPLOAD_UNAVAILABLE) from None
+
+
+def _fence_upload(admission: _UploadAdmission, row: AgentUpload) -> None:
+    """Fence both native proofs and the admitted upload before each state transition."""
+    fence_content_scope(admission.current, admission.scope)
+    fence_content_scope(admission.initiator, admission.scope)
+    names = (
+        "scope_digest",
+        "authority_owner_uuid",
+        "authority_scope_kind",
+        "authority_account_uuid",
+        "authority_organization_uuid",
+        "authority_workspace_uuid",
+        "storage_provider",
+        "storage_bucket",
+        "staging_key",
+        "install_key",
+        "expires_at",
+        "agent_type",
+        "file_size",
+        "filename",
+        "name",
+        "os_slug",
+    )
+    if (
+        row.pk != admission.row.pk
+        or any(getattr(row, name) != getattr(admission.row, name) for name in names)
+        or credential_reference_from_record(row) != credential_reference_from_record(admission.row)
+        or row.expires_at <= timezone.now()
+    ):
+        raise CMSError(_UPLOAD_UNAVAILABLE)
 
 
 def _validated_object(row: AgentUpload, storage: ObjectStorage) -> dict[str, Any]:
@@ -217,13 +264,14 @@ def _commit_installer(
     """Commit an installer only while its admitted custody and object identity match."""
     from cms.models import OperatingSystem
 
-    snapshot, _ = _authorized_upload(credential, token)
+    admission = _authorized_upload(credential, token)
     with transaction.atomic():
         AgentUploadBudget.objects.select_for_update().get(pk=expected.scope_digest)
         row = AgentUpload.objects.select_for_update().get(pk=expected.pk)
+        _fence_upload(admission, row)
         if row.state == "completed" and row.agent_id is not None:
             return _completed_installer(row, scope)
-        if row.state != "finalizing" or row.validated_identity != expected.validated_identity or snapshot.pk != row.pk:
+        if row.state != "finalizing" or row.validated_identity != expected.validated_identity:
             raise CMSError(_UPLOAD_UNAVAILABLE)
         agent = AgentConfig.objects.create(
             user=None,
@@ -244,7 +292,7 @@ def _commit_installer(
                 entity_type=AuditEntityType.AGENT,
                 entity_id=agent.pk,
                 action=AuditAction.CREATE,
-                **principal_actor_fields(credential.principal),
+                **principal_actor_fields(admission.current.principal),
                 new_state={"upload_id": str(row.id), "scope_generation": agent.scope_generation},
             ),
             strict=True,
@@ -254,33 +302,52 @@ def _commit_installer(
 
 def complete_scoped_upload(credential: CredentialContext, token: str) -> AgentConfig:
     """Install validated bytes without changing the admitted upload destination."""
-    snapshot, scope = _authorized_upload(credential, token)
+    admission = _authorized_upload(credential, token)
+    snapshot, scope = admission.row, admission.scope
     with transaction.atomic():
         AgentUploadBudget.objects.select_for_update().get(pk=snapshot.scope_digest)
         row = AgentUpload.objects.select_for_update().get(pk=snapshot.pk)
+        _fence_upload(admission, row)
         if row.state == "completed" and row.agent_id is not None:
             return _completed_installer(row, scope)
         if row.state != "issued":
             raise CMSError("Upload is unavailable or already being finalized")
         row.state = "finalizing"
         row.save(update_fields=["state", "updated_at"])
+    copy_attempted = copy_settled = False
     try:
         storage = get_object_storage()
         identity = _validated_object(row, storage)
-        _authorized_upload(credential, token)
-        AgentUpload.objects.filter(pk=row.pk, state="finalizing").update(validated_identity=identity)
-        row.validated_identity = identity
-        storage.copy_object_conditional(
-            bucket=row.storage_bucket,
-            src_key=row.staging_key,
-            dst_key=row.install_key,
-            expected_identity=identity,
-        )
+        admission = _authorized_upload(admission.current, token)
+        with transaction.atomic():
+            AgentUploadBudget.objects.select_for_update().get(pk=snapshot.scope_digest)
+            row = AgentUpload.objects.select_for_update().get(pk=snapshot.pk)
+            _fence_upload(admission, row)
+            if row.state != "finalizing":
+                raise CMSError(_UPLOAD_UNAVAILABLE)
+            row.validated_identity = identity
+            row.save(update_fields=["validated_identity", "updated_at"])
+        copy_attempted = True
+        try:
+            storage.copy_object_conditional(
+                bucket=row.storage_bucket,
+                src_key=row.staging_key,
+                dst_key=row.install_key,
+                expected_identity=identity,
+            )
+        except ObjectPreconditionError:
+            # An explicit source/destination precondition refusal did not write.
+            copy_settled = True
+            raise
+        copy_settled = True
         storage.tag_object(bucket=row.storage_bucket, key=row.install_key, tags={"status": "completed"})
-        return _commit_installer(credential, token, row, scope)
+        return _commit_installer(admission.current, token, row, scope)
     except Exception:
         # Keep the original generation and both storage keys for bounded cleanup.
-        AgentUpload.objects.filter(pk=row.pk).exclude(state="completed").update(state="cancelled", cleanup_pending=True)
+        state = "finalizing" if copy_attempted and not copy_settled else "cancelled"
+        AgentUpload.objects.filter(pk=row.pk).exclude(state="completed").update(
+            state=state, cleanup_pending=True, updated_at=timezone.now()
+        )
         raise CMSError("Upload could not be finalized") from None
 
 
@@ -312,8 +379,18 @@ def cancel_scoped_upload(credential: CredentialContext, token: str) -> None:
         with transaction.atomic():
             AgentUploadBudget.objects.select_for_update().get(pk=snapshot.scope_digest)
             row = AgentUpload.objects.select_for_update().get(pk=snapshot.pk)
+            fence_content_scope(current, scope)
+            if (
+                credential_reference_from_record(row) != credential_reference_from_record(snapshot)
+                or row.scope_digest != snapshot.scope_digest
+                or row.staging_key != snapshot.staging_key
+                or row.authority_owner_uuid != snapshot.authority_owner_uuid
+            ):
+                raise CMSError(_UPLOAD_UNAVAILABLE)
             if row.state == "completed":
                 raise CMSError("The upload has already completed")
+            if row.state == "finalizing":
+                raise CMSError("The upload finalization outcome is still pending")
             if row.state == "cancelled":
                 return
             row.state = "cancelled"
@@ -348,9 +425,8 @@ def _completed_installer(row: AgentUpload, scope: ResourceScope) -> AgentConfig:
     return agent
 
 
-def _cleanup_upload(row: AgentUpload) -> None:
+def _cleanup_upload(row: AgentUpload) -> bool:
     """Delete only recorded upload objects and retain failed cleanup for retry."""
-    from shared.audit import AuditActorType
     from shared.operation_authority import credential_reference_from_record
 
     # Explicit expiry cleanup is bound to this admission's namespace and both
@@ -398,19 +474,34 @@ def _cleanup_upload(row: AgentUpload) -> None:
         )
         if now_retired != retired:
             raise CMSError("Upload cleanup retirement changed")
+        if current.state == "finalizing":
+            # Age and one absent observation cannot settle an interrupted COPY.
+            # Keep exact keys and budget reserved for a possible late write.
+            current.save(update_fields=["updated_at"])
+            return False
+        was_pending = current.cleanup_pending
         current.cleanup_pending = False
         current.save(update_fields=["cleanup_pending", "updated_at"])
-        audit_log(
-            AuditEvent(
-                entity_type=AuditEntityType.AGENT,
-                entity_id=0,
-                entity_ref=str(row.id),
-                action=AuditAction.DELETE,
-                actor_type=AuditActorType.SYSTEM,
-                new_state={"upload_id": str(row.id), "cleanup_reason": "capability_expired"},
-            ),
-            strict=True,
-        )
+        if was_pending:
+            _record_upload_cleanup(current)
+        return True
+
+
+def _record_upload_cleanup(row: AgentUpload) -> None:
+    """Audit first completion; repeated exact-key tombstone sweeps do not repeat it."""
+    from shared.audit import AuditActorType
+
+    audit_log(
+        AuditEvent(
+            entity_type=AuditEntityType.AGENT,
+            entity_id=0,
+            entity_ref=str(row.id),
+            action=AuditAction.DELETE,
+            actor_type=AuditActorType.SYSTEM,
+            new_state={"upload_id": str(row.id), "cleanup_reason": "capability_expired"},
+        ),
+        strict=True,
+    )
 
 
 def reconcile_upload_cleanup(*, limit: int = 100) -> int:
@@ -418,22 +509,29 @@ def reconcile_upload_cleanup(*, limit: int = 100) -> int:
     if type(limit) is not int or not 1 <= limit <= 1000:
         raise ValueError("Invalid upload cleanup limit")
     now = timezone.now()
-    rows = AgentUpload.objects.filter(cleanup_pending=True, expires_at__lte=now).order_by("updated_at", "id")[:limit]
+    from django.db.models import Q
+
+    # An authorized PUT may finish after URL expiry. Retained rows remain exact
+    # cleanup tombstones, including once a prior sweep observed absence.
+    rows = (
+        AgentUpload.objects.filter(expires_at__lte=now)
+        .filter(Q(cleanup_pending=True) | Q(updated_at__lte=now - timedelta(minutes=15)))
+        .order_by("updated_at", "id")[:limit]
+    )
     cleaned = 0
     for candidate in rows:
         try:
             with transaction.atomic():
                 AgentUploadBudget.objects.select_for_update().get(pk=candidate.scope_digest)
                 row = AgentUpload.objects.select_for_update().get(pk=candidate.pk)
-                if not row.cleanup_pending or row.expires_at > now:
+                if row.expires_at > now or (not row.cleanup_pending and row.updated_at > now - timedelta(minutes=15)):
                     continue
                 if row.state == "finalizing" and row.updated_at > now - timedelta(minutes=15):
                     continue
-                if row.state in ("issued", "finalizing"):
+                if row.state == "issued" or (row.state == "finalizing" and not row.validated_identity):
                     row.state = "cancelled"
                     row.save(update_fields=["state", "updated_at"])
-            _cleanup_upload(row)
-            cleaned += 1
+            cleaned += _cleanup_upload(row)
         except Exception:
             # Retain the original resource evidence and reservation on uncertainty.
             AgentUpload.objects.filter(pk=candidate.pk).update(updated_at=now)

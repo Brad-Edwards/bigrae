@@ -75,6 +75,9 @@ def run_scoped_range_lifecycle(
                     snapshot.request.request_id,
                     range_id=range_view.range_uuid,
                     renew=True,
+                    credential=credential,
+                    authority_action=authority_action,
+                    authority_target=authority_target,
                 )
         prepared = prepare_range_lifecycle(
             credential,
@@ -222,6 +225,138 @@ def destroy_expired_scoped_range(range_uuid: UUID) -> None:
         raise CMSError("Range cleanup unavailable") from None
 
 
+def destroy_event_range_for_deletion(credential, event_uuid, instance_pk, *, request_id=None) -> None:
+    """Retain exact generation cleanup under current event deletion authority."""
+    _destroy_event_range_with_native_cleanup(
+        credential, event_uuid, instance_pk, request_id=request_id, authority_action="event.delete"
+    )
+
+
+def destroy_event_range_for_recovery(credential, event_uuid, instance_pk, *, request_id=None) -> bool:
+    """Retain old-generation cleanup before a recovery removes its live pointer."""
+    return _destroy_event_range_with_native_cleanup(
+        credential, event_uuid, instance_pk, request_id=request_id, authority_action="event.manage_ranges"
+    )
+
+
+def _destroy_event_range_with_native_cleanup(
+    credential: CredentialContext,
+    event_uuid: UUID,
+    instance_pk: int | None,
+    *,
+    request_id: UUID | None = None,
+    authority_action: str,
+) -> bool:
+    """Authorize exact event deletion, then retain native generation-bound cleanup."""
+    from shared.authorization import AuthorizationRequest
+    from shared.authorization.policy import require_authorization
+    from shared.credentials import resolve_current_credential
+
+    from ._unified_authorization import _range_binding
+
+    try:
+        current = resolve_current_credential(credential)
+        if (instance_pk is None) == (request_id is None):
+            raise ValueError(_RANGE_UNAVAILABLE)
+        candidate = _scoped_lifecycle_candidate(instance_pk, str(request_id) if request_id is not None else None)
+        if _cancel_unrealized_event_intent(current, event_uuid, candidate, authority_action):
+            return True
+        snapshot, scope, parent = _range_binding(candidate.uuid, include_terminal=True)
+        if parent != TargetRef("event", event_uuid) or snapshot.request is None:
+            raise ValueError(_RANGE_UNAVAILABLE)
+        require_authorization(AuthorizationRequest(current.principal, authority_action, parent, scope, current.ceiling))
+        from engine.services import is_cleanup_verified_absent
+
+        verified_absent = snapshot.status == "destroyed" and is_cleanup_verified_absent(snapshot.request.request_id)
+        prepared = None if verified_absent else prepare_system_range_cleanup(snapshot.request.request_id)
+        fence = {field: getattr(snapshot, field) for field in _BINDING_FIELDS}
+        with transaction.atomic():
+            row = (
+                RangeInstance.all_objects.select_for_update()
+                .filter(pk=snapshot.pk, status=snapshot.status, deleted_at=snapshot.deleted_at, **fence)
+                .first()
+            )
+            from shared.credentials import resolve_local_credential
+
+            if row is None or resolve_local_credential(current) != current:
+                raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
+            if prepared is None:
+                if not is_cleanup_verified_absent(snapshot.request.request_id):
+                    raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
+                return True
+            if not commit_prepared_range_lifecycle(prepared):
+                raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
+            row.status = "destroying"
+            row.deleted_at = row.deleted_at or timezone.now()
+            row.save(update_fields=["status", "deleted_at"])
+            audit_log(
+                AuditEvent(
+                    entity_type=AuditEntityType.RANGE,
+                    entity_id=row.pk,
+                    entity_ref=str(row.uuid),
+                    action="deprovision",
+                    **principal_actor_fields(current.principal),
+                    request_id=str(prepared.request_id),
+                    new_state={"status": "destroying"},
+                    context="event_deletion_cleanup"
+                    if authority_action == "event.delete"
+                    else "event_recovery_cleanup",
+                ),
+                strict=True,
+            )
+        return False
+    except Exception:
+        raise CMSError("Event range cleanup unavailable") from None
+
+
+def _cancel_unrealized_event_intent(current, event_uuid, candidate, action) -> bool:
+    """Fence native creation before releasing a reservation with no runtime."""
+    from engine.services import has_range_runtime
+    from shared.authorization import AuthorizationRequest
+    from shared.authorization.policy import require_authorization
+    from shared.credentials import resolve_local_credential
+    from workspaces.services import release_workspace_concurrent_range
+
+    from ._unified_authorization import _intent_scope_binding
+
+    if candidate.request is None or has_range_runtime(candidate.request.request_id, candidate.uuid):
+        return False
+    scope, parent = _intent_scope_binding(candidate)
+    if parent != TargetRef("event", event_uuid):
+        raise ValueError("Event range cleanup unavailable")
+    require_authorization(AuthorizationRequest(current.principal, action, parent, scope, current.ceiling))
+    with transaction.atomic():
+        row = RangeInstance.all_objects.select_for_update(of=("self",)).select_related("request").get(pk=candidate.pk)
+        request = row.request
+        if request is None:
+            raise ValueError("Event range cleanup changed")
+        if (
+            resolve_local_credential(current) != current
+            or row.status != candidate.status
+            or _intent_scope_binding(row) != (scope, parent)
+            or has_range_runtime(request.request_id, row.uuid)
+        ):
+            raise ValueError("Event range cleanup changed")
+        row.status = "failed"
+        row.save(update_fields=["status"])
+        if row.workspace_id is not None:
+            release_workspace_concurrent_range(row.workspace_id, request.request_id)
+        audit_log(
+            AuditEvent(
+                entity_type=AuditEntityType.RANGE,
+                entity_id=row.pk,
+                entity_ref=str(row.uuid),
+                action="deprovision",
+                **principal_actor_fields(current.principal),
+                request_id=str(request.request_id),
+                new_state={"status": "failed"},
+                context="event_unrealized_intent_cleanup",
+            ),
+            strict=True,
+        )
+    return True
+
+
 def _scoped_lifecycle_candidate(instance_pk: int | None, request_id: str | None) -> RangeInstance:
     """Select the existing CMS intent before taking lifecycle locks."""
     if request_id is not None:
@@ -241,3 +376,19 @@ def _scoped_lifecycle_target(operation: str, status: str, default: str) -> str:
     if operation == "resume" and status == "ready":
         target = "ready"
     return target
+
+
+def dispatch_bound_event_range(credential: CredentialContext, event_uuid: UUID, instance_pk: int) -> None:
+    """Make a CTF launch runnable only after its owning aggregate records the binding."""
+    from engine.services import dispatch_created_raes_range
+
+    instance = _scoped_lifecycle_candidate(instance_pk, None)
+    admitted = require_range_action(
+        credential, instance.uuid, "event.manage_ranges", authority_target=TargetRef("event", event_uuid)
+    )
+    if admitted.request is None:
+        raise CMSError(_RANGE_UNAVAILABLE)
+    try:
+        dispatch_created_raes_range(admitted.request.request_id, credential=credential)
+    except (ValueError, PermissionError):
+        raise CMSError("Event range dispatch unavailable") from None

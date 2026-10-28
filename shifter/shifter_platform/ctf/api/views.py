@@ -8,6 +8,7 @@ from django.http import JsonResponse
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions
 from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ctf.api._base import _canonical_error_response
@@ -20,32 +21,20 @@ if TYPE_CHECKING:
 
 
 def _scoreboard_access_allowed(event: CTFEvent, request: Request) -> bool:
-    """CTF-404 three-mode scoreboard access policy for the public surface.
+    """Public publication stays public; restricted reads require native admission."""
+    from ctf.enums import ScoreboardVisibility
+    from ctf.exceptions import CTFPermissionError
+    from ctf.services.event_projection import authorize_event_projection
+    from shared.api.principals import authenticated_credential
 
-    ``public`` serves anyone (unauthenticated projector screens included),
-    ``participants`` requires the viewer to be a registered participant or an
-    event administrator (owner, full co-organizer, or platform admin — #1922,
-    ADR-052), and ``hidden`` serves nobody here — organizers use their own
-    always-on scoreboard surface.
-    """
-    from ctf.enums import EventCapability, ScoreboardVisibility
-
-    visibility = event.scoreboard_visibility
-    if visibility != ScoreboardVisibility.PARTICIPANTS.value:
-        return visibility == ScoreboardVisibility.PUBLIC.value
-    user = request.user
-    if not user.is_authenticated:
+    if event.scoreboard_visibility != ScoreboardVisibility.PARTICIPANTS.value:
+        return event.scoreboard_visibility == ScoreboardVisibility.PUBLIC.value
+    try:
+        credential = authenticated_credential(request)
+        authorize_event_projection(credential, event.pk)
+        return True
+    except (ValueError, CTFPermissionError):
         return False
-    from ctf.models import CTFParticipant
-    from ctf.services.authorization import resolve_event_authority
-
-    # CONFIG is held only by the owner and full co-organizers (plus the
-    # platform-admin override), so this admits an event administrator or any
-    # registered participant.
-    return (
-        resolve_event_authority(user, event, capability=EventCapability.CONFIG) is not None
-        or CTFParticipant.objects.filter(event=event, user=user).exists()
-    )
 
 
 class PublicScoreboardView(APIView):
@@ -55,9 +44,9 @@ class PublicScoreboardView(APIView):
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(responses=PublicScoreboardResponseSerializer)
-    def get(self, request: Request, event_id: UUID) -> JsonResponse:
+    def get(self, request: Request, event_id: UUID) -> JsonResponse | Response:
         """Return the public scoreboard payload for an event."""
-        from ctf.exceptions import CTFNotFoundError
+        from ctf.exceptions import CTFError, CTFNotFoundError
         from ctf.services import get_event
         from ctf.services.scoring import get_scoreboard, get_team_scoreboard
         from ctf.views import _parsing
@@ -68,7 +57,15 @@ class PublicScoreboardView(APIView):
             response = JsonResponse({"error": "Event not found"}, status=404)
             return _canonical_error_response(request, response) or response
 
-        if not _scoreboard_access_allowed(event, request):
+        try:
+            allowed = _scoreboard_access_allowed(event, request)
+        except CTFError:
+            from shared.api.errors import api_error_response
+
+            return api_error_response(
+                request=request, code="scoreboard_unavailable", message="Scoreboard unavailable", status_code=503
+            )
+        if not allowed:
             return JsonResponse(
                 {
                     "scoreboard_hidden": True,

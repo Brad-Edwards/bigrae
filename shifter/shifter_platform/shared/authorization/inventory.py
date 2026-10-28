@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from uuid import UUID
 
 from shared.identity_scope import ResourceScope
@@ -21,6 +22,8 @@ AuthorizationEventScopeResolver = Callable[[UUID], ResourceScope]
 AuthorizationNonworkspaceEventResolver = Callable[[ResourceScope, int], tuple[tuple[TargetRef, ResourceScope], ...]]
 _event_scope_resolver: AuthorizationEventScopeResolver | None = None
 _nonworkspace_event_resolver: AuthorizationNonworkspaceEventResolver | None = None
+_event_range_resolver: Callable[[UUID, int], tuple[TargetRef, ...]] | None = None
+_range_binding_resolver: Callable[[UUID], tuple[TargetRef, ResourceScope]] | None = None
 _EVENT_INVENTORY_UNAVAILABLE = "Authorization event inventory is unavailable"
 
 
@@ -51,6 +54,49 @@ def resolve_authorization_event_scope(event_uuid: UUID) -> ResourceScope:
     if not isinstance(scope, ResourceScope):
         raise AuthorizationDescendantResolutionError("Authorization event scope is invalid")
     return scope
+
+
+def bind_authorization_event_range_resolver(resolver) -> None:
+    """Bind the native range owner's SQL inventory below an event."""
+    global _event_range_resolver
+    if not callable(resolver) or (_event_range_resolver is not None and _event_range_resolver is not resolver):
+        raise AuthorizationDescendantResolutionError("Authorization event range inventory binding is invalid")
+    _event_range_resolver = resolver
+
+
+def bind_authorization_range_binding_resolver(resolver) -> None:
+    """Bind native SQL custody for public range policy targets."""
+    global _range_binding_resolver
+    if not callable(resolver) or (_range_binding_resolver is not None and _range_binding_resolver is not resolver):
+        raise AuthorizationDescendantResolutionError("Authorization range binding unavailable")
+    _range_binding_resolver = resolver
+
+
+def resolve_authorization_range_binding(range_uuid: UUID) -> tuple[TargetRef, ResourceScope]:
+    """Retain event ancestry instead of deriving it from a workspace alone."""
+    if _range_binding_resolver is None:
+        raise AuthorizationDescendantResolutionError("Authorization range binding unavailable")
+    try:
+        parent, scope = _range_binding_resolver(range_uuid)
+        if not isinstance(parent, TargetRef) or not isinstance(scope, ResourceScope):
+            raise ValueError("Invalid range binding")
+        return parent, scope
+    except Exception:
+        raise AuthorizationDescendantResolutionError("Authorization range binding unavailable") from None
+
+
+def resolve_authorization_event_ranges(event_uuid: UUID, limit: int) -> tuple[tuple[TargetRef, ResourceScope], ...]:
+    """Bound all existing event children, using their public authorization IDs."""
+    if _event_range_resolver is None or isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+        raise AuthorizationDescendantResolutionError("Authorization event range inventory unavailable")
+    scope = resolve_authorization_event_scope(event_uuid)
+    try:
+        rows = _event_range_resolver(event_uuid, limit + 1)
+    except Exception:
+        raise AuthorizationDescendantResolutionError("Authorization event range inventory unavailable") from None
+    if len(rows) > limit or len(set(rows)) != len(rows) or any(row.type != "range" for row in rows):
+        raise AuthorizationDescendantResolutionError("Authorization event range inventory invalid")
+    return tuple((row, scope) for row in rows)
 
 
 def _valid_nonworkspace_inventory_request(parent: ResourceScope, limit: int) -> bool:
@@ -121,3 +167,61 @@ def resolve_authorization_descendants(workspace_ids: Sequence[int], limit: int) 
             raise AuthorizationDescendantResolutionError("Authorization descendant resolution is invalid")
         descendants.extend(resolved)
     return tuple(descendants)
+
+
+@dataclass(frozen=True, slots=True)
+class EventAuthorityEffect:
+    """One immutable domain-owned effect; its semantic key is never a list index."""
+
+    key: str
+    subject_uuid: UUID
+    effect: str
+    action: str = ""
+    policy_code: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class RetainedEventAuthorityPlan:
+    """Exact SQL-owned admission for one pending staff or ownership command."""
+
+    transition_uuid: UUID
+    event_uuid: UUID
+    kind: str
+    target_uuid: UUID
+    previous_owner_uuid: UUID | None
+    scope: ResourceScope
+    effects: tuple[EventAuthorityEffect, ...]
+    store_id: str
+    model_id: str
+
+    def __post_init__(self) -> None:
+        if (
+            self.kind not in {"assign", "revoke", "transfer"}
+            or not 1 <= len(self.effects) <= 100
+            or len({effect.key for effect in self.effects}) != len(self.effects)
+            or (self.previous_owner_uuid is not None) != (self.kind == "transfer")
+            or not self.store_id
+            or not self.model_id
+        ):
+            raise ValueError("Retained event authority plan is invalid")
+
+
+_authority_plan_resolver: Callable[[UUID], RetainedEventAuthorityPlan] | None = None
+
+
+def bind_event_authority_plan_resolver(resolver: Callable[[UUID], RetainedEventAuthorityPlan]) -> None:
+    """Bind the aggregate owner's retained admission projection once."""
+    global _authority_plan_resolver
+    if not callable(resolver) or (_authority_plan_resolver is not None and _authority_plan_resolver is not resolver):
+        raise AuthorizationDescendantResolutionError("Event authority plan resolver already bound")
+    _authority_plan_resolver = resolver
+
+
+def resolve_event_authority_plan(transition_uuid: UUID) -> RetainedEventAuthorityPlan:
+    """Require live persisted admission; caller declarations confer no authority."""
+    if _authority_plan_resolver is None:
+        raise AuthorizationDescendantResolutionError("Event authority plan unavailable")
+    result = _authority_plan_resolver(transition_uuid)
+    if not isinstance(result, RetainedEventAuthorityPlan) or result.transition_uuid != transition_uuid:
+        raise AuthorizationDescendantResolutionError("Event authority plan unavailable")
+    return result

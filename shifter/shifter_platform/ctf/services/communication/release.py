@@ -47,6 +47,7 @@ from ctf.services.communication.admission import (
     AdmissionActor,
     assert_occurrence_ready,
     assert_source_realizable,
+    prepare_campaign_admission,
     reauthorize,
 )
 from ctf.services.communication.audience import resolve_recipients
@@ -231,7 +232,12 @@ def release_campaign(
     now = timezone.now()
 
     # Target set is immutable after authoring, so the ids can be read before locking.
-    target_event_ids = list(campaign.target_events.values_list("id", flat=True))
+    actor = prepare_campaign_admission(campaign, actor)
+    target_event_ids = (
+        [admission.event_uuid for admission in actor.event_admissions]
+        if actor.credential is not None
+        else list(campaign.target_events.values_list("id", flat=True))
+    )
 
     with transaction.atomic():
         # 1. Lock the live target events in primary-key order (canonical order shared
@@ -240,10 +246,9 @@ def release_campaign(
 
         # 2. Re-check live authority inside the locked transaction -- on every caller,
         #    replay included -- so a revoked/unauthorized/token actor admits no work.
-        actor = reauthorize(campaign, target_events, actor)
-
         # 3. Lock the campaign for the idempotency/replay decision.
         locked = CommunicationCampaign.objects.select_for_update().get(pk=campaign.pk)
+        actor = reauthorize(locked, target_events, actor)
         existing = CommunicationIntent.objects.filter(idempotency_key=key).first()
         if existing is not None:
             if existing.campaign_id != locked.pk:
@@ -390,15 +395,24 @@ def release_due_declaration(
     before the due time for an authorized organizer run-now. Returns one of the
     ``RELEASE_OUTCOME_*`` constants.
     """
+    if allow_early:
+        from ctf.services.communication.admission import admit_session_early_release
+
+        actor = admit_session_early_release(actor)
     now = now or timezone.now()
     campaign = intent.campaign
     assert_source_realizable(campaign.trigger_spec["kind"])
-    target_event_ids = list(campaign.target_events.values_list("id", flat=True))
+    actor = prepare_campaign_admission(campaign, actor)
+    target_event_ids = (
+        [admission.event_uuid for admission in actor.event_admissions]
+        if actor.credential is not None
+        else list(campaign.target_events.values_list("id", flat=True))
+    )
 
     with transaction.atomic():
         target_events = list(CTFEvent.objects.select_for_update().filter(id__in=target_event_ids).order_by("pk"))
-        actor = reauthorize(campaign, target_events, actor)
         locked_campaign = CommunicationCampaign.objects.select_for_update().get(pk=campaign.pk)
+        actor = reauthorize(locked_campaign, target_events, actor)
         locked_intent = CommunicationIntent.objects.select_for_update().get(pk=intent.pk)
 
         disposition = _classify_due(locked_intent, now, allow_early)

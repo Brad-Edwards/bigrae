@@ -16,7 +16,7 @@ import { ModelSourceForm } from "./ModelSourceForm";
 
 export function ModelSourcesPage() {
   const [page, setPage] = useState(1);
-  const organizations = useAdministrableOrganizations(page);
+  const organizations = useAdministrableOrganizations(page, "model_sources");
   const [selected, setSelected] = useState("");
   const rows = organizations.data?.results ?? [];
   const organization = rows.find((row) => row.uuid === selected)?.uuid ?? rows[0]?.uuid ?? "";

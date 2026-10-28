@@ -98,6 +98,8 @@ def commit_warm_range_claim(
 
         previous_digest = range_runtime_binding_digest(row)
         _revoke_receipt_verifier_for_range(row)
+        if row.request_id is None:
+            raise ValueError("Warm generation request unavailable")
         engine_request = Request.objects.select_for_update().get(pk=row.request_id)
         kind, account_id, organization_id, workspace_id = prepared.scope_ids
         row.user_id = user_id

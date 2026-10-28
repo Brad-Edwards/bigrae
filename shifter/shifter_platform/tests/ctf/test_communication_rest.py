@@ -66,7 +66,12 @@ def test_token_can_create_release_and_cancel(organizer_user, ctf_event):
     response = client.post(URL, body(ctf_event, organizer_user), format="json")
     assert response.status_code == 201, response.content
     identity = response.json()["id"]
-    assert client.get(URL, {"account": body(ctf_event, organizer_user)["account"]}).status_code == 200
+    detail = client.get(f"{URL}{identity}/")
+    assert detail.status_code == 200, detail.content
+    assert detail.json()["id"] == identity
+    listing = client.get(URL, {"account": body(ctf_event, organizer_user)["account"]})
+    assert listing.status_code == 200, listing.content
+    assert [item["id"] for item in listing.json()["results"]] == [identity]
     response = client.post(f"{URL}{identity}/release/", {"occurrence_key": "release-1"}, format="json")
     assert response.status_code == 202, response.content
     assert response.json()["status"] == "released"
@@ -74,6 +79,27 @@ def test_token_can_create_release_and_cancel(organizer_user, ctf_event):
     assert retry.json()["id"] == response.json()["id"]
     assert CommunicationIntent.objects.count() == 1
     assert client.post(f"{URL}{identity}/cancel/", {}, format="json").status_code == 200
+
+
+def test_personal_read_scope_cannot_write_through_the_communication_service(organizer_user, ctf_event):
+    from ctf.exceptions import CTFCommunicationError
+    from ctf.services.communication import AdmissionActor, CampaignDraft, create_campaign
+    from shared.api_tokens.policy import personal_credential_for_token
+
+    _client, token = token_client(organizer_user, ["ctf:communication:read"])
+    credential = personal_credential_for_token(token)
+    data = body(ctf_event, organizer_user)
+    account_uuid = data.pop("account")
+    with pytest.raises(CTFCommunicationError) as denied:
+        create_campaign(
+            credential,
+            account_uuid,
+            CampaignDraft(**data, origin="organizer_staff"),
+            actor=AdmissionActor(credential=credential),
+            parent_type="account",
+        )
+    assert denied.value.code == "CTF_COMMUNICATION_TOKEN_DENIED"
+    assert not CommunicationCampaign.objects.exists()
 
 
 @pytest.mark.parametrize("scopes", [["ctf:event:write"], ["ctf:communication:read"]])
@@ -216,6 +242,52 @@ def test_deleted_target_does_not_open_campaign_visibility(organizer_user, ctf_ev
     response = client.post(URL, body(ctf_event, organizer_user), format="json")
     CTFEvent.all_objects.filter(pk=ctf_event.pk).update(deleted_at=timezone.now())
     assert client.get(f"{URL}{response.json()['id']}/").status_code == 404
+
+
+def test_collection_excludes_deleted_target_before_paging(organizer_user, ctf_event, ctf_event_draft):
+    from django.utils import timezone
+
+    from ctf.models import CTFEvent
+
+    client, _token = token_client(organizer_user, ["ctf:communication:write", "ctf:communication:read"])
+    hidden = client.post(URL, body(ctf_event, organizer_user), format="json")
+    visible = client.post(URL, body(ctf_event_draft, organizer_user), format="json")
+    assert hidden.status_code == visible.status_code == 201
+    CTFEvent.all_objects.filter(pk=ctf_event.pk).update(deleted_at=timezone.now())
+    response = client.get(URL, {"account": body(ctf_event_draft, organizer_user)["account"], "limit": 1})
+    assert response.status_code == 200, response.content
+    assert [row["id"] for row in response.json()["results"]] == [visible.json()["id"]]
+    assert response.json()["next_offset"] is None
+
+
+@pytest.mark.parametrize("failure", ["revoked", "outage", "evaluator_error"])
+def test_collection_preserves_credential_and_provider_failures(organizer_user, ctf_event, monkeypatch, failure):
+    from shared.authorization import (
+        AuthorizationDecision,
+        AuthorizationProviderError,
+        DecisionKind,
+        configured_authorization_provider,
+    )
+
+    client, token = token_client(organizer_user, ["ctf:communication:write", "ctf:communication:read"])
+    assert client.post(URL, body(ctf_event, organizer_user), format="json").status_code == 201
+    provider = configured_authorization_provider()
+    check = provider.check
+
+    def unavailable(request):
+        if request.action == "event.manage_communications":
+            if failure == "outage":
+                raise AuthorizationProviderError("private-collection-canary")
+            return AuthorizationDecision(DecisionKind.EVALUATOR_ERROR, "evaluator_unavailable")
+        return check(request)
+
+    if failure == "revoked":
+        token.revoke()
+    else:
+        monkeypatch.setattr(provider, "check", unavailable)
+    response = client.get(URL, {"account": body(ctf_event, organizer_user)["account"]})
+    assert response.status_code == (401 if failure == "revoked" else 503), response.content
+    assert "private-collection-canary" not in response.content.decode()
 
 
 @pytest.mark.parametrize("role", ["moderator", "judge", "co_organizer"])

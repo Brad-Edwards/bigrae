@@ -62,9 +62,12 @@ class CTFContentHydrationReceipt(CTFBaseModel):
     def save(self, *args, **kwargs) -> None:
         """Project retained human attribution to its stable principal on create."""
         if self._state.adding and self.hydrated_by_id is not None and not self.hydrated_by_principal_uuid:
+            actor_user = self.hydrated_by
+            if actor_user is None:
+                raise ValueError("Human attribution unavailable")
             from shared.principal_port import principal_for_user
 
-            self.hydrated_by_principal_uuid = principal_for_user(self.hydrated_by).uuid
+            self.hydrated_by_principal_uuid = principal_for_user(actor_user).uuid
         super().save(*args, **kwargs)
 
 

@@ -67,3 +67,22 @@ def test_scope_permission_enforces_native_service_credential_scopes() -> None:
         scopes=frozenset({scopes.CTF_COMMUNICATION_WRITE}),
     )
     assert permission.has_permission(request, view=None) is True
+
+
+@pytest.mark.parametrize("method", ["post", "delete"])
+@pytest.mark.parametrize("kind", ["personal", "service"])
+def test_ctf_endpoint_scope_refuses_read_only_webhook_mutations(method, kind):
+    from types import SimpleNamespace
+
+    from ctf.api._base import HasCTFEndpointScope
+
+    request = getattr(APIRequestFactory(), method)("/api/v1/ctf/events/synthetic/webhooks/", {})
+    request.auth = CredentialContext(
+        principal=PrincipalRef(uuid4(), "service" if kind == "service" else "human"),
+        kind=kind,
+        credential_uuid=uuid4(),
+        ceiling=CredentialCeiling(frozenset({"event.manage_communications"})),
+        scopes=frozenset({scopes.CTF_COMMUNICATION_READ}),
+    )
+    view = SimpleNamespace(required_write_scopes=(scopes.CTF_EVENT_WRITE,))
+    assert HasCTFEndpointScope().has_permission(request, view) is False

@@ -17,7 +17,13 @@ from shared.api.closed_serializer import ClosedSerializer
 from shared.api.errors import api_error_response
 from shared.api.principals import authenticated_credential
 from shared.audit import request_audit
-from shared.authorization import PolicyEffect, RelationshipSubject, TargetRef, configured_authorization_provider
+from shared.authorization import (
+    AuthorizationProviderError,
+    PolicyEffect,
+    RelationshipSubject,
+    TargetRef,
+    configured_authorization_provider,
+)
 from shared.principal_port import PrincipalResolutionError
 from workspaces.api.serializers import AuthorizationMutationSerializer
 from workspaces.services import (
@@ -52,7 +58,7 @@ class PolicyAdministerTransferOwnershipView(PolicyAdminView):
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
         provider = configured_authorization_provider()
-        require_principal_administration(actor, provider)
+        actor = require_principal_administration(actor, provider)
         source = identities.get_admin_user(pk)
         destination = identities.get_admin_user(command.validated_data["replacement_user_id"])
         if source is None or destination is None:
@@ -95,6 +101,13 @@ class PolicyAdministerGrantOrganizerView(PolicyAdminView):
     """Replace global role writes with the existing bounded delegation journal."""
 
     def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, AuthorizationProviderError):
+            return api_error_response(
+                code="administration_unavailable",
+                message="Administration is unavailable",
+                status_code=503,
+                request=self.request,
+            )
         if isinstance(
             exc,
             (

@@ -13,7 +13,7 @@ from django.test import Client
 from django.urls import reverse
 from django.views.debug import SafeExceptionReporterFilter
 
-from ctf.exceptions import CTFValidationError
+from ctf.exceptions import CTFPermissionError, CTFValidationError
 from ctf.forms import CTFEventForm
 from ctf.services.participant.accounts import create_participant_accounts
 from ctf.services.participant.credentials import reset_participant_password
@@ -203,13 +203,13 @@ def test_supplied_reset_uses_django_validation_and_invalidates_the_old_session(
     assert participant.user.check_password(_SUPPLIED_PASSWORD)
 
 
-def test_service_rechecks_event_capability(ctf_event, organizer_credential, standard_user):
+def test_service_rechecks_event_capability(ctf_event, organizer_credential, standard_user, live_session_credential):
     participant = _create_participant(ctf_event, organizer_credential)
 
-    with pytest.raises(CTFValidationError) as exc:
+    with pytest.raises(CTFPermissionError) as exc:
         reset_participant_password(
             participant.id,
-            actor=standard_user,
+            actor=live_session_credential(standard_user),
             kind="generated",
         )
 

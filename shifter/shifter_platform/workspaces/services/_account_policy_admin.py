@@ -10,7 +10,7 @@ from django.db import transaction
 
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, RequestAudit, audit_log
 from shared.authorization import AuthorizationProvider, AuthorizationRequest, TargetRef
-from shared.credentials import CredentialContext
+from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.principal_port import resolve_principal
 from workspaces.models import Account, AccountMembership
@@ -20,6 +20,9 @@ from ._account import (
     AccountView,
     OrganizationView,
     WorkspaceView,
+    _account_view,
+    _organization_view,
+    _workspace_view,
     add_account_member,
     create_account,
     create_account_organization,
@@ -27,7 +30,7 @@ from ._account import (
     hierarchy_target_scope,
 )
 from ._egress import _set_egress_policy_unchecked
-from ._hierarchy_publication import publish_hierarchy_relationships
+from ._hierarchy_publication import creation_for_receipt, publish_created_hierarchy
 from ._lifecycle import WorkspaceAuditContext, WorkspaceProjection
 from ._quota import WorkspaceQuotaAuditContext
 from ._quota_admin import WorkspaceResourceUsage, _set_quota_policy_unchecked
@@ -71,12 +74,12 @@ class AccountMemberPage:
     results: tuple[AccountMemberView, ...]
 
 
-def _active_actor(actor: CredentialContext) -> None:
+def _active_actor(actor: CredentialContext) -> CredentialContext:
     """Require a currently active non-participant principal."""
     try:
         if actor.kind == "temporary":
             raise AccountScopeError(_DENIED)
-        resolve_principal(actor.principal)
+        return resolve_current_credential(actor)
     except Exception as exc:
         raise AccountScopeError(_DENIED) from exc
 
@@ -87,13 +90,23 @@ def _require_action(
     action: str,
     target: TargetRef,
     scope: ResourceScope,
-) -> None:
+) -> CredentialContext:
     """Resolve durable identity and policy for each direct service invocation."""
     try:
-        _active_actor(actor)
+        actor = _active_actor(actor)
         request = AuthorizationRequest(actor.principal, action, target, scope, actor.ceiling)
         if not provider.check(request).allowed:
             raise AccountScopeError(_DENIED)
+        return actor
+    except Exception as exc:
+        raise AccountScopeError(_DENIED) from exc
+
+
+def _fence_actor(actor: CredentialContext) -> None:
+    """Fence the admitted native proof again in the owning SQL transaction."""
+    try:
+        if resolve_local_credential(actor) != actor:
+            raise ValueError("Credential changed")
     except Exception as exc:
         raise AccountScopeError(_DENIED) from exc
 
@@ -106,9 +119,10 @@ def admin_create_account(
     name: str,
     owner: PrincipalRef | None = None,
     audit: RequestAudit | None = None,
+    publication_receipt: UUID | None = None,
 ) -> AccountView:
     """Create an account after installation authority and owner identity checks."""
-    _require_action(
+    actor = _require_action(
         actor,
         provider,
         _MANAGE_ACCOUNTS,
@@ -120,8 +134,23 @@ def admin_create_account(
             resolve_principal(owner)
         except Exception as exc:
             raise AccountScopeError(_DENIED) from exc
-    account = create_account(kind=kind, name=name, owner=owner, audit_actor=actor.principal, request_audit=audit)
-    publish_hierarchy_relationships("account", account.uuid, provider)
+    if publication_receipt is not None:
+        existing = creation_for_receipt(publication_receipt, "account", None)
+        if (existing.kind, existing.name, existing.individual_principal_uuid) != (
+            kind,
+            name,
+            owner.uuid if owner else None,
+        ):
+            raise AccountScopeError(_DENIED)
+        account = _account_view(existing)
+    else:
+        with transaction.atomic():
+            _fence_actor(actor)
+            account = create_account(
+                kind=kind, name=name, owner=owner, audit_actor=actor.principal, request_audit=audit
+            )
+            _fence_actor(actor)
+    publish_created_hierarchy("account", account.uuid, provider)
     return account
 
 
@@ -132,15 +161,27 @@ def admin_create_organization(
     *,
     name: str,
     audit: RequestAudit | None = None,
+    publication_receipt: UUID | None = None,
 ) -> OrganizationView:
     """Create a real subdivision after exact account authority and ancestry checks."""
     try:
         scope = hierarchy_target_scope("account", account_uuid)
     except AccountScopeError as exc:
         raise AccountScopeError(_DENIED) from exc
-    _require_action(actor, provider, "account.manage_organizations", TargetRef("account", account_uuid), scope)
-    organization = create_account_organization(account_uuid, name, audit_actor=actor.principal, request_audit=audit)
-    publish_hierarchy_relationships("organization", organization.uuid, provider)
+    actor = _require_action(actor, provider, "account.manage_organizations", TargetRef("account", account_uuid), scope)
+    if publication_receipt is not None:
+        existing = creation_for_receipt(publication_receipt, "organization", account_uuid)
+        if existing.name != name:
+            raise AccountScopeError(_DENIED)
+        organization = _organization_view(existing)
+    else:
+        with transaction.atomic():
+            _fence_actor(actor)
+            organization = create_account_organization(
+                account_uuid, name, audit_actor=actor.principal, request_audit=audit
+            )
+            _fence_actor(actor)
+    publish_created_hierarchy("organization", organization.uuid, provider)
     return organization
 
 
@@ -152,6 +193,7 @@ def admin_create_workspace(
     *,
     name: str,
     audit: RequestAudit | None = None,
+    publication_receipt: UUID | None = None,
 ) -> WorkspaceView:
     """Create a workspace only beneath the authorized parent organization."""
     try:
@@ -160,23 +202,32 @@ def admin_create_workspace(
             raise AccountScopeError(_DENIED)
     except AccountScopeError as exc:
         raise AccountScopeError(_DENIED) from exc
-    _require_action(
+    actor = _require_action(
         actor,
         provider,
         "organization.manage_workspaces",
         TargetRef("organization", organization_uuid),
         scope,
     )
-    workspace = create_account_workspace(
-        account_uuid, organization_uuid, name, audit_actor=actor.principal, request_audit=audit
-    )
-    publish_hierarchy_relationships("workspace", workspace.uuid, provider)
+    if publication_receipt is not None:
+        existing = creation_for_receipt(publication_receipt, "workspace", organization_uuid)
+        if existing.name != name:
+            raise AccountScopeError(_DENIED)
+        workspace = _workspace_view(existing)
+    else:
+        with transaction.atomic():
+            _fence_actor(actor)
+            workspace = create_account_workspace(
+                account_uuid, organization_uuid, name, audit_actor=actor.principal, request_audit=audit
+            )
+            _fence_actor(actor)
+    publish_created_hierarchy("workspace", workspace.uuid, provider)
     return workspace
 
 
 def admin_individual_account(actor: CredentialContext, provider: AuthorizationProvider) -> AccountAdminView:
     """Resolve a human's individual account without an organization selector."""
-    _active_actor(actor)
+    actor = _active_actor(actor)
     if actor.principal.kind != "human":
         raise AccountScopeError(_DENIED)
     account = Account.objects.filter(
@@ -184,7 +235,7 @@ def admin_individual_account(actor: CredentialContext, provider: AuthorizationPr
     ).first()
     if account is None:
         raise AccountScopeError(_DENIED)
-    _require_action(
+    actor = _require_action(
         actor,
         provider,
         _READ_ACCOUNT,
@@ -207,12 +258,15 @@ def admin_add_account_member(
         scope = hierarchy_target_scope("account", account_uuid)
     except AccountScopeError as exc:
         raise AccountScopeError(_DENIED) from exc
-    _require_action(actor, provider, _MANAGE_MEMBERS, TargetRef("account", account_uuid), scope)
+    actor = _require_action(actor, provider, _MANAGE_MEMBERS, TargetRef("account", account_uuid), scope)
     try:
         resolve_principal(principal)
     except Exception as exc:
         raise AccountScopeError(_DENIED) from exc
-    add_account_member(account_uuid, principal, audit_actor=actor.principal, request_audit=audit)
+    with transaction.atomic():
+        _fence_actor(actor)
+        add_account_member(account_uuid, principal, audit_actor=actor.principal, request_audit=audit)
+        _fence_actor(actor)
 
 
 def admin_list_account_members(
@@ -234,7 +288,7 @@ def admin_list_account_members(
     ):
         raise AccountScopeError(_DENIED)
     scope = hierarchy_target_scope("account", account_uuid)
-    _require_action(actor, provider, _MANAGE_MEMBERS, TargetRef("account", account_uuid), scope)
+    actor = _require_action(actor, provider, _MANAGE_MEMBERS, TargetRef("account", account_uuid), scope)
     queryset = AccountMembership.objects.filter(account__uuid=account_uuid).order_by("pk")
     count = queryset.count()
     rows = queryset[offset : offset + limit]
@@ -251,10 +305,11 @@ def admin_remove_account_member(
 ) -> None:
     """Remove only the selected account's membership fact with strict evidence."""
     scope = hierarchy_target_scope("account", account_uuid)
-    _require_action(actor, provider, _MANAGE_MEMBERS, TargetRef("account", account_uuid), scope)
+    actor = _require_action(actor, provider, _MANAGE_MEMBERS, TargetRef("account", account_uuid), scope)
     request_audit = audit or RequestAudit()
     with transaction.atomic():
         account = Account.objects.select_for_update().filter(uuid=account_uuid).first()
+        _fence_actor(actor)
         if account is None:
             raise AccountScopeError(_DENIED)
         membership = (
@@ -296,23 +351,27 @@ def admin_set_workspace_quota_policy(
         scope = hierarchy_target_scope("workspace", workspace_uuid)
     except AccountScopeError as exc:
         raise AccountScopeError(_DENIED) from exc
-    _require_action(actor, provider, "workspace.manage_quota", TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(actor, provider, "workspace.manage_quota", TargetRef("workspace", workspace_uuid), scope)
     request_audit = audit or RequestAudit()
-    return _set_quota_policy_unchecked(
-        workspace_uuid,
-        resource,
-        limit,
-        mode,
-        audit=WorkspaceQuotaAuditContext(
-            actor_type="principal",
+    with transaction.atomic():
+        _fence_actor(actor)
+        result = _set_quota_policy_unchecked(
+            workspace_uuid,
+            resource,
+            limit,
+            mode,
+            audit=WorkspaceQuotaAuditContext(
+                actor_type="principal",
+                actor_id=None,
+                actor_principal_uuid=actor.principal.uuid,
+                source_ip=request_audit.source_ip,
+                user_agent=request_audit.user_agent,
+                request_id=request_audit.request_id,
+            ),
             actor_id=None,
-            actor_principal_uuid=actor.principal.uuid,
-            source_ip=request_audit.source_ip,
-            user_agent=request_audit.user_agent,
-            request_id=request_audit.request_id,
-        ),
-        actor_id=None,
-    )
+        )
+        _fence_actor(actor)
+        return result
 
 
 def admin_set_workspace_egress_policy(
@@ -328,20 +387,24 @@ def admin_set_workspace_egress_policy(
         scope = hierarchy_target_scope("workspace", workspace_uuid)
     except AccountScopeError as exc:
         raise AccountScopeError(_DENIED) from exc
-    _require_action(actor, provider, "workspace.manage_egress", TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(actor, provider, "workspace.manage_egress", TargetRef("workspace", workspace_uuid), scope)
     request_audit = audit or RequestAudit()
-    return _set_egress_policy_unchecked(
-        workspace_uuid,
-        egress_policy,
-        audit=WorkspaceAuditContext(
-            actor_type="principal",
-            actor_id=None,
-            actor_principal_uuid=actor.principal.uuid,
-            source_ip=request_audit.source_ip,
-            user_agent=request_audit.user_agent,
-            request_id=request_audit.request_id,
-        ),
-    )
+    with transaction.atomic():
+        _fence_actor(actor)
+        result = _set_egress_policy_unchecked(
+            workspace_uuid,
+            egress_policy,
+            audit=WorkspaceAuditContext(
+                actor_type="principal",
+                actor_id=None,
+                actor_principal_uuid=actor.principal.uuid,
+                source_ip=request_audit.source_ip,
+                user_agent=request_audit.user_agent,
+                request_id=request_audit.request_id,
+            ),
+        )
+        _fence_actor(actor)
+        return result
 
 
 def _read_batch(
@@ -451,7 +514,7 @@ def admin_list_accounts(
     search: str = "",
 ) -> AccountAdminPage:
     """Filter account authority before counting or slicing a collection."""
-    _active_actor(actor)
+    actor = _active_actor(actor)
     _valid_account_page(offset, limit)
     if not isinstance(search, str) or len(search) > 200:
         raise AccountScopeError(_DENIED)

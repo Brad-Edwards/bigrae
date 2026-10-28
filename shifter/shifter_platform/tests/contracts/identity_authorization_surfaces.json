@@ -1,5 +1,5 @@
 {
-  "current_operation_count": 304,
+  "current_operation_count": 307,
   "historical_baseline": {
     "commit": "8aee758331286293cdc837d94eb95fafa5674ae0",
     "operation_count": 220
@@ -694,6 +694,17 @@
         "target": "route-resource"
       },
       "disposition": "added",
+      "method": "GET",
+      "operation_id": "prepared_integration_organizations_list",
+      "path": "/api/v1/administer/organizations/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
       "method": "POST",
       "operation_id": "api_v1_administer_principals_event_creation_grants",
       "path": "/api/v1/administer/principals/{principal_uuid}/event-creation-grants/"
@@ -708,6 +719,17 @@
       "method": "GET",
       "operation_id": "administer_principals_personal_credentials_retrieve",
       "path": "/api/v1/administer/principals/{principal_uuid}/personal-credentials/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "administer_scopes_retrieve",
+      "path": "/api/v1/administer/scopes/"
     },
     {
       "authority": {
@@ -917,6 +939,17 @@
       "method": "GET",
       "operation_id": "cms_catalog_retrieve",
       "path": "/api/v1/cms/catalog/{scenario_id}/"
+    },
+    {
+      "authority": {
+        "decision": "installation.read_content|account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:content_scope_collection;selector=policy_filtered_ancestry",
+        "target": "scope"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "cms_content_scopes_retrieve",
+      "path": "/api/v1/cms/content-scopes/"
     },
     {
       "authority": {
@@ -1943,8 +1976,8 @@
     },
     {
       "authority": {
-        "decision": "event.participate",
-        "scope": "sql:event;selector=publication_or_participation;exemption=scoreboard_publication",
+        "decision": "event.read|event.participate",
+        "scope": "sql:event;selector=publication_or_current_policy_or_participation;exemption=scoreboard_publication",
         "target": "event"
       },
       "disposition": "retained",
@@ -2695,7 +2728,18 @@
         "scope": "sql:none;exemption=cms_model_access",
         "target": "none"
       },
-      "disposition": "retained",
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_scenario_options_retrieve",
+      "path": "/api/v1/ctf/scenario-options/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
       "method": "GET",
       "operation_id": "ctf_scenarios_retrieve",
       "path": "/api/v1/ctf/scenarios/"
@@ -3076,9 +3120,9 @@
     },
     {
       "authority": {
-        "decision": "authenticated-platform-contract",
-        "scope": "explicit",
-        "target": "operation-resource"
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
       },
       "disposition": "added",
       "method": "POST",
@@ -3087,9 +3131,9 @@
     },
     {
       "authority": {
-        "decision": "authenticated-platform-contract",
-        "scope": "explicit",
-        "target": "operation-resource"
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
       },
       "disposition": "added",
       "method": "POST",
@@ -3098,9 +3142,9 @@
     },
     {
       "authority": {
-        "decision": "authenticated-platform-contract",
-        "scope": "explicit",
-        "target": "operation-resource"
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
       },
       "disposition": "added",
       "method": "POST",
@@ -3109,9 +3153,9 @@
     },
     {
       "authority": {
-        "decision": "authenticated-platform-contract",
-        "scope": "explicit",
-        "target": "operation-resource"
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
       },
       "disposition": "added",
       "method": "POST",
@@ -3120,9 +3164,9 @@
     },
     {
       "authority": {
-        "decision": "authenticated-platform-contract",
-        "scope": "explicit",
-        "target": "operation-resource"
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
       },
       "disposition": "added",
       "method": "POST",
@@ -3880,6 +3924,14 @@
       "disposition": "retained",
       "kind": "management-command",
       "scope": "deployment-operator",
+      "surface": "ctf:resume_ctf_event_initialization",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
       "surface": "ctf:run_ctf_scheduler",
       "target": "installation"
     },
@@ -4056,6 +4108,14 @@
       "disposition": "retained",
       "kind": "management-command",
       "scope": "deployment-operator",
+      "surface": "workspaces:reconcile_hierarchy_publications",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
       "surface": "workspaces:seed_e2e",
       "target": "installation"
     },
@@ -4140,12 +4200,12 @@
       "target": "connection"
     },
     {
-      "decision": "continuing-access-check",
+      "decision": "event.read|event.participate",
       "disposition": "retained",
       "kind": "socket",
-      "scope": "resource-account",
+      "scope": "credential-bound-topic-and-live-participation",
       "surface": "shared/routing.py:'ws/notifications/$'",
-      "target": "connection"
+      "target": "event"
     },
     {
       "decision": "provider-binding-proof",

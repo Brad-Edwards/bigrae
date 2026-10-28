@@ -92,7 +92,7 @@ class EventPagesView(APIView):
         pages = list_active_pages(event_id, include_reserved=True)
         return Response({"pages": [_page_payload(p) for p in pages]})
 
-    @extend_schema(request=EventPageWriteSerializer, responses=EventPageSerializer)
+    @extend_schema(request=EventPageWriteSerializer, responses={200: EventPageSerializer})
     @audit_admin_event_mutation("event_page.create", action=AuditAction.CREATE)
     def post(self, request: Request, event_id: UUID) -> Response:
         """Create a page through the CTF page service; slugs are unique per event."""
@@ -115,7 +115,7 @@ class EventPagesView(APIView):
                 )
             except CTFValidationError as exc:
                 _raise_bad_request(str(exc))
-            return Response(_page_payload(page), status=status.HTTP_201_CREATED)
+            return Response(_page_payload(page), status=status.HTTP_200_OK)
         except _CtfApiError as exc:
             return exc.to_response(request)
 

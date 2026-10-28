@@ -120,6 +120,7 @@ def upsert_raes_image_mapping(
     source_name: str,
     image_ref: str,
     options: RaesImageMappingOptions | None = None,
+    credential: CredentialContext | None = None,
 ) -> RaesImageMapping:
     """Create or update an RAES image mapping, keyed on (provider, source_name, source_version).
 
@@ -146,23 +147,29 @@ def upsert_raes_image_mapping(
     if runtime_profile["image_kind"] == "machine-image" and portable["artifact_digest"]:
         raise RaesImageMappingError("machine-image mappings do not support portable artifact admission")
 
+    key = {"provider": normalized_provider, "source_name": name, "source_version": (opts.source_version or "").strip()}
+    defaults = {
+        "image_ref": ref,
+        "machine_type": (opts.machine_type or "").strip(),
+        "disk_size_gb": opts.disk_size_gb,
+        "management_ssh_port": management_port,
+        "management_ssh_username": management_user,
+        **runtime_profile,
+        "disk_type": (opts.disk_type or "").strip(),
+        "enabled": opts.enabled,
+        "notes": opts.notes or "",
+        **portable,
+    }
+    if credential is not None:
+        from ._principal_image_registry import upsert_operator_image
+
+        return upsert_operator_image(credential, key=key, defaults=defaults)
     mapping, _created = RaesImageMapping.objects.update_or_create(
         scope_kind="",
-        provider=normalized_provider,
-        source_name=name,
-        source_version=(opts.source_version or "").strip(),
-        defaults={
-            "image_ref": ref,
-            "machine_type": (opts.machine_type or "").strip(),
-            "disk_size_gb": opts.disk_size_gb,
-            "management_ssh_port": management_port,
-            "management_ssh_username": management_user,
-            **runtime_profile,
-            "disk_type": (opts.disk_type or "").strip(),
-            "enabled": opts.enabled,
-            "notes": opts.notes or "",
-            **portable,
-        },
+        provider=key["provider"],
+        source_name=key["source_name"],
+        source_version=key["source_version"],
+        defaults=defaults,
     )
     return mapping
 
@@ -173,6 +180,7 @@ def list_raes_image_mappings(
     include_disabled: bool = True,
     credential: CredentialContext | None = None,
     scope: ResourceScope | None = None,
+    for_administration: bool = False,
 ) -> list[RaesImageMappingView]:
     """Return registry rows as allowlisted DTOs in stable natural-key order.
 
@@ -184,7 +192,12 @@ def list_raes_image_mappings(
     """
     from engine.models import RaesImageMapping
 
-    if credential is not None:
+    if for_administration:
+        from ._principal_image_registry import authorize_image_registry, operator_image_selection
+
+        authorize_image_registry(credential)
+        queryset = RaesImageMapping.objects.filter(**operator_image_selection(), owner_principal_uuid__isnull=False)
+    elif credential is not None:
         from ._inventory_scope import authorize_inventory_read
 
         if scope is None:
@@ -248,6 +261,7 @@ def disable_raes_image_mapping(
     provider: str,
     source_name: str,
     source_version: str = "",
+    credential: CredentialContext | None = None,
 ) -> RaesImageMappingView:
     """Soft-disable an existing mapping (``enabled=False``) by natural key.
 
@@ -261,6 +275,14 @@ def disable_raes_image_mapping(
     normalized_provider = _normalize_provider(provider)
     name = _require(source_name, field="source_name")
     version = (source_version or "").strip()
+    if credential is not None:
+        from ._principal_image_registry import disable_operator_image
+
+        return _to_view(
+            disable_operator_image(
+                credential, key={"provider": normalized_provider, "source_name": name, "source_version": version}
+            )
+        )
     try:
         mapping = RaesImageMapping.objects.get(
             scope_kind="",

@@ -63,7 +63,7 @@ class TestCustomPages:
             kwargs={"event_id": ctf_event_active.id},
             body={"title": "Getting Started", "body": "Read **this** first.", "order": 1},
         )
-        assert created.status_code == 201
+        assert created.status_code == 200
         assert created.json()["slug"] == "getting-started"
 
         dup = call_json(

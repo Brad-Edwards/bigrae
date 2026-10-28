@@ -134,7 +134,7 @@ def require_range_action(
         ):
             raise ValueError(_UNAVAILABLE)
         target = TargetRef("range", instance.uuid)
-        request_parent = parent
+        request_parent: TargetRef | None = parent
         if authority_target is not None:
             if action != "event.manage_ranges" or parent.type != "event" or authority_target != parent:
                 raise ValueError(_UNAVAILABLE)

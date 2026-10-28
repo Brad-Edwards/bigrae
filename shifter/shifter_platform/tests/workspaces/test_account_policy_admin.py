@@ -19,6 +19,7 @@ from shared.authorization import (
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.models import AuditLog
+from tests._credential_helpers import persisted_credential
 from workspaces import services
 from workspaces.models import Account, AccountMembership, Organization, Workspace
 
@@ -62,8 +63,10 @@ def _actor(kind="human", actions=frozenset({"installation.manage_accounts", "acc
     else:
         principal = Principal.objects.create(uuid=uuid4(), kind="service", name="Administrator")
     ref = PrincipalRef(principal.uuid, kind)
-    return CredentialContext(
-        ref, "session" if kind == "human" else "service", uuid4(), CredentialCeiling(actions), frozenset()
+    return persisted_credential(
+        CredentialContext(
+            ref, "session" if kind == "human" else "service", uuid4(), CredentialCeiling(actions), frozenset()
+        )
     )
 
 
@@ -75,6 +78,46 @@ def _force_actor(request, actor, live_session_credential):
         return
     request.credential_context = actor
     force_authenticate(request, token=actor)
+
+
+@pytest.mark.parametrize("kind", ["human", "service"])
+@pytest.mark.parametrize("during_policy", [False, True])
+def test_revoked_native_proof_cannot_commit_account_creation(kind, during_policy):
+    from management.models import PrincipalSession, ServiceCredentialAdmission
+
+    actor = _actor(kind)
+
+    def revoke():
+        if kind == "human":
+            PrincipalSession.objects.filter(credential_uuid=actor.credential_uuid).delete()
+        else:
+            ServiceCredentialAdmission.objects.filter(uuid=actor.credential_uuid).update(is_active=False)
+
+    class RevokingProvider(Provider):
+        def check(self, request):
+            decision = super().check(request)
+            if during_policy:
+                revoke()
+            return decision
+
+    if not during_policy:
+        revoke()
+    provider = RevokingProvider()
+    with pytest.raises(services.AccountScopeError):
+        services.admin_create_account(actor, provider, kind="team", name="Revoked native proof")
+    assert not Account.objects.filter(name="Revoked native proof").exists()
+    assert not provider.changes
+    assert not AuditLog.objects.filter(context="account_hierarchy", actor_principal_uuid=actor.principal.uuid).exists()
+
+
+def test_direct_account_command_retains_the_narrower_original_ceiling():
+    from dataclasses import replace
+
+    actor = _actor("service", actions=frozenset({"installation.manage_accounts"}))
+    actor = replace(actor, ceiling=CredentialCeiling(frozenset({"account.read"})))
+    with pytest.raises(services.AccountScopeError):
+        services.admin_create_account(actor, Provider(), kind="team", name="Forbidden widening")
+    assert not Account.objects.filter(name="Forbidden widening").exists()
 
 
 @pytest.mark.parametrize("kind", ["human", "service"])
@@ -110,7 +153,7 @@ def test_full_administrator_creates_business_account_without_implicit_grants(kin
 def test_account_hierarchy_publication_recovers_lost_acknowledgement_outside_sql_transaction():
     from workspaces.models import HierarchyPublication
 
-    actor = _actor("service")
+    actor = _actor("human")
 
     class LostAcknowledgementProvider(Provider):
         def write_relationships(self, change):
@@ -131,7 +174,7 @@ def test_partial_hierarchy_publication_stays_unresolved_and_reruns_exact_intent(
     from shared.authorization import AuthorizationProviderBindingError
     from workspaces.models import HierarchyPublication
 
-    actor = _actor("service")
+    actor = _actor("human")
 
     class PartialProvider(Provider):
         failing = True
@@ -231,12 +274,14 @@ def test_account_list_honors_exact_credential_target_before_batch_checks():
     first = services.create_account(kind="team", name="First")
     services.create_account(kind="team", name="Hidden")
     unrestricted = _actor(actions=frozenset({"account.read"}))
-    actor = CredentialContext(
-        unrestricted.principal,
-        "personal",
-        uuid4(),
-        CredentialCeiling(frozenset({"account.read"}), TargetRef("account", first.uuid)),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            unrestricted.principal,
+            "session",
+            uuid4(),
+            CredentialCeiling(frozenset({"account.read"}), TargetRef("account", first.uuid)),
+            frozenset(),
+        )
     )
 
     page = services.admin_list_accounts(actor, Provider(), offset=0, limit=10)

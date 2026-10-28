@@ -37,6 +37,8 @@ class CTFEventAuthorityTransition(models.Model):
     previous_owner_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
     previous_role = models.CharField(max_length=16, blank=True, default="", editable=False)
     requested_role = models.CharField(max_length=16, blank=True, default="", editable=False)
+    effect_plan = models.JSONField(default=dict, editable=False)
+    effect_plan_digest = models.CharField(max_length=64, default="", editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     confirmed_at = models.DateTimeField(null=True, blank=True, editable=False)
@@ -44,11 +46,15 @@ class CTFEventAuthorityTransition(models.Model):
     class Meta:
         db_table = "ctf_event_authority_transition"
         constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(state="pending") | ~models.Q(effect_plan_digest=""),
+                name="ctf_pending_authority_has_effect_plan",
+            ),
             models.UniqueConstraint(
                 fields=["event"],
                 condition=models.Q(state="pending"),
                 name="unique_pending_ctf_event_authority_transition",
-            )
+            ),
         ]
 
     def __str__(self) -> str:

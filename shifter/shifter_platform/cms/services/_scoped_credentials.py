@@ -17,7 +17,7 @@ from shared.credentials import CredentialContext
 from shared.identity_scope import ResourceScope
 from shared.schemas.credentials import CredentialRef, DeploymentProfileContext, SCMCredentialContext
 
-from ._content_authority import content_scope, content_scope_fields, require_content_scope
+from ._content_authority import content_scope, content_scope_fields, fence_content_scope, require_content_scope
 from ._credential_input import validate_credential_data
 
 _CONTENT_UNAVAILABLE = "Content unavailable"
@@ -99,7 +99,7 @@ def create_scoped_credential(
     )
     # Validation cannot turn an admission snapshot into continuing authority.
     # Recheck the same proof and scope before persisting encrypted secret data.
-    current = require_content_scope(credential, scope, "manage_credentials")
+    current = require_content_scope(current, scope, "manage_credentials")
     row = Credential(
         user=None,
         owner_principal_uuid=current.principal.uuid,
@@ -110,6 +110,7 @@ def create_scoped_credential(
         data=data,
     )
     with transaction.atomic():
+        fence_content_scope(current, scope)
         resolve_scope = content_scope(row)
         if resolve_scope != scope:
             raise CMSError(_CONTENT_UNAVAILABLE)
@@ -171,6 +172,7 @@ def delete_scoped_credential(credential: CredentialContext, identifier: int) -> 
         row = Credential.objects.select_for_update().select_related("credential_type").filter(**fence).first()
         if row is None:
             raise CMSError(_CONTENT_UNAVAILABLE)
+        fence_content_scope(current, content_scope(row))
         row.deleted_at = timezone.now()
         row.save(update_fields=["deleted_at"])
         _record(current, row, AuditAction.DELETE)

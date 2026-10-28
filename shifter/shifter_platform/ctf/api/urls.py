@@ -107,7 +107,7 @@ urlpatterns = [
         organizer.EventContentRefreshView.as_view(),
         name="api_event_content_refresh",
     ),
-    path("scenarios/", organizer.ScenarioListView.as_view(), name="api_scenarios"),
+    path("scenario-options/", organizer.ScenarioListView.as_view(), name="api_scenarios"),
     path(
         "events/<uuid:event_id>/challenges/",
         organizer.ChallengeListView.as_view(),

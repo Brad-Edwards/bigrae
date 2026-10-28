@@ -83,11 +83,11 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_events_registration_requests_retrieve": OperationPolicy((_MANAGE_PARTICIPANTS,), "event", "event"),
     "ctf_events_results_export_retrieve": OperationPolicy((_MANAGE_SCORING,), "event", "event"),
     "ctf_events_scoreboard_retrieve": OperationPolicy(
-        (_PARTICIPATE,),
+        ("event.read", _PARTICIPATE),
         "event",
         "event",
         "scoreboard_publication",
-        "publication_or_participation",
+        "publication_or_current_policy_or_participation",
     ),
     "ctf_events_spares_create": OperationPolicy((_MANAGE_RANGES,), "event", "event"),
     "ctf_events_tasks_retrieve": OperationPolicy((_MANAGE_LIFECYCLE,), "event", "event"),
@@ -151,7 +151,7 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_range_status_retrieve": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
     "ctf_range_vpn_profile_create": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
     "ctf_registration_requests_disposition_create": OperationPolicy((_MANAGE_PARTICIPANTS,), "event", "request"),
-    "ctf_scenarios_retrieve": OperationPolicy((), None, None, "cms_model_access"),
+    "ctf_scenario_options_retrieve": OperationPolicy((), None, None, "cms_model_access"),
     "ctf_submissions_retrieve": OperationPolicy(("event.manage_submissions",), "event", "submission_collection"),
     "ctf_webhooks_destroy": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "webhook"),
 }
@@ -220,6 +220,7 @@ CTF_COMMAND_POLICY: dict[str, str] = {
     "ctf_recompute_leaderboard": "system_event",
     "cutover_ctf_communications": "system_maintenance",
     "prune_ctf_communications": "system_maintenance",
+    "resume_ctf_event_initialization": "system_maintenance",
 }
 
 

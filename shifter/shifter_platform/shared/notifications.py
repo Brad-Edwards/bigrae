@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -17,10 +17,9 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from shared.channels.groups import notification_user_topic_group
+from shared.credentials import CredentialContext, resolve_current_credential
 from shared.models import WebSocketNotification
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+from shared.principal_port import PrincipalResolutionError, principal_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ _TOPIC_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")
 _TYPE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")
 
 PayloadHandler = Callable[[Mapping[str, Any]], Mapping[str, Any]]
-SubscriptionAuthorizer = Callable[[Any, str], bool]
+SubscriptionAuthorizer = Callable[[CredentialContext, str], bool]
 
 
 @dataclass(frozen=True)
@@ -110,11 +109,29 @@ def _registrations_for_topic(topic: str) -> list[NotificationRegistration]:
     return [registration for registration in _registry.values() if topic.startswith(registration.topic_prefix)]
 
 
-def authorize_subscription(user: AbstractBaseUser | AnonymousUser, topic: str) -> bool:
-    """Return whether a user may subscribe to a logical topic."""
-    if not getattr(user, "is_authenticated", False):
-        return False
+def _browser_credential(credential: CredentialContext) -> CredentialContext:
+    if not isinstance(credential, CredentialContext) or credential.principal.kind != "human":
+        raise ValueError("Browser credential unavailable")
+    return resolve_current_credential(credential)
+
+
+def notification_user_id(credential: CredentialContext, user: object) -> int | None:
+    """Bind a browser socket to its actual human identity, never a service contact."""
+    from django.contrib.auth.models import User
+
     try:
+        current = _browser_credential(credential)
+        if isinstance(user, User) and principal_for_user(user) == current.principal:
+            return user.pk
+    except (ValueError, PrincipalResolutionError):
+        pass
+    return None
+
+
+def authorize_subscription(credential: CredentialContext, topic: str) -> bool:
+    """Check a current browser proof and pass its narrowed ceiling to the topic owner."""
+    try:
+        credential = _browser_credential(credential)
         registrations = _registrations_for_topic(topic)
     except ValueError:
         return False
@@ -122,15 +139,15 @@ def authorize_subscription(user: AbstractBaseUser | AnonymousUser, topic: str) -
     authorized = False
     for registration in registrations:
         try:
-            if registration.can_subscribe(user, topic):
+            if registration.can_subscribe(credential, topic):
                 authorized = True
                 break
         except Exception:
             logger.warning(
-                "notification authorizer failed: type=%s topic=%s user_id=%s",
+                "notification authorizer failed: type=%s topic=%s principal_uuid=%s",
                 registration.name,
                 topic,
-                getattr(user, "id", None),
+                credential.principal.uuid,
                 exc_info=True,
             )
     return authorized
@@ -287,10 +304,12 @@ def prune_expired_notifications() -> int:
 
 
 def authorized_notification_payload(
-    user: AbstractBaseUser | AnonymousUser, notification: WebSocketNotification
+    credential: CredentialContext, notification: WebSocketNotification
 ) -> dict[str, Any] | None:
     """Recheck live topic policy and current projection for both replay and fan-out."""
-    if not authorize_subscription(user, notification.topic):
+    if notification_user_id(credential, notification.recipient) != notification.recipient_id:
+        return None
+    if not authorize_subscription(credential, notification.topic):
         return None
     registration = _registry.get(notification.notification_type)
     if registration is None:

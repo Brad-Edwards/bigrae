@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast
-
-if TYPE_CHECKING:
-    from shared.db.operation_authority import RecordedAuthorityFields
-
 from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Literal, Protocol, cast
 from uuid import UUID
 
 from shared.api_tokens.scopes import validate_scopes
@@ -17,6 +14,74 @@ from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef, ResourceScope
 
 _OPERATION_AUTHORITY_UNAVAILABLE = "Operation authority unavailable"
+
+
+class CredentialReferenceRecord(Protocol):
+    """The scalar reference consumed from an owning record, without SQL coupling."""
+
+    @property
+    def initiating_principal_uuid(self) -> UUID | None: ...
+    @property
+    def initiating_principal_kind(self) -> str: ...
+    @property
+    def credential_kind(self) -> str: ...
+    @property
+    def credential_uuid(self) -> UUID | None: ...
+    @property
+    def credential_ceiling_actions(self) -> str: ...
+    @property
+    def credential_target_type(self) -> str: ...
+    @property
+    def credential_target_uuid(self) -> UUID | None: ...
+    @property
+    def credential_scopes(self) -> str: ...
+    @property
+    def credential_event_uuid(self) -> UUID | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _CredentialReference:
+    initiating_principal_uuid: UUID | None
+    initiating_principal_kind: str
+    credential_kind: str
+    credential_uuid: UUID | None
+    credential_ceiling_actions: str
+    credential_target_type: str
+    credential_target_uuid: UUID | None
+    credential_scopes: str
+    credential_event_uuid: UUID | None
+
+
+def credential_reference_from_fields(fields: Mapping[str, object]) -> CredentialContext:
+    """Decode existing server-owned scalar snapshots with the same record contract."""
+
+    def identity(name: str) -> UUID | None:
+        value = fields[name]
+        if value is not None and not isinstance(value, UUID):
+            raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+        return value
+
+    def text(name: str) -> str:
+        value = fields[name]
+        if not isinstance(value, str):
+            raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
+        return value
+
+    try:
+        record = _CredentialReference(
+            identity("initiating_principal_uuid"),
+            text("initiating_principal_kind"),
+            text("credential_kind"),
+            identity("credential_uuid"),
+            text("credential_ceiling_actions"),
+            text("credential_target_type"),
+            identity("credential_target_uuid"),
+            text("credential_scopes"),
+            identity("credential_event_uuid"),
+        )
+        return credential_reference_from_record(record)
+    except (KeyError, TypeError):
+        raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE) from None
 
 
 def authority_resource_scope(fields: Mapping[str, object]) -> ResourceScope:
@@ -62,7 +127,7 @@ def _registered_lines(value: str) -> frozenset[str]:
     return parts
 
 
-def credential_reference_from_record(row: RecordedAuthorityFields) -> CredentialContext:
+def credential_reference_from_record(row: CredentialReferenceRecord) -> CredentialContext:
     """Reconstruct only a trusted server-owned record, never request fields."""
     try:
         target = (

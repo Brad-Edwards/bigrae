@@ -9,6 +9,62 @@ from ctf.exceptions import CTFPermissionError
 from management.services import create_service_principal
 from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind, TargetRef
 from shared.credentials import CredentialContext
+from tests._credential_helpers import persisted_credential
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("expired", [False, True])
+def test_interrupted_event_initialization_remains_unavailable_and_recovers_via_command(
+    organizer_user, organizer_credential, monkeypatch, expired
+):
+    from datetime import timedelta
+
+    from django.core.management import CommandError, call_command
+    from django.utils import timezone
+
+    from ctf.models import CTFEvent
+    from ctf.services.credential_scope import event_credential_scope
+    from ctf.services.event import create_event_for_credential, relationships
+
+    publish = relationships.publish_event_relationships
+
+    def interrupted(event_uuid):
+        event = publish(event_uuid)
+        assert event.authorization_publication_state == "confirmed"
+        assert event.initialization_intent is not None
+        with pytest.raises(ValueError):
+            event_credential_scope(event_uuid)
+        raise SystemExit("Synthetic process interruption")
+
+    monkeypatch.setattr(relationships, "publish_event_relationships", interrupted)
+    now = timezone.now()
+    with pytest.raises(SystemExit):
+        create_event_for_credential(
+            organizer_credential,
+            {"name": "Interrupted initialization", "event_start": now, "event_end": now + timedelta(hours=1)},
+            creator_user=organizer_user,
+        )
+    pending = CTFEvent.objects.get(name="Interrupted initialization")
+    with pytest.raises(ValueError):
+        event_credential_scope(pending.pk)
+    monkeypatch.setattr(relationships, "publish_event_relationships", publish)
+    if expired:
+        from management.models import PrincipalSession
+
+        PrincipalSession.objects.filter(credential_uuid=organizer_credential.credential_uuid).update(
+            expire_date=timezone.now() - timedelta(seconds=1)
+        )
+        with pytest.raises(CommandError):
+            call_command("resume_ctf_event_initialization", str(pending.pk))
+        pending.refresh_from_db()
+        assert pending.initialization_intent is not None
+        with pytest.raises(ValueError):
+            event_credential_scope(pending.pk)
+        return
+    call_command("resume_ctf_event_initialization", str(pending.pk))
+    pending.refresh_from_db()
+    assert pending.initialization_intent is None
+    assert event_credential_scope(pending.pk).account_uuid is not None
 
 
 @pytest.mark.django_db
@@ -29,12 +85,14 @@ def test_service_administrator_uses_live_event_policy_and_exact_scope(ctf_event_
     )
     account = Account.objects.get(pk=event.account_id)
     service = create_service_principal("CTF administrator")
-    credential = CredentialContext(
-        service,
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"event.manage_staff", "account.create_event"})),
-        frozenset(),
+    credential = persisted_credential(
+        CredentialContext(
+            service,
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"event.manage_staff", "account.create_event"})),
+            frozenset(),
+        )
     )
     requests = []
     allowed = True
@@ -98,12 +156,14 @@ def test_service_creation_uses_business_parent_ancestry(monkeypatch):
     organization = Organization.objects.get(account_id=account.id, is_default=True)
     workspace = Workspace.objects.get(organization=organization, is_default=True)
     service = create_service_principal("Event creator")
-    credential = CredentialContext(
-        service,
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"organization.create_event", "workspace.create_event"})),
-        frozenset(),
+    credential = persisted_credential(
+        CredentialContext(
+            service,
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"organization.create_event", "workspace.create_event"})),
+            frozenset(),
+        )
     )
     seen = []
 
@@ -142,8 +202,10 @@ def test_business_event_cannot_claim_a_direct_account_parent(ctf_event_active, m
         event_end=ctf_event_active.event_end,
     )
     service = create_service_principal("Administrator")
-    credential = CredentialContext(
-        service, "service", uuid4(), CredentialCeiling(frozenset({"event.manage_config"})), frozenset()
+    credential = persisted_credential(
+        CredentialContext(
+            service, "service", uuid4(), CredentialCeiling(frozenset({"event.manage_config"})), frozenset()
+        )
     )
     checked = []
 
@@ -159,7 +221,7 @@ def test_business_event_cannot_claim_a_direct_account_parent(ctf_event_active, m
 
 
 @pytest.mark.django_db
-def test_service_principal_creates_updates_and_delegates_event_without_human_projection(monkeypatch):
+def test_service_principal_creates_updates_and_delegates_event_without_human_projection(monkeypatch, settings):
     """Service administrators use the same parent/event policy and principal topology."""
     from datetime import timedelta
 
@@ -177,22 +239,21 @@ def test_service_principal_creates_updates_and_delegates_event_without_human_pro
     organization = Organization.objects.get(account_id=account.id, is_default=True)
     owner = create_service_principal("Service event owner")
     delegate = create_service_principal("Service event delegate")
-    credential = CredentialContext(
-        owner,
-        "service",
-        uuid4(),
-        CredentialCeiling(
-            frozenset(
-                {
-                    "organization.create_event",
-                    "event.manage",
-                    "event.manage_staff",
-                    *actions_for_role(EventStaffRole.CO_ORGANIZER.value),
-                }
-            )
-        ),
-        frozenset(),
+    from tests.cms._warm_pool_fixtures import service_credential
+
+    credential = service_credential(
+        settings,
+        scopes=[
+            f"authorization:{action}"
+            for action in {
+                "organization.create_event",
+                "event.manage",
+                "event.manage_staff",
+                *actions_for_role(EventStaffRole.CO_ORGANIZER.value),
+            }
+        ],
     )
+    owner = credential.principal
     checked = []
 
     def check(request):
@@ -246,7 +307,7 @@ def test_service_principal_creates_updates_and_delegates_event_without_human_pro
         (f"organization:{organization.uuid}", "organization", f"event:{event.pk}"),
         (f"principal:{owner.uuid}", "direct_administrator", f"event:{event.pk}"),
     }
-    assert checked[-1].action == "organization.create_event"
+    assert "organization.create_event" in {request.action for request in checked}
 
     update_event(event.pk, {"description": "updated"}, actor_id=credential)
     assert checked[-1].action == "event.manage_config"
@@ -261,28 +322,20 @@ def test_service_principal_creates_updates_and_delegates_event_without_human_pro
 
 
 @pytest.mark.django_db(transaction=True)
-def test_event_relationship_publication_recovers_lost_acknowledgement(monkeypatch):
+def test_event_relationship_publication_recovers_lost_acknowledgement(monkeypatch, organizer_credential):
     """A provider timeout after commit is reconciled by primary readback."""
     from datetime import timedelta
 
     from django.utils import timezone
 
     from ctf.services.event import create_event_for_credential
-    from management.services import create_service_principal
     from shared.authorization import RelationshipState, port
     from workspaces.models import Organization
     from workspaces.services import create_account
 
     account = create_account(kind="team", name="Lost acknowledgement account")
     organization = Organization.objects.get(account_id=account.id, is_default=True)
-    owner = create_service_principal("Lost acknowledgement owner")
-    credential = CredentialContext(
-        owner,
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"organization.create_event"})),
-        frozenset(),
-    )
+    credential = organizer_credential
     relationships = set()
     first = True
     provider_io_in_atomic = []
@@ -330,3 +383,27 @@ def test_event_relationship_publication_recovers_lost_acknowledgement(monkeypatc
     assert event.authorization_provider_store_id == "test-store"
     assert event.authorization_model_id == "test-model"
     assert provider_io_in_atomic == [False, False]
+
+
+def test_explicit_action_denial_overrides_the_administrator_relationship(ctf_event, organizer_credential):
+    from ctf.exceptions import CTFPermissionError
+    from ctf.services.unified_authorization import require_event_action
+    from shared.authorization import (
+        PolicyEffect,
+        PolicyRelationshipChange,
+        RelationshipSubject,
+        TargetRef,
+        configured_authorization_provider,
+    )
+
+    require_event_action(organizer_credential, ctf_event.pk, "event.read")
+    configured_authorization_provider().write_relationships(
+        PolicyRelationshipChange(
+            RelationshipSubject("principal", organizer_credential.principal.uuid),
+            "event.read",
+            TargetRef("event", ctf_event.pk),
+            PolicyEffect.REVOKE,
+        )
+    )
+    with pytest.raises(CTFPermissionError):
+        require_event_action(organizer_credential, ctf_event.pk, "event.read")

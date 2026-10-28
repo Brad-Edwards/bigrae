@@ -12,9 +12,6 @@ from django.db import transaction
 from cms.services import (
     apply_identity_cutover_resources as apply_cms_cutover_resources,
 )
-from cms.services import (
-    verify_identity_cutover_hierarchy,
-)
 from config.identity_cutover import (
     IdentityCutoverFacts,
     build_identity_cutover_plan,
@@ -40,6 +37,7 @@ from management.services import (
 from shared.authorization import CutoverRelationshipChange
 from workspaces.services import (
     IdentityCutoverConflict,
+    IdentityCutoverStateView,
     activate_identity_cutover,
     apply_identity_cutover_sql,
     begin_identity_cutover,
@@ -47,6 +45,7 @@ from workspaces.services import (
     get_identity_cutover_state,
     identity_cutover_resource_mappings,
     record_identity_cutover_policy_intent,
+    verify_identity_cutover_hierarchy,
 )
 from workspaces.services import (
     identity_cutover_relationships as workspace_cutover_relationships,
@@ -62,12 +61,22 @@ class Command(BaseCommand):
         parser.add_argument("phase", choices=("status", "plan", "apply", "verify"))
         parser.add_argument("--facts")
         parser.add_argument("--plan-digest", default="")
+        parser.add_argument(
+            "--probe", action="store_true", help="Allow an absent legacy schema; verify activated runtime"
+        )
 
     def handle(self, *args, **options) -> None:
         phase = options["phase"]
         if phase == "status":
-            state = get_identity_cutover_state()
+            state = get_identity_cutover_state(allow_missing_schema=options["probe"])
             result = {"state": "absent"} if state is None else _state_result(state)
+            if options["probe"] and result["state"] == "activated":
+                from config.identity_runtime import IdentityRuntimeNotReady, require_identity_runtime_ready
+
+                try:
+                    require_identity_runtime_ready()
+                except IdentityRuntimeNotReady:
+                    raise CommandError("Identity runtime is unavailable") from None
             self.stdout.write(json.dumps(result, sort_keys=True, separators=(",", ":"), default=str))
             return
         if not options["facts"]:
@@ -171,7 +180,7 @@ class Command(BaseCommand):
         return _state_result(state)
 
 
-def _state_result(state: object) -> dict[str, object]:
+def _state_result(state: IdentityCutoverStateView) -> dict[str, object]:
     """Return bounded state without exposing relationship payloads."""
     return {"state": state.state, "plan_digest": state.plan_digest, "tuple_digest": state.tuple_digest}
 

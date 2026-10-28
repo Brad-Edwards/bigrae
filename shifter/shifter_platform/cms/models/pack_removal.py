@@ -28,7 +28,10 @@ class TenantPackRemoval(models.Model):
     package_name = models.SlugField(max_length=100, editable=False)
     package_version = models.CharField(max_length=128, editable=False)
     package_digest = models.CharField(max_length=71, editable=False)
-    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+", null=True, blank=True
+    )
+    requested_by_principal_uuid = models.UUIDField(null=True, editable=False, db_index=True)
     request_id = models.CharField(max_length=64, blank=True, default="")
     state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING, db_index=True)
     attempts = models.PositiveIntegerField(default=0)
@@ -36,6 +39,11 @@ class TenantPackRemoval(models.Model):
     lease_id = models.UUIDField(null=True, blank=True)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
     last_failure_code = models.CharField(max_length=32, blank=True, default="")
+    # An unknown upload may still finish after a transport failure or process
+    # crash. Its exact object remains cleanup-owned even after an absent read.
+    upload_outcome = models.CharField(
+        max_length=8, blank=True, default="", choices=[("", "Removal"), ("unknown", "Unknown"), ("settled", "Settled")]
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -46,6 +54,9 @@ class TenantPackRemoval(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=models.Q(state__in=["pending", "completed"]), name="tenant_pack_removal_state"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(upload_outcome__in=["", "unknown", "settled"]), name="tenant_pack_upload_outcome"
             ),
         ]
 
@@ -68,7 +79,7 @@ class TenantPackArchive(models.Model):
     package_ref = models.CharField(max_length=512, editable=False)
     bucket = models.CharField(max_length=255, blank=True, default="")
     object_key = models.CharField(max_length=1024, blank=True, default="")
-    #: True once the object was written or observed at ``bucket``/``object_key``.
+    #: True for an exact server-generated destination or an observed legacy location.
     #: An unverified location never lets absence count as deletion.
     location_verified = models.BooleanField(default=False)
     removal = models.ForeignKey(

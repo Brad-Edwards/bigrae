@@ -1,23 +1,9 @@
-"""Event-staff roles and authority-topology mutations (CTF-607, #1922, #1923).
+"""CTF-owned staff roles and durable authority publication (ADR-066).
 
-The owning organizer (``CTFEvent.created_by``) is the single canonical owner and
-always holds every capability. ``CTFEventStaff`` rows grant other organizer-tier
-users a role-scoped slice of one event's management surface, keyed by a closed
-:class:`ctf.enums.EventCapability` vocabulary and a fail-closed role map:
-
-- ``moderator``: ``participants`` and ``notifications``
-- ``judge``: ``awards`` and ``submissions``
-- ``co_organizer``: every operational capability (configuration, challenges,
-  participants, teams, ranges, scoring, notifications, awards, submissions,
-  content, lifecycle, deletion)
-
-Authority is resolved centrally by ``ctf.services.authorization`` (ADR-052): the
-least authority that admits the actor, in the order owner, delegated event-staff
-capability, then the platform-admin override. Authority-topology operations —
-listing/assigning/re-roling/revoking staff and transferring canonical ownership —
-are owner-only (``capability=None``): delegated staff can never exercise them, so
-a co-organizer cannot escalate itself or remove the owner's control; the
-platform administrator may, as legitimate global administration.
+SQL records canonical ownership and role display. Current policy and credential
+ceilings authorize commands; those SQL facts do not grant permission. Each
+mutation retains an exact effect plan before publication and projects SQL only
+after the shared policy journal confirms every effect.
 """
 
 from __future__ import annotations
@@ -30,9 +16,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from ctf.enums import EventCapability, EventStaffRole
-from ctf.exceptions import CTFNotFoundError, CTFValidationError
+from ctf.exceptions import CTFNotFoundError, CTFPermissionError, CTFValidationError
 from ctf.models import CTFEvent, CTFEventAuthorityTransition, CTFEventStaff
-from shared.authorization import PolicyEffect
 from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
@@ -42,6 +27,8 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from ctf.services.actors import EventActor
+
+from .authority_plan import AuthorityPlan, prepare_plan, publish_plan
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +65,40 @@ _CAPABILITY_ACTIONS = {
 ALL_DELEGABLE_CAPABILITIES: tuple[str, ...] = tuple(sorted(set().union(*_ROLE_CAPABILITIES.values())))
 
 
+def _admit_staff_actor(actor: EventActor) -> EventActor:
+    """Revalidate native proofs before both initial commands and recovery."""
+    from ctf.exceptions import CTFError
+    from ctf.services.actors import current_event_actor_credential
+    from shared.credentials import CredentialContext, CredentialUnavailable
+
+    try:
+        current = current_event_actor_credential(actor)
+        return current if isinstance(actor, CredentialContext) else actor
+    except CredentialUnavailable:
+        raise CTFError("Event authority unavailable", code="CTF_AUTHORITY_UNAVAILABLE") from None
+    except ValueError:
+        raise CTFPermissionError("Event authority denied") from None
+
+
+def _fence_staff_actor(actor: EventActor) -> None:
+    """Fence the current proof without provider I/O while committing the projection."""
+    from ctf.services.actors import fence_event_actor
+
+    try:
+        fence_event_actor(actor)
+    except ValueError:
+        raise CTFPermissionError("Event authority recovery denied") from None
+
+
+def _is_original_transition_credential(transition_id: UUID, credential) -> bool:
+    """Only the original live proof may use confirmation without a replay grant."""
+    return CTFEventAuthorityTransition.objects.filter(
+        pk=transition_id,
+        actor_principal_uuid=credential.principal.uuid,
+        actor_credential_uuid=credential.credential_uuid,
+    ).exists()
+
+
 def capabilities_for_role(role: str | None) -> tuple[str, ...]:
     """Return the sorted delegable capabilities a staff ``role`` grants (empty if none)."""
     return tuple(sorted(_ROLE_CAPABILITIES.get(role or "", frozenset())))
@@ -95,106 +116,6 @@ def actions_for_role(role: str | None) -> tuple[str, ...]:
 def capability_action_pairs() -> tuple[tuple[str, str], ...]:
     """Return the closed UI capability-to-policy-action mapping."""
     return tuple(sorted(_CAPABILITY_ACTIONS.items()))
-
-
-def _publish_staff_role(
-    event: CTFEvent,
-    actor: EventActor,
-    principal_uuid: UUID,
-    previous_role: str | None,
-    role: str | None,
-    *,
-    transition_id: UUID,
-    ownership_handoff: bool = False,
-) -> None:
-    """Journal and read back every action delta before updating the SQL projection."""
-    from ctf.exceptions import CTFStateError
-    from ctf.services.actors import event_actor_credential
-    from ctf.services.credential_scope import event_credential_scope
-    from shared.authorization import (
-        PolicyEffect,
-        RelationshipSubject,
-        TargetRef,
-        configured_authorization_provider,
-    )
-    from workspaces.services import (
-        AUTHORIZATION_MUTATION_CONFIRMED,
-        EventOwnershipHandoffPolicyMutationRequest,
-        PolicyMutationRequest,
-        apply_policy_mutation,
-    )
-
-    credential = event_actor_credential(actor)
-    provider = configured_authorization_provider()
-    scope = event_credential_scope(event.pk)
-    old_actions = set(actions_for_role(previous_role))
-    new_actions = set(actions_for_role(role))
-    for index, action in enumerate(sorted(old_actions | new_actions)):
-        effect = PolicyEffect.GRANT if action in new_actions else PolicyEffect.REVOKE
-        request_type = EventOwnershipHandoffPolicyMutationRequest if ownership_handoff else PolicyMutationRequest
-        result = apply_policy_mutation(
-            request_type(
-                actor=credential.principal,
-                credential=credential.ceiling,
-                subject=RelationshipSubject("principal", principal_uuid),
-                action=action,
-                target=TargetRef("event", event.pk),
-                scope=scope,
-                effect=effect,
-                idempotency_key=f"event-staff-{transition_id.hex}-{index}",
-                model_id=provider.model_id,
-            ),
-            provider,
-        )
-        if result.state != AUTHORIZATION_MUTATION_CONFIRMED:
-            raise CTFStateError("Event staff authority is unavailable", code="CTF_EVENT_AUTHORITY_UNAVAILABLE")
-
-
-def _publish_event_administrator(
-    event: CTFEvent,
-    actor: EventActor,
-    principal_uuid: UUID,
-    effect: PolicyEffect,
-    *,
-    transition_id: UUID,
-    step: str,
-) -> None:
-    """Journal and confirm one canonical event-administrator relationship."""
-    from ctf.exceptions import CTFStateError
-    from ctf.services.actors import event_actor_credential
-    from ctf.services.credential_scope import event_credential_scope
-    from shared.authorization import (
-        AdministrativeRoleChange,
-        RelationshipSubject,
-        TargetRef,
-        configured_authorization_provider,
-    )
-    from workspaces.services import (
-        AUTHORIZATION_MUTATION_CONFIRMED,
-        NativeRelationshipMutationRequest,
-        apply_native_relationship_mutation,
-    )
-
-    credential = event_actor_credential(actor)
-    provider = configured_authorization_provider()
-    result = apply_native_relationship_mutation(
-        NativeRelationshipMutationRequest(
-            actor=credential.principal,
-            credential=credential.ceiling,
-            change=AdministrativeRoleChange(
-                RelationshipSubject("principal", principal_uuid),
-                "event_administrator",
-                TargetRef("event", event.pk),
-                effect,
-            ),
-            scope=event_credential_scope(event.pk),
-            idempotency_key=f"event-owner-{transition_id.hex}-{step}",
-            model_id=provider.model_id,
-        ),
-        provider,
-    )
-    if result.state != AUTHORIZATION_MUTATION_CONFIRMED:
-        raise CTFStateError("Event ownership authority is unavailable", code="CTF_EVENT_AUTHORITY_UNAVAILABLE")
 
 
 def _pending_transition(
@@ -219,11 +140,42 @@ def _pending_transition(
         pending.kind != kind
         or pending.target_principal_uuid != target_principal_uuid
         or pending.requested_role != requested_role
-        or pending.actor_principal_uuid != credential.principal.uuid
-        or pending.actor_credential_uuid != credential.credential_uuid
     ):
         raise CTFValidationError("Event authority changed concurrently", code="CTF_STAFF_CONFLICT")
+    if (pending.actor_principal_uuid, pending.actor_credential_uuid) != (
+        credential.principal.uuid,
+        credential.credential_uuid,
+    ):
+        action = (
+            "event.transfer_ownership" if kind == CTFEventAuthorityTransition.Kind.TRANSFER else "event.manage_staff"
+        )
+        _resolve_owned_event_for_staff(event_id, actor, action)
     return pending
+
+
+def pending_event_authority(event_id: UUID, actor: EventActor) -> dict[str, object] | None:
+    """Expose only an authorized command receipt; status reads publish no effects."""
+    from workspaces.services import confirmed_authorization_effects
+
+    from .authority_plan import retained_plan
+
+    actor = _admit_staff_actor(actor)
+    _resolve_owned_event_for_staff(event_id, actor, "event.manage_staff")
+    transition = CTFEventAuthorityTransition.objects.filter(event_id=event_id, state="pending").first()
+    if transition is None:
+        return None
+    plan = retained_plan(transition)
+    return {
+        "id": str(transition.pk),
+        "kind": transition.kind,
+        "target_principal_uuid": str(transition.target_principal_uuid),
+        "requested_role": transition.requested_role,
+        "created_at": transition.created_at.isoformat(),
+        "total_effects": len(plan.effects),
+        "completed_effects": confirmed_authorization_effects(
+            tuple(effect.key for effect in plan.effects), store_id=plan.store_id, model_id=plan.model_id
+        ),
+    }
 
 
 def _create_transition(
@@ -235,12 +187,37 @@ def _create_transition(
     previous_role: str = "",
     requested_role: str = "",
     previous_owner_principal_uuid: UUID | None = None,
+    prepared_plan: AuthorityPlan,
 ) -> CTFEventAuthorityTransition:
     """Persist one provider-bound intent while the caller holds the event lock."""
     from ctf.services.actors import event_actor_credential
 
     credential = event_actor_credential(actor)
+    _fence_staff_actor(actor)
+    if CTFEventAuthorityTransition.objects.filter(event=event, state="pending").exists():
+        raise CTFValidationError("Event authority changed concurrently", code="CTF_STAFF_CONFLICT")
+    if (
+        prepared_plan.event_uuid,
+        prepared_plan.kind,
+        prepared_plan.target_uuid,
+        prepared_plan.previous_role,
+        prepared_plan.requested_role,
+        prepared_plan.previous_owner_uuid,
+    ) != (event.pk, kind, target_principal_uuid, previous_role, requested_role, previous_owner_principal_uuid):
+        raise CTFValidationError("Event authority intent changed", code="CTF_STAFF_CONFLICT")
+    if kind in {CTFEventAuthorityTransition.Kind.TRANSFER, CTFEventAuthorityTransition.Kind.ASSIGN}:
+        from management.services import PrincipalConflictError, resolve_principal_uuid
+
+        try:
+            resolve_principal_uuid(target_principal_uuid)
+        except PrincipalConflictError:
+            raise CTFValidationError(
+                "Ownership can only transfer to an active principal", code="CTF_TRANSFER_TARGET_INELIGIBLE"
+            ) from None
     return CTFEventAuthorityTransition.objects.create(
+        id=prepared_plan.transition_uuid,
+        effect_plan=prepared_plan.payload(),
+        effect_plan_digest=prepared_plan.digest,
         event=event,
         kind=kind,
         actor_principal_uuid=credential.principal.uuid,
@@ -303,23 +280,28 @@ def staff_row_grants_capability(actor_pk: int, event: CTFEvent, capability: str)
 
 
 def eligible_co_organizer_ids(event: CTFEvent) -> list[int]:
-    """User ids of live full co-organizers on ``event`` who are still eligible.
+    """Project active human co-organizer candidates; delivery checks native policy."""
+    from management.services import active_human_user_ids
 
-    Filters live ``co_organizer`` rows to accounts that remain active and hold
-    the global CTF Organizer role, so a demoted account stops appearing in
-    organizer-directed recipient and subscription projections (#1922 review).
-    """
-    from shared.auth import CTF_ORGANIZER_GROUP
-
-    return list(
-        CTFEventStaff.objects.filter(
-            event=event,
-            role=EventStaffRole.CO_ORGANIZER.value,
-            deleted_at__isnull=True,
-            user__is_active=True,
-            user__groups__name=CTF_ORGANIZER_GROUP,
-        ).values_list("user_id", flat=True)
+    principal_uuids = tuple(
+        CTFEventStaff.objects.filter(event=event, role=EventStaffRole.CO_ORGANIZER.value)
+        .order_by("principal_uuid")
+        .values_list("principal_uuid", flat=True)
     )
+    return list(active_human_user_ids(principal_uuids))
+
+
+def event_notification_organizer_ids(event: CTFEvent) -> list[int]:
+    """Map current owner and co-organizer principals without remote policy I/O."""
+    from management.services import active_human_user_ids
+
+    principal_uuids = (
+        event.owner_principal_uuid,
+        *CTFEventStaff.objects.filter(event=event, role=EventStaffRole.CO_ORGANIZER.value)
+        .order_by("principal_uuid")
+        .values_list("principal_uuid", flat=True),
+    )
+    return list(active_human_user_ids(principal_uuids))
 
 
 def actor_has_event_capability(actor: User | AnonymousUser, event: CTFEvent, capability: str) -> bool:
@@ -335,14 +317,11 @@ def actor_has_event_capability(actor: User | AnonymousUser, event: CTFEvent, cap
 
 
 def _resolve_owned_event_for_staff(event_id: UUID, actor: EventActor, action: str) -> CTFEvent:
-    """Load the event and require owner or platform-admin authority (ADR-052).
+    """Resolve the live event and require the exact native policy action.
 
-    Staff management is an owner-only
-    capability that delegated moderators/judges/co-organizers cannot exercise
-    (``capability=None``), but administering an existing event's delegation graph
-    is legitimate platform administration, so the platform-admin override is
-    admitted alongside the owner. The override never auto-synthesizes the
-    administrator as staff; it only authorizes an explicit, audited mutation.
+    Ownership and staff rows describe the event; current policy and the actor's
+    credential ceiling authorize this command. Full effect delegation is checked
+    separately before retaining a new transition and while settling its effects.
     """
     from ctf.services.authorization import assert_event_action
 
@@ -360,16 +339,24 @@ def _resolve_owned_event_for_staff(event_id: UUID, actor: EventActor, action: st
 
 
 def assign_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID, role: str) -> CTFEventStaff:
-    """Assign (or re-role) a staff member on an owned event.
+    """Assign an active human or service principal by UUID under native policy.
 
-    Owner-or-platform-admin and locked. The target is resolved by email and must
-    be an active organizer-tier platform user — the organizer API surface requires
-    that platform role, so a standard user could never exercise the delegation.
-    Assigning an existing staff member changes their role; re-submitting the
-    current role is an idempotent no-op. Strictly audited on a real mutation.
+    Validate the complete role delta before retaining its immutable plan. Publish
+    through the policy journal, then atomically update staff and audit facts.
+    Exact accepted plans remain settleable if their subject later deactivates;
+    current actor proof and delegation are still required. An unchanged role is
+    an idempotent no-op.
     """
     from ctf.services.audit import audit_event_staff_change
-    from management.services import PrincipalConflictError, human_principal_user_id, resolve_principal_uuid
+    from management.services import (
+        PrincipalConflictError,
+        human_principal_identity_user_id,
+        human_principal_user_id,
+        principal_identity_for_uuid,
+        resolve_principal_uuid,
+    )
+
+    actor = _admit_staff_actor(actor)
 
     if role not in _ROLE_CAPABILITIES:
         raise CTFValidationError(
@@ -377,8 +364,19 @@ def assign_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID, 
             code="CTF_INVALID_STAFF_ROLE",
             details={"role": role, "valid": sorted(_ROLE_CAPABILITIES)},
         )
+    transition_row = _pending_transition(
+        event_id,
+        actor,
+        kind=CTFEventAuthorityTransition.Kind.ASSIGN,
+        target_principal_uuid=principal_uuid,
+        requested_role=role,
+    )
     try:
-        target_principal = resolve_principal_uuid(principal_uuid)
+        target_principal = (
+            principal_identity_for_uuid(principal_uuid)
+            if transition_row is not None
+            else resolve_principal_uuid(principal_uuid)
+        )
     except PrincipalConflictError:
         raise CTFNotFoundError("Active principal not found", details={"principal_uuid": str(principal_uuid)}) from None
     target_user = None
@@ -386,17 +384,18 @@ def assign_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID, 
         from django.contrib.auth import get_user_model
 
         target_user = (
-            get_user_model().objects.filter(pk=human_principal_user_id(target_principal), is_active=True).first()
+            get_user_model()
+            .objects.filter(
+                pk=(
+                    human_principal_identity_user_id(target_principal)
+                    if transition_row is not None
+                    else human_principal_user_id(target_principal)
+                )
+            )
+            .first()
         )
         if target_user is None:
             raise CTFNotFoundError("Active principal not found", details={"principal_uuid": str(principal_uuid)})
-    transition_row = _pending_transition(
-        event_id,
-        actor,
-        kind=CTFEventAuthorityTransition.Kind.ASSIGN,
-        target_principal_uuid=target_principal.uuid,
-        requested_role=role,
-    )
     if transition_row is None:
         event = _resolve_owned_event_for_staff(event_id, actor, "event.manage_staff")
         if target_principal.uuid == event.owner_principal_uuid:
@@ -404,7 +403,20 @@ def assign_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID, 
                 "The event organizer already holds every capability",
                 code="CTF_STAFF_IS_ORGANIZER",
             )
+        expected_staff = CTFEventStaff.objects.filter(event=event, principal_uuid=target_principal.uuid).first()
+        expected_role = expected_staff.role if expected_staff else ""
+        if expected_staff is not None and expected_role == role:
+            return expected_staff
+        prepared_plan = prepare_plan(
+            event,
+            actor,
+            kind="assign",
+            target_uuid=target_principal.uuid,
+            previous_role=expected_role,
+            requested_role=role,
+        )
         with transaction.atomic():
+            _fence_staff_actor(actor)
             locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
             if locked_event.owner_principal_uuid != event.owner_principal_uuid:
                 raise CTFValidationError("Event ownership changed concurrently", code="CTF_STAFF_CONFLICT")
@@ -412,6 +424,8 @@ def assign_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID, 
                 event=locked_event, principal_uuid=target_principal.uuid, deleted_at__isnull=True
             ).first()
             previous_role = "" if staff is None else staff.role
+            if previous_role != expected_role:
+                raise CTFValidationError("Event staff changed concurrently", code="CTF_STAFF_CONFLICT")
             if staff is not None and staff.role == role:
                 # Idempotent re-submission performs no provider, SQL, or audit write.
                 return staff
@@ -422,29 +436,24 @@ def assign_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID, 
                 target_principal_uuid=target_principal.uuid,
                 previous_role=previous_role,
                 requested_role=role,
+                prepared_plan=prepared_plan,
             )
         event = locked_event
     else:
         event = transition_row.event
-    previous_role = transition_row.previous_role or None
-    _publish_staff_role(
-        event,
-        actor,
-        target_principal.uuid,
-        previous_role,
-        role,
-        transition_id=transition_row.pk,
-    )
+    retained_previous_role = transition_row.previous_role or None
+    publish_plan(transition_row, actor)
     with transaction.atomic():
+        _fence_staff_actor(actor)
+        locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
         transition_row = CTFEventAuthorityTransition.objects.select_for_update().get(
             pk=transition_row.pk,
             state=CTFEventAuthorityTransition.State.PENDING,
         )
-        locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
         current = CTFEventStaff.objects.filter(
             event=locked_event, principal_uuid=target_principal.uuid, deleted_at__isnull=True
         ).first()
-        if (None if current is None else current.role) != previous_role:
+        if (None if current is None else current.role) != retained_previous_role:
             raise CTFValidationError("Event staff changed concurrently", code="CTF_STAFF_CONFLICT")
         if current is None:
             staff = CTFEventStaff.objects.create(
@@ -462,9 +471,10 @@ def assign_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID, 
             target_principal_uuid=target_principal.uuid,
             action=action,
             role=role,
-            previous_role=previous_role,
+            previous_role=retained_previous_role,
         )
         _confirm_transition(transition_row)
+        _fence_staff_actor(actor)
     logger.info(
         "%s staff %s on event %s as %s",
         "Assigned" if action == "assigned" else "Re-roled",
@@ -476,12 +486,14 @@ def assign_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID, 
 
 
 def revoke_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID) -> bool:
-    """Remove a staff assignment from an owned event (owner-or-admin, locked, audited).
+    """Revoke an exact staff assignment with current native policy authority.
 
-    The staff-revocation command never targets ``created_by`` (the owner holds no
-    staff row), so it can never leave an event without an owner.
+    Retain and confirm the complete revocation plan before deleting the staff
+    projection. Revoking staff never changes the canonical owner principal.
     """
     from ctf.services.audit import audit_event_staff_change
+
+    actor = _admit_staff_actor(actor)
 
     transition_row = _pending_transition(
         event_id,
@@ -491,7 +503,14 @@ def revoke_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID) 
     )
     if transition_row is None:
         event = _resolve_owned_event_for_staff(event_id, actor, "event.manage_staff")
+        expected_staff = CTFEventStaff.objects.filter(event=event, principal_uuid=principal_uuid).first()
+        if expected_staff is None:
+            raise CTFNotFoundError("Staff assignment not found", details={"principal_uuid": str(principal_uuid)})
+        prepared_plan = prepare_plan(
+            event, actor, kind="revoke", target_uuid=principal_uuid, previous_role=expected_staff.role
+        )
         with transaction.atomic():
+            _fence_staff_actor(actor)
             locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
             if locked_event.owner_principal_uuid != event.owner_principal_uuid:
                 raise CTFValidationError("Event ownership changed concurrently", code="CTF_STAFF_CONFLICT")
@@ -501,34 +520,29 @@ def revoke_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID) 
                 deleted_at__isnull=True,
             ).first()
             if staff is None:
-                raise CTFNotFoundError(
-                    "Staff assignment not found", details={"principal_uuid": str(principal_uuid)}
-                )
+                raise CTFNotFoundError("Staff assignment not found", details={"principal_uuid": str(principal_uuid)})
+            if staff.role != expected_staff.role:
+                raise CTFValidationError("Event staff changed concurrently", code="CTF_STAFF_CONFLICT")
             transition_row = _create_transition(
                 locked_event,
                 actor,
                 kind=CTFEventAuthorityTransition.Kind.REVOKE,
                 target_principal_uuid=principal_uuid,
                 previous_role=staff.role,
+                prepared_plan=prepared_plan,
             )
         event = locked_event
     else:
         event = transition_row.event
     revoked_role = transition_row.previous_role
-    _publish_staff_role(
-        event,
-        actor,
-        principal_uuid,
-        revoked_role,
-        None,
-        transition_id=transition_row.pk,
-    )
+    publish_plan(transition_row, actor)
     with transaction.atomic():
+        _fence_staff_actor(actor)
+        CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
         transition_row = CTFEventAuthorityTransition.objects.select_for_update().get(
             pk=transition_row.pk,
             state=CTFEventAuthorityTransition.State.PENDING,
         )
-        CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
         staff = CTFEventStaff.objects.filter(
             event=event, principal_uuid=principal_uuid, deleted_at__isnull=True, role=revoked_role
         ).first()
@@ -543,40 +557,55 @@ def revoke_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID) 
             previous_role=revoked_role,
         )
         _confirm_transition(transition_row)
+        _fence_staff_actor(actor)
     logger.info("Revoked staff %s on event %s", safe_log_value(principal_uuid), event.pk)
     return True
 
 
 def transfer_event_ownership(event_id: UUID, actor: EventActor, new_owner_principal_uuid: UUID) -> CTFEvent:
-    """Transfer canonical ownership to an existing co-organizer (owner-or-admin, locked, audited).
+    """Transfer ownership to an active human or service co-organizer principal.
 
-    One atomic command: the target must already be a live co-organizer who is
-    still an active CTF organizer; in the same transaction the target becomes
-    ``created_by``, its now-redundant staff row is soft-deleted, and the previous
-    owner is retained as a co-organizer. The non-null owner invariant is never
-    transiently broken. Ownership transfer does not move participant accounts,
-    teams, ranges, tokens, or provider credentials — those keep their existing
-    product-specific owners.
+    Current transfer authority and full delegation admit an immutable effect
+    plan. After policy publication is confirmed, one SQL transaction changes
+    canonical ownership, retires the recipient's staff row and retains the
+    previous owner as co-organizer. Accepted plans can settle inactive subjects
+    using a live authorized administrator. Related resource ownership is a
+    separate command and does not move implicitly.
     """
     from ctf.services.audit import audit_event_ownership_transferred
-    from management.services import PrincipalConflictError, human_principal_user_id, resolve_principal_uuid
+    from management.services import (
+        PrincipalConflictError,
+        human_principal_identity_user_id,
+        human_principal_user_id,
+        principal_identity_for_uuid,
+        resolve_principal_uuid,
+    )
 
-    try:
-        target_principal = resolve_principal_uuid(new_owner_principal_uuid)
-    except PrincipalConflictError:
-        raise CTFValidationError(
-            "Ownership can only transfer to an active principal",
-            code="CTF_TRANSFER_TARGET_INELIGIBLE",
-        ) from None
-    target_user_id = None
-    if target_principal.kind == "human":
-        target_user_id = human_principal_user_id(target_principal)
+    actor = _admit_staff_actor(actor)
+
     transition_row = _pending_transition(
         event_id,
         actor,
         kind=CTFEventAuthorityTransition.Kind.TRANSFER,
-        target_principal_uuid=target_principal.uuid,
+        target_principal_uuid=new_owner_principal_uuid,
     )
+    try:
+        target_principal = (
+            principal_identity_for_uuid(new_owner_principal_uuid)
+            if transition_row is not None
+            else resolve_principal_uuid(new_owner_principal_uuid)
+        )
+    except PrincipalConflictError:
+        raise CTFValidationError(
+            "Ownership can only transfer to an active principal", code="CTF_TRANSFER_TARGET_INELIGIBLE"
+        ) from None
+    target_user_id = None
+    if target_principal.kind == "human":
+        target_user_id = (
+            human_principal_identity_user_id(target_principal)
+            if transition_row is not None
+            else human_principal_user_id(target_principal)
+        )
     if transition_row is None:
         event = _resolve_owned_event_for_staff(event_id, actor, "event.transfer_ownership")
         previous_owner_uuid = event.owner_principal_uuid
@@ -585,7 +614,9 @@ def transfer_event_ownership(event_id: UUID, actor: EventActor, new_owner_princi
                 "The target already owns this event",
                 code="CTF_ALREADY_OWNER",
             )
+        prepared_plan = prepare_plan(event, actor, kind="transfer", target_uuid=target_principal.uuid)
         with transaction.atomic():
+            _fence_staff_actor(actor)
             locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
             if locked_event.owner_principal_uuid != previous_owner_uuid:
                 raise CTFValidationError("Event ownership changed concurrently", code="CTF_STAFF_CONFLICT")
@@ -606,54 +637,27 @@ def transfer_event_ownership(event_id: UUID, actor: EventActor, new_owner_princi
                 kind=CTFEventAuthorityTransition.Kind.TRANSFER,
                 target_principal_uuid=target_principal.uuid,
                 previous_owner_principal_uuid=previous_owner_uuid,
+                prepared_plan=prepared_plan,
             )
         event = locked_event
     else:
         event = transition_row.event
-        previous_owner_uuid = transition_row.previous_owner_principal_uuid
-        if previous_owner_uuid is None:
+        retained_owner_uuid = transition_row.previous_owner_principal_uuid
+        if retained_owner_uuid is None:
             raise CTFValidationError("Event ownership transition is invalid", code="CTF_STAFF_CONFLICT")
-    previous_owner = resolve_principal_uuid(previous_owner_uuid)
-    previous_owner_user_id = human_principal_user_id(previous_owner) if previous_owner.kind == "human" else None
-    # Publish the complete new authority graph before changing its SQL display
-    # projection. The journal fences each tuple generation and confirms primary
-    # readback; no provider call runs while the event row is locked.
-    _publish_staff_role(
-        event,
-        actor,
-        previous_owner_uuid,
-        None,
-        EventStaffRole.CO_ORGANIZER.value,
-        transition_id=transition_row.pk,
-        ownership_handoff=True,
+        previous_owner_uuid = retained_owner_uuid
+    previous_owner = principal_identity_for_uuid(previous_owner_uuid)
+    previous_owner_user_id = (
+        human_principal_identity_user_id(previous_owner) if previous_owner.kind == "human" else None
     )
-    _publish_event_administrator(
-        event,
-        actor,
-        target_principal.uuid,
-        PolicyEffect.GRANT,
-        transition_id=transition_row.pk,
-        step="grant-target",
-    )
-    # Keep the target's existing positive action tuples. They are redundant
-    # while the principal is the event administrator and become correct again
-    # if a later transfer retains this owner as a co-organizer. Publishing a
-    # role REVOKE here would create explicit action denials that override the
-    # administrator relationship.
-    _publish_event_administrator(
-        event,
-        actor,
-        previous_owner_uuid,
-        PolicyEffect.REVOKE,
-        transition_id=transition_row.pk,
-        step="revoke-source",
-    )
+    publish_plan(transition_row, actor)
     with transaction.atomic():
+        _fence_staff_actor(actor)
+        event = CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
         transition_row = CTFEventAuthorityTransition.objects.select_for_update().get(
             pk=transition_row.pk,
             state=CTFEventAuthorityTransition.State.PENDING,
         )
-        event = CTFEvent.objects.select_for_update().get(pk=event.pk, deleted_at__isnull=True)
         if event.owner_principal_uuid != previous_owner_uuid:
             raise CTFValidationError("Event ownership changed concurrently", code="CTF_STAFF_CONFLICT")
         target_staff = CTFEventStaff.objects.filter(
@@ -683,6 +687,7 @@ def transfer_event_ownership(event_id: UUID, actor: EventActor, new_owner_princi
             new_owner_uuid=new_owner_principal_uuid,
         )
         _confirm_transition(transition_row)
+        _fence_staff_actor(actor)
     logger.info(
         "Transferred ownership of event %s to principal %s",
         event.pk,

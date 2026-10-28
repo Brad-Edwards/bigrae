@@ -1297,14 +1297,13 @@ jobs:
           uv run --project scripts/gcp --frozen python scripts/gcp/quiesce_identity_cutover_manifest.py \
             --manifest "${platform_manifest}" --output "${quiesced_manifest}"
           echo "PLATFORM_QUIESCED_MANIFEST=${quiesced_manifest}" >> "${GITHUB_ENV}"
-      - name: Install identity probe prerequisites with workloads stopped
+      - name: Install identity probe prerequisites
         run: |
           set -euo pipefail
-          # A fresh cluster has neither the target namespace nor the portal
-          # pod's referenced runtime objects. Apply the release in its
-          # quiesced form before creating the status Job so the Job can start
-          # without allowing application effect producers to run.
-          kubectl apply -f "${PLATFORM_QUIESCED_MANIFEST}"
+          prerequisites="${RUNNER_TEMP}/identity-probe-prerequisites.yaml"
+          uv run --project scripts/gcp --frozen python scripts/gcp/quiesce_identity_cutover_manifest.py \
+            --manifest "${PLATFORM_NATIVE_MANIFEST}" --probe-prerequisites --output "${prerequisites}"
+          kubectl apply -f "${prerequisites}"
       - name: Probe the one-time identity cutover state
         run: |
           set -euo pipefail
@@ -1317,14 +1316,19 @@ jobs:
           uv run --project scripts/gcp --frozen python scripts/gcp/render_identity_cutover_job.py \
             --manifest "${PLATFORM_NATIVE_MANIFEST}" --job-name "${job}" --status-only --output "${manifest}"
           kubectl apply -f "${manifest}"
-          if kubectl wait --for=condition=complete "job/${job}" -n shifter-platform --timeout=5m; then
-            status="$(kubectl logs "job/${job}" -n shifter-platform --all-containers=true)"
-            if printf '%s\n' "${status}" | grep -q '"state":"activated"'; then
-              echo "IDENTITY_CUTOVER_REQUIRED=false" >> "${GITHUB_ENV}"
-              exit 0
-            fi
+          if ! kubectl wait --for=condition=complete "job/${job}" -n shifter-platform --timeout=5m; then
+            echo "::error::Identity status probe did not complete; workloads remain unchanged."
+            exit 1
           fi
-          echo "IDENTITY_CUTOVER_REQUIRED=true" >> "${GITHUB_ENV}"
+          status="$(kubectl logs "job/${job}" -n shifter-platform -c portal \
+            | python -c 'import sys; p="SHIFTER_IDENTITY_CUTOVER_RESULT="; r=[s[len(p):].strip() for s in sys.stdin if s.startswith(p)]; assert len(r)==1, "Missing or ambiguous identity status result"; print(r[0])')"
+          state="$(printf '%s' "${status}" | python -c 'import json,sys; print(json.load(sys.stdin)["state"])')"
+          case "${state}" in
+            activated) required=false ;;
+            absent|planned|sql_applied|policy_pending) required=true ;;
+            *) echo "::error::Identity status is unknown; workloads remain unchanged."; exit 1 ;;
+          esac
+          echo "IDENTITY_CUTOVER_REQUIRED=${required}" >> "${GITHUB_ENV}"
       - name: Enter the identity maintenance boundary
         if: env.IDENTITY_CUTOVER_REQUIRED == 'true'
         env:
@@ -1333,6 +1337,15 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          if { [ -n "${IDENTITY_CUTOVER_FACTS_JSON}" ] && [ -z "${IDENTITY_BOOTSTRAP_FACTS_JSON}" ]; } || \
+             { [ -z "${IDENTITY_CUTOVER_FACTS_JSON}" ] && [ -n "${IDENTITY_BOOTSTRAP_FACTS_JSON}" ]; }; then
+            echo "::error::Identity cutover and bootstrap facts must be supplied together."
+            exit 1
+          fi
+          # This helper validates all inventories before any mutation and waits
+          # for old application pods to become terminal or disappear. Scaling
+          # a Deployment to zero alone does not prove its SQL clients stopped.
+          python3 scripts/gcp/enter_identity_maintenance.py --manifest "${PLATFORM_QUIESCED_MANIFEST}"
           if [ -n "${IDENTITY_CUTOVER_FACTS_JSON}" ] || [ -n "${IDENTITY_BOOTSTRAP_FACTS_JSON}" ]; then
             if [ -z "${IDENTITY_CUTOVER_FACTS_JSON}" ] || [ -z "${IDENTITY_BOOTSTRAP_FACTS_JSON}" ]; then
               echo "::error::Identity cutover and bootstrap facts must be supplied together."
@@ -1350,31 +1363,6 @@ jobs:
             rm -f "${cutover_facts}" "${bootstrap_facts}"
           fi
 
-          # Remove existing reconcilers before scaling. Applying the quiesced
-          # release later deliberately omits every HPA and suspends every CronJob.
-          kubectl delete horizontalpodautoscaler -n shifter-platform \
-            -l app.kubernetes.io/part-of=shifter --ignore-not-found --wait=true
-          for namespace in shifter-platform shifter-jobs; do
-            while IFS= read -r cronjob; do
-              [ -z "${cronjob}" ] || kubectl patch "${cronjob}" -n "${namespace}" \
-                --type=merge -p '{"spec":{"suspend":true}}'
-            done < <(kubectl get cronjob -n "${namespace}" -o name 2>/dev/null || true)
-          done
-          while IFS= read -r deployment; do
-            case "${deployment}" in
-              deployment.apps/openfga|deployment.apps/openfga-admin) continue ;;
-            esac
-            kubectl scale "${deployment}" -n shifter-platform --replicas=0
-            kubectl rollout status "${deployment}" -n shifter-platform --timeout=10m
-          done < <(kubectl get deployment -n shifter-platform \
-            -l app.kubernetes.io/part-of=shifter -o name 2>/dev/null || true)
-          for namespace in shifter-platform shifter-jobs; do
-            while IFS= read -r job; do
-              [ -z "${job}" ] || kubectl wait --for=condition=complete "${job}" \
-                -n "${namespace}" --timeout=15m
-            done < <(kubectl get job -n "${namespace}" -o json \
-              | jq -r '.items[] | select((.status.active // 0) > 0) | "job/\(.metadata.name)"')
-          done
       - name: Retire inventoried manual qualification objects
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -1507,9 +1495,11 @@ jobs:
           PY
       - name: Restart control-plane deployments
         run: |
+          set -euo pipefail
           # Only a successfully activated cutover reaches this point. Restore
           # the desired replicas, CronJobs and HPAs from the release manifest.
-          kubectl apply -f "${PLATFORM_NATIVE_MANIFEST}"
+          # Retire disabled broker pods before the disabled manifest restores
+          # broader shared egress policies; NetworkPolicy grants are additive.
           if [ "${MODEL_BROKER_ENABLED}" = false ]; then
             kubectl delete deployment model-broker model-access-control model-provider-egress \
               -n shifter-platform --ignore-not-found --cascade=foreground --wait=true --timeout=180s
@@ -1522,6 +1512,7 @@ jobs:
             kubectl delete networkpolicy model-enrollment-control-egress \
               -n shifter-jobs --ignore-not-found
           fi
+          kubectl apply -f "${PLATFORM_NATIVE_MANIFEST}"
           for deployment in portal-web guacd guacamole-client worker-cms worker-engine worker-mc ctf-scheduler; do
             kubectl rollout restart "deployment/${deployment}" -n shifter-platform
           done

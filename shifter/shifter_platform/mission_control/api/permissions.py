@@ -8,7 +8,8 @@ from django.contrib.auth.models import User
 from rest_framework import permissions
 
 from shared.api.principals import active_actor_user, authenticated_credential
-from shared.auth import PARTICIPANT_ALLOWED_LIFECYCLE_VERBS, is_ctf_participant_only
+from shared.auth import PARTICIPANT_ALLOWED_LIFECYCLE_VERBS
+from shared.credentials import resolve_current_credential
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -27,11 +28,21 @@ class HasMissionControlActor(permissions.BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         try:
-            authenticated_credential(request)
+            resolve_current_credential(authenticated_credential(request))
         except ValueError:
             return False
-        user = mission_control_actor_user(request)
-        return bool(user and user.is_active)
+        return True
+
+
+class HasMissionControlActionCeiling(permissions.BasePermission):
+    """Reject missing action ceilings before validating or enumerating resources."""
+
+    def has_permission(self, request, view) -> bool:
+        try:
+            credential = resolve_current_credential(authenticated_credential(request))
+        except ValueError:
+            return False
+        return bool(credential.ceiling.actions.intersection(view.required_actions))
 
 
 def block_participant_lifecycle_permission(verb: str) -> type[permissions.BasePermission]:
@@ -43,8 +54,11 @@ def block_participant_lifecycle_permission(verb: str) -> type[permissions.BasePe
         message = "Forbidden"
 
         def has_permission(self, request: Request, view: APIView) -> bool:
-            user = mission_control_actor_user(request)
-            return not (user and is_ctf_participant_only(user) and verb not in PARTICIPANT_ALLOWED_LIFECYCLE_VERBS)
+            try:
+                credential = resolve_current_credential(authenticated_credential(request))
+            except ValueError:
+                return False
+            return credential.kind != "temporary" or verb in PARTICIPANT_ALLOWED_LIFECYCLE_VERBS
 
     _BlockParticipantLifecycle.__name__ = f"BlockParticipantLifecycle[{verb}]"
     return _BlockParticipantLifecycle

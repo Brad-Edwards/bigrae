@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.db import IntegrityError, transaction
 
@@ -43,11 +43,14 @@ if TYPE_CHECKING:
 
 _SOURCE_FIELDS = (
     "scenario_id",
+    "contract_kind",
+    "contract_profile",
     "source_kind",
     "package_ref",
     "package_name",
     "package_digest",
     "lock_digest",
+    "lock_ref",
     "package_version",
     "scope_kind",
     "account_uuid",
@@ -57,12 +60,22 @@ _SOURCE_FIELDS = (
     "scope_generation",
     "is_operator_published",
     "conformance_status",
+    "conformance_report_ref",
+    "provenance",
 )
 
 
 def source_launch_binding(source: RaesPackageSource) -> dict[str, object]:
     """Immutable registered content/custody facts inspected before any staging."""
     return {name: getattr(source, name) for name in _SOURCE_FIELDS}
+
+
+def source_launch_metadata(scenario_id: str) -> tuple[bool, bool]:
+    """Pin the effective availability overlay, including an absent default row."""
+    from cms.models import ScenarioMetadata
+
+    metadata = ScenarioMetadata.objects.filter(scenario_id=scenario_id).values_list("enabled", "staff_only").first()
+    return metadata if metadata is not None else (True, False)
 
 
 def revalidate_scoped_launch(
@@ -87,6 +100,8 @@ def revalidate_scoped_launch(
         from shared.credentials import resolve_current_credential
         from workspaces.services import resolve_resource_scope
 
+        if authority_target is None:
+            raise CMSError("Range authority unavailable")
         current = resolve_current_credential(credential)
         resolve_resource_scope(scope)
         require_authorization(
@@ -220,6 +235,7 @@ def _warm_claim(
 
     if is_event_launch:
         return None
+    metadata = source_launch_metadata(source.scenario_id)
     claimed = attempt_warm_claim(
         WarmClaimRequest(
             credential=current,
@@ -233,6 +249,8 @@ def _warm_claim(
             egress_mode=egress,
             request_id=request_id,
             model_sources=model_sources,
+            source_binding=tuple(source_launch_binding(source).items()),
+            source_metadata=metadata,
         )
     )
     if claimed is None:
@@ -263,6 +281,7 @@ def create_scoped_range(
     remote_access_teardown_at=None,
     model_admission_subject: OwnedReference | None = None,
     model_launch_scope: ModelLaunchScope | None = None,
+    request_uuid: UUID | None = None,
 ) -> RangeContext:
     """Explicit customer scope; no contact user or fabricated compatibility workspace."""
     from management.services import human_principal_user_id
@@ -280,6 +299,10 @@ def create_scoped_range(
             authority_action,
             authority_target,
         )
+        if request_uuid is not None and (
+            not isinstance(request_uuid, UUID) or not request_uuid.int or not is_event_launch
+        ):
+            raise CMSError("Range launch request unavailable")
         # Reject a disallowed runtime before resolving or staging any content.
         # This is a deployment-wide policy decision and performs no mutation.
         backend = assert_backend_admitted(InstantiationPurpose.LIVE_FIRE, effective_source)
@@ -301,7 +324,23 @@ def create_scoped_range(
         _validate_selected_model_sources(current, resolved.workspace_id, model_sources)
         range_owner = owner_principal or current.principal
         user_id = human_principal_user_id(range_owner) if range_owner.kind == "human" else None
-        request_id = uuid4()
+        request_id = request_uuid or uuid4()
+        intent_digest = (
+            _launch_intent_digest(
+                credential,
+                scope,
+                source,
+                range_owner,
+                authority_target,
+                remote_access_teardown_at,
+                model_sources,
+                model_admission_subject,
+                model_launch_scope,
+                backend,
+            )
+            if request_uuid is not None
+            else ""
+        )
         from ._range_launch_common import _ACTIVE_RANGE_MESSAGE
 
         if effective_source is RangeSource.MISSION_CONTROL and (
@@ -342,6 +381,7 @@ def create_scoped_range(
             remote_access_teardown_at=remote_access_teardown_at,
             model_launch_scope=model_launch_scope,
             authority_target=authority_target,
+            intent_digest=intent_digest,
         )
         try:
             from ._model_admission import assert_launch_model_access
@@ -361,22 +401,32 @@ def create_scoped_range(
                 authority_action=authority_action,
                 authority_target=authority_target,
             )
-            dispatch = dispatch_object_raes_package if source.source_kind == "object" else dispatch_repo_raes_package
-            dispatch(
-                request_id,
-                current,
-                source,
-                RaesDispatchOptions(
-                    backend,
-                    instance.workspace_id,
-                    egress,
-                    principal_scope=scope,
-                    owner_principal=range_owner if is_event_launch else None,
-                    authority_action=authority_action,
-                    authority_target=authority_target,
-                ),
-            )
+            if request_uuid is not None and instance.range_id is not None:
+                _resume_staged_event_range(instance, current, scope, range_owner, authority_target)
+            else:
+                dispatch = (
+                    dispatch_object_raes_package if source.source_kind == "object" else dispatch_repo_raes_package
+                )
+                dispatch(
+                    request_id,
+                    current,
+                    source,
+                    RaesDispatchOptions(
+                        backend,
+                        instance.workspace_id,
+                        egress,
+                        principal_scope=scope,
+                        owner_principal=range_owner if is_event_launch else None,
+                        authority_action=authority_action,
+                        authority_target=authority_target,
+                    ),
+                )
         except Exception:
+            # A reserved CTF request is a durable, resumable generation. A
+            # transport/policy failure does not prove that no native range was
+            # committed, so neither its identity nor quota may be discarded.
+            if request_uuid is not None:
+                raise
             with transaction.atomic():
                 instance.status = "failed"
                 instance.save(update_fields=["status"])
@@ -431,6 +481,7 @@ def _reserve(
     remote_access_teardown_at,
     model_launch_scope: ModelLaunchScope | None,
     authority_target: TargetRef | None,
+    intent_digest: str = "",
 ) -> tuple[RangeInstance, str]:
     """Atomically reserve the launch intent, owner slot and tenant lease."""
     from shared.audit import principal_actor_fields
@@ -454,6 +505,12 @@ def _reserve(
         raise CMSError(_ACTIVE_RANGE_MESSAGE)
     try:
         with transaction.atomic():
+            if intent_digest:
+                from shared.range_workspace_aggregate import fence_range_event_launch
+
+                if authority_target is None or authority_target.type != "event" or authority_target.uuid is None:
+                    raise CMSError("Range launch intent unavailable")
+                fence_range_event_launch(request_id, authority_target.uuid)
             if resolve_local_credential(current) != current:
                 raise CMSError("Range authority changed")
             locked = (
@@ -472,6 +529,10 @@ def _reserve(
             else:
                 egress = "none"
             assert_range_backend_egress_supported(backend.backend if backend else None, egress)
+            if intent_digest:
+                existing = _existing_reservation(request_id, intent_digest, current, resolved, owner_principal)
+                if existing is not None:
+                    return existing, egress
             if range_source is RangeSource.CTF:
                 from ._range_lease import build_range_lease
 
@@ -502,6 +563,7 @@ def _reserve(
                 model_sources=model_sources or {"aliases": []},
                 model_launch_scope=model_launch_scope.model_dump(mode="json") if model_launch_scope else None,
                 model_package_digest=source.package_digest,
+                launch_intent_digest=intent_digest,
                 event_uuid=authority_target.uuid if authority_target is not None else None,
                 expires_at=lease.expires_at,
                 maximum_expires_at=lease.maximum_expires_at,
@@ -522,9 +584,78 @@ def _reserve(
         )
         raise WorkspaceLaunchQuotaExceeded(_LAUNCH_QUOTA_MESSAGE) from None
     except IntegrityError as exc:
+        if intent_digest:
+            existing = _existing_reservation(request_id, intent_digest, current, resolved, owner_principal)
+            if existing is not None:
+                from ._range_workspace import resolve_effective_egress_mode
+
+                return existing, (
+                    resolve_effective_egress_mode(resolved.workspace_id)
+                    if resolved.workspace_id is not None
+                    else "none"
+                )
         if getattr(getattr(exc.__cause__, "diag", None), "constraint_name", None) in {
             "uq_range_active_principal_source",
             "uq_rangeinstance_active_per_user_source",
         }:
             raise CMSError(_ACTIVE_RANGE_MESSAGE) from None
         raise
+
+
+def _existing_reservation(request_id, digest, credential, resolved, owner):
+    """Only an identical live reservation can reuse a server-reserved UUID."""
+    row = RangeInstance.all_objects.select_related("request").filter(request__request_id=request_id).first()
+    if row is None:
+        return None
+    if (
+        row.deleted_at is not None
+        or row.launch_intent_digest != digest
+        or (row.scope_kind, row.account_id, row.organization_id, row.workspace_id, row.owner_principal_uuid)
+        != (resolved.kind, resolved.account_id, resolved.organization_id, resolved.workspace_id, owner.uuid)
+        or any(getattr(row.request, key) != value for key, value in credential_reference_fields(credential).items())
+    ):
+        raise CMSError("Range launch intent conflict")
+    return row
+
+
+def _resume_staged_event_range(instance, credential, scope, owner, event_target) -> None:
+    """Reuse the accepted native plan, never compile a second runtime generation."""
+    from engine.services import project_range_authority
+
+    from ._model_allocation import needs_model_preparation, prepare_model_access_for_dispatch
+
+    projection = project_range_authority(instance.request.request_id)
+    if (
+        projection.public_uuid != instance.uuid
+        or projection.native_id != instance.range_id
+        or projection.scope != scope
+        or projection.owner_principal_uuid != owner.uuid
+        or projection.parent != event_target
+    ):
+        raise CMSError("Range launch runtime conflict")
+    if needs_model_preparation(instance.request.request_id):
+        prepare_model_access_for_dispatch(instance.request.request_id, range_id=projection.native_uuid)
+
+
+def _launch_intent_digest(credential, scope, source, owner, target, deadline, sources, subject, model_scope, backend):
+    """Bind replay to original proof, source revision and normalized launch inputs."""
+    import json
+    from dataclasses import asdict
+
+    from django.core.serializers.json import DjangoJSONEncoder
+
+    from shared.operation_envelope import canonical_payload_digest
+
+    fields = {
+        "credential": credential_reference_fields(credential),
+        "scope": asdict(scope),
+        "source": source_launch_binding(source),
+        "owner": asdict(owner),
+        "target": asdict(target) if target else None,
+        "deadline": deadline,
+        "model_sources": sources,
+        "model_subject": subject.model_dump(mode="json") if subject else None,
+        "model_scope": model_scope.model_dump(mode="json") if model_scope else None,
+        "backend": backend.backend if backend else None,
+    }
+    return canonical_payload_digest(json.loads(json.dumps(fields, cls=DjangoJSONEncoder)))

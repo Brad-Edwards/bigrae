@@ -21,30 +21,53 @@ from engine.services import (
 )
 from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
-from shared.api.principals import active_actor_user
+from shared.api.principals import authenticated_credential
 from shared.api_tokens import scopes
 from shared.api_tokens.permissions import require_scope
 from shared.audit import RequestAudit, get_actor_from_request, get_client_ip, get_request_id
+from shared.credentials import CredentialContext, resolve_current_credential
 from shared.exceptions import ValidationError
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+    pass
 
 
-def preparation_actor(request: Request) -> User:
+def preparation_actor(request: Request) -> CredentialContext:
     """Require an active token or session actor before entering preparation services."""
-    actor = active_actor_user(request)
-    if actor is None:
-        raise ValidationError("Artifact preparation access is not permitted")
-    return actor
+    try:
+        return resolve_current_credential(authenticated_credential(request))
+    except ValueError:
+        raise ValidationError("Artifact preparation access is not permitted") from None
 
 
 class HasPreparationAdministration(BasePermission):
     """Staff/content-author privileges never imply executable installation."""
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        actor = active_actor_user(request)
-        return bool(actor and actor.has_perm("engine.manage_preparation_adapters"))
+        from shared.authorization import AuthorizationProviderBindingError, AuthorizationRequest, TargetRef
+        from shared.authorization.policy import require_authorization
+        from shared.identity_scope import ResourceScope
+
+        try:
+            actor = preparation_actor(request)
+            require_authorization(
+                AuthorizationRequest(
+                    actor.principal,
+                    "installation.manage_adapters",
+                    TargetRef("installation"),
+                    ResourceScope("installation"),
+                    actor.ceiling,
+                )
+            )
+            return True
+        except AuthorizationProviderBindingError:
+            from rest_framework.exceptions import APIException
+
+            exc = APIException("Artifact preparation authority unavailable")
+            exc.status_code = 503
+            raise exc from None
+        except (ValidationError, ValueError, PermissionError):
+            return False
 
 
 class PreparationSerializer(serializers.Serializer):

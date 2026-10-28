@@ -18,6 +18,7 @@ from shared.api_tokens.models import ApiToken
 from shared.audit import AuditAction, AuditEntityType
 from shared.enums import RangeSource, RequestType, ResourceStatus
 from shared.models import AuditLog
+from tests._mission_control_fixtures import native_scopes
 from tests.engine.services.conftest import boto3_secrets, make_secrets_client
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_vpn_policy_grant")]
@@ -52,7 +53,7 @@ def standard_user():
 
 
 def _token(user, *granted_scopes: str) -> str:
-    _token_obj, raw = ApiToken.create_token(name="mc-vpn", created_by=user, scopes=list(granted_scopes))
+    _token_obj, raw = ApiToken.create_token(name="mc-vpn", created_by=user, scopes=native_scopes(list(granted_scopes)))
     return raw
 
 

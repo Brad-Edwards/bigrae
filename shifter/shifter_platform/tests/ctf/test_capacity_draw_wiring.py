@@ -3,7 +3,8 @@
 Every path that creates a range for an event now draws from that event's
 budget: the participant path (including a late joiner arriving after the wave)
 and the spare path. These drive the behaviour that matters -- the draw happens
-before the range is created, a failed creation gives the capacity back, and an
+before the range is created, an uncertain creation retains capacity until fenced
+cancellation establishes absence, and an
 enforcing over-budget draw refuses instead of failing later in spinup.
 """
 
@@ -103,13 +104,17 @@ class TestParticipantPath:
 
         assert seen == [participant.pk]
 
-    def test_failed_creation_releases_the_draw(
+    def test_failed_creation_retains_draw_until_cancelled_request_is_absent(
         self, ctf_event_active, participant_user, organizer_credential, monkeypatch
     ):
-        """A range that never came up must not hold budget."""
-        from ctf.models import CTFParticipant
+        """An exception cannot prove absence; cancellation and lookup can."""
+        from ctf.models import CTFParticipant, CTFRangeLaunch
+        from ctf.services.range.lifecycle import cleanup_event_ranges
         from ctf.services.range.provision import provision_participant_range
+        from engine.models import CapacityDraw
+        from tests.ctf.test_cancelled_launch_cleanup import capacity_budget
 
+        capacity_budget(ctf_event_active)
         participant = CTFParticipant.objects.create(
             event=ctf_event_active,
             user=participant_user,
@@ -117,19 +122,36 @@ class TestParticipantPath:
             name="late",
             status="active",
         )
-        released = []
-        monkeypatch.setattr("ctf.services.range.capacity.admit_range", lambda event_id, draw_key: None)
-        monkeypatch.setattr("ctf.services.range.capacity.release_range", lambda draw_key: released.append(draw_key))
+        requests = []
 
         def _boom(**kwargs):
+            requests.append(kwargs["launch_options"].request_uuid)
             raise RuntimeError("cms down")
 
         monkeypatch.setattr("ctf.bridges.cms_create_range", _boom)
 
-        with pytest.raises(CTFRangeError):
+        with pytest.raises(CTFRangeError, match="cms down"):
             provision_participant_range(participant.pk, actor=organizer_credential)
 
-        assert released == [participant.pk]
+        participant.refresh_from_db()
+        intent = CTFRangeLaunch.objects.get(pk=participant.range_request_id)
+        assert intent.dispatched_at is None
+        assert participant.range_instance_id is None
+        assert CapacityDraw.objects.filter(draw_key=participant.pk, released_at=None).count() == 1
+        with pytest.raises(CTFRangeError, match="cms down"):
+            provision_participant_range(participant.pk, actor=organizer_credential)
+        assert requests == [intent.pk, intent.pk]
+        assert CTFRangeLaunch.objects.filter(subject_uuid=participant.pk).count() == 1
+        assert CapacityDraw.objects.filter(draw_key=participant.pk, released_at=None).count() == 1
+
+        # Real CMS lookup finds no reservation; the committed cancellation
+        # prevents any retry from creating this generation after release.
+        assert cleanup_event_ranges(ctf_event_active.pk, actor=organizer_credential)["failed"] == 0
+        participant.refresh_from_db()
+        assert CTFRangeLaunch.all_objects.get(pk=intent.pk).deleted_at is not None
+        assert participant.range_request_id is None
+        assert participant.range_instance_id is None
+        assert not CapacityDraw.objects.filter(draw_key=participant.pk, released_at=None).exists()
 
 
 class TestSparePath:

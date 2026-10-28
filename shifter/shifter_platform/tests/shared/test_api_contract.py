@@ -80,7 +80,7 @@ class TestPublishedContract:
             operations.append(paths[f"/api/v1/credentials/personal/{{credential_uuid}}/{action}/"]["post"])
         assert all(operation["security"] == [{"cookieAuth": []}] for operation in operations)
 
-    def test_tenant_pack_administration_is_session_only_and_declares_removal_conflicts(self, openapi_document):
+    def test_tenant_pack_administration_accepts_native_auth_and_declares_removal_conflicts(self, openapi_document):
         paths = openapi_document["paths"]
         base = "/api/v1/cms/organizations/{organization_uuid}/"
         removal = paths[base + "packs/{pack_id}/removal/"]["post"]
@@ -91,7 +91,7 @@ class TestPublishedContract:
             paths[base + "plugin-packs/{pack_id}/"]["post"],
             removal,
         ]
-        assert all(operation["security"] == [{"cookieAuth": []}] for operation in operations)
+        assert all(operation["security"] == [{"ApiTokenAuth": []}, {"cookieAuth": []}] for operation in operations)
         for status in ("400", "403", "409"):
             assert removal["responses"][status]["content"]["application/json"]["schema"]["$ref"].endswith("/ApiError")
         assert "pack_in_use" in removal["responses"]["409"]["description"]
@@ -226,10 +226,10 @@ class TestPublishedContract:
         assert "201" in ngfw["responses"]
         assert "200" not in ngfw["responses"]
 
-    def test_token_scopes_published_for_scoped_operations(self, openapi_document: dict[str, Any]) -> None:
-        assert openapi_document["paths"]["/api/v1/mission-control/range/"]["get"]["x-required-scopes"] == [
-            "mission_control:range:read"
-        ]
+    def test_native_range_access_retires_legacy_scope_extension(self, openapi_document: dict[str, Any]) -> None:
+        operation = openapi_document["paths"]["/api/v1/mission-control/range/"]["get"]
+        assert operation["security"] == [{"ApiTokenAuth": []}, {"cookieAuth": []}]
+        assert "x-required-scopes" not in operation
 
     def test_unscoped_operations_omit_scope_extension(self, openapi_document: dict[str, Any]) -> None:
         # Admin-only audit reads are not token-scoped; they must not advertise a scope.
@@ -237,7 +237,8 @@ class TestPublishedContract:
 
     def test_scenario_detail_is_read_scoped_and_read_only(self, openapi_document: dict[str, Any]) -> None:
         detail = openapi_document["paths"]["/api/v1/cms/scenarios/{scenario_id}/"]
-        assert detail["get"]["x-required-scopes"] == ["cms:authoring:read"]
+        assert detail["get"]["security"] == [{"ApiTokenAuth": []}, {"cookieAuth": []}]
+        assert "x-required-scopes" not in detail["get"]
         assert "patch" not in detail
 
     def test_legacy_scenario_editor_api_is_retired_exactly(self) -> None:
@@ -582,3 +583,64 @@ class TestPlatformAutoSchemaFallback:
         schema.view = _View()
         resolved = schema._resolved_permissions()
         assert any(isinstance(permission, _Perm) for permission in resolved)
+
+
+def test_parameter_retirement_projects_only_its_exact_operation_and_rejects_reintroduction(tmp_path, monkeypatch):
+    from copy import deepcopy
+
+    retired = {"name": "workspace_id", "in": "query", "schema": {"type": "integer"}}
+    kept = {"name": "limit", "in": "query", "schema": {"type": "integer"}}
+    base = {
+        "paths": {
+            "/api/v1/ctf/communications/": {"get": {"parameters": [retired, kept]}, "post": {"parameters": [retired]}},
+            "/api/v1/other/": {"get": {"parameters": [retired]}},
+        }
+    }
+    current = deepcopy(base)
+    current["paths"]["/api/v1/ctf/communications/"]["get"]["parameters"] = [kept]
+    metadata = tmp_path / "retirements.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "schema": "shifter.api-retirements/v1",
+                "api_major": "v1",
+                "retirements": [
+                    {
+                        "adr": "ADR-066",
+                        "issue": 2321,
+                        "paths": [],
+                        "response_schema_properties": [],
+                        "parameters": [
+                            {
+                                "path": "/api/v1/ctf/communications/",
+                                "method": "get",
+                                "name": "workspace_id",
+                                "in": "query",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setattr(contract, "retirement_path", lambda major=contract.API_MAJOR: metadata)
+    projected = json.loads(contract.apply_accepted_retirements(json.dumps(base), json.dumps(current)))
+    assert projected == current
+    with pytest.raises(RuntimeError, match="reintroduced"):
+        contract.apply_accepted_retirements(json.dumps(base), json.dumps(base))
+
+
+def test_lease_commands_preserve_published_request_media_types(openapi_document):
+    commands = 0
+    for path, operations in openapi_document["paths"].items():
+        if "/administer/mission-control/lease-policy/" not in path:
+            continue
+        for operation in operations.values():
+            if "requestBody" in operation:
+                commands += 1
+                assert set(operation["requestBody"]["content"]) == {
+                    "application/json",
+                    "application/x-www-form-urlencoded",
+                    "multipart/form-data",
+                }
+    assert commands == 4

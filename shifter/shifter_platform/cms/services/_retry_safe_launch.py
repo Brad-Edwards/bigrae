@@ -9,7 +9,7 @@ use dispatches the normal RAES create path and binds the key to the resulting
 request/operation generation and the caller's normalized intent; a replay with a
 different caller intent conflicts before any effect (``RetryKeyConflict`` -> 409).
 
-The digest covers only the caller-controlled selections (action, actor, workspace,
+The digest covers only the caller-controlled selections (action, actor, scope, workspace,
 scenario, agent selection); the compiled-plan half of the immutable-intent binding
 is enforced by the engine's ``OperationInput`` and its re-enqueue comparison.
 
@@ -71,6 +71,7 @@ def _caller_intent(
     agents_selection: dict[str, Any],
     workspace_uuid: str | UUID | None,
     deployment_scope: str,
+    scope: ResourceScope,
     model_sources: dict | None = None,
 ) -> dict[str, Any]:
     """Normalize the caller-controlled launch selections for the retry digest.
@@ -86,6 +87,12 @@ def _caller_intent(
         "action": _LAUNCH_ACTION,
         "actor_key": str(credential.principal.uuid),
         "workspace_uuid": str(workspace_uuid) if workspace_uuid else None,
+        "resource_scope": {
+            "kind": scope.kind,
+            "account_uuid": str(scope.account_uuid) if scope.account_uuid else None,
+            "organization_uuid": str(scope.organization_uuid) if scope.organization_uuid else None,
+            "workspace_uuid": str(scope.workspace_uuid) if scope.workspace_uuid else None,
+        },
         "scenario": str(scenario),
         "agents_selection": agents_selection,
     }
@@ -103,11 +110,12 @@ def _digest(
     agents_selection: dict[str, Any],
     workspace_uuid: str | UUID | None,
     deployment_scope: str,
+    scope: ResourceScope,
     model_sources: dict | None = None,
 ) -> str:
     """Return the canonical digest of the caller's normalized launch intent."""
     return canonical_intent_digest(
-        _caller_intent(credential, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
+        _caller_intent(credential, scenario, agents_selection, workspace_uuid, deployment_scope, scope, model_sources)
     )
 
 
@@ -118,6 +126,7 @@ def resolve_retry_recovery(
     agents_selection: dict[str, Any],
     workspace_uuid: str | UUID | None,
     caller_key: str,
+    scope: ResourceScope,
     model_sources: dict | None = None,
 ) -> RetrySafeLaunchOutcome | None:
     """Recover a bound operation for a replay, without minting or re-validating.
@@ -128,7 +137,7 @@ def resolve_retry_recovery(
     catalog validation or effect occurs, so a retired scenario/agent still recovers.
     """
     deployment_scope = resolve_deployment_scope()
-    digest = _digest(credential, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
+    digest = _digest(credential, scenario, agents_selection, workspace_uuid, deployment_scope, scope, model_sources)
     binding = lookup_public_operation(
         deployment_scope=deployment_scope,
         actor_key=str(credential.principal.uuid),
@@ -165,7 +174,7 @@ def bind_first_use_launch(
     current generation on read.
     """
     deployment_scope = resolve_deployment_scope()
-    digest = _digest(credential, scenario, agents_selection, workspace_uuid, deployment_scope, model_sources)
+    digest = _digest(credential, scenario, agents_selection, workspace_uuid, deployment_scope, scope, model_sources)
 
     # RAES packages own topology; agents_by_os is accepted for caller back-compat
     # (the retry-key intent digest already binds agents_selection) but does not

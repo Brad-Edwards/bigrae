@@ -87,6 +87,7 @@ class CTFRangeLaunchOptions:
     scope: ResourceScope | None = None
     owner_principal: PrincipalRef | None = None
     event_uuid: UUID | None = None
+    request_uuid: UUID | None = None
 
 
 def cms_declare_event_capacity(
@@ -222,6 +223,7 @@ def cms_create_range(
         owner_principal=options.owner_principal,
         authority_action="event.manage_ranges",
         authority_target=TargetRef("event", options.event_uuid),
+        request_uuid=options.request_uuid,
     )
     return RangeProvisionResult(request_id=result.request_id)
 
@@ -231,6 +233,15 @@ def cms_destroy_range(credential: CredentialContext, event_uuid: UUID, range_ins
     import cms.services as cms_services
 
     cms_services.run_event_range_lifecycle(credential, event_uuid, range_instance_id, "destroy")
+
+
+def cms_destroy_event_range(
+    credential: CredentialContext, event_uuid: UUID, range_instance_id: int | None, *, request_id: UUID | None = None
+) -> None:
+    """Retain native cleanup ownership before the event aggregate is removed."""
+    import cms.services as cms_services
+
+    cms_services.destroy_event_range_for_deletion(credential, event_uuid, range_instance_id, request_id=request_id)
 
 
 def cms_stop_range(credential: CredentialContext, event_uuid: UUID, range_instance_id: int) -> None:
@@ -340,9 +351,7 @@ def cms_confirm_ctf_receipt_binding(
     )
 
 
-def cms_get_range_target_instances(
-    credential: CredentialContext, range_instance_id: int
-) -> list[dict[str, str]]:
+def cms_get_range_target_instances(credential: CredentialContext, range_instance_id: int) -> list[dict[str, str]]:
     """Return the participant-safe target projection for one assigned range.
 
     Wraps ``cms.services.get_range_target_instances`` and projects each instance
@@ -365,6 +374,13 @@ def cms_get_range_target_instances(
         }
         for instance in cms_services.get_principal_range_target_instances(credential, range_instance_id)
     ]
+
+
+def cms_is_event_range_cleanup_verified_absent(event_uuid: UUID, range_instance_id: int, request_id: UUID) -> bool:
+    """Require owning CMS/native evidence for the exact recovery generation."""
+    import cms.services as cms_services
+
+    return cms_services.is_event_range_cleanup_verified_absent(event_uuid, range_instance_id, request_id)
 
 
 def cms_get_range_spec(range_instance_id: int) -> dict | None:
@@ -497,3 +513,19 @@ def cms_project_scenario_model_demands(scenario_id: str, *, expected_concurrency
     from cms.services import project_scenario_model_demands
 
     return project_scenario_model_demands(scenario_id, expected_concurrency=expected_concurrency)
+
+
+def cms_dispatch_bound_event_range(credential: CredentialContext, event_uuid: UUID, range_instance_id: int) -> None:
+    """Activate one persisted launch after CTF has committed its exact association."""
+    from cms.services import dispatch_bound_event_range
+
+    dispatch_bound_event_range(credential, event_uuid, range_instance_id)
+
+
+def cms_destroy_recovery_range(
+    credential: CredentialContext, event_uuid: UUID, range_instance_id: int | None, *, request_id: UUID | None = None
+) -> bool:
+    """Retain generation-bound cleanup before a recovery changes its association."""
+    from cms.services import destroy_event_range_for_recovery
+
+    return destroy_event_range_for_recovery(credential, event_uuid, range_instance_id, request_id=request_id)

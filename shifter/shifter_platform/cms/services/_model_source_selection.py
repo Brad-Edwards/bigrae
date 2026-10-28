@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
+from shared.credentials import CredentialContext
 from shared.model_access import EventModelDemand, ModelAccessCatalog
 from shared.model_access.reservation import AuthorityRevision
 from shared.model_access.sources import ModelSourceSponsorship
@@ -12,7 +13,7 @@ from shared.model_access.sources import ModelSourceSponsorship
 if TYPE_CHECKING:
     from cms.scenarios.model_needs import ScenarioModelNeedsProjection
     from engine.services import ModelSourceView
-    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
     from shared.model_access.core_models import EffectiveProfile, ModelAlias
     from shared.model_access.sources import ModelSourceConfiguration
 
@@ -26,7 +27,7 @@ SPONSOR_UNAVAILABLE = "source.sponsor_unavailable"
 
 @overload
 def resolve_launch_sources(
-    actor: CredentialContext, workspace_id: int, selection: object, *, catalog: ModelAccessCatalog
+    actor: object, workspace_id: int | None, selection: object, *, catalog: ModelAccessCatalog
 ) -> tuple[ModelAccessCatalog, tuple[AuthorityRevision, ...]]:
     """Preserve the non-null catalog type when a deployment catalog is supplied."""
     ...
@@ -34,19 +35,21 @@ def resolve_launch_sources(
 
 @overload
 def resolve_launch_sources(
-    actor: CredentialContext, workspace_id: int, selection: object, *, catalog: None
+    actor: object, workspace_id: int | None, selection: object, *, catalog: None
 ) -> tuple[ModelAccessCatalog | None, tuple[AuthorityRevision, ...]]:
     """Preserve the optional catalog type when no deployment catalog is supplied."""
     ...
 
 
 def resolve_launch_sources(
-    actor: CredentialContext, workspace_id: int, selection: object, *, catalog: ModelAccessCatalog | None
+    actor: object, workspace_id: int | None, selection: object, *, catalog: ModelAccessCatalog | None
 ) -> tuple[ModelAccessCatalog | None, tuple[AuthorityRevision, ...]]:
     """Source selection conveys no permission to use another tenant's funds."""
     selected = ModelSourceSelection.model_validate(selection or {})
     if not selected.aliases:
         return catalog, ()
+    if not isinstance(actor, CredentialContext) or workspace_id is None:
+        raise ContractError("source.authority_unavailable")
     if catalog is None or not catalog.enabled:
         raise ContractError("source.policy_unavailable")
     organization_uuid, _workspace_uuid = _workspace_ancestry(workspace_id)
@@ -151,7 +154,7 @@ def project_scenario_model_demands(scenario_id: str, *, expected_concurrency: in
 
 
 def model_source_alias_options(
-    actor: CredentialContext, organization: UUID | None, scenario: str
+    actor: CredentialContext, organization: UUID | None, scenario: str, *, scope: ResourceScope | None = None
 ) -> tuple[list[dict[str, object]], bool]:
     """Project compatible authorized choices for the scenario's verified needs."""
 
@@ -160,6 +163,8 @@ def model_source_alias_options(
     from cms.scenarios.model_needs import project_scenario_model_needs
     from cms.scenarios.registry import check_scenario_access
 
+    if scope is not None and scope.organization_uuid != organization:
+        raise ValueError("Model source scope is unavailable")
     sources = list_usable_model_sources(actor, organization)
     catalog = getattr(settings, "MODEL_ACCESS_CATALOG", None)
     if not getattr(settings, "MODEL_ACCESS_ENABLED", False) or catalog is None:
@@ -169,7 +174,7 @@ def model_source_alias_options(
     check_scenario_access(
         scenario,
         actor,
-        scope=hierarchy_target_scope("organization", organization) if organization is not None else None,
+        scope=scope or (hierarchy_target_scope("organization", organization) if organization is not None else None),
     )
     projection = project_scenario_model_needs(scenario)
     if projection.resolution_failed or (projection.needs and not projection.digest_verified):

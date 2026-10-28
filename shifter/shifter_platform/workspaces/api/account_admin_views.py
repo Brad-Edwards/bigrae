@@ -31,6 +31,7 @@ class AccountCommandSerializer(ClosedSerializer):
     kind = serializers.ChoiceField(choices=("individual", "team", "enterprise"))
     name = serializers.CharField(max_length=200, trim_whitespace=True)
     individual_principal_uuid = serializers.UUIDField(required=False)
+    publication_receipt = serializers.UUIDField(required=False)
 
     def validate(self, attrs: dict[str, object]) -> dict[str, object]:
         if (attrs.get("kind") == "individual") != ("individual_principal_uuid" in attrs):
@@ -49,6 +50,12 @@ class AccountSearchQuerySerializer(AccountPageQuerySerializer):
     """Search is applied to the policy-visible account count/page."""
 
     search = serializers.CharField(required=False, default="", allow_blank=True, max_length=200)
+
+
+class IntegrationOrganizationQuerySerializer(AccountPageQuerySerializer):
+    """Select the integration whose organization grants are being discovered."""
+
+    integration = serializers.ChoiceField(choices=("adapters", "model_sources"))
 
 
 class WorkspacePageQuerySerializer(AccountSearchQuerySerializer):
@@ -76,6 +83,20 @@ class SubdivisionCommandSerializer(ClosedSerializer):
     """One bounded display name for a real business-account subdivision."""
 
     name = serializers.CharField(max_length=200, trim_whitespace=True)
+
+
+class SubdivisionCreationCommandSerializer(SubdivisionCommandSerializer):
+    """Retry a committed subdivision through its exact publication receipt."""
+
+    publication_receipt = serializers.UUIDField(required=False)
+
+
+class HierarchyPendingReceiptSerializer(serializers.Serializer):
+    """A committed creation awaiting policy publication."""
+
+    uuid = serializers.UUIDField(read_only=True)
+    publication_receipt = serializers.UUIDField(read_only=True)
+    publication_state = serializers.ChoiceField(choices=("pending",), read_only=True)
 
 
 class OrganizationViewSerializer(serializers.Serializer):
@@ -156,6 +177,17 @@ class _AccountAPIView(APIView):
     parser_classes = [ClosedJSONParser, FormParser, MultiPartParser]
 
     def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, services.HierarchyPublicationPending):
+            return Response(
+                HierarchyPendingReceiptSerializer(
+                    {
+                        "uuid": exc.object_uuid,
+                        "publication_receipt": exc.publication_receipt,
+                        "publication_state": "pending",
+                    }
+                ).data,
+                status=202,
+            )
         if isinstance(exc, (services.AccountScopeError, PrincipalResolutionError, ValueError)):
             code, message, status_code = "account_access_denied", "Account access denied", 403
         elif isinstance(exc, AuthorizationProviderBindingError):
@@ -178,6 +210,23 @@ class _AccountAPIView(APIView):
         return api_error_response(code=code, message=message, status_code=status_code, request=self.request)
 
 
+class IntegrationOrganizationCollectionView(_AccountAPIView):
+    """Discover organizations authorized for one integration administration action."""
+
+    @extend_schema(
+        parameters=[IntegrationOrganizationQuerySerializer],
+        responses=OrganizationPageSerializer,
+        operation_id="prepared_integration_organizations_list",
+    )
+    def get(self, request: Request) -> Response:
+        query = IntegrationOrganizationQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        page = services.admin_list_integration_organizations(
+            authenticated_credential(request), configured_authorization_provider(), **query.validated_data
+        )
+        return Response(OrganizationPageSerializer(page).data)
+
+
 class AccountCollectionView(_AccountAPIView):
     """List authorized accounts or create one under installation authority."""
 
@@ -194,7 +243,9 @@ class AccountCollectionView(_AccountAPIView):
         )
         return Response(AccountPageSerializer(page).data)
 
-    @extend_schema(request=AccountCommandSerializer, responses={201: AccountViewSerializer})
+    @extend_schema(
+        request=AccountCommandSerializer, responses={201: AccountViewSerializer, 202: HierarchyPendingReceiptSerializer}
+    )
     def post(self, request: Request) -> Response:
         command = AccountCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -207,6 +258,7 @@ class AccountCollectionView(_AccountAPIView):
             kind=values["kind"],
             name=values["name"],
             owner=PrincipalRef(owner_uuid, "human") if owner_uuid else None,
+            publication_receipt=values.get("publication_receipt"),
             audit=request_audit(request, credential=actor),
         )
         return Response(
@@ -253,9 +305,12 @@ class AccountOrganizationCollectionView(_AccountAPIView):
         )
         return Response(OrganizationPageSerializer(page).data)
 
-    @extend_schema(request=SubdivisionCommandSerializer, responses={201: OrganizationViewSerializer})
+    @extend_schema(
+        request=SubdivisionCreationCommandSerializer,
+        responses={201: OrganizationViewSerializer, 202: HierarchyPendingReceiptSerializer},
+    )
     def post(self, request: Request, account_uuid: UUID) -> Response:
-        command = SubdivisionCommandSerializer(data=request.data)
+        command = SubdivisionCreationCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         name = command.validated_data["name"]
         actor = authenticated_credential(request)
@@ -264,6 +319,7 @@ class AccountOrganizationCollectionView(_AccountAPIView):
             configured_authorization_provider(),
             account_uuid,
             name=name,
+            publication_receipt=command.validated_data.get("publication_receipt"),
             audit=request_audit(request, credential=actor),
         )
         return Response(
@@ -299,9 +355,12 @@ class AccountWorkspaceCollectionView(_AccountAPIView):
         )
         return Response(WorkspacePageSerializer(page).data)
 
-    @extend_schema(request=SubdivisionCommandSerializer, responses={201: WorkspaceViewSerializer})
+    @extend_schema(
+        request=SubdivisionCreationCommandSerializer,
+        responses={201: WorkspaceViewSerializer, 202: HierarchyPendingReceiptSerializer},
+    )
     def post(self, request: Request, account_uuid: UUID, organization_uuid: UUID) -> Response:
-        command = SubdivisionCommandSerializer(data=request.data)
+        command = SubdivisionCreationCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         name = command.validated_data["name"]
         actor = authenticated_credential(request)
@@ -311,6 +370,7 @@ class AccountWorkspaceCollectionView(_AccountAPIView):
             account_uuid,
             organization_uuid,
             name=name,
+            publication_receipt=command.validated_data.get("publication_receipt"),
             audit=request_audit(request, credential=actor),
         )
         return Response(

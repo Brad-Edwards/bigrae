@@ -21,7 +21,10 @@ from cms.scenarios.pack_validation import pack_digest
 from cms.services import PackRegistrationRequest, register_pack
 from engine.services import RaesImageMappingOptions, upsert_raes_image_mapping
 from shared.raes.realizability import RealizabilityOutcome
+from tests.cms._content_api_fixtures import content_policy
 from tests.cms.conftest import IMAGELESS_PACK_SDL
+
+__all__ = ["content_policy"]
 
 pytestmark = pytest.mark.django_db
 
@@ -38,11 +41,13 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture
-def staff_user(django_user_model):
-    return django_user_model.objects.create_user(
-        username="realizability-api@example.com",
-        email="realizability-api@example.com",
-        is_staff=True,
+def staff_user(django_user_model, content_policy):
+    return content_policy(
+        django_user_model.objects.create_user(
+            username="realizability-api@example.com",
+            email="realizability-api@example.com",
+            is_staff=True,
+        )
     )
 
 
@@ -60,11 +65,14 @@ def _gcp_target(monkeypatch):
 
 
 @pytest.fixture
-def registered_pack(staff_user, make_pack, tmp_path, monkeypatch):
+def registered_pack(staff_user, make_pack, tmp_path, monkeypatch, live_session_credential):
+    from shared.identity_scope import ResourceScope
+
     root = make_pack(tmp_path / "packs" / "imageless", name="imageless", sdl=IMAGELESS_PACK_SDL)
     monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", str(tmp_path))
     register_pack(
-        user=staff_user,
+        user=live_session_credential(staff_user),
+        scope=ResourceScope("installation"),
         request=PackRegistrationRequest(
             scenario_id="imageless",
             source_kind="repo",
@@ -92,7 +100,7 @@ class TestAuthorization:
 
     def test_authenticated_non_authoring_user_is_rejected(self, api_client, non_authoring_user, registered_pack):
         api_client.force_authenticate(user=non_authoring_user)
-        assert api_client.get(_url("imageless")).status_code == 403
+        assert api_client.get(_url("imageless")).status_code == 404
 
 
 class TestNegativeAssessmentIsATypedResult:
@@ -107,12 +115,13 @@ class TestNegativeAssessmentIsATypedResult:
         assert response.data["outcome"] == RealizabilityOutcome.NOT_REALIZABLE
         assert response.data["gaps"], "the author must be told what the gap is"
 
-    def test_realizable_pack_reports_no_gaps(self, api_client, staff_user, registered_pack):
+    def test_realizable_pack_reports_no_gaps(self, api_client, staff_user, registered_pack, live_session_credential):
         upsert_raes_image_mapping(
             provider=_GCE,
             source_name="linux",
             image_ref="projects/p/global/images/base-linux",
             options=RaesImageMappingOptions(source_version=""),
+            credential=live_session_credential(staff_user),
         )
         api_client.force_authenticate(user=staff_user)
 

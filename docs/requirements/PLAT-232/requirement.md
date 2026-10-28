@@ -21,6 +21,12 @@ prepared without replacing production routes or legacy authority. The coordinate
 S8 activation in #2321 binds these paths and maps historical facts. Prepared
 Django-admin writes are disabled in favor of the canonical validated commands.
 
+ADR-066 S8 supersession: The production organization profile and settings
+surface uses live principal policy, credential ceilings and owning-service
+commands. Legacy administrator roles and Django flags grant no runtime access.
+The browser binds profile, membership and creation state to the selected
+organization UUID. This supersedes the S1 and S4 coexistence boundary above.
+
 ## Rationale
 
 Organization profile management remains useful for shared team and enterprise accounts. ADR-066 places organizations beneath a typed account and removes the earlier assumption that every individual has a personal organization. The account schema and legacy settings runtime coexist only as dormant S1 structure and unchanged legacy authority; the S8 activation must converge account ancestry and principal membership across every access path.
@@ -51,3 +57,5 @@ Organization profile management remains useful for shared team and enterprise ac
 
 - IMPLEMENTS → GITHUB_ISSUE `2321` (S8 activation of the prepared policy-native organization profile)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/api/policy_profile_views.py` (Production organization profile adapter using principal policy authority)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_account_policy_reads.py` (Integration organization discovery without parent-read prerequisites)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_prepared_admin_routes.py` (Organization and installation administrator discovery with credential ceilings)

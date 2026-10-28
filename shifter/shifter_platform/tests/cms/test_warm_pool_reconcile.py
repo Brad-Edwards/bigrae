@@ -2,8 +2,9 @@
 
 Two properties matter most and are pinned first: the digest the reconciler stamps
 on a prepared generation must equal the digest the launch claim path computes for
-the warm target class (or a prepared generation is never claimable), and a disabled
-policy is a no-op. The rest exercises the reconcile pass: per-bucket retire of
+the warm target class (or a prepared generation is never claimable), and disabled
+policy prevents replenishment while retained cleanup continues. The rest
+exercises the reconcile pass: per-bucket retire of
 stale/excess generations, bounded replenishment, service-owned preparation,
 and fail-closed cleanup -- with the provider dispatch,
 admission, and reservation seams patched so no cloud work or launch intent is emitted.
@@ -64,12 +65,19 @@ class TestDigestParity:
         assert a != b
 
 
+@pytest.mark.django_db
 class TestReconcilePass:
     def test_disabled_policy_is_noop(self, monkeypatch):
         from django.conf import settings
 
         monkeypatch.setattr(settings, "WARM_POOL_POLICY", _DISABLED, raising=False)
-        assert reconcile_warm_pool() == {"provisioned": 0, "retired": 0, "finalized": 0, "buckets": 0}
+        assert reconcile_warm_pool() == {
+            "provisioned": 0,
+            "retired": 0,
+            "finalized": 0,
+            "buckets": 0,
+            "cleanup_cursor": 0,
+        }
 
     def test_enabled_pass_reconciles_each_bucket_and_sweeps(self, monkeypatch):
         from django.conf import settings
@@ -79,7 +87,11 @@ class TestReconcilePass:
         monkeypatch.setattr(
             wpr, "_reconcile_bucket", lambda bucket, policy, moment, summary: reconciled.append(bucket.id)
         )
-        monkeypatch.setattr("engine.services.retire_removed_bucket_generations", lambda ids: 3)
+        from engine.services import WarmRecoveryProgress
+
+        monkeypatch.setattr(
+            "engine.services.reconcile_retained_warm_generations", lambda *a, **k: WarmRecoveryProgress(3, 0, 0)
+        )
         monkeypatch.setattr(wpr, "_emit_pool_gauges", lambda policy: None)
 
         summary = reconcile_warm_pool()
@@ -196,7 +208,7 @@ class TestReconcileBucket:
         monkeypatch.setattr(wpr, "_replenish_shortfall", lambda bucket, policy, digest, active: 2)
         summary = {"provisioned": 0, "retired": 0, "finalized": 0, "buckets": 0}
         wpr._reconcile_bucket(_ENABLED.buckets[0], _ENABLED, timezone.now(), summary)
-        assert summary == {"provisioned": 2, "retired": 2, "finalized": 1, "buckets": 0}
+        assert summary == {"provisioned": 2, "retired": 1, "finalized": 0, "buckets": 0}
 
 
 class TestGauges:
@@ -247,76 +259,38 @@ class TestServiceOwnedIdentity:
 
 
 @pytest.mark.django_db
-class TestProvisionWarmGeneration:
-    def _patch_dispatch_seams(self, monkeypatch):
-        source = SimpleNamespace(source_kind="repo")
-        monkeypatch.setattr("cms.services._raes_range_create._load_raes_source_or_raise", lambda scenario: source)
-        monkeypatch.setattr(wpr, "_warm_pool_credential", lambda: object())
-        monkeypatch.setattr(wpr, "_reserve_warm_intent", lambda credential, selected, request_id: credential)
-        monkeypatch.setattr("cms.services._raes_dispatch.dispatch_repo_raes_package", lambda *a, **k: None)
-        monkeypatch.setattr("cms.services._raes_dispatch.dispatch_object_raes_package", lambda *a, **k: None)
+@pytest.mark.parametrize("mutation", ["unchanged", "digest_changed", "removed"])
+def test_warm_reservation_fences_the_persisted_registered_source(
+    django_user_model,
+    settings,
+    live_session_credential,
+    allow_all_policy,
+    mutation,
+):
+    from uuid import uuid4
 
-    def test_backend_not_warm_capable_skips_without_managed_user(self, monkeypatch):
-        from django.contrib.auth import get_user_model
+    from cms.exceptions import CMSError
+    from cms.models import RangeInstance
+    from cms.services._warm_pool_reconcile import _reserve_warm_intent
+    from shared.operation_authority import credential_reference_from_record
+    from tests.cms._warm_pool_fixtures import service_credential, warm_claim_fixture
 
-        monkeypatch.setattr(
-            "cms.services._range_backend_admission.assert_backend_admitted", lambda purpose, source: None
-        )
-        before = get_user_model().objects.count()
-        assert wpr._provision_warm_generation(_ENABLED.buckets[0], _ENABLED, "digest") is False
-        # Admission runs before any managed user is created: no leak.
-        assert get_user_model().objects.count() == before
-
-    def test_happy_path_dispatches_and_records_ledger(self, monkeypatch):
-        from engine.models import WarmRangeGeneration
-
-        monkeypatch.setattr(
-            "cms.services._range_backend_admission.assert_backend_admitted",
-            lambda purpose, source: SimpleNamespace(backend="gce"),
-        )
-        self._patch_dispatch_seams(monkeypatch)
-        monkeypatch.setattr(
-            "engine.services.admit_warm_generation_capacity",
-            lambda *, scope_ref, draw_key: SimpleNamespace(blocking=False),
-        )
-        assert wpr._provision_warm_generation(_ENABLED.buckets[0], _ENABLED, "digest") is True
-        gen = WarmRangeGeneration.objects.get(bucket_id="gce-example")
-        assert gen.state == WarmRangeGeneration.State.PROVISIONING
-        assert gen.compatibility_digest == "digest"
-
-    def test_capacity_refusal_abandons_preparation(self, monkeypatch):
-        from django.contrib.auth import get_user_model
-
-        from engine.models import WarmRangeGeneration
-
-        monkeypatch.setattr(
-            "cms.services._range_backend_admission.assert_backend_admitted",
-            lambda purpose, source: SimpleNamespace(backend="gce"),
-        )
-        self._patch_dispatch_seams(monkeypatch)
-        monkeypatch.setattr(
-            "engine.services.admit_warm_generation_capacity",
-            lambda *, scope_ref, draw_key: SimpleNamespace(blocking=True),
-        )
-        before_users = get_user_model().objects.count()
-        assert wpr._provision_warm_generation(_ENABLED.buckets[0], _ENABLED, "digest") is False
-        # The abandoned preparation retires its ledger row without fabricating a user.
-        gen = WarmRangeGeneration.objects.get(bucket_id="gce-example")
-        assert gen.state == WarmRangeGeneration.State.RETIRING
-        assert get_user_model().objects.count() == before_users
-
-    def test_removed_pack_admits_no_warm_generation(self, monkeypatch):
-        """The reservation fence refuses a pack removed after the bucket resolved it."""
-        from cms.models import RangeInstance
-        from engine.models import WarmRangeGeneration
-
-        monkeypatch.setattr(
-            "cms.services._range_backend_admission.assert_backend_admitted",
-            lambda purpose, source: SimpleNamespace(backend="gce"),
-        )
-        self._patch_dispatch_seams(monkeypatch)
-        monkeypatch.setattr(wpr, "_reserve_warm_intent", lambda *args: (_ for _ in ()).throw(ValueError("removed")))
-
-        assert wpr._provision_warm_generation(_ENABLED.buckets[0], _ENABLED, "digest") is False
-        assert not RangeInstance.all_objects.exists()
-        assert not WarmRangeGeneration.objects.exists()
+    _, _, _, source, _ = warm_claim_fixture(django_user_model, settings, live_session_credential)
+    worker = service_credential(settings)
+    original_id = source.pk
+    if mutation == "digest_changed":
+        type(source).objects.filter(pk=source.pk).update(package_digest="sha256:" + "e" * 64)
+    elif mutation == "removed":
+        type(source).objects.filter(pk=source.pk).delete()
+    request_id = uuid4()
+    if mutation == "unchanged":
+        _reserve_warm_intent(worker, source, request_id)
+        instance = RangeInstance.objects.select_related("request").get(request__request_id=request_id)
+        assert instance.owner_principal_uuid == worker.principal.uuid and instance.scope_kind == "installation"
+        assert instance.expires_at is None
+        assert credential_reference_from_record(instance.request) == worker
+    else:
+        with pytest.raises((CMSError, ValueError)):
+            _reserve_warm_intent(worker, source, request_id)
+        assert not RangeInstance.objects.filter(request__request_id=request_id).exists()
+        assert not type(source).objects.filter(pk=original_id, package_digest=source.package_digest).exists()

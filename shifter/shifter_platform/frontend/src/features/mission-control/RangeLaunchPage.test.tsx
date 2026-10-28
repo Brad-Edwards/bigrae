@@ -233,3 +233,19 @@ describe("RangeLaunchPage", () => {
     expect(results.violations).toEqual([]);
   });
 });
+
+it("loads and selects a launch workspace beyond the first hundred", async () => {
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({ ...LAUNCH_WORKSPACES.workspaces[0], uuid: `workspace-${index}`, name: `Lab ${index}` }));
+  const last = { ...LAUNCH_WORKSPACES.workspaces[0], uuid: "workspace-101", name: "Lab 101" };
+  mockApi.mockImplementation((path, options) => {
+    if (path === "/mission-control/launch-workspaces/") return Promise.resolve({ count: 101, personal_available: true, workspaces: options?.query?.offset ? [last] : firstPage });
+    if (path === "/mission-control/scenarios/") return Promise.resolve(SCENARIOS);
+    if (path === "/mission-control/agents/") return Promise.resolve(AGENTS);
+    return Promise.reject(new Error(`Unexpected endpoint: ${path}`));
+  });
+  const user = userEvent.setup(); renderRoute(<RangeLaunchPage />);
+  await user.click(await screen.findByRole("button", { name: "Load more workspaces" }));
+  await user.selectOptions(await screen.findByLabelText("Workspace"), last.uuid);
+  await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/mission-control/scenarios/", expect.objectContaining({ query: { workspace_uuid: last.uuid } })));
+  expect(mockApi).toHaveBeenCalledWith("/mission-control/launch-workspaces/", expect.objectContaining({ query: { offset: 100, limit: 100 } }));
+});

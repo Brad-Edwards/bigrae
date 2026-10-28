@@ -91,6 +91,7 @@ def test_status_probe_uses_runtime_binding_without_cutover_facts() -> None:
     job = render(_manifest(), job_name="identity-cutover-status-42-1", status_only=True)
     pod = job["spec"]["template"]["spec"]
     container = pod["containers"][0]
-    assert container["args"][2] == "python manage.py identity_cutover status\npython manage.py identity_runtime_check\n"
+    assert "identity_cutover status --probe" in container["args"][2]
+    assert "SHIFTER_IDENTITY_CUTOVER_RESULT=" in container["args"][2]
     assert {item["name"] for item in pod["volumes"]} == {"openfga-token"}
     assert "initContainers" not in pod

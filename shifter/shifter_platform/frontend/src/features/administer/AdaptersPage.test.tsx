@@ -24,8 +24,7 @@ const adapter = {
 const page = (results: unknown[]) => ({ results, next_cursor: null });
 const base = "/cms/organizations/org-1/plugins/";
 const policyOrganizations = (url: string, results = organizations.results) => {
-  if (url === "/accounts/") return { count: 1, results: [{ uuid: "account-1", name: "Account", kind: "team" }] };
-  if (url === "/accounts/account-1/organizations/") return { count: results.length, results };
+  if (url === "/administer/organizations/") return { count: results.length, results };
   return undefined;
 };
 
@@ -125,7 +124,11 @@ it("lets an administrator reach organizations beyond the first page", async () =
     uuid: index === 25 ? "org-2" : `org-${index + 10}`,
     name: index === 25 ? "Second tenant" : `Tenant ${index + 1}`,
   }));
-  mockApi.mockImplementation(async (url) => {
+  mockApi.mockImplementation(async (url, options) => {
+    if (url === "/administer/organizations/") {
+      const offset = Number(options?.query?.offset ?? 0);
+      return { count: manyOrganizations.length, results: manyOrganizations.slice(offset, offset + 25) };
+    }
     const response = policyOrganizations(url, manyOrganizations);
     if (response) return response;
     return page([]);

@@ -184,17 +184,21 @@ def _policy_permissions(request: Request) -> dict[str, bool]:
         limit=1,
     )
     actions = frozenset(context.installation_actions)
+    organization_actions = frozenset(context.organization_actions)
     return {
         "can_administer_accounts": bool(
             context.individual_account is not None
             or context.accounts.count
+            or context.has_descendant_scopes
             or "installation.manage_accounts" in actions
         ),
         "can_administer_platform": bool(actions),
         "can_read_audit": "installation.read_audit" in actions,
         "can_manage_lease_policy": "installation.manage_lease_policy" in actions,
-        "can_manage_adapters": "installation.manage_adapters" in actions,
-        "can_manage_model_sources": "installation.manage_model_sources" in actions,
+        "can_manage_adapters": "installation.manage_adapters" in actions
+        or "organization.manage_adapters" in organization_actions,
+        "can_manage_model_sources": "installation.manage_model_sources" in actions
+        or "organization.manage_model_sources" in organization_actions,
     }
 
 

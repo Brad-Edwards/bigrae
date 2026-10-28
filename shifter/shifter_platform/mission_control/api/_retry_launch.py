@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
-from django.contrib.auth.models import User
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -67,14 +66,14 @@ class RetrySafeLaunchMixin:
         def _launch_range(
             self,
             request: Request,
-            user: User,
+            user: CredentialContext,
             credential: CredentialContext,
             scope: ResourceScope,
             data: dict[str, Any],
             caller_key: str | None = ...,
         ) -> Response: ...
 
-        def _launch_failure_response(self, exc: CMSError, user: User, scenario: str) -> Response: ...
+        def _launch_failure_response(self, exc: CMSError, user: CredentialContext, scenario: str) -> Response: ...
 
     def _retry_key(self, request: Request) -> str | Response | None:
         """Return a bounded caller retry key, ``None`` when absent, or a 400 Response when invalid."""
@@ -94,7 +93,12 @@ class RetrySafeLaunchMixin:
         return {"agent_id": data.get("agent_id")}
 
     def _dispatch_launch(
-        self, request: Request, user: User, credential: CredentialContext, scope: ResourceScope, data: dict[str, Any]
+        self,
+        request: Request,
+        user: CredentialContext,
+        credential: CredentialContext,
+        scope: ResourceScope,
+        data: dict[str, Any],
     ) -> Response:
         """Route a validated launch: recover a retry key before catalog validation, else create."""
         caller_key = self._retry_key(request)
@@ -108,7 +112,7 @@ class RetrySafeLaunchMixin:
 
     def _try_recover(
         self,
-        user: User,
+        user: CredentialContext,
         credential: CredentialContext,
         scope: ResourceScope,
         data: dict[str, Any],
@@ -121,11 +125,12 @@ class RetrySafeLaunchMixin:
                 scenario=str(data.get("scenario", "basic")),
                 agents_selection=self._agents_selection(data),
                 workspace_uuid=data.get("workspace_uuid"),
+                scope=scope,
                 caller_key=caller_key,
                 model_sources=data.get("model_sources"),
             )
         except RetryKeyConflict:
-            logger.info("Retry key conflict: user=%s", user.pk)
+            logger.info("Retry key conflict: user=%s", user.principal.uuid)
             return self.error_response(
                 code="retry_key_conflict",
                 message="This idempotency key is already bound to a different launch request.",
@@ -138,7 +143,7 @@ class RetrySafeLaunchMixin:
     def _create_range_first_use(
         self,
         request: Request,
-        user: User,
+        user: CredentialContext,
         credential: CredentialContext,
         scope: ResourceScope,
         scenario: str,
@@ -164,7 +169,7 @@ class RetrySafeLaunchMixin:
                 scope=scope,
             )
         except RetryKeyConflict:
-            logger.info("Retry key conflict: user=%s scenario=%s", user.pk, safe_log_value(scenario))
+            logger.info("Retry key conflict: user=%s scenario=%s", user.principal.uuid, safe_log_value(scenario))
             return self.error_response(
                 code="retry_key_conflict",
                 message="This idempotency key is already bound to a different launch request.",
@@ -176,7 +181,7 @@ class RetrySafeLaunchMixin:
         if outcome.created:
             logger.info(
                 "Range launched (retry-safe): user=%s request_id=%s scenario=%s",
-                safe_log_value(user.email),
+                safe_log_value(str(user.principal.uuid)),
                 outcome.request_id,
                 safe_log_value(scenario),
             )

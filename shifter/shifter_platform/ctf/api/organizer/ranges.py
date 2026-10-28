@@ -49,6 +49,7 @@ from ctf.api.serializers import (
 )
 from ctf.enums import EventCapability
 from shared.api_tokens import scopes
+from shared.exceptions import CMSError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -145,6 +146,13 @@ class ParticipantRangeStatusView(APIView):
                 result = range_service.get_range_status(participant.pk, credential=_credential(request))
             except CTFNotFoundError:
                 _raise_not_found(_PARTICIPANT_NOT_FOUND)
+            except CMSError as exc:
+                unavailable = exc.details.get("code") == "authority-unavailable"
+                raise _CtfApiError(
+                    code="dependency_unavailable" if unavailable else "forbidden",
+                    message="Service unavailable" if unavailable else "Permission denied",
+                    status_code=503 if unavailable else 403,
+                ) from None
             return Response(result)
         except _CtfApiError as exc:
             return exc.to_response(request)

@@ -2,7 +2,20 @@
 
 How to run a capture-the-flag event end to end. The organizer surface lives under the
 **CTF Admin** area of the portal (`/ctf/admin/`) and is restricted to users with CTF
-organizer access.
+permission for the requested event actions. Account membership and resource
+ownership alone do not grant those permissions.
+
+## Staff changes and recovery
+
+Use **Event staff** to assign active human or service principals as moderators,
+judges or co-organizers. A permitted administrator can transfer ownership with
+**Make owner**. Every change checks the current administrator's permissions.
+
+If a change is awaiting confirmation, select **Retry pending change** to finish
+the recorded update. **Check status** refreshes its progress. Finish that change
+before starting another staff update. A current authorized administrator can
+resume it if the original caller loses access or the recipient is deactivated.
+New assignments still require active recipients.
 
 ## Event Lifecycle
 
@@ -33,9 +46,9 @@ From **CTF Admin → Events → Create**, set the core parameters:
 | Auto cleanup / cleanup delay | Whether ranges are torn down after the event |
 | Publish public registration page | Opt-in public event details and request form; off by default |
 
-The event's workspace supplies the egress policy for new participant and
-recovery-spare ranges. Each range still belongs to its participant or managed
-spare account; selecting a shared event workspace does not give other workspace
+For workspace-scoped events, the workspace supplies the egress policy for new
+participant and recovery-spare ranges. Each range belongs to its participant
+principal, or to the event owner's principal while it is a spare. Selecting a shared event workspace does not give other workspace
 members access to those ranges. Set the workspace policy before provisioning:
 changes are audited and apply to later launches, not ranges already running.
 If the policy changes after a spare is prepared, an incompatible spare cannot

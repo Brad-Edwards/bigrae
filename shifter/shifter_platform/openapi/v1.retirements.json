@@ -155,6 +155,9 @@
     {
       "adr": "ADR-066",
       "issue": 2321,
+      "parameters": [
+        {"path": "/api/v1/ctf/communications/", "method": "get", "name": "workspace_id", "in": "query"}
+      ],
       "paths": [
         "/api/v1/administer/users/{id}/grant-organizer/",
         "/api/v1/cms/organizations/{organization_uuid}/model-source-users/",
@@ -164,6 +167,7 @@
         "/api/v1/ctf/events/{event_id}/staff/",
         "/api/v1/ctf/events/{event_id}/staff/{user_id}/",
         "/api/v1/ctf/events/{event_id}/transfer-ownership/",
+        "/api/v1/ctf/scenarios/",
         "/api/v1/workspaces/",
         "/api/v1/workspaces/context/",
         "/api/v1/workspaces/organizations/",

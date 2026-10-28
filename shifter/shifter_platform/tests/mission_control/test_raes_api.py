@@ -15,16 +15,16 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from cms.models import RangeInstance, Request
 from shared.api_tokens import scopes
 from shared.api_tokens.models import ApiToken
-from shared.enums import RequestType
 from shared.models import RaesOperationRecord, RaesParticipantRuntimeRecord
 from shared.raes.contracts import SHIFTER_BACKEND_PROFILE
 from shared.schemas.raes_operation import canonical_raes_payload_digest
 from shared.schemas.raes_participant_runtime import (
     canonical_raes_payload_digest as canonical_participant_payload_digest,
 )
+from tests._mission_control_fixtures import native_range_for_user as _owned_range
+from tests._mission_control_fixtures import native_scopes
 
 pytestmark = [
     pytest.mark.django_db,
@@ -79,48 +79,6 @@ def client(live_session_credential):
     return client
 
 
-def _owned_range(user):
-    """Create a RangeInstance + Request owned by ``user``; return the request_id."""
-    from engine.models import Range as EngineRange
-    from engine.models import Request as EngineRequest
-    from shared.principal_port import principal_for_user
-    from workspaces.models import Account
-    from workspaces.services import create_account
-
-    principal = principal_for_user(user)
-    account = Account.objects.filter(
-        kind=Account.Kind.INDIVIDUAL, individual_principal_uuid=principal.uuid
-    ).first() or create_account(kind=Account.Kind.INDIVIDUAL, name="Individual account", owner=principal)
-    custody = {
-        "owner_principal_uuid": principal.uuid,
-        "scope_kind": "account",
-        "account_id": account.id,
-    }
-    request = Request.objects.create(request_id=uuid4(), request_type=RequestType.RANGE.value, user=user, **custody)
-    instance = RangeInstance.objects.create(
-        scenario_id="basic", user_id=user.id, status="ready", request=request, **custody
-    )
-    engine_request = EngineRequest.objects.create(
-        request_id=request.request_id,
-        request_type=RequestType.RANGE.value,
-        user=user,
-        **custody,
-    )
-    realized = EngineRange.objects.create(
-        request=engine_request,
-        user=user,
-        cms_user_id=user.pk,
-        cms_range_uuid=instance.uuid,
-        resource_generation=uuid4(),
-        range_backend="gce",
-        status="ready",
-        **custody,
-    )
-    instance.range_id = realized.pk
-    instance.save(update_fields=["range_id"])
-    return request.request_id
-
-
 def _seed_record(request_id, *, record_kind, payload, source_timestamp=None):
     return RaesOperationRecord.objects.create(
         request_id=request_id,
@@ -154,7 +112,7 @@ def _seed_participant_record(request_id, *, participant_ref, record_kind, payloa
 
 
 def _token(user, *granted_scopes: str) -> str:
-    _, raw = ApiToken.create_token(name="raes-mc", created_by=user, scopes=list(granted_scopes))
+    _, raw = ApiToken.create_token(name="raes-mc", created_by=user, scopes=native_scopes(list(granted_scopes)))
     return raw
 
 

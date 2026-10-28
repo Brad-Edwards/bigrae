@@ -77,6 +77,7 @@ def create_event_for_credential(
     event_data: dict[str, Any],
     *,
     creator_user: User | None = None,
+    _compatibility_actor: User | None = None,
 ) -> CTFEvent:
     """Create a new event after exact parent policy, with principal attribution.
 
@@ -91,6 +92,13 @@ def create_event_for_credential(
         CTFValidationError: If event data is invalid.
     """
     logger.info("Creating CTF event for principal %s", safe_log_value(credential.principal.uuid))
+    from ctf.services.actors import event_actor_credential, fence_event_actor
+    from shared.credentials import resolve_current_credential
+
+    if _compatibility_actor is None:
+        credential = resolve_current_credential(credential)
+    elif event_actor_credential(_compatibility_actor) != credential:
+        raise CTFValidationError("Event actor changed")
 
     # Validate required fields
     required_fields = ["name", "event_start", "event_end"]
@@ -116,13 +124,21 @@ def create_event_for_credential(
     # created_by, id, timestamps, etc.
     safe_data = {k: v for k, v in event_data.items() if k in _EVENT_MUTABLE_FIELDS}
     scenario_id = str(safe_data.get("scenario_id", CTFEvent._meta.get_field("scenario_id").default))
-    placement = resolve_event_placement(credential, event_data)
+    placement = resolve_event_placement(credential, event_data, compatibility_actor=_compatibility_actor)
     validate_content_scenario_access(credential, scenario_id, scope=placement.scope)
     from ctf.services.content_resolution import resolve_scenario_ctf_content
 
     resolved_content = resolve_scenario_ctf_content(scenario_id)
+    from .initialization import initialization_intent, resume_event_initialization
+
+    if "model_sources" in event_data:
+        from .model_sources import validate_event_model_source_selection
+
+        validate_event_model_source_selection(credential, placement.workspace_id, event_data["model_sources"])
+    intent = initialization_intent(credential, event_data, resolved_content)
 
     with transaction.atomic():
+        fence_event_actor(_compatibility_actor if _compatibility_actor is not None else credential)
         from ctf.bridges import cms_fence_pack_reference
 
         cms_fence_pack_reference(scenario_id)
@@ -135,6 +151,7 @@ def create_event_for_credential(
             organization_id=placement.organization_id,
             workspace_id=placement.workspace_id,
             authorization_publication_state="requested",
+            initialization_intent=intent,
             status=EventStatus.DRAFT.value,
             **safe_data,
         )
@@ -147,43 +164,13 @@ def create_event_for_credential(
                 enabled=True,
                 principal=credential.principal,
             )
-    from .relationships import publish_event_relationships
-
-    event = publish_event_relationships(event.pk)
-
-    try:
-        with transaction.atomic():
-            if "model_sources" in event_data:
-                from .model_sources import set_event_model_sources
-
-                set_event_model_sources(event, credential, event_data["model_sources"], expected_revision=0)
-                event.save(
-                    update_fields=[
-                        "model_sources",
-                        "model_source_authority",
-                        "model_source_actor_id",
-                        "model_source_revision",
-                        "updated_at",
-                    ]
-                )
-            if resolved_content is not None:
-                from ctf.services.content_hydration import hydrate_event_ctf_content
-
-                hydrate_event_ctf_content(event.pk, resolved_content, actor_id=credential)
-
-            logger.info("Created CTF event %s: %s", event.id, event.name)
-    except Exception:
-        # The event is not usable until all requested source/content state is
-        # installed. Remove the SQL aggregate on initialization failure rather
-        # than exposing a published but partially configured event. Any provider
-        # tuple is harmless without a matching SQL target and is reconciled by
-        # the cutover/runtime relationship inventory.
-        with transaction.atomic():
-            incomplete = CTFEvent.all_objects.filter(pk=event.pk).first()
-            if incomplete is not None:
-                incomplete.delete(soft=False)
-        raise
-
+    event = resume_event_initialization(
+        event.pk,
+        resolved_content=resolved_content,
+        _admitted_credential=credential,
+        _admitted_actor=_compatibility_actor,
+    )
+    logger.info("Created CTF event %s: %s", event.id, event.name)
     return event
 
 
@@ -191,7 +178,9 @@ def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
     """Compatibility entrypoint using the same principal policy as native callers."""
     from shared.api.principals import human_session_credential
 
-    return create_event_for_credential(human_session_credential(user), event_data, creator_user=user)
+    return create_event_for_credential(
+        human_session_credential(user), event_data, creator_user=user, _compatibility_actor=user
+    )
 
 
 def _validate_event_time_range(event_start: datetime, event_end: datetime) -> None:
@@ -316,13 +305,14 @@ def force_delete_event(
         CTFNotFoundError: If event doesn't exist.
         CTFValidationError: If confirmation_name doesn't match.
     """
+    from ctf.bridges import cms_destroy_event_range
     from ctf.enums import EventCapability
     from ctf.models import CTFChallengeFile, CTFParticipant
     from ctf.s3 import delete_challenge_file
     from ctf.services import event as _e
     from ctf.services.actors import event_actor_credential
     from ctf.services.authorization import assert_event_capability
-    from ctf.services.range.lifecycle import _destroy_single_range
+    from ctf.services.credential_scope import _retained_event_cleanup_scope
 
     # Use all_objects so force delete works on soft-deleted events too
     try:
@@ -338,7 +328,7 @@ def force_delete_event(
     # judges cannot. The view checks this too, but internal callers must not
     # bypass it.
     credential = event_actor_credential(actor)
-    assert_event_capability(credential, event, EventCapability.DELETE)
+    assert_event_capability(actor, event, EventCapability.DELETE)
 
     if confirmation_name != event.name:
         raise CTFValidationError(
@@ -350,6 +340,13 @@ def force_delete_event(
         )
 
     event_name = event.name
+
+    from ctf.services.range.launch_intents import cancel_event_launches
+
+    # The event lock fences concurrent claims and all CMS/native creation.
+    # Failed cleanup remains retryable through this same force-delete surface.
+    cancelled_intents = cancel_event_launches(event.pk, actor, action="event.delete", delete_event=True)
+    event = CTFEvent.all_objects.get(pk=event.pk)
 
     # Destroy range instances OUTSIDE the atomic block (external HTTP calls).
     # Query participants directly via all_objects to handle soft-deleted events
@@ -365,17 +362,29 @@ def force_delete_event(
     participants_with_ranges = CTFParticipant.all_objects.filter(
         event=event,
         range_instance_id__isnull=False,
-    ).select_related("user")
-    for participant in participants_with_ranges:
+    )
+    from ctf.services.range.launch_cleanup import event_deletion_targets
+
+    targets = event_deletion_targets(event, actor, cancelled_intents)
+    for range_id, request_id in targets:
         try:
-            if _destroy_single_range(participant, credential):
-                ranges_destroyed += 1
+            with _retained_event_cleanup_scope(event.pk):
+                if request_id is None:
+                    cms_destroy_event_range(credential, event.pk, range_id)
+                else:
+                    cms_destroy_event_range(credential, event.pk, None, request_id=request_id)
+            if range_id is not None:
+                participants_with_ranges.filter(range_instance_id=range_id).update(range_status="destroying")
+            ranges_destroyed += 1
         except Exception:
             ranges_failed += 1
             logger.exception(
-                "Failed to dispatch range destroy for participant %s during force delete",
-                participant.pk,
+                "Failed to queue range cleanup %s during event deletion",
+                range_id or request_id,
             )
+
+    if ranges_failed:
+        raise CTFStateError("Event range cleanup is unavailable", code="CTF_EVENT_CLEANUP_UNAVAILABLE")
 
     # Delete S3 challenge file blobs before cascade removes the DB rows
     s3_keys = list(

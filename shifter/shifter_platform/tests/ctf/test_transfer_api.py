@@ -222,7 +222,7 @@ class TestWebhooks:
             kwargs={"event_id": ctf_event.id},
             body={"url": "https://hooks.example.test/ctf", "secret": "s3cret", "subscribed_events": ["flag_solve"]},
         )
-        assert created.status_code == 201
+        assert created.status_code == 200
         assert created.json()["has_secret"] is True
 
         listing = call_json(

@@ -440,12 +440,13 @@ def add_account_member(
             )
 
 
-def _scope_account(scope: ResourceScope) -> Account:
+def _scope_account(scope: ResourceScope, *, for_update: bool = False) -> Account:
     """Resolve the account root required by an account-scoped declaration."""
     account_uuid = scope.account_uuid
     if account_uuid is None:
         raise AccountScopeError(_DENIED)
-    account = Account.objects.filter(uuid=account_uuid).first()
+    accounts = Account.objects.select_for_update() if for_update else Account.objects
+    account = accounts.filter(uuid=account_uuid).first()
     if account is None:
         raise AccountScopeError(_DENIED)
     return account
@@ -458,49 +459,40 @@ def _resolve_individual_scope(account: Account, scope: ResourceScope) -> Resolve
     return ResolvedResourceScope("account", account.id, None, None)
 
 
-def _resolve_nested_scope(account: Account, scope: ResourceScope) -> ResolvedResourceScope:
+def _resolve_nested_scope(account: Account, scope: ResourceScope, *, for_update: bool = False) -> ResolvedResourceScope:
     """Resolve optional organization and workspace ancestry below a shared account."""
     if scope.organization_uuid is None:
         return ResolvedResourceScope("account", account.id, None, None)
-    organization = Organization.objects.filter(uuid=scope.organization_uuid, account=account).first()
+    organizations = Organization.objects.select_for_update() if for_update else Organization.objects
+    organization = organizations.filter(uuid=scope.organization_uuid, account=account).first()
     if organization is None:
         raise AccountScopeError(_DENIED)
     if scope.workspace_uuid is None:
         return ResolvedResourceScope("account", account.id, organization.id, None)
-    workspace = Workspace.objects.filter(uuid=scope.workspace_uuid, organization=organization).first()
+    workspaces = Workspace.objects.select_for_update() if for_update else Workspace.objects
+    workspace = workspaces.filter(uuid=scope.workspace_uuid, organization=organization).first()
     if workspace is None or workspace.archived_at is not None:
         raise AccountScopeError(_DENIED)
     return ResolvedResourceScope("account", account.id, organization.id, workspace.id)
 
 
-def resolve_resource_scope(scope: ResourceScope) -> ResolvedResourceScope:
+def resolve_resource_scope(scope: ResourceScope, *, for_update: bool = False) -> ResolvedResourceScope:
     """Validate account type and exact ancestry; never infer installation scope."""
-    if not isinstance(scope, ResourceScope):
+    if not isinstance(scope, ResourceScope) or (for_update and not transaction.get_connection().in_atomic_block):
         raise AccountScopeError(_DENIED)
     if scope.kind == "installation":
         return ResolvedResourceScope("installation", None, None, None)
-    account = _scope_account(scope)
+    account = _scope_account(scope, for_update=for_update)
     if account.kind == Account.Kind.INDIVIDUAL:
         return _resolve_individual_scope(account, scope)
-    return _resolve_nested_scope(account, scope)
+    return _resolve_nested_scope(account, scope, for_update=for_update)
 
 
 def assert_scope_principal_member(scope: ResourceScope, principal: PrincipalRef, *, for_update: bool = False) -> None:
     """Validate a business-owner membership fact; this grants no application action."""
-    resolve_resource_scope(scope)
-    if scope.kind != "account" or scope.account_uuid is None or not isinstance(principal, PrincipalRef):
+    if not isinstance(principal, PrincipalRef):
         raise AccountScopeError(_DENIED)
-    account = (
-        _locked_account(scope.account_uuid) if for_update else Account.objects.filter(uuid=scope.account_uuid).first()
-    )
-    if account is None:
-        raise AccountScopeError(_DENIED)
-    member = (
-        account.individual_principal_uuid == principal.uuid
-        or AccountMembership.objects.filter(account=account, principal_uuid=principal.uuid).exists()
-    )
-    if not member:
-        raise AccountScopeError(_DENIED)
+    resolve_range_scope_binding(scope, member=principal, for_update=for_update)
 
 
 def resolve_range_scope_binding(
@@ -511,7 +503,17 @@ def resolve_range_scope_binding(
     Engine may consume these scalar facts to fence its own range projection.
     CMS retains orchestration and application decisions in both parent scopes.
     """
-    binding = resolve_resource_scope(scope)
+    # Lock the selected ancestry even when application authority comes entirely
+    # from policy and no SQL membership is required. Callers retain these locks
+    # until their mutation commits, serializing with hierarchy and archive writes.
+    binding = resolve_resource_scope(scope, for_update=for_update)
     if member is not None:
-        assert_scope_principal_member(scope, member, for_update=for_update)
+        if binding.account_id is None or not isinstance(member, PrincipalRef):
+            raise AccountScopeError(_DENIED)
+        account = Account.objects.get(pk=binding.account_id)
+        if (
+            account.individual_principal_uuid != member.uuid
+            and not AccountMembership.objects.filter(account=account, principal_uuid=member.uuid).exists()
+        ):
+            raise AccountScopeError(_DENIED)
     return binding

@@ -16,6 +16,26 @@ from workspaces.models import Organization, OrganizationMembership, Workspace, W
 pytestmark = pytest.mark.django_db
 
 
+def test_status_probe_recognizes_an_absent_legacy_table(monkeypatch):
+    from django.db import connection
+
+    monkeypatch.setattr(connection.introspection, "table_names", lambda: [])
+    output = StringIO()
+    call_command("identity_cutover", "status", probe=True, stdout=output)
+    assert json.loads(output.getvalue()) == {"state": "absent"}
+
+
+def test_status_probe_does_not_convert_database_failure_to_absence(monkeypatch):
+    from django.db import OperationalError, connection
+
+    def unavailable():
+        raise OperationalError("synthetic unavailable database")
+
+    monkeypatch.setattr(connection.introspection, "table_names", unavailable)
+    with pytest.raises(OperationalError):
+        call_command("identity_cutover", "status", probe=True, stdout=StringIO())
+
+
 class _PolicyProvider:
     """Small primary-backed provider double for cutover replay tests."""
 
@@ -315,6 +335,51 @@ def test_apply_binds_shared_hierarchy_and_converts_memberships(tmp_path, monkeyp
     call_command("identity_cutover", "verify", facts=str(facts), plan_digest=digest)
 
 
+@pytest.mark.parametrize("late_legacy_member", [False, True])
+def test_cutover_disposes_memberships_under_prepared_accounts_before_activation(
+    tmp_path, monkeypatch, late_legacy_member
+):
+    from workspaces.models import Account, IdentityCutoverState, WorkspaceOwnership
+
+    user = get_user_model().objects.create_user(username="prepared-account-owner")
+    principal = ensure_human_principal(user)
+    _bind_bootstrap(principal)
+    account = Account.objects.create(kind="team", name="Prepared account")
+    organization = Organization.objects.create(account=account, name="Prepared organization", is_default=True)
+    workspace = Workspace.objects.create(organization=organization, name="Prepared workspace", is_default=True)
+    OrganizationMembership.objects.create(organization=organization, user=user, role="admin")
+    WorkspaceMembership.objects.create(workspace=workspace, user=user, role="owner")
+    facts = _facts(tmp_path)
+    planned = StringIO()
+    call_command("identity_cutover", "plan", facts=str(facts), stdout=planned)
+    plan = json.loads(planned.getvalue())
+    assert not plan["blockers"]
+    assert len(plan["memberships"]) == 2
+    provider = _PolicyProvider()
+    monkeypatch.setattr(
+        "config.management.commands.identity_cutover.configured_authorization_provider", lambda: provider
+    )
+    monkeypatch.setattr(
+        "config.management.commands.identity_cutover_bootstrap.configured_authorization_provider", lambda: provider
+    )
+    call_command("identity_cutover", "apply", facts=str(facts), plan_digest=plan["plan_digest"])
+    assert not OrganizationMembership.objects.filter(user_id__isnull=False).exists()
+    assert not WorkspaceMembership.objects.filter(user_id__isnull=False).exists()
+    assert WorkspaceOwnership.objects.filter(workspace=workspace, principal_uuid=principal.uuid).exists()
+    assert (f"principal:{principal.uuid}", "direct_administrator", f"workspace:{workspace.uuid}") in {
+        (item.user, item.relation, item.object) for item in provider.relationships
+    }
+    call_command("identity_cutover_bootstrap", facts=str(_bootstrap_facts(tmp_path)), plan_digest=plan["plan_digest"])
+    if late_legacy_member:
+        WorkspaceMembership.objects.create(workspace=workspace, user=user, role="member")
+        with pytest.raises(CommandError, match="hierarchy verification failed"):
+            call_command("identity_cutover", "verify", facts=str(facts), plan_digest=plan["plan_digest"])
+        assert IdentityCutoverState.objects.get().state == "policy_pending"
+    else:
+        call_command("identity_cutover", "verify", facts=str(facts), plan_digest=plan["plan_digest"])
+        assert IdentityCutoverState.objects.get().state == "activated"
+
+
 def test_apply_reconciles_lost_acknowledgement_and_is_idempotent(tmp_path, monkeypatch) -> None:
     from workspaces.models import IdentityCutoverState
 
@@ -393,3 +458,20 @@ def test_bootstrap_refuses_an_existing_different_administrator(tmp_path, monkeyp
             facts=str(_bootstrap_facts(tmp_path)),
             plan_digest=digest,
         )
+
+
+def test_cutover_adds_a_new_exact_provider_tuple_to_an_already_bound_principal():
+    from management.identity_cutover import apply_identity_provider_bindings, identity_cutover_disposition
+
+    user = get_user_model().objects.create_user(username="multi-provider-principal")
+    principal = ensure_human_principal(user)
+    _bind_bootstrap(principal, issuer="https://original.example", subject="original-subject")
+    supplied = {user.pk: ("https://replacement.example", "replacement-subject")}
+    _, blockers = identity_cutover_disposition(supplied)
+    assert not blockers
+    apply_identity_provider_bindings(supplied)
+    apply_identity_provider_bindings(supplied)
+    assert set(ProviderBinding.objects.filter(principal__uuid=principal.uuid).values_list("issuer", "subject")) == {
+        ("https://original.example", "original-subject"),
+        ("https://replacement.example", "replacement-subject"),
+    }

@@ -189,7 +189,7 @@ def _policy_transition(request: Request, pk: int, action: lifecycle.AccountLifec
     """Use the one locked lifecycle command for every S8 compatibility route."""
     actor = authenticated_credential(request)
     provider = configured_authorization_provider()
-    require_principal_administration(actor, provider)
+    actor = require_principal_administration(actor, provider)
     user = services.get_admin_user(pk)
     if user is None:
         raise NotFound(_USER_NOT_FOUND)
@@ -257,7 +257,7 @@ class PolicyAdminUserResetPasswordView(PolicyAdminView, APIView):
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
         provider = configured_authorization_provider()
-        require_principal_administration(actor, provider)
+        actor = require_principal_administration(actor, provider)
         user = services.get_admin_user(pk)
         if user is None:
             raise NotFound(_USER_NOT_FOUND)

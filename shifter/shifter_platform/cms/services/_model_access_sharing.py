@@ -244,8 +244,16 @@ def _operator_ref(actor: object) -> OwnedReference:
     return OwnedReference(owner="management", reference=f"operator:{getattr(actor, 'pk', 0)}")
 
 
+def _required_selector_id(value: int | None) -> int:
+    if value is None:
+        raise ModelAccessSelectorError()
+    return value
+
+
 def _resolve_selected(actor: object, selector: SharingSelector) -> SelectorResolution:
     """Resolve explicit ordinary ranges under owner or operator authority."""
+    from django.contrib.auth.models import User
+
     from management.services import is_platform_operator
     from shared.credentials import CredentialContext
     from shared.principal_port import principal_for_user
@@ -257,7 +265,7 @@ def _resolve_selected(actor: object, selector: SharingSelector) -> SelectorResol
         actor.principal.uuid
         if isinstance(actor, CredentialContext)
         else principal_for_user(actor).uuid
-        if actor_id is not None
+        if isinstance(actor, User)
         else None
     )
     if not is_operator and any(
@@ -295,9 +303,7 @@ def _resolve_users(actor: object, selector: SharingSelector) -> SelectorResoluti
     digest = compute_digest(selector)
     refs = tuple(OwnedReference(owner="management", reference=f"user:{user_id}") for user_id in user_ids)
     ref_by_user = dict(zip(user_ids, refs, strict=True))
-    ref_by_principal = {
-        principal_uuid: ref_by_user[user_id] for user_id, principal_uuid in principal_rows
-    }
+    ref_by_principal = {principal_uuid: ref_by_user[user_id] for user_id, principal_uuid in principal_rows}
     publisher_ref = _operator_ref(actor) if is_platform_operator(actor) else refs[0]
     return _resolution(
         selector,
@@ -307,7 +313,7 @@ def _resolve_users(actor: object, selector: SharingSelector) -> SelectorResoluti
             item.range_uuid: (
                 ref_by_principal[item.owner_principal_uuid]
                 if item.owner_principal_uuid is not None
-                else ref_by_user[item.owner_user_id]
+                else ref_by_user[_required_selector_id(item.owner_user_id)]
             )
             for item in ranges
         },
@@ -327,9 +333,7 @@ def _resolve_groups(actor: object, selector: SharingSelector) -> SelectorResolut
     group_refs = tuple(OwnedReference(owner="management", reference=f"auth-group:{scope.group_id}") for scope in scopes)
     user_refs = tuple(OwnedReference(owner="management", reference=f"user:{user_id}") for user_id in user_ids)
     user_authorities = dict(zip(user_ids, user_refs, strict=True))
-    principal_authorities = {
-        principal_uuid: user_authorities[user_id] for user_id, principal_uuid in principal_rows
-    }
+    principal_authorities = {principal_uuid: user_authorities[user_id] for user_id, principal_uuid in principal_rows}
     spending = tuple(
         ResolvedSpendingEligibility(
             authority_ref=group_refs[index],
@@ -346,7 +350,7 @@ def _resolve_groups(actor: object, selector: SharingSelector) -> SelectorResolut
             item.range_uuid: (
                 principal_authorities[item.owner_principal_uuid]
                 if item.owner_principal_uuid is not None
-                else user_authorities[item.owner_user_id]
+                else user_authorities[_required_selector_id(item.owner_user_id)]
             )
             for item in ranges
         },
@@ -372,7 +376,9 @@ def _resolve_workspaces(actor: object, selector: SharingSelector) -> SelectorRes
         selector,
         ranges,
         selector_refs=publisher_refs + containment_refs,
-        subject_authority_by_range={item.range_uuid: refs_by_workspace[item.workspace_id] for item in ranges},
+        subject_authority_by_range={
+            item.range_uuid: refs_by_workspace[_required_selector_id(item.workspace_id)] for item in ranges
+        },
         publisher_requirements=tuple(_publisher_requirement(digest, item) for item in publisher_refs),
     )
 
@@ -402,7 +408,9 @@ def _resolve_organizations(actor: object, selector: SharingSelector) -> Selector
         selector,
         ranges,
         selector_refs=organization_refs + workspace_refs,
-        subject_authority_by_range={item.range_uuid: refs_by_workspace[item.workspace_id] for item in ranges},
+        subject_authority_by_range={
+            item.range_uuid: refs_by_workspace[_required_selector_id(item.workspace_id)] for item in ranges
+        },
         publisher_requirements=tuple(_publisher_requirement(digest, item) for item in organization_refs),
     )
 
@@ -442,6 +450,9 @@ _RESOLVERS = {
 
 def resolve_model_access_selector(actor: object, selector: SharingSelector | dict[str, object]) -> SelectorResolution:
     """Resolve one non-CTF atomic selector through its owning service boundaries."""
+    from shared.model_access.availability import require_model_access_available
+
+    require_model_access_available()
     from management.services import ModelAccessIdentityAuthorityError
     from workspaces.services import OrganizationAuthorizationError, WorkspaceAuthorizationError
 

@@ -11,6 +11,10 @@ from shared.authorization import CredentialCeiling, TargetRef
 from shared.identity_scope import PrincipalRef, ResourceScope
 
 
+class CredentialUnavailable(ValueError):
+    """Current credential authority could not be established because a dependency is unavailable."""
+
+
 class CredentialRevoked(ValueError):
     """The native credential owner confirmed a terminal lifecycle state."""
 
@@ -187,7 +191,7 @@ def _resolve_credential(original: CredentialContext, resolver: CredentialReferen
     except CredentialRevoked:
         raise
     except Exception:
-        raise ValueError("Credential unavailable") from None
+        raise CredentialUnavailable("Credential unavailable") from None
 
 
 def _intersect_targets(original: TargetRef | None, current: TargetRef | None) -> TargetRef | None:

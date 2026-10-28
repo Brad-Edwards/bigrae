@@ -13,6 +13,9 @@ _MODELS = ("organization.manage_model_sources",)
 _ADAPTERS = ("organization.manage_adapters",)
 
 API_OPERATION_POLICY: dict[str, OperationPolicy] = {
+    "cms_content_scopes_retrieve": OperationPolicy(
+        _READ, "scope", "content_scope_collection", selector="policy_filtered_ancestry"
+    ),
     "cms_artifact_preparation_create": OperationPolicy(
         _PREPARE, "scope", "preparation_parent", selector="validated_parent"
     ),

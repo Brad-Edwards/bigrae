@@ -67,7 +67,10 @@ class CTFEventStaff(CTFBaseModel):
     def save(self, *args, **kwargs) -> None:
         """Populate the principal fact for legacy human callers on initial create."""
         if self._state.adding and self.user_id is not None and not getattr(self, "principal_uuid", None):
+            actor_user = self.user
+            if actor_user is None:
+                raise ValueError("Human attribution unavailable")
             from shared.principal_port import principal_for_user
 
-            self.principal_uuid = principal_for_user(self.user).uuid
+            self.principal_uuid = principal_for_user(actor_user).uuid
         super().save(*args, **kwargs)

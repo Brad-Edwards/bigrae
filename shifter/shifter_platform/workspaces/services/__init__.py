@@ -8,7 +8,15 @@ Membership mutation is exposed only through the transactional functions below;
 callers never write tenancy models directly.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from workspaces.roles import WorkspaceOperation
+
+if TYPE_CHECKING:
+    from django.contrib.admin import ModelAdmin
+    from django.db.models import Model
 
 from ._account import (
     AccountScopeError,
@@ -66,6 +74,8 @@ from ._account_policy_reads import (
     admin_get_account,
     admin_get_organization,
     admin_get_workspace,
+    admin_list_descendant_scopes,
+    admin_list_integration_organizations,
     admin_list_organizations,
     admin_list_workspaces,
     list_launch_workspace_options,
@@ -93,7 +103,11 @@ from ._authorization_admin import (
     reconcile_authorization_operation,
     workspace_authorization_scope,
 )
-from ._authorization_commands import AUTHORIZATION_MUTATION_CONFIRMED
+from ._authorization_commands import (
+    AUTHORIZATION_MUTATION_CONFIRMED,
+    RetainedEventAuthorityPolicyMutationRequest,
+    RetainedEventOwnershipTransferMutationRequest,
+)
 from ._authorization_policy import (
     AuthorizationMutationConflict,
     EventOwnershipHandoffPolicyMutationRequest,
@@ -102,16 +116,28 @@ from ._authorization_policy import (
     PolicyMutationResult,
     apply_native_relationship_mutation,
     apply_policy_mutation,
+    check_authorization_delegation,
+    check_authorization_mutation,
+    confirm_admitted_native_mutation,
+    confirm_admitted_policy_mutation,
+    confirmed_authorization_effects,
+    reconcile_admitted_mutation,
     reconcile_policy_mutation,
+    settle_authorization_mutation,
 )
 from ._content_scope import content_organization_uuids
+from ._content_scope_options import ContentScopeOption, ContentScopePage, list_content_scope_options
 from ._context import (
     ActorWorkspaceContext,
     OrganizationRef,
     list_actor_workspace_contexts,
 )
 from ._egress import set_workspace_egress_policy, workspace_egress_policy
-from ._hierarchy_publication import publish_hierarchy_relationships
+from ._hierarchy_publication import (
+    HierarchyPublicationPending,
+    publish_hierarchy_relationships,
+    reconcile_hierarchy_publications,
+)
 from ._identity_cutover import (
     IdentityCutoverConflict as IdentityCutoverConflict,
 )
@@ -243,9 +269,10 @@ from ._range_scope_admin import (
     authorize_range_rebind,
     lock_policy_range_rebind,
 )
+from ._scope_locks import lock_resource_scope_bindings
 
 
-def policy_admin_registrations() -> tuple[tuple[type[object], type[object]], ...]:
+def policy_admin_registrations() -> tuple[tuple[type[Model], type[ModelAdmin]], ...]:
     """Return tenancy-owned read-only admin registrations to the composition root."""
     from workspaces.models import WorkspaceInvitation, WorkspaceQuotaPolicy
     from workspaces.policy_admin import PolicyWorkspaceInvitationAdmin, PolicyWorkspaceQuotaAdmin
@@ -274,7 +301,10 @@ __all__ = [
     "AuthorizationMetadataView",
     "AuthorizationMutationConflict",
     "AuthorizationOperationView",
+    "ContentScopeOption",
+    "ContentScopePage",
     "EventOwnershipHandoffPolicyMutationRequest",
+    "HierarchyPublicationPending",
     "IdentityCutoverConflict",
     "IdentityCutoverStateView",
     "LaunchWorkspacePage",
@@ -296,6 +326,8 @@ __all__ = [
     "QuotaVerdict",
     "RangeRebindAuthorization",
     "ResolvedResourceScope",
+    "RetainedEventAuthorityPolicyMutationRequest",
+    "RetainedEventOwnershipTransferMutationRequest",
     "WorkspaceAdminFilters",
     "WorkspaceAdminPage",
     "WorkspaceAdminView",
@@ -340,6 +372,8 @@ __all__ = [
     "admin_issue_workspace_invitation",
     "admin_list_account_members",
     "admin_list_accounts",
+    "admin_list_descendant_scopes",
+    "admin_list_integration_organizations",
     "admin_list_organizations",
     "admin_list_scope_members",
     "admin_list_workspace_invitations",
@@ -376,6 +410,11 @@ __all__ = [
     "begin_identity_cutover",
     "bind_identity_cutover_provider",
     "change_workspace_member_role",
+    "check_authorization_delegation",
+    "check_authorization_mutation",
+    "confirm_admitted_native_mutation",
+    "confirm_admitted_policy_mutation",
+    "confirmed_authorization_effects",
     "content_organization_uuids",
     "create_account",
     "create_account_organization",
@@ -401,11 +440,13 @@ __all__ = [
     "list_administrable_organizations",
     "list_authorization_groups",
     "list_authorization_policies",
+    "list_content_scope_options",
     "list_launch_workspace_options",
     "list_workspace_invitations",
     "list_workspace_memberships",
     "list_workspaces",
     "lock_policy_range_rebind",
+    "lock_resource_scope_bindings",
     "move_workspace_concurrent_range_reservation",
     "move_workspace_range_reservation",
     "plan_identity_cutover_accounts",
@@ -416,7 +457,9 @@ __all__ = [
     "policy_self_workspace_membership",
     "policy_transfer_workspace_ownership",
     "publish_hierarchy_relationships",
+    "reconcile_admitted_mutation",
     "reconcile_authorization_operation",
+    "reconcile_hierarchy_publications",
     "reconcile_policy_mutation",
     "record_identity_cutover_bootstrap",
     "record_identity_cutover_policy_intent",
@@ -438,6 +481,7 @@ __all__ = [
     "scope_has_principal_member",
     "set_workspace_egress_policy",
     "set_workspace_quota_policy",
+    "settle_authorization_mutation",
     "stage_workspace_invitation_token",
     "transfer_workspace_ownership",
     "update_organization_profile",

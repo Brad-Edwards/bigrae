@@ -16,8 +16,8 @@ safe on the launch path:
    lock order. ``skip_locked`` gives one-winner semantics: two launches racing for
    the same single ready generation cannot both claim it — the loser sees no row
    and cold-falls-back. The claim is a plain transition; the CMS launch path wraps
-   it together with the ownership/workspace projection in one transaction and
-   commits before any activation is queued.
+   it together with ownership/workspace projection and the activation outbox in
+   one transaction. Workers execute only after that transaction commits.
 """
 
 from __future__ import annotations
@@ -119,6 +119,7 @@ def claim_ready_generation(
     range_source: str,
     claimant_request_id: UUID,
     now: datetime | None = None,
+    expected_request_id: UUID | None = None,
 ) -> WarmRangeGeneration | None:
     """Atomically claim one ready generation from an authorized candidate set, or None.
 
@@ -140,31 +141,12 @@ def claim_ready_generation(
 
     from engine.models import WarmRangeGeneration
 
-    if not candidates:
-        return None
     moment = now or timezone.now()
-    # OR the authorized (bucket_id, digest) pairs: only a generation in one of the
-    # launch's authorized buckets AND carrying that bucket's exact compatibility
-    # digest is a candidate.
-    authorized = Q()
-    for bucket_id, digest in candidates:
-        authorized |= Q(bucket_id=bucket_id, compatibility_digest=digest)
-
     with transaction.atomic():
         candidate = (
-            WarmRangeGeneration.objects.select_for_update(skip_locked=True)
-            .filter(
-                state=WarmRangeGeneration.State.READY,
-                backend=backend,
-                range_source=range_source,
-                claimed_by_request_id__isnull=True,
-            )
-            .filter(authorized)
-            # A null idle deadline means "no expiry configured" and is eligible.
-            .filter(Q(idle_deadline__isnull=True) | Q(idle_deadline__gt=moment))
-            # Deterministic lock order; oldest ready generation first so idle age
-            # is minimized and locking is stable under concurrency.
-            .order_by("created_at", "pk")
+            _ready_candidates(candidates, backend, range_source, moment)
+            .select_for_update(skip_locked=True)
+            .filter(Q(request_id=expected_request_id) if expected_request_id is not None else Q())
             .first()
         )
         if candidate is None:
@@ -174,6 +156,32 @@ def claim_ready_generation(
         candidate.claimed_at = moment
         candidate.save(update_fields=["state", "claimed_by_request_id", "claimed_at"])
         return candidate
+
+
+def _ready_candidates(candidates, backend, range_source, moment):
+    from engine.models import WarmRangeGeneration
+
+    authorized = Q(pk__in=[])
+    for bucket_id, digest in candidates:
+        authorized |= Q(bucket_id=bucket_id, compatibility_digest=digest)
+    return (
+        WarmRangeGeneration.objects.filter(
+            authorized,
+            state=WarmRangeGeneration.State.READY,
+            backend=backend,
+            range_source=range_source,
+            claimed_by_request_id__isnull=True,
+        )
+        .filter(Q(idle_deadline__isnull=True) | Q(idle_deadline__gt=moment))
+        .order_by("created_at", "pk")
+    )
+
+
+def preview_ready_generation(*, candidates, backend, range_source):
+    """Read one eligible generation for pre-lock admission; claiming still rechecks every predicate."""
+    from django.utils import timezone
+
+    return _ready_candidates(candidates, backend, range_source, timezone.now()).first()
 
 
 def ready_generations(bucket_id: str) -> list[WarmRangeGeneration]:
@@ -246,35 +254,92 @@ def create_warm_generation(draft: WarmGenerationDraft) -> WarmRangeGeneration:
     )
 
 
-def retire_generation(generation: WarmRangeGeneration) -> bool:
+def retire_generation(generation: WarmRangeGeneration, *, _recovery_cutoff: datetime | None = None) -> bool:
     """Retire one generation through the canonical destroy lifecycle.
 
     Marks RETIRING and requests destroy; capacity is released only when a later
-    pass observes provider absence (:func:`finalize_retiring_generations`). Retires
-    any pre-terminal generation -- including a stalled CLAIMED (activation never
-    completed) or an UNHEALTHY one (failed prepare/activation) -- so no live path is
-    left standing; only already-RETIRING or TERMINAL rows are skipped. Returns True
-    when a retirement was initiated.
+    pass observes provider absence (:func:`finalize_retiring_generations`). Pool
+    retirement is limited to unclaimed custody. Recovery may supply its stall
+    cutoff for a failed or stalled claim, whose current runtime is checked again
+    under the ledger lock. Returns True when a retirement was initiated.
     """
     from engine.models import WarmRangeGeneration
 
-    from ._range_by_request import destroy_range_by_request
+    with transaction.atomic():
+        current = WarmRangeGeneration.objects.select_for_update().get(pk=generation.pk)
+        fields = ("state", "request_id", "range_id", "claimed_by_request_id", "operation_id", "capacity_draw_key")
+        if current.state in {"retiring", "terminal"} or any(
+            getattr(current, name) != getattr(generation, name) for name in fields
+        ):
+            return False
+        if current.claimed_by_request_id is not None:
+            from engine.models import Range
 
-    if generation.state in (
-        WarmRangeGeneration.State.RETIRING,
-        WarmRangeGeneration.State.TERMINAL,
-    ):
-        return False
-    generation.state = WarmRangeGeneration.State.RETIRING
-    generation.save(update_fields=["state"])
+            runtime = Range.objects.select_for_update().filter(request__request_id=current.request_id).first()
+            if _recovery_cutoff is None or not _generation_is_stalled(current, runtime, _recovery_cutoff):
+                return False
+        current.state = WarmRangeGeneration.State.RETIRING
+        current.save(update_fields=["state"])
+        generation.state = current.state
     try:
-        destroy_range_by_request(generation.request_id)
+        _request_warm_retirement(current)
     except Exception:
         # A dispatch failure is not fatal: the row stays RETIRING and
         # finalize_retiring_generations retries destroy on a later pass until
         # provider absence is observed.
         logger.exception("warm-pool: destroy dispatch failed for generation=%s (will retry)", generation.uuid)
     return True
+
+
+def _request_warm_retirement(generation) -> None:
+    from engine.models import Range, WarmRangeGeneration
+
+    from ._principal_lifecycle import commit_prepared_range_lifecycle, prepare_system_range_cleanup
+    from ._range_by_request import destroy_range_by_request
+
+    with transaction.atomic():
+        current = WarmRangeGeneration.objects.select_for_update().get(pk=generation.pk, state="retiring")
+        if (current.request_id, current.capacity_draw_key) != (generation.request_id, generation.capacity_draw_key):
+            raise ValueError("Warm retirement generation changed")
+        runtime = Range.objects.filter(request__request_id=current.request_id).first()
+        if runtime is None:
+            return
+        if current.range_id is not None and current.range_id != runtime.pk:
+            raise ValueError("Warm retirement runtime changed")
+        if runtime.owner_principal_uuid is not None:
+            commit_prepared_range_lifecycle(prepare_system_range_cleanup(current.request_id))
+            return
+    destroy_range_by_request(generation.request_id)
+
+
+def abandon_warm_preparation(request_id: UUID | None, draw_key: UUID) -> bool:
+    """Release only never-realized work; late failures cannot retire customer custody."""
+    from engine.models import Range, WarmRangeGeneration
+
+    if request_id is None:
+        release_range_capacity(draw_key)
+        return True
+    with transaction.atomic():
+        generation = WarmRangeGeneration.objects.select_for_update().filter(request_id=request_id).first()
+        if generation is not None:
+            if generation.capacity_draw_key != draw_key or generation.state not in {
+                "provisioning",
+                "ready",
+                "retiring",
+            }:
+                return False
+            if generation.state != "retiring":
+                retire_generation(generation)
+        if Range.objects.filter(request__request_id=request_id).exists():
+            return True
+        release_range_capacity(draw_key)
+        if generation is not None:
+            generation.state = "terminal"
+            from django.utils import timezone
+
+            generation.retired_at = timezone.now()
+            generation.save(update_fields=["state", "retired_at"])
+        return True
 
 
 def retire_removed_bucket_generations(active_bucket_ids: list[str]) -> int:
@@ -332,8 +397,12 @@ def recover_stalled_generations(bucket_id: str, *, stall_grace_seconds: int, now
         ),
     )
     for generation in rows:
-        realized = Range.objects.filter(request__request_id=generation.request_id).order_by("-pk").first()
-        if _generation_is_stalled(generation, realized, cutoff) and retire_generation(generation):
+        realized = (
+            Range.objects.filter(request__request_id=generation.request_id).order_by("-created_at", "-pk").first()
+        )
+        if _generation_is_stalled(generation, realized, cutoff) and retire_generation(
+            generation, _recovery_cutoff=cutoff
+        ):
             retired += 1
     return retired
 
@@ -358,7 +427,8 @@ def _generation_is_stalled(generation: WarmRangeGeneration, realized: Range | No
         generation.state == WarmRangeGeneration.State.CLAIMED
         and realized is not None
         and realized.status == Range.Status.PROVISIONING
-        and generation.created_at <= cutoff
+        and generation.claimed_at is not None
+        and generation.claimed_at <= cutoff
     )
     return unhealthy or failed or never_realized_stalled or claimed_activation_stalled
 
@@ -381,7 +451,7 @@ def retire_generations_for_request(request_id: UUID) -> int:
     return retired
 
 
-def finalize_retiring_generations(bucket_id: str) -> int:
+def finalize_retiring_generations(bucket_id: str, *, now: datetime | None = None) -> int:
     """Release capacity + mark TERMINAL once a generation's range is gone (#28).
 
     Handles both terminal paths so a warm capacity draw is never leaked:
@@ -397,36 +467,50 @@ def finalize_retiring_generations(bucket_id: str) -> int:
     """
     from django.utils import timezone
 
-    from engine.models import Range, WarmRangeGeneration
+    from engine.models import WarmRangeGeneration
 
-    finalized = 0
+    moment = now or timezone.now()
     rows = WarmRangeGeneration.objects.filter(
         bucket_id=bucket_id,
         state__in=(WarmRangeGeneration.State.RETIRING, WarmRangeGeneration.State.ACTIVATED),
     )
-    from ._range_by_request import destroy_range_by_request
+    finalized = 0
+    for generation in rows.iterator(chunk_size=100):
+        try:
+            finalized += _finalize_warm_generation(generation, now=moment)
+        except Exception:
+            logger.exception("warm-pool: finalization failed generation=%s", generation.uuid)
+    return finalized
 
-    for generation in rows:
+
+def _finalize_warm_generation(generation: WarmRangeGeneration, *, now: datetime) -> bool:
+    from engine.models import Range, WarmRangeGeneration
+
+    with transaction.atomic():
+        generation = WarmRangeGeneration.objects.select_for_update().get(pk=generation.pk)
+        if generation.state not in {"retiring", "activated"}:
+            return False
         realized = Range.objects.filter(request__request_id=generation.request_id).order_by("-pk").first()
         gone = realized is None or realized.status == Range.Status.DESTROYED
-        # An ACTIVATED generation is only finalized once its owned range is actually
-        # destroyed; a live activated range keeps its capacity draw.
-        if not gone:
-            # RETIRING but not yet gone: an earlier destroy dispatch may have failed
-            # or is still in flight. Re-dispatch destroy (idempotent) so a swallowed
-            # dispatch failure is retried rather than stranding the generation.
-            if generation.state == WarmRangeGeneration.State.RETIRING and realized is not None:
-                try:
-                    destroy_range_by_request(generation.request_id)
-                except Exception:
-                    logger.exception("warm-pool: destroy retry failed for generation=%s", generation.uuid)
-            continue
-        release_range_capacity(generation.capacity_draw_key)
-        generation.state = WarmRangeGeneration.State.TERMINAL
-        generation.retired_at = timezone.now()
-        generation.save(update_fields=["state", "retired_at"])
-        finalized += 1
-    return finalized
+        if gone and realized is not None and realized.owner_principal_uuid is not None:
+            from ._cleanup_verification import is_range_generation_cleanup_verified_absent
+
+            gone = realized.cms_range_uuid is not None and is_range_generation_cleanup_verified_absent(
+                generation.request_id, realized.cms_range_uuid, realized.pk
+            )
+        if gone:
+            release_range_capacity(generation.capacity_draw_key)
+            generation.state = WarmRangeGeneration.State.TERMINAL
+            generation.retired_at = now
+            generation.save(update_fields=["state", "retired_at"])
+            return True
+        if realized is not None and realized.status == "destroyed" and realized.owner_principal_uuid is not None:
+            from ._range_cleanup_retry import retry_range_cleanup_verification
+
+            retry_range_cleanup_verification(generation.request_id, now=now)
+        elif generation.state == "retiring" and realized is not None:
+            _request_warm_retirement(generation)
+    return False
 
 
 def bucket_state_counts(bucket_id: str) -> dict[str, int]:
@@ -444,3 +528,51 @@ def bucket_state_counts(bucket_id: str) -> dict[str, int]:
     for state, n in rows:
         counts[str(state)] = n
     return counts
+
+
+def enqueue_admitted_warm_activation(prepared, *, request_id: UUID, claimant_request_id: UUID) -> str:
+    """Commit activation with the exact already-admitted warm custody transition."""
+    from engine.launch_intents import _enqueue_admitted_provisioner_launch
+    from engine.models import Range, RangeAuthorityChange, WarmRangeGeneration
+    from shared.credentials import resolve_local_credential
+
+    from ._launch_authority import range_runtime_binding_digest
+    from ._principal_warm_claim import PreparedWarmRangeClaim
+
+    if (
+        not isinstance(prepared, PreparedWarmRangeClaim)
+        or resolve_local_credential(prepared.credential) != prepared.credential
+    ):
+        raise ValueError("Warm activation authority changed")
+    generation = WarmRangeGeneration.objects.select_for_update().get(
+        request_id=request_id, claimed_by_request_id=claimant_request_id, state="claimed"
+    )
+    if generation.range_id is None:
+        raise ValueError("Warm generation runtime unavailable")
+    row = Range.objects.select_for_update().get(pk=generation.range_id)
+    if row.resource_generation is None:
+        raise ValueError("Warm generation identity unavailable")
+    retained = (
+        RangeAuthorityChange.objects.filter(
+            range=row,
+            resource_generation=row.resource_generation,
+            authority_binding_digest=range_runtime_binding_digest(row),
+        )
+        .order_by("-accepted_at", "-id")
+        .first()
+    )
+    if (
+        retained is None
+        or retained.credential_uuid != prepared.credential.credential_uuid
+        or retained.authority_binding_digest != range_runtime_binding_digest(row)
+        or row.owner_principal_uuid != prepared.credential.principal.uuid
+    ):
+        raise ValueError("Warm activation binding changed")
+    from shared.operation_authority import credential_reference_fields
+
+    names = [field.name for field in RangeAuthorityChange._meta.fields if field.name.startswith("authority_")]
+    fields = credential_reference_fields(prepared.credential) | {name: getattr(retained, name) for name in names}
+    payload = {"version": 1, "resource": "raes-range", "operation": "activate", "request_id": str(request_id)}
+    return _enqueue_admitted_provisioner_launch(
+        ["raes-range", "activate", "--request-id", str(request_id)], payload, fields
+    )

@@ -53,6 +53,31 @@ def test_native_projection_reuses_chart_clients_and_separates_policy_migration()
         "ca_secret_ref": "projects/synthetic-project/secrets/ca",
     }
     manifest, migration = module.project_manifest(base, outputs, openfga_settings=policy)
+    # A fresh namespace has no incumbent policies to complete the probe's
+    # credentials -> Admin API -> database path. Check the actual Actions
+    # projection, not a fixture that already assumes these policies exist.
+    from test_quiesce_identity_cutover_manifest import probe_prerequisites
+
+    prerequisites = {
+        item["metadata"]["name"]: item["spec"]
+        for item in yaml.safe_load_all(probe_prerequisites(manifest))
+        if item["kind"] == "NetworkPolicy" and item["metadata"]["namespace"] == "shifter-platform"
+    }
+    for name, expected_ports in (
+        ("allow-platform-dns-egress", {("UDP", 53), ("TCP", 53)}),
+        ("allow-platform-metadata-server-egress", {("TCP", 80), ("TCP", 988)}),
+        ("allow-platform-google-apis-egress", {("TCP", 443)}),
+        ("allow-platform-native-sql-egress", {("TCP", 3307)}),
+    ):
+        spec = prerequisites[name]
+        assert expected_ports <= {
+            (port.get("protocol", "TCP"), port["port"]) for rule in spec["egress"] for port in rule["ports"]
+        }
+        assert spec["podSelector"].get("matchLabels", {}) == {}
+        for expression in spec["podSelector"].get("matchExpressions", []):
+            assert expression["key"] == "app.kubernetes.io/component"
+            assert expression["operator"] in {"In", "NotIn"}
+            assert ("identity-cutover" in expression["values"]) == (expression["operator"] == "In")
     objects = {(item["kind"], item["metadata"]["name"]): item for item in yaml.safe_load_all(manifest) if item}
     for name, role in (
         ("portal-web", "portal"),

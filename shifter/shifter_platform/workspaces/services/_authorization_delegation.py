@@ -20,8 +20,9 @@ from shared.authorization import (
     resolve_authorization_event_scope,
     resolve_authorization_nonworkspace_events,
 )
+from shared.authorization.inventory import resolve_authorization_event_ranges, resolve_authorization_range_binding
 from shared.identity_scope import PrincipalRef, ResourceScope
-from shared.principal_port import resolve_principal
+from shared.principal_port import principal_identity_for_uuid, resolve_principal
 from shared.principal_port import resolve_principal_uuid as directory_resolve_principal_uuid
 from workspaces.models import (
     Account,
@@ -31,17 +32,25 @@ from workspaces.models import (
     Workspace,
 )
 
-from ._account import hierarchy_target_scope, resolve_resource_scope
+from ._account import hierarchy_target_scope
 from ._authorization_commands import (
     AuthorizationMutationConflict,
     EventOwnershipHandoffPolicyMutationRequest,
     NativeRelationshipMutationRequest,
     PolicyMutationRequest,
+    RetainedEventAuthorityPolicyMutationRequest,
+    RetainedEventOwnershipTransferMutationRequest,
 )
 
 _MAX_DELEGATION_DESCENDANTS = 1_000
 _SUBJECT_UNAVAILABLE = "authorization subject is unavailable"
 _TARGET_UNAVAILABLE = "authorization target is unavailable"
+
+
+def _target_uuid(target: TargetRef) -> UUID:
+    if target.uuid is None:
+        raise AuthorizationMutationConflict(_TARGET_UNAVAILABLE)
+    return target.uuid
 
 
 def _management_action(target_type: str) -> str:
@@ -60,14 +69,20 @@ def _delegation_requests(request: PolicyMutationRequest) -> tuple[AuthorizationR
     """Require both the delegated permission and authority to edit the target."""
     if not action_definition(request.action).delegable:
         raise AuthorizationMutationConflict("authorization action cannot be delegated")
+    parent = (
+        resolve_authorization_range_binding(_target_uuid(request.target))[0] if request.target.type == "range" else None
+    )
     return (
-        AuthorizationRequest(request.actor, request.action, request.target, request.scope, request.credential),
+        AuthorizationRequest(
+            request.actor, request.action, request.target, request.scope, request.credential, parent=parent
+        ),
         AuthorizationRequest(
             request.actor,
             _management_action(request.target.type),
             request.target,
             request.scope,
             request.credential,
+            parent=parent,
         ),
     )
 
@@ -153,8 +168,10 @@ def _nonworkspace_event_descendants(target: TargetRef, remaining: int) -> tuple[
 
 def _authoritative_descendant_targets(target: TargetRef) -> tuple[tuple[TargetRef, ResourceScope], ...]:
     """Resolve a bounded complete descendant set from SQL-owning domains."""
-    if target.type in {"event", "range"}:
+    if target.type == "range":
         return ()
+    if target.type == "event":
+        return resolve_authorization_event_ranges(_target_uuid(target), _MAX_DELEGATION_DESCENDANTS)
 
     account_query, organization_query, workspace_query = _descendant_queries(target)
 
@@ -177,7 +194,11 @@ def _authoritative_descendant_targets(target: TargetRef) -> tuple[tuple[TargetRe
     workspaces = _bounded_rows(workspace_query.select_related("organization__account"), remaining)
     descendants.extend(_workspace_descendants(target.type, workspaces, remaining))
     remaining = _MAX_DELEGATION_DESCENDANTS - len(descendants)
-    descendants.extend(_nonworkspace_event_descendants(target, remaining))
+    nonworkspace = _nonworkspace_event_descendants(target, remaining)
+    descendants.extend(nonworkspace)
+    for event, _scope in nonworkspace:
+        remaining = _MAX_DELEGATION_DESCENDANTS - len(descendants)
+        descendants.extend(resolve_authorization_event_ranges(_target_uuid(event), remaining))
     return tuple(descendants)
 
 
@@ -221,8 +242,20 @@ def _native_delegation_requests(request: NativeRelationshipMutationRequest) -> t
     concrete_targets: tuple[tuple[TargetRef, ResourceScope], ...] = ((target, request.scope),)
     if needs_descendants:
         concrete_targets += _authoritative_descendant_targets(target)
+    parents = {
+        concrete_target: resolve_authorization_range_binding(_target_uuid(concrete_target))[0]
+        for concrete_target, _scope in concrete_targets
+        if concrete_target.type == "range"
+    }
     return tuple(
-        AuthorizationRequest(request.actor, definition.code, concrete_target, concrete_scope, request.credential)
+        AuthorizationRequest(
+            request.actor,
+            definition.code,
+            concrete_target,
+            concrete_scope,
+            request.credential,
+            parent=parents.get(concrete_target),
+        )
         for definition in action_definitions
         for concrete_target, concrete_scope in concrete_targets
         if concrete_target.type == definition.target_type
@@ -240,6 +273,16 @@ def _scope_lookup(scope: ResourceScope) -> dict[str, object]:
     }
 
 
+def _relationship_subject_lookup(
+    scope: ResourceScope, effect: PolicyEffect, admitted_subject: bool
+) -> dict[str, object]:
+    """Revocation and exact admitted recovery retain identity and ancestry, not liveness."""
+    lookup = _scope_lookup(scope)
+    if effect == PolicyEffect.REVOKE or admitted_subject:
+        lookup.pop("is_active")
+    return lookup
+
+
 def _resolve_principal_uuid(principal_uuid: UUID) -> None:
     """Require an active durable identity from the owning principal directory."""
     directory_resolve_principal_uuid(principal_uuid)
@@ -255,35 +298,49 @@ def _resolve_concrete_target(target: TargetRef, scope: ResourceScope) -> None:
         if resolve_authorization_event_scope(target.uuid) != scope:
             raise AuthorizationMutationConflict(_TARGET_UNAVAILABLE)
         return
-    resolved = resolve_resource_scope(scope)
-    if resolved.workspace_id is None or target not in resolve_authorization_descendants(
-        (resolved.workspace_id,), _MAX_DELEGATION_DESCENDANTS
-    ):
+    if resolve_authorization_range_binding(target.uuid)[1] != scope:
         raise AuthorizationMutationConflict(_TARGET_UNAVAILABLE)
 
 
-def _resolve_native_change(request: NativeRelationshipMutationRequest) -> None:
+def _resolve_native_change(
+    request: NativeRelationshipMutationRequest, *, allow_admitted_self: bool = False, admitted_subject: bool = False
+) -> None:
     """Re-resolve durable identities and exact SQL-owned metadata ancestry."""
     resolve_principal(request.actor)
+    if isinstance(request, RetainedEventOwnershipTransferMutationRequest):
+        from shared.authorization.inventory import resolve_event_authority_plan
+
+        if request.plan != resolve_event_authority_plan(request.plan.transition_uuid):
+            raise AuthorizationMutationConflict("Retained event ownership transfer changed")
+        admitted_subject = True
     change = request.change
+    lookup = _relationship_subject_lookup(request.scope, change.effect, admitted_subject)
     if isinstance(change, GroupMembershipChange):
         _resolve_assignment_subject(
             RelationshipSubject("principal", change.principal_uuid),
             change.effect,
             request.actor,
             request.scope,
+            admitted_subject=admitted_subject,
         )
-        if not AuthorizationGroup.objects.filter(uuid=change.group_uuid, **_scope_lookup(request.scope)).exists():
+        if not AuthorizationGroup.objects.filter(uuid=change.group_uuid, **lookup).exists():
             raise AuthorizationMutationConflict("authorization group is unavailable")
     else:
-        _resolve_assignment_subject(change.subject, change.effect, request.actor, request.scope)
+        _resolve_assignment_subject(
+            change.subject,
+            change.effect,
+            request.actor,
+            request.scope,
+            allow_self=allow_admitted_self,
+            admitted_subject=admitted_subject,
+        )
         if isinstance(change, AdministrativeRoleChange):
             predefined_policy_definition(change.policy_code)
             _resolve_concrete_target(change.target, request.scope)
         elif not AuthorizationPolicy.objects.filter(
             uuid=change.role_uuid,
             predefined_code="",
-            **_scope_lookup(request.scope),
+            **lookup,
         ).exists():
             raise AuthorizationMutationConflict("authorization policy is unavailable")
 
@@ -295,34 +352,48 @@ def _resolve_assignment_subject(
     scope: ResourceScope,
     *,
     allow_self: bool = False,
+    admitted_subject: bool = False,
 ) -> None:
-    """Validate active, exactly scoped subjects and reject self-grants."""
+    """Require active new grantees, retained revoke subjects, and no self-grants."""
+    lookup = _relationship_subject_lookup(scope, effect, admitted_subject)
     if subject.kind == "principal":
-        _resolve_principal_uuid(subject.uuid)
+        if effect == PolicyEffect.REVOKE or admitted_subject:
+            principal_identity_for_uuid(subject.uuid)
+        else:
+            _resolve_principal_uuid(subject.uuid)
         if effect == PolicyEffect.GRANT and subject.uuid == actor.uuid and not allow_self:
             raise AuthorizationMutationConflict("self-assignment is not permitted")
     elif subject.kind == "group":
-        if not AuthorizationGroup.objects.filter(uuid=subject.uuid, **_scope_lookup(scope)).exists():
+        if not AuthorizationGroup.objects.filter(uuid=subject.uuid, **lookup).exists():
             raise AuthorizationMutationConflict(_SUBJECT_UNAVAILABLE)
     elif not AuthorizationPolicy.objects.filter(
         uuid=subject.uuid,
         predefined_code="",
-        **_scope_lookup(scope),
+        **lookup,
     ).exists():
         raise AuthorizationMutationConflict(_SUBJECT_UNAVAILABLE)
 
 
-def _resolve_policy_change(request: PolicyMutationRequest) -> None:
+def _resolve_policy_change(request: PolicyMutationRequest, *, admitted_subject: bool = False) -> None:
     """Validate actor, target ownership, and the assignment subject in SQL."""
     resolve_principal(request.actor)
+    if isinstance(request, EventOwnershipHandoffPolicyMutationRequest) and not admitted_subject:
+        raise AuthorizationMutationConflict("legacy ownership handoff cannot admit new effects")
+    if isinstance(request, RetainedEventAuthorityPolicyMutationRequest):
+        from shared.authorization.inventory import resolve_event_authority_plan
+
+        if request.plan != resolve_event_authority_plan(request.plan.transition_uuid):
+            raise AuthorizationMutationConflict("Retained event authority plan changed")
+        admitted_subject = True
     _resolve_concrete_target(request.target, request.scope)
-    # Only the internal, closed event-ownership handoff command may retain the
-    # former owner's existing authority as direct staff grants. Public direct
-    # assignments and native groups/roles cannot grant authority to the caller.
+    # Only a retained ownership transfer can retain the former owner's own
+    # authority. Retained ordinary staff plans never permit self-grants.
     _resolve_assignment_subject(
         request.subject,
         request.effect,
         request.actor,
         request.scope,
-        allow_self=isinstance(request, EventOwnershipHandoffPolicyMutationRequest),
+        allow_self=isinstance(request, EventOwnershipHandoffPolicyMutationRequest)
+        or (isinstance(request, RetainedEventAuthorityPolicyMutationRequest) and request.plan.kind == "transfer"),
+        admitted_subject=admitted_subject,
     )

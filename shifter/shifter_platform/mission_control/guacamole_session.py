@@ -47,11 +47,10 @@ from mission_control._guacamole_session_builders import (
 from mission_control.guacamole_bootstrap import BootstrapFailure, BootstrapQueueFull, enqueue_guacamole_bootstrap
 from mission_control.models import GuacamoleBootstrapRequest
 from shared.credentials import CredentialContext
+from shared.exceptions import CMSError
 from shared.log_sanitize import safe_log_fingerprint, safe_log_value
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
     from mission_control.guacamole import GuacamoleClient
 
 logger = logging.getLogger(__name__)
@@ -104,21 +103,10 @@ def _service_name(protocol: str) -> str:
     return "RDP" if protocol == GuacamoleBootstrapRequest.Protocol.RDP else "SSH"
 
 
-def _actor_user_id(user: User) -> int:
-    """Return the authenticated user's integer id or raise a neutral failure."""
-    for attr in ("pk", "id"):
-        value = getattr(user, attr, None)
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str) and value.isdigit():
-            return int(value)
-    raise BootstrapFailure("Authenticated user id unavailable", status_code=500)
-
-
 def _worker_build_callable(
     *,
     protocol: str,
-    user: User | CredentialContext,
+    user: CredentialContext,
     target_id: str,
     guac_client: GuacamoleClient,
     session_identity: str | None = None,
@@ -148,27 +136,24 @@ def _worker_build_callable(
 
 
 def _bootstrap_authority(
-    user: User | CredentialContext, protocol: str, target_id: str, range_uuid: UUID | None
-) -> tuple[dict[str, object], UUID | None]:
+    user: CredentialContext, protocol: str, target_id: str, range_uuid: UUID | None
+) -> tuple[dict[str, object], UUID]:
     """Authorize the exact session target before allocating its queue identity."""
-    authority = {}
-    bootstrap_id = None
-    if isinstance(user, CredentialContext):
-        from cms.services import admit_device_remote_authority, admit_range_remote_authority
+    from cms.services import admit_device_remote_authority, admit_range_remote_authority
 
+    try:
         if protocol == GuacamoleBootstrapRequest.Protocol.NGFW_SSH:
             authority = admit_device_remote_authority(user, target_id)
-        elif protocol in {GuacamoleBootstrapRequest.Protocol.RDP, GuacamoleBootstrapRequest.Protocol.RANGE_SSH}:
-            authority = admit_range_remote_authority(user, target_id, range_uuid=range_uuid)
         else:
-            raise BootstrapFailure("Permission denied", status_code=403)
-        bootstrap_id = uuid4()
-    return authority, bootstrap_id
+            authority = admit_range_remote_authority(user, target_id, range_uuid=range_uuid)
+    except (CMSError, PermissionError, ValueError):
+        raise BootstrapFailure("Permission denied", status_code=403) from None
+    return authority, uuid4()
 
 
 def launch_guacamole_session(
     *,
-    user: User | CredentialContext,
+    user: CredentialContext,
     protocol: str,
     target_id: str,
     guacamole_client: GuacamoleClient | None = None,
@@ -187,6 +172,10 @@ def launch_guacamole_session(
     resolution/generation failures are persisted on the bootstrap row and
     surfaced by the status endpoint, not raised here.
     """
+    if not isinstance(user, CredentialContext):
+        raise BootstrapFailure("Permission denied", status_code=403)
+    if protocol not in GuacamoleBootstrapRequest.Protocol.values:
+        raise ValueError(f"Unsupported Guacamole access kind: {protocol!r}")
     guac_client = guacamole_client or _bind_guacamole_client(_service_name(protocol))
     authority, bootstrap_id = _bootstrap_authority(user, protocol, target_id, range_uuid)
     if protocol == GuacamoleBootstrapRequest.Protocol.NGFW_SSH:
@@ -208,7 +197,7 @@ def launch_guacamole_session(
     )
     try:
         bootstrap = enqueue_guacamole_bootstrap(
-            user_id=None if isinstance(user, CredentialContext) else _actor_user_id(user),
+            user_id=None,
             protocol=protocol,
             target_id=target_id,
             build_url=build_url,
@@ -229,6 +218,6 @@ def launch_guacamole_session(
     return GuacamoleSessionLaunch(bootstrap_id=bootstrap.id, status=bootstrap.status)
 
 
-def _bootstrap_actor_fingerprint(user: User | CredentialContext) -> str:
+def _bootstrap_actor_fingerprint(user: CredentialContext) -> str:
     """Keep session diagnostics bound to a nonsecret actor fingerprint."""
-    return safe_log_fingerprint(str(user.principal.uuid) if isinstance(user, CredentialContext) else user.email)
+    return safe_log_fingerprint(str(user.principal.uuid))

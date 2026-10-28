@@ -5,9 +5,9 @@ owns event/challenge/scoring data and orchestrates a dedicated range per partici
 by calling the existing CMS range services; it does not introduce a second
 provisioning path.
 
-## ADR-066 authorization staging
+## ADR-066 authorization
 
-The S5 source contract for CTF authorization lives in
+The source contract for CTF authorization lives in
 `ctf.api.operation_policy`: it names the registered action and SQL-owned scope
 locator for all 118 current `/api/v1/ctf/` operations, and classifies the
 named browser routes, Django admin models and inlines, CTF management
@@ -32,15 +32,25 @@ mutations. Service participant admission and current-event reads already use the
 the participant row and lifecycle predicates remain separate requirements.
 Provider failures deny with a bounded unavailable response.
 
-The older owner, staff, Django superuser, and token-scope checks remain the
-live administration boundary until the coordinated S8 cutover in ADR-066.
-The Django admin map names its separate maintenance effects; S8 must route
-each writable form through the CTF service decision or close that write path.
-The operation map is a coverage contract for that cutover, not a second policy
-evaluator or a current service-admin grant on legacy CTF routes. S8 must wire
-each locator through the CTF service layer and retire the old authority checks
-atomically. The CTF technical and organizer guides describe current live
-behavior until that cutover.
+S8 binds those decisions to the production service and API paths. Legacy user
+flags, ownership and staff rows no longer substitute for policy decisions.
+The policy-aware Django admin disables direct domain writes. This describes
+source behavior, not a live deployment.
+
+Staff assignment, removal and ownership transfer retain a versioned effect
+plan in `CTFEventAuthorityTransition`. The plan fixes the event, subjects,
+scope, provider binding and semantic effect keys before publication. Workspaces
+owns the existing mutation journal and readback. An evaluator outage remains
+retryable; an explicit denial remains denied. A current authorized administrator
+can settle an exact retained plan after a recipient becomes inactive. New
+inactive grants and inactive callers remain denied.
+
+`GET /api/v1/ctf/events/{event_id}/staff-members/` exposes an authorized nullable
+`pending_transition` receipt with its UUID, kind, recipient, requested role,
+creation time and completed/total effect counts. The browser resumes that
+command through the existing staff endpoints. It does not expose raw policy
+tuples or credentials. See [identity and lifecycle contracts](identity-lifecycle-contracts.md)
+for the DFDs, recovery state and lock order.
 
 ## Responsibility
 
@@ -164,23 +174,23 @@ IAM, runtime settings, rotation, and failure recovery.
 `ctf.services.range` provisions a range per participant from `event.scenario_id` via
 CMS range services, the same path Mission Control uses to launch a range.
 
-- `provision.py`: `provision_participant_range(participant_id)` runs under a
-  per-participant row lock so concurrent manual and scheduled provisioning cannot
-  double-assign a range, with an exponential-backoff retry wrapper.
+- `provision.py`: `provision_participant_range(participant_id, *, actor)` checks
+  the current credential, then locks the event and participant to reserve one
+  immutable launch. Provider work follows that commit. Retry resumes the same
+  request rather than creating another generation.
 - `batch.py`: throttled event-wide provisioning, pacing participant spin-ups.
 - `lifecycle.py`, `status.py`, `tasks.py`: teardown, status reads, and task wiring.
 - `vpn.py`: resolves the current participant's generation-bound OpenVPN profile
   through the CTF → CMS → Engine service boundary. The participant API exposes it
-  only through `POST /api/v1/ctf/range/vpn-profile/` with the exact
-  `ctf:vpn-profile:read` token scope, CSRF enforcement for sessions, a credential
+  only through `POST /api/v1/ctf/range/vpn-profile/` with current event
+  participation and the exact assigned range, CSRF enforcement for sessions, a credential
   delivery rate limit, no-store response headers, and a delivery audit event.
 - `recovery.py`: `recover_participant_range(participant_id, *, strategy,
   operator, spare_range_instance_id=None)` recovers a destroyed participant range
   (organizer-only). `rebuild` provisions a fresh range via the CMS bridge; `reassign_spare`
   consumes an available `CTFSpareRange` from the participant's own event pool and
-  reassigns its ownership to the participant (terminal access is keyed on the range's
-  owning user, so both the CMS and engine ownership move together via
-  `cms.services.reassign_range_owner`). The intent is persisted as a `CTFRangeRecovery`
+  reassigns its ownership to the participant principal through the CMS and Engine
+  service boundaries. The intent is persisted as a `CTFRangeRecovery`
   row keyed on participant + old range + strategy; resumption after a partial failure is
   data-driven (recorded replacement id and the live old-range status), so retries never
   duplicate the replacement or the audit row. The old range is always destroyed; there
@@ -188,7 +198,7 @@ CMS range services, the same path Mission Control uses to launch a range.
   row.
 - `spares.py`: `provision_event_spares(event_id, target_count, *, operator=None)` tops up
   an event's prewarmed spare-range pool (`CTFEvent.spare_range_count`), each spare owned by
-  a dedicated, auto-created managed system user (never a `CTFParticipant`) until consumed.
+  the event owner's principal in the event's account scope until consumed.
   `get_event_spare_summary(event_id)` reports pool counts for the admin surface;
   `cleanup_event_spares(event_id)` tears down unconsumed spares and their managed users at
   event teardown. A spare's status reaches `ready`/`failed` via the existing
@@ -271,12 +281,29 @@ are later slices.
   `CTF_COMMUNICATION_RETENTION_DAYS`, rather than leaving a restorable soft-deleted
   row.
 
-Compatibility boundary: `CTFNotification`, scheduled announcements, the shared
-`WebSocketNotification` transport, participant announcement reads, and
-`CTFEmailTemplate` stay live and factual. This slice does not run a second
-delivery writer or a destructive legacy transform; that cutover ships with the
-transport slice that has the new writer. Legacy callers migrate onto the single
-audience resolver without a second long-lived notification model.
+ADR-065 retires legacy notification writes. Historical `CTFNotification` reads
+remain available; retired write routes return bounded 410 responses. The scoped
+communication ledger owns new participant notices. The shared
+`WebSocketNotification` transport and topic projection are separate from the
+retired email writer. Organizer-only legacy email remains unavailable until a
+supported recipient and transport contract exists.
+
+### Notification and restricted scoreboard authority
+
+Notification recipient lists contain candidate human users derived from current
+owner and staff principals. Membership and role facts do not authorize delivery.
+The notification socket binds the current credential and retains its ceiling
+through topic subscription, replay and each delivery. The owning CTF topic
+checks current event-read policy or eligible participation; temporary credentials
+remain confined to their exact event and lifecycle. Service principals do not
+map to a responsible user's browser notifications.
+
+The participants-only scoreboard uses current native event-read authority or
+eligible participant read access. Registered viewing participants may retain
+read access after disqualification where the existing viewing rules permit it;
+banned, deleted and unregistered rows do not qualify. Ordinary participant
+credentials also require current participation policy. Public publication and
+hidden scoreboards keep their separate publication rules.
 
 ## Scheduled Work
 

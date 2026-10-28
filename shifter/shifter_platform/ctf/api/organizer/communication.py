@@ -36,7 +36,7 @@ from ctf.services.communication import (
     revise_message,
     schedule_declaration,
 )
-from ctf.services.communication.admission import reauthorize
+from ctf.services.communication.admission import prepare_admission, reauthorize
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
 from shared.api.principals import authenticated_credential
@@ -108,12 +108,15 @@ class CommunicationView(APIView):
         campaign = CommunicationCampaign.objects.prefetch_related("target_events").filter(pk=campaign_id).first()
         if campaign is None:
             raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_NOT_FOUND")
+        target_events = list(campaign.target_events.all())
+        required_scope = CTF_COMMUNICATION_READ if request.method == "GET" else CTF_COMMUNICATION_WRITE
+        actor = prepare_admission(campaign, target_events, request_actor(request), required_scope=required_scope)
         with transaction.atomic():
             reauthorize(
                 campaign,
-                list(campaign.target_events.all()),
-                request_actor(request),
-                required_scope=CTF_COMMUNICATION_READ if request.method == "GET" else CTF_COMMUNICATION_WRITE,
+                target_events,
+                actor,
+                required_scope=required_scope,
                 audit_authority=False,
             )
         return campaign
@@ -139,6 +142,9 @@ class CommunicationListView(CommunicationView):
             binding = ws.resolve_resource_scope(scope)
         except ws.AccountScopeError:
             raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED") from None
+        from ctf.services.communication.admission import prepare_collection_actor
+
+        collection_actor = prepare_collection_actor(request_actor(request), required_scope=CTF_COMMUNICATION_READ)
         start, limit = query["offset"], query["limit"]
         queryset = CommunicationCampaign.objects.filter(
             scope_kind=scope.kind,
@@ -154,20 +160,23 @@ class CommunicationListView(CommunicationView):
                 "Communication collection is too large", code="CTF_COMMUNICATION_COLLECTION_BOUNDED"
             )
         visible = []
-        with transaction.atomic():
-            for campaign in candidates:
-                try:
+        for campaign in candidates:
+            try:
+                events = list(campaign.target_events.all())
+                actor = prepare_admission(campaign, events, collection_actor, required_scope=CTF_COMMUNICATION_READ)
+                with transaction.atomic():
                     reauthorize(
                         campaign,
-                        list(campaign.target_events.all()),
-                        request_actor(request),
+                        events,
+                        actor,
                         required_scope=CTF_COMMUNICATION_READ,
+                        audit_authority=False,
                     )
-                except CTFCommunicationError as exc:
-                    if exc.code == "CTF_COMMUNICATION_EVENT_DENIED":
-                        continue
-                    raise
-                visible.append(campaign)
+            except CTFCommunicationError as exc:
+                if exc.code in {"CTF_COMMUNICATION_EVENT_DENIED", "CTF_COMMUNICATION_TARGET_DENIED"}:
+                    continue
+                raise
+            visible.append(campaign)
         page = visible[start : start + limit]
         return Response(
             {

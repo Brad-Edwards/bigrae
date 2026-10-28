@@ -20,9 +20,6 @@ from ctf.enums import ParticipantStatus
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import CommunicationIntent, CTFParticipant
 from ctf.services.communication import AdmissionActor, CampaignDraft, create_campaign, release_campaign
-from shared.authorization import CredentialCeiling
-from shared.credentials import CredentialContext
-from shared.identity_scope import PrincipalRef
 from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = pytest.mark.django_db
@@ -127,17 +124,28 @@ def test_release_requires_an_explicit_actor(organizer_user, ctf_event):
 
 
 def test_service_credential_requires_exact_communication_write_scope(organizer_user, ctf_event):
-    campaign = _campaign(organizer_user, ctf_event)
-    credential = CredentialContext(
-        principal=PrincipalRef(uuid4(), "service"),
-        kind="service",
-        credential_uuid=uuid4(),
-        ceiling=CredentialCeiling(frozenset({"event.manage_communications"})),
-        scopes=frozenset({"ctf:communication:read"}),
-    )
+    from django.conf import settings
 
-    with pytest.raises(CTFCommunicationError, match="not authorized"):
+    from management.models import Principal, ProviderBinding, ServiceCredentialAdmission
+    from management.services import create_service_principal, resolve_service_credential
+
+    campaign = _campaign(organizer_user, ctf_event)
+    principal = create_service_principal("Read-only synthetic communications actor")
+    binding = ProviderBinding.objects.create(
+        principal=Principal.objects.get(uuid=principal.uuid),
+        issuer="https://accounts.google.com",
+        subject=str(uuid4()),
+    )
+    admission = ServiceCredentialAdmission.objects.create(
+        binding=binding,
+        audience=settings.GCP_SERVICE_TOKEN_AUDIENCE,
+        scopes=["ctf:communication:read"],
+    )
+    credential = resolve_service_credential(issuer=binding.issuer, subject=binding.subject, audience=admission.audience)
+
+    with pytest.raises(CTFCommunicationError) as denied:
         release_campaign(campaign, occurrence_key="service-read-only", admission=AdmissionActor(credential=credential))
+    assert denied.value.code == "CTF_COMMUNICATION_TOKEN_DENIED"
     assert not CommunicationIntent.objects.filter(campaign=campaign).exists()
 
 

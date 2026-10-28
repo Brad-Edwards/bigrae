@@ -107,7 +107,7 @@ def _resolve_modifiable_event_for_challenge(
     if not event.is_content_modifiable:
         logger.warning(
             "User %s attempted to add challenge to non-modifiable event %s",
-            request.user.email,
+            getattr(request.user, "email", ""),
             event.pk,
         )
         return None, redirect("ctf:admin_challenge_list", event_id=event.pk)
@@ -292,7 +292,7 @@ def _resolve_editable_challenge(
     if not event.is_content_modifiable:
         logger.warning(
             "User %s attempted to edit challenge %s in non-modifiable event %s",
-            request.user.email,
+            getattr(request.user, "email", ""),
             challenge.pk,
             event.pk,
         )

@@ -74,9 +74,9 @@ def _audit_public_registration_update(
     from ctf.services.actors import event_actor_credential, event_actor_user_id
     from ctf.services.audit import audit_public_registration_publication
 
-    credential = event_actor_credential(actor_id)  # type: ignore[arg-type]
+    credential = event_actor_credential(actor_id)
     audit_public_registration_publication(
-        actor_id=event_actor_user_id(actor_id),  # type: ignore[arg-type]
+        actor_id=event_actor_user_id(actor_id),
         event_id=event.pk,
         enabled=event.public_registration_enabled,
         principal=credential.principal,
@@ -84,8 +84,7 @@ def _audit_public_registration_update(
 
 
 def _admit_scenario_change(event: CTFEvent, safe_data: dict[str, Any], actor_id: object | None) -> None:
-    """Apply create-time scenario authorization and the pack fence to a scenario change."""
-    from ctf.bridges import cms_fence_pack_reference
+    """Apply create-time scenario authorization before taking the event lock."""
     from ctf.services.actors import event_actor_credential
     from workspaces.services import resource_scope_from_ids
 
@@ -94,7 +93,7 @@ def _admit_scenario_change(event: CTFEvent, safe_data: dict[str, Any], actor_id:
     scenario_id = str(safe_data["scenario_id"])
     if actor_id is None:
         raise CTFValidationError("Scenario is not available for CTF event creation.", code="CTF_SCENARIO_NOT_AVAILABLE")
-    actor = event_actor_credential(actor_id)  # type: ignore[arg-type]
+    actor = event_actor_credential(actor_id)
     scope = resource_scope_from_ids(
         kind=event.scope_kind,
         account_id=event.account_id,
@@ -102,13 +101,34 @@ def _admit_scenario_change(event: CTFEvent, safe_data: dict[str, Any], actor_id:
         workspace_id=event.workspace_id,
     )
     validate_content_scenario_access(actor, scenario_id, scope=scope)
-    cms_fence_pack_reference(scenario_id)
 
 
 def update_event(event_id: UUID, event_data: dict[str, Any], *, actor_id: object | None = None) -> CTFEvent:
     """Update an existing CTF event under the event row lock."""
     logger.info("Updating CTF event %s", safe_log_value(event_id))
 
+    from ctf.services.authorization import admit_event_actions
+
+    from .model_sources import commit_event_model_sources, prepare_event_model_sources
+
+    try:
+        candidate = CTFEvent.objects.get(pk=event_id)
+    except CTFEvent.DoesNotExist:
+        raise CTFNotFoundError("Event not found") from None
+    if actor_id is not None:
+        actor_id = admit_event_actions(actor_id, candidate, "event.manage_config")
+    safe_candidate = _safe_event_update_data(candidate, event_data)
+    _admit_scenario_change(candidate, safe_candidate, actor_id)
+    prepared_sources = (
+        prepare_event_model_sources(
+            candidate,
+            actor_id,
+            event_data["model_sources"],
+            expected_revision=event_data.get("expected_model_source_revision"),
+        )
+        if "model_sources" in event_data
+        else None
+    )
     with transaction.atomic():
         try:
             event = CTFEvent.objects.select_for_update().get(pk=event_id)
@@ -136,22 +156,20 @@ def update_event(event_id: UUID, event_data: dict[str, Any], *, actor_id: object
             raise CTFStateError("An existing event cannot change its placement.")
         _validate_event_update(event, event_data)
         safe_data = _safe_event_update_data(event, event_data)
-        _admit_scenario_change(event, safe_data, actor_id)
+        if event.scenario_id != candidate.scenario_id:
+            raise CTFStateError("Event scenario changed; reload before saving.")
+        if "scenario_id" in safe_data:
+            from ctf.bridges import cms_fence_pack_reference
+
+            cms_fence_pack_reference(str(safe_data["scenario_id"]))
         old_event_start = event.event_start
         old_event_end = event.event_end
         cleanup_may_change = bool({"event_end", "cleanup_delay_hours"} & safe_data.keys())
         old_cleanup_time = event.get_cleanup_time() if cleanup_may_change else None
         public_registration_was_enabled = event.public_registration_enabled
 
-        if "model_sources" in event_data:
-            from .model_sources import set_event_model_sources
-
-            set_event_model_sources(
-                event,
-                actor_id,
-                event_data["model_sources"],
-                expected_revision=event_data.get("expected_model_source_revision"),
-            )
+        if prepared_sources is not None:
+            commit_event_model_sources(event, prepared_sources)
         for key, value in safe_data.items():
             setattr(event, key, value)
         event.save()

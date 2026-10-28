@@ -31,8 +31,8 @@ python manage.py identity_cutover verify --facts /run/identity-cutover/cutover.j
 python manage.py identity_runtime_check
 """
 _STATUS_SCRIPT = """\
-python manage.py identity_cutover status
-python manage.py identity_runtime_check
+result="$(python manage.py identity_cutover status --probe)"
+printf 'SHIFTER_IDENTITY_CUTOVER_RESULT=%s\\n' "$result"
 """
 
 

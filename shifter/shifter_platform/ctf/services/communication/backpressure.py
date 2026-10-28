@@ -145,7 +145,7 @@ def enforce_admission(request: AdmissionRequest) -> None:
     # global, and per-event counts are all consistent hard bounds, and every check
     # adds this intent's projected work before comparing to its cap.
     _serialize_admission()
-    scope_filter = {
+    scope_filter: dict[str, object] = {
         f"intent__campaign__{request.scope_kind}_id": int(request.scope_id),
     }
     if request.scope_kind not in {"account", "workspace"}:

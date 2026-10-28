@@ -25,7 +25,6 @@ from ctf.models import (
     RecipientSnapshot,
 )
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign, resolve_recipients
-from shared.api.principals import human_session_credential
 from shared.principal_port import principal_for_user
 from workspaces.models import Account
 
@@ -49,7 +48,7 @@ def _release(campaign, user, occurrence_key, **kwargs):
     return release_campaign(
         campaign,
         occurrence_key=occurrence_key,
-        admission=AdmissionActor(credential=human_session_credential(user)),
+        admission=AdmissionActor(user_id=user.pk),
         **kwargs,
     )
 

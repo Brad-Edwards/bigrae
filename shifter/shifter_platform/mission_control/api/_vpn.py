@@ -9,13 +9,13 @@ from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.utils.cache import patch_vary_headers
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from cms.services import get_mission_control_openvpn_profile
-from mission_control.api._base import MissionControlAPIView, _vpn_profile_read_permission
+from mission_control.api._base import MissionControlAPIView
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
 from shared.api.principals import authenticated_credential
 from shared.api.schema import ApiErrorSerializer
@@ -122,10 +122,13 @@ def _vpn_profile_download_response(
 class MissionControlVpnProfileView(MissionControlAPIView):
     """Deliver the current Mission Control range's generation-bound OpenVPN profile."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, _vpn_profile_read_permission()]
+    required_actions = ("range.access",)
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken]
 
     @extend_schema(
         request=None,
+        parameters=[OpenApiParameter("request_id", type=OpenApiTypes.UUID, required=False)],
         responses={
             (200, OPENVPN_PROFILE_MEDIA_TYPE): OpenApiTypes.BINARY,
             202: ApiErrorSerializer,

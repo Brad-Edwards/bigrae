@@ -13,6 +13,7 @@ from shared.authorization import AuthorizationDecision, CredentialCeiling, Decis
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.models import AuditLog
+from tests._credential_helpers import persisted_credential
 
 pytestmark = pytest.mark.django_db
 
@@ -32,12 +33,14 @@ class Provider:
 
 def _service_actor():
     principal = Principal.objects.create(kind="service", name="Administrator")
-    return CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"installation.manage_principals"})),
-        frozenset(),
+    return persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"installation.manage_principals"})),
+            frozenset(),
+        )
     )
 
 
@@ -84,12 +87,14 @@ def test_policy_denial_and_missing_provider_leave_user_active():
 def test_policy_human_cannot_disable_self_even_with_full_authority():
     user = get_user_model().objects.create_user(username="self")
     principal = Principal.objects.get(user=user)
-    actor = CredentialContext(
-        PrincipalRef(principal.uuid, "human"),
-        "session",
-        uuid4(),
-        CredentialCeiling(frozenset({"installation.manage_principals"})),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "human"),
+            "session",
+            uuid4(),
+            CredentialCeiling(frozenset({"installation.manage_principals"})),
+            frozenset(),
+        )
     )
 
     with pytest.raises(lifecycle.AccountLifecycleError) as error:

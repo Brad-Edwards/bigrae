@@ -11,6 +11,7 @@ full rationale.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -421,7 +422,7 @@ def _transition_event(event: CTFEvent, target: EventStatus) -> None:
 # system actor; the organizer endpoint routes through
 # ``apply_event_lifecycle_transition`` so the event policy is asserted at the
 # service boundary too (#1922 review).
-_INTERACTIVE_LIFECYCLE_ACTIONS = {
+_INTERACTIVE_LIFECYCLE_ACTIONS: dict[str, Callable[..., bool]] = {
     "open_registration": open_registration,
     "activate": activate_event,
     "pause": pause_event,

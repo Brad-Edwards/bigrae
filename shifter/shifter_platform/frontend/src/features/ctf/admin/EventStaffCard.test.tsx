@@ -104,4 +104,21 @@ describe("EventStaffCard", () => {
     expect(container).toBeEmptyDOMElement();
     expect(mockApi).not.toHaveBeenCalled();
   });
+
+  it.each(["assign", "revoke", "transfer"])("retries the retained %s command without changing its target", async (kind) => {
+    const user = setupUser();
+    mockApi.mockResolvedValue({staff: [], pending_transition: {
+      id: "pending-id", kind, target_principal_uuid: coOrganizerPrincipal, requested_role: "judge",
+      created_at: "2026-10-28T12:00:00Z", total_effects: 2, completed_effects: 1,
+    }});
+    renderRoute(<EventStaffCard eventId="e1" />);
+    await user.click(await screen.findByRole("button", {name: "Retry pending change"}));
+    const path = kind === "transfer" ? "/ctf/events/e1/ownership/transfer/" :
+      kind === "revoke" ? `/ctf/events/e1/staff-members/${coOrganizerPrincipal}/` : "/ctf/events/e1/staff-members/";
+    const request = kind === "revoke" ? {method: "DELETE"} : {method: "POST", body: {
+      principal_uuid: coOrganizerPrincipal, ...(kind === "assign" ? {role: "judge"} : {}),
+    }};
+    expect(mockApi).toHaveBeenCalledWith(path, expect.objectContaining(request));
+    expect(screen.getByRole("button", {name: "Add staff"})).toBeDisabled();
+  });
 });

@@ -152,6 +152,7 @@ allowed_symbols:
       - policy_admin_registrations
       # One-time S8 cutover composition; persistence remains in tenancy.
       - IdentityCutoverConflict
+      - IdentityCutoverStateView
       - activate_identity_cutover
       - apply_identity_cutover_sql
       - begin_identity_cutover
@@ -163,6 +164,7 @@ allowed_symbols:
       - plan_identity_cutover_accounts
       - record_identity_cutover_bootstrap
       - record_identity_cutover_policy_intent
+      - verify_identity_cutover_hierarchy
     management.api.policy_views:
       - PolicyAdminView
     workspaces.api.serializers:

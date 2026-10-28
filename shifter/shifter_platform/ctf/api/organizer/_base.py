@@ -211,13 +211,19 @@ def _actor_may_manage(
 
 
 def _event_action_allowed(credential: Any, event_id: UUID, action: str) -> bool:
-    from ctf.exceptions import CTFPermissionError
+    from ctf.exceptions import CTFError, CTFPermissionError
     from ctf.services.unified_authorization import require_event_action
 
     try:
         require_event_action(credential, event_id, action)
     except CTFPermissionError:
         return False
+    except CTFError as exc:
+        raise _CtfApiError(
+            code="dependency_unavailable",
+            message="Service unavailable",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        ) from exc
     return True
 
 

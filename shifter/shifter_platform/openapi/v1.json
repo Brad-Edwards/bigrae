@@ -610,6 +610,16 @@
             },
             "description": ""
           },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HierarchyPendingReceipt"
+                }
+              }
+            },
+            "description": ""
+          },
           "401": {
             "content": {
               "application/json": {
@@ -1082,17 +1092,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubdivisionCommand"
+                "$ref": "#/components/schemas/SubdivisionCreationCommand"
               }
             },
             "application/x-www-form-urlencoded": {
               "schema": {
-                "$ref": "#/components/schemas/SubdivisionCommand"
+                "$ref": "#/components/schemas/SubdivisionCreationCommand"
               }
             },
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/SubdivisionCommand"
+                "$ref": "#/components/schemas/SubdivisionCreationCommand"
               }
             }
           },
@@ -1112,6 +1122,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OrganizationView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HierarchyPendingReceipt"
                 }
               }
             },
@@ -1429,17 +1449,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubdivisionCommand"
+                "$ref": "#/components/schemas/SubdivisionCreationCommand"
               }
             },
             "application/x-www-form-urlencoded": {
               "schema": {
-                "$ref": "#/components/schemas/SubdivisionCommand"
+                "$ref": "#/components/schemas/SubdivisionCreationCommand"
               }
             },
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/SubdivisionCommand"
+                "$ref": "#/components/schemas/SubdivisionCreationCommand"
               }
             }
           },
@@ -1459,6 +1479,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WorkspaceView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HierarchyPendingReceipt"
                 }
               }
             },
@@ -4431,6 +4461,90 @@
         }
       }
     },
+    "/api/v1/administer/organizations/": {
+      "get": {
+        "operationId": "prepared_integration_organizations_list",
+        "description": "Discover organizations authorized for one integration administration action.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "integration",
+            "schema": {
+              "enum": [
+                "adapters",
+                "model_sources"
+              ],
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "* `adapters` - adapters\n* `model_sources` - model_sources",
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "tags": [
+          "administer"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationPage"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          }
+        }
+      }
+    },
     "/api/v1/administer/principals/{principal_uuid}/event-creation-grants/": {
       "post": {
         "operationId": "api_v1_administer_principals_event_creation_grants",
@@ -4563,6 +4677,90 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PersonalCredentialPage"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          }
+        }
+      }
+    },
+    "/api/v1/administer/scopes/": {
+      "get": {
+        "operationId": "administer_scopes_retrieve",
+        "description": "Discover descendant administration without a parent account selector.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "enum": [
+                "organization",
+                "workspace"
+              ],
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "* `organization` - organization\n* `workspace` - workspace",
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "tags": [
+          "administer"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdministrationScopePage"
                 }
               }
             },
@@ -5707,6 +5905,46 @@
       "get": {
         "operationId": "cms_catalog_list",
         "description": "List the canonical RAES-backed catalog projection.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "organization",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope_kind",
+            "schema": {
+              "enum": [
+                "installation",
+                "account"
+              ],
+              "type": "string",
+              "default": "installation",
+              "minLength": 1
+            },
+            "description": "* `installation` - installation\n* `account` - account"
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "tags": [
           "cms"
         ],
@@ -5752,10 +5990,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:read"
-        ]
+        }
       }
     },
     "/api/v1/cms/catalog/{scenario_id}/": {
@@ -5814,10 +6049,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:read"
-        ]
+        }
       }
     },
     "/api/v1/cms/catalog/packs/": {
@@ -5886,10 +6118,77 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:write"
-        ]
+        }
+      }
+    },
+    "/api/v1/cms/content-scopes/": {
+      "get": {
+        "operationId": "cms_content_scopes_retrieve",
+        "description": "Keep denied content authority behind the bounded public error envelope.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "tags": [
+          "cms"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentScopePage"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          }
+        }
       }
     },
     "/api/v1/cms/model-source-options/": {
@@ -6432,6 +6731,9 @@
         },
         "security": [
           {
+            "ApiTokenAuth": []
+          },
+          {
             "cookieAuth": []
           }
         ],
@@ -6516,6 +6818,9 @@
           "required": true
         },
         "security": [
+          {
+            "ApiTokenAuth": []
+          },
           {
             "cookieAuth": []
           }
@@ -6613,6 +6918,9 @@
         ],
         "security": [
           {
+            "ApiTokenAuth": []
+          },
+          {
             "cookieAuth": []
           }
         ],
@@ -6677,6 +6985,9 @@
           "cms"
         ],
         "security": [
+          {
+            "ApiTokenAuth": []
+          },
           {
             "cookieAuth": []
           }
@@ -6760,6 +7071,9 @@
           "required": true
         },
         "security": [
+          {
+            "ApiTokenAuth": []
+          },
           {
             "cookieAuth": []
           }
@@ -7364,10 +7678,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:read"
-        ]
+        }
       },
       "post": {
         "operationId": "cms_raes_image_mappings_create",
@@ -7434,10 +7745,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:write"
-        ]
+        }
       }
     },
     "/api/v1/cms/raes-image-mappings/disable/": {
@@ -7506,10 +7814,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:write"
-        ]
+        }
       }
     },
     "/api/v1/cms/ranges/{request_id}/model-access/": {
@@ -7849,10 +8154,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:read"
-        ]
+        }
       }
     },
     "/api/v1/cms/scenarios/{scenario_id}/metadata/": {
@@ -7930,10 +8232,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:write"
-        ]
+        }
       }
     },
     "/api/v1/cms/scenarios/{scenario_id}/realizability/": {
@@ -7992,10 +8291,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "cms:authoring:read"
-        ]
+        }
       }
     },
     "/api/v1/cms/workspaces/{workspace_uuid}/range-scoping/": {
@@ -10293,7 +10589,7 @@
     "/api/v1/ctf/events/": {
       "get": {
         "operationId": "ctf_events_list",
-        "description": "Return the events the actor may administer (authority-aware, bounded).\n\nA platform administrator sees all live events; an ordinary organizer sees\nowned plus live staff-assigned events. Search/status/stable-owner/ordering\nare allowlisted data filters; the admin path is bounded to the canonical\npage size. The v1 ``{\"events\": [...]}`` envelope is unchanged (ADR-040).",
+        "description": "Return the events the actor may administer (authority-aware, bounded).\n\nEvery row and aggregate count uses the same live event-read policy.\nSearch/status/stable-owner/ordering are allowlisted data filters. Bounded\npages include continuation and counts for the complete readable result.",
         "parameters": [
           {
             "in": "query",
@@ -12703,7 +12999,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
@@ -13483,6 +13779,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ParticipantChallengeDetail"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             },
@@ -16771,10 +17077,50 @@
         }
       }
     },
-    "/api/v1/ctf/scenarios/": {
+    "/api/v1/ctf/scenario-options/": {
       "get": {
-        "operationId": "ctf_scenarios_retrieve",
+        "operationId": "ctf_scenario_options_retrieve",
         "description": "Return scenario id/name pairs from the CMS registry.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "organization",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope_kind",
+            "schema": {
+              "enum": [
+                "installation",
+                "account"
+              ],
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "* `installation` - installation\n* `account` - account",
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "tags": [
           "ctf"
         ],
@@ -17026,10 +17372,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/credentials/": {
@@ -17108,10 +17451,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:credentials:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/credentials/{credential_id}/delete/": {
@@ -17170,10 +17510,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:credentials:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/guacamole/bootstrap/{request_id}/": {
@@ -17283,10 +17620,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:guacamole:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/guacamole/bootstrap/{request_id}/open/": {
@@ -17356,10 +17690,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:guacamole:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/guacamole/rdp-url/": {
@@ -17448,10 +17779,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:guacamole:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/guacamole/ssh-url/": {
@@ -17540,16 +17868,34 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:guacamole:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/launch-workspaces/": {
       "get": {
         "operationId": "api_v1_mission_control_launch_workspaces_list",
         "description": "Return active workspaces admitted by exact launch-range policy.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 100
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
         "tags": [
           "mission-control"
         ],
@@ -17592,10 +17938,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/ngfw/": {
@@ -17683,10 +18026,7 @@
             },
             "description": "Request was throttled."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:ngfw:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/ngfw/{app_id}/destroy/": {
@@ -17765,10 +18105,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:ngfw:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/ngfw/{app_id}/ssh-url/": {
@@ -17838,16 +18175,39 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:guacamole:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/ngfw/list/": {
       "get": {
         "operationId": "api_v1_mission_control_ngfw_list",
         "description": "Return NGFWs owned by the authenticated actor.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_uuid",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "organization_uuid",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace_uuid",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "tags": [
           "mission-control"
         ],
@@ -17890,10 +18250,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:ngfw:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/": {
@@ -17942,10 +18299,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/{request_id}/cleanup-outcome/": {
@@ -18005,10 +18359,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/{request_id}/raes/operation-receipts/": {
@@ -18068,10 +18419,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/{request_id}/raes/operation-status/": {
@@ -18131,10 +18479,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/{request_id}/raes/participant-implementations/": {
@@ -18194,10 +18539,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/{request_id}/raes/participant-runtimes/": {
@@ -18257,10 +18599,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/{request_id}/raes/snapshots/": {
@@ -18320,10 +18659,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/cancel/": {
@@ -18391,10 +18727,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/destroy/": {
@@ -18462,10 +18795,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/extend/": {
@@ -18544,10 +18874,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/launch/": {
@@ -18655,10 +18982,7 @@
             },
             "description": "Authentication failed."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/pause/": {
@@ -18726,10 +19050,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/resume/": {
@@ -18797,16 +19118,23 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/range/vpn-profile/": {
       "post": {
         "operationId": "mission_control_range_vpn_profile_create",
         "description": "Deliver the current Mission Control range's generation-bound OpenVPN profile.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "request_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "tags": [
           "mission-control"
         ],
@@ -18910,10 +19238,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:vpn-profile:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/ranges/": {
@@ -18971,10 +19296,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/scenarios/": {
@@ -19032,10 +19354,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:range:read"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/upload/cancel/": {
@@ -19104,10 +19423,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:upload:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/upload/complete/": {
@@ -19175,10 +19491,7 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:upload:write"
-        ]
+        }
       }
     },
     "/api/v1/mission-control/upload/initiate/": {
@@ -19266,16 +19579,13 @@
             },
             "description": "Permission denied."
           }
-        },
-        "x-required-scopes": [
-          "mission_control:upload:write"
-        ]
+        }
       }
     },
     "/api/v1/model-access/bindings/drain/": {
       "post": {
         "operationId": "model_access_bindings_drain_create",
-        "description": "Withdraw a binding (terminal revision + membership fence) under a CAS fence.",
+        "description": "Unavailable under ADR-068, including when MODEL_ACCESS_ENABLED is true.",
         "tags": [
           "model-access"
         ],
@@ -19297,12 +19607,23 @@
             "cookieAuth": []
           }
         ],
+        "deprecated": true,
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RevisionResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             },
@@ -19337,7 +19658,7 @@
     "/api/v1/model-access/bindings/policy-preview/": {
       "post": {
         "operationId": "model_access_bindings_policy_preview_create",
-        "description": "Preview the compiled effective policy for a subject: overlaps, conflicts, routings.",
+        "description": "Unavailable under ADR-068, including when MODEL_ACCESS_ENABLED is true.",
         "tags": [
           "model-access"
         ],
@@ -19359,12 +19680,23 @@
             "cookieAuth": []
           }
         ],
+        "deprecated": true,
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EffectivePolicyResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             },
@@ -19399,7 +19731,7 @@
     "/api/v1/model-access/bindings/publish/": {
       "post": {
         "operationId": "model_access_bindings_publish_create",
-        "description": "Publish the next immutable binding revision under an optimistic CAS fence.",
+        "description": "Unavailable under ADR-068, including when MODEL_ACCESS_ENABLED is true.",
         "tags": [
           "model-access"
         ],
@@ -19421,12 +19753,23 @@
             "cookieAuth": []
           }
         ],
+        "deprecated": true,
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RevisionResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             },
@@ -19461,7 +19804,7 @@
     "/api/v1/model-access/bindings/selector-preview/": {
       "post": {
         "operationId": "model_access_bindings_selector_preview_create",
-        "description": "Preview a selector's matched members and reason codes. Advisory, not authority.",
+        "description": "Unavailable under ADR-068, including when MODEL_ACCESS_ENABLED is true.",
         "tags": [
           "model-access"
         ],
@@ -19483,12 +19826,23 @@
             "cookieAuth": []
           }
         ],
+        "deprecated": true,
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SelectorPreviewResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             },
@@ -19523,7 +19877,7 @@
     "/api/v1/model-access/bindings/validate/": {
       "post": {
         "operationId": "model_access_bindings_validate_create",
-        "description": "Validate a binding+pool draft against the pinned catalog. Confers no authority.",
+        "description": "Unavailable under ADR-068, including when MODEL_ACCESS_ENABLED is true.",
         "tags": [
           "model-access"
         ],
@@ -19545,12 +19899,23 @@
             "cookieAuth": []
           }
         ],
+        "deprecated": true,
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ValidResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             },
@@ -21593,6 +21958,10 @@
           "individual_principal_uuid": {
             "type": "string",
             "format": "uuid"
+          },
+          "publication_receipt": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -21718,10 +22087,15 @@
               "type": "string"
             },
             "readOnly": true
+          },
+          "has_descendant_scopes": {
+            "type": "boolean",
+            "readOnly": true
           }
         },
         "required": [
           "accounts",
+          "has_descendant_scopes",
           "individual_account",
           "installation_actions",
           "principal_kind",
@@ -21962,6 +22336,79 @@
           "last_login",
           "user_type",
           "username"
+        ]
+      },
+      "AdministrationScope": {
+        "type": "object",
+        "description": "An independently authorized scope and non-secret routing ancestry.",
+        "properties": {
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AdministrationScopeKindEnum"
+              }
+            ],
+            "readOnly": true
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "readOnly": true
+          },
+          "account_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "organization_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "is_default": {
+            "type": "boolean",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "account_uuid",
+          "is_default",
+          "kind",
+          "name",
+          "organization_uuid",
+          "uuid"
+        ]
+      },
+      "AdministrationScopeKindEnum": {
+        "enum": [
+          "organization",
+          "workspace"
+        ],
+        "type": "string",
+        "description": "* `organization` - organization\n* `workspace` - workspace"
+      },
+      "AdministrationScopePage": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdministrationScope"
+            },
+            "readOnly": true
+          }
+        },
+        "required": [
+          "count",
+          "results"
         ]
       },
       "AdmitPrincipalParticipant": {
@@ -23882,6 +24329,72 @@
           "uuid"
         ]
       },
+      "ContentScopeOption": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ContentScopeOptionKindEnum"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope_kind": {
+            "$ref": "#/components/schemas/ScopeKindEnum"
+          },
+          "account": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "organization": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "workspace": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "required": [
+          "account",
+          "kind",
+          "name",
+          "organization",
+          "scope_kind",
+          "workspace"
+        ]
+      },
+      "ContentScopeOptionKindEnum": {
+        "enum": [
+          "installation",
+          "account",
+          "organization",
+          "workspace"
+        ],
+        "type": "string",
+        "description": "* `installation` - installation\n* `account` - account\n* `organization` - organization\n* `workspace` - workspace"
+      },
+      "ContentScopePage": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentScopeOption"
+            }
+          }
+        },
+        "required": [
+          "count",
+          "results"
+        ]
+      },
       "CreateAuthorizationMetadata": {
         "type": "object",
         "description": "Closed custom group/policy creation command.",
@@ -24086,6 +24599,18 @@
         "type": "object",
         "description": "Validate credential creation requests before schema-specific validation.",
         "properties": {
+          "account_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
           "credential_type": {
             "type": "string"
           },
@@ -24485,6 +25010,65 @@
           }
         }
       },
+      "EventAuthorityPending": {
+        "type": "object",
+        "description": "Observational receipt for an exact pending domain authority command.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthorityPendingKindEnum"
+              }
+            ],
+            "readOnly": true
+          },
+          "target_principal_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "requested_role": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "total_effects": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "completed_effects": {
+            "type": "integer",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "completed_effects",
+          "created_at",
+          "id",
+          "kind",
+          "requested_role",
+          "target_principal_uuid",
+          "total_effects"
+        ]
+      },
+      "EventAuthorityPendingKindEnum": {
+        "enum": [
+          "assign",
+          "revoke",
+          "transfer"
+        ],
+        "type": "string",
+        "description": "* `assign` - assign\n* `revoke` - revoke\n* `transfer` - transfer"
+      },
       "EventContentRefreshRequest": {
         "type": "object",
         "description": "Refresh managed event content to the configured revision (issue #1971).\n\nThe organizer supplies only the digest they currently see as an optimistic\nconcurrency fence; the server-configured bundle is the target. No object\nkey, URL, bundle body, flag, or target digest is caller-controlled.",
@@ -24843,10 +25427,41 @@
               "$ref": "#/components/schemas/EventSummary"
             },
             "readOnly": true
+          },
+          "count": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "active_count": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "team_mode_count": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "page": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "page_size": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "next_page": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
           }
         },
         "required": [
-          "events"
+          "active_count",
+          "count",
+          "events",
+          "next_page",
+          "page",
+          "page_size",
+          "team_mode_count"
         ]
       },
       "EventModelAccessAssessment": {
@@ -25023,9 +25638,19 @@
               "$ref": "#/components/schemas/EventStaffMember"
             },
             "readOnly": true
+          },
+          "pending_transition": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthorityPending"
+              }
+            ],
+            "readOnly": true,
+            "nullable": true
           }
         },
         "required": [
+          "pending_transition",
           "staff"
         ]
       },
@@ -25447,6 +26072,35 @@
         },
         "required": [
           "instance_uuid"
+        ]
+      },
+      "HierarchyPendingReceipt": {
+        "type": "object",
+        "description": "A committed creation awaiting policy publication.",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "publication_receipt": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "publication_state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicationStateEnum"
+              }
+            ],
+            "readOnly": true
+          }
+        },
+        "required": [
+          "publication_receipt",
+          "publication_state",
+          "uuid"
         ]
       },
       "HintListResponse": {
@@ -26395,6 +27049,18 @@
         "type": "object",
         "description": "Validate NGFW creation requests.",
         "properties": {
+          "account_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": "string",
             "default": ""
@@ -26938,6 +27604,26 @@
         "type": "object",
         "description": "Validate the shape of a uniform pack-registration request body (#1578).\n\nThis is a thin boundary check: it rejects missing/oversized/wrong-typed\nfields so the service and the reference-record validator receive a\nwell-formed request. Domain validation (source-kind allowlist, digest shape,\nbounded provenance, pack conformance, no-shadow) remains authoritative in the\nservice and model — this serializer does not restate it.",
         "properties": {
+          "scope_kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScopeKindEnum"
+              }
+            ],
+            "default": "installation"
+          },
+          "account": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace": {
+            "type": "string",
+            "format": "uuid"
+          },
           "scenario_id": {
             "type": "string",
             "maxLength": 100,
@@ -29289,6 +29975,13 @@
           "team_mode"
         ]
       },
+      "PublicationStateEnum": {
+        "enum": [
+          "pending"
+        ],
+        "type": "string",
+        "description": "* `pending` - pending"
+      },
       "Publish": {
         "type": "object",
         "description": "Publish request: a binding+pool draft under an optimistic definition-revision fence.",
@@ -31373,6 +32066,14 @@
           "tasks"
         ]
       },
+      "ScopeKindEnum": {
+        "enum": [
+          "installation",
+          "account"
+        ],
+        "type": "string",
+        "description": "* `installation` - installation\n* `account` - account"
+      },
       "ScopeMemberCommand": {
         "type": "object",
         "description": "A public principal identity; membership never accepts an implicit role grant.",
@@ -31700,6 +32401,23 @@
           "name": {
             "type": "string",
             "maxLength": 200
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "SubdivisionCreationCommand": {
+        "type": "object",
+        "description": "Retry a committed subdivision through its exact publication receipt.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "publication_receipt": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -32046,6 +32764,18 @@
         "type": "object",
         "description": "Validate agent-upload initiation requests.",
         "properties": {
+          "account_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": "string"
           },

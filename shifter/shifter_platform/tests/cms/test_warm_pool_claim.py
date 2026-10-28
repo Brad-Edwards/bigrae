@@ -9,12 +9,9 @@ import pytest
 from cms.services._warm_pool_claim import (
     ISOLATION_ACCOUNT,
     WarmClaimRequest,
-    _ClaimOutcome,
-    _commit_cms_warm_claim,
     _resolve_claim_candidates,
     attempt_warm_claim,
 )
-from engine.services._principal_warm_claim import PreparedWarmRangeClaim
 from shared.authorization import CredentialCeiling, TargetRef
 from shared.credentials import CredentialContext
 from shared.enums import RangeSource
@@ -123,94 +120,138 @@ class TestDecisionGates:
         assert ISOLATION_ACCOUNT == "account"
 
 
-class TestClaimOrchestration:
-    def test_hit_enqueues_after_committed_claim(self, monkeypatch):
-        from django.conf import settings
+@pytest.mark.django_db
+@pytest.mark.parametrize("claimant_kind", ["human", "service"])
+def test_claim_commits_lease_custody_and_exactly_one_activation(
+    django_user_model, settings, live_session_credential, allow_all_policy, claimant_kind
+):
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
+    from tests.cms._warm_pool_fixtures import warm_claim_fixture
 
-        settings.WARM_POOL_POLICY = _ENABLED_GCE
-        outcome = _ClaimOutcome(uuid4(), "gce-example", uuid4())
-        monkeypatch.setattr("cms.services._warm_pool_claim._can_claim_base_range", lambda request: True)
-        monkeypatch.setattr("cms.services._warm_pool_claim._run_atomic_claim", lambda request, candidates: outcome)
-        enqueued: list = []
-        emitted: list = []
-        monkeypatch.setattr(
-            "engine.services.enqueue_range_activation",
-            lambda request_id, **kwargs: enqueued.append(request_id),
-        )
-        monkeypatch.setattr("shared.warm_pool.metrics.emit_claim_outcome", lambda **kwargs: emitted.append(kwargs))
-
-        assert attempt_warm_claim(_request("gce", "example")) == outcome.request_id
-        assert enqueued == [outcome.request_id]
-        assert emitted[-1]["outcome"] == "hit"
-
-    def test_model_path_does_not_enqueue_activation_twice(self, monkeypatch):
-        from django.conf import settings
-
-        settings.WARM_POOL_POLICY = _ENABLED_GCE
-        outcome = _ClaimOutcome(uuid4(), "gce-example", uuid4(), activation_enqueued=True)
-        monkeypatch.setattr("cms.services._warm_pool_claim._can_claim_base_range", lambda request: True)
-        monkeypatch.setattr("cms.services._warm_pool_claim._run_atomic_claim", lambda request, candidates: outcome)
-        enqueued: list = []
-        monkeypatch.setattr(
-            "engine.services.enqueue_range_activation",
-            lambda request_id, **kwargs: enqueued.append(request_id),
-        )
-        monkeypatch.setattr("shared.warm_pool.metrics.emit_claim_outcome", lambda **kwargs: None)
-
-        assert attempt_warm_claim(_request("gce", "example")) == outcome.request_id
-        assert enqueued == []
-
-    def test_miss_cold_falls_back(self, monkeypatch):
-        from django.conf import settings
-
-        settings.WARM_POOL_POLICY = _ENABLED_GCE
-        monkeypatch.setattr("cms.services._warm_pool_claim._can_claim_base_range", lambda request: True)
-        monkeypatch.setattr("cms.services._warm_pool_claim._run_atomic_claim", lambda request, candidates: None)
-        assert attempt_warm_claim(_request("gce", "example")) is None
+    claim, generation, instance, _source, workspace = warm_claim_fixture(
+        django_user_model, settings, live_session_credential, claimant_kind=claimant_kind
+    )
+    assert attempt_warm_claim(claim) == generation.request_id
+    instance.refresh_from_db()
+    generation.refresh_from_db()
+    assert generation.state == "claimed"
+    assert instance.workspace_id == workspace.pk
+    assert instance.owner_principal_uuid == claim.credential.principal.uuid
+    assert instance.expires_at is not None and instance.maximum_expires_at >= instance.expires_at
+    assert RangeAuthorityChange.objects.get().credential_uuid == claim.credential.credential_uuid
+    intent = ProvisionerLaunchIntent.objects.get()
+    assert intent.payload["operation"] == "activate"
+    assert intent.credential_uuid == claim.credential.credential_uuid
+    # A second attempt cannot claim the same generation or enqueue twice.
+    assert attempt_warm_claim(claim) is None
+    assert ProvisionerLaunchIntent.objects.count() == 1
 
 
 @pytest.mark.django_db
-def test_cms_claim_moves_installation_custody_to_exact_account_without_a_user(monkeypatch):
-    from cms.models import RangeInstance, Request
-    from shared.operation_authority import credential_reference_fields
-    from workspaces.services import create_account
+def test_claim_source_fence_rolls_back_custody_and_lease(
+    django_user_model, settings, live_session_credential, allow_all_policy
+):
+    from cms.exceptions import CMSError
+    from cms.services._warm_pool_claim import _run_atomic_claim
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
+    from tests.cms._warm_pool_fixtures import warm_claim_fixture
 
-    worker = _credential(target=TargetRef("installation"), action="installation.launch_range")
-    account = create_account(kind="team", name="Warm claim target")
-    claimant = _credential(target=TargetRef("account", account.uuid))
-    cms_request = Request.objects.create(
-        request_id=uuid4(),
-        request_type="range",
-        user=None,
-        owner_principal_uuid=worker.principal.uuid,
-        scope_kind="installation",
-        **credential_reference_fields(worker),
-    )
-    instance = RangeInstance.objects.create(
-        request=cms_request,
-        scenario_id="example",
-        user_id=None,
-        owner_principal_uuid=worker.principal.uuid,
-        scope_kind="installation",
-        range_source=RangeSource.MISSION_CONTROL.value,
-        status="provisioning",
-    )
-    prepared = PreparedWarmRangeClaim(
-        claimant,
-        ResourceScope("account", account.uuid),
-        ("account", account.id, None, None),
-    )
-    monkeypatch.setattr("shared.credentials.resolve_local_credential", lambda credential: credential)
-
-    _commit_cms_warm_claim(instance, prepared, None)
-
+    claim, generation, instance, source, _ = warm_claim_fixture(django_user_model, settings, live_session_credential)
+    # The declaration still refers to the admitted revision, which has now changed.
+    source.package_digest = "sha256:" + "e" * 64
+    source.save(update_fields=["package_digest"])
+    with pytest.raises(CMSError):
+        _run_atomic_claim(claim, [(generation.bucket_id, generation.compatibility_digest)])
+    generation.refresh_from_db()
     instance.refresh_from_db()
-    cms_request.refresh_from_db()
-    assert instance.user_id is None and cms_request.user_id is None
-    assert instance.owner_principal_uuid == claimant.principal.uuid
-    assert cms_request.owner_principal_uuid == claimant.principal.uuid
-    assert instance.scope_kind == cms_request.scope_kind == "account"
-    assert instance.account_id == cms_request.account_id == account.id
+    assert generation.state == "ready" and generation.claimed_by_request_id is None
+    assert instance.scope_kind == "installation" and instance.expires_at is None
+    assert not RangeAuthorityChange.objects.exists()
+    assert not ProvisionerLaunchIntent.objects.exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("changed", ["publication", "enabled", "staff_only", "conformance", "lock"])
+def test_claim_rejects_source_eligibility_changed_after_admission(
+    django_user_model, settings, live_session_credential, allow_all_policy, monkeypatch, changed
+):
+    from cms.exceptions import CMSError
+    from cms.models import RaesPackageSource, ScenarioMetadata
+    from cms.services import _model_allocation
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
+    from tests.cms._warm_pool_fixtures import warm_claim_fixture
+    from workspaces.models import WorkspaceQuotaReservation
+
+    claim, generation, instance, source, _ = warm_claim_fixture(django_user_model, settings, live_session_credential)
+    original = _model_allocation.prepare_claim_model_sources
+
+    def prepare_then_change(*args, **kwargs):
+        prepared = original(*args, **kwargs)
+        if changed in {"enabled", "staff_only"}:
+            ScenarioMetadata.objects.update_or_create(
+                scenario_id=source.scenario_id, defaults={changed: changed != "enabled"}
+            )
+        else:
+            field, value = {
+                "publication": ("is_operator_published", False),
+                "conformance": ("conformance_status", "failed"),
+                "lock": ("lock_digest", "sha256:" + "f" * 64),
+            }[changed]
+            RaesPackageSource.objects.filter(pk=source.pk).update(**{field: value})
+        return prepared
+
+    monkeypatch.setattr(_model_allocation, "prepare_claim_model_sources", prepare_then_change)
+    with pytest.raises(CMSError):
+        attempt_warm_claim(claim)
+    instance.refresh_from_db()
+    generation.refresh_from_db()
+    assert generation.state == "ready" and generation.claimed_by_request_id is None
+    assert instance.scope_kind == "installation" and instance.expires_at is None
+    assert not RangeAuthorityChange.objects.exists()
+    assert not ProvisionerLaunchIntent.objects.exists()
+    assert not WorkspaceQuotaReservation.objects.exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("before", "after"), [("status-quo", "none"), ("none", "status-quo")])
+def test_claim_rechecks_network_policy_under_locked_ancestry(
+    django_user_model, settings, live_session_credential, allow_all_policy, monkeypatch, before, after
+):
+    from dataclasses import replace
+
+    from cms.services import _model_allocation
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
+    from tests.cms._warm_pool_fixtures import warm_claim_fixture
+    from workspaces.models import Workspace
+
+    claim, generation, instance, _source, workspace = warm_claim_fixture(
+        django_user_model, settings, live_session_credential
+    )
+    Workspace.objects.filter(pk=workspace.pk).update(egress_policy=before)
+    claim = replace(claim, egress_mode=before)
+    candidates = _resolve_claim_candidates(claim, None)
+    generation.compatibility_digest = candidates[0][1]
+    generation.save(update_fields=["compatibility_digest"])
+    prepare = _model_allocation.prepare_claim_model_sources
+    checked = []
+
+    def change_after_admission(*args, **kwargs):
+        prepared = prepare(*args, **kwargs)
+        Workspace.objects.filter(pk=workspace.pk).update(egress_policy=after)
+        checked.append(True)
+        return prepared
+
+    monkeypatch.setattr(_model_allocation, "prepare_claim_model_sources", change_after_admission)
+    assert attempt_warm_claim(claim) is None
+    assert checked
+    instance.refresh_from_db()
+    generation.refresh_from_db()
+    assert generation.state == "ready" and generation.claimed_by_request_id is None
+    assert instance.scope_kind == "installation" and instance.expires_at is None
+    assert not RangeAuthorityChange.objects.exists()
+    assert not ProvisionerLaunchIntent.objects.exists()
+    workspace.refresh_from_db()
+    assert workspace.egress_policy == after
 
 
 @pytest.mark.django_db
@@ -228,78 +269,3 @@ def test_system_range_lookup_accepts_only_the_correlated_request():
     )
     assert _system_range_instance_for(request.request_id).pk == instance.pk
     assert _system_range_instance_for(uuid4()) is None
-
-
-@pytest.mark.django_db
-def test_engine_claim_moves_owner_scope_and_retains_claimant_authority(monkeypatch):
-    from django.utils import timezone
-
-    from engine.models import Range, RangeAuthorityChange, Request, WarmRangeGeneration
-    from engine.services import commit_warm_range_claim
-    from workspaces.models import Account, AccountMembership
-    from workspaces.services import create_account
-
-    worker = _credential(target=TargetRef("installation"), action="installation.launch_range")
-    claimant = _credential()
-    account = create_account(kind="team", name="Engine warm claim target")
-    account_row = Account.objects.get(uuid=account.uuid)
-    AccountMembership.objects.create(account=account_row, principal_uuid=claimant.principal.uuid)
-    request = Request.objects.create(
-        request_id=uuid4(),
-        request_type="range",
-        owner_principal_uuid=worker.principal.uuid,
-        scope_kind="installation",
-    )
-    public_uuid = uuid4()
-    generation_id = uuid4()
-    row = Range.objects.create(
-        request=request,
-        cms_range_uuid=public_uuid,
-        owner_principal_uuid=worker.principal.uuid,
-        scope_kind="installation",
-        status=Range.Status.PROVISIONING,
-        resource_generation=generation_id,
-    )
-    claimant_request_id = uuid4()
-    WarmRangeGeneration.objects.create(
-        request_id=request.request_id,
-        range=row,
-        state=WarmRangeGeneration.State.CLAIMED,
-        claimed_by_request_id=claimant_request_id,
-        claimed_at=timezone.now(),
-        bucket_id="account-warm",
-        compatibility_digest="sha256:" + "a" * 64,
-        effective_policy_fingerprint="sha256:" + "b" * 64,
-        backend="gce",
-        range_source=RangeSource.MISSION_CONTROL.value,
-        capacity_partition="default",
-        capacity_scope_ref=uuid4(),
-        capacity_draw_key=uuid4(),
-    )
-    prepared = PreparedWarmRangeClaim(
-        claimant,
-        ResourceScope("account", account.uuid),
-        ("account", account.id, None, None),
-    )
-    monkeypatch.setattr("engine.services._principal_warm_claim.resolve_local_credential", lambda value: value)
-
-    assert (
-        commit_warm_range_claim(
-            prepared,
-            request_id=request.request_id,
-            claimant_request_id=claimant_request_id,
-            cms_range_uuid=public_uuid,
-            user_id=None,
-        )
-        == row.pk
-    )
-
-    row.refresh_from_db()
-    request.refresh_from_db()
-    assert row.owner_principal_uuid == request.owner_principal_uuid == claimant.principal.uuid
-    assert row.scope_kind == request.scope_kind == "account"
-    assert row.account_id == request.account_id == account.id
-    change = RangeAuthorityChange.objects.get(range=row)
-    assert change.initiating_principal_uuid == claimant.principal.uuid
-    assert change.authority_action == "account.launch_range"
-    assert change.authority_account_uuid == account.uuid

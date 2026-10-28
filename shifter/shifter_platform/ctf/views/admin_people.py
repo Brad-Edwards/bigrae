@@ -241,7 +241,7 @@ def admin_participant_add(request: HttpRequest, event_id: UUID) -> HttpResponse:
                 )
                 logger.info(
                     "User %s added participant %s to event %s",
-                    request.user.email,
+                    getattr(request.user, "email", ""),
                     participant.email,
                     safe_log_value(event_id),
                 )

@@ -27,9 +27,13 @@ def pack_api(tenant, manifest, make_pack, tmp_path, settings):
         package_version="1",
         package_digest=pack_digest(root),
         registered_by=actor,
+        owner_principal_uuid=actor.credential.principal.uuid,
+        scope_kind="account",
+        account_uuid=organization.account.uuid,
+        organization_uuid=organization.uuid,
         conformance_status="passed",
     )
-    installed = install_runtime_plugin(actor, organization.uuid, manifest)
+    installed = install_runtime_plugin(actor.credential, organization.uuid, manifest)
     RuntimePluginInstallation.objects.filter(pk=installed.id).update(state="ready")
     client = APIClient()
     client.force_authenticate(user=actor)
@@ -60,6 +64,38 @@ def test_admin_binds_an_installed_adapter_using_verified_guest_choices(pack_api)
     assert response.json()["enabled"] is True
     assert client.get(base).json()["results"][0]["binding"]["installation_id"] == str(installed.id)
     assert not Range.objects.exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_pack_binding_admits_live_policy_before_source_and_installation_locks(pack_api, monkeypatch):
+    from django.db import connection
+
+    from shared.authorization import configured_authorization_provider, port
+
+    client, base, installed, source, _root = pack_api
+    provider = configured_authorization_provider()
+    original = provider.check
+    checked = []
+
+    def check(request):
+        assert not connection.in_atomic_block
+        checked.append(request.action)
+        return original(request)
+
+    provider.check = check
+    monkeypatch.setattr(port, "_provider_factory", lambda: provider)
+    target = client.get(base + "example/").json()["targets"][0]["address"]
+    response = client.post(
+        base + "example/",
+        {
+            "installation_id": str(installed.id),
+            "pack_digest": source.package_digest,
+            "bindings": {"targets": {"server": target}},
+        },
+        format="json",
+    )
+    assert response.status_code == 200, response.content
+    assert "organization.manage_adapters" in checked
 
 
 def test_admin_binds_a_provider_image_without_hosting_access(pack_api):

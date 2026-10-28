@@ -6,6 +6,7 @@ from django.urls import path
 
 from cms.api import (
     artifact_preparation,
+    content_scopes,
     model_source_options,
     model_sources,
     preparation_adapters,
@@ -130,6 +131,7 @@ urlpatterns = [
         name="preparation-adapter-state",
     ),
     path("catalog/", views.CatalogListView.as_view(), name="catalog-list"),
+    path("content-scopes/", content_scopes.ContentScopeOptionsView.as_view(), name="content-scopes"),
     # Range-to-workspace scope administration (PLAT-237, #1944): list ranges
     # scoped to a workspace, and reassign a range's workspace scope. Staff-session
     # + workspace owner/admin authority; public UUIDs only.

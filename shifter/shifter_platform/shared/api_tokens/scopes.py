@@ -177,11 +177,11 @@ def credential_ceiling(scopes: Iterable[str], *, target: TargetRef | None = None
     legacy_by_scope = {
         CTF_EVENT_READ: frozenset({"event.read"}),
         CTF_EVENT_WRITE: _CTF_EVENT_WRITE_ACTIONS,
-        CTF_PLAY_READ: frozenset({"event.participate"}),
+        CTF_PLAY_READ: frozenset({"event.participate", "range.access"}),
         CTF_PLAY_WRITE: frozenset({"event.participate"}),
         CTF_COMMUNICATION_READ: frozenset({"event.manage_communications"}),
         CTF_COMMUNICATION_WRITE: frozenset({"event.manage_communications"}),
-        CTF_VPN_PROFILE_READ: frozenset({"event.participate"}),
+        CTF_VPN_PROFILE_READ: frozenset({"event.participate", "range.access"}),
         MISSION_CONTROL_VPN_PROFILE_READ: frozenset({"range.access"}),
     }
     for scope in scopes:

@@ -18,7 +18,7 @@ from engine.services import bind_runtime_plugin, install_runtime_plugin
 from engine.services._runtime_plugin_bindings import persist_runtime_plugin_pin, resolve_runtime_plugin_pin
 from shared.model_access import ContractError
 from shared.runtime_plugin_binding import RuntimePluginScope
-from workspaces.models import Organization, OrganizationMembership
+from workspaces.models import Organization
 
 from .test_model_allocation_launch import launch_credential, prepared_launch
 
@@ -31,10 +31,13 @@ pytestmark = [
 def _prepared_plugin_launch(django_user_model, live_session_credential):
     request = prepared_launch(django_user_model)
     target = Range.objects.get(uuid=request.range_id)
-    organization = Organization.objects.create(name="Combined launch")
-    OrganizationMembership.objects.create(user=target.user, organization=organization, role="admin")
+    from workspaces.services import create_account
+
+    account = create_account(kind="team", name="Combined launch")
+    organization = Organization.objects.get(account_id=account.id, is_default=True)
+    credential = live_session_credential(target.user)
     installed = install_runtime_plugin(
-        target.user,
+        credential,
         organization.uuid,
         {
             "protocol": "shifter.runtime-plugin/v1",
@@ -55,7 +58,7 @@ def _prepared_plugin_launch(django_user_model, live_session_credential):
         pack_digest=request.need.scenario_digest,
     )
     bind_runtime_plugin(
-        target.user,
+        credential,
         RuntimePluginScope(organization_uuid=organization.uuid, pack_digest=scope.pack_digest, pack_id=scope.pack_id),
         installed.id,
         {"targets": {"server": "node.web"}},

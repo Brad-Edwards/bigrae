@@ -55,7 +55,7 @@ def _is_file_download_allowed(request: Request, challenge_file: CTFChallengeFile
     get full access; otherwise the actor must be a non-disqualified participant
     of the event AND the challenge must be available to them.
     """
-    from ctf.exceptions import CTFStateError, CTFValidationError
+    from ctf.exceptions import CTFPermissionError, CTFStateError, CTFValidationError
     from ctf.services.challenge import assert_challenge_available_for_participant
     from ctf.services.principal_participation import participant_for_credential
 
@@ -66,7 +66,7 @@ def _is_file_download_allowed(request: Request, challenge_file: CTFChallengeFile
     try:
         participant = participant_for_credential(credential, event.pk)
         assert_challenge_available_for_participant(participant, challenge_file.challenge)
-    except (CTFStateError, CTFValidationError, ValueError):
+    except (CTFPermissionError, CTFStateError, CTFValidationError, ValueError):
         return False
     return True
 

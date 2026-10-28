@@ -129,9 +129,7 @@ class TestCmsRaesDispatchPort:
         assert range_obj.range_config["kind"] == RAES_PROVISIONING_PLAN_KIND
         assert range_obj.range_config["resources"]["provision.node.attacker"]["resource_type"] == "node"
 
-    def test_model_access_is_prepared_before_dispatch_without_holding_the_creation_transaction(
-        self, user, monkeypatch
-    ):
+    def test_model_access_is_prepared_before_dispatch_without_holding_the_creation_transaction(self, user, monkeypatch):
         from django.db import transaction
 
         from engine import services as engine_services

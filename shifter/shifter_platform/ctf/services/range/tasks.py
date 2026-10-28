@@ -9,7 +9,7 @@ progress for the organizer UI. The work itself lives in
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal, overload
 from uuid import UUID
 
 from django.db import transaction
@@ -23,9 +23,21 @@ from shared.log_sanitize import safe_log_value
 logger = logging.getLogger(__name__)
 
 
+@overload
 def request_event_provisioning(
-    event_id: UUID, *, source: str = "manual", actor_id: object | None = None
-) -> CTFScheduledTask:
+    event_id: UUID, *, source: str = "manual", actor_id: object | None = None, defer_if_busy: Literal[False] = False
+) -> CTFScheduledTask: ...
+
+
+@overload
+def request_event_provisioning(
+    event_id: UUID, *, source: str = "manual", actor_id: object | None = None, defer_if_busy: bool
+) -> CTFScheduledTask | None: ...
+
+
+def request_event_provisioning(
+    event_id: UUID, *, source: str = "manual", actor_id: object | None = None, defer_if_busy: bool = False
+) -> CTFScheduledTask | None:
     """Enqueue (or coalesce onto) a due-now SPIN_UP_RANGES task for an event.
 
     The organizer "provision all" action runs the throttled provisioning loop
@@ -50,7 +62,7 @@ def request_event_provisioning(
             as the participant-account post-commit enqueue omit it.
 
     Returns:
-        The active CTFScheduledTask (created or coalesced).
+        The active task, or None when participant admission defers a conflicting wave.
 
     Raises:
         CTFNotFoundError: If event doesn't exist.
@@ -67,27 +79,30 @@ def request_event_provisioning(
         ) from None
     from ctf.enums import EventCapability
     from ctf.services.actors import event_actor_credential
-    from ctf.services.authorization import assert_event_capability
+    from ctf.services.authorization import admit_event_actions, assert_event_capability
     from shared.operation_authority import credential_reference_fields
 
-    credential = event_actor_credential(actor_id)
-    assert_event_capability(credential, admitted_event, EventCapability.RANGES)
+    admission = admit_event_actions(actor_id, admitted_event, "event.manage_ranges")
+    credential = event_actor_credential(admission)
     authority_fields = credential_reference_fields(credential)
-    from ctf.bridges import cms_fence_pack_reference
-
-    cms_fence_pack_reference(admitted_event.scenario_id)
-
     spin_up = ScheduledTaskType.SPIN_UP_RANGES.value
     with transaction.atomic():
         # Serialize concurrent enqueues for the same event so duplicate clicks
         # cannot each create a runnable task.
         try:
-            CTFEvent.objects.select_for_update().get(pk=event_id)
+            event = CTFEvent.objects.select_for_update().get(pk=event_id)
         except CTFEvent.DoesNotExist:
             raise CTFNotFoundError(
                 f"Event {event_id} not found",
                 details={"event_id": str(event_id)},
             ) from None
+
+        from ctf.bridges import cms_fence_pack_reference
+
+        assert_event_capability(admission, event, EventCapability.RANGES)
+        if event.scenario_id != admitted_event.scenario_id:
+            raise ValueError("Event scenario changed during provisioning admission")
+        cms_fence_pack_reference(event.scenario_id)
 
         now = timezone.now()
 
@@ -98,6 +113,8 @@ def request_event_provisioning(
         ).first()
         if running is not None:
             if any(getattr(running, key) != value for key, value in authority_fields.items()):
+                if defer_if_busy:
+                    return None
                 raise ValueError("Range provisioning is already running under another credential")
             logger.info("Coalescing provision request onto running task %s", running.pk)
             return running
@@ -113,6 +130,8 @@ def request_event_provisioning(
         )
         if pending is not None:
             if any(getattr(pending, key) != value for key, value in authority_fields.items()):
+                if defer_if_busy:
+                    return None
                 raise ValueError("Range provisioning is already queued under another credential")
             if pending.scheduled_for > now:
                 pending.scheduled_for = now

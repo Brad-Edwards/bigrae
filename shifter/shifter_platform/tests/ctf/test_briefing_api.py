@@ -53,7 +53,7 @@ class TestBriefingRead:
             body="You are on **Kali** inside Example Systems.",
             slug=RESERVED_BRIEFING_SLUG,
         )
-        assert created.status_code == 201, created.content
+        assert created.status_code == 200, created.content
 
         reader = _enroll_active(participant_user, ctf_event_active)
         resp = call_json(reader, "get", "api_me_briefing")
@@ -190,17 +190,17 @@ class TestWriteBounds:
         resp = _create_page(
             authenticated_organizer_client, ctf_event_active, title="Brief", body=at_limit, slug=RESERVED_BRIEFING_SLUG
         )
-        assert resp.status_code == 201, resp.content
+        assert resp.status_code == 200, resp.content
 
     def test_page_count_cap_enforced(self, ctf_event_active, authenticated_organizer_client, monkeypatch):
         monkeypatch.setattr("ctf.services.event.pages.MAX_EVENT_PAGES_PER_EVENT", 2)
         assert (
             _create_page(authenticated_organizer_client, ctf_event_active, title="A", body="a", slug="a").status_code
-            == 201
+            == 200
         )
         assert (
             _create_page(authenticated_organizer_client, ctf_event_active, title="B", body="b", slug="b").status_code
-            == 201
+            == 200
         )
         over = _create_page(authenticated_organizer_client, ctf_event_active, title="C", body="c", slug="c")
         assert over.status_code == 400
@@ -213,7 +213,7 @@ class TestDuplicateBriefing:
         first = _create_page(
             authenticated_organizer_client, ctf_event_active, title="Brief", body="one", slug=RESERVED_BRIEFING_SLUG
         )
-        assert first.status_code == 201
+        assert first.status_code == 200
         second = _create_page(
             authenticated_organizer_client, ctf_event_active, title="Brief 2", body="two", slug=RESERVED_BRIEFING_SLUG
         )

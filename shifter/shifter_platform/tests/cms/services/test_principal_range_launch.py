@@ -181,6 +181,46 @@ def test_launch_revalidates_after_compilation_before_native_creation(launch_acto
     assert not OperationInput.objects.exists()
 
 
+@pytest.mark.parametrize("changed", ["publication", "enabled", "staff_only", "conformance", "lock"])
+def test_cold_launch_rejects_source_eligibility_changed_after_native_admission(launch_actor, monkeypatch, changed):
+    from cms.exceptions import CMSError
+    from cms.models import RaesPackageSource, RangeInstance, ScenarioMetadata
+    from cms.services import create_range
+    from engine import services as engine_services
+    from engine.models import OperationInput, ProvisionerLaunchIntent, Range
+
+    actor = launch_actor
+    if changed == "publication":
+        RaesPackageSource.objects.filter(pk=actor.source.pk).update(
+            scope_kind="installation", account_uuid=None, is_operator_published=True
+        )
+        actor.source.refresh_from_db()
+    original = engine_services.prepare_raes_range_creation
+
+    def prepare_then_change(*args, **kwargs):
+        prepared = original(*args, **kwargs)
+        if changed in {"enabled", "staff_only"}:
+            ScenarioMetadata.objects.update_or_create(
+                scenario_id=actor.source.scenario_id, defaults={changed: changed != "enabled"}
+            )
+        else:
+            field, value = {
+                "publication": ("is_operator_published", False),
+                "conformance": ("conformance_status", "failed"),
+                "lock": ("lock_digest", "sha256:" + "f" * 64),
+            }[changed]
+            RaesPackageSource.objects.filter(pk=actor.source.pk).update(**{field: value})
+        return prepared
+
+    monkeypatch.setattr(engine_services, "prepare_raes_range_creation", prepare_then_change)
+    with pytest.raises(CMSError):
+        create_range(actor.credential, actor.source.scenario_id, scope=actor.scope)
+    assert RangeInstance.all_objects.get().status == "failed"
+    assert not Range.objects.exists()
+    assert not ProvisionerLaunchIntent.objects.exists()
+    assert not OperationInput.objects.exists()
+
+
 def test_service_launch_cannot_occupy_a_second_active_slot(launch_actor):
     from cms.exceptions import CMSError
     from cms.models import RangeInstance

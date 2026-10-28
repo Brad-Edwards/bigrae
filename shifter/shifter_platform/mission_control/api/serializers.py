@@ -6,6 +6,7 @@ from typing import Any
 
 from rest_framework import serializers
 
+from mission_control.api.scope import ResourcePlacementSerializer
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api.model_sources import ModelSourceSelectionField
 from shared.enums import ResourceStatus
@@ -344,6 +345,13 @@ class ScenarioListResponseSerializer(serializers.Serializer):
     scenarios = ScenarioListItemSerializer(many=True)
 
 
+class LaunchWorkspacePageQuerySerializer(serializers.Serializer):
+    """Bounded pagination over policy-visible launch workspaces."""
+
+    offset = serializers.IntegerField(required=False, default=0, min_value=0)
+    limit = serializers.IntegerField(required=False, default=100, min_value=1, max_value=100)
+
+
 class LaunchWorkspaceItemSerializer(serializers.Serializer):
     """One policy-authorized active workspace offered before catalog loading."""
 
@@ -421,7 +429,7 @@ class GuacamoleBootstrapStatusSerializer(serializers.Serializer):
     url = serializers.CharField(required=False)
 
 
-class NGFWCreateSerializer(serializers.Serializer):
+class NGFWCreateSerializer(ResourcePlacementSerializer):
     """Validate NGFW creation requests."""
 
     name = serializers.CharField(allow_blank=True, required=False, default="", trim_whitespace=True)
@@ -438,7 +446,7 @@ class NGFWDestroySerializer(serializers.Serializer):
     confirm_name = serializers.CharField(allow_blank=True, required=False, default="", trim_whitespace=True)
 
 
-class CredentialCreateSerializer(serializers.Serializer):
+class CredentialCreateSerializer(ResourcePlacementSerializer):
     """Validate credential creation requests before schema-specific validation."""
 
     credential_type = serializers.CharField(trim_whitespace=True)

@@ -46,22 +46,39 @@ def _make(
 
 
 class TestConsumeReadyUrl:
+    @pytest.fixture(autouse=True)
+    def native_row(self, native_guacamole):
+        self.fixture = native_guacamole
+
+    def _make(self, **values):
+        row = self.fixture.row
+        ttl = values.pop("ttl_seconds", 300)
+        values.setdefault("result_url", "")
+        values["expires_at"] = timezone.now() + timedelta(seconds=ttl)
+        for name, value in values.items():
+            setattr(row, name, value)
+        row.save(update_fields=list(values))
+        return row
+
     @pytest.mark.postgres
     def test_native_token_url_is_encrypted_at_rest(self):
         from django.db import connection
 
         marker = "SYNTHETIC_GUACAMOLE_SECRET_MARKER"
-        row = _make(result_url=f"https://example.test/#/client/example?token={marker}")
+        row = self._make(result_url=f"https://example.test/#/client/example?token={marker}")
         with connection.cursor() as cursor:
-            cursor.execute("SELECT result_url FROM mission_control_guacamolebootstraprequest WHERE id = %s", [row.id])
+            stored_id = row._meta.pk.get_db_prep_value(row.pk, connection)
+            cursor.execute(
+                "SELECT result_url FROM mission_control_guacamolebootstraprequest WHERE id = %s", [stored_id]
+            )
             assert marker not in str(cursor.fetchone())
         row.refresh_from_db()
         assert marker in row.result_url
 
     def test_delivers_once_and_clears(self):
-        row = _make(result_url="https://guac/token")
+        row = self._make(result_url="https://guac/token")
 
-        url = consume_ready_url(request_id=row.id, user_id=row.user_id)
+        url = consume_ready_url(request_id=row.id, credential=self.fixture.credential)
 
         assert url == "https://guac/token"
         row.refresh_from_db()
@@ -69,29 +86,29 @@ class TestConsumeReadyUrl:
         assert row.delivered_at is not None
 
     def test_second_consume_returns_none(self):
-        row = _make(result_url="https://guac/token")
+        row = self._make(result_url="https://guac/token")
 
-        assert consume_ready_url(request_id=row.id, user_id=row.user_id) == "https://guac/token"
-        assert consume_ready_url(request_id=row.id, user_id=row.user_id) is None
+        assert consume_ready_url(request_id=row.id, credential=self.fixture.credential) == "https://guac/token"
+        assert consume_ready_url(request_id=row.id, credential=self.fixture.credential) is None
 
-    def test_wrong_user_is_not_delivered(self):
-        row = _make(result_url="https://guac/token", user_id=1)
+    def test_legacy_user_id_is_not_delivered(self):
+        row = self._make(result_url="https://guac/token")
 
         assert consume_ready_url(request_id=row.id, user_id=2) is None
         row.refresh_from_db()
         assert row.result_url == "https://guac/token"
 
     def test_expired_returns_none_and_clears_parked_token(self):
-        row = _make(result_url="https://guac/token", ttl_seconds=-1)
+        row = self._make(result_url="https://guac/token", ttl_seconds=-1)
 
-        assert consume_ready_url(request_id=row.id, user_id=row.user_id) is None
+        assert consume_ready_url(request_id=row.id, credential=self.fixture.credential) is None
         row.refresh_from_db()
         assert row.result_url == ""
 
     def test_not_succeeded_is_not_delivered(self):
-        row = _make(status=GuacamoleBootstrapRequest.Status.PENDING)
+        row = self._make(status=GuacamoleBootstrapRequest.Status.PENDING)
 
-        assert consume_ready_url(request_id=row.id, user_id=row.user_id) is None
+        assert consume_ready_url(request_id=row.id, credential=self.fixture.credential) is None
 
 
 class TestPruneExpiredBootstrapRequests:

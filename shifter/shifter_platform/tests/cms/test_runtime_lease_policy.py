@@ -31,6 +31,28 @@ def admin():
     return User.objects.create_superuser(username="lease-admin", email="lease-admin@example.com", password="pw")
 
 
+@pytest.fixture(autouse=True)
+def _lease_administration_policy(monkeypatch, admin):
+    """Retain the historical behavior matrix through explicit policy decisions."""
+    from types import SimpleNamespace
+
+    from shared.authorization import AuthorizationDecision, DecisionKind
+
+    principal_uuid = admin.identity_principal.uuid
+
+    def check(request):
+        allowed = request.principal.uuid == principal_uuid
+        return AuthorizationDecision(
+            DecisionKind.ALLOWED if allowed else DecisionKind.DENIED,
+            "policy_allowed" if allowed else "policy_denied",
+        )
+
+    monkeypatch.setattr(
+        "cms.services._range_lease_policy_support.configured_authorization_provider",
+        lambda: SimpleNamespace(check=check),
+    )
+
+
 @pytest.fixture
 def owner():
     return User.objects.create_user(username="lease-owner", email="lease-owner@example.com")

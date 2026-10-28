@@ -161,7 +161,7 @@ class TaskRunNowView(APIView):
     @extend_schema(request=None, responses=ScheduledTaskSerializer)
     def post(self, request: Request, event_id: UUID, task_id: UUID) -> Response:
         """Reschedule the task to now; the scheduler executes it on its next poll."""
-        from ctf.exceptions import CTFNotFoundError, CTFStateError
+        from ctf.exceptions import CTFCommunicationError, CTFNotFoundError, CTFStateError
         from ctf.services.event.scheduling import run_task_now
         from shared.api_tokens.models import ApiToken
 
@@ -176,6 +176,10 @@ class TaskRunNowView(APIView):
                 task = run_task_now(event_id, task_id, actor_id=_credential(request), actor_token_id=actor_token_id)
             except CTFNotFoundError:
                 _raise_not_found("Scheduled task not found.")
+            except CTFCommunicationError as exc:
+                from ctf.api._base import ctf_error_response
+
+                return ctf_error_response(request, exc)
             except CTFStateError:
                 _raise_conflict("Only pending tasks can be run now.")
             return Response(_task_payload(task))

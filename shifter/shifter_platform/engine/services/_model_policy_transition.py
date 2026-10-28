@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
 
 from shared.model_access import ContractError
+
+if TYPE_CHECKING:
+    from shared.credentials import CredentialContext
+
+    from ._range_authority import RangeAuthorityProjection
 
 _RANGE_UNAVAILABLE = "source.range_unavailable"
 
@@ -75,7 +81,14 @@ def admit_range_model_policy_change(*, request_id: UUID, expected_revision: int)
         return tuple(allocation.pk for allocation in allocations)
 
 
-def revoke_range_model_access(*, request_id: UUID, actor_principal_uuid: UUID) -> int:
+def revoke_range_model_access(
+    *,
+    request_id: UUID,
+    credential: CredentialContext,
+    expected_range: RangeAuthorityProjection,
+    expected_operation_id: UUID | None,
+    expected_policy_revision: int,
+) -> int:
     """Fence a range's current model grants and dispatch leases (M09, #2126).
 
     CMS authorizes the range administrator; this transactionally revokes the
@@ -86,22 +99,34 @@ def revoke_range_model_access(*, request_id: UUID, actor_principal_uuid: UUID) -
     """
     from engine.models import Range
     from engine.services._model_allocation_lifecycle import revoke_model_generation
-    from shared.audit import AuditActorType, AuditEvent, audit_log
+    from shared.audit import AuditAction, AuditActorType, AuditEvent, audit_log
+    from shared.credentials import resolve_local_credential
+
+    from ._range_authority import project_range_authority
 
     with transaction.atomic():
         row = Range.objects.select_for_update().filter(request__request_id=request_id).first()
         if row is None or row.provisioner_operation_id is None:
+            raise ContractError(_RANGE_UNAVAILABLE)
+        if (
+            expected_range.request_uuid != request_id
+            or project_range_authority(request_id) != expected_range
+            or row.provisioner_operation_id != expected_operation_id
+            or row.model_source_policy_revision != expected_policy_revision
+            or resolve_local_credential(credential) != credential
+        ):
             raise ContractError(_RANGE_UNAVAILABLE)
         fenced = revoke_model_generation(row.uuid, operation_id=row.provisioner_operation_id)
         audit_log(
             AuditEvent(
                 entity_type="range",
                 entity_id=row.pk,
-                action="model_access_revoke",
+                action=AuditAction.UPDATE,
                 actor_type=AuditActorType.PRINCIPAL,
                 actor_id=None,
-                actor_principal_uuid=actor_principal_uuid,
+                actor_principal_uuid=credential.principal.uuid,
                 context=f"model access revoked authorities={fenced}",
+                new_state={"model_grants_fenced": fenced},
             ),
             strict=True,
         )

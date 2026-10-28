@@ -11,6 +11,7 @@ from shared.authorization import AuthorizationDecision, CredentialCeiling, Decis
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.models import AuditLog
+from tests._credential_helpers import persisted_credential
 from workspaces import services
 from workspaces.models import Organization, Workspace, WorkspaceMembership
 
@@ -32,12 +33,14 @@ class Provider:
 
 def _actor():
     principal = Principal.objects.create(kind="service", name="Administrator")
-    return CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"workspace.update", "workspace.archive", "workspace.restore"})),
-        frozenset(),
+    return persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"workspace.update", "workspace.archive", "workspace.restore"})),
+            frozenset(),
+        )
     )
 
 
@@ -119,12 +122,14 @@ def test_integer_owner_bridge_changes_principal_facts_without_role_grants():
     WorkspaceMembership.objects.create(workspace=workspace, user=source, role="owner")
     WorkspaceMembership.objects.create(workspace=workspace, user=target, role="admin")
     actor = _actor()
-    actor = CredentialContext(
-        actor.principal,
-        actor.kind,
-        actor.credential_uuid,
-        CredentialCeiling(frozenset({"workspace.transfer"})),
-        actor.scopes,
+    actor = persisted_credential(
+        CredentialContext(
+            actor.principal,
+            actor.kind,
+            actor.credential_uuid,
+            CredentialCeiling(frozenset({"workspace.transfer"})),
+            actor.scopes,
+        )
     )
     from workspaces.models import WorkspaceOwnership
 
@@ -155,12 +160,14 @@ def test_service_admin_transfer_requires_policy_and_existing_target_membership()
     target = get_user_model().objects.create_user(username=f"target-{uuid4()}")
     WorkspaceMembership.objects.create(workspace=workspace, user=source, role="owner")
     actor = _actor()
-    actor = CredentialContext(
-        actor.principal,
-        actor.kind,
-        actor.credential_uuid,
-        CredentialCeiling(frozenset({"workspace.transfer"})),
-        actor.scopes,
+    actor = persisted_credential(
+        CredentialContext(
+            actor.principal,
+            actor.kind,
+            actor.credential_uuid,
+            CredentialCeiling(frozenset({"workspace.transfer"})),
+            actor.scopes,
+        )
     )
 
     with pytest.raises(services.AccountScopeError):

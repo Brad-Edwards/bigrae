@@ -17,7 +17,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
-from management.policy import require_principal_administration
+from management.policy import fence_principal_administration, require_principal_administration
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, RequestAudit, audit_log
 from shared.authorization import AuthorizationProvider
 from shared.credentials import CredentialContext
@@ -74,7 +74,7 @@ def update_policy_user_metadata(
     audit: RequestAudit | None = None,
 ) -> User:
     """Preserve validated contact/display edits without touching identity or authority."""
-    require_principal_administration(actor, provider)
+    actor = require_principal_administration(actor, provider)
     if not changes or not set(changes) <= {"username", "email", "first_name", "last_name"}:
         raise ValueError(_INVALID_METADATA)
     attribution = audit or RequestAudit()
@@ -83,6 +83,7 @@ def update_policy_user_metadata(
         from management.models import UserProfile
 
         profile = UserProfile.objects.select_for_update().filter(user=user).first()
+        fence_principal_administration(actor)
         if profile is not None and (profile.is_ctf_account or profile.deleted_at or profile.anonymized_at):
             raise ValueError("User metadata unavailable")
         _require_recovery_email_owner(actor, user, changes)
@@ -186,7 +187,7 @@ def list_policy_admin_users(
     include_deleted: bool = False,
 ) -> QuerySet[User]:
     """Authorize the global identity list before count, filtering, or paging."""
-    require_principal_administration(actor, provider)
+    actor = require_principal_administration(actor, provider)
     return list_admin_users(
         search=search,
         user_type=user_type,

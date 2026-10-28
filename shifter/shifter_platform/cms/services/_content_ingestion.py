@@ -7,9 +7,9 @@ nothing here branches on how the operator obtained the pack.
 
 The boundary:
 
-- **authorizes who may register** content via the canonical CMS authoring gate,
-  and never adds an entitlement / acquisition / source-identity check after it
-  (entitlement is resolved out-of-band, per ADR-034);
+- **authorizes the registration scope and reference custody** through current
+  native policy and exact server records; generic references require separate
+  installation content authority. Entitlement is resolved out-of-band (ADR-034);
 - **validates the incoming pack as foreign input** (``cms.scenarios.pack_validation``)
   so broken / malformed / non-conformant content is rejected fail-closed;
 - **fails closed on duplicate RAES identities**;
@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -51,6 +51,12 @@ from shared.credentials import CredentialContext
 from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 from shared.schemas.raes_package_source import RaesPackageSourceError
+
+from ._pack_registration_custody import (
+    RegistrationReferenceAdmission,
+    fence_registration_reference,
+    prepare_registration_reference,
+)
 
 if TYPE_CHECKING:
     from typing import Any
@@ -115,11 +121,38 @@ class RegisteredPack:
     created: bool
 
 
+@dataclass(frozen=True, slots=True)
+class PackRegistrationAdmission:
+    credential: CredentialContext
+    scope: ResourceScope
+    request_digest: str
+    reference: RegistrationReferenceAdmission
+
+
+def _registration_digest(request: PackRegistrationRequest) -> str:
+    from shared.operation_envelope import canonical_payload_digest
+
+    return canonical_payload_digest(asdict(request))
+
+
+def prepare_pack_registration(
+    credential: CredentialContext, request: PackRegistrationRequest, scope: ResourceScope, *, _upload_journal=None
+):
+    """Admit exact already-validated registration inputs before an enclosing aggregate write."""
+    from ._content_authority import require_content_scope
+
+    current = require_content_scope(credential, scope, "manage_content")
+    _authorize_registration(current, request, scope.organization_uuid, scope)
+    reference = prepare_registration_reference(current, request, scope, _upload_journal)
+    return PackRegistrationAdmission(current, scope, _registration_digest(request), reference)
+
+
 def _authorize_registration(
     user: User | CredentialContext,
     request: PackRegistrationRequest,
     organization_uuid: UUID | None,
     scope: ResourceScope | None = None,
+    prepared: PackRegistrationAdmission | None = None,
 ) -> UUID | None:
     """Authorize the ingestion scope and validate caller-supplied revision identity."""
     if isinstance(user, CredentialContext):
@@ -127,7 +160,14 @@ def _authorize_registration(
 
         if scope is None:
             raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
-        require_content_scope(user, scope, "manage_content")
+        if prepared is None:
+            require_content_scope(user, scope, "manage_content")
+        elif (
+            prepared.credential != user
+            or prepared.scope != scope
+            or prepared.request_digest != _registration_digest(request)
+        ):
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         if organization_uuid is not None and organization_uuid != scope.organization_uuid:
             raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         organization_uuid = scope.organization_uuid
@@ -152,6 +192,7 @@ def register_pack(
     idempotent: bool = False,
     organization_uuid: UUID | None = None,
     scope: ResourceScope | None = None,
+    _prepared_admission: PackRegistrationAdmission | None = None,
 ) -> RegisteredPack:
     """Register a pack through the single uniform ingestion boundary.
 
@@ -173,7 +214,12 @@ def register_pack(
             scenario_id that does not match the pack's validated identity, or an
             invalid reference record.
     """
-    organization_uuid = _authorize_registration(user, request, organization_uuid, scope)
+    if isinstance(user, CredentialContext) and _prepared_admission is None:
+        if scope is None:
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
+        _prepared_admission = prepare_pack_registration(user, request, scope)
+        user = _prepared_admission.credential
+    organization_uuid = _authorize_registration(user, request, organization_uuid, scope, _prepared_admission)
     custody = {}
     if isinstance(user, CredentialContext):
         from ._content_authority import content_scope_fields
@@ -186,16 +232,24 @@ def register_pack(
         if not _registration_scope_matches(existing, organization_uuid, scope):
             raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         return _existing_registration(
-            existing, user, request, request_id=request_id, idempotent=idempotent, scope=scope
+            existing,
+            user,
+            request,
+            request_id=request_id,
+            idempotent=idempotent,
+            scope=scope,
+            prepared=_prepared_admission,
         )
     if request.expected_package_digest:
         raise CMSError("Pack revision conflicts with the current immutable identity")
     _bind_scenario_id_to_pack_identity(request)
     if isinstance(user, CredentialContext):
-        _authorize_registration(user, request, organization_uuid, scope)
+        _authorize_registration(user, request, organization_uuid, scope, _prepared_admission)
 
     try:
         with transaction.atomic():
+            _fence_registration_credential(user)
+            _fence_registration_reference(user, request, scope, _prepared_admission)
             row = RaesPackageSource.objects.create(
                 scenario_id=request.scenario_id,
                 **(custody or {"organization_uuid": organization_uuid}),
@@ -223,7 +277,9 @@ def register_pack(
         # Reference-shape violation from the model's provenance-only validator.
         raise CMSError("Invalid pack reference") from exc
     except IntegrityError as exc:
-        return _registration_race(request, organization_uuid, idempotent, exc, scope=scope)
+        return _registration_race(
+            request, organization_uuid, idempotent, exc, scope=scope, user=user, prepared=_prepared_admission
+        )
 
     logger.info(
         "register_pack: registered scenario_id=%s source_kind=%s",
@@ -249,12 +305,17 @@ def _registration_race(
     exc: IntegrityError,
     *,
     scope: ResourceScope | None = None,
+    user=None,
+    prepared=None,
 ) -> RegisteredPack:
     """Reuse only an identical concurrent winner in the same organization scope."""
     if idempotent:
-        raced = RaesPackageSource.objects.filter(scenario_id=request.scenario_id).first()
-        if raced is not None and _registration_scope_matches(raced, organization_uuid, scope):
-            return _reuse_existing(raced, request, idempotent=True)
+        with transaction.atomic():
+            _fence_registration_scope(user, scope)
+            raced = RaesPackageSource.objects.select_for_update().filter(scenario_id=request.scenario_id).first()
+            _fence_registration_reference(user, request, scope, prepared)
+            if raced is not None and _registration_scope_matches(raced, organization_uuid, scope):
+                return _reuse_existing(raced, request, idempotent=True)
     raise CMSError(f"A pack with id '{request.scenario_id}' is already registered") from exc
 
 
@@ -266,11 +327,36 @@ def _existing_registration(
     request_id: str,
     idempotent: bool,
     scope: ResourceScope | None = None,
+    prepared: PackRegistrationAdmission | None = None,
 ) -> RegisteredPack:
     """Handle existing registration."""
     if request.expected_package_digest:
-        return _replace_existing(user, request, request_id=request_id, idempotent=idempotent, scope=scope)
-    return _reuse_existing(existing, request, idempotent=idempotent)
+        return _replace_existing(
+            user, request, request_id=request_id, idempotent=idempotent, scope=scope, prepared=prepared
+        )
+    with transaction.atomic():
+        _fence_registration_scope(user, scope)
+        row = RaesPackageSource.objects.select_for_update().filter(pk=existing.pk).first()
+        if row is None:
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
+        _fence_registration_reference(user, request, scope, prepared)
+        if not _registration_scope_matches(row, existing.organization_uuid, scope):
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
+        return _reuse_existing(row, request, idempotent=idempotent)
+
+
+def _fence_registration_reference(user, request, scope, prepared):
+    if isinstance(user, CredentialContext):
+        if prepared is None or scope is None:
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
+        fence_registration_reference(user, request, scope, prepared.reference)
+
+
+def _fence_registration_scope(user, scope):
+    if isinstance(user, CredentialContext):
+        from ._content_authority import fence_content_scope
+
+        fence_content_scope(user, scope)
 
 
 _IDENTITY_FIELDS = (
@@ -302,6 +388,7 @@ def _replace_existing(
     request_id: str,
     idempotent: bool,
     scope: ResourceScope | None = None,
+    prepared: PackRegistrationAdmission | None = None,
 ) -> RegisteredPack:
     """Admit an explicit new version while preserving prior reference evidence.
 
@@ -313,9 +400,14 @@ def _replace_existing(
     if isinstance(user, CredentialContext):
         if scope is None:
             raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
-        _authorize_registration(user, request, scope.organization_uuid, scope)
+        _authorize_registration(user, request, scope.organization_uuid, scope, prepared)
     with transaction.atomic():
-        row = RaesPackageSource.objects.select_for_update().get(scenario_id=request.scenario_id)
+        _fence_registration_scope(user, scope)
+        row = RaesPackageSource.objects.select_for_update().filter(scenario_id=request.scenario_id).first()
+        if row is None:
+            raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
+        _fence_registration_credential(user)
+        _fence_registration_reference(user, request, scope, prepared)
         if not _registration_scope_matches(row, scope.organization_uuid if scope else row.organization_uuid, scope):
             raise CMSError(_PACK_REGISTRATION_IS_UNAVAILABLE)
         if _identity(row) == _identity(request):
@@ -464,6 +556,20 @@ def _registration_actor(user: User | CredentialContext) -> dict[str, Any]:
     if isinstance(user, CredentialContext):
         return dict(principal_actor_fields(user.principal))
     return {"actor_type": AuditActorType.USER, "actor_id": getattr(user, "id", None)}
+
+
+def _fence_registration_credential(user: User | CredentialContext) -> None:
+    """A native registration admission cannot survive local proof revocation."""
+    if isinstance(user, CredentialContext):
+        from shared.credentials import resolve_local_credential
+
+        from ._content_authority import ContentAuthorityError
+
+        try:
+            if resolve_local_credential(user) != user:
+                raise ValueError("Registration proof changed")
+        except ValueError:
+            raise ContentAuthorityError(_PACK_REGISTRATION_IS_UNAVAILABLE) from None
 
 
 def _registration_scope_matches(

@@ -117,3 +117,109 @@ it("lets a personal-account owner reach another authorized business account", as
   await user.click(screen.getByRole("button", { name: "Other accounts" }));
   expect(await screen.findByRole("button", { name: "Business" })).toBeInTheDocument();
 });
+
+it.each(["organization", "workspace"])("opens a directly granted %s without selecting its parent account", async kind => {
+  const scope = { kind, uuid: "descendant", name: "Directly granted scope", account_uuid: "parent", organization_uuid: "division", is_default: false };
+  mockApi.mockImplementation((path, options) => {
+    if (path === "/accounts/context/") return Promise.resolve({ principal_uuid: "principal", individual_account: null, accounts: { count: 0, results: [] }, installation_actions: [], has_descendant_scopes: true });
+    if (path === "/administer/scopes/") return Promise.resolve({ count: options?.query?.kind === kind ? 1 : 0, results: options?.query?.kind === kind ? [scope] : [] });
+    if (path === "/accounts/parent/organizations/descendant/") return Promise.resolve({ name: scope.name, description: "", support_email: "", support_url: "" });
+    if (path === "/accounts/parent/organizations/division/workspaces/descendant/") return Promise.resolve({ ...scope, archived_at: null, owner_principal_uuids: [], egress_policy: "none" });
+    return Promise.resolve({ count: 0, results: [] });
+  });
+  const { AccountAdministrationEntry } = await import("./AccountAdministrationPage");
+  const user = setupUser(); renderRoute(<AccountAdministrationEntry />);
+  await user.selectOptions(await screen.findByLabelText("Scope type"), kind);
+  await user.click(await screen.findByRole("button", { name: scope.name }));
+  const expected = kind === "organization" ? "/accounts/parent/organizations/descendant/" : "/accounts/parent/organizations/division/workspaces/descendant/";
+  await waitFor(() => expect(mockApi).toHaveBeenCalledWith(expected, expect.anything()));
+  expect(mockApi.mock.calls.some(([path]) => path === "/accounts/parent/")).toBe(false);
+});
+
+it("retains a pending creation receipt and retries the same declaration", async () => {
+  mockApi.mockImplementation((path, options) => {
+    if (path === "/accounts/" && options?.method === "POST") {
+      return Promise.resolve(options.body && typeof options.body === "object" && "publication_receipt" in options.body
+        ? { ...account, kind: "team" } : { uuid: account.uuid, publication_receipt: "receipt-one", publication_state: "pending" });
+    }
+    return Promise.resolve({ count: 0, results: [] });
+  });
+  const user = setupUser(); renderRoute(<AccountAdministrationPage />);
+  await user.type(screen.getByLabelText("New account name"), "New team");
+  await user.click(screen.getByRole("button", { name: "Create account" }));
+  await user.click(await screen.findByRole("button", { name: "Retry access setup" }));
+  await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/accounts/", expect.objectContaining({ method: "POST", body: { kind: "team", name: "New team", publication_receipt: "receipt-one" } })));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Retry access setup" })).not.toBeInTheDocument());
+});
+
+
+it("keeps the receipt available when a publication retry fails", async () => {
+  let posts = 0;
+  mockApi.mockImplementation((path, options) => {
+    if (path === "/accounts/" && options?.method === "POST") {
+      posts += 1;
+      if (posts === 1) return Promise.resolve({ uuid: account.uuid, publication_receipt: "retained", publication_state: "pending" });
+      if (posts === 2) return Promise.reject(new ApiError(503, { code: "unavailable", message: "Try again" }));
+      return Promise.resolve({ ...account, kind: "team" });
+    }
+    return Promise.resolve({ count: 0, results: [] });
+  });
+  const user = setupUser(); renderRoute(<AccountAdministrationPage />);
+  await user.type(screen.getByLabelText("New account name"), "New team");
+  await user.click(screen.getByRole("button", { name: "Create account" }));
+  await user.click(await screen.findByRole("button", { name: "Retry access setup" }));
+  await screen.findByText("Try again");
+  expect(screen.getByRole("button", { name: "Create account" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Retry access setup" }));
+  await waitFor(() => expect(posts).toBe(3));
+  const bodies = mockApi.mock.calls.filter(([, options]) => options?.method === "POST").map(([, options]) => options?.body);
+  expect(bodies[1]).toEqual({ name: "New team", kind: "team", publication_receipt: "retained" });
+  expect(bodies[2]).toEqual(bodies[1]);
+});
+
+function directlyGrantedOrganizations() {
+  const organizations = ["Alpha", "Beta"].map((name, index) => ({
+    kind: "organization", uuid: `org-${index}`, name,
+    account_uuid: "parent", organization_uuid: `org-${index}`, is_default: false,
+  }));
+  mockApi.mockImplementation((path, options) => {
+    if (path === "/accounts/context/") return Promise.resolve({ principal_uuid: "principal", individual_account: null, accounts: { count: 0, results: [] }, installation_actions: [], has_descendant_scopes: true });
+    if (path === "/administer/scopes/") return Promise.resolve({ count: 2, results: organizations });
+    if (path.endsWith("/workspaces/") && options?.method === "POST") return Promise.resolve({ uuid: "accepted-workspace", publication_receipt: "alpha-receipt", publication_state: "pending" });
+    if (path.endsWith("/memberships/")) return Promise.resolve({ count: 1, results: [{ principal_uuid: "alpha-member" }] });
+    if (path.endsWith("/org-0/") || path.endsWith("/org-1/")) return Promise.resolve({ name: "Division", description: "", support_email: "", support_url: "" });
+    return Promise.resolve({ count: 0, results: [] });
+  });
+}
+
+it("binds pending workspace retries to their original organization and clears them on selection change", async () => {
+  directlyGrantedOrganizations();
+  const { AccountAdministrationEntry } = await import("./AccountAdministrationPage");
+  const user = setupUser(); renderRoute(<AccountAdministrationEntry />);
+  await user.click(await screen.findByRole("button", { name: "Alpha" }));
+  await user.type(await screen.findByLabelText("New workspace name"), "Alpha workspace");
+  await user.click(screen.getByRole("button", { name: "Create workspace" }));
+  await user.click(await screen.findByRole("button", { name: "Retry access setup" }));
+  await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/accounts/parent/organizations/org-0/workspaces/", expect.objectContaining({ method: "POST", body: { name: "Alpha workspace", publication_receipt: "alpha-receipt" } })));
+  await user.click(screen.getByRole("button", { name: "Beta" }));
+  expect(screen.queryByRole("button", { name: "Retry access setup" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("New workspace name")).toHaveValue("");
+  await user.type(screen.getByLabelText("New workspace name"), "Beta workspace");
+  await user.click(screen.getByRole("button", { name: "Create workspace" }));
+  await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/accounts/parent/organizations/org-1/workspaces/", expect.objectContaining({ method: "POST", body: { name: "Beta workspace" } })));
+  expect(mockApi.mock.calls.filter(([path, options]) => path.includes("org-1") && options?.method === "POST").every(([, options]) => !Object.hasOwn(options?.body ?? {}, "publication_receipt"))).toBe(true);
+});
+
+it("does not carry a membership removal confirmation to another directly granted organization", async () => {
+  directlyGrantedOrganizations();
+  const { AccountAdministrationEntry } = await import("./AccountAdministrationPage");
+  const user = setupUser(); renderRoute(<AccountAdministrationEntry />);
+  await user.click(await screen.findByRole("button", { name: "Alpha" }));
+  await user.click(screen.getByRole("tab", { name: "Members" }));
+  await user.click(await screen.findByRole("button", { name: "alpha-member" }));
+  expect(screen.getByRole("button", { name: "Confirm removal" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Beta" }));
+  await user.click(screen.getByRole("tab", { name: "Members" }));
+  expect(screen.queryByRole("button", { name: "Confirm removal" })).not.toBeInTheDocument();
+  expect(mockApi.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false);
+});

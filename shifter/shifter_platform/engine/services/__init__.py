@@ -30,11 +30,17 @@ from ._cleanup_outcome import (
 from ._cleanup_verification import (
     CleanupVerificationView,
     is_cleanup_verified_absent,
+    is_range_generation_cleanup_verified_absent,
     latest_cleanup_verification,
     record_cleanup_verification,
 )
 from ._common import EngineError
-from ._device_authority import admit_native_device_access, prepare_ngfw_creation, verified_device_status_projection
+from ._device_authority import (
+    admit_native_device_access,
+    lock_native_device_access_binding,
+    prepare_ngfw_creation,
+    verified_device_status_projection,
+)
 from ._feature_artifact_launcher import default_storage_target, reconcile_feature_artifact_acquisitions
 from ._feature_artifacts import (
     ArtifactRequest,
@@ -181,6 +187,7 @@ from ._range import (
 )
 from ._range_authority import RangeAuthorityProjection as RangeAuthorityProjection
 from ._range_authority import has_range_runtime as has_range_runtime
+from ._range_authority import lock_range_remote_authority as lock_range_remote_authority
 from ._range_authority import native_range_id_by_request as native_range_id_by_request
 from ._range_authority import project_range_authority as project_range_authority
 from ._range_by_request import (
@@ -206,10 +213,13 @@ from ._receipt import (
     revoke_receipt_verifier,
 )
 from ._runtime_plugin_bindings import (
+    RuntimePluginBindingRemovalAdmission,
     RuntimePluginPackView,
     bind_runtime_plugin,
     has_runtime_plugin_binding,
     list_runtime_plugin_bindings,
+    prepare_runtime_plugin_binding,
+    prepare_runtime_plugin_pack_binding_removal,
     remove_runtime_plugin_pack_binding,
 )
 from ._runtime_plugin_controller import reconcile_runtime_plugins
@@ -261,13 +271,16 @@ from ._vpn_sessions import (
 )
 from ._warm_pool import (
     WarmGenerationDraft,
+    abandon_warm_preparation,
     active_generation_count,
     admit_warm_generation_capacity,
     bucket_state_counts,
     claim_ready_generation,
     create_warm_generation,
+    enqueue_admitted_warm_activation,
     enqueue_range_activation,
     finalize_retiring_generations,
+    preview_ready_generation,
     ready_generations,
     recover_stalled_generations,
     release_warm_generation_capacity,
@@ -277,6 +290,8 @@ from ._warm_pool import (
     total_active_generation_count,
     warm_capacity_scope_ref,
 )
+from ._warm_pool_admission import reserve_warm_generation
+from ._warm_pool_sweep import WarmRecoveryProgress, reconcile_retained_warm_generations
 
 
 def reconcile_model_allocations(*, now: datetime | None = None, limit: int = 100) -> int:
@@ -327,6 +342,7 @@ __all__ = (
     "ReservationOutcome",
     "RetryBindingResult",
     "RetryKeyConflict",
+    "RuntimePluginBindingRemovalAdmission",
     "RuntimePluginPackView",
     "SSHConnection",
     "SecretsError",
@@ -339,6 +355,8 @@ __all__ = (
     "VpnSessionDenied",
     "VpnSessionGrant",
     "WarmGenerationDraft",
+    "WarmRecoveryProgress",
+    "abandon_warm_preparation",
     "activate_preparation_grant",
     "active_generation_count",
     "admit_native_device_access",
@@ -389,6 +407,7 @@ __all__ = (
     "dispatch_prepared_range_resume",
     "drain_sharing_binding",
     "end_vpn_session",
+    "enqueue_admitted_warm_activation",
     "enqueue_range_activation",
     "evaluate_operation_result",
     "exchange_model_enrollment",
@@ -425,6 +444,7 @@ __all__ = (
     "install_runtime_plugin",
     "invalidate_sharing_authority",
     "is_cleanup_verified_absent",
+    "is_range_generation_cleanup_verified_absent",
     "issue_model_enrollment",
     "latest_capacity_declaration",
     "latest_cleanup_verification",
@@ -437,6 +457,7 @@ __all__ = (
     "list_raes_image_mappings",
     "list_runtime_plugin_bindings",
     "list_runtime_plugins",
+    "lock_native_device_access_binding",
     "lookup_public_operation",
     "model_source_execution",
     "open_dispatch",
@@ -446,8 +467,11 @@ __all__ = (
     "prepare_ngfw_creation",
     "prepare_ngfw_lifecycle",
     "prepare_raes_range_creation",
+    "prepare_runtime_plugin_binding",
+    "prepare_runtime_plugin_pack_binding_removal",
     "prepare_warm_range_claim",
     "preview_effective_policy",
+    "preview_ready_generation",
     "project_authorized_model_sources",
     "project_model_launch_authority",
     "project_raes_operation_status",
@@ -471,6 +495,7 @@ __all__ = (
     "reconcile_model_allocations",
     "reconcile_model_requests",
     "reconcile_preparations",
+    "reconcile_retained_warm_generations",
     "reconcile_runtime_plugin_operations",
     "reconcile_runtime_plugins",
     "record_capacity_declaration",
@@ -495,6 +520,7 @@ __all__ = (
     "reserve_model_call",
     "reserve_request",
     "reserve_subnet_cidrs",
+    "reserve_warm_generation",
     "resolve_model_access_range_page",
     "resolve_model_access_range_reference",
     "resolve_model_access_range_views",

@@ -232,7 +232,7 @@ class TestForceDeleteEvent:
         from ctf.models import CTFEvent, CTFParticipant
         from ctf.services.event import force_delete_event
 
-        monkeypatch.setattr("ctf.bridges.cms_destroy_range", lambda credential, event_id, range_instance_id: None)
+        monkeypatch.setattr("ctf.bridges.cms_destroy_event_range", lambda credential, event_id, range_instance_id: None)
         CTFParticipant.objects.create(
             event=ctf_event,
             user=organizer_user,
@@ -329,11 +329,11 @@ class TestForceDeleteEvent:
     def test_force_delete_range_cleanup_partial_failure(
         self, ctf_event, organizer_user, organizer_credential, participant_user, monkeypatch
     ):
-        """force_delete_event proceeds and tallies dispatched vs failed when a destroy fails.
+        """A failed cleanup dispatch preserves the event and its remaining cleanup owners.
 
         DB-backed: one range dispatches its destroy (counted), the other raises
         ``CMSError`` inside ``_destroy_single_range`` (counted as failed). The event
-        is still hard-deleted. Counts are dispatches, not verified destroys.
+        is retained. Counts are dispatches, not verified destroys.
         """
         from ctf.models import CTFEvent, CTFParticipant
         from ctf.services.event import force_delete_event
@@ -343,7 +343,7 @@ class TestForceDeleteEvent:
             if range_instance_id == 999999:
                 raise CMSError("no such range")
 
-        monkeypatch.setattr("ctf.bridges.cms_destroy_range", _destroy)
+        monkeypatch.setattr("ctf.bridges.cms_destroy_event_range", _destroy)
         CTFParticipant.objects.create(
             event=ctf_event,
             user=organizer_user,
@@ -364,22 +364,22 @@ class TestForceDeleteEvent:
             range_status="ready",
         )
 
-        result = force_delete_event(ctf_event.pk, organizer_credential, ctf_event.name)
+        from ctf.exceptions import CTFStateError
 
-        assert result["ranges_destroyed"] == 1  # dispatched
-        assert result["ranges_failed"] == 1
-        assert not CTFEvent.all_objects.filter(pk=ctf_event.pk).exists()
+        with pytest.raises(CTFStateError, match="cleanup is unavailable"):
+            force_delete_event(ctf_event.pk, organizer_credential, ctf_event.name)
+        assert CTFEvent.all_objects.filter(pk=ctf_event.pk).exists()
+        assert CTFParticipant.all_objects.filter(event=ctf_event).count() == 2
 
     def test_force_delete_range_cleanup_total_failure(
         self, ctf_event, organizer_user, participant_user, django_user_model
     ):
-        """force_delete_event hard-deletes even when EVERY range destroy fails.
+        """force_delete_event preserves records when every range cleanup fails.
 
         DB-backed: both participants point at nonexistent RangeInstances, so
         every ``_destroy_single_range`` raises ``CMSError`` (each counted
         failed) -- a real cross-domain failure, not a mocked one. The
-        failure-counting/continuation logic in the ``except`` block must still
-        complete the hard delete.
+        failure-counting logic must refuse the hard delete.
         """
         from ctf.models import CTFEvent, CTFParticipant
         from ctf.services.event import force_delete_event
@@ -406,11 +406,12 @@ class TestForceDeleteEvent:
             range_status="ready",
         )
 
-        result = force_delete_event(ctf_event.pk, organizer_user, ctf_event.name)
+        from ctf.exceptions import CTFStateError
 
-        assert result["ranges_destroyed"] == 0
-        assert result["ranges_failed"] == 2
-        assert not CTFEvent.all_objects.filter(pk=ctf_event.pk).exists()
+        with pytest.raises(CTFStateError, match="cleanup is unavailable"):
+            force_delete_event(ctf_event.pk, organizer_user, ctf_event.name)
+        assert CTFEvent.all_objects.filter(pk=ctf_event.pk).exists()
+        assert CTFParticipant.all_objects.filter(event=ctf_event).count() == 2
 
 
 class TestApiForceDeleteEvent:
@@ -431,11 +432,7 @@ class TestApiForceDeleteEvent:
         """POST with valid confirmation should return 200 and summary."""
         url = reverse("v1:ctf:api_force_delete_event", kwargs={"event_id": mock_event.pk})
 
-        with (
-            patch("ctf.models.CTFEvent.all_objects") as mock_all,
-            patch("ctf.services.force_delete_event") as mock_svc,
-        ):
-            mock_all.get.return_value = mock_event
+        with patch("ctf.services.force_delete_event") as mock_svc:
             mock_svc.return_value = {
                 "event_id": str(mock_event.pk),
                 "event_name": mock_event.name,
@@ -459,11 +456,7 @@ class TestApiForceDeleteEvent:
 
         url = reverse("v1:ctf:api_force_delete_event", kwargs={"event_id": mock_event.pk})
 
-        with (
-            patch("ctf.models.CTFEvent.all_objects") as mock_all,
-            patch("ctf.services.force_delete_event") as mock_svc,
-        ):
-            mock_all.get.return_value = mock_event
+        with patch("ctf.services.force_delete_event") as mock_svc:
             mock_svc.side_effect = CTFValidationError("does not match")
 
             resp = organizer_client.post(
@@ -478,14 +471,11 @@ class TestApiForceDeleteEvent:
         """POST without confirmation_name should return 400."""
         url = reverse("v1:ctf:api_force_delete_event", kwargs={"event_id": mock_event.pk})
 
-        with patch("ctf.models.CTFEvent.all_objects") as mock_all:
-            mock_all.get.return_value = mock_event
-
-            resp = organizer_client.post(
-                url,
-                data="{}",
-                content_type="application/json",
-            )
+        resp = organizer_client.post(
+            url,
+            data="{}",
+            content_type="application/json",
+        )
 
         assert resp.status_code == 400
         assert "confirmation_name" in resp.json()["error"]["message"]
@@ -540,3 +530,24 @@ class TestApiForceDeleteEvent:
             )
 
         assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_http_cleanup_failure_returns_503_and_preserves_the_event(
+    ctf_event, ctf_participant, authenticated_organizer_client
+):
+    from ctf.models import CTFEvent
+    from tests.ctf._api_flow_helpers import call_json
+
+    ctf_participant.range_instance_id = 999999
+    ctf_participant.save(update_fields=["range_instance_id"])
+    response = call_json(
+        authenticated_organizer_client,
+        "post",
+        "api_force_delete_event",
+        kwargs={"event_id": ctf_event.pk},
+        body={"confirmation_name": ctf_event.name},
+    )
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "event_cleanup_unavailable"
+    assert CTFEvent.all_objects.filter(pk=ctf_event.pk, deleted_at__isnull=False).exists()

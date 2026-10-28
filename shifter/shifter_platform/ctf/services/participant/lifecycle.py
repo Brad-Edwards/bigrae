@@ -77,7 +77,7 @@ def add_participant(
         from ctf.services.range import request_event_provisioning
 
         with suppress(CTFPermissionError):
-            request_event_provisioning(event.pk, source="participant_accounts", actor_id=actor)
+            request_event_provisioning(event.pk, source="participant_accounts", actor_id=actor, defer_if_busy=True)
             # A participant manager is not implicitly a range manager.
         # Lock the event so the capacity check and the insert cannot race past
         # max_participants under concurrent invites (#1145).

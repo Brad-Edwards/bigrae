@@ -27,12 +27,20 @@ def record_range_authority_change(
 
     if row.request is None:
         raise ValueError("Range custody unavailable")
+    if row.scope_kind == "installation":
+        if operation != "create":
+            raise ValueError("Installation custody change unavailable")
+        _record_warm_creation(row, credential)
+        return
     projection = project_range_authority(row.request.request_id)
     if not isinstance(row.resource_generation, UUID) or not row.resource_generation.int:
         raise ValueError("Range generation unavailable")
-    parent = scope_parent(projection.scope)
-    target = parent if operation == "scope" else TargetRef("range", row.cms_range_uuid)
-    action = f"{parent.type}.manage_range_scope" if operation == "scope" else "range.manage"
+    parent = projection.parent if operation == "create" else scope_parent(projection.scope)
+    target = parent if operation in {"create", "scope"} else TargetRef("range", row.cms_range_uuid)
+    if operation == "create":
+        action = "event.manage_ranges" if parent.type == "event" else f"{parent.type}.launch_range"
+    else:
+        action = f"{parent.type}.manage_range_scope" if operation == "scope" else "range.manage"
     RangeAuthorityChange.objects.create(
         range=row,
         request_uuid=row.request.request_id,
@@ -55,6 +63,51 @@ def record_range_authority_change(
         authority_resource_uuid=row.cms_range_uuid,
         authority_binding_digest=range_runtime_binding_digest(row),
     )
+
+
+def lock_warm_range_creation(request_id: UUID):
+    """Serialize creation with retirement before a native runtime can exist."""
+    from engine.models import WarmRangeGeneration
+
+    generation = WarmRangeGeneration.objects.select_for_update().get(request_id=request_id)
+    if (
+        generation.state != "provisioning"
+        or generation.claimed_by_request_id is not None
+        or generation.range_id is not None
+    ):
+        raise ValueError("Warm creation intent changed")
+    return generation
+
+
+def _record_warm_creation(row: Range, credential: CredentialContext) -> None:
+    from engine.models import RangeAuthorityChange, WarmRangeGeneration
+
+    from ._principal_range_create import _installation_creation_authority
+
+    if (
+        row.request is None
+        or credential.principal.kind != "service"
+        or row.resource_generation is None
+        or row.request.owner_principal_uuid != row.owner_principal_uuid
+        or row.user_id is not None
+        or row.workspace_id is not None
+        or row.event_uuid is not None
+    ):
+        raise ValueError("Warm creation custody unavailable")
+    generation = WarmRangeGeneration.objects.get(request_id=row.request.request_id, state="provisioning")
+    if generation.range_id is not None:
+        raise ValueError("Warm creation generation changed")
+    RangeAuthorityChange.objects.create(
+        range=row,
+        request_uuid=row.request.request_id,
+        resource="raes-range" if is_raes_provisioning_plan(row.range_config) else "range",
+        operation="create",
+        resource_generation=row.resource_generation,
+        previous_binding_digest="",
+        **_installation_creation_authority(credential, row),
+    )
+    generation.range = row
+    generation.save(update_fields=["range"])
 
 
 def cleanup_origin_record(identifier: UUID | None) -> ProvisionerLaunchIntent | RangeAuthorityChange | None:
@@ -83,7 +136,11 @@ def current_range_cleanup_origin(row: Range) -> ProvisionerLaunchIntent | RangeA
     digest = range_runtime_binding_digest(row)
     if current is not None and current.authority_kind == "cleanup":
         origin = cleanup_origin_record(current.cleanup_origin_operation_uuid)
-    elif current is not None and current.authority_kind == "principal" and current.authority_binding_digest == digest:
+    elif (
+        current is not None
+        and current.authority_kind in {"principal", "warm_pool"}
+        and current.authority_binding_digest == digest
+    ):
         origin = current
     else:
         origin = (

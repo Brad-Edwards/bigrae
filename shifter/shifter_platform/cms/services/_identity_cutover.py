@@ -74,10 +74,3 @@ def apply_identity_cutover_resources(
         RangeInstance._base_manager.filter(owner_principal_uuid__isnull=True, user_id=user_id).update(
             owner_principal_uuid=principal_uuid
         )
-
-
-def verify_identity_cutover_hierarchy(plan: Mapping[str, object]) -> None:
-    """Verify tenancy-owned hierarchy facts through the CMS control-plane seam."""
-    from workspaces.services import verify_identity_cutover_hierarchy as verify_workspace_hierarchy
-
-    verify_workspace_hierarchy(plan)

@@ -41,7 +41,7 @@ from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
-from mission_control.api.permissions import mission_control_actor_user
+from shared.api.principals import authenticated_credential
 from shared.rate_limit import consume_fixed_window
 
 logger = logging.getLogger(__name__)
@@ -81,13 +81,8 @@ class _LaunchRateThrottle(BaseThrottle):
         policy = self._active_policy(request)
         if policy is None:
             return True
-        actor = mission_control_actor_user(request)
-        if actor is None or actor.pk is None:
-            # Authentication and permission gates run before throttling and
-            # already reject an unauthenticated request; with no actor to key on
-            # there is nothing to charge.
-            return True
-        exceeded = self._charge(policy, actor.pk)
+        actor = authenticated_credential(request)
+        exceeded = self._charge(policy, actor.principal.uuid)
         self._wait_seconds = float(max(exceeded)) if exceeded else None
         return not exceeded
 

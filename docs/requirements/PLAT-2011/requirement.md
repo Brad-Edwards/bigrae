@@ -21,11 +21,20 @@ prepared without replacing production routes or legacy authority. The coordinate
 S8 activation in #2321 binds these paths and maps historical facts. Prepared
 Django-admin writes are disabled in favor of the canonical validated commands.
 
+ADR-066 S8 supersession: This delivery activates native principal authority and
+explicit resource ancestry across production paths. Cutover converts retained
+membership and resource facts through their owning domains. It verifies all
+legacy memberships, including those in already-bound organizations. Ambiguous
+custody or unsupported administrator roles block activation. This supersedes the
+S1 and S4 coexistence boundary above.
+
 ## Rationale
 
 The earlier per-user personal organization/workspace compatibility rule in ADR-046 cannot represent an individual without invented subdivisions. ADR-066 supersedes that rule while retaining the workspaces domain boundary, validated scalar references, and durable organization/workspace IDs. S1 adds the new schema, contracts, and mapping checks; S8 is the single production activation point for new authority and final scope enforcement.
 
 ## Traceability
+
+- DOCUMENTS → DOCUMENTATION `docs/technical/shifter_platform/identity-lifecycle-contracts.md` (Identity and lifecycle DFDs, state ownership, recovery and threat verification)
 
 - IMPLEMENTS → ADR `docs/adr/index.yaml` (ADR-046: organization/workspace tenancy is a domain boundary above range ownership)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/models/_organization.py` (Organization model)
@@ -107,3 +116,50 @@ The earlier per-user personal organization/workspace compatibility rule in ADR-0
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/config/management/commands/identity_cutover.py` (Deployment-owned S8 cutover command)
 - TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_identity_cutover.py` (Cutover blockers, idempotency, verification, and activation tests)
 - TESTS → TEST `shifter/shifter_platform/tests/config/test_identity_cutover_command.py` (Composed cutover command contract tests)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_hierarchy_publication.py` (Persisted parent-edge publication and bounded recovery)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/management/commands/reconcile_hierarchy_publications.py` (Operator recovery of interrupted hierarchy creation)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_prepared_admin_routes.py` (Mounted organization discovery and HTTP creation recovery)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services/_scoped_range_lifecycle.py` (Exact retained-event deletion authority and generation-bound native cleanup)
+- TESTS → TEST `shifter/shifter_platform/tests/cms/services/test_principal_range_lifecycle.py` (Cleanup ownership survives removal of the retained event aggregate)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_authorization_policy.py` (Readback of exact admitted mutations cannot create or replay a provider write)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/launch_intents.py` (Durable original launch proof and cancellation shared with CMS reservation and native creation)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/launch_cleanup.py` (Cleanup of interrupted launches before participant or spare association)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_content_scope_options.py` (Policy-filtered content ancestry discovery for native principals)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_range_launch_crash_recovery.py` (Process crashes, immutable intent, cancellation and PostgreSQL creator/cleanup races)
+- TESTS → TEST `shifter/shifter_platform/tests/mission_control/test_principal_guacamole.py` (Current proof, source custody and PostgreSQL transfer/handoff lock order)
+- TESTS → TEST `shifter/shifter_platform/tests/cms/test_content_scope_options_api.py` (Human and service content-only authority with exact ancestry and bounded paging)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services/_pack_registration_custody.py` (Exact server-recorded archive custody and installation authority before source registration)
+- IMPLEMENTS → CODE_FILE `scripts/gcp/enter_identity_maintenance.py` (Validated workload inventories and bounded termination before cutover)
+- TESTS → TEST `scripts/gcp/tests/test_enter_identity_maintenance.py` (Inventory failures, partial maintenance failures and old-process termination)
+- TESTS → TEST `shifter/shifter_platform/tests/cms/test_pack_registration_custody.py` (Human and service cross-tenant storage denial, upload lease custody and removal races)
+- TESTS → TEST `shifter/shifter_platform/tests/cms/test_range_model_sources_denial.py` (Canonical deny and policy-dependency outage responses)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_cancelled_launch_cleanup.py` (Absent reservations, verified cleanup, recovered generations and durable capacity release)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_spare_claim_cancellation.py` (Actual PostgreSQL cancellation, spare-claim and owner-transfer lock contention)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_spare_owner_drop_migration.py` (Pre-drop upgrade blocker preserves retained spare custody)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_organizer_direct_read_authority.py` (Native organizer deny and dependency failure behavior)
+- TESTS → TEST `shifter/shifter_platform/frontend/e2e/journeys/workspace-lifecycle.spec.ts` (Native workspace lifecycle against released OpenFGA and PostgreSQL)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_session_release.py` (Native service early release denial and due-time session contract)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_organizer_scenario_scope.py` (Explicit scoped replacement catalog discovery and bounded failures)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_recovery_verified_old_generation.py` (Verified native teardown before replacement repointing and crash recovery)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_retained_inactive_handoff.py` (Exact retained handoff settlement for inactive human and service recipients)
+- TESTS → TEST `shifter/shifter_platform/tests/engine/services/test_native_warm_retirement.py` (Native service-owned warm retirement, dispatch interruption, custody and verified capacity release)
+- TESTS → TEST `shifter/shifter_platform/tests/engine/services/test_native_warm_retirement_postgres.py` (Real warm result-application and retirement lock contention)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/authority_plan.py` (Complete delegation admission and immutable versioned event authority effects)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/migrations/0076_event_authority_effect_plan.py` (Legacy pending-transition blocker and database immutability guards)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/launch_target.py` (Shared target-before-intent lock ordering)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/services/_warm_pool_admission.py` (Atomic global and bucket reservation with capacity draw)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/services/_warm_pool_sweep.py` (Bounded retained-obligation recovery after policy removal)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/services/_range_cleanup_retry.py` (Exact-origin retry of unverified native teardown)
+- TESTS → TEST `shifter/shifter_platform/tests/config/test_event_creation_policy_admission.py` (Mounted event creation and unavailable-provider response)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_authority_plan.py` (Complete delegation, immutable plan, HTTP pending receipt and retry)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_authority_plan_migration.py` (Pending legacy upgrade refusal and confirmed history preservation)
+- TESTS → TEST `shifter/shifter_platform/tests/engine/services/test_warm_reservation.py` (Limit admission and all-or-nothing capacity draws)
+- TESTS → TEST `shifter/shifter_platform/tests/engine/services/test_warm_reservation_postgres.py` (Concurrent global and bucket admission at limit one)
+- TESTS → TEST `shifter/shifter_platform/tests/engine/test_native_launch_cancellation_postgres.py` (Native launch/cancel lock contention and post-admission credential revocation)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/config/model_access_operation_policy.py` (Explicit parked-feature unavailable classification for all mounted sharing routes)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/model_access/availability.py` (Mandatory parked sharing boundary before membership reads and effects)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event_projection.py` (Current native event-read or eligible participant admission for notification and scoreboard projections)
+- TESTS → TEST `shifter/shifter_platform/tests/config/test_native_model_access.py` (Mounted sharing closure for legacy flags and native credentials)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_native_notification_authority.py` (Native notification and restricted scoreboard admission without legacy role bypass)
+- TESTS → TEST `shifter/shifter_platform/tests/integration/asgi/test_notifications_ws.py` (Composed WebSocket credential binding, policy changes and replay delivery)
+- TESTS → TEST `shifter/shifter_platform/tests/integration/asgi/test_native_ctf_notifications.py` (Real middleware, channel layer, proof expiry and per-topic delivery/replay admission)

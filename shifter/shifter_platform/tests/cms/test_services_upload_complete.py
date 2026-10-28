@@ -1,324 +1,81 @@
-"""Behavior tests for cms.services.complete_upload.
-
-Drives the real completion service against a real user, a real signed upload
-token, and the full verify -> header-inspect -> tag -> create_agent stack. S3 is
-exercised through the real ``cms.assets.s3`` helper and ``shared.cloud`` AWS
-adapter, mocked only at the ``boto3`` boundary; the created agent is asserted
-against the persisted ``AgentConfig`` / ``AuditLog`` rows, instead of patching
-``verify_upload_token`` / ``verify_s3_object_exists`` / ``read_agent_header`` /
-``tag_s3_object`` / ``create_agent``.
-"""
-
-from datetime import timedelta
-from unittest.mock import MagicMock, patch
+"""Native completion binds validation, immutable bytes, proof and durable cleanup."""
 
 import pytest
 from botocore.exceptions import ClientError
-from django.contrib.auth import get_user_model
-from freezegun import freeze_time
 
-from cms import services
-from cms.assets.upload_token import generate_upload_token
 from cms.exceptions import CMSError
-from cms.models import AgentConfig
-from shared.audit import (
-    AuditAction,
-    AuditEntityType,
+from tests.cms._native_asset_fixtures import (
+    content_actor,
+    content_administrator,
+    installer_upload,
+    scoped_agents,
+    storage_client,
 )
-from shared.constants import USER_CANNOT_BE_NONE
-from shared.models import AuditLog
 
+__all__ = ["content_actor", "content_administrator", "installer_upload", "scoped_agents", "storage_client"]
 pytestmark = pytest.mark.django_db
 
-User = get_user_model()
 
-# MSI / OLE compound-document magic so header inspection passes for `.msi` tokens.
-_MSI_HEADER = bytes([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) + b"\x00" * 16
-# ZIP magic — a mismatch for a `.msi` declared format.
-_ZIP_HEADER = b"\x50\x4b\x03\x04" + b"\x00" * 16
+def test_native_completion_installs_and_tags_only_the_conditionally_validated_object(installer_upload):
+    from cms.models import AgentUpload
+    from cms.services import complete_upload
+    from shared.models import AuditLog
 
-
-@pytest.fixture
-def user(db):
-    return User.objects.create_user(username="complete@example.com", email="complete@example.com")
-
-
-@pytest.fixture
-def s3_complete(settings):
-    """Patch ``boto3.client`` with an S3 client whose head/get/tag/delete succeed.
-
-    Defaults: object is 1000 bytes (matches the default token), and the header
-    is valid MSI magic. Tests override per-operation via the returned mock.
-    """
-    settings.AWS_S3_BUCKET_NAME = "test-bucket"
-    settings.AGENT_UPLOAD_URL_EXPIRES = 900
-    client = MagicMock()
-    client.head_object.return_value = {"ContentLength": 1000, "ETag": '"etag"'}
-    body = MagicMock()
-    body.read.return_value = _MSI_HEADER
-    client.get_object.return_value = {"Body": body}
-    with patch("boto3.client", return_value=client):
-        yield client
+    case = installer_upload
+    agent = complete_upload(case.actor.credential, case.result["upload_token"])
+    row = AgentUpload.objects.get()
+    assert agent.s3_key == row.install_key and agent.s3_key != row.staging_key
+    assert agent.file_size_bytes == 1000
+    assert case.client.get_object.call_args.kwargs["IfMatch"] == "synthetic-etag"
+    copy = case.client.copy_object.call_args.kwargs
+    assert copy["CopySourceIfMatch"] == "synthetic-etag"
+    assert copy["CopySource"]["Key"] == row.staging_key and copy["Key"] == row.install_key
+    assert case.client.put_object_tagging.call_args.kwargs["Key"] == row.install_key
+    assert AuditLog.objects.filter(
+        entity_id=agent.pk, action="create", actor_principal_uuid=case.actor.credential.principal.uuid
+    ).exists()
+    assert row.cleanup_pending
+    case.client.delete_object.assert_not_called()
 
 
-def _token(
-    user, *, s3_key=None, name="Agent", filename="agent.msi", os_slug="windows", file_size=1000, agent_type="xdr"
+@pytest.mark.parametrize("failure", ["head", "size", "header", "header-version", "copy-version", "lowered-cap"])
+def test_native_completion_failure_never_installs_unverified_bytes_and_retains_cleanup(
+    installer_upload, settings, failure
 ):
-    return generate_upload_token(
-        user_id=user.id,
-        s3_key=s3_key or f"agents/{user.id}/abc_agent.msi",
-        name=name,
-        filename=filename,
-        os_slug=os_slug,
-        file_size=file_size,
-        agent_type=agent_type,
-    )
+    from cms.models import AgentConfig, AgentUpload
+    from cms.services import complete_upload
 
-
-class TestCompleteUploadSuccess:
-    def test_header_from_another_object_version_cannot_validate_the_installed_bytes(
-        self, user, windows_os, s3_complete
-    ):
-        def replaced_header(**kwargs):
-            if kwargs.get("IfMatch", "").strip('"') == "etag":
-                raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "GetObject")
-            # Unconditional GET sees a replacement with valid magic. A later
-            # conditional COPY can still see the original version again.
-            body = MagicMock()
-            body.read.return_value = _MSI_HEADER
-            return {"Body": body}
-
-        s3_complete.get_object.side_effect = replaced_header
-        with pytest.raises(CMSError):
-            services.complete_upload(user, _token(user))
-        assert not AgentConfig.objects.filter(user=user).exists()
-        s3_complete.copy_object.assert_not_called()
-
-    def test_creates_and_returns_persisted_agent(self, user, windows_os, s3_complete):
-        staging_key = f"agents/{user.id}/abc_agent.msi"
-        agent = services.complete_upload(user, _token(user, s3_key=staging_key, name="My Agent", file_size=1000))
-
-        assert isinstance(agent, AgentConfig)
-        persisted = AgentConfig.objects.get(pk=agent.pk)
-        assert persisted.name == "My Agent"
-        assert persisted.os == windows_os
-        # Persist the immutable install key, never the mutable staging key (#1181).
-        install_key = s3_complete.copy_object.call_args.kwargs["Key"]
-        assert persisted.s3_key == install_key
-        assert persisted.s3_key != staging_key
-        assert persisted.file_size_bytes == 1000
-        assert persisted.user_id == user.id
-
-    def test_audit_records_presigned_upload_method(self, user, windows_os, s3_complete):
-        agent = services.complete_upload(user, _token(user))
-        row = AuditLog.objects.get(entity_type=AuditEntityType.AGENT, entity_id=agent.id, action=AuditAction.CREATE)
-        assert row.new_state["upload_method"] == "presigned"
-
-    def test_tags_install_key_completed_not_staging_key(self, user, windows_os, s3_complete):
-        staging_key = f"agents/{user.id}/abc_agent.msi"
-        services.complete_upload(user, _token(user, s3_key=staging_key))
-
-        # HEAD/validation runs against the staging key; the completed tag lands on
-        # the immutable install key (the copy destination), not the staging key.
-        assert s3_complete.head_object.call_args.kwargs["Key"] == staging_key
-        install_key = s3_complete.copy_object.call_args.kwargs["Key"]
-        tag_kwargs = s3_complete.put_object_tagging.call_args.kwargs
-        assert tag_kwargs["Key"] == install_key
-        assert tag_kwargs["Key"] != staging_key
-        assert tag_kwargs["Tagging"] == {"TagSet": [{"Key": "status", "Value": "completed"}]}
-
-
-def _precondition_client_error() -> ClientError:
-    return ClientError(
+    case = installer_upload
+    error = ClientError(
         {"Error": {"Code": "PreconditionFailed"}, "ResponseMetadata": {"HTTPStatusCode": 412}},
-        "CopyObject",
+        "SyntheticConditionalRead",
     )
+    if failure == "head":
+        case.client.head_object.side_effect = error
+    elif failure == "size":
+        case.client.head_object.return_value["ContentLength"] = 999
+    elif failure == "header":
+        case.client.get_object.return_value["Body"].read.return_value = b"PK\x03\x04SYNTHETIC_PRIVATE_HEADER"
+    elif failure == "header-version":
+        case.client.get_object.side_effect = error
+    elif failure == "copy-version":
+        case.client.copy_object.side_effect = error
+    else:
+        settings.AGENT_MAX_FILE_SIZE_MB = 0
+    with pytest.raises(CMSError):
+        complete_upload(case.actor.credential, case.result["upload_token"])
+    assert not AgentConfig.objects.exists()
+    row = AgentUpload.objects.get()
+    assert row.state == "cancelled" and row.cleanup_pending
+    case.client.put_object_tagging.assert_not_called()
+    if failure != "copy-version":
+        case.client.copy_object.assert_not_called()
 
 
-class TestCompleteUploadImmutableFinalization:
-    """Issue #1181: the installed bytes must be the bytes CMS validated."""
+@pytest.mark.parametrize("token", [None, "", " ", "not-a-token", "x" * 17000])
+def test_native_completion_rejects_untrusted_tokens_before_storage(content_administrator, storage_client, token):
+    from cms.services import complete_upload
 
-    def test_changed_object_between_validation_and_install_is_rejected(self, user, windows_os, s3_complete):
-        # Object passes size + header validation, but the conditional install copy
-        # fails its source precondition — the validated bytes changed (or the
-        # presigned PUT overwrote them) between check and use.
-        s3_complete.copy_object.side_effect = _precondition_client_error()
-
-        token_2 = _token(user)
-        with pytest.raises(CMSError):
-            services.complete_upload(user, token_2)
-
-        s3_complete.put_object_tagging.assert_not_called()
-        assert AgentConfig.objects.count() == 0
-
-    def test_conditional_copy_binds_to_validated_identity_and_fresh_destination(self, user, windows_os, s3_complete):
-        staging_key = f"agents/{user.id}/abc_agent.msi"
-        services.complete_upload(user, _token(user, s3_key=staging_key))
-
-        copy_kwargs = s3_complete.copy_object.call_args.kwargs
-        assert copy_kwargs["CopySource"] == {"Bucket": "test-bucket", "Key": staging_key}
-        assert copy_kwargs["CopySourceIfMatch"] == "etag"  # the ETag captured at HEAD
-        assert copy_kwargs["Key"].startswith(f"agents/{user.id}/installed/")
-
-    def test_staging_object_is_cleaned_up_after_successful_install(self, user, windows_os, s3_complete):
-        staging_key = f"agents/{user.id}/abc_agent.msi"
-        services.complete_upload(user, _token(user, s3_key=staging_key))
-
-        deleted_keys = [call.kwargs["Key"] for call in s3_complete.delete_object.call_args_list]
-        assert staging_key in deleted_keys
-
-    def test_staging_cleanup_failure_does_not_fail_completion(self, user, windows_os, s3_complete):
-        s3_complete.delete_object.side_effect = ClientError(
-            {"Error": {"Code": "500", "Message": "boom"}}, "DeleteObject"
-        )
-        agent = services.complete_upload(user, _token(user))
-        assert AgentConfig.objects.filter(pk=agent.pk).exists()
-
-
-class TestCompleteUploadUserAndTokenValidation:
-    def test_raises_typeerror_when_user_is_none(self):
-        with pytest.raises(TypeError, match=USER_CANNOT_BE_NONE):
-            services.complete_upload(None, "token123")
-
-    def test_raises_typeerror_when_user_is_wrong_type(self):
-        with pytest.raises(TypeError, match="user must be a User instance"):
-            services.complete_upload("not a user", "token123")
-
-    def test_raises_valueerror_when_user_is_unsaved(self):
-        user_2 = User(username="unsaved")
-        with pytest.raises(ValueError, match="user must be saved"):
-            services.complete_upload(user_2, "token123")
-
-    @pytest.mark.parametrize(
-        "token,err", [(None, "cannot be None"), ("", "cannot be empty"), ("   ", "cannot be empty")]
-    )
-    def test_rejects_bad_token(self, user, token, err):
-        with pytest.raises(ValueError, match=f"upload_token {err}"):
-            services.complete_upload(user, token)
-
-    def test_raises_cmserror_on_invalid_token(self, user):
-        with pytest.raises(CMSError, match="Invalid upload token"):
-            services.complete_upload(user, "not-a-valid-token")
-
-    def test_raises_cmserror_on_expired_token(self, user, settings):
-        settings.AGENT_UPLOAD_URL_EXPIRES = 60
-        with freeze_time("2024-06-01T12:00:00Z") as frozen:
-            token = _token(user)
-            frozen.tick(timedelta(seconds=61))
-            with pytest.raises(CMSError, match="Invalid upload token"):
-                services.complete_upload(user, token)
-
-
-class TestCompleteUploadObjectValidation:
-    def test_raises_when_s3_object_not_found(self, user, s3_complete):
-        s3_complete.head_object.side_effect = ClientError(
-            {"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"
-        )
-        token_2 = _token(user)
-        with pytest.raises(CMSError, match="Upload not found"):
-            services.complete_upload(user, token_2)
-
-    def test_raises_on_file_size_mismatch(self, user, s3_complete):
-        s3_complete.head_object.return_value = {"ContentLength": 5000, "ETag": '"etag"'}
-        token_2 = _token(user, file_size=1000)
-        with pytest.raises(CMSError, match="size mismatch"):
-            services.complete_upload(user, token_2)
-
-
-class TestCompleteUploadPerFileLimit:
-    """The per-file ceiling is re-checked against the authoritative object length."""
-
-    def test_object_at_exact_limit_succeeds(self, user, windows_os, s3_complete, settings):
-        settings.AGENT_MAX_FILE_SIZE_MB = 1
-        cap = 1 * 1024 * 1024
-        s3_complete.head_object.return_value = {"ContentLength": cap, "ETag": '"etag"'}
-        agent = services.complete_upload(user, _token(user, file_size=cap))
-        assert AgentConfig.objects.filter(pk=agent.pk).exists()
-
-    def test_oversized_object_deleted_and_rejected_even_when_token_declares_it(self, user, s3_complete, settings):
-        # The token itself declares the oversized length (a stale token signed under
-        # a higher cap), so the declared-size equality check would pass. The
-        # absolute-cap check must fire first: delete the object and reject, without
-        # reaching header inspection, the immutable copy, tagging, or a DB row.
-        settings.AGENT_MAX_FILE_SIZE_MB = 1
-        over = 1 * 1024 * 1024 + 1
-        s3_complete.head_object.return_value = {"ContentLength": over, "ETag": '"etag"'}
-        s3_key = f"agents/{user.id}/abc_agent.msi"
-        token = _token(user, s3_key=s3_key, file_size=over)
-
-        with pytest.raises(CMSError, match="exceeds maximum allowed"):
-            services.complete_upload(user, token)
-
-        s3_complete.delete_object.assert_called_once()
-        assert s3_complete.delete_object.call_args.kwargs["Key"] == s3_key
-        s3_complete.get_object.assert_not_called()
-        s3_complete.copy_object.assert_not_called()
-        s3_complete.put_object_tagging.assert_not_called()
-        assert AgentConfig.objects.count() == 0
-
-    def test_oversized_object_rejected_even_if_cleanup_fails(self, user, s3_complete, settings):
-        settings.AGENT_MAX_FILE_SIZE_MB = 1
-        over = 1 * 1024 * 1024 + 1
-        s3_complete.head_object.return_value = {"ContentLength": over, "ETag": '"etag"'}
-        s3_complete.delete_object.side_effect = ClientError(
-            {"Error": {"Code": "500", "Message": "boom"}}, "DeleteObject"
-        )
-        token = _token(user, file_size=over)
-        with pytest.raises(CMSError, match="exceeds maximum allowed"):
-            services.complete_upload(user, token)
-        assert AgentConfig.objects.count() == 0
-
-    def test_cap_check_precedes_declared_size_equality(self, user, s3_complete, settings):
-        # The token declares a DIFFERENT (within-cap-looking) size than the actual
-        # oversized object. If the declared-size equality check ran before the
-        # absolute-cap check, this would surface the generic "size mismatch" error
-        # and skip the cleanup delete, stranding the over-cap object. The cap check
-        # must run first: cap message + object deleted.
-        settings.AGENT_MAX_FILE_SIZE_MB = 1
-        over = 1 * 1024 * 1024 + 1
-        s3_complete.head_object.return_value = {"ContentLength": over, "ETag": '"etag"'}
-        s3_key = f"agents/{user.id}/abc_agent.msi"
-        token = _token(user, s3_key=s3_key, file_size=1000)
-
-        with pytest.raises(CMSError, match="exceeds maximum allowed"):
-            services.complete_upload(user, token)
-
-        s3_complete.delete_object.assert_called_once()
-        assert s3_complete.delete_object.call_args.kwargs["Key"] == s3_key
-        assert AgentConfig.objects.count() == 0
-
-
-class TestCompleteUploadHeaderInspection:
-    def test_magic_byte_mismatch_deletes_object_and_aborts(self, user, s3_complete):
-        s3_complete.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=_ZIP_HEADER))}
-        s3_key = f"agents/{user.id}/abc_agent.msi"
-
-        token_2 = _token(user, s3_key=s3_key, filename="agent.msi")
-        with pytest.raises(CMSError, match="content"):
-            services.complete_upload(user, token_2)
-
-        s3_complete.delete_object.assert_called_once()
-        assert s3_complete.delete_object.call_args.kwargs["Key"] == s3_key
-        s3_complete.put_object_tagging.assert_not_called()
-        assert AgentConfig.objects.count() == 0
-
-    def test_header_read_failure_raises_and_does_not_finalize(self, user, s3_complete):
-        s3_complete.get_object.side_effect = ClientError({"Error": {"Code": "500", "Message": "boom"}}, "GetObject")
-
-        token_2 = _token(user)
-        with pytest.raises(CMSError, match="inspection"):
-            services.complete_upload(user, token_2)
-
-        s3_complete.put_object_tagging.assert_not_called()
-        assert AgentConfig.objects.count() == 0
-
-    def test_rejection_log_does_not_leak_header_bytes(self, user, s3_complete, caplog):
-        leak = b"\x50\x4b\x03\x04S3CR3T-DO-NOT-LEAK"
-        s3_complete.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=leak))}
-
-        token = _token(user, filename="agent.msi")
-        with caplog.at_level("WARNING", logger="cms.services"), pytest.raises(CMSError):
-            services.complete_upload(user, token)
-
-        combined = " ".join(record.getMessage() for record in caplog.records)
-        assert "S3CR3T-DO-NOT-LEAK" not in combined
+    with pytest.raises(CMSError):
+        complete_upload(content_administrator.credential, token)
+    storage_client.head_object.assert_not_called()

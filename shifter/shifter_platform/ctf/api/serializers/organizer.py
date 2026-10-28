@@ -103,6 +103,12 @@ class EventListResponseSerializer(serializers.Serializer):
     """Envelope returned by the organizer event list."""
 
     events = EventSummarySerializer(many=True, read_only=True)
+    count = serializers.IntegerField(read_only=True)
+    active_count = serializers.IntegerField(read_only=True)
+    team_mode_count = serializers.IntegerField(read_only=True)
+    page = serializers.IntegerField(read_only=True)
+    page_size = serializers.IntegerField(read_only=True)
+    next_page = serializers.IntegerField(read_only=True, allow_null=True)
 
 
 class EventListQuerySerializer(serializers.Serializer):
@@ -382,6 +388,29 @@ class ForceDeleteEventResultSerializer(serializers.Serializer):
     event_name = serializers.CharField(read_only=True)
     ranges_destroyed = serializers.IntegerField(read_only=True)
     ranges_failed = serializers.IntegerField(read_only=True)
+
+
+class CtfScenarioListQuerySerializer(ClosedSerializer):
+    """Select one explicit content collection without inferring placement."""
+
+    scope_kind = serializers.ChoiceField(choices=("installation", "account"))
+    account = serializers.UUIDField(required=False)
+    organization = serializers.UUIDField(required=False)
+    workspace = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        from shared.identity_scope import ResourceScope
+        from workspaces.services import resolve_resource_scope
+
+        try:
+            resolve_resource_scope(
+                ResourceScope(
+                    attrs["scope_kind"], attrs.get("account"), attrs.get("organization"), attrs.get("workspace")
+                )
+            )
+        except ValueError:
+            raise serializers.ValidationError("Content scope unavailable") from None
+        return attrs
 
 
 class CtfScenarioRefSerializer(serializers.Serializer):

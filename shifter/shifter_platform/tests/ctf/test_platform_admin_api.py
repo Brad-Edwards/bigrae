@@ -66,13 +66,73 @@ class TestAdmission:
     def test_standard_user_gets_a_policy_filtered_empty_collection(self, authenticated_standard_client, ctf_event):
         resp = call_json(authenticated_standard_client, "get", "api_event_list")
         assert resp.status_code == 200
-        assert resp.json() == {"events": []}
+        assert resp.json()["events"] == []
+        assert resp.json()["count"] == 0
 
     def test_superuser_is_admitted(self, superuser_client, ctf_event):
         assert call_json(superuser_client, "get", "api_event_list").status_code == 200
 
 
 class TestDiscovery:
+    def test_later_page_and_totals_cover_all_readable_events(
+        self, authenticated_organizer_client, ctf_event, other_event
+    ):
+        from ctf.models import CTFEvent
+
+        for number in range(200):
+            CTFEvent.objects.create(
+                name=f"Paged event {number:03d}",
+                created_by=ctf_event.created_by,
+                owner_principal_uuid=ctf_event.owner_principal_uuid,
+                scope_kind=ctf_event.scope_kind,
+                account_id=ctf_event.account_id,
+                organization_id=ctf_event.organization_id,
+                workspace_id=ctf_event.workspace_id,
+                status="active",
+                team_mode=True,
+                team_size_limit=2,
+                event_start=ctf_event.event_start,
+                event_end=ctf_event.event_end,
+            )
+        first = call_json(authenticated_organizer_client, "get", "api_event_list", query="?page=1&page_size=200")
+        second = call_json(authenticated_organizer_client, "get", "api_event_list", query="?page=2&page_size=200")
+        assert first.status_code == second.status_code == 200
+        first, second = first.json(), second.json()
+        assert len(first["events"]) == 200
+        assert len(second["events"]) == 1
+        assert first["count"] == second["count"] == 201
+        assert first["active_count"] == 201
+        assert first["team_mode_count"] == 200
+        assert first["next_page"] == 2 and second["next_page"] is None
+        ids = [row["id"] for row in first["events"] + second["events"]]
+        assert len(set(ids)) == 201
+        assert str(other_event.pk) not in ids
+
+    def test_provider_failure_is_a_structured_503(self, authenticated_organizer_client, ctf_event, monkeypatch):
+        from ctf.exceptions import CTFError
+
+        def unavailable(*args, **kwargs):
+            raise CTFError("SYNTHETIC_PRIVATE_PROVIDER_TEXT", code="CTF_AUTHORITY_UNAVAILABLE")
+
+        monkeypatch.setattr("ctf.services.unified_authorization.require_event_action", unavailable)
+        response = call_json(authenticated_organizer_client, "get", "api_event_list")
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "dependency_unavailable"
+        assert "SYNTHETIC_PRIVATE_PROVIDER_TEXT" not in response.content.decode()
+
+    def test_broad_discovery_is_rejected_before_policy_work(
+        self, authenticated_organizer_client, ctf_event, other_event, monkeypatch
+    ):
+        from unittest.mock import Mock
+
+        monkeypatch.setattr("ctf.api.organizer.events._EVENT_LIST_CANDIDATE_LIMIT", 1)
+        check = Mock()
+        monkeypatch.setattr("ctf.services.unified_authorization.require_event_action", check)
+        response = call_json(authenticated_organizer_client, "get", "api_event_list")
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "event_discovery_limit"
+        check.assert_not_called()
+
     def test_superuser_lists_all_events_with_owner_and_source(self, superuser_client, ctf_event, other_event):
         resp = call_json(superuser_client, "get", "api_event_list")
         assert resp.status_code == 200

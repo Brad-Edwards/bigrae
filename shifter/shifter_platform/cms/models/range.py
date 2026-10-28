@@ -116,6 +116,7 @@ class RangeInstance(SoftDeleteMixin, models.Model):
     model_source_sponsorship = models.JSONField(null=True, blank=True)
     model_source_policy_error = models.CharField(max_length=128, blank=True, default="")
     model_package_digest = models.CharField(max_length=71, blank=True, default="")
+    launch_intent_digest = models.CharField(max_length=71, blank=True, default="", editable=False)
     expires_at = models.DateTimeField(
         null=True,
         blank=True,

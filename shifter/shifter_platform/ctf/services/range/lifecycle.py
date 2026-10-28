@@ -136,20 +136,32 @@ def cleanup_event_ranges(event_id: UUID, *, actor: object) -> dict[str, Any]:
         ) from None
 
     from ctf.services.actors import event_actor_credential
-    from ctf.services.authorization import assert_event_action
+    from ctf.services.authorization import admit_event_actions
+    from ctf.services.range.launch_cleanup import cleanup_cancelled_launches
+    from ctf.services.range.launch_intents import cancel_event_launches
 
     credential = event_actor_credential(actor)
-    assert_event_action(credential, event, "event.manage_ranges")
+    admission = admit_event_actions(credential, event, "event.manage_ranges")
+    intents = cancel_event_launches(event_id, admission)
+    from ctf.models import CTFSpareRange
+
+    consumed_spares = set(
+        CTFSpareRange.objects.filter(event=event, consumed_by__isnull=False).values_list("pk", flat=True)
+    )
+    dispatched, failed, covered = cleanup_cancelled_launches(
+        event_id,
+        credential,
+        [intent for intent in intents if intent.subject_kind != "spare" or intent.subject_uuid in consumed_spares],
+    )
 
     participants = list(
         CTFParticipant.objects.filter(
             event=event,
             range_instance_id__isnull=False,
-        ).select_related("user")
+        )
+        .exclude(range_instance_id__in=covered)
+        .select_related("user")
     )
-
-    dispatched = 0
-    failed = 0
 
     # CTF-1003: destroy in batches with a pause between them so a large event
     # does not hammer the cloud APIs into throttling.
@@ -169,7 +181,9 @@ def cleanup_event_ranges(event_id: UUID, *, actor: object) -> dict[str, Any]:
                     participant.pk,
                 )
 
-    _cleanup_event_spares_best_effort(event_id, credential)
+    spare_cleanup = _cleanup_event_spares_best_effort(event_id, credential)
+    dispatched += spare_cleanup["destroyed"]
+    failed += spare_cleanup["failed"]
 
     # Counts are teardowns *dispatched*, not verified destroyed: terminal cleanup
     # is confirmed later by scoped provider inventory/readback (ADR-063-R4).
@@ -181,7 +195,7 @@ def cleanup_event_ranges(event_id: UUID, *, actor: object) -> dict[str, Any]:
     }
 
 
-def _cleanup_event_spares_best_effort(event_id: UUID, credential: CredentialContext) -> None:
+def _cleanup_event_spares_best_effort(event_id: UUID, credential: CredentialContext) -> dict[str, Any]:
     """Tear down the event's spare pool alongside participant-range cleanup (#1018).
 
     Best-effort: a spare-cleanup failure must never abort the participant-range
@@ -190,12 +204,13 @@ def _cleanup_event_spares_best_effort(event_id: UUID, credential: CredentialCont
     from ctf.services.range.spares import cleanup_event_spares
 
     try:
-        cleanup_event_spares(event_id, actor=credential)
+        return cleanup_event_spares(event_id, actor=credential)
     except Exception:
         logger.exception(
             "cleanup_event_ranges: spare-pool cleanup failed for event %s",
             safe_log_value(event_id),
         )
+        return {"destroyed": 0, "failed": 1}
 
 
 def _destroy_single_range(participant: CTFParticipant, credential: CredentialContext) -> bool:
@@ -216,12 +231,12 @@ def _destroy_single_range(participant: CTFParticipant, credential: CredentialCon
     "destroyed" or verified-cleanup signal -- callers must not report completion
     from it.
     """
-    from ctf.bridges import cms_destroy_range
+    from ctf.bridges import cms_destroy_recovery_range
 
     if participant.range_instance_id is None:
         logger.warning("No range_instance_id for participant %s, skipping destroy", participant.pk)
         return False
-    cms_destroy_range(credential, participant.event_id, participant.range_instance_id)
+    cms_destroy_recovery_range(credential, participant.event_id, participant.range_instance_id)
     participant.range_status = "destroying"
     participant.save(update_fields=["range_status", "updated_at"])
     return True

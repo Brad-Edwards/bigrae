@@ -15,13 +15,20 @@ interface OrganizationPage {
   results: Organization[];
 }
 
-export function useAdministrableOrganizations(page = 1) {
+export function useAdministrableOrganizations(page = 1, integration: "adapters" | "model_sources" = "adapters") {
   const pageSize = 25;
   return useQuery({
-    queryKey: [...organizationKeys.administrable, page],
-    queryFn: ({ signal }) => apiFetch<OrganizationPage>("/workspaces/organizations/", {
-      signal,
-      query: { offset: (page - 1) * pageSize, limit: pageSize },
-    }),
+    queryKey: [...organizationKeys.administrable, integration, page],
+    queryFn: async ({ signal }): Promise<OrganizationPage> => {
+      const result = await apiFetch<Pick<OrganizationPage, "count" | "results">>("/administer/organizations/", {
+        signal,
+        query: { integration, offset: (page - 1) * pageSize, limit: pageSize },
+      });
+      return {
+        ...result,
+        next: page * pageSize < result.count ? String(page + 1) : null,
+        previous: page > 1 ? String(page - 1) : null,
+      };
+    },
   });
 }

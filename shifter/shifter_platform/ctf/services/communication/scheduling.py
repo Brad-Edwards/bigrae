@@ -20,6 +20,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -31,6 +32,7 @@ from ctf.services.communication.admission import (
     AdmissionActor,
     assert_occurrence_ready,
     assert_source_realizable,
+    prepare_campaign_admission,
     reauthorize,
 )
 from ctf.services.communication.backpressure import RETRYABLE_ADMISSION_CODES
@@ -61,10 +63,12 @@ def _actor_for_scheduled(intent: CommunicationIntent) -> AdmissionActor:
             "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
         )
     try:
-        from shared.credentials import resolve_current_credential
+        from shared.credentials import CredentialRevoked, resolve_current_credential
         from shared.operation_authority import credential_reference_from_record
 
         return AdmissionActor(credential=resolve_current_credential(credential_reference_from_record(intent)))
+    except CredentialRevoked:
+        raise CTFCommunicationError("Communication credential revoked", code="CTF_COMMUNICATION_ACTOR_DENIED") from None
     except Exception:
         raise CTFCommunicationError(
             "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
@@ -92,12 +96,17 @@ def schedule_declaration(
     requested_revision = revision
     key = _idempotency_key(campaign.id, occurrence_key, range_generation_ref)
     now = timezone.now()
-    target_event_ids = list(campaign.target_events.values_list("id", flat=True))
+    actor = prepare_campaign_admission(campaign, actor)
+    target_event_ids = (
+        [admission.event_uuid for admission in actor.event_admissions]
+        if actor.credential is not None
+        else list(campaign.target_events.values_list("id", flat=True))
+    )
 
     with transaction.atomic():
         target_events = list(CTFEvent.objects.select_for_update().filter(id__in=target_event_ids).order_by("pk"))
-        actor = reauthorize(campaign, target_events, actor)
         locked_campaign = CommunicationCampaign.objects.select_for_update().get(pk=campaign.pk)
+        actor = reauthorize(locked_campaign, target_events, actor)
 
         existing = CommunicationIntent.objects.filter(idempotency_key=key).first()
         if existing is not None:
@@ -196,10 +205,16 @@ def _denied_result(intent: CommunicationIntent, exc: CTFCommunicationError) -> d
     total lateness); a permanent denial records a terminal no-work outcome instead
     of leaving the intent SCHEDULED with a completed task.
     """
-    if exc.code in RETRYABLE_ADMISSION_CODES:
+    grace_end = (
+        intent.due_at + timedelta(minutes=settings.CTF_COMMUNICATION_RELEASE_GRACE_MINUTES) if intent.due_at else None
+    )
+    if exc.code in RETRYABLE_ADMISSION_CODES | {"CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"} and (
+        grace_end is None or timezone.now() < grace_end
+    ):
         logger.info("Scheduled communication %s hit transient backpressure (%s); retrying", intent.id, exc.code)
+        retry_at = timezone.now() + timedelta(seconds=_BACKPRESSURE_RETRY_SECONDS)
         return {
-            "reschedule_for": timezone.now() + timedelta(seconds=_BACKPRESSURE_RETRY_SECONDS),
+            "reschedule_for": min(retry_at, grace_end) if grace_end is not None else retry_at,
             "outcome": "backpressure_retry",
         }
     _expire_unadmittable(intent, exc.code)
@@ -223,14 +238,6 @@ def request_early_release(intent: CommunicationIntent, *, actor: AdmissionActor)
     admission re-check (workspace mutex + per-event notification authority) still
     runs inside ``release_due_declaration``.
     """
-    if (
-        (actor.user_id is None and actor.credential is None)
-        or actor.token_id is not None
-        or actor.system
-        or not actor.allow_early_release
-    ):
-        raise CTFCommunicationError(
-            "Early release of a scheduled communication is not authorized",
-            code="CTF_COMMUNICATION_EARLY_RELEASE_DENIED",
-        )
-    return release_due_declaration(intent, actor=actor, allow_early=True)
+    from ctf.services.communication.admission import admit_session_early_release
+
+    return release_due_declaration(intent, actor=admit_session_early_release(actor), allow_early=True)

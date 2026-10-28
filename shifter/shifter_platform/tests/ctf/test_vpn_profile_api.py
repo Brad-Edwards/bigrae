@@ -131,8 +131,9 @@ def _active_range_participant(participant_user, ctf_participant):
     cms_range.range_id = engine_range.pk
     cms_range.save(update_fields=["range_id"])
     ctf_participant.range_instance_id = cms_range.pk
+    ctf_participant.range_request_id = request_id
     ctf_participant.range_status = "ready"
-    ctf_participant.save(update_fields=["range_instance_id", "range_status", "updated_at"])
+    ctf_participant.save(update_fields=["range_instance_id", "range_request_id", "range_status", "updated_at"])
     return cms_range
 
 

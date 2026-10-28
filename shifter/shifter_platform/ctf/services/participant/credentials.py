@@ -102,6 +102,13 @@ def reset_participant_password(
     """Issue one generated or organizer-supplied participant password."""
     if kind not in _PASSWORD_KINDS or (kind == "generated" and password is not None):
         raise CTFValidationError("Invalid participant password request", code="CTF_INVALID_PASSWORD_REQUEST")
+    from ctf.services.authorization import admit_event_actions
+
+    try:
+        candidate = CTFParticipant.objects.select_related("event").get(pk=participant_id)
+    except CTFParticipant.DoesNotExist:
+        raise CTFNotFoundError("Participant not found") from None
+    actor = admit_event_actions(actor, candidate.event, "event.manage_participants")
     with transaction.atomic():
         participant, user = _locked_password_target(participant_id)
         from ctf.services.authorization import assert_event_action

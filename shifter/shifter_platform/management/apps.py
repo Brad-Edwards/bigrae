@@ -35,6 +35,7 @@ class ManagementConfig(AppConfig):
             services.resolve_principal_uuid,
             services.resolve_verified_principal,
             services.principal_identity_for_user,
+            services.principal_identity_for_uuid,
         )
         bind_credential_principal_resolver(services.resolve_principal)
 

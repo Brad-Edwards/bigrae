@@ -16,6 +16,17 @@ from shared.authorization import (
 from workspaces.models import Account, HierarchyPublication, Organization, Workspace
 
 _UNAVAILABLE = "Authorization hierarchy publication is unavailable"
+
+
+class HierarchyPublicationPending(AuthorizationProviderBindingError):
+    """A committed object whose exact hierarchy intent can be retried."""
+
+    def __init__(self, object_uuid: UUID, publication_receipt: UUID):
+        super().__init__(_UNAVAILABLE)
+        self.object_uuid = object_uuid
+        self.publication_receipt = publication_receipt
+
+
 _KIND_ORDER = {"account": 0, "organization": 1, "workspace": 2}
 
 
@@ -72,8 +83,10 @@ def _live_parent(object_kind: str, object_uuid: UUID) -> tuple[str, UUID | None]
         return "installation", None
     if object_kind == "organization":
         organization = Organization.objects.select_related("account").filter(uuid=object_uuid).first()
-        if organization is not None and organization.account_id is not None:
-            return "account", organization.account.uuid
+        if organization is not None:
+            account = organization.account
+            if account is not None:
+                return "account", account.uuid
     if object_kind == "workspace":
         workspace = Workspace.objects.select_related("organization").filter(uuid=object_uuid).first()
         if workspace is not None:
@@ -185,7 +198,7 @@ def _publication_ids(root_kind: str, root_uuid: UUID) -> tuple[UUID, ...]:
         target_uuids = {"workspace": (root_uuid,)}
     else:
         raise ValueError("hierarchy kind unavailable")
-    rows = []
+    rows: list[HierarchyPublication] = []
     for kind, uuids in target_uuids.items():
         rows.extend(HierarchyPublication.objects.filter(object_kind=kind, object_uuid__in=uuids))
     if len(rows) != sum(len(uuids) for uuids in target_uuids.values()):
@@ -211,3 +224,57 @@ def publish_hierarchy_relationships(
         raise
     except Exception as exc:
         raise AuthorizationProviderBindingError(_UNAVAILABLE) from exc
+
+
+def reconcile_hierarchy_publications(provider: AuthorizationProvider, *, limit: int = 100) -> int:
+    """Resume a bounded batch of existing hierarchy intents, parents before children."""
+    from django.db.models import Case, IntegerField, Value, When
+
+    if type(limit) is not int or not 1 <= limit <= 1000:
+        raise ValueError("Invalid publication batch limit")
+    order = Case(
+        *(When(object_kind=kind, then=Value(position)) for kind, position in _KIND_ORDER.items()),
+        output_field=IntegerField(),
+    )
+    pending = tuple(
+        HierarchyPublication.objects.exclude(state="confirmed")
+        .order_by(order, "created_at", "pk")
+        .values_list("pk", flat=True)[:limit]
+    )
+    try:
+        store_id, model_id = str(provider.store_id), str(provider.model_id)
+        if not store_id or not model_id:
+            raise ValueError("provider binding unavailable")
+        for publication_id in pending:
+            _publish_one(publication_id, provider, store_id, model_id)
+    except Exception as exc:
+        raise AuthorizationProviderBindingError(_UNAVAILABLE) from exc
+    return len(pending)
+
+
+def publish_created_hierarchy(root_kind: str, root_uuid: UUID, provider: AuthorizationProvider) -> None:
+    """Return a durable receipt when a committed creation still needs publication."""
+    try:
+        publish_hierarchy_relationships(root_kind, root_uuid, provider)
+    except AuthorizationProviderBindingError as exc:
+        receipt = HierarchyPublication.objects.get(object_kind=root_kind, object_uuid=root_uuid)
+        raise HierarchyPublicationPending(root_uuid, receipt.pk) from exc
+
+
+def creation_for_receipt(receipt_uuid: UUID, kind: str, parent_uuid: UUID | None):
+    """Resolve only the exact creation beneath the caller's authorized parent."""
+    from ._account import AccountScopeError
+
+    receipt = HierarchyPublication.objects.filter(pk=receipt_uuid, object_kind=kind, parent_uuid=parent_uuid).first()
+    if receipt is None:
+        raise AccountScopeError("Scope unavailable")
+    models: dict[str, type[Account] | type[Organization] | type[Workspace]] = {
+        "account": Account,
+        "organization": Organization,
+        "workspace": Workspace,
+    }
+    model = models[kind]
+    obj = model.objects.filter(uuid=receipt.object_uuid).first()
+    if obj is None or _live_parent(kind, obj.uuid) != (receipt.parent_kind, receipt.parent_uuid):
+        raise AccountScopeError("Scope unavailable")
+    return obj

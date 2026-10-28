@@ -144,10 +144,10 @@ class TestEventApi:
             )
         assert resp.status_code == 200
 
-    def test_scenarios_get(self, authenticated_organizer_client: Client):
-        with patch("ctf.bridges.cms_list_scenarios", return_value=[("basic", "Basic")]):
-            resp = _json(authenticated_organizer_client, "get", "api_scenarios")
+    def test_scenarios_get(self, authenticated_organizer_client: Client, allow_all_policy):
+        resp = authenticated_organizer_client.get(reverse("v1:ctf:api_scenarios"), {"scope_kind": "installation"})
         assert resp.status_code == 200
+        assert resp.json() == {"scenarios": []}
 
 
 class TestParticipantScopedApi:

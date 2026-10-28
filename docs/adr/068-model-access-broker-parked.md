@@ -59,6 +59,17 @@ no controls.
    The intended end state is that guests reach models through that proxy rather
    than keyless-direct; that switch needs its own decision.
 
+## Identity-cutover enforcement
+
+Issue #2321 closes the retained sharing API and composition/selector entry points
+before membership reads or publication effects. An enabled runtime setting cannot
+override this parked boundary. This enforces the existing decision; it does not
+qualify the broker, add publisher authority storage or activate the replacement.
+Low-level accounting contracts remain available to their isolated tests.
+Keyless-direct and independently supported native source/range controls keep
+their existing boundaries. Mounted-route and direct-service tests verify that
+legacy operator flags and native credentials both leave sharing unavailable.
+
 ## Alternatives
 
 | Alternative | Disposition |

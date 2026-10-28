@@ -123,7 +123,17 @@ class CTFAccountBoundaryMiddleware:
                 path not in _CTF_ACCOUNT_ALWAYS_ALLOWED and not participant_surface
             )
             if forbidden:
-                response = HttpResponse("Forbidden", status=403, content_type="text/plain")
+                if path.startswith("/api/"):
+                    from django.http import JsonResponse
+
+                    from shared.api.errors import api_error_response
+
+                    error = api_error_response(
+                        code="permission_denied", message="Permission denied", status_code=403, request=request
+                    )
+                    response = JsonResponse(error.data, status=403)
+                else:
+                    response = HttpResponse("Forbidden", status=403, content_type="text/plain")
             elif is_ctf_password_change_required(user) and path not in _CTF_ACCOUNT_ALWAYS_ALLOWED:
                 response = redirect("ctf:ctf_change_password")
             else:

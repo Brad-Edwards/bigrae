@@ -10,7 +10,7 @@ from django.db import transaction
 
 from shared.authorization import AuthorizationRequest
 from shared.authorization.policy import require_authorization, scope_parent
-from shared.credentials import CredentialContext, resolve_current_credential
+from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.identity_scope import ResourceScope
 from shared.principal_port import resolve_principal_uuid
 
@@ -75,11 +75,25 @@ def commit_range_scope_move(prepared: PreparedRangeScopeMove) -> bool:
     if not isinstance(prepared, PreparedRangeScopeMove):
         raise ValueError("Range scope unavailable")
     with transaction.atomic():
+        scopes = sorted(
+            {prepared.source.scope, prepared.target},
+            key=lambda scope: tuple(
+                str(value or "")
+                for value in (scope.kind, scope.account_uuid, scope.organization_uuid, scope.workspace_uuid)
+            ),
+        )
+        locked = {scope: resolve_range_scope_binding(scope, for_update=True) for scope in scopes}
+        if prepared.source.scope != prepared.target:
+            resolve_range_scope_binding(
+                prepared.target, member=resolve_principal_uuid(prepared.source.owner_principal_uuid), for_update=True
+            )
         row = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=prepared.source.native_id)
+        if resolve_local_credential(prepared.credential) != prepared.credential:
+            raise ValueError("Range scope authority changed")
         if project_range_authority(prepared.source.request_uuid) != prepared.source or row.status != prepared.status:
             raise ValueError("Range scope changed")
         _assert_move_supported(row)
-        destination = resolve_range_scope_binding(prepared.target)
+        destination = locked[prepared.target]
         if prepared.target == prepared.source.scope:
             return False
         if row.owner_principal_uuid is None:

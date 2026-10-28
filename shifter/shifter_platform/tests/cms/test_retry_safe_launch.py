@@ -82,7 +82,12 @@ def test_unbound_key_has_no_recovery(actor, monkeypatch):
     _patch_mint(monkeypatch, calls=calls)
     assert (
         resolve_retry_recovery(
-            _credential(actor), scenario="basic", agents_selection=SELECTION, workspace_uuid=None, caller_key="k1"
+            _credential(actor),
+            scenario="basic",
+            agents_selection=SELECTION,
+            workspace_uuid=None,
+            caller_key="k1",
+            scope=_scope(actor),
         )
         is None
     )
@@ -109,7 +114,12 @@ def test_replay_same_intent_recovers_without_redispatch(actor, monkeypatch):
     first = _bind(actor, "basic", "k1")
 
     recovered = resolve_retry_recovery(
-        _credential(actor), scenario="basic", agents_selection=SELECTION, workspace_uuid=None, caller_key="k1"
+        _credential(actor),
+        scenario="basic",
+        agents_selection=SELECTION,
+        workspace_uuid=None,
+        caller_key="k1",
+        scope=_scope(actor),
     )
 
     assert recovered is not None
@@ -125,7 +135,12 @@ def test_replay_different_intent_conflicts_without_dispatch(actor, monkeypatch):
 
     with pytest.raises(RetryKeyConflict):
         resolve_retry_recovery(
-            _credential(actor), scenario="advanced", agents_selection=SELECTION, workspace_uuid=None, caller_key="k1"
+            _credential(actor),
+            scenario="advanced",
+            agents_selection=SELECTION,
+            workspace_uuid=None,
+            caller_key="k1",
+            scope=_scope(actor),
         )
 
     assert calls == ["basic"]
@@ -147,3 +162,38 @@ def test_distinct_actors_do_not_share_a_key(actor, monkeypatch):
     assert a.created is True
     assert b.created is True
     assert a.request_id != b.request_id
+
+
+@pytest.mark.parametrize("changed", ["kind", "account", "organization", "workspace"])
+def test_explicit_scope_change_conflicts_on_recovery_and_first_use(actor, monkeypatch, changed):
+    """An omitted legacy workspace selector cannot erase explicit placement."""
+    from shared.identity_scope import ResourceScope
+
+    calls = []
+    _patch_mint(monkeypatch, calls=calls)
+    original = _scope(actor)
+    first = _bind(actor, "basic", "scope-bound")
+    account = original.account_uuid
+    organization = uuid4()
+    alternate = {
+        "kind": ResourceScope("installation"),
+        "account": ResourceScope("account", uuid4()),
+        "organization": ResourceScope("account", account, organization),
+        "workspace": ResourceScope("account", account, organization, uuid4()),
+    }[changed]
+    declaration = {
+        "scenario": "basic",
+        "agents_selection": SELECTION,
+        "workspace_uuid": None,
+        "caller_key": "scope-bound",
+        "scope": alternate,
+    }
+    with pytest.raises(RetryKeyConflict):
+        resolve_retry_recovery(_credential(actor), **declaration)
+    with pytest.raises(RetryKeyConflict):
+        bind_first_use_launch(_credential(actor), agents_by_os={}, **declaration)
+    assert calls == ["basic"]
+    recovered = resolve_retry_recovery(_credential(actor), **(declaration | {"scope": original}))
+    assert recovered.request_id == first.request_id
+    assert recovered.created is False
+    assert PublicOperationRetryBinding.objects.filter(caller_key="scope-bound").count() == 1

@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from cms.api.preparation_adapters import PreparationSerializer
+from cms.exceptions import CMSError
 from cms.services import change_range_model_sources, get_range_model_sources, revoke_range_model_sources
 from shared.api.errors import api_error_response
 from shared.api.model_access import ModelAccessAPIView
@@ -59,16 +60,17 @@ class RangeModelSourcesSerializer(serializers.Serializer):
 
 
 def source_policy_error(
-    request: Request, exc: ContractError | OrganizationAuthorizationError | WorkspaceAuthorizationError
+    request: Request, exc: ContractError | OrganizationAuthorizationError | WorkspaceAuthorizationError | CMSError
 ) -> Response:
     """Report stale revisions separately from unavailable range authority."""
     conflict = isinstance(exc, ContractError) and exc.code == "source.revision_conflict"
+    unavailable = isinstance(exc, CMSError) and exc.details.get("code") == "authority-unavailable"
     return api_error_response(
         code="source_revision_conflict" if conflict else "range_model_sources_unavailable",
         message="Model sources changed. Reload this range before saving."
         if conflict
         else "Range model sources are unavailable.",
-        status_code=409 if conflict else 403,
+        status_code=503 if unavailable else 409 if conflict else 403,
         request=request,
     )
 
@@ -83,7 +85,7 @@ class RangeModelSourcesView(APIView):
     def get(self, request: Request, request_id: UUID) -> Response:
         try:
             return Response(get_range_model_sources(authenticated_credential(request), request_id=request_id))
-        except (WorkspaceAuthorizationError, OrganizationAuthorizationError, ContractError) as exc:
+        except (WorkspaceAuthorizationError, OrganizationAuthorizationError, ContractError, CMSError) as exc:
             return source_policy_error(request, exc)
 
     @extend_schema(
@@ -98,7 +100,7 @@ class RangeModelSourcesView(APIView):
                 authenticated_credential(request), request_id=request_id, **serializer.validated_data
             )
             return Response(result, status=202 if result["error"] else 200)
-        except (WorkspaceAuthorizationError, OrganizationAuthorizationError, ContractError) as exc:
+        except (WorkspaceAuthorizationError, OrganizationAuthorizationError, ContractError, CMSError) as exc:
             return source_policy_error(request, exc)
 
 
@@ -171,5 +173,5 @@ class RangeModelSourcesRevokeView(ModelAccessAPIView):
     def post(self, request: Request, request_id: UUID) -> Response:
         try:
             return Response(revoke_range_model_sources(authenticated_credential(request), request_id=request_id))
-        except (WorkspaceAuthorizationError, OrganizationAuthorizationError, ContractError) as exc:
+        except (WorkspaceAuthorizationError, OrganizationAuthorizationError, ContractError, CMSError) as exc:
             return source_policy_error(request, exc)

@@ -58,7 +58,7 @@ from shared.enums import RangeSource, RequestType, ResourceStatus
 from shared.models import AuditLog
 
 
-def _make_spare_range(*, event: CTFEvent, owner, scenario_id: str = "basic") -> RangeInstance:
+def _make_spare_range(*, event: CTFEvent, owner, scenario_id: str = "basic", request_uuid=None) -> RangeInstance:
     """Create a real, minimal CTF-sourced ``cms.RangeInstance`` + engine ``Range``/``Request``.
 
     The raw range object underlying a pooled spare (see
@@ -72,7 +72,7 @@ def _make_spare_range(*, event: CTFEvent, owner, scenario_id: str = "basic") -> 
     owner_principal = resolve_principal_uuid(owner.identity_principal.uuid)
     request_id = CmsRequest.objects.create(
         workspace_id=event.workspace_id,
-        request_id=uuid4(),
+        request_id=request_uuid or uuid4(),
         request_type=RequestType.RANGE.value,
         user=owner,
         owner_principal_uuid=owner_principal.uuid,
@@ -133,10 +133,35 @@ def _make_spare_range(*, event: CTFEvent, owner, scenario_id: str = "basic") -> 
     return range_instance
 
 
+def _retain_initial_range_custody(instance, credential):
+    """Represent the previously accepted native generation with its exact policy admission."""
+    from engine.models import RangeAuthorityChange
+    from engine.services._launch_authority import admit_launch_authority, range_runtime_binding_digest
+
+    runtime = instance.engine_range
+    payload = {
+        "version": 1,
+        "resource": "range",
+        "operation": "provision",
+        "request_id": str(instance.request.request_id),
+    }
+    fields = admit_launch_authority(payload, credential)
+    RangeAuthorityChange.objects.create(
+        range=runtime,
+        request_uuid=instance.request.request_id,
+        resource="range",
+        operation="owner",
+        resource_generation=runtime.resource_generation,
+        previous_binding_digest=range_runtime_binding_digest(runtime),
+        **fields,
+    )
+
+
 def _make_pooled_spare(
     event: CTFEvent,
     *,
     owner,
+    credential,
     scenario_id: str | None = None,
     status: str = SpareRangeStatus.READY.value,
 ) -> tuple[CTFSpareRange, RangeInstance]:
@@ -145,12 +170,30 @@ def _make_pooled_spare(
     Mirrors the row shape ``ctf.services.range.spares.provision_event_spares``
     leaves behind, without going through actual CMS provisioning dispatch.
     """
-    range_instance = _make_spare_range(event=event, owner=owner, scenario_id=scenario_id or event.scenario_id)
-    spare = CTFSpareRange.objects.create(
-        event=event,
-        range_instance_id=range_instance.pk,
-        status=status,
-    )
+    from django.db import transaction
+
+    from ctf.services.authorization import admit_event_actions
+    from ctf.services.range.launch_intents import launch_parameters, reserve_launch
+    from management.services import resolve_principal_uuid
+    from shared.model_access import OwnedReference
+
+    admission = admit_event_actions(credential, event, "event.manage_ranges")
+    owner_principal = resolve_principal_uuid(event.owner_principal_uuid)
+    with transaction.atomic():
+        locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk)
+        spare = CTFSpareRange.objects.create(event=locked_event, status=status)
+        subject = OwnedReference(owner="ctf", reference=f"draw:{spare.pk}")
+        parameters = launch_parameters(locked_event, owner_principal, subject, None)
+        intent = reserve_launch(locked_event, "spare", spare.pk, admission, parameters)
+        range_instance = _make_spare_range(
+            event=locked_event, owner=owner, scenario_id=scenario_id or event.scenario_id, request_uuid=intent.pk
+        )
+        spare.request_id = intent.pk
+        spare.range_instance_id = range_instance.pk
+        spare.save(update_fields=["request_id", "range_instance_id", "updated_at"])
+        intent.range_instance_id = range_instance.pk
+        intent.dispatched_at = timezone.now()
+        intent.save(update_fields=["range_instance_id", "dispatched_at", "updated_at"])
     return spare, range_instance
 
 
@@ -219,7 +262,7 @@ def team_and_bracket(event_with_scenario):
 
 
 @pytest.fixture
-def rich_participant(event_with_scenario, participant_user, team_and_bracket):
+def rich_participant(event_with_scenario, participant_user, team_and_bracket, organizer_credential):
     """A participant with team/bracket/submission/award/cached-score state."""
     team, bracket = team_and_bracket
     participant = CTFParticipant.objects.create(
@@ -242,6 +285,7 @@ def rich_participant(event_with_scenario, participant_user, team_and_bracket):
     participant.range_instance_id = old_range.pk
     participant.range_status = ResourceStatus.READY.value
     participant.save(update_fields=["range_instance_id", "range_status", "updated_at"])
+    _retain_initial_range_custody(old_range, organizer_credential)
     return participant, old_range
 
 
@@ -249,10 +293,14 @@ class TestReassignSpareRecovery:
     """``strategy=reassign_spare``: consume an event-scoped pooled spare."""
 
     @pytest.mark.django_db
-    def test_personal_scope_event_has_no_separate_egress_policy(self, event_with_scenario, organizer_user):
+    def test_personal_scope_event_has_no_separate_egress_policy(
+        self, event_with_scenario, organizer_user, organizer_credential
+    ):
         from ctf.bridges import cms_range_egress_compatible_with_event
 
-        _spare, spare_range = _make_pooled_spare(event_with_scenario, owner=organizer_user)
+        _spare, spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=organizer_user
+        )
 
         from workspaces.services import resource_scope_from_ids
 
@@ -269,7 +317,9 @@ class TestReassignSpareRecovery:
         self, event_with_scenario, rich_participant, organizer_user, organizer_credential
     ):
         participant, old_range = rich_participant
-        spare, spare_range = _make_pooled_spare(event_with_scenario, owner=organizer_user)
+        spare, spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=organizer_user
+        )
         assert event_with_scenario.workspace_id is None
 
         result = recover_participant_range(
@@ -290,7 +340,9 @@ class TestReassignSpareRecovery:
         self, event_with_scenario, rich_participant, organizer_user, organizer_credential
     ):
         participant, old_range = rich_participant
-        spare, spare_range = _make_pooled_spare(event_with_scenario, owner=organizer_user)
+        spare, spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=organizer_user
+        )
 
         result = recover_participant_range(
             participant.pk,
@@ -326,7 +378,7 @@ class TestReassignSpareRecovery:
         assert spare.consumed_at is not None
 
         recovery = CTFRangeRecovery.objects.get(participant=participant, strategy=RecoveryStrategy.REASSIGN_SPARE.value)
-        assert recovery.replacement_request_id is None
+        assert recovery.replacement_request_id == spare.request_id
 
     @pytest.mark.django_db
     def test_reassign_spare_uses_live_status_when_local_status_stale(
@@ -336,6 +388,7 @@ class TestReassignSpareRecovery:
         participant, _old_range = rich_participant
         _spare, spare_range = _make_pooled_spare(
             event_with_scenario,
+            credential=organizer_credential,
             owner=second_participant_user,
             status=SpareRangeStatus.PROVISIONING.value,
         )
@@ -366,7 +419,9 @@ class TestReassignSpareRecovery:
             status=ParticipantStatus.ACTIVE.value,
             registered_at=timezone.now(),
         )
-        spare, _spare_range = _make_pooled_spare(event_with_scenario, owner=second_participant_user)
+        spare, _spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=second_participant_user
+        )
         spare.consumed_by = other_participant
         spare.consumed_at = timezone.now()
         spare.status = SpareRangeStatus.CONSUMED.value
@@ -402,7 +457,9 @@ class TestReassignSpareRecovery:
             registered_at=timezone.now(),
         )
         # The only spare is already claimed by the competing recovery.
-        spare, _spare_range = _make_pooled_spare(event_with_scenario, owner=second_participant_user)
+        spare, _spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=second_participant_user
+        )
         spare.consumed_by = competitor
         spare.consumed_at = timezone.now()
         spare.status = SpareRangeStatus.CONSUMED.value
@@ -423,7 +480,9 @@ class TestReassignSpareRecovery:
         assert EngineRange.resolve_active_for_instance(participant.user, old_range.instance_uuid) is not None
 
     @pytest.mark.django_db
-    def test_spare_claim_rolls_back_atomically_on_failure(self, event_with_scenario, second_participant_user):
+    def test_spare_claim_rolls_back_atomically_on_failure(
+        self, event_with_scenario, second_participant_user, organizer_credential
+    ):
         """The spare claim and the recovery-pointer write commit as one unit (#307
         review): a failure after the claim rolls it back, so a spare is never left
         CONSUMED with no durable pointer -- no pool-capacity leak, and a retry
@@ -440,7 +499,9 @@ class TestReassignSpareRecovery:
             status=ParticipantStatus.ACTIVE.value,
             registered_at=timezone.now(),
         )
-        spare, _spare_range = _make_pooled_spare(event_with_scenario, owner=event_with_scenario.created_by)
+        spare, _spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=event_with_scenario.created_by
+        )
 
         class _SimulatedCrash(Exception):
             pass
@@ -480,6 +541,11 @@ class TestReassignSpareRecovery:
             name="Other Event",
             description="A different event sharing the scenario",
             created_by=organizer_user,
+            owner_principal_uuid=event_with_scenario.owner_principal_uuid,
+            scope_kind=event_with_scenario.scope_kind,
+            account_id=event_with_scenario.account_id,
+            organization_id=event_with_scenario.organization_id,
+            workspace_id=event_with_scenario.workspace_id,
             status=EventStatus.REGISTRATION.value,
             event_start=timezone.now() + timedelta(days=1),
             event_end=timezone.now() + timedelta(days=1, hours=8),
@@ -488,7 +554,9 @@ class TestReassignSpareRecovery:
             cleanup_delay_hours=24,
             team_mode=False,
         )
-        _foreign_spare, foreign_spare_range = _make_pooled_spare(other_event, owner=second_participant_user)
+        _foreign_spare, foreign_spare_range = _make_pooled_spare(
+            other_event, credential=organizer_credential, owner=second_participant_user
+        )
 
         # Even naming the foreign spare explicitly must be refused.
         with pytest.raises(CTFRangeError, match="No compatible spare"):
@@ -512,7 +580,9 @@ class TestReassignSpareVpnCustody:
         self, event_with_scenario, rich_participant, second_participant_user, organizer_user, organizer_credential
     ):
         participant, old_range = rich_participant
-        spare, spare_range = _make_pooled_spare(event_with_scenario, owner=second_participant_user)
+        spare, spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=second_participant_user
+        )
         spare_engine_range = EngineRange.objects.get(pk=spare_range.engine_range.pk)
         spare_engine_range.vpn_access_binding = {"generation": str(spare_range.request.request_id)}
         spare_engine_range.save(update_fields=["vpn_access_binding"])
@@ -539,7 +609,9 @@ class TestReassignSpareVpnCustody:
     ):
         """An event-owned spare has no login, so its profile never left custody (#2030)."""
         participant, _old_range = rich_participant
-        spare, spare_range = _make_pooled_spare(event_with_scenario, owner=organizer_user)
+        spare, spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=organizer_user
+        )
         spare_engine_range = EngineRange.objects.get(pk=spare_range.engine_range.pk)
         from shared.remote_access import bind_openvpn_realization
 
@@ -628,7 +700,9 @@ class TestIdempotentRetry:
         organizer_credential,
     ):
         participant, old_range = rich_participant
-        spare, spare_range = _make_pooled_spare(event_with_scenario, owner=second_participant_user)
+        spare, spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=second_participant_user
+        )
         called = {"value": False}
 
         def fail_teardown(_request_id):
@@ -653,7 +727,7 @@ class TestIdempotentRetry:
 
         assert ProvisionerLaunchIntent.objects.filter(payload__operation="destroy").count() == 1
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_completed_recovery_records_one_teardown_and_audit(
         self,
         monkeypatch,
@@ -664,7 +738,9 @@ class TestIdempotentRetry:
         organizer_credential,
     ):
         participant, old_range = rich_participant
-        _spare, spare_range = _make_pooled_spare(event_with_scenario, owner=second_participant_user)
+        _spare, spare_range = _make_pooled_spare(
+            event_with_scenario, credential=organizer_credential, owner=second_participant_user
+        )
         call_count = {"n": 0}
 
         def flaky_teardown(request_id):
@@ -672,6 +748,35 @@ class TestIdempotentRetry:
             raise CloudTaskError("cloud execution must be deferred")
 
         monkeypatch.setattr("engine.ecs.start_range_teardown", flaky_teardown)
+
+        from django.db import connection
+
+        failed = False
+
+        def fail_progress_write(execute, sql, params, many, context):
+            nonlocal failed
+            if (
+                not failed
+                and sql.startswith('UPDATE "ctf_ctfrangerecovery"')
+                and RecoveryPhase.OLD_RANGE_BLOCKED.value in params
+            ):
+                failed = True
+                raise RuntimeError("Synthetic progress write failure after durable teardown")
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(fail_progress_write), pytest.raises(CTFRangeError):
+            recover_participant_range(
+                participant.pk,
+                strategy=RecoveryStrategy.REASSIGN_SPARE.value,
+                operator=organizer_credential,
+                spare_range_instance_id=spare_range.pk,
+            )
+        assert failed
+        from engine.models import ProvisionerLaunchIntent
+
+        original_cleanup = ProvisionerLaunchIntent.objects.get(payload__operation="destroy")
+        participant.refresh_from_db()
+        assert participant.range_instance_id == old_range.pk
 
         result = recover_participant_range(
             participant.pk,
@@ -688,7 +793,7 @@ class TestIdempotentRetry:
         assert AuditLog.objects.filter(action=AuditAction.RECOVER, entity_id=old_range.pk).count() == 1
         from engine.models import ProvisionerLaunchIntent
 
-        assert ProvisionerLaunchIntent.objects.filter(payload__operation="destroy").count() == 1
+        assert ProvisionerLaunchIntent.objects.get(payload__operation="destroy").pk == original_cleanup.pk
 
         participant.refresh_from_db()
         assert participant.range_instance_id == spare_range.pk

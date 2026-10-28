@@ -41,7 +41,7 @@ class ScoreTimelineView(APIView):
     @extend_schema(responses=ScoreTimelineResponseSerializer)
     def get(self, request: Request, participant_id: UUID) -> Response:
         """Resolve the participant, authorize access, and return the timeline."""
-        from ctf.exceptions import CTFNotFoundError
+        from ctf.exceptions import CTFNotFoundError, CTFPermissionError
         from ctf.services import get_participant
         from ctf.services.scoring import get_score_timeline
 
@@ -59,6 +59,11 @@ class ScoreTimelineView(APIView):
                     "timeline": timeline,
                 }
             )
+        except CTFPermissionError:
+            try:
+                _raise_forbidden()
+            except _CtfApiError as exc:
+                return exc.to_response(request)
         except _CtfApiError as exc:
             return exc.to_response(request)
 
@@ -68,6 +73,8 @@ class ScoreTimelineView(APIView):
 
         Mirrors ``ctf.views.api.scoreboard._authorize_timeline_access``.
         """
+        from ctf.exceptions import CTFPermissionError
+
         credential = _credential(request)
         if _event_action_allowed(credential, participant.event_id, "event.manage_submissions"):
             return
@@ -75,7 +82,7 @@ class ScoreTimelineView(APIView):
 
         try:
             admitted = participant_for_credential(credential, participant.event_id)
-        except ValueError:
+        except (ValueError, CTFPermissionError):
             _raise_forbidden()
         if admitted.pk != participant.pk:
             _raise_forbidden()

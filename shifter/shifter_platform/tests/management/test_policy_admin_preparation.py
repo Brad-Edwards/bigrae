@@ -130,18 +130,25 @@ def test_owning_human_session_can_update_its_recovery_email():
     assert changed.email == "owner@example.test"
 
 
-def test_personal_token_cannot_redirect_its_owners_recovery_email():
-    from dataclasses import replace
-
+def test_personal_token_cannot_redirect_its_owners_recovery_email(monkeypatch):
     from management import admin_services
+    from shared.api_tokens.models import ApiToken
+    from shared.api_tokens.policy import personal_credential_for_token
+    from shared.authorization import TargetRef, port
 
     actor = _actor("human", actions=frozenset({"installation.manage_principals"}))
     user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
+    monkeypatch.setattr(port, "_provider_factory", Provider)
+    token, _raw = ApiToken.create_token(
+        name="Personal administration",
+        scopes=["authorization:installation.manage_principals"],
+        created_by=user,
+        target=TargetRef("installation"),
+    )
+    personal = personal_credential_for_token(token)
     original_email = user.email
     with pytest.raises(ValueError):
-        admin_services.update_policy_user_metadata(
-            replace(actor, kind="personal"), Provider(), user.pk, {"email": "replacement@example.test"}
-        )
+        admin_services.update_policy_user_metadata(personal, Provider(), user.pk, {"email": "replacement@example.test"})
     user.refresh_from_db()
     assert user.email == original_email
 

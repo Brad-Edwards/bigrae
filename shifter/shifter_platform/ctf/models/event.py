@@ -145,6 +145,7 @@ class CTFEvent(ImmutableFieldsMixin, CTFBaseModel):
     authorization_provider_store_id = models.CharField(max_length=64, blank=True, default="", editable=False)
     authorization_model_id = models.CharField(max_length=64, blank=True, default="", editable=False)
     authorization_publication_reason = models.CharField(max_length=64, blank=True, default="", editable=False)
+    initialization_intent = models.JSONField(null=True, default=None, editable=False)
     workspace_id = models.IntegerField(
         null=True,
         blank=True,
@@ -166,9 +167,12 @@ class CTFEvent(ImmutableFieldsMixin, CTFBaseModel):
     def save(self, *args, **kwargs) -> None:
         """Populate legacy human attribution as principal facts on new rows only."""
         if self._state.adding and self.created_by_id is not None:
+            creator = self.created_by
+            if creator is None:
+                raise ValueError("Human attribution unavailable")
             from shared.principal_port import principal_for_user
 
-            principal_uuid = principal_for_user(self.created_by).uuid
+            principal_uuid = principal_for_user(creator).uuid
             self.creator_principal_uuid = self.creator_principal_uuid or principal_uuid
             self.owner_principal_uuid = self.owner_principal_uuid or principal_uuid
         super().save(*args, **kwargs)

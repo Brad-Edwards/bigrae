@@ -476,6 +476,31 @@ class TestApiParticipantErrorPaths:
         # unavailable even to a registered participant.
         assert resp.status_code == 403
 
+    def test_file_download_live_policy_participation_denial_is_forbidden(
+        self, authenticated_organizer_client, ctf_challenge, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from ctf.models import CTFChallengeFile
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+        monkeypatch.setattr(
+            port,
+            "_provider_factory",
+            lambda: SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied")),
+        )
+        attachment = CTFChallengeFile.objects.create(
+            challenge=ctf_challenge,
+            filename="synthetic.txt",
+            file_size_bytes=4,
+            content_type="text/plain",
+            s3_key="synthetic-key",
+            sha256_hash="h",
+            order=0,
+        )
+        response = _json(authenticated_organizer_client, "get", "api_file_download", kwargs={"file_id": attachment.pk})
+        assert response.status_code == 403
+
     def test_participant_detail_not_found(self, authenticated_organizer_client: Client):
         resp = _json(
             authenticated_organizer_client, "get", "api_participant_detail", kwargs={"participant_id": uuid4()}
@@ -503,13 +528,14 @@ class TestApiParticipantErrorPaths:
         participant_user,
         ctf_participant: CTFParticipant,
     ):
-        from management.temporary_accounts import configure_temporary_ctf_account
+        from management.temporary_accounts import configure_temporary_ctf_account, set_ctf_password_change_required
 
         ctf_participant.event.status = "active"
         ctf_participant.event.event_start = timezone.now() - timedelta(minutes=1)
         ctf_participant.event.event_end = timezone.now() + timedelta(hours=1)
         ctf_participant.event.save(update_fields=["status", "event_start", "event_end"])
         configure_temporary_ctf_account(participant_user, ctf_participant.event_id)
+        set_ctf_password_change_required(participant_user, False)
         client.force_login(participant_user)
 
         resp = _json(client, "get", "api_score_timeline", kwargs={"participant_id": ctf_participant.id})

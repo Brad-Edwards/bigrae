@@ -28,6 +28,30 @@ def _json(response):
 
 
 class TestListAgents:
+    @pytest.mark.parametrize("route", ["agents-list", "scenarios-list"])
+    @pytest.mark.parametrize("provider_unavailable", [False, True])
+    def test_catalog_denial_returns_a_bounded_error(
+        self, authenticated_client, monkeypatch, route, provider_unavailable
+    ):
+        from shared.exceptions import CMSError
+
+        client, _user = authenticated_client(email=f"catalog-{route}@example.com")
+        target = "cms_list_agents" if route == "agents-list" else "cms_list_launchable_scenarios"
+
+        def denied(*args, **kwargs):
+            raise CMSError(
+                "SYNTHETIC_PRIVATE_PROVIDER_TEXT",
+                details={"code": "authority-unavailable"} if provider_unavailable else {},
+            )
+
+        monkeypatch.setattr(f"mission_control.api.ranges.{target}", denied)
+        response = client.get(reverse(f"v1:mission_control:{route}"))
+        assert response.status_code == (503 if provider_unavailable else 403)
+        assert "SYNTHETIC_PRIVATE_PROVIDER_TEXT" not in response.content.decode()
+        assert _json(response)["error"]["code"] == (
+            "catalog_unavailable" if provider_unavailable else "content_not_available"
+        )
+
     def test_requires_login(self):
         response = Client().get(reverse("v1:mission_control:agents-list"))
         assert response.status_code == 401
