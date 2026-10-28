@@ -285,6 +285,27 @@ def delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int)
     return {"results": results, "next_offset": offset + limit if len(page) > limit else None}
 
 
+def _recipient_row(snapshot: RecipientSnapshot) -> dict[str, Any]:
+    """Project one snapshot: name and team only for a live participant, never a coordinate."""
+    participant = snapshot.participant
+    live = participant if participant is not None and participant.deleted_at is None else None
+    team = live.team if live else None
+    receipt = getattr(snapshot, "receipt", None)
+    return {
+        "participant_id": snapshot.participant_public_id,
+        "name": live.name if live else None,
+        "team": team.name if team else None,
+        "removed": live is None,
+        "inbox_available": receipt is not None,
+        "read_at": getattr(receipt, "read_at", None),
+        "acknowledged_at": getattr(receipt, "acknowledged_at", None),
+        "channels": [
+            {"channel": attempt.channel, "status": attempt.status}
+            for attempt in sorted(snapshot.delivery_attempts.all(), key=lambda a: a.channel)
+        ],
+    }
+
+
 def recipient_rows(
     user: User, campaign: CommunicationCampaign, *, intent_id: UUID, event_id: UUID, limit: int, offset: int
 ) -> dict[str, Any]:
@@ -306,26 +327,7 @@ def recipient_rows(
         .prefetch_related("delivery_attempts")
         .order_by("participant_public_id")[offset : offset + limit + 1]
     )
-    rows = []
-    for snapshot in snapshots[:limit]:
-        participant = snapshot.participant
-        live = participant if participant is not None and participant.deleted_at is None else None
-        receipt = getattr(snapshot, "receipt", None)
-        rows.append(
-            {
-                "participant_id": snapshot.participant_public_id,
-                "name": live.name if live else None,
-                "team": live.team.name if live and live.team else None,
-                "removed": live is None,
-                "inbox_available": receipt is not None,
-                "read_at": receipt.read_at if receipt else None,
-                "acknowledged_at": receipt.acknowledged_at if receipt else None,
-                "channels": [
-                    {"channel": attempt.channel, "status": attempt.status}
-                    for attempt in sorted(snapshot.delivery_attempts.all(), key=lambda a: a.channel)
-                ],
-            }
-        )
+    rows = [_recipient_row(snapshot) for snapshot in snapshots[:limit]]
     return {"results": rows, "next_offset": offset + limit if len(snapshots) > limit else None}
 
 
