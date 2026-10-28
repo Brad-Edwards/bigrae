@@ -148,6 +148,9 @@ variable "deploy_roles" {
     "roles/monitoring.editor",
     "roles/iam.serviceAccountAdmin",
     "roles/resourcemanager.projectIamAdmin",
+    # Read the range guest images: gcp-deploy checks that each image in
+    # range-images.json exists before the rollout (#2608).
+    "roles/compute.imageUser",
     # Manage the dynamic-secret custom role DEFINITIONS created by the platform-core
     # deploy (portal/iam: shifterDynamicSecretCreator / shifterDynamicSecretLifecycle).
     # projectIamAdmin covers IAM bindings but not iam.roles.* on custom-role

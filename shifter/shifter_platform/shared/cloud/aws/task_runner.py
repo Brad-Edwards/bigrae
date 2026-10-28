@@ -17,7 +17,13 @@ from __future__ import annotations
 from django.conf import settings
 
 from shared.cloud import PROVISIONER_CONTAINER_NAME
-from shared.cloud.kubernetes import KubernetesTaskProfile, KubernetesTaskRunner, standard_provisioner_hardening
+from shared.cloud.kubernetes import (
+    PROVISIONER_RESOURCE_LIMITS,
+    PROVISIONER_RESOURCE_REQUESTS,
+    KubernetesTaskProfile,
+    KubernetesTaskRunner,
+    standard_provisioner_hardening,
+)
 
 # AWS task-runner provider tag stamped on Job/Secret metadata. Distinct from the
 # GCP "gcp" value so the fail-closed provisioner admission policy binds the AWS
@@ -41,6 +47,8 @@ def _build_aws_task_profile() -> KubernetesTaskProfile:
         backoff_limit=getattr(settings, "ENGINE_TASK_BACKOFF_LIMIT", 0),
         ttl_seconds_after_finished=getattr(settings, "ENGINE_TASK_TTL_SECONDS_AFTER_FINISHED", 3600),
         hardening=standard_provisioner_hardening(PROVISIONER_CONTAINER_NAME),
+        resource_requests=PROVISIONER_RESOURCE_REQUESTS,
+        resource_limits=PROVISIONER_RESOURCE_LIMITS,
     )
 
 

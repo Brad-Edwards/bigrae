@@ -23,7 +23,13 @@ from django.conf import settings
 
 from shared.cloud import PROVISIONER_CONTAINER_NAME
 from shared.cloud.exceptions import CloudTaskError
-from shared.cloud.kubernetes import KubernetesTaskProfile, KubernetesTaskRunner, standard_provisioner_hardening
+from shared.cloud.kubernetes import (
+    PROVISIONER_RESOURCE_LIMITS,
+    PROVISIONER_RESOURCE_REQUESTS,
+    KubernetesTaskProfile,
+    KubernetesTaskRunner,
+    standard_provisioner_hardening,
+)
 from shared.cloud.kubernetes._profile import NativeDatabaseProxyProfile
 from shared.gcp_native_identity import CLOUD_SQL_PROXY_IMAGE
 
@@ -85,6 +91,8 @@ def _build_gcp_task_profile() -> KubernetesTaskProfile:
         backoff_limit=getattr(settings, "ENGINE_TASK_BACKOFF_LIMIT", 0),
         ttl_seconds_after_finished=getattr(settings, "ENGINE_TASK_TTL_SECONDS_AFTER_FINISHED", 3600),
         hardening=standard_provisioner_hardening(PROVISIONER_CONTAINER_NAME),
+        resource_requests=PROVISIONER_RESOURCE_REQUESTS,
+        resource_limits=PROVISIONER_RESOURCE_LIMITS,
         node_selector=_PROVISIONER_NODE_SELECTOR,
         tolerations=_PROVISIONER_TOLERATIONS,
         database_proxy=_database_proxy(),

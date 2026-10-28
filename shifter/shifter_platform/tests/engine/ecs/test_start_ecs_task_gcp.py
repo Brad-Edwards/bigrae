@@ -93,6 +93,7 @@ def _install_fake_kubernetes(monkeypatch):
         V1PodSecurityContext=_KubeModel,
         V1PodSpec=_KubeModel,
         V1PodTemplateSpec=_KubeModel,
+        V1ResourceRequirements=_KubeModel,
         V1Secret=_KubeModel,
         V1SecretKeySelector=_KubeModel,
         V1SeccompProfile=_KubeModel,
