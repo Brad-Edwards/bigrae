@@ -15,7 +15,7 @@ from shared.authorization import (
     TargetRef,
 )
 
-PERSONAL_TOKEN_ELIGIBILITY = "installation.use_personal_tokens"
+PERSONAL_CREDENTIAL_ACTION = "installation.use_personal_tokens"
 _BOOTSTRAP_UNRESOLVED = "bootstrap administrator grant is unresolved"
 
 
@@ -28,7 +28,7 @@ def bootstrap_grants(principal_uuid: UUID, plan: Mapping[str, object]) -> tuple[
     target = TargetRef("installation")
     administrator = AdministrativeRoleChange(subject, "application_administrator", target, PolicyEffect.GRANT)
     if eligible:
-        eligibility = PolicyRelationshipChange(subject, PERSONAL_TOKEN_ELIGIBILITY, target, PolicyEffect.GRANT)
+        eligibility = PolicyRelationshipChange(subject, PERSONAL_CREDENTIAL_ACTION, target, PolicyEffect.GRANT)
         return administrator, eligibility
     return (administrator,)
 

@@ -26,7 +26,7 @@ from shared.api_tokens.models import ApiToken
 from shared.api_tokens.scopes import CTF_COMMUNICATION_WRITE, has_scope
 
 _COMMUNICATION_AUTHORITY_UNAVAILABLE = "Communication authority unavailable"
-_COMMUNICATION_TOKEN_IS_NOT_AUTHORIZED = "Communication token is not authorized"
+_COMMUNICATION_CREDENTIAL_DENIED = "Communication token is not authorized"
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -185,7 +185,7 @@ def _require_admitted_token(actor: AdmissionActor, token: ApiToken | None, requi
         or actor.system
         or actor.allow_early_release
     ):
-        raise CTFCommunicationError(_COMMUNICATION_TOKEN_IS_NOT_AUTHORIZED, code="CTF_COMMUNICATION_TOKEN_DENIED")
+        raise CTFCommunicationError(_COMMUNICATION_CREDENTIAL_DENIED, code="CTF_COMMUNICATION_TOKEN_DENIED")
     return token
 
 
@@ -206,13 +206,13 @@ def _authorize_token(actor: AdmissionActor, required_scope: str) -> CredentialCo
                     _COMMUNICATION_AUTHORITY_UNAVAILABLE, code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
                 ) from None
             raise CTFCommunicationError(
-                _COMMUNICATION_TOKEN_IS_NOT_AUTHORIZED, code="CTF_COMMUNICATION_TOKEN_DENIED"
+                _COMMUNICATION_CREDENTIAL_DENIED, code="CTF_COMMUNICATION_TOKEN_DENIED"
             ) from None
         if actor.credential is not None and (
             actor.credential.principal != credential.principal
             or actor.credential.credential_uuid != credential.credential_uuid
         ):
-            raise CTFCommunicationError(_COMMUNICATION_TOKEN_IS_NOT_AUTHORIZED, code="CTF_COMMUNICATION_TOKEN_DENIED")
+            raise CTFCommunicationError(_COMMUNICATION_CREDENTIAL_DENIED, code="CTF_COMMUNICATION_TOKEN_DENIED")
         return credential
     return None
 

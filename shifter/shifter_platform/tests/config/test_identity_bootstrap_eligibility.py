@@ -6,7 +6,7 @@ from io import StringIO
 import pytest
 from django.core.management import CommandError, call_command
 
-from config.identity_bootstrap import PERSONAL_TOKEN_ELIGIBILITY, bootstrap_grants
+from config.identity_bootstrap import PERSONAL_CREDENTIAL_ACTION, bootstrap_grants
 from shared.authorization import RelationshipState
 from shared.models import AuditLog
 from tests.config.test_identity_cutover_command import _bind_bootstrap, _bootstrap_facts, _facts, _PolicyProvider
@@ -49,7 +49,7 @@ def test_bootstrap_seeds_only_explicit_plan_grants(tmp_path, bootstrap_candidate
     expected = bootstrap_grants(principal.uuid, plan)
     assert all(change.grant_tuple in provider.relationships for change in expected)
     assert len(expected) == (2 if eligible else 1)
-    assert any(getattr(change, "action", None) == PERSONAL_TOKEN_ELIGIBILITY for change in expected) is eligible
+    assert any(getattr(change, "action", None) == PERSONAL_CREDENTIAL_ACTION for change in expected) is eligible
     row = AuditLog.objects.filter(entity_ref="identity-cutover-bootstrap").latest("sequence")
     assert row.new_state["personal_token_eligibility"] is eligible
     assert row.new_state["plan_digest"] == plan["plan_digest"]
