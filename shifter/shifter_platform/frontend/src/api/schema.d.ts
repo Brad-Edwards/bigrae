@@ -1175,6 +1175,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ctf/communications/{campaign_id}/activity/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The body-free campaign timeline from ledger attribution. */
+        get: operations["ctf_communications_activity_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ctf/communications/{campaign_id}/cancel/": {
         parameters: {
             query?: never;
@@ -1186,6 +1203,57 @@ export interface paths {
         put?: never;
         /** @description Cancel unclaimed work for an authorized campaign. */
         post: operations["ctf_communications_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ctf/communications/{campaign_id}/delivery/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Aggregate delivery state per occurrence, event, and channel. */
+        get: operations["ctf_communications_delivery_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ctf/communications/{campaign_id}/preview/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Project a reviewed revision and the current audience estimate; writes nothing. */
+        get: operations["ctf_communications_preview_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ctf/communications/{campaign_id}/recipients/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Minimal recipient rows for one occurrence and one target event. */
+        get: operations["ctf_communications_recipients_list"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1220,6 +1288,23 @@ export interface paths {
         put?: never;
         /** @description Append validated content to an authorized draft campaign. */
         post: operations["ctf_communications_revisions_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ctf/communications/targets/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List the workspaces and events where the actor may author a communication. */
+        get: operations["ctf_communications_targets_list"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4378,6 +4463,41 @@ export interface components {
             code: string;
             detail: string;
         };
+        /** @description The campaign timeline; ``truncated`` reports the row bound. */
+        CommunicationActivity: {
+            readonly entries: components["schemas"]["CommunicationActivityEntry"][];
+            readonly truncated: boolean;
+        };
+        /** @description One body-free timeline entry. */
+        CommunicationActivityEntry: {
+            readonly kind: components["schemas"]["CommunicationActivityEntryKindEnum"];
+            /** Format: date-time */
+            readonly at: string;
+            readonly actor: components["schemas"]["CommunicationActor"] | null;
+            readonly revision_number: number | null;
+            /** Format: uuid */
+            readonly intent_id: string | null;
+            readonly status: string | null;
+            /** Format: date-time */
+            readonly due_at: string | null;
+        };
+        /**
+         * @description * `created` - created
+         *     * `revised` - revised
+         *     * `scheduled` - scheduled
+         *     * `released` - released
+         *     * `expired` - expired
+         *     * `fenced` - fenced
+         *     * `cancelled` - cancelled
+         * @enum {string}
+         */
+        CommunicationActivityEntryKindEnum: "created" | "revised" | "scheduled" | "released" | "expired" | "fenced" | "cancelled";
+        /** @description Display actor for a timeline entry. */
+        CommunicationActor: {
+            readonly label: string;
+            /** @description session | api_token | scheduler */
+            readonly via: string;
+        };
         /** @description Closed audience variants; semantics remain in the domain contract. */
         CommunicationAudience: {
             kind: components["schemas"]["CommunicationAudienceKindEnum"];
@@ -4418,10 +4538,30 @@ export interface components {
             readonly origin: string;
             readonly channels: string[];
             readonly acknowledgement_policy: string;
-            /** @description Return the number of events the campaign targets (no identities exposed). */
+            /** @description Return the number of events the campaign targets. */
             readonly target_event_count: number;
+            readonly target_events: components["schemas"]["CommunicationTargetRef"][];
+            readonly latest_revision: components["schemas"]["CommunicationRevisionRef"] | null;
+            readonly trigger: components["schemas"]["CommunicationTriggerProjection"];
             /** Format: date-time */
             readonly created_at: string;
+        };
+        /** @description Whether a selected channel has a registered transport now. */
+        CommunicationChannelAvailability: {
+            readonly channel: string;
+            readonly available: boolean;
+        };
+        /** @description Delivery-command counts by truthful status for one channel. */
+        CommunicationChannelCounts: {
+            readonly channel: string;
+            readonly queued: number;
+            readonly claimed: number;
+            readonly retry_due: number;
+            readonly accepted: number;
+            readonly permanent_failure: number;
+            readonly cancelled: number;
+            readonly suppressed: number;
+            readonly expired: number;
         };
         /** @description Organizer authoring input; actor and provenance are always server derived. */
         CommunicationCreate: {
@@ -4436,6 +4576,45 @@ export interface components {
             channels: components["schemas"]["ChannelsEnum"][];
             /** @default none */
             acknowledgement_policy: components["schemas"]["AcknowledgementPolicyEnum"];
+        };
+        /** @description Per-event recipients, inbox receipts, and per-channel command counts. */
+        CommunicationDeliveryEvent: {
+            /** Format: uuid */
+            readonly event_id: string;
+            readonly name: string;
+            readonly recipients: number;
+            readonly inbox_available: number;
+            readonly read: number;
+            readonly acknowledged: number;
+            readonly channels: components["schemas"]["CommunicationChannelCounts"][];
+        };
+        /** @description One occurrence: admission state, release-task state, and delivery facts. */
+        CommunicationDeliveryOccurrence: {
+            /** Format: uuid */
+            readonly intent_id: string;
+            readonly status: string;
+            readonly trigger_kind: string;
+            readonly revision_number: number;
+            /** Format: date-time */
+            readonly due_at: string | null;
+            /** Format: date-time */
+            readonly released_at: string | null;
+            readonly schedule_status: string | null;
+            readonly events: components["schemas"]["CommunicationDeliveryEvent"][];
+            readonly totals: components["schemas"]["CommunicationDeliveryTotals"];
+        };
+        /** @description A bounded page of occurrences, newest first. */
+        CommunicationDeliveryReport: {
+            readonly results: components["schemas"]["CommunicationDeliveryOccurrence"][];
+            readonly next_offset: number | null;
+        };
+        /** @description Occurrence totals across all target events. */
+        CommunicationDeliveryTotals: {
+            readonly recipients: number;
+            readonly inbox_available: number;
+            readonly read: number;
+            readonly acknowledged: number;
+            readonly channels: components["schemas"]["CommunicationChannelCounts"][];
         };
         /** @description Actions with no caller-controlled state. */
         CommunicationEmpty: Record<string, never>;
@@ -4471,6 +4650,64 @@ export interface components {
             /** Format: date-time */
             readonly released_at: string | null;
         };
+        /** @description A side-effect-free preview; counts are estimates, not a delivery claim. */
+        CommunicationPreview: {
+            /** Format: uuid */
+            readonly campaign_id: string;
+            readonly revision: components["schemas"]["CommunicationPreviewRevision"];
+            readonly channels: components["schemas"]["CommunicationChannelAvailability"][];
+            readonly acknowledgement_policy: string;
+            readonly trigger: components["schemas"]["CommunicationTriggerProjection"];
+            readonly events: components["schemas"]["CommunicationPreviewEvent"][];
+            readonly recipient_total: number;
+            readonly audience_cap: number;
+            readonly exceeds_audience_cap: boolean;
+            /** Format: date-time */
+            readonly observed_at: string;
+        };
+        /** @description Current audience estimate and local due time for one target event. */
+        CommunicationPreviewEvent: {
+            /** Format: uuid */
+            readonly event_id: string;
+            readonly name: string;
+            readonly event_timezone: string;
+            readonly recipient_count: number;
+            readonly local_due_at: string | null;
+        };
+        /** @description The immutable revision under review. */
+        CommunicationPreviewRevision: {
+            /** Format: uuid */
+            readonly id: string;
+            readonly revision_number: number;
+            readonly subject: string;
+            readonly body: string;
+            readonly content_profile: string;
+            readonly content_digest: string;
+        };
+        /** @description Minimal recipient state: name and team only, never a coordinate. */
+        CommunicationRecipient: {
+            /** Format: uuid */
+            readonly participant_id: string;
+            readonly name: string | null;
+            readonly team: string | null;
+            readonly removed: boolean;
+            readonly inbox_available: boolean;
+            /** Format: date-time */
+            readonly read_at: string | null;
+            /** Format: date-time */
+            readonly acknowledged_at: string | null;
+            readonly channels: components["schemas"]["CommunicationRecipientChannel"][];
+        };
+        /** @description One delivery command's status for a recipient. */
+        CommunicationRecipientChannel: {
+            readonly channel: string;
+            readonly status: string;
+        };
+        /** @description A bounded page of recipient rows. */
+        CommunicationRecipientPage: {
+            readonly results: components["schemas"]["CommunicationRecipient"][];
+            readonly next_offset: number | null;
+        };
         /** @description Stable occurrence identity; scheduling time comes from the pinned trigger. */
         CommunicationRelease: {
             occurrence_key: string;
@@ -4481,6 +4718,38 @@ export interface components {
         CommunicationRevision: {
             subject: string;
             body: string;
+        };
+        /** @description Immutable revision identity. */
+        CommunicationRevisionRef: {
+            /** Format: uuid */
+            readonly id: string;
+            readonly revision_number: number;
+        };
+        /** @description An event the actor may message, with its display time zone. */
+        CommunicationTargetEvent: {
+            /** Format: uuid */
+            readonly id: string;
+            readonly name: string;
+            readonly status: string;
+            readonly event_timezone: string;
+            /** Format: date-time */
+            readonly event_start: string;
+            /** Format: date-time */
+            readonly event_end: string;
+            /** Format: uuid */
+            readonly workspace_id: string;
+        };
+        /** @description Target event identity and display name. */
+        CommunicationTargetRef: {
+            /** Format: uuid */
+            readonly id: string;
+            readonly name: string;
+        };
+        /** @description Authorized workspaces and a bounded page of events. */
+        CommunicationTargets: {
+            readonly workspaces: components["schemas"]["CommunicationWorkspace"][];
+            readonly events: components["schemas"]["CommunicationTargetEvent"][];
+            readonly next_offset: number | null;
         };
         /** @description Typed trigger fields with UTC/reference rules delegated to the domain. */
         CommunicationTrigger: {
@@ -4514,6 +4783,18 @@ export interface components {
          * @enum {string}
          */
         CommunicationTriggerKindEnum: "manual" | "event_lifecycle" | "absolute_time" | "raes_occurrence" | "range_signal";
+        /** @description The closed trigger kind and its UTC instant (null when untimed). */
+        CommunicationTriggerProjection: {
+            readonly kind: string;
+            /** Format: date-time */
+            readonly due_at: string | null;
+        };
+        /** @description Public workspace identity and display name. */
+        CommunicationWorkspace: {
+            /** Format: uuid */
+            readonly id: string;
+            readonly name: string;
+        };
         /** @description One entry from ``mission_control.utils.build_connection_urls``. */
         ConnectionUrl: {
             uuid: string | null;
@@ -11022,6 +11303,90 @@ export interface operations {
             };
         };
     };
+    ctf_communications_activity_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationActivity"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request conflicts with current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request was throttled */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     ctf_communications_cancel_create: {
         parameters: {
             query?: never;
@@ -11043,6 +11408,268 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CommunicationCampaignSummary"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request conflicts with current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request was throttled */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    ctf_communications_delivery_retrieve: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationDeliveryReport"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request conflicts with current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request was throttled */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    ctf_communications_preview_retrieve: {
+        parameters: {
+            query: {
+                revision_id: string;
+            };
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationPreview"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request conflicts with current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request was throttled */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    ctf_communications_recipients_list: {
+        parameters: {
+            query: {
+                event_id: string;
+                intent_id: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationRecipientPage"];
                 };
             };
             /** @description Invalid request */
@@ -11219,6 +11846,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CommunicationCampaignSummary"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request conflicts with current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request was throttled */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    ctf_communications_targets_list: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                workspace_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationTargets"];
                 };
             };
             /** @description Invalid request */

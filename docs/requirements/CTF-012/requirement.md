@@ -39,3 +39,7 @@ An API enables custom scoreboards, automated challenge deployment, integration w
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2100`
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/operation_policy.py` (ADR-066 S5 action and scope locator contract for published CTF operations; S8 activates administration authority)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_authorization_operation_map.py` (Published OpenAPI operation and browser route coverage)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/api/serializers/communication_console.py` (Closed query inputs and read-only console projections (#2052))
+- IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/api/ctfCommunications.ts` (One parameterized submit path for the console and single-event announcements (#2052))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_console_api.py` (Exact read/write scopes, CSRF, foreign identifiers, cross-workspace denial (#2052))
+- IMPLEMENTS → GITHUB_ISSUE `2052` (Issue #2052 - console API routes and scopes)

@@ -25,6 +25,18 @@ from ctf.api.serializers.communication import (
     CommunicationJSONParser,
     CommunicationReleaseSerializer,
     CommunicationRevisionSerializer,
+    with_latest_revision,
+)
+from ctf.api.serializers.communication_console import (
+    CommunicationActivitySerializer,
+    CommunicationDeliveryReportSerializer,
+    CommunicationPageQuerySerializer,
+    CommunicationPreviewQuerySerializer,
+    CommunicationPreviewSerializer,
+    CommunicationRecipientPageSerializer,
+    CommunicationRecipientQuerySerializer,
+    CommunicationTargetQuerySerializer,
+    CommunicationTargetsSerializer,
 )
 from ctf.exceptions import CTFCommunicationError, CTFError
 from ctf.models import CommunicationCampaign, MessageRevision
@@ -34,6 +46,7 @@ from ctf.services.communication import (
     cancel_campaign,
     create_campaign,
     release_campaign,
+    reporting,
     revise_message,
     schedule_declaration,
 )
@@ -150,7 +163,9 @@ class CommunicationListView(CommunicationView):
         if "event_id" in query:
             queryset = queryset.filter(target_events__pk=query["event_id"])
         candidates = list(
-            queryset.prefetch_related("target_events").order_by("created_at", "pk")[start : start + limit + 1]
+            with_latest_revision(queryset)
+            .prefetch_related("target_events")
+            .order_by("created_at", "pk")[start : start + limit + 1]
         )
         visible = []
         with transaction.atomic():
@@ -240,3 +255,83 @@ class CommunicationCancelView(CommunicationView):
         cancel_campaign(campaign, actor=request_actor(request))
         campaign.refresh_from_db()
         return Response(CommunicationCampaignSummarySerializer(campaign).data)
+
+
+class CommunicationTargetsView(CommunicationView):
+    """List the workspaces and events where the actor may author a communication."""
+
+    @extend_schema(
+        operation_id="ctf_communications_targets_list",
+        parameters=[CommunicationTargetQuerySerializer],
+        responses=CommunicationTargetsSerializer,
+    )
+    def get(self, request: Request) -> Response:
+        query = validate_query(request, CommunicationTargetQuerySerializer)
+        data = reporting.list_targets(
+            _request_user(request),
+            workspace_uuid=query.get("workspace_id"),
+            limit=query["limit"],
+            offset=query["offset"],
+        )
+        return Response(CommunicationTargetsSerializer(data).data)
+
+
+class CommunicationPreviewView(CommunicationView):
+    """Project a reviewed revision and the current audience estimate; writes nothing."""
+
+    @extend_schema(
+        operation_id="ctf_communications_preview_retrieve",
+        parameters=[CommunicationPreviewQuerySerializer],
+        responses=CommunicationPreviewSerializer,
+    )
+    def get(self, request: Request, campaign_id: UUID) -> Response:
+        query = validate_query(request, CommunicationPreviewQuerySerializer)
+        data = reporting.preview(self.campaign(request, campaign_id), query["revision_id"])
+        return Response(CommunicationPreviewSerializer(data).data)
+
+
+class CommunicationDeliveryView(CommunicationView):
+    """Aggregate delivery state per occurrence, event, and channel."""
+
+    @extend_schema(
+        operation_id="ctf_communications_delivery_retrieve",
+        parameters=[CommunicationPageQuerySerializer],
+        responses=CommunicationDeliveryReportSerializer,
+    )
+    def get(self, request: Request, campaign_id: UUID) -> Response:
+        query = validate_query(request, CommunicationPageQuerySerializer)
+        data = reporting.delivery_report(
+            self.campaign(request, campaign_id), limit=query["limit"], offset=query["offset"]
+        )
+        return Response(CommunicationDeliveryReportSerializer(data).data)
+
+
+class CommunicationRecipientsView(CommunicationView):
+    """Minimal recipient rows for one occurrence and one target event."""
+
+    @extend_schema(
+        operation_id="ctf_communications_recipients_list",
+        parameters=[CommunicationRecipientQuerySerializer],
+        responses=CommunicationRecipientPageSerializer,
+    )
+    def get(self, request: Request, campaign_id: UUID) -> Response:
+        query = validate_query(request, CommunicationRecipientQuerySerializer)
+        data = reporting.recipient_rows(
+            _request_user(request),
+            self.campaign(request, campaign_id),
+            intent_id=query["intent_id"],
+            event_id=query["event_id"],
+            limit=query["limit"],
+            offset=query["offset"],
+        )
+        return Response(CommunicationRecipientPageSerializer(data).data)
+
+
+class CommunicationActivityView(CommunicationView):
+    """The body-free campaign timeline from ledger attribution."""
+
+    @extend_schema(operation_id="ctf_communications_activity_retrieve", responses=CommunicationActivitySerializer)
+    def get(self, request: Request, campaign_id: UUID) -> Response:
+        validate_query(request, CommunicationEmptySerializer)
+        data = reporting.activity_timeline(self.campaign(request, campaign_id))
+        return Response(CommunicationActivitySerializer(data).data)
