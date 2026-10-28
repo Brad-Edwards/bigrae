@@ -1668,11 +1668,13 @@ jobs:
   # constraints, select_for_update / skip_locked, and the Range subnet-index
   # LOCK TABLE ... IN EXCLUSIVE MODE branch) are exercised for real.
   # TEST_DB_BACKEND=postgres selects the stock PostgreSQL backend via
-  # config._database_settings; pytest-django owns the per-worker test-database
-  # lifecycle. pytest-split divides the suite into parallel shards, balanced by
-  # the recorded `.test_durations`. Each shard uploads its coverage data and its
-  # postgres-marker evidence; shifter-platform-coverage combines them, applies
-  # the cross-shard marker guard, and enforces the whole-package coverage floor.
+  # config._database_settings. Each xdist worker clones its test database from
+  # one migrated template (root conftest django_db_setup). pytest-split divides
+  # the suite into parallel shards; with no durations file, `least_duration`
+  # deals the tests out in turn, so slow and fast tests spread evenly. Each
+  # shard uploads its coverage data and its postgres-marker evidence;
+  # shifter-platform-coverage combines them, applies the cross-shard marker
+  # guard, and enforces the whole-package coverage floor.
   # It is required through the reusable-workflow -> PR Gate chain.
   # ===========================================================================
   shifter-platform-tests:
@@ -1732,7 +1734,7 @@ jobs:
         run: |
           uv run python manage.py collectstatic --noinput
           uv run pytest tests/ -m "not redis and not openfga" \
-            --splits 6 --group "$SHARD_GROUP" \
+            --splits 6 --group "$SHARD_GROUP" --splitting-algorithm least_duration \
             --cov --cov-report= --cov-fail-under=0 \
             --junit-xml=postgres-junit.xml -p no:cacheprovider
 

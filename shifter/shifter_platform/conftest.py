@@ -166,31 +166,87 @@ def _testdb_creation_lock() -> Iterator[None]:
 def django_db_setup(
     request: pytest.FixtureRequest,
     django_test_environment: None,
-    django_db_blocker: object,
+    django_db_blocker: Any,
     django_db_use_migrations: bool,
     django_db_keepdb: bool,
     django_db_createdb: bool,
-    django_db_modify_db_settings: None,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[None]:
-    """Wrap pytest-django's ``django_db_setup`` to serialize DB creation (#1524).
+    """Create the test database; on the xdist PostgreSQL lane, clone it (#1524, #2582).
+
+    On the PostgreSQL lane under xdist, the first worker migrates one template
+    test database, and every worker then clones its own ``_gw*`` database from
+    that template with ``CREATE DATABASE ... TEMPLATE``. This is Django's own
+    parallel-runner mechanism (``create_test_db`` + ``clone_test_db``). Without
+    it, every worker runs the full migration graph, one at a time behind the
+    lock. All other runs delegate to pytest-django's stock fixture unchanged.
+    """
+    worker = getattr(request.config, "workerinput", {}).get("workerid")
+    if not _postgres_lane() or worker is None or not django_db_use_migrations:
+        yield from _stock_django_db_setup(request, django_test_environment, django_db_blocker)
+        return
+
+    from django.db import connection
+
+    keepdb = django_db_keepdb and not django_db_createdb
+    verbosity = request.config.option.verbose
+    # The xdist base temp dir is shared by all workers of one run, and pytest
+    # removes it with its normal retention, so the marker is per run.
+    template_ready = tmp_path_factory.getbasetemp().parent / "postgres-template-ready"
+    original_name = connection.settings_dict["NAME"]
+    with django_db_blocker.unblock():
+        with _testdb_creation_lock():
+            if template_ready.exists():
+                _use_test_database(connection)
+            else:
+                # No serialize_test_db(): no test uses serialized_rollback.
+                connection.creation.create_test_db(verbosity=verbosity, autoclobber=True, keepdb=keepdb)
+                template_ready.touch()
+            connection.close()
+            connection.creation.clone_test_db(suffix=worker, verbosity=verbosity, keepdb=False)
+        connection.creation.setup_worker_connection(worker)
+    try:
+        yield
+    finally:
+        if not keepdb:
+            with django_db_blocker.unblock(), _testdb_creation_lock():
+                # Drops this worker's clone; the template stays for the next run.
+                connection.creation.destroy_test_db(original_name, verbosity, keepdb=False)
+
+
+def _use_test_database(connection: Any) -> None:
+    """Point the default connection at the existing template, as create_test_db does."""
+    from django.conf import settings
+    from django.db.backends.base.creation import TEST_DATABASE_PREFIX
+
+    name = connection.settings_dict["TEST"]["NAME"] or TEST_DATABASE_PREFIX + connection.settings_dict["NAME"]
+    connection.close()
+    settings.DATABASES[connection.alias]["NAME"] = name
+    connection.settings_dict["NAME"] = name
+
+
+def _stock_django_db_setup(
+    request: pytest.FixtureRequest, django_test_environment: None, django_db_blocker: Any
+) -> Iterator[None]:
+    """Delegate to pytest-django's stock fixture; serialize DB creation on PostgreSQL.
 
     This does NOT reimplement the test-database lifecycle: it delegates entirely
     to pytest-django's stock generator (creation, migrations, per-worker
-    ``_gw*`` naming, teardown). It only holds a cross-worker file lock around the
-    stock fixture's setup and teardown phases on the PostgreSQL lane, eliminating
-    the concurrent ``CREATE DATABASE`` race. On the SQLite lane it delegates with
-    no lock — byte-for-byte identical to not overriding the fixture.
+    ``_gw*`` naming, teardown). On the PostgreSQL lane it only holds a
+    cross-worker file lock around the stock fixture's setup and teardown phases,
+    eliminating the concurrent ``CREATE DATABASE`` race. On the SQLite lane it
+    delegates with no lock.
     """
-    from pytest_django.fixtures import django_db_setup as _stock_django_db_setup
+    from pytest_django.fixtures import django_db_setup as _stock
 
-    stock = _stock_django_db_setup.__wrapped__(  # type: ignore[attr-defined]
+    stock = _stock.__wrapped__(  # type: ignore[attr-defined]
         request,
         django_test_environment,
         django_db_blocker,
-        django_db_use_migrations,
-        django_db_keepdb,
-        django_db_createdb,
-        django_db_modify_db_settings,
+        request.getfixturevalue("django_db_use_migrations"),
+        request.getfixturevalue("django_db_keepdb"),
+        request.getfixturevalue("django_db_createdb"),
+        request.getfixturevalue("django_db_modify_db_settings"),
     )
     if not _postgres_lane():
         yield from stock

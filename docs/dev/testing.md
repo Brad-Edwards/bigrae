@@ -34,8 +34,9 @@ not injected by CI. Prerequisites: `uv`, and Node 20.19+ for the JavaScript lane
 ## CI platform lane
 
 CI runs the platform suite one time, against PostgreSQL. `pytest-split` divides
-the suite into six parallel shards. The shards use the test durations in
-`shifter/shifter_platform/.test_durations` for balance. The
+the suite into six parallel shards. It uses the `least_duration` algorithm with
+no durations file, so it deals the tests out to the shards in turn. Each xdist
+worker clones its test database from one migrated template database. The
 `Coverage (shifter_platform)` job then does these steps:
 
 1. It combines the coverage data from all shards.
@@ -43,9 +44,8 @@ the suite into six parallel shards. The shards use the test durations in
 3. It makes sure that at least one `postgres`-marked test ran in a shard
    (`scripts/check_postgres_lane_evidence.py`).
 
-A skipped `postgres`-marked test fails its shard. When the shards become
-unbalanced, refresh the durations from `shifter/shifter_platform` with the
-`test-platform-postgres` command line plus `--store-durations`.
+A skipped `postgres`-marked test fails its shard. Keep each test fast. One slow
+test makes its shard slow, because the shards do not use recorded durations.
 
 ## Test posture (why a clean run matches CI)
 
