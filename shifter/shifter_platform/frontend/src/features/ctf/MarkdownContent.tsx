@@ -10,9 +10,16 @@
  * cannot execute or exfiltrate in another participant's session. Callers that
  * render untrusted guidance (the briefing) additionally pass
  * `disallowedElements={["img"]}` to forbid images/remote embeds.
+ *
+ * Images resolve through the content image map (#2090): the enforced CSP admits
+ * only portal-origin images, so an external image shows its first-party copy, or
+ * a link to the original while no copy is ready.
  */
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import type { ComponentProps } from "react";
+import ReactMarkdown, { defaultUrlTransform, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+import { resolveContentImage, useContentImageMap } from "./contentImages";
 
 const SAFE_SCHEME = /^(https?:|mailto:)/i;
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
@@ -35,6 +42,15 @@ function safeUrlTransform(url: string): string {
   if (!HAS_SCHEME.test(trimmed)) return canonical; // relative path, no scheme
   return SAFE_SCHEME.test(trimmed) ? canonical : "";
 }
+
+function ContentImage({ src, alt }: Readonly<ComponentProps<"img"> & ExtraProps>) {
+  const resolved = resolveContentImage(useContentImageMap(), typeof src === "string" ? src : undefined);
+  if (resolved === null) return null;
+  if (resolved.kind === "link") return <a href={resolved.href}>{alt || resolved.href}</a>;
+  return <img src={resolved.src} alt={alt ?? ""} />;
+}
+
+const MARKDOWN_COMPONENTS = { img: ContentImage };
 
 export function MarkdownContent({
   text,
@@ -60,6 +76,7 @@ export function MarkdownContent({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         urlTransform={urlTransform}
+        components={MARKDOWN_COMPONENTS}
         disallowedElements={communication ? [...(disallowedElements ?? []), "img", "video", "audio", "iframe", "object", "embed"] : disallowedElements}
         unwrapDisallowed
       >

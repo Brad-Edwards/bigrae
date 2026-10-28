@@ -1,9 +1,9 @@
-"""Vite build-manifest resolution for the SPA host and documentation bundles.
+"""Vite build-manifest resolution for the SPA host.
 
-The SPA (#1300 / #1302) and the standalone documentation Mermaid renderer
-(#1520) are each built by Vite at image-build time into Django's static tree
-with content-hashed filenames and a per-build manifest. ``collectstatic`` folds
-those trees into ``STATIC_ROOT`` and WhiteNoise fingerprints them. A host
+The SPA (#1300 / #1302) is built by Vite at image-build time into Django's
+static tree with content-hashed filenames and a per-build manifest.
+``collectstatic`` folds that tree into ``STATIC_ROOT`` and WhiteNoise
+fingerprints it. A host
 template cannot know the hashed entry filename ahead of time, so it resolves the
 entry through this helper: read the Vite manifest to find the logical asset
 paths, then pass them through Django ``static()`` so the WhiteNoise manifest
@@ -27,14 +27,11 @@ from django.templatetags.static import static
 logger = logging.getLogger(__name__)
 
 # Vite emits its build manifest at ``<outDir>/.vite/manifest.json``. The SPA
-# build outputs to ``<static>/spa`` (frontend/vite.config.ts); the Mermaid build
-# outputs to ``<static>/spa/mermaid`` (frontend/vite.mermaid.config.ts).
+# build outputs to ``<static>/spa`` (frontend/vite.config.ts).
 _SPA_STATIC_PREFIX = "spa"
-_MERMAID_STATIC_PREFIX = "spa/mermaid"
 
-# Default entries (match each Vite project's rollup input).
+# Default entry (matches the Vite project's rollup input).
 DEFAULT_ENTRY = "src/main.tsx"
-MERMAID_ENTRY = "src/mermaid-entry.ts"
 
 
 def _manifest_path(static_prefix: str) -> Path | None:
@@ -89,14 +86,3 @@ def vite_asset_urls(entry: str = DEFAULT_ENTRY, *, static_prefix: str = _SPA_STA
     css_files = chunk.get("css") or []
     css_urls = [static(f"{static_prefix}/{name}") for name in css_files if isinstance(name, str)]
     return {"js": js_url, "css": css_urls}
-
-
-def mermaid_bundle_url() -> str | None:
-    """Resolve the same-origin documentation Mermaid bundle URL, or ``None``.
-
-    ``None`` when the bundle has not been built (e.g. unit tests without a
-    frontend build), so the docs template omits the script tag rather than
-    emitting a broken ``src``.
-    """
-    js = vite_asset_urls(MERMAID_ENTRY, static_prefix=_MERMAID_STATIC_PREFIX)["js"]
-    return js if isinstance(js, str) else None

@@ -6,7 +6,7 @@ type: CONSTRAINT
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:23.731635Z
-updated_at: 2026-03-26T06:11:10.779892Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-1001: Scheduled Task Framework
@@ -21,9 +21,9 @@ Multiple CTF automation features (range spinup, cleanup, event transitions, remi
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py::CTFScheduledTask` (CTFScheduledTask model - task_type, scheduled_for, status tracking (pending/running/completed/failed), error_message, mark_running/mark_completed/mark_failed/mark_cancelled methods)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFScheduledTask model - task_type, scheduled_for, status tracking (pending/running/completed/failed), error_message, mark_running/mark_completed/mark_failed/mark_cancelled methods)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (run_ctf_scheduler management command - poll loop, signal handling, heartbeat, atomic task claiming (select_for_update/skip_locked), stale recovery, task dispatch)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py::ScheduledTaskType,ScheduledTaskStatus` (ScheduledTaskType enum (SPIN_UP_RANGES, CLEANUP_RANGES, SEND_REMINDER, EVENT_START, EVENT_END) and ScheduledTaskStatus enum (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event.py::_schedule_event_tasks,_reschedule_event_tasks,_cancel_event_tasks` (Event task scheduling helpers - create/reschedule/cancel scheduled tasks tied to event lifecycle)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (Event task scheduling helpers - create/reschedule/cancel scheduled tasks tied to event lifecycle)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_scheduler_handlers.py` (CTF scheduler handler tests - framework task claiming, dispatch, stale recovery, graceful handler outcomes)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)

@@ -1,12 +1,12 @@
 ---
 id: CTF-804
 title: "Scheduled Notifications"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:23.392764Z
-updated_at: 2026-03-19T03:08:17.951432Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-804: Scheduled Notifications
@@ -21,9 +21,9 @@ Scheduled notifications enable organizers to plan communications in advance, eve
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py (CTFNotification.scheduled_at)` (CTFNotification model with scheduled_at field and SCHEDULED status)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification.py (schedule_notification)` (schedule_notification() service - schedules notification and creates CTFScheduledTask)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py (admin_notification_form - schedule action)` (Notification form view with schedule action and scheduled_at parsing)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFNotification model with scheduled_at field and SCHEDULED status)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (schedule_notification() service - schedules notification and creates CTFScheduledTask)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Notification form view with schedule action and scheduled_at parsing)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (CTF scheduler - polls every 30 seconds, but SEND_REMINDER handler is stub (not implemented))
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_services/test_notification.py (TestScheduleNotification)` (Tests for schedule_notification - verifies status and scheduled task creation)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Tests for schedule_notification - verifies status and scheduled task creation)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#667` (CTF-804: Scheduled Notifications)

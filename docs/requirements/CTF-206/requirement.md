@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:22.081960Z
-updated_at: 2026-03-20T05:23:24.632632Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-206: Score Calculation
@@ -21,10 +21,10 @@ Accurate score calculation is the foundation of competitive integrity. Every sco
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py` (Scoring service - calculate_score(), get_scoreboard(), get_team_scoreboard())
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Scoring service - calculate_score(), get_scoreboard(), get_team_scoreboard())
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (Submission service - submit_flag() with hint penalty calculation)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/award.py` (Award service (grant, revoke, list))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/admin.py` (CTFAward admin and score annotation updates)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/admin/` (CTFAward admin and score annotation updates)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_awards.py` (Award and score+award integration tests)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#508` (CTF-206: Score Calculation)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_submission.py` (TestSubmitFlagHintPenalty, calculate_score reflects hint-penalty-baked points_awarded (issue #519))

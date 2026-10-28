@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:21.698126Z
-updated_at: 2026-03-26T07:20:38.641380Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-109: Challenge Prerequisites
@@ -21,6 +21,6 @@ Prerequisites enable multi-stage challenge chains where each step builds on the 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `ctf/models.py` (CTFChallengePrerequisite model, DAG with self-ref and same-event validation)
-- IMPLEMENTS → CODE_FILE `ctf/services/challenge.py` (add_prerequisite, remove_prerequisite, check_prerequisites_met, get_available_challenges, BFS cycle detection)
-- TESTS → TEST `tests/ctf/test_prerequisites.py` (Circular dependency detection, available challenges filtering, submit_flag blocking, cascade delete)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallengePrerequisite model, DAG with self-ref and same-event validation)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (add_prerequisite, remove_prerequisite, check_prerequisites_met, get_available_challenges, BFS cycle detection)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_prerequisites.py` (Circular dependency detection, available challenges filtering, submit_flag blocking, cascade delete)

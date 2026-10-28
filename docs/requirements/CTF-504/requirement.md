@@ -1,12 +1,12 @@
 ---
 id: CTF-504
 title: "Team Invite Codes"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:22.646275Z
-updated_at: 2026-03-26T06:38:10.653326Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-504: Team Invite Codes
@@ -21,6 +21,5 @@ Invite codes provide a simple, shareable mechanism for team formation without re
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFTeam.invite_code - unique field with auto-generation on save)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFTeam.invite_code - unique field with auto-generation on save)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#647` (CTF-504: Team Invite Codes)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (team_join view - join via invite code with is_full check)

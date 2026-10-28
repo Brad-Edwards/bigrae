@@ -2,7 +2,7 @@
 // feed is staff-session-only; rows are produced by real activity (the actor
 // logins write ROLE_SYNC audits, workspace lifecycle writes CREATE/rename/archive).
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/csp";
 
 import { ACTORS } from "../support/actors";
 
