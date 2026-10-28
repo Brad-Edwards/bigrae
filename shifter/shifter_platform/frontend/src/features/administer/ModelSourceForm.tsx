@@ -84,7 +84,7 @@ export function ModelSourceForm({ organization, source, onSaved }: Readonly<{
     {cloud ? text("region", "Data region") : <p>Data geography is managed by the provider. This source is available only where the scenario and tenant policy permit provider-managed processing.</p>}
     {config.provider === VERTEX ? <>
       {text("project", "Google Cloud project")}
-      <p>You may use the project hosting Shifter or another project that authorizes this source.</p>
+      <p>You may use the project hosting BigRAE or another project that authorizes this source.</p>
       {text("principal", "Invocation service account")}{text("count_region", "Token-count region")}
     </> : null}
     {config.provider === BEDROCK ? text("principal", "Invocation role ARN") : null}
@@ -93,7 +93,7 @@ export function ModelSourceForm({ organization, source, onSaved }: Readonly<{
       <Label htmlFor="source-auth">Authentication</Label>
       <select id="source-auth" value={config.authentication} className={selectClass} disabled={pending}
         onChange={(event) => { clearCredentials(); field("authentication", event.target.value as SourceConfiguration["authentication"]); }}>
-        <option value="workload-identity">Shifter’s approved invocation identity</option>
+        <option value="workload-identity">BigRAE’s approved invocation identity</option>
         <option value="stored-credential">Credentials for this source</option>
       </select>
     </> : <>

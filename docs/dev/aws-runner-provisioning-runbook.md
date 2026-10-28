@@ -1,6 +1,6 @@
 # AWS self-hosted runner provisioning
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 Every AWS deploy job (`_core.yml`, `_range.yml`, `_shifter-engine.yml`,
 `_shifter-platform.yml`, `packer.yml`) runs on `runs-on: self-hosted`. A fresh
@@ -92,7 +92,6 @@ Defined in `platform/terraform/global/github-runner/variables.tf`:
 | `runner_count` | no | `2` | `dev.tfvars` / `proof.tfvars` set `3`. |
 | `instance_type` | no | `t3.large` | Amazon Linux 2023, SSM access, no inbound. |
 | `region` | no | `us-east-2` | |
-| `github_org` / `github_repo` | no | `Brad-Edwards` / `shifter` | |
 | `alarm_email` | no | empty | Subscribe an inbox to the runner-alerts SNS topic. |
 | `enable_system_auto_recovery` | no | `true` | EC2 auto-recover on system status-check failure. |
 | `cpu_alarm_threshold` | no | `95` | Sustained-CPU hang-proxy alarm. |
@@ -124,7 +123,8 @@ export AWS_PAGER=""
 
 INSTANCE=i-xxxxxxxxxxxxxxxxx
 NAME=shifter-github-runner-N
-TOKEN=$(gh api -X POST /repos/Brad-Edwards/bigrae/actions/runners/registration-token --jq .token)
+REPO="$(gh repo set-default --view)"
+TOKEN=$(gh api -X POST "/repos/$REPO/actions/runners/registration-token" --jq .token)
 
 aws ssm send-command \
   --instance-ids "$INSTANCE" \
@@ -133,7 +133,7 @@ aws ssm send-command \
   --parameters "commands=[
     \"set -ex\",
     \"cd /home/ec2-user/actions-runner\",
-    \"sudo -u ec2-user ./config.sh --url https://github.com/Brad-Edwards/bigrae --token $TOKEN --labels self-hosted,linux,X64 --unattended --replace --name $NAME\",
+    \"sudo -u ec2-user ./config.sh --url https://github.com/$REPO --token $TOKEN --labels self-hosted,linux,X64 --unattended --replace --name $NAME\",
     \"./svc.sh install ec2-user\",
     \"./svc.sh start\"
   ]"
@@ -143,7 +143,8 @@ Registration tokens are single-use and expire in about an hour; mint a fresh one
 per runner. Verify the fleet is online:
 
 ```bash
-gh api repos/Brad-Edwards/bigrae/actions/runners --jq '.runners[] | {name, status}'
+REPO="$(gh repo set-default --view)"
+gh api "repos/$REPO/actions/runners" --jq '.runners[] | {name, status}'
 ```
 
 Once every runner shows `status: online`, the AWS Deploy workflow can run. To

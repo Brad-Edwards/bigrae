@@ -35,6 +35,7 @@ from ctf.services.communication.admission import (
     prepare_campaign_admission,
     reauthorize,
 )
+from ctf.services.communication.attribution import actor_attribution
 from ctf.services.communication.backpressure import RETRYABLE_ADMISSION_CODES
 from ctf.services.communication.release import (
     RELEASE_OUTCOME_NOT_DUE,
@@ -135,14 +136,15 @@ def schedule_declaration(
         from shared.operation_authority import credential_reference_fields
 
         authority_fields = credential_reference_fields(actor.credential) if actor.credential is not None else {}
+        attribution = actor_attribution(actor)
         intent = CommunicationIntent.objects.create(
             campaign=locked_campaign,
             revision=revision,
             status=IntentStatus.SCHEDULED.value,
             trigger_kind=locked_campaign.trigger_spec["kind"],
             origin=locked_campaign.origin,
-            actor_user_id=actor.user_id,
-            actor_token_id=actor.token_id,
+            actor_user_id=attribution.user_id,
+            actor_token_id=attribution.token_id,
             channels=list(locked_campaign.channels),
             acknowledgement_policy=locked_campaign.acknowledgement_policy,
             occurrence_key=occurrence_key,

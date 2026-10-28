@@ -12,7 +12,6 @@ AMI IDs stored in SSM Parameter Store, built via Packer workflows.
 | `/shifter/ami/ubuntu` | Ubuntu victim instance |
 | `/shifter/ami/windows` | Windows victim instance |
 | `/shifter/ami/dc` | Domain Controller instance |
-| `/shifter/ami/brokenbk` | Broken Bank vulnerable training application |
 
 The build workflow publishes each type to `/shifter/ami/<type>`; the provisioner resolves both the legacy known types and any custom key from that path.
 
@@ -22,14 +21,13 @@ Provisioner fetches AMI IDs at runtime via `shifter/engine/provisioner/provision
 
 ### Packer-Built AMIs
 
-The kali, ubuntu, windows, and brokenbk AMIs are built from base images using Packer (the `build` job in `packer.yml`).
+The kali, ubuntu, and windows AMIs are built from base images using Packer (the `build` job in `packer.yml`).
 
 | AMI | Base Image | Build Scripts |
 |-----|------------|---------------|
 | **kali** | Official Kali AMI | `shifter/packer/scripts/kali/` |
 | **ubuntu** | Ubuntu 22.04 | `shifter/packer/scripts/ubuntu/` |
 | **windows** | Windows Server 2022 | `shifter/packer/scripts/windows/` |
-| **brokenbk** | Ubuntu 22.04 | `shifter/packer/scripts/brokenbk/` |
 
 Build configuration: `shifter/packer/*.pkr.hcl` (one file per type).
 
@@ -54,7 +52,7 @@ Domain Controller uses a manually created AMI with AD DS already promoted.
 environment's domain password in AWS Secrets Manager (`shifter-{env}-portal-dc-domain`).
 That secret is Terraform-managed—`terraform apply` for the portal stack
 generates the value (`random_password.dc_domain_password` in the
-engine-provisioner module) and seeds it—so the AMI build reads the value
+portal Terraform root) and seeds it—so the AMI build reads the value
 from Secrets Manager rather than choosing one. Victims use the same password
 for domain join. The value must never be committed to `terraform.tfvars`,
 workflow YAML, or any other tracked file.
@@ -73,7 +71,6 @@ Workflow: `.github/workflows/packer.yml`
 | AMI Type | Action |
 |----------|--------|
 | kali, ubuntu, windows | Packer build, fresh-boot SSM/DNS validation gate, then update dev SSM |
-| brokenbk | Packer build, then update dev SSM (no fresh-boot validation gate) |
 | dc | Read the id from `dc-amis.json` (trusted `dev` provenance, validated), update dev SSM |
 
 The `kali`, `ubuntu`, and `windows` builds bake a deterministic AmazonProvidedDNS
@@ -102,10 +99,10 @@ Workflow: `.github/workflows/packer-promote.yml`
 
 | AMI Type | Action |
 |----------|--------|
-| kali, ubuntu, windows, brokenbk | Copy AMI to prod account, update prod SSM |
+| kali, ubuntu, windows | Copy AMI to prod account, update prod SSM |
 | dc | Read the id from `dc-amis.json` (trusted `dev` provenance, validated), update prod SSM |
 
-`packer-promote.yml` handles only kali, ubuntu, windows, dc, and brokenbk.
+`packer-promote.yml` handles only kali, ubuntu, windows, and dc.
 
 Both DC publishers read `dc-amis.json` from a dedicated checkout of the protected
 `dev` ref (never the dispatched/build ref or a runner leftover) and resolve it
@@ -120,7 +117,7 @@ promote job also runs only from a protected ref (`dev`/`main`). See issue #1656.
 1. Modify scripts in `shifter/packer/scripts/`
 2. Run "Packer AMI Build" workflow for the type
 3. Test in dev
-4. For promotable types (kali, ubuntu, windows, brokenbk), run "Packer AMI Promote to Prod"
+4. For promotable types (kali, ubuntu, windows), run "Packer AMI Promote to Prod"
 
 ### Domain Controller
 
@@ -185,7 +182,7 @@ stored in AWS SSM `/shifter/ami/*`.
   dev→prod with `.github/workflows/packer-gcp-promote.yml`, which verifies the
   candidate's numeric image ID and exact protected run-attempt/artifact before
   copying; it attaches the prod family only after READY/source-ID verification.
-- Image types: `ubuntu`, `brokenbk`, `kali`, `windows`, `dc`. **Kali** has no
+- Image types: `ubuntu`, `kali`, `windows`, `dc`. **Kali** has no
   public GCP image and the official genericcloud disk is not GCE-bootable, so
   its builder converts Google's `debian-12` base into Kali Rolling in its first
   provisioning script; see `shifter/packer/gcp/README.md`.
@@ -201,6 +198,6 @@ stored in AWS SSM `/shifter/ami/*`.
 - **GDC VM Runtime** - OS images stored in GCS, imported as `VirtualMachineDisk` CRDs. Image URLs configured in `GDCVMRuntimeConfig` (`GDC_*_IMAGE_URL`).
 - **Scenario Pods** - Standard container images from Artifact Registry.
 - **VM-Series NGFW** - OVA image stored in GCS, bootstrapped via GCS bucket.
-- **Control-plane containers** - Built and pushed to Artifact Registry by `_gcp-dev.yml`.
+- **Control-plane containers** - Built once for each release by `release-gcp.yml` and pushed to the release registry; `gcp-deploy` copies them into the deployment Artifact Registry. A CI deploy through `_gcp-dev.yml` builds them directly into the deployment Artifact Registry.
 
 See [GDC Provisioning](gdc-provisioning) for details.

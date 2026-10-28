@@ -104,6 +104,14 @@ class CommunicationCampaign(CTFBaseModel):
         default=AcknowledgementPolicy.NONE.value,
         help_text="none | read | explicit",
     )
+    cancelled_at = models.DateTimeField(null=True, blank=True, help_text="First cancellation time (#2052)")
+    cancelled_by_user_id = models.IntegerField(
+        null=True, blank=True, help_text="Non-secret user identity that cancelled the campaign"
+    )
+    cancelled_by_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
+    cancelled_by_token_id = models.IntegerField(
+        null=True, blank=True, help_text="Non-secret API-token row identity that cancelled the campaign"
+    )
     # Annotated explicitly because django-stubs cannot infer the descriptor type
     # when ``through`` is a forward-reference string; ``from __future__ import
     # annotations`` keeps the forward reference lazy at runtime.
@@ -235,6 +243,9 @@ class MessageRevision(ImmutableFieldsMixin, CTFBaseModel):
     subject = models.CharField(max_length=200)
     body = models.TextField(help_text="Safe-profile Markdown source (bounded, validated at creation)")
     content_digest = models.CharField(max_length=71, help_text="sha256: digest of the normalized content")
+    actor_user_id = models.IntegerField(null=True, blank=True, help_text="Non-secret authoring user identity")
+    actor_token_id = models.IntegerField(null=True, blank=True, help_text="Non-secret authoring token-row identity")
+    actor_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
 
     class Meta:
         """Django model metadata."""
@@ -259,6 +270,9 @@ class MessageRevision(ImmutableFieldsMixin, CTFBaseModel):
         "content_profile",
         "default_locale",
         "revision_number",
+        "actor_user_id",
+        "actor_token_id",
+        "actor_principal_uuid",
     )
 
     def clean(self) -> None:

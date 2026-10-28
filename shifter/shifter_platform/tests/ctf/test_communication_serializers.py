@@ -86,7 +86,12 @@ def test_campaign_summary_exposes_shape_not_recipients(organizer_user, ctf_event
         "channels",
         "acknowledgement_policy",
         "target_event_count",
+        "target_events",
+        "latest_revision",
+        "trigger",
         "created_at",
     }
     assert data["target_event_count"] == 1
+    assert [set(target) for target in data["target_events"]] == [{"id", "name"}]
+    assert set(data["latest_revision"]) == {"id", "revision_number"}
     assert "recipient@secret.test" not in str(data)

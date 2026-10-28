@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Enforce generic GCP purpose trust and resolved-plan verification (ADR-004-R23)."""
+"""Enforce generic GCP purpose trust and resolved-plan verification (ADR-004-R23, ADR-070).
+
+GitHub federation is optional. Operators reach the lifecycle identities through
+impersonation by named principals; this guard keeps that grant closed too.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +17,11 @@ if __package__:
 else:
     from _resolved_plan import check_resolved_plan as check_resolved_plan
 
-PURPOSES = ("build", "validate", "promote", "release_scan", "deploy", "destroy")
+PURPOSES = ("build", "validate", "promote", "release_scan", "deploy", "destroy", "release")
+# Purposes that operators may impersonate without GitHub (ADR-070).
+IMPERSONATION_PURPOSES = ("release_scan", "deploy", "destroy")
+# Purpose identities that must hold no project-wide IAM role.
+NO_PROJECT_ROLE_PURPOSES = ("release_scan", "release")
 PROJECT_IAM_MEMBER_RE = re.compile(r'^\s*resource\s+"google_project_iam_member"\s+"([^\"]+)"\s*\{')
 VARIABLE_HEADER_RE = re.compile(r'^\s*variable\s+"([^\"]+)"\s*\{')
 DOUBLE_QUOTED_RE = re.compile(r'"([^\"]+)"')
@@ -22,7 +30,25 @@ REQUIRED_OUTPUTS = frozenset({
     "workload_identity_provider", "packer_build_service_account_email",
     "packer_validate_service_account_email", "packer_promote_service_account_email",
     "release_scan_service_account_email", "deploy_service_account_email", "destroy_service_account_email",
+    "release_service_account_email",
 })
+# The variables that keep the static CKV_GCP_125 grammar check meaningful. A
+# default would let the check evaluate a concrete value instead of the immutable
+# placeholder, and would let a fork federate by omission (ADR-069).
+NO_DEFAULT_TRUST_VARIABLES = ("github_repository_id", "github_owner_id", "purpose_contexts")
+SA_IAM_MEMBER_RE = re.compile(r'resource "google_service_account_iam_member" "([^"]+)" \{(.*?)\n\}', re.S)
+# Service-account roles that let a principal act as, or mint tokens for, an identity.
+IMPERSONATION_ROLES = ("roles/iam.serviceAccountTokenCreator", "roles/iam.serviceAccountUser")
+IMPERSONATION_BINDING = (
+    "for_each = local.impersonation_grants",
+    "service_account_id = local.service_account_names[each.value.purpose]",
+    'role = "roles/iam.serviceAccountTokenCreator"',
+    "member = each.value.member",
+)
+IMPERSONATION_PURPOSE_RULE = 'contains(["release_scan", "deploy", "destroy"], purpose) && length(members) > 0'
+IMPERSONATION_MEMBER_RULE = 'can(regex("^(user|group|serviceAccount):'
+# Build may act as itself for the image export; no other self or cross grant exists.
+BUILD_SELF_GRANTS = frozenset({"packer_build_act_as_self", "packer_build_token_creator_self"})
 
 # One generic template for arbitrary validated contexts. The resolved-plan
 # verifier checks the emitted policy and full binding set independently before
@@ -56,7 +82,7 @@ def check_generic_source(path: Path, text: str) -> list[Violation]:
     subject_prefix = 'subject_prefix = var.github_subject_format == "immutable" ? "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" : "repo:${var.github_org}/${var.github_repo}"'
     if _compact(subject_prefix) not in _compact(clean):
         errors.append("Subject prefix must derive from the reviewed format and immutable repository IDs")
-    subject_map = '''for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy"] :
+    subject_map = '''for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy", "release"] :
     purpose => distinct([for context in lookup(var.purpose_contexts, purpose, []) : "${local.subject_prefix}:environment:${context.environment}"])'''
     if _compact(subject_map) not in _compact(clean):
         errors.append("All purpose subjects must derive from the validated context mapping")
@@ -75,6 +101,43 @@ def check_generic_source(path: Path, text: str) -> list[Violation]:
     for match in re.finditer(r'resource "google_project_iam_(?:member|custom_role)" "[^\"]+" \{(.*?)\n\}', clean, re.S):
         if "project = var.project_id" not in _compact(match[1]):
             errors.append("CI capabilities must target the configured deployment project")
+    errors.extend(_impersonation_errors(clean))
+    return [Violation(path, 1, reason) for reason in errors]
+
+
+def _impersonation_errors(clean: str) -> list[str]:
+    """Keep every act-as and token grant closed: build self grants and named operators only."""
+    errors = []
+    for name, body in SA_IAM_MEMBER_RE.findall(clean):
+        compact = _compact(body)
+        if not any(f'role = "{role}"' in compact for role in IMPERSONATION_ROLES) or name in BUILD_SELF_GRANTS:
+            continue
+        if name != "impersonation" or not all(token in compact for token in IMPERSONATION_BINDING):
+            errors.append(
+                f"{name}: impersonation grants must use the impersonation resource with named principals for "
+                "their own purpose identity only (ADR-070)"
+            )
+    return errors
+
+
+def check_trust_variables(path: Path, text: str) -> list[Violation]:
+    """Keep the federation anchors default-free and the impersonation principals closed."""
+    if path.parent.name not in {"cicd-oidc-identity", "cicd-oidc"}:
+        return []
+    clean = _strip_hcl_comments(text)
+    errors = []
+    for _, block in _iter_resource_blocks(clean.splitlines(), VARIABLE_HEADER_RE):
+        name = VARIABLE_HEADER_RE.match(block[0]).group(1)  # type: ignore[union-attr]
+        body = _compact("\n".join(block))
+        if name in NO_DEFAULT_TRUST_VARIABLES and re.search(r"\bdefault\s*=", body):
+            errors.append(f"{name} must have no default; a deployment without GitHub sets it explicitly (ADR-069)")
+        if name == "impersonation_principals" and path.parent.name == "cicd-oidc-identity" and not (
+            IMPERSONATION_PURPOSE_RULE in body and IMPERSONATION_MEMBER_RULE in body
+        ):
+            errors.append(
+                "impersonation_principals must admit only release_scan, deploy, and destroy, each with "
+                "user:, group:, or serviceAccount: members (ADR-070)"
+            )
     return [Violation(path, 1, reason) for reason in errors]
 
 
@@ -88,13 +151,23 @@ def check_file(path: Path) -> list[Violation]:
     errors = check_generic_source(path, text)
     errors.extend(check_role_boundaries(path, module_text.splitlines()))
     errors.extend(check_output_contract(path, text))
+    errors.extend(check_trust_variables(path, text))
     return errors
 
 
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     root = Path(__file__).resolve().parents[2]
-    paths = [Path(p) for p in args] if args else sorted(root.glob("platform/terraform/gcp/modules/cicd-oidc-identity/*.tf"))
+    paths = (
+        [Path(p) for p in args]
+        if args
+        else sorted(
+            [
+                *root.glob("platform/terraform/gcp/modules/cicd-oidc-identity/*.tf"),
+                *root.glob("platform/terraform/gcp/global/cicd-oidc/*.tf"),
+            ]
+        )
+    )
     errors = [error for path in paths for error in check_file(path)]
     for error in errors:
         print(error)
@@ -170,14 +243,16 @@ def check_role_boundaries(path: Path, lines: list[str]) -> list[Violation]:
     violations: list[Violation] = []
     stripped_lines = _strip_hcl_comments("\n".join(lines)).splitlines()
     for line_no, block in _iter_resource_blocks(stripped_lines, PROJECT_IAM_MEMBER_RE):
-        if re.search(r"member\s*=.*local\.service_account_emails\.release_scan", "\n".join(block)):
-            violations.append(
-                Violation(
-                    path,
-                    line_no,
-                    "release-scan identity must have no project-wide IAM role; use repository-scoped read and create-only evidence grants (#2084)",
+        for purpose in NO_PROJECT_ROLE_PURPOSES:
+            if re.search(rf"member\s*=.*local\.service_account_emails\.{purpose}\b", "\n".join(block)):
+                label = "release-scan" if purpose == "release_scan" else "release publisher"
+                violations.append(
+                    Violation(
+                        path,
+                        line_no,
+                        f"{label} identity must have no project-wide IAM role; use repository-scoped grants (#2084, ADR-070)",
+                    )
                 )
-            )
     platform_roles = _variable_values(stripped_lines, "platform_roles")
     deploy_roles = _variable_values(stripped_lines, "deploy_roles")
     destroy_roles = _variable_values(stripped_lines, "destroy_roles")

@@ -22,7 +22,7 @@ No live provider, load, revoke, migration or restore evidence is asserted here.
 
 ## Deployment and responsibility
 
-Run a dedicated broker Deployment in the existing Shifter Helm release,
+Run a dedicated broker Deployment in the existing BigRAE Helm release,
 using a separate service account, private TLS service and bounded resource
 requests/limits. Start qualification with two replicas on separate nodes
 where available, a disruption budget, graceful draining and pinned images.
@@ -99,7 +99,7 @@ stream migration or post-crash replay.
 
 ## Scenario model needs and required-access admission (M02, #2119)
 
-A scenario declares its logical model need through a Shifter-owned, staff-authored
+A scenario declares its logical model need through a BigRAE-owned, staff-authored
 overlay (`ScenarioModelNeeds`), not by editing the RAES pack and not through the
 deploy-time mounted catalog. Author it per registered scenario pack:
 

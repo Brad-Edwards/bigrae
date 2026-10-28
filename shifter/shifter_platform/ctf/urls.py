@@ -60,6 +60,8 @@ urlpatterns = [
     path("admin/events/<uuid:event_id>/notifications/create/", platform_spa_host, name="admin_notification_create"),
     path("admin/events/<uuid:event_id>/email-templates/", platform_spa_host, name="admin_event_email_templates"),
     path("admin/events/<uuid:event_id>/analytics/", platform_spa_host, name="admin_analytics"),
+    path("admin/communications/", platform_spa_host, name="admin_communications"),
+    path("admin/communications/<uuid:campaign_id>/", platform_spa_host, name="admin_communication_detail"),
     path("admin/challenges/<uuid:challenge_id>/upload/", platform_spa_host, name="admin_challenge_file_upload"),
     # Server-rendered routes below /ctf/ must never be captured by the SPA
     # catch-all, with OR without a trailing slash. Excluding the no-slash form

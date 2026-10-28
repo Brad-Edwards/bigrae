@@ -1,6 +1,6 @@
 # Native CTF—Smoke & Validation Protocol
 
-Validates the **native Shifter CTF** (the `ctf/` app at `/ctf/`): events, challenges,
+Validates the **native BigRAE CTF** (the `ctf/` app at `/ctf/`): events, challenges,
 flags, prerequisites, scoring, teams, scoreboard, and per-participant range
 provisioning.
 

@@ -158,7 +158,9 @@ def _extract_from_file(path: Path) -> list[EnvBinding]:
     rel = path.relative_to(CONFIG_DIR.parent).as_posix()
     bindings: list[EnvBinding] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not _is_os_environ_get(node):
+        if not isinstance(node, ast.Call) or not (
+            _is_os_environ_get(node) or (isinstance(node.func, ast.Name) and node.func.id == "product_env")
+        ):
             continue
         binding = _binding_from_get_call(node, rel)
         if binding is not None:
@@ -176,6 +178,10 @@ def collect_env_bindings(config_dir: Path | None = None) -> list[EnvBinding]:
             continue
         for binding in _extract_from_file(path):
             merged.setdefault(binding.name, binding)
+    for binding in tuple(merged.values()):
+        if binding.name.startswith("SHIFTER_"):
+            name = "BIGRAE_" + binding.name.removeprefix("SHIFTER_")
+            merged[name] = EnvBinding(name=name, default=binding.default, source_file=binding.source_file)
     return sorted(merged.values(), key=lambda item: item.name)
 
 

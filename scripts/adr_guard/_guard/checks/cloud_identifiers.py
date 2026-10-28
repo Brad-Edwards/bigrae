@@ -1,4 +1,5 @@
 """Live cloud identifiers, terraform operational placeholders, mission-control flag literals."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -65,9 +66,31 @@ _SYNTHETIC_ACCOUNT_IDS: frozenset[str] = frozenset(
 # Generated / binary files that may carry incidental digit runs and never
 # carry hand-authored operational identifiers. Skipped wholesale.
 _IDENTIFIER_SKIP_SUFFIXES: tuple[str, ...] = (
-    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".pdf", ".zip", ".tar",
-    ".gz", ".tgz", ".bz2", ".xz", ".whl", ".woff", ".woff2", ".ttf", ".eot",
-    ".mo", ".pyc", ".so", ".dylib", ".class", ".jar", ".wasm",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".svg",
+    ".pdf",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".tgz",
+    ".bz2",
+    ".xz",
+    ".whl",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".mo",
+    ".pyc",
+    ".so",
+    ".dylib",
+    ".class",
+    ".jar",
+    ".wasm",
 )
 _IDENTIFIER_SKIP_BASENAMES: frozenset[str] = frozenset(
     {
@@ -93,9 +116,7 @@ _IDENTIFIER_SKIP_SUFFIX_LOCK = ".lock"
 #    final group is preceded by `<4 hex>-` (e.g. `...-a716-446655440000`).
 # A hyphen-prefixed account ID such as `account-<id>` is still caught because
 # the chars before the digits (`ount-`) are not `<4 hex>-`.
-_ACCOUNT_ID_RE = re.compile(
-    r"(?<![0-9a-fA-F])(?<![0-9a-fA-F]{4}-)\d{12}(?![0-9a-fA-F])"
-)
+_ACCOUNT_ID_RE = re.compile(r"(?<![0-9a-fA-F])(?<![0-9a-fA-F]{4}-)\d{12}(?![0-9a-fA-F])")
 # VPC / subnet IDs are `vpc-` / `subnet-` followed by 8 (legacy) or 17 (long)
 # hex chars. The hex requirement means `vpc-xxxxxxxx` placeholders never match.
 _VPC_ID_RE = re.compile(r"\bvpc-[0-9a-f]{8}(?:[0-9a-f]{9})?\b")
@@ -125,9 +146,7 @@ _IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
 # The allowlist lives in a sibling data file so no globally-routable IP literal
 # is embedded in this checker source (python:S1313).
-_PUBLIC_IP_ALLOWLIST_PATH = (
-    Path(__file__).resolve().parent / "cloud_identifiers_public_ip_allowlist.txt"
-)
+_PUBLIC_IP_ALLOWLIST_PATH = Path(__file__).resolve().parent / "cloud_identifiers_public_ip_allowlist.txt"
 
 
 def _load_public_ip_allow_nets(path: Path) -> tuple[ipaddress.IPv4Network, ...]:
@@ -144,9 +163,7 @@ def _load_public_ip_allow_nets(path: Path) -> tuple[ipaddress.IPv4Network, ...]:
     return tuple(nets)
 
 
-_PUBLIC_IP_ALLOW_NETS: tuple[ipaddress.IPv4Network, ...] = _load_public_ip_allow_nets(
-    _PUBLIC_IP_ALLOWLIST_PATH
-)
+_PUBLIC_IP_ALLOW_NETS: tuple[ipaddress.IPv4Network, ...] = _load_public_ip_allow_nets(_PUBLIC_IP_ALLOWLIST_PATH)
 
 
 def _is_flaggable_public_ip(token: str) -> bool:
@@ -202,8 +219,10 @@ def _scan_identifier_line(line: str) -> list[str]:
     and masked first so the account-ID run they contain is not double-counted."""
     kinds: list[str] = []
     masked = line
-    for rx, kind in ((_ACCT_BUCKET_RE, "account-suffixed S3 bucket name"),
-                     (_UUID_BUCKET_RE, "infra/state S3 bucket name")):
+    for rx, kind in (
+        (_ACCT_BUCKET_RE, "account-suffixed S3 bucket name"),
+        (_UUID_BUCKET_RE, "infra/state S3 bucket name"),
+    ):
         if rx.search(masked):
             kinds.append(kind)
             masked = rx.sub(lambda m: " " * len(m.group(0)), masked)
@@ -356,11 +375,7 @@ def _mc_flag_is_placeholder(inner: str) -> bool:
 
 def _is_mc_runtime_path(rel: str) -> bool:
     """True for a Mission Control runtime file the flag check should scan."""
-    return (
-        rel.startswith(_MC_RUNTIME_ROOTS)
-        and rel.endswith(_MC_FLAG_SCAN_SUFFIXES)
-        and "/__pycache__/" not in rel
-    )
+    return rel.startswith(_MC_RUNTIME_ROOTS) and rel.endswith(_MC_FLAG_SCAN_SUFFIXES) and "/__pycache__/" not in rel
 
 
 def _mc_flag_violation(rel: str, lineno: int) -> Violation:

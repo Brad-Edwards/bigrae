@@ -46,16 +46,17 @@ class InstallationConfigError(Exception):
     The aggregated problems are available on :attr:`issues`.
     """
 
-    def __init__(self, issues: list[ConfigIssue]) -> None:
+    def __init__(self, issues: list[ConfigIssue], *, subject: str = "root installation config") -> None:
         self.issues: list[ConfigIssue] = list(issues)
+        self.subject = subject
         super().__init__(self._render())
 
     def _render(self) -> str:
         if not self.issues:
-            return "invalid root installation config"
+            return f"invalid {self.subject}"
         count = len(self.issues)
         noun = "problem" if count == 1 else "problems"
-        lines = [f"invalid root installation config ({count} {noun}):"]
+        lines = [f"invalid {self.subject} ({count} {noun}):"]
         lines.extend(f"  - {issue.render()}" for issue in self.issues)
         return "\n".join(lines)
 

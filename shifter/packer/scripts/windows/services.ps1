@@ -44,6 +44,98 @@ if ($Role -eq "victim") {
         exit 1
     }
 
+    # ------------------------------------------------------------------------------
+    # PHP security overlay (#2556)
+    # ------------------------------------------------------------------------------
+    # XAMPP 8.2.12 bundles PHP 8.2.12. That version is vulnerable to php2shell
+    # (CVE-2026-109618, CVE-2026-109619), and no fixed XAMPP release exists.
+    # Replace the bundled PHP with the official Thread Safe build from
+    # windows.php.net. Apache is not a service yet, so no PHP file is locked.
+    # scripts/bake/base-image-verify.sh checks the same floor on the candidate.
+    Write-Host "=== Replacing XAMPP PHP with the official PHP security release ==="
+
+    $phpVersion = "8.2.35"
+    $phpFloor = [version]"8.2.35"
+    $phpZip = "php-$phpVersion-Win32-vs16-x64.zip"
+    # SHA-256 from https://windows.php.net/downloads/releases/sha256sum.txt
+    $phpSha256 = "CFA6000BE835931961E40740BD3B51111700061D6655DDBFE5A2125807947457"
+    # A superseded release moves from releases/ to releases/archives/.
+    $phpUrls = @(
+        "https://windows.php.net/downloads/releases/$phpZip",
+        "https://windows.php.net/downloads/releases/archives/$phpZip"
+    )
+    $phpZipPath = "C:\Windows\Temp\$phpZip"
+    $phpStage = "C:\Windows\Temp\php-$phpVersion"
+
+    $downloaded = $false
+    foreach ($url in $phpUrls) {
+        try {
+            (New-Object System.Net.WebClient).DownloadFile($url, $phpZipPath)
+            $downloaded = $true
+            break
+        } catch {
+            Write-Host "PHP download failed from $url"
+        }
+    }
+    if (-not $downloaded) {
+        Write-Error "FATAL: could not download $phpZip"
+        exit 1
+    }
+
+    $actualSha256 = (Get-FileHash -Path $phpZipPath -Algorithm SHA256).Hash
+    if ($actualSha256 -ne $phpSha256) {
+        Write-Error "FATAL: $phpZip SHA-256 is $actualSha256, expected $phpSha256"
+        exit 1
+    }
+
+    # Replace the whole PHP directory, so no XAMPP 8.2.12 file stays behind.
+    # Keep XAMPP's php.ini: the official archive contains none.
+    $phpDir = "$xamppPath\php"
+    $phpBundled = "$xamppPath\php.xampp-bundled"
+    Expand-Archive -Path $phpZipPath -DestinationPath $phpStage -Force
+    Copy-Item -Path "$phpDir\php.ini" -Destination "$phpStage\php.ini"
+    Rename-Item -Path $phpDir -NewName (Split-Path -Leaf $phpBundled)
+    Move-Item -Path $phpStage -Destination $phpDir
+    Remove-Item -Path $phpZipPath -Force -ErrorAction SilentlyContinue
+
+    # Packer runs this script over WinRM, where a native program's stderr becomes
+    # an error record. Run the checks through Start-Process with file redirection.
+    function Invoke-NativeCheck([string]$FilePath, [string]$Arguments) {
+        $stdout = [System.IO.Path]::GetTempFileName()
+        $stderr = [System.IO.Path]::GetTempFileName()
+        $proc = Start-Process -FilePath $FilePath -ArgumentList $Arguments -Wait -NoNewWindow -PassThru `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $output = "$(Get-Content -Raw $stdout)$(Get-Content -Raw $stderr)"
+        Remove-Item -Path $stdout, $stderr -Force
+        return @{ ExitCode = $proc.ExitCode; Output = $output }
+    }
+
+    # Fail the build when PHP does not start cleanly with XAMPP's php.ini, for
+    # example when an enabled extension does not load.
+    $phpExe = "$phpDir\php.exe"
+    $phpStartup = Invoke-NativeCheck $phpExe "-v"
+    if ($phpStartup.ExitCode -ne 0 -or $phpStartup.Output -match "Warning|Fatal|Unable to load") {
+        Write-Error "FATAL: PHP did not start cleanly: $($phpStartup.Output)"
+        exit 1
+    }
+    $installedPhp = [version](Invoke-NativeCheck $phpExe '-r "echo PHP_VERSION;"').Output.Trim()
+    if ($installedPhp -lt $phpFloor) {
+        Write-Error "FATAL: PHP $installedPhp is below the security floor $phpFloor"
+        exit 1
+    }
+
+    # Apache loads php8apache2_4.dll while it parses its configuration.
+    $httpdExe = "$xamppPath\apache\bin\httpd.exe"
+    $apacheTest = Invoke-NativeCheck $httpdExe "-t"
+    $apacheModules = Invoke-NativeCheck $httpdExe "-M"
+    if ($apacheTest.ExitCode -ne 0 -or $apacheModules.Output -notmatch "php_module") {
+        Write-Error "FATAL: Apache does not load PHP after the replacement: $($apacheTest.Output)"
+        exit 1
+    }
+
+    Remove-Item -Path $phpBundled -Recurse -Force
+    Write-Host "PHP $installedPhp installed (floor $phpFloor); the bundled PHP tree is removed"
+
     # Configure XAMPP services to start automatically
     if (Test-Path "$xamppPath\apache\bin\httpd.exe") {
         # Install Apache as a service

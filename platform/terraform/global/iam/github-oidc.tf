@@ -16,17 +16,48 @@ variable "environment" {
 variable "github_org" {
   description = "GitHub organization"
   type        = string
-  default     = "Brad-Edwards"
 }
 
 variable "github_repo" {
   description = "GitHub repository name"
   type        = string
-  default     = "shifter"
+}
+
+locals {
+  github_subject_prefix = var.github_subject_format == "immutable" ? "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" : "repo:${var.github_org}/${var.github_repo}"
 }
 
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
+
+# S3 actions the deploy role needs to manage the buckets that Terraform owns
+# (bucket, versioning, encryption, lifecycle, public access block, policy,
+# CORS, notification, logging, tags) and the objects in them. Read and list
+# actions use a wildcard because they cannot change data or access. Write
+# actions are explicit, so ACL, replication, object lock, retention bypass,
+# website, and access point changes are not granted (AWS-0345).
+locals {
+  terraform_s3_bucket_actions = [
+    "s3:Get*",
+    "s3:List*",
+    "s3:CreateBucket",
+    "s3:DeleteBucket",
+    "s3:PutBucketPolicy",
+    "s3:DeleteBucketPolicy",
+    "s3:PutBucketVersioning",
+    "s3:PutEncryptionConfiguration",
+    "s3:PutLifecycleConfiguration",
+    "s3:PutBucketPublicAccessBlock",
+    "s3:PutBucketCORS",
+    "s3:PutBucketNotification",
+    "s3:PutBucketLogging",
+    "s3:PutBucketTagging",
+    "s3:PutObject",
+    "s3:DeleteObject",
+    "s3:DeleteObjectVersion",
+    "s3:AbortMultipartUpload",
+  ]
+}
 
 # GitHub OIDC Provider
 resource "aws_iam_openid_connect_provider" "github" {
@@ -63,7 +94,7 @@ resource "aws_iam_role" "github_actions" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:*"
+            "token.actions.githubusercontent.com:sub" = "${local.github_subject_prefix}:*"
           }
         }
       }
@@ -132,8 +163,8 @@ resource "aws_iam_role" "github_actions_image" {
             # build runs from dev|main (the workflow's inline ref gate); a
             # feature-branch or pull-request subject receives no AWS role.
             "token.actions.githubusercontent.com:sub" = [
-              "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/dev",
-              "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"
+              "${local.github_subject_prefix}:ref:refs/heads/dev",
+              "${local.github_subject_prefix}:ref:refs/heads/main"
             ]
           }
         }
@@ -788,7 +819,7 @@ resource "aws_iam_policy" "data" {
       {
         Sid    = "S3UserStorage"
         Effect = "Allow"
-        Action = ["s3:*"]
+        Action = local.terraform_s3_bucket_actions
         Resource = [
           "arn:aws:s3:::shifter-user-storage-*",
           "arn:aws:s3:::shifter-*-user-storage-*"
@@ -797,7 +828,7 @@ resource "aws_iam_policy" "data" {
       {
         Sid    = "S3PortalBuckets"
         Effect = "Allow"
-        Action = ["s3:*"]
+        Action = local.terraform_s3_bucket_actions
         Resource = [
           # Portal-owned buckets (logs, ALB access logs, etc.) named {env}-portal-*.
           "arn:aws:s3:::*-portal-*",
@@ -817,9 +848,7 @@ resource "aws_iam_policy" "data" {
       {
         Sid    = "PulumiStateS3"
         Effect = "Allow"
-        Action = [
-          "s3:*"
-        ]
+        Action = local.terraform_s3_bucket_actions
         Resource = [
           # Bucket names carry an account-id suffix (e.g. proof-range-pulumi-state-<acct>),
           # so match the prefix with a trailing wildcard.

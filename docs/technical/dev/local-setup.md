@@ -1,6 +1,6 @@
 # Local Development Setup
 
-Run the Shifter portal locally for development.
+Run the BigRAE portal locally for development.
 
 ## Quick Start
 

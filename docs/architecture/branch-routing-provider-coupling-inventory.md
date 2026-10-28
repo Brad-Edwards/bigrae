@@ -15,6 +15,14 @@ by branch name, provider-specific paths, or scattered runtime settings. It is a
 source map for the root-configured backend-bundle migration, not the final
 design.
 
+Current-checkout note (2026-10-28, #2571): one bootstrap command now stands up,
+updates, and tears down a GCP deployment (`scripts/bootstrap/deploy.py
+gcp-deploy` and `gcp-destroy`). The GCP workflows are thin wrappers over those
+commands, and a deployment can run them without GitHub from the deployer image
+of a published release. The Helm chart is the only GCP Kubernetes renderer;
+the Kustomize tree and its renderers are removed. The GCP rows below show that
+state.
+
 Current-checkout note (2026-07-25): `.github/workflows/deploy.yml` already limits
 cloud mutation to an explicit `workflow_dispatch` environment choice; ordinary
 pushes and pull requests are validation-only. The provider-specific environment
@@ -54,15 +62,15 @@ The replacement model should route these concerns through:
 | --- | --- | --- | --- |
 | Branch-targeted deployment entrypoint | `.github/workflows/deploy.yml` | `main`, `dev`, `aws-dev`, and `gcp-dev` imply provider and environment. Pull requests and pushes route to different reusable workflows based on `github.base_ref` or `github.ref`. Path filters decide which component jobs run. | A root config selects the backend and deployment profile. CI validates checked-in backend examples through a matrix. Deployment uses explicit workflow input or command invocation, not branch name. Path filters can remain an optimization after backend intent is already explicit. |
 | AWS reusable workflows | `.github/workflows/_core.yml`, `.github/workflows/_range.yml`, `.github/workflows/_shifter-engine.yml`, `.github/workflows/_shifter-platform.yml` | `environment` plus `is_dev` selects Terraform working directories, S3 backend files, AWS roles, ECR repositories, ECS task families, and service names. | The AWS backend bundle owns its Terraform entrypoints, state backend template, required roles/secrets, image targets, validation commands, and deploy commands. Dev/prod examples become profiles or sample configs, not branch-derived behavior. |
-| GCP reusable workflow | `.github/workflows/_gcp-dev.yml` | The workflow is GCP-specific and assumes the `gcp-dev` Terraform environment, GCS state bucket naming, GCP Workload Identity Federation, Artifact Registry image roots, Identity Platform bootstrap, Kubernetes overlays, and GCP edge promotion. | The GCP backend bundle owns its Terraform/Kubernetes entrypoints, generated runtime env, bootstrap steps, required secrets, image roots, edge promotion checks, and health checks. CI validates the GCP example through the backend matrix. |
+| GCP reusable workflow | `.github/workflows/_gcp-dev.yml`, `.github/workflows/gcp-dev-destroy.yml`, `scripts/gcp/render_ci_deployment_inputs.py` | The workflows are thin wrappers. They render the deployment input bundle from the GitHub secrets and variables, then run the GCP deploy commands as the federated purpose identities. | Done for GCP (#2571, ADR-070): the bootstrap CLI owns the deploy, release-scan, smoke, and destroy commands. A deployment can run them without GitHub. CI validates the GCP example through the backend matrix. |
 | Django runtime settings | `shifter/shifter_platform/config/settings.py` | `CLOUD_PROVIDER` defaults to `aws`. Generic names such as `CLOUD_REGION`, `STORAGE_BUCKET_NAME`, and `RANGE_EVENTS_TOPIC_ID` coexist with AWS aliases such as `AWS_REGION`, `AWS_S3_BUCKET_NAME`, and `SNS_RANGE_EVENTS_ARN`. GCP runtime values are added separately. | A validated root config and selected backend generate one runtime settings surface. Backward-compatible env aliases can remain temporarily, but runtime code should consume backend-derived canonical keys. |
 | Portal cloud factories | `shifter/shifter_platform/shared/cloud/__init__.py` | Factories select object storage, task runner, queue, publisher, and secrets implementations from `settings.CLOUD_PROVIDER`. The provisioner container name remains `pulumi-provisioner` for compatibility. | A backend registry maps the selected backend to capability implementations. The public bundle owns which adapters are valid. Compatibility names should be documented and hidden from the user-facing setup path where possible. |
 | Provisioner cloud factories | `shifter/engine/provisioner/cloud/__init__.py` | Provisioner adapters select event bus, config store, database auth, secrets, object storage, and network inventory from `CLOUD_PROVIDER`. | The provisioner should receive backend-derived configuration or a generated runtime env from the same selected backend as the portal. Adapter selection should be a backend capability lookup, not an independent provider switch. |
 | Engine task runner behavior | `shifter/shifter_platform/engine/ecs.py` | Task execution conditionally builds AWS ECS settings or GCP runner settings. GCP runtime forwarding depends on a hardcoded allowlist of environment variables. AWS network settings use ECS cluster, task definition, subnet, security group, and public IP assumptions. The legacy experiment task runner was removed by ADR-027. | Backend metadata should describe the task runner capability, required runtime keys, env propagation contract, and network placement. Runtime code should call the selected backend task capability through a stable interface. |
-| GCP generated runtime and edge manifests | `scripts/gcp/render_runtime_env.py`, `scripts/gcp/render_edge_manifest.py` | Terraform outputs are transformed into provider-specific runtime env and Kubernetes edge manifests. Auth mode, Identity Platform values, bucket names, Pub/Sub topics, task image root, and edge security values are generated here. | Backend-owned renderers should generate canonical runtime outputs from backend metadata and Terraform outputs. The root config should feed renderer inputs such as domain, public hostname, and secure mode. |
+| GCP generated runtime and edge objects | `scripts/gcp/render_runtime_env.py`, `scripts/bootstrap/gcp_runtime.py`, `scripts/bootstrap/gcp_helm.py`, the chart edge templates | Terraform outputs and the root config become the runtime env and the generated Helm values. Auth mode, Identity Platform values, bucket names, Pub/Sub topics, task image root, and edge security values are generated here. The chart renders the ingress, managed certificate, and BackendConfig objects. | Backend-owned renderers should generate canonical runtime outputs from backend metadata and Terraform outputs. The root config feeds renderer inputs such as domain, public hostname, and secure mode. |
 | Bootstrap entrypoints | `scripts/bootstrap/deploy.py`, `scripts/bootstrap/runner.py`, `scripts/gcp/**`, `scripts/local-provisioner-env.sh` | Bootstrap and helper scripts know provider paths, state layout, generated env files, and legacy provisioner naming. Some scripts are specific to local AWS/ECS assumptions. | Backend bundles should expose setup, doctor, render, deploy, and teardown commands with machine-readable prerequisites. Compatibility helpers can remain as backend-specific implementation details. |
 | AWS Terraform layout | `platform/terraform/environments/dev/**`, `platform/terraform/environments/prod/**`, `platform/terraform/modules/**`, `platform/terraform/global/**` | AWS environment directories encode root, portal, range, S3 backend files, tfvars, Cognito, ECR/ECS, networking, state, and policy assumptions. Some resources retain Pulumi-era names or moved blocks. | The AWS backend bundle should own the AWS Terraform roots and profile examples. State backend, account/region, identity, network, image, and task settings should be declared as backend contract inputs or generated outputs. |
-| GCP Terraform and Kubernetes layout | `platform/terraform/gcp/**`, `platform/charts/shifter/**`, `platform/k8s/gcp/**` | GCP has a separate Terraform root, Helm chart values, base Kubernetes manifests, and overlays. The current overlay is environment-specific and wired to GCP managed TLS, Identity Platform, Secret Manager, Cloud Armor, GKE, Artifact Registry, and GCS state. | The GCP backend bundle should own these entrypoints and publish the contract between Terraform outputs, Helm/Kustomize inputs, generated runtime env, and Kubernetes health checks. |
+| GCP Terraform and Kubernetes layout | `platform/terraform/gcp/**`, `platform/charts/shifter/**` | GCP has a shared platform Terraform root, global identity and release-registry roots, and the Helm chart with per-profile values. The chart is wired to GCP managed TLS, Identity Platform, Secret Manager, Cloud Armor, GKE, Artifact Registry, and GCS state. | The GCP backend bundle should own these entrypoints and publish the contract between Terraform outputs, Helm inputs, generated runtime env, and Kubernetes health checks. |
 | Documentation | `shifter/shifter_platform/documentation/docs/technical/dev/ci-cd.md`, `shifter/shifter_platform/documentation/docs/technical/platform_infrastructure/cicd.md`, `shifter/shifter_platform/documentation/docs/technical/architecture.md`, deprecated technical docs | Docs still describe branch-targeted deploys, AWS/GCP branch behavior, and some legacy naming. | User-facing setup docs should describe root config and backend bundles. Compatibility docs should list legacy branch and Pulumi-era names only when they matter for migration or troubleshooting. |
 
 ## Branch Routing Replacement Map
@@ -140,18 +148,19 @@ Target replacement:
 
 ### GCP
 
-GCP support has a dedicated workflow, Terraform tree, Helm chart, Kubernetes
-overlays, generated runtime env, and generated edge manifest. Terraform outputs
-are the bridge from infrastructure to runtime and deployment.
+GCP support has the bootstrap deploy commands, thin CI wrappers, a Terraform
+tree, the Helm chart, and generated runtime env. Terraform outputs are the
+bridge from infrastructure to runtime and deployment.
 
 Target replacement:
 
-- GCP backend metadata declares Terraform, Helm/Kustomize, render, bootstrap,
+- GCP backend metadata declares Terraform, Helm, render, bootstrap,
   deploy, and health commands,
 - generated runtime env becomes a backend-owned output with a stable schema,
 - edge promotion checks remain backend-owned safety gates,
-- GCP-specific identity, Secret Manager, Cloud Armor, TLS, GKE, GCS state, and
-  Workload Identity Federation assumptions remain explicit.
+- GCP-specific identity, Secret Manager, Cloud Armor, TLS, GKE, GCS state,
+  optional Workload Identity Federation, and impersonation assumptions remain
+  explicit.
 
 ## Legacy Compatibility Names
 
@@ -176,9 +185,9 @@ explicit backend requirements and validation checks, not as naming cleanup.
 | CI and architecture guardrails | `scripts/adr_guard/**`, `.github/workflows/**`, `.importlinter`, `.tflint.hcl`, `.kube-linter.yaml`, `.gitleaks.toml`, ADR registry | Keep ADR guard, import boundaries, leak checks, Terraform linting, Kubernetes validation, and workflow linting equivalent or stronger during migration. |
 | AWS identity and access | AWS reusable workflows, Terraform IAM, Cognito config, OIDC roles | Preserve explicit role assumption, least-privilege IAM, Cognito/OIDC auth boundaries, required verification/MFA behavior, and protected production approval paths. |
 | AWS state and network isolation | AWS Terraform backend files, VPC/subnet/security group modules, ECS task settings | Preserve state backend controls, private subnet placement, security group restrictions, network firewall assumptions, and disabled public task IP behavior unless an ADR records a change. |
-| GCP identity and access | `_gcp-dev.yml`, GCP Terraform, Identity Platform bootstrap, Secret Manager, Workload Identity Federation | Preserve WIF, Secret Manager boundaries, Identity Platform verification/MFA behavior, first-operator bootstrap constraints, and service-account scoping. |
-| GCP state, cluster, and edge controls | GCP Terraform, `platform/k8s/gcp/**`, Helm values, generated edge manifest | Preserve GCS state controls, GKE cluster access controls, managed TLS, Cloud Armor, public hostname checks, edge promotion checks, and private operator access assumptions. |
-| Kubernetes workload security | `platform/k8s/gcp/base/*.yaml`, Helm chart templates, ADR-006 evidence | Preserve pod security context, non-root execution, dropped capabilities, seccomp profiles, resource requests/limits, and admission-compatible manifests. |
+| GCP identity and access | `_gcp-dev.yml`, GCP Terraform, `scripts/bootstrap/gcp_identity.py`, Identity Platform bootstrap, Secret Manager, Workload Identity Federation | Preserve WIF where a deployment uses it, impersonation by named principals only, Secret Manager boundaries, Identity Platform verification/MFA behavior, first-operator bootstrap constraints, and service-account scoping. |
+| GCP state, cluster, and edge controls | GCP Terraform, Helm values, chart edge templates, `scripts/bootstrap/gcp_rollout.py` | Preserve GCS state controls, GKE cluster access controls, managed TLS, Cloud Armor, public hostname checks, edge promotion checks, and private operator access assumptions. |
+| Kubernetes workload security | Helm chart templates, ADR-006 evidence | Preserve pod security context, non-root execution, dropped capabilities, seccomp profiles, resource requests/limits, and admission-compatible manifests. |
 | Runtime secret handling | `settings.py`, provider secrets stores, generated runtime env, bootstrap scripts | Keep secret identifiers distinct from secret values, avoid writing sensitive values into generated docs or logs, and ensure backend doctor checks detect missing secret wiring before deploy. |
 
 ## Replacement Ownership

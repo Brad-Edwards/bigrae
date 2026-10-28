@@ -11,7 +11,7 @@ GitHub Actions does not provide native fallback from `ubuntu-latest` to
 self-hosted runners or a priority order across those runner classes.
 Workflow jobs must choose a concrete scheduling target.
 
-Shifter splits workflow capacity by job type. Portable quality jobs run
+BigRAE splits workflow capacity by job type. Portable quality jobs run
 on `ubuntu-latest` to use the GitHub-hosted runner allotment, while
 deployment, image build, Packer, and environment-mutating jobs remain on
 `self-hosted` custom runners.
@@ -47,10 +47,10 @@ After Terraform creates the instance, connect via SSM and complete these steps:
 ```bash
 sudo -u ec2-user bash
 cd /home/ec2-user/actions-runner
-./config.sh --url https://github.com/Brad-Edwards/bigrae --token <TOKEN>
+./config.sh --url https://github.com/<REPO> --token <TOKEN>
 ```
 
-Generate the registration token at: Settings > Actions > Runners > New self-hosted runner.
+Get `<REPO>` from `gh repo set-default --view` in your clone. Generate the registration token at: Settings > Actions > Runners > New self-hosted runner.
 
 ### 2. Add the runner service user to the docker group
 
@@ -113,8 +113,12 @@ fleet, so a GCP dev tenant could not stand up without an AWS one. Issue #1546
 adds a GCP-native runner so each dev tenant is self-contained: a GCP dev tenant
 runs its own CI/deploy, and neither dev tenant assumes the other exists. This is
 the dev-tenant amendment to the runner-isolation rule (ADR-053-R3, carried from
-ADR-033-R2; there is no product deployment model yet, and the current bootstrap
-is itself a dev-tenant deploy mechanism).
+ADR-033-R2).
+
+The runner serves only the GCP deployments that GitHub CI deploys. A GCP
+deployment that runs without GitHub needs no runner. An operator runs the
+deployer image of a published release (ADR-070, see the
+[GitHub-less GCP deployment guide](../handbook/gcp-github-less-deployment.md)).
 
 | Parameter | Value |
 |-----------|-------|

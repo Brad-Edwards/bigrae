@@ -1,6 +1,6 @@
 # AWS environment teardown
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 This is the runbook for tearing an AWS environment down to zero: the Terraform
 stacks, the resources that block `terraform destroy`, the bootstrap-created
@@ -56,7 +56,7 @@ logic.
 ### Security and configuration boundaries
 
 - Use a closed `choice` input following `deploy.yml`'s public environment names
-  (`aws-dev`, `aws-proof`) and map once to Terraform names (`dev`, `proof`) and
+  (`aws-dev`) and map once to the Terraform name (`dev`) and
   GitHub Environment names. Prod is not an implied target. Reject every unknown
   value before checkout or cloud authentication; never construct a secret name
   dynamically from free-form input.
@@ -72,8 +72,8 @@ logic.
   commit (`github.sha`) with `persist-credentials: false`; keep job permissions
   to `contents: read` and `id-token: write`; pin every external action to a full
   commit SHA under ADR-037-R1.
-- Resolve `AWS_ROLE_ARN[_DEV|_PROOF]` and
-  `TF_INFRA_STATE_BUCKET[_DEV|_PROOF]` through the existing explicit environment
+- Resolve `AWS_ROLE_ARN_DEV` and
+  `TF_INFRA_STATE_BUCKET_DEV` through the existing explicit environment
   selection and `scripts/bootstrap/preflight.py` conventions. Verify the STS
   caller is the account encoded by the selected role without printing either
   value. Keep the repository's single AWS region input (`us-east-2` today) as
@@ -163,7 +163,7 @@ stack initializes with its own `-backend-config=<env>.s3.tfbackend`.
 ## 1. Lift deletion protection (prod, and any env that enabled it)
 
 Several resources ship deletion protection on (secure default in prod; `false`
-in dev/proof, so dev/proof usually need no change). For any environment where
+in dev, so dev usually need no change). For any environment where
 these are `true`, set the tfvars to `false` and `terraform apply` the owning
 stack first, so the live resource drops protection before destroy:
 
@@ -319,7 +319,7 @@ destroys report success. Discovery is read-only; delete only what the discovery
 lists. Set the environment and account first:
 
 ```bash
-ENV=<env>                                                   # dev | proof | prod
+ENV=<env>                                                   # dev | prod
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ```
 
@@ -393,9 +393,11 @@ double-quoted shell string does not trigger backtick command substitution.
 ## 4. Destroy the runner root and deregister runners
 
 ```bash
-# Deregister each runner from GitHub first (from the EC2 via SSM):
+# Deregister each runner from GitHub first. Mint the remove token in your clone:
+#   REPO="$(gh repo set-default --view)"
+#   TOKEN=$(gh api -X POST "/repos/$REPO/actions/runners/remove-token" --jq .token)
+# Then run these commands on the EC2 via SSM with that token:
 #   cd /home/ec2-user/actions-runner
-#   TOKEN=$(gh api -X POST /repos/Brad-Edwards/bigrae/actions/runners/remove-token --jq .token)
 #   sudo ./svc.sh stop && sudo ./svc.sh uninstall
 #   sudo -u ec2-user ./config.sh remove --token "$TOKEN"
 ./scripts/runner-deploy.sh --destroy
@@ -431,7 +433,7 @@ Also delete any stray temporary `github-actions-shifter-<env>-bootstrap` role
 (bootstrap normally removes it).
 
 **Then** empty and delete the `{uuid}` state bucket
-(`shifter-<env>-infra-<uuid>` for dev/proof, `shifter-infra-<uuid>` for prod).
+(`shifter-<env>-infra-<uuid>` for dev, `shifter-infra-<uuid>` for prod).
 It is versioned; delete all object versions and delete markers, then the bucket.
 
 ## 6. Clear local operator config

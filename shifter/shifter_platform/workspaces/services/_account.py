@@ -230,6 +230,22 @@ def workspace_option(workspace_uuid: UUID) -> WorkspaceOptionView:
     )
 
 
+def resource_scope_parent_name(scope: ResourceScope) -> str:
+    """Project only the exact parent's label after the caller authorizes its resource.
+
+    This supplies display data, never directory discovery or application authority.
+    The owning caller must already admit a resource in this exact scope.
+    """
+    binding = resolve_resource_scope(scope)
+    if binding.workspace_id is not None:
+        return Workspace.objects.values_list("name", flat=True).get(pk=binding.workspace_id)
+    if binding.organization_id is not None:
+        return Organization.objects.values_list("name", flat=True).get(pk=binding.organization_id)
+    if binding.account_id is not None:
+        return Account.objects.values_list("name", flat=True).get(pk=binding.account_id)
+    raise AccountScopeError(_DENIED)
+
+
 def workspace_id_for_uuid(workspace_uuid: UUID) -> int:
     """Resolve an active workspace UUID to its private scalar identifier."""
     return workspace_option(workspace_uuid).id

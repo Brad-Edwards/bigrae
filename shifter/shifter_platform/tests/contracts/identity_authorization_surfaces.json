@@ -1,5 +1,5 @@
 {
-  "current_operation_count": 307,
+  "current_operation_count": 313,
   "historical_baseline": {
     "commit": "8aee758331286293cdc837d94eb95fafa5674ae0",
     "operation_count": 220
@@ -1592,6 +1592,28 @@
     {
       "authority": {
         "decision": "event.manage_communications",
+        "scope": "sql:campaign_collection",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_target_options_list",
+      "path": "/api/v1/ctf/communications/target-options/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign_collection",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_targets_list",
+      "path": "/api/v1/ctf/communications/targets/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
         "scope": "sql:campaign",
         "target": "event"
       },
@@ -1606,10 +1628,54 @@
         "scope": "sql:campaign",
         "target": "event"
       },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_activity_retrieve",
+      "path": "/api/v1/ctf/communications/{campaign_id}/activity/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
       "disposition": "retained",
       "method": "POST",
       "operation_id": "ctf_communications_cancel_create",
       "path": "/api/v1/ctf/communications/{campaign_id}/cancel/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_delivery_retrieve",
+      "path": "/api/v1/ctf/communications/{campaign_id}/delivery/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_preview_retrieve",
+      "path": "/api/v1/ctf/communications/{campaign_id}/preview/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications|event.manage_participants",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_recipients_list",
+      "path": "/api/v1/ctf/communications/{campaign_id}/recipients/"
     },
     {
       "authority": {

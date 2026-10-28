@@ -1,4 +1,4 @@
-# Shifter Engine
+# BigRAE Engine
 
 Infrastructure lifecycle. Range provisioning, NGFW operations, terminal connections.
 
@@ -77,7 +77,7 @@ def process_range_event(message):
 
 Engine handlers update Engine models only. Mission Control handlers (not Engine) broadcast to WebSocket clients.
 
-See [Shifter Platform](.) for the full event flow diagram.
+See [BigRAE Platform](.) for the full event flow diagram.
 
 ## Range warm pool (#28, ADR-039-R11)
 

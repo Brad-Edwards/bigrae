@@ -86,7 +86,10 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Build provisioner image locally
-        run: docker build --no-cache -f shifter/engine/provisioner/Dockerfile -t shifter-engine-validate ./shifter
+        run: |
+          docker build --no-cache \
+            --build-arg "SOURCE_REPOSITORY_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            -f shifter/engine/provisioner/Dockerfile -t shifter-engine-validate ./shifter
 
   build:
     name: Build (${{ inputs.environment }})
@@ -159,6 +162,8 @@ jobs:
         with:
           context: ./shifter
           file: ./shifter/engine/provisioner/Dockerfile
+          build-args: |
+            SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.image.outputs.tag }}
@@ -236,8 +241,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # ADR-037-R6: verify the GitHub OIDC-signed provenance attestation for
-          # the exact image@digest and the fixed Brad-Edwards/bigrae identity of
-          # the provisioner image the EKS Job will pull. No bypass mode.
+          # the exact image@digest of the provisioner image the EKS Job will
+          # pull. The source and the signer must be the running repository
+          # (ADR-069). No bypass mode.
           if [[ -z "$IMAGE_DIGEST" || ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "::error::Build did not produce a valid ECR image digest to verify"
             exit 1
@@ -245,4 +251,5 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           IMAGE_REF="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@${IMAGE_DIGEST}"
           echo "Verifying provenance for ${ECR_REPOSITORY}@${IMAGE_DIGEST}"
-          gh attestation verify "oci://${IMAGE_REF}" --repo Brad-Edwards/bigrae
+          gh attestation verify "oci://${IMAGE_REF}" \
+            --repo "${GITHUB_REPOSITORY}" --signer-repo "${GITHUB_REPOSITORY}"

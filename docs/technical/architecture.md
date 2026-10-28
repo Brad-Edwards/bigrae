@@ -1,23 +1,34 @@
 # Current-state architecture handbook
 
-Shifter runs authorized cyber-range exercises through one application control
+BigRAE runs authorized cyber-range exercises through one application control
 plane and separately isolated guest workloads. Start here for the current
 architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-27 for the issue #2321 S8 identity cutover.
+**Reviewed:** 2026-10-28 for the identity cutover and current development-branch integration.
 This describes source behavior, not a certificate of a live deployment.
 
+BigRAE is the current product name. Public BigRAE config, SDK, client and plugin
+names converge on their existing validation and execution owners; legacy names
+remain compatible. Conflicting old/new configuration fails before use. The
+[identifier ledger](../architecture/bigrae-rename-inventory.md) distinguishes
+branding from persisted, wire and infrastructure identity, and the
+[cutover procedure](../how-to/bigrae-rename-cutover.md) verifies GitHub repository
+configuration and future-deployment templates. The user directs that no
+deployments exist, so no live cloud trust or workload migration is required. Plugin jobs
+remain isolated and receive one Secret-backed invocation input under either
+exact supported name. The source preparation does not change deployed resource
+names, authorization, internal imports, historical provenance or metric identity.
 The [identity and lifecycle contracts](shifter_platform/identity-lifecycle-contracts.md)
-define the detailed DFDs, state transitions, failure recovery and lock order.
-Their implementation gaps remain explicit in the S8 proposal.
+define the DFDs, state transitions, failure recovery and lock order.
+The S8 proposal records integration corrections and verification limits.
 
 ## System context and trust boundaries
 
 ```mermaid
 flowchart LR
-    Human[Operator or participant browser] -->|HTTPS session and CSRF| App[Shifter application]
+    Human[Operator or participant browser] -->|HTTPS session and CSRF| App[BigRAE application]
     Client[External API client] -->|HTTPS authenticated API| App
     IdP[Identity provider] -->|Verified identity| App
     App -->|Authorized domain services| Workers[Application workers]
@@ -79,14 +90,21 @@ does not replay a provider write.
 | Schedulers and reconcilers | CTF scheduling, leases, launch delivery, result application and event-outbox delivery run as separate worker commands. |
 | Provisioner Jobs | Independently packaged `shifter/engine/provisioner`; exact image, service account and namespace binding; provider effects and guest readback. |
 | Plugin/preparation Jobs | Explicitly installed, isolated executable images; separate administrator grants and pinned worker/verifier identities. |
-| Guacamole and guacd | Remote-access services; Shifter authorizes the exact target/session and continuing access. Guacamole has separate database credentials. |
+| Guacamole and guacd | Remote-access services; BigRAE authorizes the exact target/session and continuing access. Guacamole has separate database credentials. |
 | Optional access services | Deployment-selected VPN and other integrations have their own identities and support conditions. |
 
 The canonical control-plane package is the shared Helm chart, hosted on GKE for
 GCP or EKS for AWS. Provisioner Jobs use the selected cluster; CI runner placement
 is a separate concern. Older ECS files do not define the current AWS package.
-GCP bootstrap and CI consume generated configuration from Terraform and Secret
-Manager; keep platform hosting separate from the range guest backend.
+The AWS bundle owns the Terraform modules and environments under
+`platform/terraform`. Vendor connector templates are not part of the package.
+GCP uses one Terraform execution root with separate environment values and state metadata.
+See [deployment configuration](../dev/deployment-configuration.md) for selection and recovery.
+A GCP deployment runs from a published release. Operators and CI use the same
+`deploy.py gcp-deploy` command, which reads the deployment input bundle from the
+deployment config bucket or a local directory. Secret values stay in Secret
+Manager (ADR-070, [GitHub-less GCP deployment guide](handbook/gcp-github-less-deployment.md)). Keep platform
+hosting separate from the range guest backend.
 
 | Boundary | GCP | AWS |
 | --- | --- | --- |
@@ -108,9 +126,20 @@ and image prerequisites. GCE does not support the NGFW range capability.
 
 ADR-056 defines provider-enforced guest containment. ADR-057 separates GKE
 Dataplane V2 NetworkPolicy reachability, Google Workload Identity, Job admission,
-and application authorization. These controls do not provide authenticated
+and application authorization. The Helm chart renders the NetworkPolicies. Each
+BigRAE namespace denies traffic by default, and explicit policies allow each
+required path, for example the portal to the in-cluster Guacamole token API.
+These controls do not provide authenticated
 pod-to-pod mTLS; a service mesh remains unadopted. No documentation or unit-test
 result proves complete escape detection or live containment qualification.
+
+Control-plane workloads run as the non-root runtime identity UID 10001, with a
+read-only root filesystem, dropped capabilities, and the `RuntimeDefault` seccomp
+profile. The admission policies pin that identity for the provisioner,
+preparation, and acquisition Jobs. The Cloud SQL proxy keeps its own 65532
+identity. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
+each supported values file. A scoped waiver uses a chart template annotation
+with a matching `docs/adr/exceptions.yaml` entry (ADR-004-R11).
 
 The model-access broker is **parked and unsupported** under
 [ADR-068](../adr/068-model-access-broker-parked.md). Keep broker/model-access
@@ -132,7 +161,7 @@ sequenceDiagram
     M->>E: Validated immutable intent through public facade
     E->>DB: Reserve generation, OperationInput and launch intent
     E->>P: Dispatch pinned command for operation UUID
-    P->>DB: Read exact input; append bounded result
+    P->>DB: Read exact input and append bounded result
     E->>DB: Validate result and atomically apply state, audit, outbox
     E->>Q: Drain committed outbox
     Q->>W: At-least-once event delivery
@@ -194,7 +223,7 @@ backed by `.importlinter` and model-boundary checks. The following is its reader
 | `shared` | Neutral contracts, auth primitives, audit, cloud interfaces | Public contracts; no domain/model imports. Only `shared.raes` imports RAES. |
 | `config` | Settings, provider adapters, root routing, composition | Explicit public composition seams; no domain model imports. |
 | `shifter/engine/provisioner` | Independent provider/guest executor | Versioned immutable inputs/results and standalone plain-data RAES reader; no Django/domain ORM dependency. |
-| `shifter/environment-packs` | Shifter-owned bootstrap and validation content | Current RAES packs registered through the same CMS validation boundary as external content. |
+| `shifter/environment-packs` | BigRAE-owned bootstrap and validation content | Current RAES packs registered through the same CMS validation boundary as external content. |
 | `shifter/installation` | Root config, backend bundles, runtime inventories | Typed bundle validation/rendering; backend selection before mutation. |
 | `shifter/shifter_client` | Native Google service transport | Renewable provider credentials and relative authenticated API calls; no application internals. |
 | `shifter/shifter_adapter_sdk` | Independent adapter ABI | Public verification, runtime and preparation contracts; no application imports. |

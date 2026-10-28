@@ -10,10 +10,13 @@ RUN uv export --frozen --no-dev --no-emit-project --output-file requirements.txt
 
 # base image: python:3.12-slim-trixie
 FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf
+# CI sets the source URL from the running repository (ADR-069).
+# A local build leaves the label empty.
+ARG SOURCE_REPOSITORY_URL=""
 LABEL maintainer="Shifter maintainers" \
       org.opencontainers.image.title="shifter-artifact-preparation" \
       org.opencontainers.image.description="Contained artifact preparation and independent verification" \
-      org.opencontainers.image.source="https://github.com/Brad-Edwards/bigrae" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY_URL}" \
       org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
@@ -27,5 +30,5 @@ COPY shifter/shifter_platform/shared/raes/__init__.py shifter/shifter_platform/s
      shifter/shifter_platform/shared/raes/json_ingress.py ./shared/raes/
 COPY shifter/packer/preparation ./preparation
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-USER 1000:1000
+USER 10001:10001
 ENTRYPOINT ["/opt/venv/bin/python", "-m", "preparation.worker_client"]

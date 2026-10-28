@@ -35,11 +35,16 @@ def rich_challenge(ctf_event):
 
 
 class TestChallengeExportImport:
-    def test_shifter_round_trip(self, ctf_event, ctf_event_draft, rich_challenge, authenticated_organizer_client):
+    @pytest.mark.parametrize("fmt", ["shifter", "bigrae"])
+    def test_shifter_round_trip(self, ctf_event, ctf_event_draft, rich_challenge, authenticated_organizer_client, fmt):
         exported = call_json(
-            authenticated_organizer_client, "get", "api_challenge_export", kwargs={"event_id": ctf_event.id}
+            authenticated_organizer_client,
+            "get",
+            "api_challenge_export",
+            kwargs={"event_id": ctf_event.id},
+            query=f"?fmt={fmt}",
         ).json()
-        assert exported["format"] == "shifter-challenges/v3"
+        assert exported["format"] == ("bigrae-challenges/v1" if fmt == "bigrae" else "shifter-challenges/v3")
         # Static flags are stored, and so exported, as their normalized plaintext value.
         assert exported["challenges"][0]["flags"][0]["value"] == "portable"
         assert exported["challenges"][0]["hints"] == [{"text": "look closer", "penalty": 10, "order": 1}]

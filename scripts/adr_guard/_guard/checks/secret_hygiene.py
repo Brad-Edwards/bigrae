@@ -1,4 +1,5 @@
 """Secret/artifact hygiene: tfvars secrets, secret env files, tracked generated artifacts."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -50,22 +51,22 @@ from ._secret_hygiene_tfvars import (
 
 # Centralized scope for the `no-populated-secret-env-files` check
 # (ADR-004-R9). Each entry is a repo-relative path prefix under which
-# `*-secrets.env` files are scanned. Adding a future overlay (e.g.
-# `platform/k8s/gcp/overlays/gcp-prod/`) is automatically covered;
-# adding a new top-level location (e.g. a different cluster tree) is
-# one entry here.
-_SECRET_ENV_ROOTS: tuple[str, ...] = ("platform/k8s/",)
+# `*-secrets.env` files are scanned. The scope is the whole deployment
+# tree, so a secret env file in any new location under `platform/` is
+# covered. Adding a new top-level location is one entry here.
+_SECRET_ENV_ROOTS: tuple[str, ...] = ("platform/",)
 
 # Basename suffix that selects "secret env" files. Matched on the
 # basename only so unrelated `*.env` files (config-bearing, not
 # secret-bearing) are not scanned by this check.
-_SECRET_ENV_SUFFIX = "-secrets.env"
+# a file suffix, not a credential
+_SECRET_ENV_SUFFIX = "-secrets.env"  # noqa: S105
 
 # Fail-loud synthetic values that may appear as the RHS of an
 # assignment in a tracked secret env file. The intent is that
-# committed files render Kustomize / kube-linter / kubeconform
-# successfully while making it obvious to anyone who deploys with the
-# committed values that they have NOT supplied real secrets. Real
+# committed files pass static validation while making it obvious to
+# anyone who deploys with the committed values that they have NOT
+# supplied real secrets. Real
 # values flow in at deploy time from GitHub Secrets, GCP Secret
 # Manager, a gitignored local env file, or a deploy-time Kubernetes
 # Secret.
@@ -74,8 +75,8 @@ _SECRET_ENV_SUFFIX = "-secrets.env"
 # caught that an earlier `<...>` regex would accept any angle-bracket
 # value (e.g. `DB_PASSWORD=<attacker-known-password>`) — a committer
 # could wrap a real low-entropy credential in brackets, the guard
-# would call it a placeholder, and Kustomize would treat the bracketed
-# bytes as the literal Secret value at deploy. The bracket-syntax
+# would call it a placeholder, and an env-file loader would treat the
+# bracketed bytes as the literal Secret value at deploy. The bracket-syntax
 # entries below are therefore an explicit fixed set, not a pattern.
 # Broader synonyms must come through a deliberate ADR update, not
 # ad-hoc growth.
@@ -101,6 +102,7 @@ _SECRET_ENV_PLACEHOLDERS: frozenset[str] = frozenset(
         "<EXAMPLE>",
     }
 )
+
 
 def _is_secret_env_in_scope(rel_path: str) -> bool:
     """Return True for a repo-relative path that the secret-env check scans."""
@@ -177,11 +179,10 @@ def _scan_secret_env_file(abs_path: Path, rel_path: str) -> list[Violation]:
       the first `=`. The LHS is treated as the variable name verbatim
       (any shape — `KEY`, `db.password`, `api-token`, `export KEY`)
       so non-identifier-key shapes cannot bypass the value check.
-    - Inline `# ...` is NOT a comment. Kustomize's
-      `secretGenerator.envs` loader follows the Docker env_file
-      format: `#` is a comment only when it is the first non-
-      whitespace character on a line; mid-line `#` is part of the
-      value. Treating mid-line `#` as a comment would create a
+    - Inline `# ...` is NOT a comment. Env-file loaders follow the
+      Docker env_file format: `#` is a comment only when it is the
+      first non-whitespace character on a line; mid-line `#` is part
+      of the value. Treating mid-line `#` as a comment would create a
       bypass (`TOKEN=#real-secret` would normalize to empty and pass
       the placeholder check while the bytes remain in source).
     - A non-comment, non-blank line that does NOT contain `=` is
@@ -230,7 +231,8 @@ def _scan_secret_env_file(abs_path: Path, rel_path: str) -> list[Violation]:
                 rule_id="ADR-004-R9",
                 path=rel_path,
                 message=(
-                    f"Tracked secret-env assignment `{var_name}` "
+                    # a message string, not SQL
+                    f"Tracked secret-env assignment `{var_name}` "  # noqa: S608
                     f"(line {lineno}) has a non-placeholder value. "
                     "Replace with an allowed synthetic placeholder "
                     "(REPLACE_AT_DEPLOY, CHANGE_ME, PLACEHOLDER, "
@@ -243,13 +245,11 @@ def _scan_secret_env_file(abs_path: Path, rel_path: str) -> list[Violation]:
     return violations
 
 
-def check_no_populated_secret_env_files(
-    repo_root: Path, files: list[str] | None
-) -> list[Violation]:
+def check_no_populated_secret_env_files(repo_root: Path, files: list[str] | None) -> list[Violation]:
     """Forbid populated assignments in tracked `*-secrets.env` files (ADR-004-R9).
 
     Scans tracked `*-secrets.env` files under `_SECRET_ENV_ROOTS` (currently
-    `platform/k8s/`). Allows comments, blank lines, empty assignments
+    `platform/`). Allows comments, blank lines, empty assignments
     (`KEY=`), and a small synthetic-placeholder set. Anything else is
     flagged as a real value that must not ship in source.
 

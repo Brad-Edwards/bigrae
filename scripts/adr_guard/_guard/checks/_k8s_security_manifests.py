@@ -4,6 +4,7 @@ Split out of ``k8s_security.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -12,10 +13,10 @@ from pathlib import Path
 from .._common import (
     _ADR_GUARD_PATH,
     Violation,
-    _repo_relative,
 )
 
-K8S_BASE_DEPLOYMENT_DIR = "platform/k8s/gcp/base"
+# The Helm chart is the only Kubernetes renderer for every provider (ADR-007,
+# #2571), so the chart render is the only manifest source these checks scan.
 HELM_CHART_DIR = "platform/charts/shifter"
 # Values files to render for ADR-006-R2 validation. This is the canonical CI
 # set for chart-rendered security-context validation.
@@ -29,7 +30,7 @@ HELM_VALUES_FILES = (
 
 def _is_real_int(value: object) -> bool:
     """True when value is an int but not a bool (bool subclasses int in Python)."""
-    return type(value) is int  # noqa: E721 - intentional exact type check
+    return type(value) is int
 
 
 def _check_k8s_pod_security(pod_sc: dict[str, object], rel: str) -> list[Violation]:
@@ -124,9 +125,7 @@ def _check_container_seccomp(sc: dict[str, object], label: str) -> list[str]:
         return [f"{label} securityContext.seccompProfile must be a mapping if set"]
     seccomp_type = (block or {}).get("type")
     if seccomp_type is not None and seccomp_type != "RuntimeDefault":
-        return [
-            f"{label} container-level seccompProfile.type must be 'RuntimeDefault' if set (got {seccomp_type!r})"
-        ]
+        return [f"{label} container-level seccompProfile.type must be 'RuntimeDefault' if set (got {seccomp_type!r})"]
     return []
 
 
@@ -383,42 +382,16 @@ def _render_chart_for_validation(
     return rendered, violations
 
 
-def _scan_targets(repo_root: Path, files: list[str] | None) -> tuple[bool, bool, list[Path]]:
-    """Decide whether to scan base manifests, chart, and which base files to read.
+def _chart_scan_requested(files: list[str] | None) -> bool:
+    """Decide whether to render and scan the chart.
 
-    --all/CI mode (`files is None`) always exercises the chart branch so a
-    missing chart directory surfaces as a violation. Targeted files-mode runs
-    trigger each branch only when the changed file set actually overlaps.
+    --all/CI mode (`files is None`) always scans the chart, so a missing chart
+    directory surfaces as a violation. A targeted files-mode run scans the chart
+    only when the changed file set touches the chart.
     """
-    base_dir = repo_root / K8S_BASE_DEPLOYMENT_DIR
     if files is None:
-        scan_base = base_dir.exists()
-        base_files = sorted(list(base_dir.rglob("*.yaml")) + list(base_dir.rglob("*.yml"))) if scan_base else []
-        return scan_base, True, base_files
-
-    scan_base = False
-    scan_chart = False
-    base_files: list[Path] = []
-    for f in files:
-        if f.startswith(K8S_BASE_DEPLOYMENT_DIR + "/") and f.endswith((".yaml", ".yml")):
-            scan_base = True
-            full = repo_root / f
-            if full.exists():
-                base_files.append(full)
-        if f.startswith(HELM_CHART_DIR + "/"):
-            scan_chart = True
-    return scan_base, scan_chart, base_files
-
-
-def _validate_base_files(repo_root: Path, base_files: list[Path]) -> list[Violation]:
-    """Validate Deployment security contexts in the base manifest snapshots."""
-    violations: list[Violation] = []
-    for path in base_files:
-        rel = _repo_relative(path, repo_root)
-        docs, parse_violations = _iter_yaml_documents(path.read_text(encoding="utf-8"), rel)
-        violations.extend(parse_violations)
-        violations.extend(_validate_deployment_documents(docs, rel))
-    return violations
+        return True
+    return any(f.startswith(HELM_CHART_DIR + "/") for f in files)
 
 
 def _validate_chart_renders(repo_root: Path) -> list[Violation]:
@@ -434,7 +407,7 @@ def _validate_chart_renders(repo_root: Path) -> list[Violation]:
 __all__ = [
     "HELM_CHART_DIR",
     "HELM_VALUES_FILES",
-    "K8S_BASE_DEPLOYMENT_DIR",
+    "_chart_scan_requested",
     "_check_container_basic_fields",
     "_check_container_capabilities",
     "_check_container_identity",
@@ -449,9 +422,7 @@ __all__ = [
     "_render_chart_for_validation",
     "_resolve_pod_sc",
     "_resolve_pod_spec",
-    "_scan_targets",
     "_v",
-    "_validate_base_files",
     "_validate_chart_renders",
     "_validate_containers_list",
     "_validate_deployment_documents",

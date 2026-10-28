@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 def _load_module():
@@ -95,21 +97,43 @@ def test_every_closed_component_has_one_rollout_controller() -> None:
     assert "worker-warm-pool-reconciler" in deployments
 
 
-def test_deploy_workflow_waits_on_the_canonical_release_inventory() -> None:
-    workflow = (Path(__file__).resolve().parents[3] / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
+def _render_gcp_profile(profile: str) -> list[dict]:
+    chart = Path(__file__).resolve().parents[3] / "platform/charts/shifter"
+    rendered = subprocess.run(
+        ["helm", "template", "release-boundary", str(chart), "-f", str(chart / f"values-gcp-{profile}.yaml")],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [document for document in yaml.safe_load_all(rendered) if document]
 
-    assert "verify_running_image_ids.py --list-deployments" in workflow
-    assert 'for deployment in "${deployments[@]}"' in workflow
-    assert workflow.index("--list-deployments") < workflow.index("Record running workload image IDs")
+
+@pytest.mark.integration
+@pytest.mark.parametrize("profile", ["dev", "prod"])
+def test_release_inventory_is_every_deployment_the_chart_renders_in_the_verified_namespace(profile: str) -> None:
+    """The closed release inventory and the chart agree, so no new workload skips verification."""
+    module = _load_module()
+
+    rendered = {
+        document["metadata"]["name"]
+        for document in _render_gcp_profile(profile)
+        if document["kind"] == "Deployment" and document["metadata"]["namespace"] == "shifter-platform"
+    }
+
+    assert set(module.release_deployments()) == rendered
 
 
-def test_provisioner_jobs_are_outside_the_verified_namespace() -> None:
-    root = Path(__file__).resolve().parents[3]
-    workflow = (root / ".github/workflows/_gcp-dev.yml").read_text(encoding="utf-8")
-    runtime = (root / "platform/k8s/gcp/overlays/gcp-dev/platform-runtime.env").read_text(encoding="utf-8")
+@pytest.mark.integration
+@pytest.mark.parametrize("profile", ["dev", "prod"])
+def test_provisioner_jobs_are_outside_the_verified_namespace(profile: str) -> None:
+    runtime = next(
+        document
+        for document in _render_gcp_profile(profile)
+        if document["kind"] == "ConfigMap" and document["metadata"]["name"] == "platform-runtime"
+    )
 
-    assert "kubectl get pods -n shifter-platform" in workflow
-    assert "ENGINE_TASK_NAMESPACE=shifter-jobs" in runtime
+    assert runtime["metadata"]["namespace"] == "shifter-platform"
+    assert runtime["data"]["ENGINE_TASK_NAMESPACE"] == "shifter-jobs"
 
 
 def test_one_stale_container_fails_even_when_another_container_matches() -> None:

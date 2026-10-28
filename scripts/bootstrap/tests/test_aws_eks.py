@@ -839,7 +839,7 @@ def test_validate_config_rejects_non_aws_backend():
 def test_validate_config_rejects_unsupported_profile():
     config = _config()
     config.deployment.profile = "staging"
-    with pytest.raises(ValueError, match="supports only dev, proof, and prod"):
+    with pytest.raises(ValueError, match="supports only dev and prod"):
         aws_eks._validate_config(config)
 
 

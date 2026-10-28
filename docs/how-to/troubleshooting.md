@@ -63,7 +63,7 @@ Common issues and how to resolve them.
 
 **Solutions**:
 
-1. Check browser popup blocker - allow popups from Shifter
+1. Check browser popup blocker - allow popups from BigRAE
 2. Try right-click > "Open in new tab"
 3. Wait for instance to fully boot (RDP service may not be ready)
 

@@ -7,7 +7,9 @@
 #
 # This file is user-authored installation intent only. It holds *references* to
 # secrets, never secret values — store the values in Google Secret Manager / GitHub
-# Actions secrets and reference them by name here.
+# Actions secrets and reference them by name here. A GCP deployment without GitHub
+# keeps this file as bigrae.yaml in its deployment config bucket (ADR-070); see
+# docs/technical/handbook/gcp-github-less-deployment.md.
 version: 1
 backend: gcp
 
@@ -36,6 +38,33 @@ settings:
   # Pre-create one Secret Manager project per Shifter deployment. This may equal
   # project_id only while following the documented expand/cut-over migration.
   dynamic_secret_project_id: your-gcp-range-secrets
+
+  # Deployment inputs of the GCP deploy command (#2571). A CI deployment projects
+  # its GitHub variables onto the same blocks; a conflicting value fails the render.
+  # GCE range-cell placement. A GCE range needs a zone. Optional keys: zones,
+  # project_id, host_identity_pool_size, private_google_access, image_key_profiles.
+  range_cells:
+    backend: gce
+    zone: us-central1-a
+  # The shared participant OpenVPN pool. Off by default.
+  participant_openvpn:
+    enabled: false
+  # The private CTF content bucket, when the app secret carries CTF content references.
+  # ctf_content_bucket: your-ctf-content-bucket
+  # The first Identity Platform operator. The email must use the
+  # identity_allowed_email_domain Terraform value. The password is a versionless
+  # Secret Manager resource; the deploy reads its latest version. Set
+  # enabled: false to create no operator.
+  operator_bootstrap:
+    admin_email: operator@example.com
+    admin_password_secret_ref: projects/your-gcp-project/secrets/shifter-operator-password
+  # An existing portal account for the advisory post-deploy smoke. Empty skips it.
+  post_deploy_smoke:
+    user_email: smoke@example.com
+  # The numeric IDs of the repository that signs the release provenance.
+  release_trust:
+    github_repository_id: "123456789"
+    github_owner_id: "12345678"
 
   # Optional operator-created inputs read by the provisioner. Keys are closed
   # to the supported GDC/Vertex inputs and values must be full, versionless

@@ -33,15 +33,56 @@ run "immutable_repository_subjects" {
   module {
     source = "../../modules/cicd-oidc-identity"
   }
-  variables {
-    github_subject_format = "immutable"
-  }
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.sub == 'repo:example@456/product@123:environment:customer-deploy'")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.sub == 'repo:example@456/product@123:environment:customer-deploy'")
     error_message = "Immutable trust must bind the reviewed owner and repository IDs."
   }
   assert {
     condition     = google_service_account_iam_member.deploy_wif["repo:example@456/product@123:environment:customer-deploy"].member == "principal://iam.googleapis.com/projects/789/locations/global/workloadIdentityPools/cust-unseen-github/subject/repo:example@456/product@123:environment:customer-deploy"
     error_message = "The deploy binding must use the same exact immutable subject."
+  }
+}
+
+run "renamed_repository_subjects" {
+  command = plan
+  module {
+    source = "../../modules/cicd-oidc-identity"
+  }
+  variables {
+    github_repo = "renamed-product"
+    purpose_contexts = {
+      deploy = [{
+        environment           = "customer-deploy"
+        ref                   = "refs/heads/main"
+        workflow_ref          = "example/renamed-product/.github/workflows/deploy.yml@refs/heads/main"
+        reusable_workflow_ref = "example/renamed-product/.github/workflows/_gcp-dev.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }]
+    }
+  }
+  assert {
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.repository == 'example/renamed-product'")
+    error_message = "Trust must bind the exact configured repository name."
+  }
+  assert {
+    condition     = google_service_account_iam_member.deploy_wif["repo:example@456/renamed-product@123:environment:customer-deploy"].member == "principal://iam.googleapis.com/projects/789/locations/global/workloadIdentityPools/cust-unseen-github/subject/repo:example@456/renamed-product@123:environment:customer-deploy"
+    error_message = "The new name must use the same purpose-scoped identity."
+  }
+}
+
+run "explicit_legacy_repository_subjects" {
+  command = plan
+  module {
+    source = "../../modules/cicd-oidc-identity"
+  }
+  variables {
+    github_subject_format = "default"
+  }
+  assert {
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.sub == 'repo:example/product:environment:customer-deploy'")
+    error_message = "Explicit legacy trust must use only the selected legacy subject."
+  }
+  assert {
+    condition     = !strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "repo:example@456/product@123:")
+    error_message = "Legacy mode must not admit an immutable subject through fallback."
   }
 }

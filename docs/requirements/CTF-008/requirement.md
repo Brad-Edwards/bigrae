@@ -21,11 +21,11 @@ Communication keeps participants informed and engaged before, during, and after 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification.py` (CTF Notification service (email: invitations, credentials, reminders, announcements, scheduling))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py (CTFNotification)` (CTFNotification model (type, status, scheduling, recipient filtering, sent tracking))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views.py (notification views)` (Notification views: admin_notification_list, admin_notification_create, api_notification_list, api_notification_send, api_send_invitations)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (CTF notification services: email, scheduling and native real-time projections)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/notification.py` (Retained notification facts and sent tracking)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/organizer/communication.py` (Native communication authoring, release and reporting API)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/` (Email templates: invitation, credentials, reminder, announcement (HTML + text))
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_services/test_notification.py` (Notification service tests (invitations, credentials, reminders, announcements, scheduling, rendering))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Notification service tests (invitations, credentials, reminders, announcements, scheduling, rendering))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/communication.py` (Scoped communication domain models (ADR-051, #2048): campaigns, immutable message revisions, normalized intents, recipient snapshots, delivery attempts, participant receipts)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/communication/` (Communication service contracts: audience resolution, campaign authoring, atomic intent release, lifecycle, retention)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_services.py` (Cross-event confinement, audience resolution, and atomic-release idempotency tests)
@@ -38,3 +38,15 @@ Communication keeps participants informed and engaged before, during, and after 
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_delivery.py` (Delivery worker, in-app channel, wake-up stable identity, fencing, retry, and expiry tests (#2098))
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_delivery_postgres.py` (PostgreSQL concurrency proofs: no double-claim, fair batching, stale-lease fencing (#2098))
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2098` (Durable delivery worker and in-app channel for scoped communications)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/reporting.py` (Console read projections: targets, side-effect-free preview, per-event/channel delivery aggregates, minimal recipient rows, ledger activity timeline (#2052))
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/migrations/0065_communication_attribution.py` (Revision author and cancellation attribution with revision-1 backfill (#2052))
+- IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/features/ctf/admin/communications/` (Multi-event communications console: compose, preview, send or schedule, report, recipients, activity, cancel (#2052))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_console_api.py` (Role matrix, preview without effects, reviewed-revision release, delivery aggregates, recipient rows, timeline (#2052))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_attribution_migration.py` (Revision-author backfill on the historical schema (#2052))
+- TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/admin/communications/CommunicationsConsole.test.tsx` (Console keyboard flow, preview, release retry, delivery state, cancel confirmation (#2052))
+- IMPLEMENTS → GITHUB_ISSUE `2052` (Issue #2052 - multi-event admin and organizer communications API and console)
+
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/read_admission.py` (Native console admission after S8)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/targets.py` (Explicit account, organization and workspace target options)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/attribution.py` (Principal-safe communication attribution)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_native_console.py` (Native console authority and service isolation)

@@ -2,6 +2,24 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
+    "reason": "CKV_K8S_35 (prefer secret files over environment variables): the guacamole-client Deployment reads the guacamole-runtime Secret through envFrom. The pinned Guacamole 1.6.0 image has a confirmed file-secret regression (GUACAMOLE-2119): its entrypoint has no _FILE variable support, and it links the PostgreSQL authentication extension through an environment-variable-driven feature framework. A correct file-delivery fix must fork the custom image entrypoint to build guacamole.properties from a mounted file and link the extension without the environment path, which is a higher-risk change to participant remote access. The image fork is tracked in #2565. The `checkov.io/skip1: CKV_K8S_35` annotation on the chart's guacamole-client Deployment points back to this entry. The chart is the only renderer since ADR-070, so the same acceptance now covers every rendered profile.",
+    "expires_on": "2027-04-28",
+    "paths": [
+      "platform/charts/shifter/templates/guacamole-client-deployment.yaml"
+    ]
+  },
+  {
+    "rule_id": "ADR-004-R11",
+    "owner": "@Brad-Edwards",
+    "reason": "CKV_K8S_38 (service account token only mounted where necessary): verified false positive for the worker-provisioner-launcher Deployment. This dedicated launcher requires Kubernetes API access to create and manage provisioner Jobs under ADR-006-R4, so automountServiceAccountToken is necessary for this controller. Ordinary workers and provisioner execution Jobs keep automount disabled. The `checkov.io/skip1: CKV_K8S_38` annotation on the chart's worker-provisioner-launcher Deployment points back to this entry.",
+    "expires_on": "2027-10-28",
+    "paths": [
+      "platform/charts/shifter/templates/worker-provisioner-launcher-deployment.yaml"
+    ]
+  },
+  {
+    "rule_id": "ADR-004-R11",
+    "owner": "@Brad-Edwards",
     "reason": "CKV_GCP_38 (boot disk CSEK): the GCP-native dev-tenant runner (#1546) boot disk relies on Google-managed at-rest encryption (AES-256) rather than a customer-supplied/managed key. CSEK/CMEK would require provisioning and managing a KMS key + IAM in the dedicated runner root for marginal defense-in-depth over Google's default encryption, on a private, re-creatable dev-tenant runner. Inline `# checkov:skip=CKV_GCP_38` on google_compute_instance.runner points back to this entry; a CMEK upgrade is tracked with the runner hardening follow-up (#1613 area).",
     "expires_on": "2027-07-13",
     "paths": [
@@ -23,7 +41,6 @@
     "reason": "CKV_AWS_46 (hard-coded EC2 user_data secret): false positive on Terraform templatefile interpolation. The relevant lines read SECRET_KEY=$${secret_key} where secret_key is generated at instance boot via openssl rand -hex 32. No hardcoded secret exists at the source level.",
     "expires_on": "2027-05-26",
     "paths": [
-      "platform/terraform/global/ctfd-workshop/",
       "platform/terraform/modules/portal/ctfd/"
     ]
   },
@@ -54,10 +71,9 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
-    "reason": "CKV_AWS_88 / CKV_AWS_130 (EC2 / subnet public IP) and CKV_AWS_25 / CKV_AWS_260 / CKV_AWS_24 (open RDP/HTTP/SSH ingress): these fire on workshop demo ranges (ctfd-workshop, dev-box) and on the CTFd-platform module that backs customer CTF events. Demo participants need direct console access to those instances (public IP + RDP/SSH/HTTP from controlled CIDRs) or the workshop scenario does not run. The ingress rules are scoped to specific source CIDRs where possible; '0.0.0.0/0' appears only on the public CTFd web port where the platform is by design publicly reachable.",
+    "reason": "CKV_AWS_88 / CKV_AWS_130 (EC2 / subnet public IP) and CKV_AWS_25 / CKV_AWS_260 / CKV_AWS_24 (open RDP/HTTP/SSH ingress): these fire on demo workstations (dev-box) and on the CTFd-platform module that backs customer CTF events. Demo participants need direct console access to those instances (public IP + RDP/SSH/HTTP from controlled CIDRs) or the workshop scenario does not run. The ingress rules are scoped to specific source CIDRs where possible; '0.0.0.0/0' appears only on the public CTFd web port where the platform is by design publicly reachable.",
     "expires_on": "2026-11-26",
     "paths": [
-      "platform/terraform/global/ctfd-workshop/",
       "platform/terraform/global/dev-box/",
       "platform/terraform/modules/portal/ctfd/"
     ]
@@ -307,15 +323,6 @@
     "expires_on": "2026-11-26",
     "paths": [
       "platform/terraform/modules/guacamole/ecs.tf"
-    ]
-  },
-  {
-    "rule_id": "ADR-004-R14",
-    "owner": "@Brad-Edwards",
-    "reason": "Vendor (Prisma Cloud) AWS connector CloudFormation templates. The 12-digit account IDs in these downloaded templates are Palo Alto Networks' own published service account IDs (gcp_saas_role, dspm_scanner, etc.) and MUST stay exact for the cross-account connector roles to function. They are not Shifter infrastructure and carry no reconnaissance value about this deployment.",
-    "expires_on": "2027-06-20",
-    "paths": [
-      "platform/cloudformation/*"
     ]
   },
   {

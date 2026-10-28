@@ -1,12 +1,10 @@
 """Campaign authoring service for scoped communications (ADR-051, #2048).
 
-Creating a campaign is the confinement gate (AC1): the author proves active
-membership of the campaign's single workspace, and EVERY target event must both
-share that workspace and admit the author's notification capability. Content is
-validated against the safe profile at authoring time; editing content creates a
-new immutable revision (AC4). Authorization is additive -- workspace membership
-never grants event or recipient authority, and a missing or unauthorized target
-event returns the same opaque denial so identifiers cannot probe tenancy.
+Campaigns use one explicit account, organization, or workspace parent. Every
+requested target must share that exact placement and admit current native
+``event.manage_communications`` policy within the credential ceiling. Content
+uses the safe profile, and edits append immutable revisions. SQL membership,
+creator attribution, and legacy staff flags grant no application authority.
 """
 
 from __future__ import annotations
@@ -39,6 +37,7 @@ from ctf.services.communication.admission import (
     prepare_campaign_admission,
     reauthorize,
 )
+from ctf.services.communication.attribution import actor_attribution
 from ctf.services.communication.backpressure import enforce_operation_rate
 from ctf.services.unified_authorization import require_event_action
 from shared.identity_scope import ResourceScope
@@ -108,10 +107,10 @@ def campaign_rate_scope(campaign: CommunicationCampaign) -> tuple[str, int]:
 def _authorized_target_events(
     credential, scope: ResourceScope, binding: ResolvedResourceScope, target_event_ids: list[UUID]
 ) -> list[CTFEvent]:
-    """Return the target events after confining them to the workspace and per-event capability.
+    """Return only exact-scope events admitted by current native communication policy.
 
-    Every requested event must exist, carry the campaign's workspace scope, and
-    admit the actor's ``notifications`` capability. Any failure raises one opaque
+    Every requested event must exist, carry the campaign's exact scope, and
+    admit the actor's ``event.manage_communications`` action. Any failure raises one opaque
     denial (no partial success, no oracle).
     """
     if not target_event_ids:
@@ -146,7 +145,7 @@ def create_campaign(
     campaign_id: UUID | None = None,
     maintenance: bool = False,
 ) -> CommunicationCampaign:
-    """Create a draft campaign confined to one workspace with an initial revision."""
+    """Create an exactly scoped draft campaign with an initial immutable revision."""
     credential = event_actor_credential(principal_actor)
     from shared.credentials import CredentialContext
 
@@ -194,6 +193,7 @@ def create_campaign(
                 raise CTFCommunicationError("Campaign scope is unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED")
             enforce_operation_rate(credential.principal.uuid, rate_kind, rate_id)
         actor = reauthorize(prospective, events, actor, operation="create")
+        attribution = actor_attribution(actor)
         campaign = CommunicationCampaign.objects.create(
             id=campaign_id or uuid4(),
             workspace_id=workspace_id,
@@ -204,7 +204,7 @@ def create_campaign(
             origin=draft.origin,
             created_by=event_actor_user(principal_actor),
             creator_principal_uuid=credential.principal.uuid,
-            actor_token_id=draft.actor_token_id,
+            actor_token_id=attribution.token_id,
             status=CampaignStatus.DRAFT.value,
             audience_spec=audience,
             trigger_spec=trigger,
@@ -221,6 +221,9 @@ def create_campaign(
             body=content["body"],
             content_profile=content["profile"],
             content_digest=content["digest"],
+            actor_user_id=attribution.user_id,
+            actor_token_id=attribution.token_id,
+            actor_principal_uuid=attribution.principal_uuid,
         )
     logger.info("Created communication campaign %s in workspace %s", campaign.id, workspace_id)
     return campaign
@@ -298,6 +301,7 @@ def revise_message(
     actor = prepare_campaign_admission(campaign, actor)
     with transaction.atomic():
         campaign = lock_authorized_campaign(campaign, actor, operation="revise")
+        attribution = actor_attribution(actor)
         if campaign.status != CampaignStatus.DRAFT.value:
             raise CTFCommunicationError(
                 "Only a draft campaign's message can be revised",
@@ -320,4 +324,7 @@ def revise_message(
             body=content["body"],
             content_profile=content["profile"],
             content_digest=content["digest"],
+            actor_user_id=attribution.user_id,
+            actor_token_id=attribution.token_id,
+            actor_principal_uuid=attribution.principal_uuid,
         )

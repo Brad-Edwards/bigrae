@@ -51,11 +51,15 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2320: dedicated Guacamole/guacd KSAs and bounded native SQL admission.
 # Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
-# Regenerated for #2321: every Python runtime receives the pinned OpenFGA binding.
-# Verified against the committed S8 chart; the AWS labeler change preserves both GCP renders.
+# Regenerated for #2321: retain pinned native policy in every Python runtime.
+# Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
+# Regenerated for #2571: the chart is the only GCP renderer. Worker readiness
+# probes now match the retired Kustomize base, stale comments are removed, and
+# the two registered Checkov exceptions annotate their chart Deployments. The
+# portal-to-Guacamole token API policies moved from the retired base to the chart.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "ffa5ef2d5c0cba6e05b19c0e91c0e36a53e26f6b32bba99f0956e4d8dde223fc",
-    "gcp-prod": "577f3a2e05c82a1caeed721c329c869000b5a3bec14ee9d0b6009872d4b084bf",
+    "gcp-dev": "b9751d0e54fea9e15ef80060327ce5f888d29782413a31bc1eb7e37bed18e506",
+    "gcp-prod": "2519ac456b6ffb3a284ff143f21394db47e1675ab6e4a18edf31d4913070ac97",
 }
 
 

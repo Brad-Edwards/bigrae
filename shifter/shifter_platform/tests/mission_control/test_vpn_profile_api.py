@@ -166,7 +166,7 @@ def test_exact_scope_downloads_owned_mission_control_profile(settings, standard_
     assert response.status_code == 200
     assert response.content == PROFILE.encode()
     assert response["Content-Type"] == "application/x-openvpn-profile"
-    assert response["Content-Disposition"] == 'attachment; filename="shifter-range.ovpn"'
+    assert response["Content-Disposition"] == 'attachment; filename="bigrae-range.ovpn"'
     assert response["Cache-Control"] == "private, no-store"
     assert "ETag" not in response
     audit = AuditLog.objects.get(

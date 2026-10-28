@@ -81,6 +81,12 @@ mounted-file changes alone do not reload an established client.
 
 ## Live acceptance evidence
 
+The shared `deploy.py gcp-deploy` command owns this sequence; CI invokes the
+same command. Helm is the sole renderer. For the first cutover, supply both
+`--identity-cutover-facts` and `--identity-bootstrap-facts` as owner-only local
+file paths. Their values do not belong in the deployment bundle or command line.
+Provider account creation alone grants no native application permission.
+
 The identity status probe installs namespace, service-account, configuration,
 secret and DNS, metadata-server, Google API and native SQL network prerequisites.
 The complete set is required on a fresh namespace before proxy authentication
@@ -94,6 +100,10 @@ precedes restoration of broader default egress policy.
 An incomplete probe, database failure, or unknown status aborts deployment
 before workload changes. An absent legacy cutover table is a known
 pre-cutover state. An activated result must also pass the runtime binding check.
+The command must not restart policy workloads to turn an inconclusive probe
+into a successful one. If a credential rotation makes the incumbent runtime
+unverifiable, the probe stops before any workload restart. Restore a verifiable
+policy binding before retrying the deployment.
 
 For interrupted application publication, restore the policy service first.
 Run `python manage.py reconcile_hierarchy_publications --limit 100` to resume

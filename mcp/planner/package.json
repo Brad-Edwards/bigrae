@@ -11,7 +11,7 @@
     "start": "node index.js",
     "test": "node --test lib.test.js",
     "lint": "eslint . --max-warnings 0",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix --max-warnings 0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1"

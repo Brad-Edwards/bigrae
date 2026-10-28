@@ -5,6 +5,7 @@ comments, and step ordering) rather than on parsed YAML, so these helpers slice
 raw workflow text into job, step, and paths-filter blocks. Semantic,
 workflow-as-data checks use ``_workflow_model`` instead.
 """
+
 from __future__ import annotations
 
 import re

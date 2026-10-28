@@ -177,3 +177,42 @@ def test_quiesced_policy_apply_follows_controller_and_application_pod_terminatio
     assert scale < rollout < job_wait < min(final_pod_checks) <= max(final_pod_checks) < len(history) - 1
     assert len(final_pod_checks) == 2
     assert not any(call[:2] == ["scale", "deployment/openfga"] for call in history)
+
+
+def test_policy_exemption_cannot_adopt_a_replaced_same_name_deployment(cluster):
+    run, calls = cluster
+    replacement = _row("openfga")
+    replacement["metadata"]["uid"] = "replacement-uid"
+    owner = _owner("Deployment", "openfga")
+    owner["uid"] = "replacement-uid"
+    with pytest.raises(TimeoutError):
+        run(
+            {
+                "shifter-platform/deployment": {"items": [_row("openfga"), _row("portal-web")]},
+                "after_effects": {
+                    "shifter-platform/deployment": {"items": [replacement]},
+                    "shifter-platform/replicaset": {"items": [_row("new-rs", owners=[owner])]},
+                    "shifter-platform/pod": {
+                        "items": [_row("new-policy", phase="Running", owners=[_owner("ReplicaSet", "new-rs")])]
+                    },
+                },
+            }
+        )
+    assert not any(call[0] == "apply" for call in calls())
+
+
+def test_policy_owner_name_must_match_its_recorded_uid(cluster):
+    run, calls = cluster
+    owner = _owner("Deployment", "openfga")
+    owner["name"] = "foreign-workload"
+    with pytest.raises(TimeoutError):
+        run(
+            {
+                "shifter-platform/deployment": {"items": [_row("openfga")]},
+                "shifter-platform/replicaset": {"items": [_row("imposter-rs", owners=[owner])]},
+                "shifter-platform/pod": {
+                    "items": [_row("imposter", phase="Running", owners=[_owner("ReplicaSet", "imposter-rs")])]
+                },
+            }
+        )
+    assert not any(call[0] == "apply" for call in calls())

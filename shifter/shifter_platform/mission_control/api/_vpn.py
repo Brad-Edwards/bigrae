@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from shared.credentials import CredentialContext
 
 
-_VPN_PROFILE_FILENAME = "shifter-range.ovpn"
+_VPN_PROFILE_FILENAME = "bigrae-range.ovpn"
 
 
 def _credential_delivery_error(view: MissionControlAPIView, actor: User | CredentialContext) -> Response | None:

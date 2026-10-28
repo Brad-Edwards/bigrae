@@ -15,7 +15,7 @@ from .doctor import CheckScope
 # Output description shared by the single-line runtime env renderers.
 _ENV_LINE = "env line"
 
-DEFAULT_CONFIG_FILENAME = "shifter.yaml"
+DEFAULT_CONFIG_FILENAME = "bigrae.yaml"
 
 
 def _add_config_path_argument(parser: argparse.ArgumentParser) -> None:
@@ -23,7 +23,7 @@ def _add_config_path_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "path",
         nargs="?",
-        default=DEFAULT_CONFIG_FILENAME,
+        default=None,
         help=f"Path to the config file (default: ./{DEFAULT_CONFIG_FILENAME}).",
     )
 
@@ -272,11 +272,35 @@ def _add_contract_parser(subcommands: argparse._SubParsersAction) -> None:
     )
 
 
+def _add_release_manifest_parser(subcommands: argparse._SubParsersAction) -> None:
+    """Wire ``gcp-release-manifest``: write one validated GCP release manifest to stdout (#2571)."""
+    manifest = subcommands.add_parser(
+        "gcp-release-manifest",
+        help="Write a validated bigrae.gcp-release.v1 manifest for one built revision to stdout.",
+        description=(
+            "Write the GCP release manifest that the deploy command consumes to standard output: the "
+            "version, the full source revision, the Helm chart version, and the exact repository@sha256 "
+            "identity of each control-plane image. Every image must be named exactly once. Use a shell "
+            "redirect to write the manifest to a file."
+        ),
+    )
+    manifest.add_argument("--version", required=True, help="Product version or CI label.")
+    manifest.add_argument("--source-revision", required=True, help="Full 40-character commit SHA.")
+    manifest.add_argument("--chart-version", required=True, help="Helm chart version of the revision.")
+    manifest.add_argument(
+        "--image",
+        action="append",
+        default=[],
+        metavar="NAME=REPOSITORY@sha256:DIGEST",
+        help="Exact identity of one release image (portal, provisioner, guacd, guacamole-client, openvpn).",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the ``shifter-config`` argument parser with every subcommand wired."""
     parser = argparse.ArgumentParser(
-        prog="shifter-config",
-        description="Inspect and validate the root Shifter installation config.",
+        prog="bigrae-config",
+        description="Inspect and validate the root BigRAE installation config.",
     )
     subcommands = parser.add_subparsers(dest="command", metavar="<command>")
     _add_validate_parser(subcommands)
@@ -285,4 +309,5 @@ def build_parser() -> argparse.ArgumentParser:
     _add_init_parser(subcommands)
     _add_doctor_parser(subcommands)
     _add_contract_parser(subcommands)
+    _add_release_manifest_parser(subcommands)
     return parser

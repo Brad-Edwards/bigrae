@@ -254,7 +254,7 @@ Reader tasks and capacity reservations are released once.
 Guacamole uses the pinned 1.6.0 server's provider-independent
 [`DELETE /api/session`](https://github.com/apache/guacamole-client/blob/1.6.0/guacamole/src/main/java/org/apache/guacamole/rest/session/SessionResource.java).
 Its [session invalidation](https://github.com/apache/guacamole-client/blob/1.6.0/guacamole/src/main/java/org/apache/guacamole/GuacamoleSession.java)
-closes the associated tunnels. Shifter sends the native token in the
+closes the associated tunnels. BigRAE sends the native token in the
 `Guacamole-Token` header and refuses redirects. Bootstrap URLs and retained
 native session tokens use the existing field-encryption key.
 

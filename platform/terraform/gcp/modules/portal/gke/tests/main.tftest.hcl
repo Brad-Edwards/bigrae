@@ -1,7 +1,7 @@
 # GKE control-plane NetworkPolicy-enforcement contract test (#1295).
 #
 # Proves the cluster selects an enforcing datapath so the committed default-deny
-# NetworkPolicies (platform/k8s/gcp/base/networkpolicies.yaml) are actually
+# NetworkPolicies (platform/charts/shifter/templates/networkpolicies.yaml) are actually
 # enforced, not merely admitted and ignored. This is the GCP parity of the
 # AWS/EKS assertion that the vpc-cni NetworkPolicy agent is enabled
 # (platform/terraform/modules/portal/eks/tests/security.tftest.hcl).

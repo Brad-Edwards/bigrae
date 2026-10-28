@@ -1,0 +1,47 @@
+# Build context of the GCP deployer image (#2571).
+#
+# BuildKit reads this file because it has the name of the Dockerfile next to it.
+# The build context is the repository root. Only the deploy tooling below goes
+# into the context; all other paths stay out.
+*
+!scripts/bootstrap/
+!scripts/gcp/
+!scripts/smoke-test-gcp.sh
+!shifter/installation/
+!shifter/shifter_platform/shared/model_access/
+!shifter/shifter_platform/shared/mission_control_lease/
+!shifter/shifter_platform/shared/gcp_range_telemetry/
+!shifter/shifter_platform/shared/gcp_native_identity/
+!platform/terraform/gcp/environments/platform/
+!platform/terraform/gcp/global/
+!platform/terraform/gcp/modules/
+!platform/charts/shifter/
+!platform/deployer/gcp/terraform.tfrc
+!.trivyignore.yaml
+
+# The GitHub runner root serves only the GitHub CI path.
+platform/terraform/gcp/global/github-runner/
+
+# Per-deployment Terraform values do not go into a release. A deployment keeps
+# its values in its own deployment input bundle.
+**/*.tfvars
+
+# The installation package reaches its shared modules through these links in a
+# checkout. The image copies the shared modules directly.
+shifter/installation/canonical_*
+
+# Tests, caches, and local state.
+**/tests/
+**/*.tftest.hcl
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/*.egg-info/
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/.env
+**/.env.*

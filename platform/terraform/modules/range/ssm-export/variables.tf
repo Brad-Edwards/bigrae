@@ -1,5 +1,5 @@
 variable "environment" {
-  description = "Deployment environment (dev, prod, proof); selects the /shifter/<env>/range SSM prefix."
+  description = "Deployment environment (dev, prod); selects the /shifter/<env>/range SSM prefix."
   type        = string
 }
 

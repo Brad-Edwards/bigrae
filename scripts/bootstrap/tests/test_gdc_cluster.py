@@ -11,8 +11,6 @@ All external dependencies are mocked. No actual AWS calls, file operations,
 or subprocess executions occur during tests.
 """
 
-import json
-import os
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -161,9 +159,9 @@ def prevent_real_subprocess_calls():
 
 
 @pytest.fixture
-def bootstrap_config():
+def bootstrap_config(github_identity):
     """Return a valid BootstrapConfig for testing."""
-    return deploy.BootstrapConfig(env="dev")
+    return deploy.BootstrapConfig(env="dev", **github_identity)
 
 
 @pytest.fixture
@@ -450,9 +448,7 @@ class TestGdcBootstrapCluster:
     """Tests for deploy.gdc_bootstrap_cluster."""
 
     def test_executes_bootstrap_steps_in_order(self, tmp_path):
-        """The GDC bootstrap path should execute the expected sequence of helper steps."""
-        # range_backend="gdc" is what builds the ABM/GDC substrate (#1716); the gce
-        # default skips it and is covered by TestGdcBootstrapRangeBackend.
+        """The GDC bootstrap path should execute the expected sequence of substrate steps."""
         config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1", range_backend="gdc")
         staged_assets = {
             "assets_dir": tmp_path / "cluster1",
@@ -484,7 +480,6 @@ class TestGdcBootstrapCluster:
             sync_access_secret=mock_access_secret,
             sync_vm_image_secret=mock_vm_image_secret,
         )
-        mock_platform = Mock(return_value=_sample_gcp_control_plane_outputs())
 
         def build_substrate(active_config, *, dry_run):
             deploy._build_gdc_substrate(active_config, dry_run=dry_run, operations=operations)
@@ -493,7 +488,6 @@ class TestGdcBootstrapCluster:
             config,
             confirmation=lambda _prompt: True,
             substrate_builder=build_substrate,
-            control_plane_bootstrapper=mock_platform,
         )
 
         assert result["cluster_id"] == "cluster1"
@@ -513,10 +507,8 @@ class TestGdcBootstrapCluster:
         ]
         mock_access_secret.assert_called_once_with(config, dry_run=False)
         mock_vm_image_secret.assert_called_once_with(config, staged_assets["service_account_key"], dry_run=False)
-        mock_platform.assert_called_once_with(config, dry_run=False)
         assert result["gdc_access_secret_id"] == "shifter-gcp-dev-gdc-access"
         assert result["gdc_vm_image_gcs_secret_id"] == "shifter-gcp-dev-gdc-vm-image-gcs"
-        assert result["gke_cluster_name"] == "shifter-gcp-dev-platform"
 
 
 class TestGdcClusterAccessHardening:
@@ -657,153 +649,6 @@ class TestGdcClusterAccessHardening:
             config.resolved_subnetwork_name,
             "--enable-logging",
         ]
-
-
-class TestGdcControlPlaneRollout:
-    """Tests for deploying Shifter onto GKE through Helm."""
-
-    def test_rollout_sequence_fetches_credentials_and_runs_atomic_helm_release(self, tmp_path):
-        """The rollout path must fetch cluster credentials and perform one atomic Helm release."""
-        config = deploy.GDCBootstrapConfig(project_id="example-gcp-project", cluster_id="cluster1")
-        outputs = _sample_gcp_control_plane_outputs(config.project_id)
-        outputs["workload_service_accounts"]["value"]["migrator"] = (
-            f"shiftergcpdev-migrator@{config.project_id}.iam.gserviceaccount.com"
-        )
-        values_path = tmp_path / "values.json"
-        values_path.write_text(
-            json.dumps(
-                {
-                    "images": {"platform": f"example.invalid/shifter/platform@sha256:{'a' * 64}"},
-                    "runtimeEnv": {
-                        "DB_MIGRATION_SECRET_ID": (f"projects/{config.project_id}/secrets/shifter-gcp-dev-db-migration")
-                    },
-                }
-            )
-        )
-        chart_dir = Path(__file__).resolve().parents[3] / "platform" / "charts" / "shifter"
-        environment_values_path = chart_dir / "values-gcp-dev.yaml"
-
-        def subprocess_run(cmd, **kwargs):
-            if cmd[:4] == ["gcloud", "secrets", "versions", "access"]:
-                secret_name = cmd[cmd.index("--secret") + 1]
-                if secret_name == "shifter-gcp-dev-guacamole-db":
-                    return subprocess.CompletedProcess(cmd, 0, stdout='{"username":"guac","password":"supersecret"}')
-                if secret_name == "shifter-gcp-dev-guacamole-json-auth":
-                    return subprocess.CompletedProcess(cmd, 0, stdout="json-auth-key\n")
-            if cmd == ["kubectl", "apply", "-f", "-"]:
-                return subprocess.CompletedProcess(cmd, 0, stdout="secret/guacamole-runtime configured\n", stderr="")
-            if cmd and cmd[0] == "kubectl":
-                return subprocess.CompletedProcess(cmd, 0, stdout="migration complete\n", stderr="")
-            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr=f"unexpected command: {cmd}")
-
-        with (
-            patch("deploy.run_cmd") as mock_run_cmd,
-            patch("deploy.subprocess.run", side_effect=subprocess_run),
-            patch("deploy.ensure_gke_gcloud_auth_plugin") as mock_ensure_plugin,
-            patch("deploy.prepare_gcp_helm_cutover") as mock_prepare_cutover,
-            patch("deploy.ensure_gcp_control_plane_namespaces") as mock_ensure_namespaces,
-            patch("deploy.get_repo_root", return_value=Path(__file__).resolve().parents[3]),
-        ):
-            deploy.deploy_gcp_control_plane_with_helm(config, outputs, values_path)
-
-        mock_ensure_plugin.assert_called_once_with(dry_run=False)
-        mock_prepare_cutover.assert_called_once_with(dry_run=False)
-        mock_ensure_namespaces.assert_called_once_with(dry_run=False)
-        commands = [call.args[0] for call in mock_run_cmd.call_args_list]
-        assert commands[0] == [
-            "gcloud",
-            "container",
-            "fleet",
-            "memberships",
-            "get-credentials",
-            "shifter-gcp-dev-platform",
-            "--location",
-            "us-central1",
-            "--project",
-            "example-gcp-project",
-        ]
-        assert commands[1] == [
-            "helm",
-            "upgrade",
-            "--install",
-            "shifter",
-            str(chart_dir),
-            "--namespace",
-            "shifter-system",
-            "--create-namespace",
-            "--values",
-            str(environment_values_path),
-            "--values",
-            str(values_path),
-            "--atomic",
-            "--wait",
-            "--timeout",
-            "15m",
-            "--history-max",
-            "10",
-        ]
-        assert commands[2] == [
-            "kubectl",
-            "-n",
-            "shifter-platform",
-            "rollout",
-            "restart",
-            "deployment/guacamole-client",
-        ]
-        assert commands[3] == [
-            "kubectl",
-            "-n",
-            "shifter-platform",
-            "rollout",
-            "status",
-            "deployment/guacamole-client",
-            "--timeout=5m",
-        ]
-
-    def test_bootstrap_control_plane_creates_operator_before_helm_and_waits_for_dns_tls_after_release(self, tmp_path):
-        """Bootstrap must verify range telemetry after Terraform, seed Identity Platform before Helm,
-        and only finish after DNS/TLS verification."""
-        root_config = tmp_path / "shifter.yaml"
-        root_config.write_text("backend: gcp\n")
-        config = deploy.GDCBootstrapConfig(
-            project_id="example-gcp-project", cluster_id="cluster1", shifter_config_path=str(root_config)
-        )
-        outputs = _sample_gcp_control_plane_outputs(config.project_id)
-        outputs["range_network_name"] = {"value": "shifter-gcp-dev-range"}
-        outputs["range_telemetry_terraform_resources"] = {"value": {"subnetworks": [], "nat_routers": []}}
-        calls: list[str] = []
-
-        def process_boundary(argv, *args, **kwargs):
-            # The telemetry readback is a child process; record where it runs in the order.
-            if any(str(part).endswith("verify_range_audit_telemetry.py") for part in argv):
-                calls.append("verify_telemetry")
-            return subprocess.CompletedProcess(argv, 0, stdout="sha256:" + ("1" * 64) + "\n", stderr="")
-
-        def record(name: str):
-            def _inner(*args, **kwargs):
-                calls.append(name)
-                if name == "apply":
-                    return outputs
-                if name == "stage":
-                    return Path("shifter.values.generated.json")
-                return None
-
-            return _inner
-
-        with (
-            patch("deploy.apply_gcp_control_plane_terraform", side_effect=record("apply")),
-            patch("deploy.ensure_gcp_identity_platform_operator", side_effect=record("seed_operator")),
-            patch("deploy.push_gcp_control_plane_images", side_effect=record("push_images")),
-            patch("subprocess.run", side_effect=process_boundary),
-            patch("deploy.stage_gcp_control_plane_values", side_effect=record("stage")),
-            patch("deploy.deploy_gcp_control_plane_with_helm", side_effect=record("deploy")),
-            patch("deploy.walkthrough_gcp_dns_setup_and_wait_for_tls", side_effect=record("dns_tls")),
-            patch.dict(os.environ, {"SHIFTER_IMAGE_TAG": PINNED_IMAGE_TAG}),
-        ):
-            result = deploy.bootstrap_gcp_control_plane(config)
-
-        assert result == outputs
-        assert calls == ["apply", "verify_telemetry", "seed_operator", "push_images", "stage", "deploy", "dns_tls"]
 
 
 class TestGdcBootstrapPrerequisites:

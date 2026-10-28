@@ -1,18 +1,20 @@
 # Scoped CTF communications
 
 The communication API lets an organizer author a message for participants in one
-or more events within one workspace. The actor must have live notification
-permission on **every** target event and communication access to that workspace.
-Workspace membership alone does not grant event authority.
+or more events with one account, organization or workspace parent. You need
+current permission to manage communications on **every** target event.
+Membership and administrator flags alone do not grant that permission.
 
 ## Author and release
 
 Use `/api/v1/ctf/communications/` with an authenticated browser session or an API
-token. Tokens need the exact `ctf:communication:read` or
-`ctf:communication:write` scope for the requested operation; neither scope
-implies the other. Existing event/play scopes do not grant communication access.
+token. The native credential ceiling and current policy must permit
+`event.manage_communications` for every target. Recipient details also require
+`event.manage_participants` on the selected event. Event participation does not
+grant communication administration.
 
-Create a campaign with `workspace_id` (the public workspace UUID), `title`,
+Create a campaign with exactly one parent UUID (`account`, `organization` or
+`workspace`), `title`,
 `target_event_ids`, `audience_spec`, `trigger_spec`, `channels`, `subject`, and
 `body`. `acknowledgement_policy` defaults to `none`; `read` and `explicit` are
 also supported. The generated OpenAPI contract describes closed selector and
@@ -21,11 +23,21 @@ trigger variants. Unknown fields and duplicate JSON keys are rejected.
 | Operation | Route relative to `/api/v1/ctf/` |
 | --- | --- |
 | Create a draft | `POST communications/` |
-| List campaigns | `GET communications/?workspace_id=<uuid>&limit=25&offset=0` |
+| List campaigns | `GET communications/?workspace=<uuid>&limit=25&offset=0` |
 | Read summary | `GET communications/<campaign_id>/` |
 | Append draft content revision | `POST communications/<campaign_id>/revisions/` |
 | Release or schedule | `POST communications/<campaign_id>/release/` |
 | Cancel unclaimed work | `POST communications/<campaign_id>/cancel/` |
+| List events and parents you can message | `GET communications/target-options/?workspace=<uuid>` |
+| Read the workspace compatibility projection | `GET communications/targets/?workspace_id=<uuid>` |
+| Preview a revision | `GET communications/<campaign_id>/preview/?revision_id=<uuid>` |
+| Read delivery state | `GET communications/<campaign_id>/delivery/` |
+| Read recipient state for one event | `GET communications/<campaign_id>/recipients/?intent_id=<uuid>&event_id=<uuid>` |
+| Read the activity history | `GET communications/<campaign_id>/activity/` |
+
+Each route requires current native authority and a live credential.
+Browser sessions send the CSRF token on every POST.
+GET routes change no state.
 
 Release requires an `occurrence_key`; reuse the same key when retrying the same
 request. A future absolute-time trigger creates a scheduled declaration. The
@@ -44,6 +56,70 @@ before pagination; `next_offset` advances through authorized campaigns only.
 The organizer page can load subsequent pages to inspect or cancel older work.
 Bodies are limited to 65,536 UTF-8 bytes, targets to 100, and explicit audience
 lists to 5,000 references. Authoring and release share admission rate budgets.
+
+## Multi-event console
+
+Open **CTF operations > Communications** (`/ctf/admin/communications/`). The
+event **Notifications** tab also links to it.
+
+1. Select the account, organization or workspace. A message reaches only events
+   with that exact parent. Changing the selection clears the current draft.
+2. Select one or more events. The list shows only events where you hold
+   permission to manage communications.
+3. Write the title, subject, and Markdown message. Select the acknowledgement.
+4. Select **Send now**, or select **Schedule** and enter a date, time, and time
+   zone. The console shows the UTC time and the local time of each event. It
+   refuses a time that a clock change skips or repeats.
+5. Select **Save draft and preview**. The preview shows the message and the
+   current recipient count for each event. Preview sends nothing.
+6. To change the text, edit it and select **Update preview**. Each change makes
+   a new revision. The events, timing, channel, and acknowledgement stay fixed.
+   To change them, discard the draft and start again.
+7. Select **Send now** or **Schedule**. The button is available only after the
+   preview loads, and only when the audience and channels are within limits.
+   The console sends the revision that you previewed. If the request fails, select the button again. The retry uses the
+   same campaign and occurrence.
+
+Recipient counts in the preview are estimates. The platform resolves recipients
+when it releases the message. A scheduled message resolves them at its due time.
+
+### Delivery state and history
+
+The campaign page shows each occurrence with recipients, inbox availability,
+read, and acknowledged counts for each event. It shows delivery-command counts
+for each channel. **Accepted** means a transport took the message. Read and
+acknowledged come only from participant actions. A failed release task shows an
+alert, because the message was not delivered.
+
+The page refreshes every 15 seconds while delivery work or a scheduled release
+is pending. **Show recipients** lists the participant name, team, delivery status, and
+receipt times for one event. It needs participant permission on that event. It
+never shows an email address. The activity history lists who created, revised,
+sent, scheduled, or cancelled the message, and when. It contains no message text.
+
+### Authorization and failure
+
+The platform checks your permission on every selected event for every request.
+The credential must permit the same actions and exact target scopes. If one
+event is missing, has a different parent or is not yours to message, the full
+request fails with one generic error. The platform saves nothing from a failed create or release. After
+release, delivery to one recipient can fail while other deliveries succeed. The
+campaign page shows each result.
+
+| Current authority | Available projection |
+| --- | --- |
+| Manage communications on every campaign event | Compose, preview, delivery counts and activity |
+| The same authority plus manage participants on the selected event | Recipient rows for that event |
+| Membership, legacy administrator flags or participation alone | No organizer communication access |
+
+Service-principal actions retain their own identity in the activity history.
+They are not attributed to the human responsible for the service.
+
+**Cancel unclaimed work** stops delivery commands that no worker has claimed,
+and stops a scheduled release. A message already in the inbox, or accepted by a
+transport, stays delivered.
+
+Changing event times keeps a scheduled communication at its own due time.
 
 ## Participant inbox
 

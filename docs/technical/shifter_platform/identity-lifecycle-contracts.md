@@ -366,6 +366,7 @@ A local refactor must not remove that protection accidentally.
 | Destruction of a healthy customer claim | Warm claim boundary | Claim timestamp, current custody and locked recovery check | Old pool generation followed by fresh claim |
 | Resource exhaustion or deadlock | Reservation and dispatch | Atomic ceilings, bounded work and consistent lock order | Real PostgreSQL concurrent service calls |
 | Repudiation or secret disclosure | F7, F14-F16 | Strict audit, opaque identifiers and bounded error adapters | Audit rollback and actual API error tests |
+| Recipient or parent-name disclosure | Console projection | Complete target authority, separate participant-management permission and exact admitted parent | Native console discovery and recipient tests |
 
 Tests must drive production orchestration through each durable boundary.
 They may replace the external provider with a deterministic adapter.
@@ -408,6 +409,7 @@ The proposal records the checks performed. These entry points retain regression 
 | Real permission provider | `config/openfga_authorization.py` | `tests/integration/authorization/test_openfga_prepared_administration.py` through the released-server harness. |
 | Parked sharing boundary | `shared/model_access/availability.py`, `config/api/model_access.py` | `tests/config/test_model_access_management_api.py`; direct composition and selector tests. |
 | Notification and restricted projection | `ctf/services/event_projection.py`, `shared/consumers.py`, `config/session_credentials.py` | `tests/ctf/test_native_notification_authority.py`, `tests/integration/asgi/test_native_ctf_notifications.py`; PostgreSQL and Redis transport tests. |
+| Communications console | `ctf/services/communication/read_admission.py`, `targets.py`, `attribution.py` | `tests/ctf/test_communication_native_console.py`; browser parent-change and reviewed-release tests. |
 
 ## Reference basis
 

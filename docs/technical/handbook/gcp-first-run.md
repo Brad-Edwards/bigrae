@@ -1,61 +1,81 @@
 # GCP installation and first exercise
 
 Use this route from an empty deployment to a small verified range. Commands run
-from the repository root. The [full setup](../dev/setup.md#gcp-deployment) owns
-prerequisite details; the [handbook](../architecture.md) explains the boundaries.
+from the repository root. The
+[GitHub-less GCP deployment guide](gcp-github-less-deployment.md) owns the exact
+commands; the [full setup](../dev/setup.md#gcp-deployment) owns prerequisite
+details; the [handbook](../architecture.md) explains the boundaries.
 
 ## Prepare the deployment
 
-Have Python 3.12+, uv, Terraform 1.7+, Docker, gcloud, kubectl, Helm and GitHub
-CLI available. Use a billing-enabled project and domain under your control.
-An authorized operator must configure APIs, purpose-specific Workload Identity
-Federation, protected GitHub Environments, image access, DNS and the first
-operator credential as described in [setup](../dev/setup.md#gcp-deployment) and
-[deployment secrets](../../dev/deploy-secrets.md). Do not put credentials in
-commands, source control or examples. Configuration stores secret references.
+Have Python 3.12+, uv, gcloud, and Docker available. The deploy runs from the
+deployer image of a published release. A deploy from a checkout instead needs
+Terraform, Helm, kubectl, gke-gcloud-auth-plugin, ORAS, Trivy, and git on
+`PATH`; `deploy.py preflight --cloud gcp` checks them. A deployment without GitHub needs
+no GitHub CLI. Use a billing-enabled project and domain under your control.
+An authorized operator must do these steps, as the guide and
+[deployment secrets](../../dev/deploy-secrets.md) describe:
+
+- create the foundation: the purpose identities, the impersonation grants, and
+  the deployment config bucket;
+- grant read access to the release registry;
+- store the first operator password in Secret Manager;
+- own the DNS of the public hostname.
+
+Do not put credentials in commands, source control or examples. Configuration
+stores secret references.
 
 ```bash
-uv run --project shifter/installation shifter-config init --backend gcp
-# Edit the generated shifter.yaml for the selected deployment.
-uv run --project shifter/installation shifter-config validate shifter.yaml
-uv run --project shifter/installation shifter-config doctor shifter.yaml
+uv run --project shifter/installation bigrae-config init --backend gcp
+# Edit the generated bigrae.yaml for the selected deployment.
+uv run --project shifter/installation bigrae-config validate bigrae.yaml
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml
 ```
 
 `init` scaffolds local configuration; it does not create a cloud account,
-identity, cluster or secret. For a new foundation, follow the checked inputs and
-apply order in the
-[bootstrap guide](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/bootstrap/README.md).
-The full setup also explains the backend Terraform overrides; stale tenant
-values in an existing override must not be reused for a new deployment.
+identity, cluster or secret. For a new foundation, run `gcp-foundation` in its
+GitHub-less mode
+([Apply the foundation without GitHub](gcp-github-less-deployment.md#apply-the-foundation-without-github)).
+The [bootstrap guide](https://github.com/Brad-Edwards/bigrae/blob/dev/scripts/bootstrap/README.md)
+lists the checked inputs and the apply order.
+Put `bigrae.yaml` and the Terraform values of the deployment in one directory;
+stale tenant values from another deployment must not be reused.
 
-Once these prerequisites and range-plane settings are configured, the existing
-operator bootstrap command is:
+Once these prerequisites and the range-plane settings are configured, publish
+the deployment inputs and import the range images:
 
 ```bash
-./scripts/bootstrap/deploy.py gdc-bootstrap \
-  --project-id YOUR_PROJECT --environment YOUR_ENVIRONMENT \
-  --region YOUR_REGION --zone YOUR_ZONE \
-  --shifter-config ./shifter.yaml --import-public-base-images --yes
+./scripts/bootstrap/deploy.py gcp-config publish \
+  --store gs://YOUR_CONFIG_BUCKET --inputs ./YOUR_INPUTS_DIRECTORY
+./scripts/bootstrap/deploy.py gcp-images --project-id YOUR_PROJECT \
+  --source YOUR_RELEASE_REGISTRY --region YOUR_REGION \
+  --store gs://YOUR_CONFIG_BUCKET
 ```
 
-Replace the uppercase placeholders. Despite its name, the default range backend
-is `gce`: GKE hosts the control plane and GCE hosts guests. `--range-backend gdc`
-is an operator-validation substrate, not a participant deployment shortcut.
-Bootstrap creates billable resources and publishes configured images to the
-selected deployment; run it only in your authorized environment. This handbook
-change has not executed it. Regular updates use the existing deploy workflow,
-not an independent hosting path.
+Then verify the deployer image of the release and run
+`gcp-deploy --store gs://YOUR_CONFIG_BUCKET --first-install` from it, as the
+guide describes
+([Get and verify the deployer image](gcp-github-less-deployment.md#get-and-verify-the-deployer-image),
+[First install](gcp-github-less-deployment.md#first-install)). Replace the
+uppercase placeholders.
+`settings.range_cells.backend` selects the range backend. The default is `gce`:
+GKE hosts the control plane and GCE hosts guests. `gdc` is an
+operator-validation substrate, not a participant deployment shortcut. The
+deploy creates billable resources; run it only in your authorized environment.
+The live test of this path is issue #2572. Updates run `gcp-deploy` again from
+the deployer image of a newer release. A CI-deployed environment runs the same
+command through the deploy workflow.
 
 After rollout and DNS/TLS convergence, run:
 
 ```bash
-uv run --project shifter/installation shifter-config doctor shifter.yaml --checks cloud
+uv run --project shifter/installation bigrae-config doctor bigrae.yaml --checks cloud
 ```
 
-This checks configured health probes, not scenario acceptance. For failed
-bootstrap or upgrades, inspect bounded diagnostics, confirm the selected tenant
-and configuration, and follow the full setup/recovery procedure. Do not conceal
-an unknown cleanup state by deleting application records.
+This checks configured health probes, not scenario acceptance. For a failed
+deploy or update, use [RB023](../../runbooks/rb023-gcp-deployment.md): inspect
+bounded diagnostics, and confirm the selected tenant and configuration. Do not
+conceal an unknown cleanup state by deleting application records.
 
 ## Run a useful scenario
 

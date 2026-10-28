@@ -122,7 +122,7 @@ Native APIs and refresh behavior are documented by
 and [AuthorizedSession](https://google-auth.readthedocs.io/en/latest/reference/google.auth.transport.requests.html).
 
 ```python
-from shifter_client import ServiceClient
+from bigrae_client import ServiceClient
 
 client = ServiceClient.from_adc(
     "https://portal.example.test",
@@ -163,7 +163,7 @@ Source credential options:
   [auth-library federation](https://docs.cloud.google.com/iam/docs/authenticate-with-auth-libraries).
 
 Long-running success depends on a renewable source, valid IAM, available provider
-endpoints and live Shifter admission/policy. A pasted bearer or revoked local refresh
+endpoints and live BigRAE admission/policy. A pasted bearer or revoked local refresh
 token cannot renew. The app transport rejects foreign-origin URLs and redirects and
 does not replay mutations on 401. Handle transient errors with the operation's
 documented idempotency contract, not indiscriminate retries. Do not log headers,

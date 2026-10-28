@@ -21,17 +21,14 @@ Ranges are the core infrastructure product of Shifter. If the platform deploys o
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/stacks/range_stack.py` (Range stack - Pulumi composition using AWS EC2/VPC/SG, no GCP compute equivalent)
-- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/components/instance.py` (Instance component - creates AWS EC2 instances with AMIs, no GCP Compute Engine support)
-- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/components/network.py` (Network component - creates AWS VPC subnets/security groups/route tables)
-- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/executors/ssm_executor.py` (SSM Executor - uses AWS SSM for remote command execution on range VMs)
-- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/config.py` (Provisioner config - RangeConfig uses AWS-specific fields (AMI IDs, VPC ID, instance profiles))
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#672` (PLAT-003: GCP Range Provisioning)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/platform_infrastructure/networking.md` (Networking architecture - GCP platform and range connectivity)
-- DOCUMENTS → DOCUMENTATION `shifter/shifter_platform/documentation/docs/technical/platform_infrastructure/gdc-provisioning.md` (GDC provisioning architecture - runtime primitives and range networking)
+- DOCUMENTS → DOCUMENTATION `docs/technical/platform_infrastructure/networking.md` (Networking architecture - GCP platform and range connectivity)
+- DOCUMENTS → DOCUMENTATION `docs/technical/platform_infrastructure/gdc-provisioning.md` (GDC provisioning architecture - runtime primitives and range networking)
 - IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/range_terraform_runner.py` (Provider-routed range Terraform runner)
-- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/range_ops.py` (Provider-routed range lifecycle operations)
+- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/range_ops/__init__.py` (Provider-routed range lifecycle operations)
 - IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/main.py` (GCP-aware range provisioning state persistence)
-- IMPLEMENTS → CONFIG `platform/terraform/gcp/environments/gcp-dev/main.tf` (GCP range/platform environment)
+- IMPLEMENTS → CONFIG `platform/terraform/gcp/environments/platform/main.tf` (Shared GCP platform and range prerequisites, configured per deployment)
 - TESTS → TEST `shifter/shifter_platform/tests/engine/ecs/test_start_ecs_task_gcp.py` (GCP task runner tests)
 - CONSTRAINS → ADR `ADR-005` (Cloud expansion must preserve provider seams and AWS continuity)
+- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/raes_gcp_apply.py` (Native GCE range realization through the shared plan and resource primitives)
+- IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/gcp_range_cell_ops.py` (Bounded Compute Engine operation waits and resource lifecycle helpers)

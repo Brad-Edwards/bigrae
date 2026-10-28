@@ -159,9 +159,9 @@ def prevent_real_subprocess_calls():
 
 
 @pytest.fixture
-def bootstrap_config():
+def bootstrap_config(github_identity):
     """Return a valid BootstrapConfig for testing."""
-    return deploy.BootstrapConfig(env="dev")
+    return deploy.BootstrapConfig(env="dev", **github_identity)
 
 
 @pytest.fixture
@@ -705,91 +705,81 @@ class TestBootstrapConfig:
     # Happy path - initialization and properties
     # ---------------------------------------------------------------------
 
-    def test_creates_config_with_required_env(self):
-        """Config initializes with only env parameter."""
-        config = deploy.BootstrapConfig(env="dev")
+    def test_creates_config_with_required_env(self, github_identity):
+        """Config initializes with env and the repository identity."""
+        config = deploy.BootstrapConfig(env="dev", **github_identity)
         assert config.env == "dev"
 
-    def test_has_default_region(self):
+    def test_has_default_region(self, github_identity):
         """Config defaults to us-east-2 region."""
-        config = deploy.BootstrapConfig(env="dev")
+        config = deploy.BootstrapConfig(env="dev", **github_identity)
         assert config.region == "us-east-2"
 
-    def test_has_default_github_org(self):
-        """Config has default GitHub organization."""
-        config = deploy.BootstrapConfig(env="dev")
-        assert config.github_org == "Brad-Edwards"
+    def test_requires_explicit_github_identity(self):
+        """Config has no default GitHub repository identity (ADR-069)."""
+        with pytest.raises(TypeError, match="github_"):
+            deploy.BootstrapConfig(env="dev")
 
-    def test_has_default_github_repo(self):
-        """Config has default GitHub repository."""
-        config = deploy.BootstrapConfig(env="dev")
-        assert config.github_repo == "bigrae"
-
-    def test_bucket_prefix_for_prod_env(self):
+    def test_bucket_prefix_for_prod_env(self, github_identity):
         """Config generates correct bucket prefix for prod."""
-        config = deploy.BootstrapConfig(env="prod")
+        config = deploy.BootstrapConfig(env="prod", **github_identity)
         assert config.bucket_prefix == "shifter-infra"
 
-    def test_bucket_prefix_for_dev_env(self):
+    def test_bucket_prefix_for_dev_env(self, github_identity):
         """Config generates correct bucket prefix for dev."""
-        config = deploy.BootstrapConfig(env="dev")
+        config = deploy.BootstrapConfig(env="dev", **github_identity)
         assert config.bucket_prefix == "shifter-dev-infra"
 
-    def test_table_prefix_for_prod_env(self):
+    def test_table_prefix_for_prod_env(self, github_identity):
         """Config generates correct DynamoDB table prefix for prod."""
-        config = deploy.BootstrapConfig(env="prod")
+        config = deploy.BootstrapConfig(env="prod", **github_identity)
         assert config.table_prefix == "shifter-terraform"
 
-    def test_table_prefix_for_dev_env(self):
+    def test_table_prefix_for_dev_env(self, github_identity):
         """Config generates correct DynamoDB table prefix for dev."""
-        config = deploy.BootstrapConfig(env="dev")
+        config = deploy.BootstrapConfig(env="dev", **github_identity)
         assert config.table_prefix == "shifter-dev-terraform"
 
-    def test_role_name_includes_env(self):
+    def test_role_name_includes_env(self, github_identity):
         """Config generates IAM role name with environment."""
-        config = deploy.BootstrapConfig(env="staging")
-        assert config.role_name == "github-actions-shifter-staging"
+        config = deploy.BootstrapConfig(env="dev", **github_identity)
+        assert config.role_name == "github-actions-shifter-dev"
 
-    def test_secret_name_for_prod_env(self):
+    def test_secret_name_for_prod_env(self, github_identity):
         """Config generates GitHub secret name for prod."""
-        config = deploy.BootstrapConfig(env="prod")
+        config = deploy.BootstrapConfig(env="prod", **github_identity)
         assert config.secret_name == "AWS_ROLE_ARN"
 
-    def test_secret_name_for_dev_env(self):
+    def test_secret_name_for_dev_env(self, github_identity):
         """Config generates GitHub secret name for dev."""
-        config = deploy.BootstrapConfig(env="dev")
+        config = deploy.BootstrapConfig(env="dev", **github_identity)
         assert config.secret_name == "AWS_ROLE_ARN_DEV"
 
-    def test_state_bucket_secret_name_for_prod_env(self):
+    def test_state_bucket_secret_name_for_prod_env(self, github_identity):
         """Prod uses the unsuffixed state-bucket secret name the prod deploy reads."""
-        config = deploy.BootstrapConfig(env="prod")
+        config = deploy.BootstrapConfig(env="prod", **github_identity)
         assert config.state_bucket_secret_name == "TF_INFRA_STATE_BUCKET"
 
-    def test_state_bucket_secret_name_for_dev_env(self):
+    def test_state_bucket_secret_name_for_dev_env(self, github_identity):
         """Dev uses the suffixed state-bucket secret name the dev deploy reads."""
-        config = deploy.BootstrapConfig(env="dev")
+        config = deploy.BootstrapConfig(env="dev", **github_identity)
         assert config.state_bucket_secret_name == "TF_INFRA_STATE_BUCKET_DEV"
-
-    def test_state_bucket_secret_name_for_proof_env(self):
-        """Proof uses the suffixed state-bucket secret name the proof deploy reads."""
-        config = deploy.BootstrapConfig(env="proof")
-        assert config.state_bucket_secret_name == "TF_INFRA_STATE_BUCKET_PROOF"
 
     # ---------------------------------------------------------------------
     # Input validation
     # ---------------------------------------------------------------------
 
-    def test_accepts_custom_region(self):
+    def test_accepts_custom_region(self, github_identity):
         """Config accepts custom AWS region."""
-        config = deploy.BootstrapConfig(env="dev", region="us-west-2")
+        config = deploy.BootstrapConfig(env="dev", region="us-west-2", **github_identity)
         assert config.region == "us-west-2"
 
-    def test_accepts_custom_github_org(self):
+    def test_accepts_custom_github_org(self, github_identity):
         """Config accepts custom GitHub organization."""
-        config = deploy.BootstrapConfig(env="dev", github_org="my-org")
+        config = deploy.BootstrapConfig(env="dev", **{**github_identity, "github_org": "my-org"})
         assert config.github_org == "my-org"
 
-    def test_accepts_custom_github_repo(self):
+    def test_accepts_custom_github_repo(self, github_identity):
         """Config accepts custom GitHub repository."""
-        config = deploy.BootstrapConfig(env="dev", github_repo="my-repo")
+        config = deploy.BootstrapConfig(env="dev", **{**github_identity, "github_repo": "my-repo"})
         assert config.github_repo == "my-repo"

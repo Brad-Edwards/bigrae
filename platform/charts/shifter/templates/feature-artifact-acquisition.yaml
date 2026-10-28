@@ -211,8 +211,8 @@ spec:
     - expression: >-
         variables.container.securityContext.readOnlyRootFilesystem &&
         variables.container.securityContext.runAsNonRoot &&
-        variables.container.securityContext.runAsUser == 1000 &&
-        variables.container.securityContext.runAsGroup == 1000 &&
+        variables.container.securityContext.runAsUser == 10001 &&
+        variables.container.securityContext.runAsGroup == 10001 &&
         !variables.container.securityContext.allowPrivilegeEscalation &&
         variables.container.securityContext.capabilities.drop == ['ALL'] &&
         variables.pod.securityContext.seccompProfile.type == 'RuntimeDefault' &&

@@ -123,6 +123,19 @@ resource "aws_instance" "ngfw" {
   # User data for VM-Series bootstrap
   user_data = "vmseries-bootstrap-aws-s3bucket=${var.bootstrap_bucket}/${local.bootstrap_prefix}"
 
+  # Require IMDSv2 tokens (AWS-0028). VM-Series supports IMDSv2 from PAN-OS
+  # 10.2.0 (VM-Series plugin 3.0.0). The bootstrap sets panorama-server=cloud,
+  # and Strata Cloud Manager needs PAN-OS 10.2.3 or later.
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  # Encrypt the root volume with the account EBS key (AWS-0131).
+  root_block_device {
+    encrypted = true
+  }
+
   # Attach ENIs
   network_interface {
     device_index         = 0

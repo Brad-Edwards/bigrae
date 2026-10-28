@@ -13,11 +13,20 @@ import assert from "node:assert/strict";
 
 import { triggerAmiWorkflow, triggerGceImageWorkflow } from "./github-actions.js";
 
-function makeRecordingRunner() {
+// Synthetic target repository (ADR-069: tests use synthetic identities).
+const SYNTHETIC_REPO = "example-org/example-repo";
+
+function makeRecordingRunner({ ghDefault = "" } = {}) {
   const calls = [];
   const runner = (argv, options) => {
     calls.push({ argv, options });
-    return { status: 0, stdout: "", stderr: "", error: null };
+    const isDefaultView = argv.join(" ") === "repo set-default --view";
+    return {
+      status: 0,
+      stdout: isDefaultView ? ghDefault : "",
+      stderr: "",
+      error: null,
+    };
   };
   runner.calls = calls;
   return runner;
@@ -55,7 +64,7 @@ describe("triggerAmiWorkflow protected-ref dispatch (#1656)", () => {
         ref: "dev",
         actionsPath: "packer.yml",
       },
-      { runner, token: "test-token" },
+      { runner, token: "test-token", env: { GH_REPO: SYNTHETIC_REPO } },
     );
 
     assert.equal(runner.calls.length, 1);
@@ -64,7 +73,7 @@ describe("triggerAmiWorkflow protected-ref dispatch (#1656)", () => {
       "run",
       "packer.yml",
       "--repo",
-      "Brad-Edwards/bigrae",
+      SYNTHETIC_REPO,
       "--ref",
       "dev",
       "-f",
@@ -72,8 +81,55 @@ describe("triggerAmiWorkflow protected-ref dispatch (#1656)", () => {
     ]);
     assert.equal(
       message,
-      "Triggered packer.yml for kali on ref dev. View at: https://github.com/Brad-Edwards/bigrae/actions/workflows/packer.yml",
+      `Triggered packer.yml for kali on ref dev. View at: https://github.com/${SYNTHETIC_REPO}/actions/workflows/packer.yml`,
     );
+  });
+});
+
+describe("workflow dispatch target repository (ADR-069)", () => {
+  const amiRequest = {
+    workflow: "packer.yml",
+    ami_type: "kali",
+    ref: "dev",
+    actionsPath: "packer.yml",
+  };
+
+  it("dispatches to the gh default repository when GH_REPO is unset", () => {
+    const runner = makeRecordingRunner({ ghDefault: `${SYNTHETIC_REPO}\n` });
+    triggerAmiWorkflow(amiRequest, { runner, token: "test-token", env: {} });
+
+    assert.deepEqual(
+      runner.calls.map((call) => call.argv.slice(0, 3)),
+      [
+        ["repo", "set-default", "--view"],
+        ["workflow", "run", "packer.yml"],
+      ],
+    );
+    const dispatch = runner.calls[1].argv;
+    assert.equal(dispatch[dispatch.indexOf("--repo") + 1], SYNTHETIC_REPO);
+  });
+
+  it("fails closed without GH_REPO or a gh default, before any dispatch", () => {
+    const gceRequest = {
+      workflow: "packer-gcp.yml",
+      inputs: { image_type: "ubuntu" },
+      ref: "dev",
+      actionsPath: "packer-gcp.yml",
+    };
+    for (const trigger of [
+      (ghOptions) => triggerAmiWorkflow(amiRequest, ghOptions),
+      (ghOptions) => triggerGceImageWorkflow(gceRequest, ghOptions),
+    ]) {
+      const runner = makeRecordingRunner();
+      assert.throws(
+        () => trigger({ runner, token: "test-token", env: {} }),
+        /GitHub repository not configured/,
+      );
+      assert.deepEqual(
+        runner.calls.map((call) => call.argv),
+        [["repo", "set-default", "--view"]],
+      );
+    }
   });
 });
 
@@ -103,7 +159,7 @@ describe("triggerGceImageWorkflow protected-ref dispatch", () => {
         ref: "main",
         actionsPath: "packer-gcp-promote.yml",
       },
-      { runner, token: "test-token" },
+      { runner, token: "test-token", env: { GH_REPO: SYNTHETIC_REPO } },
     );
 
     assert.equal(runner.calls.length, 1);
@@ -112,7 +168,7 @@ describe("triggerGceImageWorkflow protected-ref dispatch", () => {
       "run",
       "packer-gcp-promote.yml",
       "--repo",
-      "Brad-Edwards/bigrae",
+      SYNTHETIC_REPO,
       "--ref",
       "main",
       "-f",
@@ -122,7 +178,7 @@ describe("triggerGceImageWorkflow protected-ref dispatch", () => {
     ]);
     assert.equal(
       message,
-      "Triggered packer-gcp-promote.yml for ubuntu on ref main. View at: https://github.com/Brad-Edwards/bigrae/actions/workflows/packer-gcp-promote.yml",
+      `Triggered packer-gcp-promote.yml for ubuntu on ref main. View at: https://github.com/${SYNTHETIC_REPO}/actions/workflows/packer-gcp-promote.yml`,
     );
   });
 });

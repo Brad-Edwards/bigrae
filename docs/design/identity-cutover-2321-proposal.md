@@ -288,7 +288,8 @@ write stays in `PolicyPending`. It does not restore legacy authority.
   the policy-as-code sources. Coverage tests require every effect to have one
   disposition. The change adds no second action or role list.
 - `config/env-manifest.json`, its closed loaders, Helm values and templates,
-  GCP Kustomize, Terraform and admission checks remain architecture-as-code.
+  the shared installation CLI, Terraform and admission checks remain architecture-as-code.
+  Helm is the sole GCP Kubernetes renderer (ADR-070).
   The implementation removes optional policy activation from these surfaces.
 - The OpenAPI artifact and generated TypeScript types remain the public
   contract. The implementation regenerates them from mounted DRF routes.
@@ -370,7 +371,7 @@ make these paths explicit:
   the model, create the first principal/account and explicit administrator
   grant, and start only the new runtime. No synthetic personal subdivision,
   legacy credential or legacy authority state is created.
-- **Legacy-data upgrade:** the ordinary GCP deployment workflow gains only the
+- **Legacy-data upgrade:** the shared GCP deployment command gains only the
   narrow S8 maintenance boundary required by this issue. It controls HPA state,
   suspends CronJobs, stops application deployments and continuing-access
   gateways, waits for already-started Jobs/effects, then runs the sequence
@@ -378,7 +379,7 @@ make these paths explicit:
   legacy authority.
 
 Because no cluster exists, the upgrade path is verified through rendered
-manifest/workflow contract tests and a disposable local Kubernetes test where
+command and rendered-manifest contract tests and a disposable local Kubernetes test where
 available. Those checks do not count as live GCP evidence.
 
 ## Runtime activation and legacy removal
@@ -630,7 +631,7 @@ services stay available. Before its first run, the status probe receives the
 existing DNS, metadata-server, Google API and native SQL egress grants. A fresh
 namespace must support proxy authentication and SQL connection establishment;
 migration cannot supply a prerequisite of its own admission probe.
-When model access is disabled, old broker processes terminate before the workflow
+When model access is disabled, old broker processes terminate before the deployment command
 restores the broader default egress policy. The maintenance manifest also waits
 until old application pods are terminal or absent before it changes their policy.
 Kubernetes combines allowed traffic across applicable network policies.

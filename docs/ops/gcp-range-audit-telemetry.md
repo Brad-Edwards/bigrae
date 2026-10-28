@@ -1,9 +1,9 @@
 # GCP range audit telemetry
 
-Part of the Shifter deploy and operations docs; start at the [documentation home](../index.md).
+Part of the BigRAE deploy and operations docs; start at the [documentation home](../index.md).
 
 A GCP deployment turns on three provider logging controls for ranges by default.
-Each control has a cost, so the operator can change it in `shifter.yaml`. The
+Each control has a cost, so the operator can change it in `bigrae.yaml`. The
 deploy validates the result automatically.
 
 | Control | What it records | Default |
@@ -14,7 +14,7 @@ deploy validates the result automatically.
 
 ## Configure
 
-Add a `range_telemetry` block under `settings` in the GCP `shifter.yaml`. Omit the
+Add a `range_telemetry` block under `settings` in the GCP `bigrae.yaml`. Omit the
 block, or any field in it, to keep the default.
 
 ```yaml
@@ -62,15 +62,17 @@ One policy applies to the whole deployment:
 
 ## Validate
 
-The bootstrap deploy (`bootstrap_gcp_control_plane`) and the GCP deploy workflow
-run `scripts/gcp/verify_range_audit_telemetry.py` after Terraform apply. It
-checks the Terraform range VPC and every per-range VPC (`shifter-range-<id>`) in
-the platform project and in the range-cell project (`GCP_RANGE_CELL_PROJECT_ID`).
+`gcp-deploy` runs `scripts/gcp/verify_range_audit_telemetry.py` after
+Terraform apply, for an operator and for the GCP deploy workflow. It checks the
+Terraform range VPC and every per-range VPC (`shifter-range-<id>`). It checks
+them in the platform project and in the range-cell project. The range-cell
+project is `settings.range_cells.project_id`, or the platform project when that
+setting is empty.
 You can run it yourself with read access to those projects:
 
 ```bash
 uv run --project scripts/gcp python scripts/gcp/verify_range_audit_telemetry.py \
-  --config shifter.yaml --project-id <platform-project> --range-project-id <range-cell-project> \
+  --config bigrae.yaml --project-id <platform-project> --range-project-id <range-cell-project> \
   --range-network <range-vpc-name> \
   --terraform-subnetwork <name> --terraform-nat-router <name>
 ```
@@ -119,7 +121,7 @@ by hand.
 | Cloud NAT | `projects/<project>/logs/compute.googleapis.com%2Fnat_flows` | — |
 | Vertex Data Access | `projects/<project>/logs/cloudaudit.googleapis.com%2Fdata_access` | `protoPayload.serviceName="aiplatform.googleapis.com"` |
 
-All three logs go to Cloud Logging in the platform project. Shifter creates no
+All three logs go to Cloud Logging in the platform project. BigRAE creates no
 log sinks or log buckets. In a project with the default routing, the `_Default`
 sink writes these logs to the `_Default` log bucket, which keeps them for 30
 days. If your project has its own sinks, exclusions, or retention, those apply

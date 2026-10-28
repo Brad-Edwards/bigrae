@@ -2,27 +2,19 @@ name: GCP Environment Destroy
 
 # Manually-dispatched teardown of a GCP tenant's platform-core Terraform stack.
 # The `environment` input selects the tenant (gcp-dev/orthanc/sauron/balrog); the
-# TF root, state prefix, and destroy GitHub Environment are all derived from it.
+# state prefix and the destroy GitHub Environment are derived from it.
 # Authenticates with the tenant's destroy Workload Identity Federation identity
 # (env-scoped to `<environment>-destroy`), so no local credentials are needed.
-# Destroys everything in that tenant's platform-core Terraform state.
+#
+# This workflow is a thin wrapper over `deploy.py gcp-destroy` (ADR-070, #2571),
+# the same command that an operator runs without GitHub. The command renders the
+# same Terraform inputs as the deploy, lifts Cloud SQL deletion protection,
+# removes the permanent Artifact Registry KMS key ring and key from state, and
+# runs `terraform destroy` with bounded retries.
 #
 # Runs on ubuntu-latest: teardown deletes resources through the GCP control-plane
 # APIs over WIF and needs no in-VPC or Kubernetes API access, so it does not
 # require the tenant's self-hosted runner (which not every tenant has).
-#
-# Two resources need special handling before `terraform destroy`:
-#   - The Cloud SQL instance defaults to deletion_protection = true; this
-#     workflow renders cloud_sql_deletion_protection = false and applies it to
-#     the instance first so destroy is permitted. Each env root declares the
-#     cloud_sql_deletion_protection variable, so the rendered value is not
-#     silently ignored as an undeclared -var-file entry.
-#   - The Artifact Registry KMS key ring + crypto key cannot be deleted via
-#     the GCP API (key rings are permanent; keys only allow version
-#     destruction), and the crypto key additionally carries
-#     prevent_destroy = true. Both are removed from Terraform state before
-#     destroy so Terraform stops managing them. They remain in the project,
-#     inert and free, after teardown.
 
 on:
   workflow_dispatch:
@@ -57,24 +49,14 @@ jobs:
       id-token: write
     env:
       GCP_ENVIRONMENT: ${{ inputs.environment }}
-      TF_DIR: platform/terraform/gcp/environments/${{ inputs.environment }}
-      TF_BACKEND_PREFIX: shifter/${{ inputs.environment }}/platform-core
       GCP_DESTROY_SERVICE_ACCOUNT: ${{ secrets.GCP_DESTROY_SERVICE_ACCOUNT }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      # Resource-address SUFFIXES matched against `terraform state list`, not full
-      # addresses. These resources live in nested submodules
-      # (module.portal_cloud_sql / module.portal_artifact_registry), so their full
-      # state addresses include those segments. Hardcoding the wrong full address
-      # made the grep -qx silently miss, the steps skipped, and prevent_destroy /
-      # deletion_protection then blocked `terraform destroy`. Matching by suffix
-      # is robust to module nesting/renames.
-      SQL_INSTANCE_SUFFIX: google_sql_database_instance.platform
-      KMS_KEYRING_SUFFIX: google_kms_key_ring.artifact_registry
-      KMS_KEY_SUFFIX: google_kms_crypto_key.artifact_registry
     steps:
       - name: Validate confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          if [ "${{ inputs.confirm }}" != "DESTROY" ]; then
+          if [ "${CONFIRM}" != "DESTROY" ]; then
             echo "::error::Confirmation failed. Type DESTROY exactly to proceed."
             exit 1
           fi
@@ -92,8 +74,7 @@ jobs:
       - name: Preflight - required destroy secrets present
         # Fail fast, before checkout/auth, with the complete list of any secrets
         # missing from the selected `<environment>-destroy` Environment, rather
-        # than discovering them one render step at a time mid-run. The later
-        # per-step checks stay as defense in depth.
+        # than discovering them one at a time mid-run.
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_PUBLIC_HOSTNAME: ${{ secrets.GCP_PUBLIC_HOSTNAME }}
@@ -134,7 +115,6 @@ jobs:
         with:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.GCP_DESTROY_SERVICE_ACCOUNT }}
-          token_format: access_token
 
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
         with:
@@ -142,176 +122,42 @@ jobs:
 
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
-          terraform_version: "1.16.1"
+          terraform_version: "1.16.7"
+          terraform_wrapper: false
 
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
-      - name: Render ephemeral Terraform variables from secrets
-        env:
-          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
-          GCP_PUBLIC_HOSTNAME: ${{ secrets.GCP_PUBLIC_HOSTNAME }}
-          GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN: ${{ secrets.GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN }}
-          GCP_MASTER_AUTHORIZED_CIDRS: ${{ secrets.GCP_MASTER_AUTHORIZED_CIDRS }}
-        # Mirrors deploy but keeps sensitive values under RUNNER_TEMP and uses
-        # JSON encoding for exact Terraform escaping (#2084).
-        run: |
-          set -euo pipefail
-          umask 077
-          if [ -z "${GCP_PROJECT_ID}" ]; then
-            echo "::error::Required secret GCP_PROJECT_ID is not set. See docs/dev/deploy-secrets.md."
-            exit 1
-          fi
-          if [ -z "${GCP_PUBLIC_HOSTNAME}" ]; then
-            echo "::error::Required secret GCP_PUBLIC_HOSTNAME is not set. See docs/dev/deploy-secrets.md."
-            exit 1
-          fi
-          if [ -z "${GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN}" ]; then
-            echo "::error::Required secret GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN is not set. See docs/dev/deploy-secrets.md."
-            exit 1
-          fi
-          TF_VARS_FILE="${RUNNER_TEMP}/gcp-${GCP_ENVIRONMENT}.auto.tfvars.json"
-          export TF_VARS_FILE
-          python3 - <<'PY'
-          import json
-          import os
-
-          try:
-              authorized_cidrs = json.loads(os.environ.get("GCP_MASTER_AUTHORIZED_CIDRS") or "[]")
-          except json.JSONDecodeError as exc:
-              raise SystemExit("::error::GCP_MASTER_AUTHORIZED_CIDRS must be a JSON list") from exc
-          if not isinstance(authorized_cidrs, list):
-              raise SystemExit("::error::GCP_MASTER_AUTHORIZED_CIDRS must be a JSON list")
-          values = {
-              "project_id": os.environ["GCP_PROJECT_ID"],
-              "region": os.environ["GCP_REGION"],
-              "artifact_registry_location": os.environ["GCP_REGION"],
-              "public_hostname": os.environ["GCP_PUBLIC_HOSTNAME"],
-              "identity_allowed_email_domain": os.environ["GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN"],
-              "gke_master_authorized_cidrs": authorized_cidrs,
-              "cloud_sql_deletion_protection": False,
-              # Empty and delete the versioned, populated assets/audit-logs
-              # buckets; without this, destroy fails on a non-empty bucket.
-              "gcs_force_destroy": True,
-          }
-          descriptor = os.open(
-              os.environ["TF_VARS_FILE"],
-              os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-              0o600,
-          )
-          with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-              handle.write(json.dumps(values, sort_keys=True) + "\n")
-          PY
-          chmod 600 "${TF_VARS_FILE}"
-          echo "TF_VARS_FILE=${TF_VARS_FILE}" >> "${GITHUB_ENV}"
-
-      - name: Render deployment settings from shifter.yaml
+      - name: Render deployment inputs
         env:
           SHIFTER_CONFIG_GCP_DEV: ${{ secrets.SHIFTER_CONFIG_GCP_DEV }}
+          SHIFTER_CONFIG_OVERLAY_JSON: ${{ vars.SHIFTER_CONFIG_OVERLAY_JSON }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_PUBLIC_HOSTNAME: ${{ secrets.GCP_PUBLIC_HOSTNAME }}
+          GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN: ${{ secrets.GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN }}
+          GCP_CTF_CONTENT_BUCKET: ${{ vars.GCP_CTF_CONTENT_BUCKET }}
+          RANGE_OPENVPN_ENABLED: ${{ vars.RANGE_OPENVPN_ENABLED }}
+          GCP_RANGE_BACKEND: ${{ vars.GCP_RANGE_BACKEND }}
+          RANGE_NETWORK_ZONE: ${{ vars.RANGE_NETWORK_ZONE }}
+          RANGE_NETWORK_ZONES: ${{ vars.RANGE_NETWORK_ZONES }}
+          GCP_RANGE_CELL_PROJECT_ID: ${{ vars.GCP_RANGE_CELL_PROJECT_ID }}
+          GCP_RANGE_HOST_IDENTITY_POOL_SIZE: ${{ vars.GCP_RANGE_HOST_IDENTITY_POOL_SIZE }}
+        # The bundle is a 0700 directory of 0600 files outside the checkout. The
+        # last step removes it.
         run: |
           set -euo pipefail
-          umask 077
-          if [ -z "${SHIFTER_CONFIG_GCP_DEV}" ]; then
-            echo "::error::Required secret SHIFTER_CONFIG_GCP_DEV is not set. See docs/dev/deploy-secrets.md."
-            exit 1
-          fi
-          CONFIG_FILE="${RUNNER_TEMP}/shifter.yaml"
-          RANGE_EGRESS_TFVARS_FILE="${RUNNER_TEMP}/gcp-${GCP_ENVIRONMENT}-range-egress.auto.tfvars"
-          printf '%s\n' "${SHIFTER_CONFIG_GCP_DEV}" > "${CONFIG_FILE}"
-          chmod 600 "${CONFIG_FILE}"
-          uv run --project "${GITHUB_WORKSPACE}/shifter/installation" \
-            shifter-config render "${CONFIG_FILE}" \
-            --output "${RANGE_EGRESS_TFVARS_FILE}"
-          chmod 600 "${RANGE_EGRESS_TFVARS_FILE}"
-          {
-            echo "RANGE_EGRESS_TFVARS_FILE=${RANGE_EGRESS_TFVARS_FILE}"
-            echo "TF_CLI_ARGS_apply=-var-file=${TF_VARS_FILE} -var-file=${RANGE_EGRESS_TFVARS_FILE}"
-            echo "TF_CLI_ARGS_destroy=-var-file=${TF_VARS_FILE} -var-file=${RANGE_EGRESS_TFVARS_FILE}"
-          } >> "${GITHUB_ENV}"
+          inputs="${RUNNER_TEMP}/deployment-inputs"
+          uv run --project scripts/gcp --frozen python scripts/gcp/render_ci_deployment_inputs.py \
+            --environment "${GCP_ENVIRONMENT}" --output "${inputs}" --purpose destroy
+          echo "DEPLOYMENT_INPUTS=${inputs}" >> "${GITHUB_ENV}"
 
-      - name: Resolve Terraform state bucket
-        env:
-          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+      - name: Destroy the platform resources
+        working-directory: scripts/bootstrap
         run: |
-          {
-            echo "PROJECT_ID=${PROJECT_ID}"
-            echo "REGION=${REGION}"
-            echo "TF_STATE_BUCKET=${PROJECT_ID}-terraform-state"
-          } >> "$GITHUB_ENV"
-
-      - name: Terraform init
-        working-directory: ${{ env.TF_DIR }}
-        run: |
-          terraform init \
-            -reconfigure \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="prefix=${TF_BACKEND_PREFIX}"
-
-      - name: Lift Cloud SQL deletion protection
-        working-directory: ${{ env.TF_DIR }}
-        # Only acts if the instance is still in state. -target the instance so
-        # the deletion_protection=false value reaches the live resource before
-        # destroy. A no-op if SQL was already removed. The full address is
-        # resolved by suffix so nested submodules cannot break the match.
-        run: |
-          addr="$(terraform state list | grep -E "${SQL_INSTANCE_SUFFIX}$" || true)"
-          if [ -n "$addr" ]; then
-            echo "Lifting Cloud SQL deletion protection on: $addr"
-            terraform apply -auto-approve -target="$addr"
-          else
-            echo "Cloud SQL instance not in state; skipping deletion-protection lift."
-          fi
-
-      - name: Drop unremovable KMS resources from state
-        working-directory: ${{ env.TF_DIR }}
-        # GCP does not allow deleting KMS key rings or crypto keys, and the
-        # crypto key carries prevent_destroy. Remove both from state so
-        # destroy does not attempt (and fail on) them. They survive in the
-        # project, inert.
-        run: |
-          for suffix in "${KMS_KEY_SUFFIX}" "${KMS_KEYRING_SUFFIX}"; do
-            addr="$(terraform state list | grep -E "${suffix}$" || true)"
-            if [ -n "$addr" ]; then
-              echo "Dropping from state: $addr"
-              terraform state rm "$addr"
-            else
-              echo "No state entry matching *${suffix}; skipping."
-            fi
-          done
-
-      - name: Terraform destroy
-        working-directory: ${{ env.TF_DIR }}
-        # GKE and load-balancer dependencies can report deletion complete before
-        # dependent resources observe the release. Re-running destroy is
-        # idempotent and lets those provider-side links converge without
-        # out-of-band resource deletion. The Service Networking connection is
-        # not handled by this loop: its producer-held peering is released by
-        # deletion_policy = "REMOVE_PEERING" in modules/portal/vpc, because
-        # retrying the default delete keeps failing after Cloud SQL and
-        # Memorystore are gone.
-        run: |
-          set -euo pipefail
-          # Five backoff intervals (1+2+3+4+5 minutes) bound the retries for
-          # transient dependency convergence without retrying indefinitely.
-          max_attempts=6
-          for attempt in $(seq 1 "${max_attempts}"); do
-            if terraform destroy -auto-approve; then
-              exit 0
-            fi
-            if [ "${attempt}" -eq "${max_attempts}" ]; then
-              echo "::error::Terraform destroy failed after ${max_attempts} attempts."
-              exit 1
-            fi
-            delay=$((attempt * 60))
-            echo "::warning::Terraform destroy attempt ${attempt} failed; retrying in ${delay}s for GCP dependency convergence."
-            sleep "${delay}"
-          done
+          uv run --frozen python deploy.py gcp-destroy --inputs "${DEPLOYMENT_INPUTS}" \
+            --environment "${GCP_ENVIRONMENT}" --confirm "${GCP_ENVIRONMENT}" \
+            --identity ambient --lock external
 
       - name: Remove ephemeral deployment inputs
         if: always()
-        run: |
-          rm -f \
-            "${TF_VARS_FILE:-${RUNNER_TEMP}/missing-tfvars}" \
-            "${RANGE_EGRESS_TFVARS_FILE:-${RUNNER_TEMP}/missing-range-tfvars}" \
-            "${RUNNER_TEMP}/shifter.yaml"
+        run: rm -rf "${RUNNER_TEMP}/deployment-inputs"

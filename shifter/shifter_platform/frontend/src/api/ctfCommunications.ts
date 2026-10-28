@@ -1,41 +1,101 @@
 /** Scoped communication writes and bounded organizer reads. */
 import { useRef } from "react";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import type { components } from "./schema";
 
 const COMMUNICATION_QUERY_KEY = "ctf-communications";
 
-type Campaign = components["schemas"]["CommunicationCampaignSummary"];
+export type Campaign = components["schemas"]["CommunicationCampaignSummary"];
 type Intent = components["schemas"]["CommunicationIntent"];
-type Input = { subject: string; body: string; scheduled_at?: string };
-type Pending = { current: { fingerprint: string; campaignId: string } | null };
+type CampaignList = components["schemas"]["CampaignList"];
+export type CommunicationTargets = components["schemas"]["CommunicationTargetOptions"];
+export type CommunicationPreview = components["schemas"]["CommunicationPreview"];
+export type DeliveryReport = components["schemas"]["CommunicationDeliveryReport"];
+export type RecipientPage = components["schemas"]["CommunicationRecipientPage"];
+export type CommunicationActivity = components["schemas"]["CommunicationActivity"];
+export type AcknowledgementPolicy = "none" | "read" | "explicit";
 
-type CommunicationParent = { account: string } | { organization: string } | { workspace: string };
+export type CommunicationParent = { kind: "account" | "organization" | "workspace"; id: string };
+
+/** One draft for events with the same explicit parent. */
+export type DraftInput = {
+  parent: CommunicationParent;
+  eventIds: string[];
+  title: string;
+  subject: string;
+  body: string;
+  channels?: ("in_app" | "email")[];
+  acknowledgementPolicy?: AcknowledgementPolicy;
+  /** UTC ISO instant for a scheduled send; omitted for send now. */
+  dueAt?: string;
+};
+
+type Input = { subject: string; body: string; scheduled_at?: string };
+type Pending = { current: { fingerprint: string; campaignId: string; revisionId?: string } | null };
+
+const keys = {
+  all: [COMMUNICATION_QUERY_KEY] as const,
+  event: (eventId: string) => [COMMUNICATION_QUERY_KEY, eventId] as const,
+  targets: (parent?: CommunicationParent) => [COMMUNICATION_QUERY_KEY, "targets", parent?.kind, parent?.id] as const,
+  parent: (parent: CommunicationParent) => [COMMUNICATION_QUERY_KEY, "parent", parent.kind, parent.id] as const,
+  campaign: (campaignId: string) => [COMMUNICATION_QUERY_KEY, "campaign", campaignId] as const,
+  preview: (campaignId: string, revisionId: string) =>
+    [COMMUNICATION_QUERY_KEY, "campaign", campaignId, "preview", revisionId] as const,
+};
+
+export function draftBody(input: DraftInput) {
+  const [first] = input.eventIds;
+  return {
+    [input.parent.kind]: input.parent.id,
+    title: input.title,
+    subject: input.subject,
+    body: input.body,
+    target_event_ids: input.eventIds,
+    audience_spec:
+      input.eventIds.length > 1
+        ? { kind: "multi_event" as const, event_ids: input.eventIds }
+        : { kind: "event" as const, event_ids: [first] },
+    trigger_spec: input.dueAt ? { kind: "absolute_time" as const, due_at: input.dueAt } : { kind: "manual" as const },
+    channels: input.channels ?? ["in_app"],
+    acknowledgement_policy: input.acknowledgementPolicy ?? "none",
+  };
+}
+
+export function createDraft(input: DraftInput) {
+  return apiFetch<Campaign>("/ctf/communications/", { method: "POST", body: draftBody(input) });
+}
+
+export function reviseDraft(campaignId: string, content: { subject: string; body: string }) {
+  return apiFetch<Campaign>(`/ctf/communications/${campaignId}/revisions/`, { method: "POST", body: content });
+}
+
+/** Release the reviewed revision; a retry reuses the same campaign and occurrence. */
+export function releaseCommunication(campaignId: string, revisionId?: string, occurrenceKey = "initial") {
+  return apiFetch<Intent>(`/ctf/communications/${campaignId}/release/`, {
+    method: "POST",
+    body: revisionId ? { occurrence_key: occurrenceKey, revision_id: revisionId } : { occurrence_key: occurrenceKey },
+  });
+}
 
 async function parentForEvent(eventId: string): Promise<CommunicationParent> {
   const event = await apiFetch<components["schemas"]["EventDetail"]>(`/ctf/events/${eventId}/`);
-  if (event.workspace) return { workspace: event.workspace };
-  if (event.organization) return { organization: event.organization };
-  if (event.account) return { account: event.account };
+  if (event.workspace) return { kind: "workspace", id: event.workspace };
+  if (event.organization) return { kind: "organization", id: event.organization };
+  if (event.account) return { kind: "account", id: event.account };
   throw new Error("Communication access to this event scope is unavailable.");
 }
 
 export async function submitCommunication(eventId: string, input: Input, pending: Pending) {
   const fingerprint = JSON.stringify([eventId, input]);
   if (pending.current?.fingerprint !== fingerprint) {
-    const parent = await parentForEvent(eventId);
-    const campaign = await apiFetch<Campaign>("/ctf/communications/", { method: "POST", body: {
-      ...parent, title: input.subject, subject: input.subject, body: input.body,
-      target_event_ids: [eventId], audience_spec: { kind: "event", event_ids: [eventId] },
-      trigger_spec: input.scheduled_at ? { kind: "absolute_time", due_at: input.scheduled_at } : { kind: "manual" },
-      channels: ["in_app"], acknowledgement_policy: "none",
-    } });
-    pending.current = { fingerprint, campaignId: campaign.id };
+    const campaign = await createDraft({
+      parent: await parentForEvent(eventId), eventIds: [eventId],
+      title: input.subject, subject: input.subject, body: input.body, dueAt: input.scheduled_at,
+    });
+    pending.current = { fingerprint, campaignId: campaign.id, revisionId: campaign.latest_revision?.id };
   }
-  const result = await apiFetch<Intent>(`/ctf/communications/${pending.current.campaignId}/release/`, {
-    method: "POST", body: { occurrence_key: "initial" },
-  });
+  const result = await releaseCommunication(pending.current.campaignId, pending.current.revisionId);
   pending.current = null;
   return result;
 }
@@ -45,26 +105,141 @@ export function useAnnounceCtfNotification(eventId: string) {
   const pending = useRef<Pending["current"]>(null);
   return useMutation({
     mutationFn: (input: Input) => submitCommunication(eventId, input, pending),
-    onSuccess: () => client.invalidateQueries({ queryKey: [COMMUNICATION_QUERY_KEY, eventId] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.all }),
   });
 }
 
 export function useCtfCommunications(eventId: string) {
-  return useInfiniteQuery({ queryKey: [COMMUNICATION_QUERY_KEY, eventId], enabled: Boolean(eventId),
+  return useInfiniteQuery({ queryKey: keys.event(eventId), enabled: Boolean(eventId),
     initialPageParam: 0,
-    getNextPageParam: (page: components["schemas"]["CampaignList"]) => page.next_offset ?? undefined,
+    getNextPageParam: (page: CampaignList) => page.next_offset ?? undefined,
     queryFn: async ({ pageParam }) => {
     const parent = await parentForEvent(eventId);
-    const query = new URLSearchParams({ ...parent, event_id: eventId, limit: "25", offset: String(pageParam) });
+    const query = new URLSearchParams({ [parent.kind]: parent.id, event_id: eventId, limit: "25", offset: String(pageParam) });
     return apiFetch<components["schemas"]["CampaignList"]>(
       `/ctf/communications/?${query.toString()}`,
     );
   } });
 }
 
-export function useCancelCtfCommunication(eventId: string) {
+export function useCancelCtfCommunication(eventId?: string) {
   const client = useQueryClient();
   return useMutation({ mutationFn: (campaignId: string) => apiFetch<Campaign>(
     `/ctf/communications/${campaignId}/cancel/`, { method: "POST", body: {} },
-  ), onSuccess: () => client.invalidateQueries({ queryKey: [COMMUNICATION_QUERY_KEY, eventId] }) });
+  ), onSuccess: () => client.invalidateQueries({ queryKey: eventId ? keys.event(eventId) : keys.all }) });
+}
+
+// --- Multi-event console (#2052) -----------------------------------------------
+
+export function useCommunicationTargets(parent?: CommunicationParent) {
+  return useInfiniteQuery({
+    queryKey: keys.targets(parent),
+    initialPageParam: 0,
+    getNextPageParam: (page: CommunicationTargets) => page.next_offset ?? undefined,
+    queryFn: ({ pageParam, signal }) =>
+      apiFetch<CommunicationTargets>("/ctf/communications/target-options/", {
+        signal,
+        query: { ...(parent ? { [parent.kind]: parent.id } : {}), limit: 100, offset: pageParam },
+      }),
+  });
+}
+
+export function useParentCommunications(parent: CommunicationParent) {
+  return useInfiniteQuery({
+    queryKey: keys.parent(parent),
+    enabled: Boolean(parent.id),
+    initialPageParam: 0,
+    getNextPageParam: (page: CampaignList) => page.next_offset ?? undefined,
+    queryFn: ({ pageParam, signal }) =>
+      apiFetch<CampaignList>("/ctf/communications/", {
+        signal,
+        query: { [parent.kind]: parent.id, limit: 25, offset: pageParam },
+      }),
+  });
+}
+
+export function useCommunication(campaignId: string) {
+  return useQuery({
+    queryKey: keys.campaign(campaignId),
+    enabled: Boolean(campaignId),
+    queryFn: ({ signal }) => apiFetch<Campaign>(`/ctf/communications/${campaignId}/`, { signal }),
+  });
+}
+
+export function useCommunicationPreview(campaignId: string, revisionId: string) {
+  return useQuery({
+    queryKey: keys.preview(campaignId, revisionId),
+    enabled: Boolean(campaignId && revisionId),
+    queryFn: ({ signal }) =>
+      apiFetch<CommunicationPreview>(`/ctf/communications/${campaignId}/preview/`, {
+        signal,
+        query: { revision_id: revisionId },
+      }),
+  });
+}
+
+// Bounded refresh while any delivery command or scheduled release is still pending.
+const DELIVERY_REFRESH_MS = 15_000;
+
+function hasPendingWork(pages: DeliveryReport[] | undefined): boolean {
+  return (pages ?? []).some((page) =>
+    page.results.some(
+      (occurrence) =>
+        occurrence.status === "scheduled" ||
+        occurrence.totals.channels.some((channel) => channel.queued + channel.claimed + channel.retry_due > 0),
+    ),
+  );
+}
+
+export function useCommunicationDelivery(campaignId: string) {
+  return useInfiniteQuery({
+    queryKey: [...keys.campaign(campaignId), "delivery"],
+    enabled: Boolean(campaignId),
+    initialPageParam: 0,
+    getNextPageParam: (page: DeliveryReport) => page.next_offset ?? undefined,
+    refetchInterval: (query) => (hasPendingWork(query.state.data?.pages) ? DELIVERY_REFRESH_MS : false),
+    queryFn: ({ pageParam, signal }) =>
+      apiFetch<DeliveryReport>(`/ctf/communications/${campaignId}/delivery/`, {
+        signal,
+        query: { limit: 25, offset: pageParam },
+      }),
+  });
+}
+
+export function useCommunicationRecipients(campaignId: string, intentId: string, eventId: string, offset: number) {
+  return useQuery({
+    queryKey: [...keys.campaign(campaignId), "recipients", intentId, eventId, offset],
+    enabled: Boolean(campaignId && intentId && eventId),
+    placeholderData: keepPreviousData,
+    queryFn: ({ signal }) =>
+      apiFetch<RecipientPage>(`/ctf/communications/${campaignId}/recipients/`, {
+        signal,
+        query: { intent_id: intentId, event_id: eventId, limit: 50, offset },
+      }),
+  });
+}
+
+export function useCommunicationActivity(campaignId: string) {
+  return useQuery({
+    queryKey: [...keys.campaign(campaignId), "activity"],
+    enabled: Boolean(campaignId),
+    queryFn: ({ signal }) => apiFetch<CommunicationActivity>(`/ctf/communications/${campaignId}/activity/`, { signal }),
+  });
+}
+
+export function useCreateCommunicationDraft() {
+  return useMutation({ mutationFn: createDraft });
+}
+
+export function useReviseCommunication(campaignId: string) {
+  return useMutation({ mutationFn: (content: { subject: string; body: string }) => reviseDraft(campaignId, content) });
+}
+
+export function useReleaseCommunication() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ campaignId, revisionId }: { campaignId: string; revisionId: string }) =>
+      releaseCommunication(campaignId, revisionId),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.all }),
+  });
 }

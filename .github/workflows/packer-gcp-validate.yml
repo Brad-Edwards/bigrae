@@ -32,7 +32,6 @@ on:
         type: choice
         options:
           - ubuntu
-          - brokenbk
           - kali
           - dc-prebaked
       environment:

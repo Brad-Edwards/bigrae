@@ -275,3 +275,25 @@ def test_dependency_outage_preserves_scheduled_work_then_releases_once(organizer
     assert run_release_communication_task(task)["outcome"] == "released"
     assert RecipientSnapshot.objects.filter(intent=intent).count() == 1
     assert DeliveryAttempt.objects.filter(intent=intent).count() == 1
+
+
+def test_event_time_change_keeps_an_independent_scheduled_communication(organizer_user, ctf_event):
+    """Moving event times recreates lifecycle tasks but never strands a communication (#2052)."""
+    from ctf.enums import EventStatus
+    from ctf.services.event.scheduling import _reschedule_event_tasks
+
+    due = timezone.now() + timezone.timedelta(hours=6)
+    _campaign, intent, credential = _scheduled(organizer_user, ctf_event, due_at=due)
+    ctf_event.status = EventStatus.REGISTRATION.value
+    ctf_event.event_start = ctf_event.event_start + timezone.timedelta(days=1)
+    ctf_event.event_end = ctf_event.event_end + timezone.timedelta(days=1)
+    ctf_event.save()
+
+    _reschedule_event_tasks(ctf_event, credential)
+
+    task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
+    assert task.status == ScheduledTaskStatus.PENDING.value
+    assert task.scheduled_for == due
+    assert task.metadata["intent_id"] == str(intent.id)
+    starts = CTFScheduledTask.objects.filter(task_type=ScheduledTaskType.EVENT_START.value)
+    assert starts.filter(status=ScheduledTaskStatus.PENDING.value, scheduled_for=ctf_event.event_start).count() == 1

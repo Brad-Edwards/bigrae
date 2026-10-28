@@ -163,3 +163,16 @@ The earlier per-user personal organization/workspace compatibility rule in ADR-0
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_native_notification_authority.py` (Native notification and restricted scoreboard admission without legacy role bypass)
 - TESTS → TEST `shifter/shifter_platform/tests/integration/asgi/test_notifications_ws.py` (Composed WebSocket credential binding, policy changes and replay delivery)
 - TESTS → TEST `shifter/shifter_platform/tests/integration/asgi/test_native_ctf_notifications.py` (Real middleware, channel layer, proof expiry and per-topic delivery/replay admission)
+
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/read_admission.py` (Complete-target report authority and separate recipient permission)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/targets.py` (Native parent discovery before pagination)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/attribution.py` (Actual human or service actor attribution)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/migrations/0077_merge_communication_attribution.py` (Preserve both independent migration histories)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/migrations/0078_native_communication_attribution.py` (Native revision and cancellation attribution)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_native_console.py` (Exact native discovery, reporting and service attribution)
+- TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/admin/communications/CommunicationsConsole.test.tsx` (Explicit parent selection, isolated cache and reviewed release)
+
+- IMPLEMENTS → CODE `scripts/bootstrap/gcp_identity_cutover.py` (Canonical deployment probe, maintenance, facts custody and activation sequence)
+- IMPLEMENTS → CODE `shifter/installation/gcp_identity_cutover.py` (Shared native probe, quiesced chart and cutover Job projections)
+- TESTS → TEST `scripts/bootstrap/tests/test_gcp_identity_cutover.py` (Actual process-boundary cutover, inconclusive probe and cleanup regressions)
+- TESTS → TEST `shifter/installation/tests/test_gcp_identity_cutover.py` (Native probe, quiesced chart and cutover Job projection contracts)

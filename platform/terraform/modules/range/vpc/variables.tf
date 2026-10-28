@@ -126,7 +126,7 @@ variable "agent_s3_bucket" {
 }
 
 variable "environment" {
-  description = "Environment name (dev, prod, proof)."
+  description = "Environment name (dev, prod)."
   type        = string
 }
 

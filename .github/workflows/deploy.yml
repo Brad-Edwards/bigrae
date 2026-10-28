@@ -195,8 +195,18 @@ jobs:
               - 'docs/technical/dev/adr-enforcement.md'
             gcp:
               - 'platform/terraform/gcp/**'
-              - 'platform/k8s/gcp/**'
+              # The Helm chart is the only GCP renderer (ADR-007, ADR-070).
+              - 'platform/charts/shifter/**'
               - 'scripts/gcp/**'
+              # The GCP deploy command and its shared bootstrap modules (ADR-070).
+              - 'scripts/bootstrap/gcp_*.py'
+              - 'scripts/bootstrap/bootstrap_core.py'
+              - 'scripts/bootstrap/cli.py'
+              - 'scripts/bootstrap/deploy.py'
+              - 'scripts/bootstrap/preflight.py'
+              - 'scripts/bootstrap/pyproject.toml'
+              - 'scripts/bootstrap/uv.lock'
+              - 'scripts/smoke-test-gcp.sh'
               - 'shifter/shifter_platform/shared/cloud/gcp/**'
               - 'shifter/shifter_platform/shared/cloud/types.py'
               - 'shifter/engine/provisioner/cloud/gcp/**'
@@ -484,8 +494,9 @@ jobs:
     needs: [changes, quality]
     # `_gcp-dev.yml::prepare`, `release_scan`, and `deploy` request
     # `id-token: write` (purpose-scoped GCP WIF); `prepare` also requests
-    # `attestations: write` (SBOM + provenance, ADR-037-R5/R6), and deploy
-    # requests attestation readback. `post-deploy-smoke` requests
+    # `attestations: write` (SBOM + provenance stored with each image,
+    # ADR-037-R5/R6). The deploy verifies them through the registry, not the
+    # GitHub API (ADR-070). `post-deploy-smoke` requests
     # `issues: write` (smoke failure issues). Reusable workflows can't request
     # higher GITHUB_TOKEN scopes than the caller grants — without this
     # block the workflow fails at startup with
@@ -521,14 +532,13 @@ jobs:
       GCP_DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
       GCP_RELEASE_SCAN_SERVICE_ACCOUNT: ${{ secrets.GCP_RELEASE_SCAN_SERVICE_ACCOUNT }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      # Deployment-owned identity/config values consumed by _gcp-dev.yml's
-      # render steps. Must be forwarded here: the reusable workflow only sees
-      # secrets the caller passes, so an omitted one renders empty and the
-      # deploy fails loud (e.g. "GCP_PROJECT_ID is not set").
+      # Deployment-owned identity/config values that _gcp-dev.yml's CI adapter
+      # projects onto the deployment input bundle. Must be forwarded here: the
+      # reusable workflow only sees secrets the caller passes, so an omitted one
+      # renders empty and the deploy fails loud (e.g. "GCP_PROJECT_ID is not set").
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       GCP_PUBLIC_HOSTNAME: ${{ secrets.GCP_PUBLIC_HOSTNAME }}
       GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN: ${{ secrets.GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN }}
-      GCP_MASTER_AUTHORIZED_CIDRS: ${{ secrets.GCP_MASTER_AUTHORIZED_CIDRS }}
       GCP_RANGE_IMAGE_KEY_PROFILES_JSON: ${{ secrets.GCP_RANGE_IMAGE_KEY_PROFILES_JSON }}
       SHIFTER_CONFIG_GCP_DEV: ${{ secrets.SHIFTER_CONFIG_GCP_DEV }}
       IDENTITY_CUTOVER_FACTS_JSON: ${{ secrets.IDENTITY_CUTOVER_FACTS_JSON }}

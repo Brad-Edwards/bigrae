@@ -223,13 +223,16 @@ class TestBackendSpecificValidation:
         )
         assert cfg.secrets["django_secret_key"] == "shifter/prod/django-secret-key"
 
-    def test_real_aws_bundle_accepts_the_proof_profile(self, write_config):
-        cfg = load_root_config(
-            write_config(
-                self._aws_config(deployment={"name": "shifter", "domain": "shifter.example.com", "profile": "proof"})
+    def test_real_aws_bundle_rejects_the_retired_profile(self, write_config):
+        with pytest.raises(InstallationConfigError) as exc:
+            load_root_config(
+                write_config(
+                    self._aws_config(
+                        deployment={"name": "shifter", "domain": "shifter.example.com", "profile": "proof"}
+                    )
+                )
             )
-        )
-        assert cfg.deployment.profile == "proof"
+        assert "deployment.profile" in {issue.path for issue in exc.value.issues}
 
     def test_real_aws_bundle_still_validates_range_egress_with_verbatim_cidr_errors(self, write_config):
         # range_egress stays owned by installation.range_egress even with a closed AWS

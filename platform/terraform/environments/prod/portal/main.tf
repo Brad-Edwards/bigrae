@@ -400,6 +400,7 @@ module "cognito" {
 
   # Client-secret rotation (#159): operator-triggered Lambda + scheduled email reminder.
   alerts_topic_arn         = aws_sns_topic.alerts.arn
+  alerts_topic_kms_key_arn = aws_kms_key.alerts_sns.arn
   enable_rotation_reminder = var.alarm_email != ""
   deletion_protection      = true
 
@@ -410,9 +411,52 @@ module "cognito" {
 # Shared Alerting SNS Topic
 # ------------------------------------------------------------------------------
 
+# The topic uses a customer managed key (AWS-0136). CloudWatch alarms can
+# publish to an encrypted topic only when the key policy lets the CloudWatch
+# service principal use the key. The AWS managed alias/aws/sns key policy
+# cannot grant this. IAM publishers, such as the Cognito rotation reminder
+# role, get key access through their IAM policies.
+resource "aws_kms_key" "alerts_sns" {
+  description             = "CMK for the ${local.name_prefix} shared alerts SNS topic (AWS-0136)"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableRootAccountAdmin"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowCloudWatchAlarms"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey*",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-alerts-sns"
+  })
+}
+
+resource "aws_kms_alias" "alerts_sns" {
+  name          = "alias/${local.name_prefix}-alerts-sns"
+  target_key_id = aws_kms_key.alerts_sns.key_id
+}
+
 resource "aws_sns_topic" "alerts" {
   name              = "${local.name_prefix}-alerts"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.alerts_sns.arn
   tags              = var.tags
 }
 

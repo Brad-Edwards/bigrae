@@ -4,18 +4,14 @@ Split out of ``k8s_security.py`` to keep each module under the file-length
 limit; every public name here is re-imported by that module so the package
 surface is unchanged.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
-from .._common import (
-    Violation,
-    _repo_relative,
-)
+from .._common import Violation
 from ._k8s_security_manifests import (
     HELM_VALUES_FILES,
-    K8S_BASE_DEPLOYMENT_DIR,
-    _iter_yaml_documents,
     _render_chart_for_validation,
 )
 
@@ -140,9 +136,7 @@ def _destination_ip_block_cidr(destination: object) -> object:
     return ip_block.get("cidr")
 
 
-def _broad_egress_network_policy_violations(
-    policies: list[tuple[dict[str, object], str]], rel: str
-) -> list[Violation]:
+def _broad_egress_network_policy_violations(policies: list[tuple[dict[str, object], str]], rel: str) -> list[Violation]:
     """Flag egress rules that allow an unrestricted IPv4/IPv6 CIDR (ADR-006-R3)."""
     violations: list[Violation] = []
     broad_cidrs = {"0.0.0.0/0", "::/0"}
@@ -186,20 +180,6 @@ def _validate_network_policy_documents(docs: list[object], rel: str) -> list[Vio
     ]
 
 
-def _validate_network_policy_base_files(repo_root: Path, base_files: list[Path]) -> list[Violation]:
-    """Validate NetworkPolicy coverage across the base manifest snapshots."""
-    violations: list[Violation] = []
-    docs: list[object] = []
-    for path in base_files:
-        rel = _repo_relative(path, repo_root)
-        parsed, parse_violations = _iter_yaml_documents(path.read_text(encoding="utf-8"), rel)
-        docs.extend(parsed)
-        violations.extend(_as_network_policy_violations(parse_violations))
-    if base_files:
-        violations.extend(_validate_network_policy_documents(docs, K8S_BASE_DEPLOYMENT_DIR))
-    return violations
-
-
 def _validate_network_policy_chart_renders(repo_root: Path) -> list[Violation]:
     """Validate NetworkPolicy coverage across every rendered chart output."""
     violations: list[Violation] = []
@@ -224,7 +204,6 @@ __all__ = [
     "_network_policy_name",
     "_network_policy_violation",
     "_shifter_network_policy_docs",
-    "_validate_network_policy_base_files",
     "_validate_network_policy_chart_renders",
     "_validate_network_policy_documents",
 ]

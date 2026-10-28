@@ -71,6 +71,6 @@ class TestRaesPackageSourcePersistence:
         row = _create(
             staff_user,
             scenario_id="good-prov",
-            provenance={"repo": "Brad-Edwards/bigrae", "commit": "abc123"},
+            provenance={"repo": "example-org/example-repo", "commit": "abc123"},
         )
-        assert row.provenance == {"repo": "Brad-Edwards/bigrae", "commit": "abc123"}
+        assert row.provenance == {"repo": "example-org/example-repo", "commit": "abc123"}

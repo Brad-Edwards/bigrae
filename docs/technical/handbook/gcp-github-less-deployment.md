@@ -1,0 +1,540 @@
+# GitHub-less GCP deployment
+
+Applicability: GCP deployments that use the GitHub-less deploy path (ADR-070).
+Operator: platform owner. Verified against the repository: 2026-10-28.
+
+This guide stands up, updates, and tears down a GCP deployment from a
+published release. The deployment needs no GitHub access, no GitHub
+Environment, and no self-hosted runner. The commands are in
+`scripts/bootstrap/deploy.py`. The design is in
+`docs/architecture/github-less-gcp-deployment-design-2571.md`.
+
+A CI deployment (`deploy.yml` with `_gcp-dev.yml`) runs the same commands. Its
+GitHub inputs are in [deploy-secrets.md](../../dev/deploy-secrets.md#gcp-gcp-dev).
+When a command fails, use [RB023](../../runbooks/rb023-gcp-deployment.md).
+
+## Terms
+
+| Term | Meaning |
+| --- | --- |
+| Release | One source revision: five control-plane images, one deployer image, and their attestations in the release registry. |
+| Release registry | The Artifact Registry repository that `release-gcp.yml` writes and deployments read. |
+| Release manifest | `bigrae.gcp-release.v1` JSON with the source revision, the chart version, and the exact image digests. The deployer image holds it at `/opt/bigrae/release.json`. |
+| Deployer image | The container that holds the commands, the Terraform roots, the Helm chart, and the pinned tools of one release. |
+| Deployment input bundle | The objects that one deployment reads: `bigrae.yaml`, the Terraform values, and the range image references. |
+| Deployment config bucket | The GCS bucket that holds the deployment input bundle and the deployment lock. |
+| Purpose identity | One of the deploy, release-scan, and destroy service accounts of a deployment. |
+
+## Prerequisites and roles
+
+1. Make sure that the GCP project exists and that billing is on.
+2. Enable every Vertex AI model that the deployment configuration uses. The
+   Vertex AI API alone does not enable a model.
+3. Make sure that your Google identity is in `impersonation_principals` of the
+   foundation for each purpose: `deploy`, `release_scan`, and `destroy`. The
+   foundation gives each listed principal
+   `roles/iam.serviceAccountTokenCreator` on that purpose identity only.
+4. Make sure that your identity is in `reader_members` of the release registry.
+   You need read access to pull the deployer image and the base guest images.
+5. Sign in to Google Cloud. The commands use your credentials only to
+   impersonate the purpose identities.
+
+   ```bash
+   gcloud auth login
+   gcloud auth application-default login
+   ```
+
+6. Use the deployer image of the release
+   ([Get and verify the deployer image](#get-and-verify-the-deployer-image)).
+   The image holds every tool at the release version.
+7. If you run the commands from a checkout instead, check out the exact release
+   revision with no local changes. Install these tools on `PATH`: `gcloud`,
+   `gke-gcloud-auth-plugin`, `terraform`, `kubectl`, `helm`, `oras`, `trivy`,
+   `git`, and `uv`. The command stops when a tool is missing.
+
+The foundation needs project administration rights. `gcp-images` runs as your
+own identity: it creates Compute Engine images and a temporary transfer bucket
+in the project.
+
+## Publish a release
+
+The repository maintainer does this procedure once for each release. A
+deployment operator only consumes the result.
+
+1. In the project that holds the release registry, apply the foundation in
+   GitHub mode with a `release` purpose context:
+
+   ```json
+   "release": [
+     {
+       "environment": "gcp-release",
+       "ref": "refs/heads/main",
+       "workflow_ref": "<owner>/<repo>/.github/workflows/release-gcp.yml@refs/heads/main",
+       "reusable_workflow_ref": ""
+     }
+   ]
+   ```
+
+   The `cicd-oidc` root rejects a `release` context on any other ref or
+   workflow. Read the identity with
+   `terraform output -raw release_service_account_email`.
+2. Apply `platform/terraform/gcp/global/release-registry` in the same project:
+
+   ```bash
+   cd platform/terraform/gcp/global/release-registry
+   terraform init \
+     -backend-config="bucket=<project>-terraform-state" \
+     -backend-config="prefix=release-registry"
+   terraform apply \
+     -var="project_id=<project>" -var="project_number=<project-number>" \
+     -var='writer_members=["serviceAccount:<release-service-account>"]' \
+     -var='reader_members=["serviceAccount:<deploy-identity>","serviceAccount:<destroy-identity>","user:<operator>"]'
+   terraform output -raw release_registry
+   ```
+
+   - `writer_members` accepts service accounts only. Add each image build
+     identity that copies base guest images into the registry.
+   - `reader_members` must include the deploy and destroy identities of each
+     deployment. The deploy identity copies the images. The destroy identity
+     verifies the release before a teardown.
+3. Create the `gcp-release` GitHub Environment. Limit it to `main`.
+4. Set these values in that Environment:
+
+   | Name | Kind | Value |
+   | --- | --- | --- |
+   | `GCP_WORKLOAD_IDENTITY_PROVIDER` | secret | The `workload_identity_provider` output of the `cicd-oidc` root. |
+   | `GCP_RELEASE_SERVICE_ACCOUNT` | secret | The `release_service_account_email` output. |
+   | `GCP_RELEASE_REGISTRY` | variable | The `release_registry` output, `<location>-docker.pkg.dev/<project>/<repository>`. |
+
+5. Dispatch the release from `main`. The `version` input is optional; an empty
+   value uses `version.txt`.
+
+   ```bash
+   gh workflow run release-gcp.yml --ref main
+   ```
+
+6. Read the deployer image digest and the release manifest in the run summary.
+
+The workflow scans the deployer image digest before it attests the image. The
+scan is a blocking Trivy gate: `trivy image --scanners vuln --severity
+HIGH,CRITICAL --ignore-unfixed --exit-code 1`. Trivy reads its vulnerability
+databases from `mirror.gcr.io`. A HIGH or CRITICAL finding with a fix stops the
+release.
+
+The only accepted exposures are in `platform/deployer/gcp/trivyignore.yaml`.
+Each entry is a HIGH finding in a vendor binary that no vendor build fixes yet.
+Each entry expires on 2026-11-30. After that date, the gate blocks each release
+until a maintainer updates the tools.
+
+To publish base guest images to the release registry, set the
+`GCP_RELEASE_REGISTRY` variable in the image build Environment.
+`packer-gcp.yml` then copies each published base image to
+`<release registry>/shifter-gce-<role>` and checks that the digest is equal.
+
+## Get and verify the deployer image
+
+1. Set the release registry and the release revision:
+
+   ```bash
+   REG=<location>-docker.pkg.dev/<project>/<repository>
+   REV=<40-hex revision>
+   ```
+
+2. Let Docker and ORAS use your Google credentials for the registry host:
+
+   ```bash
+   gcloud auth configure-docker "${REG%%/*}"
+   ```
+
+3. Resolve the deployer image digest:
+
+   ```bash
+   DIGEST=$(oras resolve "$REG/deployer:$REV")
+   ```
+
+4. Verify the build provenance of the deployer image. This command is not yet
+   confirmed against a real release; confirm it on the first release.
+
+   ```bash
+   cosign verify-attestation --type https://slsa.dev/provenance/v1 \
+     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+     --certificate-identity "https://github.com/<owner>/<repo>/.github/workflows/release-gcp.yml@refs/heads/main" \
+     --certificate-github-workflow-sha "$REV" "$REG/deployer@$DIGEST"
+   ```
+
+5. Read the release manifest:
+
+   ```bash
+   docker run --rm --entrypoint cat "$REG/deployer@$DIGEST" /opt/bigrae/release.json
+   ```
+
+6. Run each command in this guide through the deployer image. Always use the
+   digest, not the tag:
+
+   ```bash
+   docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/tmp \
+     -e CLOUDSDK_CONFIG=/gcloud \
+     -e GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json \
+     -v "$HOME/.config/gcloud:/gcloud" \
+     "$REG/deployer@$DIGEST" gcp-deploy --store gs://<bucket>
+   ```
+
+The deployer image sets `BIGRAE_RELEASE_MANIFEST` and
+`BIGRAE_SOURCE_REVISION`. The command uses that manifest by default. It also
+checks that its own revision equals the manifest revision. A checkout must be a
+clean checkout of that revision; otherwise the command stops.
+
+`gcp-deploy` verifies the provenance of the five control-plane images before
+the rollout. That check binds each image to the repository ID, the owner ID,
+and the revision in `settings.release_trust` and the manifest.
+
+## Apply the foundation without GitHub
+
+1. Copy `scripts/bootstrap/gcp-foundation.github-less.example.tfvars.json` to a
+   file outside the repository.
+2. Set these keys:
+
+   | Key | Value |
+   | --- | --- |
+   | `project_id`, `project_number` | The deployment project. The command compares the number with the project. |
+   | `environment` | The deployment name. Use the same value as `deployment.name` in `bigrae.yaml`. |
+   | `name_prefix` | `shifter-<environment>`. The commands derive the purpose identities from it. |
+   | `impersonation_principals` | `deploy`, `release_scan`, and `destroy`, each with at least one `user:`, `group:`, or `serviceAccount:` member. |
+   | `deployment_config_bucket_name` | The config bucket, for example `<project>-deployment-config`. |
+   | `terraform_state_bucket_name` | `<project>-terraform-state`. The deploy command uses this name, and the foundation rejects any other name. |
+   | `release_evidence_bucket_name` | `<project>-release-evidence`. The deploy command uses this name, and the foundation rejects any other name. |
+   | `region` | The bucket location, for example `us-central1`. |
+
+3. Do not set `purpose_contexts`, `github_org`, `github_repo`,
+   `github_repository_id`, or `github_owner_id`. The command rejects GitHub
+   inputs in this mode.
+4. Preview the foundation:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-foundation --inputs /path/to/foundation.json --dry-run
+   ```
+
+5. Apply the foundation:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-foundation --inputs /path/to/foundation.json --yes
+   ```
+
+The command enables the foundation APIs and creates the private, versioned
+state bucket. It then applies `platform/terraform/gcp/global/cicd-oidc` from a
+saved plan. That root creates no Workload Identity pool or provider in this
+mode. It creates these resources:
+
+- the deploy, release-scan, and destroy service accounts;
+- the image build service account, which this mode does not use;
+- the token-creator grants for the named principals;
+- the release-evidence bucket, with a locked 90-day retention policy;
+- the deployment config bucket, with uniform access, public access
+  prevention, versioning, and access logs in the release-evidence bucket;
+- the image-build network, only when `enable_image_build_network` is `true`.
+
+The retention lock on the release-evidence bucket is permanent. Check the
+project and the bucket name in the plan before you apply it.
+
+The deploy and destroy identities can read the config bucket. They can change
+only the `locks/` prefix. Deploy principals can write the bundle; destroy-only
+principals can read it.
+
+## Create the initial secrets
+
+The platform Terraform creates and fills the runtime secrets: the Django key,
+the database credentials, the Guacamole keys, the Redis credentials, and the
+domain controller password. You create only the first operator password.
+
+1. Create the secret in the deployment project:
+
+   ```bash
+   gcloud secrets create <operator-password-secret> \
+     --project <project> --replication-policy=automatic
+   ```
+
+2. Add the password as a new version. Do not type it on the command line:
+
+   ```bash
+   read -rs OPERATOR_PASSWORD
+   printf '%s' "$OPERATOR_PASSWORD" | gcloud secrets versions add <operator-password-secret> \
+     --project <project> --data-file=-
+   unset OPERATOR_PASSWORD
+   ```
+
+3. Set `settings.operator_bootstrap.admin_password_secret_ref` to the
+   versionless resource `projects/<project>/secrets/<operator-password-secret>`.
+   The command reads the `latest` version as the deploy identity.
+
+The deploy identity holds the Secret Manager role in the deployment project.
+Thus it can read a secret in that project. The command keeps the password in
+memory only.
+
+Other inputs that refer to secrets:
+
+- If you set `email_backend` in the Terraform values, Terraform creates an
+  empty `shifter-<environment>-email` secret. Add the provider API key to it.
+- `settings.provisioner_static_secret_refs` applies only to the `gdc` range
+  backend.
+- `secrets.django_secret_key` in `bigrae.yaml` is a reference that the GCP
+  backend schema requires.
+
+## Author and publish the deployment input bundle
+
+1. Create a private directory for the bundle.
+2. Write `bigrae.yaml`:
+
+   ```yaml
+   version: 1
+   backend: gcp
+   deployment:
+     name: <environment>
+     domain: portal.<your-domain>
+     profile: prod
+   secrets:
+     django_secret_key: prompt
+   settings:
+     project_id: <project>
+     region: us-central1
+     dynamic_secret_project_id: <range-secret-project>
+     range_cells:
+       zone: us-central1-a
+     participant_openvpn:
+       enabled: false
+     operator_bootstrap:
+       admin_email: <operator>@<your-domain>
+       admin_password_secret_ref: projects/<project>/secrets/<operator-password-secret>
+     post_deploy_smoke:
+       user_email: <smoke-account>@<your-domain>
+     release_trust:
+       github_repository_id: "<repository-id>"
+       github_owner_id: "<owner-id>"
+   ```
+
+   | Setting | Meaning |
+   | --- | --- |
+   | `range_cells` | `backend` (`gce` or `gdc`), `zone`, `zones`, `project_id`, `host_identity_pool_size`, `private_google_access`, and `image_key_profiles`. A GCE range needs `zone`. |
+   | `participant_openvpn.enabled` | Deploys the shared participant OpenVPN pool. The default is `false`. |
+   | `ctf_content_bucket` | The private CTF content bucket, when the app secret carries CTF content references. |
+   | `operator_bootstrap` | The first operator. `gcp-deploy` requires this block. `enabled` defaults to `true` and then requires `admin_email`. Set `enabled: false` to create no operator. |
+   | `post_deploy_smoke.user_email` | An existing portal account for the smoke. An empty value skips the smoke. |
+   | `release_trust` | The numeric repository ID and owner ID of the repository that publishes the release. |
+
+   The operator email must use the domain in `identity_allowed_email_domain`.
+   To get the release trust IDs, run
+   `gh api repos/<owner>/<repo> --jq '.id, .owner.id'` once on any workstation.
+   The deployment itself needs no GitHub access.
+3. Write `terraform.tfvars.json` with the platform Terraform values that the
+   command does not own:
+
+   ```json
+   {
+     "gke_subnet_cidr": "10.40.0.0/20",
+     "gke_pods_cidr": "10.44.0.0/16",
+     "gke_services_cidr": "10.45.0.0/20",
+     "gke_master_ipv4_cidr": "172.16.0.0/28",
+     "gke_master_authorized_cidrs": [],
+     "range_network_cidr": "10.50.0.0/16",
+     "identity_allowed_email_domain": "<your-domain>"
+   }
+   ```
+
+   Use `platform/terraform/gcp/environments/gcp-dev/terraform.tfvars` as the
+   reference for sizing values. You can also put HCL values in
+   `terraform.tfvars`. When both files exist, the JSON file loads later and its
+   values win.
+4. Do not set the values that the command owns. The command sets `project_id`,
+   `region`, `artifact_registry_location`, `environment`, `public_hostname`,
+   `enable_managed_tls`, `openvpn_pool_enabled`,
+   `range_host_identity_pool_size`, `range_network_zones`, and
+   `ctf_content_bucket_name` from `bigrae.yaml`. Its values win over a value in
+   your files.
+5. Add the optional objects only if you need them: `foundation-inputs.json`,
+   `model-broker-overlay.template.json`, and `retired-cluster-artifacts.json`.
+   The model broker is parked (ADR-068).
+6. Publish the bundle. The command validates it first:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-config publish --store gs://<bucket> --inputs /path/to/bundle
+   ```
+
+7. Show the stored bundle. The summary has no secret values:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-config show --store gs://<bucket>
+   ```
+
+8. Import the base guest images and record their exact references:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-images --project-id <project> \
+     --source <release registry> --store gs://<bucket> --region <region>
+   ```
+
+   The command imports the `kali`, `ubuntu`, and `dc` packages as native GCE
+   images and writes the `linux`, `kali`, and `dc` roles to
+   `range-images.json`. Add `--dry-run` to check without a change. A GCE
+   deploy requires the `linux` and `dc` roles, unless you pass
+   `--allow-missing-range-images`.
+9. To record one image by hand, use `set-range-image`. The roles are `linux`,
+   `kali`, `windows`, and `dc`:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-config set-range-image --store gs://<bucket> \
+     --role windows --image projects/<project>/global/images/<image>
+   ```
+
+10. To edit the bundle later, pull it into a private directory, edit it, and
+    publish it again:
+
+    ```bash
+    ./scripts/bootstrap/deploy.py gcp-config pull --store gs://<bucket> --output /path/to/bundle
+    ```
+
+## Run the preflight
+
+Check the tools and the bundle before you deploy. The check makes no change:
+
+```bash
+./scripts/bootstrap/deploy.py preflight --cloud gcp --env <environment> --store gs://<bucket>
+```
+
+The preflight checks the tools on `PATH`, loads the bundle, and renders the
+Terraform values. It reports an insecure control-plane input, for example a
+world-open authorized network. From a checkout, the tool check includes `git`.
+The deployer image embeds its source revision, so the check omits `git` there.
+
+## First install
+
+1. Run the first deploy with `--first-install`:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket> --first-install
+   ```
+
+2. Read the ingress address in the command output.
+3. Create a DNS A record for `deployment.domain` at that address. Do not proxy
+   the record.
+4. Run the deploy again without `--first-install`. The command then waits up to
+   60 minutes for the managed certificate to become Active.
+
+In `--first-install` mode, the command accepts a certificate that covers the
+hostname but is not Active yet. It prints a DNS instruction and finishes.
+
+## Update and roll back
+
+1. Get and verify the deployer image of the new release
+   ([Get and verify the deployer image](#get-and-verify-the-deployer-image)).
+2. Change the bundle if the release needs new inputs, and publish it again.
+3. Run the deploy:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket>
+   ```
+
+To roll back, deploy the deployer image of an earlier verified release. Do not
+retag an image.
+
+## What the deploy does
+
+The command runs these stages in order:
+
+| Stage | Identity | Steps |
+| --- | --- | --- |
+| Inputs | Your identity, then deploy | Load and validate the bundle, check the tooling revision, verify the provenance of the release images, and take the lock. |
+| Infrastructure | Deploy | Initialize Identity Platform, harden the state bucket, apply Terraform, verify range audit telemetry, and create the first operator. |
+| Preconditions | Deploy | Check the GCE range inputs and images. |
+| Images | Deploy | Copy each release image and its attestations into the deployment registry by digest. |
+| Scan | Release scan | Scan each exact digest with Trivy for HIGH and CRITICAL findings. |
+| Verify | Deploy | Verify the provenance of each image. There is no bypass. |
+| Rollout | Deploy | Install or upgrade the Helm release, run migrations, sync secrets, wait for rollouts, roll out the OpenVPN pool, record the running images, and wait for the ingress and the certificate. |
+| Smoke | Deploy | Run the advisory range smoke. |
+
+`--stage infrastructure` and `--stage rollout` run one stage. Each still
+checks the tooling revision and verifies the release images before any change.
+`--stage rollout` also imports and scans the release images.
+
+Each stage sets only its purpose identity for every child process. The command
+uses a private `KUBECONFIG`, so it does not change your kubeconfig contexts.
+The Helm upgrade is atomic: a failed upgrade rolls back the Helm release. A
+failed Terraform apply does not roll back.
+
+## Smoke and exit status
+
+| Exit status | Meaning |
+| --- | --- |
+| 0 | The deployment is current. |
+| 1 | A stage failed. The command printed the reason. |
+| 2 | The command arguments are not valid. |
+| 3 | The deployment is current, but the advisory smoke failed. |
+
+Add `--no-smoke` to skip the smoke. Run the smoke alone with:
+
+```bash
+./scripts/bootstrap/deploy.py gcp-smoke --store gs://<bucket>
+```
+
+## Evidence
+
+The commands write evidence to `<project>-release-evidence`. Use
+`--evidence-bucket` for a different bucket.
+
+| Prefix | Writer | Objects |
+| --- | --- | --- |
+| `release-scans/<revision>/<run id>/<attempt>/` | Release-scan identity | `release-manifest.json`, one `<image>-trivy.json` for each image, and `verdict.json` |
+| `deployments/<revision>/<run id>/<attempt>/` | Deploy identity | `running-image-ids.json` and `verdict.json` |
+
+`verdict.json` holds the result, an opaque locator, and the SHA-256 of the raw
+evidence files in its prefix. The digest does not include `verdict.json`. The
+command makes a run id from the time and a random suffix. Set `--run-id` and
+`--attempt` to use your own values.
+
+## Deployment lock
+
+The command creates `locks/deploy.lock` in the config bucket before it changes
+anything. It removes the lock at the end, also when a stage fails. A second
+command fails while the lock exists and names the holder.
+
+1. Make sure that no other deploy or destroy runs for the deployment.
+2. Remove a stale lock with `--break-lock` on the next command. The command
+   removes the lock with no prompt:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket> --break-lock
+   ```
+
+## Tear down
+
+1. Get the deployer image of the release that the deployment runs.
+2. Run the destroy. `--confirm` must equal the deployment name:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-destroy --store gs://<bucket> --confirm <environment>
+   ```
+
+The destroy runs as the destroy identity. It first verifies that the tooling
+revision equals the release revision and that the release images verify. It
+then takes the lock, lifts the Cloud SQL deletion protection, removes the
+permanent KMS key ring and key from the state, and runs `terraform destroy`
+with bounded retries.
+
+These items stay after a teardown:
+
+- the foundation: the purpose identities, the state bucket, the
+  release-evidence bucket, and the config bucket;
+- the Artifact Registry KMS key ring and key;
+- the resources that Terraform does not own, for example the operator password
+  secret and the imported range guest images.
+
+## Identity options
+
+| Option | Use |
+| --- | --- |
+| `--name-prefix` | The purpose identity prefix when it is not `shifter-<environment>`. |
+| `--deploy-service-account`, `--release-scan-service-account`, `--destroy-service-account` | An explicit purpose identity. With an explicit deploy identity, the command also reads the bundle as that identity. |
+| `--environment` | The deployment name when it is not `deployment.name`. |
+
+A derived identity is `<name prefix without hyphens>-deploy`, `-scan`, or
+`-destroy` at `<project>.iam.gserviceaccount.com`. A service account ID has 30
+characters or fewer, so a derived name can be too long. The command then stops
+and tells you to pass the identity explicitly.

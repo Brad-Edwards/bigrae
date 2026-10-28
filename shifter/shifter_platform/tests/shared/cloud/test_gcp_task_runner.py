@@ -371,19 +371,19 @@ class TestGCPTaskRunnerProvisionerContract:
         sc = container.security_context
         assert sc.read_only_root_filesystem is True
         assert sc.run_as_non_root is True
-        assert sc.run_as_user == 1000
-        assert sc.run_as_group == 1000
+        assert sc.run_as_user == 10001
+        assert sc.run_as_group == 10001
         assert sc.allow_privilege_escalation is False
         assert sc.capabilities.drop == ["ALL"]
 
         # Pod security context — seccompProfile=RuntimeDefault matches the
-        # platform's existing worker-engine deployment baseline. fsGroup=1000
-        # makes the kubelet chown the mounted emptyDir volumes to gid 1000 so
+        # platform's existing worker-engine deployment baseline. fsGroup=10001
+        # makes the kubelet chown the mounted emptyDir volumes to gid 10001 so
         # the non-root container can write to them — without it the volumes
         # come up root:root 700 and Terraform fails on first init.
         pod_sc = job.spec.template.spec.security_context
         assert pod_sc.seccomp_profile.type == "RuntimeDefault"
-        assert pod_sc.fs_group == 1000
+        assert pod_sc.fs_group == 10001
         assert pod_sc.fs_group_change_policy == "OnRootMismatch"
 
         # Writable surface is exactly four explicit volumes:

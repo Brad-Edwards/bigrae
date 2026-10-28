@@ -224,6 +224,36 @@ class CheckTfImageRoleTest(unittest.TestCase):
             tf = _write(Path(tmp), "github-oidc.tf", body)
             return [v.reason for v in check_file(tf)]
 
+    def test_current_shared_subject_prefix_passes(self) -> None:
+        source = Path("platform/terraform/global/iam/github-oidc.tf").read_text()
+        reasons = self._oidc(source)
+        self.assertFalse(any("image-pipeline" in reason for reason in reasons), reasons)
+
+    def test_shared_subject_prefix_cannot_change_identity_fields(self) -> None:
+        source = Path("platform/terraform/global/iam/github-oidc.tf").read_text()
+        for field in ("github_owner_id", "github_repository_id"):
+            with self.subTest(field=field):
+                mutated = source.replace("${var." + field + "}", "999")
+                reasons = self._oidc(mutated)
+                self.assertTrue(any("image-pipeline" in reason for reason in reasons), reasons)
+
+    def test_shared_subject_prefix_rejects_extra_branch(self) -> None:
+        source = Path("platform/terraform/global/iam/github-oidc.tf").read_text()
+        mutated = source.replace(
+            '"${local.github_subject_prefix}:ref:refs/heads/main"',
+            '"${local.github_subject_prefix}:ref:refs/heads/main",\n'
+            '              "${local.github_subject_prefix}:ref:refs/heads/feature"',
+        )
+        self.assertTrue(any("image-pipeline" in reason for reason in self._oidc(mutated)))
+
+    def test_shared_subject_prefix_rejects_wildcard(self) -> None:
+        source = Path("platform/terraform/global/iam/github-oidc.tf").read_text()
+        mutated = source.replace(
+            '"${local.github_subject_prefix}:ref:refs/heads/main"',
+            '"${local.github_subject_prefix}:*"',
+        )
+        self.assertTrue(any("wildcard" in reason for reason in self._oidc(mutated)))
+
     def test_image_role_exact_subject_and_passrole_pass(self) -> None:
         reasons = self._oidc(
             """
@@ -618,12 +648,33 @@ class CheckTfVpnGatewayIdentityPolicyTest(unittest.TestCase):
         )
 
     def test_passrole_rejects_ec2_plus_additional_service(self) -> None:
-        exact = '            "iam:PassedToService" = "ec2.amazonaws.com"'
+        # Anchor on the VPN gateway PassRole block. The ec2-only
+        # "iam:PassedToService" condition also appears on the range/NGFW
+        # PassRole, so the bare condition line is not unique in the module.
+        exact = (
+            '        Sid      = "PassVpnGatewayRoleOnlyToEc2"\n'
+            '        Effect   = "Allow"\n'
+            '        Action   = "iam:PassRole"\n'
+            '        Resource = "arn:aws:iam::${local.account_id}:role/shifter-${var.environment}-*-vpn-gateway"\n'
+            "        Condition = {\n"
+            "          StringEquals = {\n"
+            '            "iam:PassedToService" = "ec2.amazonaws.com"\n'
+            "          }\n"
+            "        }"
+        )
         broadened = (
+            '        Sid      = "PassVpnGatewayRoleOnlyToEc2"\n'
+            '        Effect   = "Allow"\n'
+            '        Action   = "iam:PassRole"\n'
+            '        Resource = "arn:aws:iam::${local.account_id}:role/shifter-${var.environment}-*-vpn-gateway"\n'
+            "        Condition = {\n"
+            "          StringEquals = {\n"
             '            "iam:PassedToService" = [\n'
             '              "ec2.amazonaws.com",\n'
             '              "lambda.amazonaws.com"\n'
-            "            ]"
+            "            ]\n"
+            "          }\n"
+            "        }"
         )
 
         reasons = self._canonical_mutation(exact, broadened)

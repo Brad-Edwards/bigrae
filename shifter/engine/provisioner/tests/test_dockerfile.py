@@ -35,19 +35,19 @@ class TestDockerfileNonRootUser:
     def test_dockerfile_exists(self):
         assert DOCKERFILE_PATH.is_file(), f"Dockerfile not found at {DOCKERFILE_PATH}"
 
-    def test_creates_appgroup_with_gid_1000(self):
+    def test_creates_appgroup_with_gid_10001(self):
         content = _read_dockerfile()
         assert re.search(
-            r"groupadd[^\n]*--gid\s+1000[^\n]*appgroup",
+            r"groupadd[^\n]*--gid\s+10001[^\n]*appgroup",
             content,
-        ), "Dockerfile must create appgroup with --gid 1000"
+        ), "Dockerfile must create appgroup with --gid 10001"
 
-    def test_creates_appuser_with_uid_1000(self):
+    def test_creates_appuser_with_uid_10001(self):
         content = _read_dockerfile()
         assert re.search(
-            r"useradd[^\n]*--uid\s+1000[^\n]*appuser",
+            r"useradd[^\n]*--uid\s+10001[^\n]*appuser",
             content,
-        ), "Dockerfile must create appuser with --uid 1000"
+        ), "Dockerfile must create appuser with --uid 10001"
 
     def test_switches_to_non_root_user_before_entrypoint(self):
         # Numeric UID:GID is required so Kubernetes admission with
@@ -56,8 +56,8 @@ class TestDockerfileNonRootUser:
         content = _read_dockerfile()
         lines = content.splitlines()
 
-        user_line_indices = [i for i, line in enumerate(lines) if re.match(r"\s*USER\s+1000:1000\b", line)]
-        assert user_line_indices, "Dockerfile must include `USER 1000:1000` directive"
+        user_line_indices = [i for i, line in enumerate(lines) if re.match(r"\s*USER\s+10001:10001\b", line)]
+        assert user_line_indices, "Dockerfile must include `USER 10001:10001` directive"
 
         entrypoint_indices = [i for i, line in enumerate(lines) if re.match(r"\s*ENTRYPOINT\b", line)]
         assert entrypoint_indices, "Dockerfile must declare an ENTRYPOINT"
@@ -65,7 +65,7 @@ class TestDockerfileNonRootUser:
         last_user_index = user_line_indices[-1]
         first_entrypoint_index = entrypoint_indices[0]
         assert last_user_index < first_entrypoint_index, (
-            "USER 1000:1000 must appear before ENTRYPOINT so the runtime process drops privileges"
+            "USER 10001:10001 must appear before ENTRYPOINT so the runtime process drops privileges"
         )
 
     def test_last_user_directive_is_numeric_non_root(self):
@@ -81,8 +81,8 @@ class TestDockerfileNonRootUser:
         assert user_directives, "Dockerfile must contain a USER directive"
         last_index, last_directive = user_directives[-1]
         token = last_directive.split()[1]
-        assert token == "1000:1000", (
-            f"Last USER directive must be `USER 1000:1000` (numeric form for "
+        assert token == "10001:10001", (
+            f"Last USER directive must be `USER 10001:10001` (numeric form for "
             f"k8s runAsNonRoot admission); got `{last_directive}` at line {last_index + 1}"
         )
 
@@ -251,10 +251,10 @@ class TestDockerfileRuntimeSmoke:
 
     @pytest.mark.parametrize(
         ("flag", "expected"),
-        [("-u", "1000"), ("-g", "1000")],
+        [("-u", "10001"), ("-g", "10001")],
     )
     def test_runs_with_correct_id(self, built_image, flag, expected):
-        # Both UID and GID must be 1000 so Kubernetes runAsNonRoot admission
+        # Both UID and GID must be 10001 so Kubernetes runAsNonRoot admission
         # accepts the pod and the runtime can chown into appuser-owned dirs.
         assert self._docker_run(built_image, ["id", flag]).strip() == expected
 
@@ -300,11 +300,11 @@ class TestDockerfileRuntimeSmoke:
         tf_cache_path = "/home/appuser/.terraform.d/plugin-cache"
         tmpfs_args = [
             "--tmpfs",
-            f"{workspace_path}:rw,uid=1000,gid=1000",
+            f"{workspace_path}:rw,uid=10001,gid=10001",
             "--tmpfs",
-            f"{tmp_path}:rw,uid=1000,gid=1000",
+            f"{tmp_path}:rw,uid=10001,gid=10001",
             "--tmpfs",
-            f"{tf_cache_path}:rw,uid=1000,gid=1000",
+            f"{tf_cache_path}:rw,uid=10001,gid=10001",
         ]
 
         # 1) Writes to /app fail under --read-only (expected non-zero exit).

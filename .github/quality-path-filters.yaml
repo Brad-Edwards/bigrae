@@ -218,16 +218,6 @@ quality_units:
       security: [security-iac]
       test: [terraform-validate]
 
-  - id: k8s
-    paths:
-      - platform/k8s/**
-      - .kube-linter.yaml
-    sonar: false
-    responsibilities:
-      lint: [k8s-lint]
-      security: [k8s-lint]
-      test: [k8s-schema]
-
   - id: mcp_ngfw
     paths:
       - mcp/ngfw/**
@@ -296,10 +286,10 @@ quality_units:
     responsibilities:
       lint: [stack-smoke-lint-security]
       security: [stack-smoke-lint-security]
-      test: [stack-smoke]
+      test: [stack-smoke-lint-security, stack-smoke]
 
   # Tracked build / deployment / runtime inputs are production owners, not
-  # exclusions (ADR-004-R23 forbids exempting shipped build/runtime material via
+  # exclusions (ADR-004-R24 forbids exempting shipped build/runtime material via
   # exclusions). Each responsibility resolves to a blocking job below.
   - id: container_images
     paths:
@@ -309,7 +299,17 @@ quality_units:
     responsibilities:
       lint: [container-images-lint-security]
       security: [container-images-lint-security]
-      test: [guacamole-authority-tests]
+      test: [guacamole-authority-tests, guacd-image-tests]
+
+  # GitHub-less GCP deployer image (#2571, ADR-070).
+  - id: gcp_deployer
+    paths:
+      - platform/deployer/**
+    sonar: false
+    responsibilities:
+      lint: [container-images-lint-security]
+      security: [container-images-lint-security]
+      test: [gcp-deployer-image]
 
   - id: portal_image_context
     paths:
@@ -320,23 +320,17 @@ quality_units:
       security: [container-images-lint-security]
       test: [stack-smoke]
 
+  # The Helm chart is the only Kubernetes renderer (ADR-007, #2571). Every
+  # Kubernetes gate validates the rendered chart for each supported profile.
   - id: charts
     paths:
       - platform/charts/**
+      - .kube-linter.yaml
     sonar: false
     responsibilities:
       lint: [chart-lint-security]
-      security: [chart-lint-security]
-      test: [chart-tests]
-
-  - id: cloudformation
-    paths:
-      - platform/cloudformation/**
-    sonar: false
-    responsibilities:
-      lint: [cloudformation-validate]
-      security: [cloudformation-security]
-      test: [cloudformation-validate]
+      security: [chart-lint-security, security-k8s]
+      test: [chart-tests, k8s-schema]
 
 exclusions:
   - type: docs
@@ -347,11 +341,6 @@ exclusions:
       are owned by the adr_guard unit via most-specific precedence.
     paths:
       - docs/**
-      # Reference artwork and the retired login-style sample are documentation
-      # inputs only. No build context, template, static-collection path, or
-      # deployment bundle consumes root assets/**; shipped UI assets live under
-      # shifter/shifter_platform/static/ and are owned by shifter_platform.
-      - assets/**
       - README.md
       - CHANGELOG.md
       - CODE_OF_CONDUCT.md
@@ -422,7 +411,6 @@ exclusions:
       - scripts/check_checkov_invocation_parity/**
       - scripts/post_deploy_smoke/**
       - scripts/terraform/**
-      - scripts/ctf-scenario/**
       - scripts/tests/**
       # Root-level helper scripts are enumerated (not a scripts/* wildcard) so a
       # new script package under scripts/ still fails closed as unclassified.

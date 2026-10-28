@@ -68,7 +68,7 @@ they are unaffected by the Mission Control lease policy below.
 
 ### Configuring the lease policy
 
-The deployment setting is the fallback policy. Set it in `shifter.yaml` under
+The deployment setting is the fallback policy. Set it in `bigrae.yaml` under
 `settings.mission_control_leases`; the same provider-neutral block applies to both
 AWS and GCP:
 
@@ -113,7 +113,7 @@ policies until the rollout completes.
 ### Runtime tenant and group policy (platform administrators)
 
 An active platform superuser can change the effective Mission Control policy at
-**Administer → Platform settings** without redeploying Shifter. The page always
+**Administer → Platform settings** without redeploying BigRAE. The page always
 shows the deployment fallback and whether the tenant currently uses that
 fallback or a runtime replacement.
 
@@ -157,7 +157,7 @@ This is irreversible. All range data is deleted.
 
 A deployment can keep a **warm pool** of pre-provisioned, system-owned ranges so an
 initial launch is handed a ready range instead of waiting for cold provisioning.
-Warm pooling is **disabled by default**; an operator enables it in `shifter.yaml`
+Warm pooling is **disabled by default**; an operator enables it in `bigrae.yaml`
 under `settings.warm_pool`. An active pool also requires
 `WARM_POOL_SERVICE_CREDENTIAL_UUID`, set to the UUID of an active,
 installation-scoped service admission with `installation.launch_range`. The UUID

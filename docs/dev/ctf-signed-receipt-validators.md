@@ -1,6 +1,6 @@
 # Signed-receipt CTF validators
 
-Shifter supports participant/range-bound signed receipts through the closed
+BigRAE supports participant/range-bound signed receipts through the closed
 `receipt-v1` validator protocol. This protocol is deployment opt-in: an
 installed Django app registers each verifier profile at startup, and a trusted
 provisioning or activation integration enrolls the exact range assignment in
@@ -71,7 +71,7 @@ normalizer. Unknown members, unsupported protocols, missing profiles, and
 unapproved objectives fail closed. Within one event, a profile/objective pair
 must resolve to exactly one active challenge. This is checked before remote
 verification and again under locks before scoring because provider objectives
-need not contain Shifter challenge UUIDs.
+need not contain BigRAE challenge UUIDs.
 
 Context-capable programmable validators put the same receipt selection under a
 `receipt` member and register with `supports_server_context=True`. Installed
@@ -80,7 +80,7 @@ Legacy callables are never signature-probed or retried with a different shape.
 
 ## Trusted binding and provider response
 
-The participant submits only the opaque receipt. Shifter derives the event,
+The participant submits only the opaque receipt. BigRAE derives the event,
 participant, challenge, assigned CMS range, owner, lease, Engine
 materialization, current assignment epoch, registration revision, provider
 namespaces, reset generation, profile, issuer, key mode, algorithm, and key ID
@@ -96,7 +96,7 @@ reference. No cookie or participant session is sent.
 
 An invalid receipt response is exactly `{"valid": false}`. A positive response
 contains exactly `valid`, `receipt_id`, `issuer`, `expires_at`, and an exact echo
-of `binding`. Shifter accepts only Boolean `true`, the registered issuer, an
+of `binding`. BigRAE accepts only Boolean `true`, the registered issuer, an
 unexpired bounded deadline, and byte-for-value-equivalent binding fields. The
 stable issuer-scoped receipt identity is consumed transactionally and uniquely;
 the raw callback body and receipt are never replay state.
@@ -117,7 +117,7 @@ event/participant, permitted objective set, issuer, provider namespaces,
 algorithm, key ID, reset generation, and one of these key modes:
 
 - `remote_symmetric`: Engine stores only a protected secret-version reference.
-  The portal and participant never receive the signing key; Shifter calls the
+  The portal and participant never receive the signing key; BigRAE calls the
   isolated verifier.
 - `asymmetric_public`: Engine stores bounded public verification material. The
   private key remains in the protected signer.
@@ -129,7 +129,7 @@ ownership changes. Cancel, teardown admission, failed dispatch/apply, and
 terminal failed/destroyed results revoke within the lifecycle transaction.
 Paused and expired ranges cannot project a binding. Provider reset and teardown
 must independently advance/destroy protected verifier state; deleting a secret
-is cleanup, not Shifter's authorization fence.
+is cleanup, not BigRAE's authorization fence.
 
 Registration and revocation write strict bounded audit evidence containing the
 request, operation, registration revision, profile, key mode, algorithm, key ID,

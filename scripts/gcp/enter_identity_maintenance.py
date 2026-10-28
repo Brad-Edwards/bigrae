@@ -68,18 +68,21 @@ def _inventory(kind: str, namespace: str) -> list[dict]:
     return rows
 
 
-def _policy_pod(pod: dict, replicasets: list[dict], deployments: list[dict], namespace: str) -> bool:
-    deployment_uids = {row["metadata"]["uid"] for row in deployments if (namespace, row["metadata"]["name"]) in _POLICY}
-    replica_uids = {
-        row["metadata"]["uid"]
+def _policy_pod(pod: dict, replicasets: list[dict], policy_owners: set[tuple[str, str]]) -> bool:
+    replica_owners = {
+        (row["metadata"]["name"], row["metadata"]["uid"])
         for row in replicasets
         if any(
-            owner.get("controller") is True and owner["kind"] == "Deployment" and owner["uid"] in deployment_uids
+            owner.get("controller") is True
+            and owner["kind"] == "Deployment"
+            and (owner["name"], owner["uid"]) in policy_owners
             for owner in row["metadata"].get("ownerReferences", [])
         )
     }
     return any(
-        owner.get("controller") is True and owner["kind"] == "ReplicaSet" and owner["uid"] in replica_uids
+        owner.get("controller") is True
+        and owner["kind"] == "ReplicaSet"
+        and (owner["name"], owner["uid"]) in replica_owners
         for owner in pod["metadata"].get("ownerReferences", [])
     )
 
@@ -87,6 +90,14 @@ def _policy_pod(pod: dict, replicasets: list[dict], deployments: list[dict], nam
 def enter_maintenance(manifest: Path, *, timeout_seconds: float = 600) -> None:
     # Fully retrieve and validate every namespace before the first mutation.
     inventories = {(namespace, kind): _inventory(kind, namespace) for namespace in _NAMESPACES for kind in _INVENTORIES}
+    policy_owners = {
+        namespace: {
+            (row["metadata"]["name"], row["metadata"]["uid"])
+            for row in inventories[namespace, "deployment"]
+            if (namespace, row["metadata"]["name"]) in _POLICY
+        }
+        for namespace in _NAMESPACES
+    }
     for namespace in _NAMESPACES:
         for row in inventories[namespace, "horizontalpodautoscaler"]:
             _kubectl("delete", f"horizontalpodautoscaler/{row['metadata']['name']}", "-n", namespace, "--wait=true")
@@ -119,22 +130,25 @@ def enter_maintenance(manifest: Path, *, timeout_seconds: float = 600) -> None:
                     namespace,
                     "--timeout=15m",
                 )
-    _wait_application_pods(timeout_seconds)
+    _wait_application_pods(timeout_seconds, policy_owners)
     # Disabled broker manifests restore broader shared egress policies. Never
     # expose old broker/proxy pods to those additive grants before termination.
     _kubectl("apply", "-f", str(manifest))
 
 
-def _wait_application_pods(timeout_seconds: float) -> None:
+def _wait_application_pods(timeout_seconds: float, policy_owners: dict[str, set[tuple[str, str]]]) -> None:
     deadline = time.monotonic() + timeout_seconds
     while True:
         active = []
         for namespace in _NAMESPACES:
             deployments = _inventory("deployment", namespace)
+            current_owners = {(row["metadata"]["name"], row["metadata"]["uid"]) for row in deployments} & policy_owners[
+                namespace
+            ]
             replicasets = _inventory("replicaset", namespace)
             for pod in _inventory("pod", namespace):
                 if pod["status"]["phase"] not in {"Succeeded", "Failed"} and not _policy_pod(
-                    pod, replicasets, deployments, namespace
+                    pod, replicasets, current_owners
                 ):
                     active.append((namespace, pod["metadata"]["uid"]))
         if not active:

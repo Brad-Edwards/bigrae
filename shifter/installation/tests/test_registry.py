@@ -21,8 +21,7 @@ from installation.registry import (
 # What the provisional registry must keep accepting (carried over unchanged from the
 # pre-#1113 ``installation.backends`` data, which the registry supersedes).
 _EXPECTED_PROFILES: dict[str, frozenset[str]] = {
-    # AWS admits the real ``proof`` tier (#728); GCP stays prod/dev (#729, no proof tier).
-    "aws": frozenset({"prod", "dev", "proof"}),
+    "aws": frozenset({"prod", "dev"}),
     "gcp": frozenset({"prod", "dev"}),
 }
 
@@ -84,13 +83,9 @@ def test_gcp_bundle_is_migrated_with_a_closed_settings_model_and_reference_patte
     assert django.reference_pattern is not None
 
 
-def test_aws_admits_the_real_proof_profile_but_gcp_does_not():
-    # proof is a real AWS deployment tier (platform/terraform/environments/proof plus the
-    # aws-proof deploy path in deploy.yml / _core.yml / _range.yml); it is admitted
-    # explicitly rather than stranded (#728). GCP's proof, if any, is #729.
-    aws = BACKEND_BUNDLES["aws"]
-    assert aws.supports_profile("proof")
-    assert "proof" not in BACKEND_BUNDLES["gcp"].supported_profiles
+def test_bundles_reject_the_retired_profile():
+    for bundle in BACKEND_BUNDLES.values():
+        assert not bundle.supports_profile("proof")
 
 
 def test_get_backend_bundle_round_trips():

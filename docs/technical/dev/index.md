@@ -1,12 +1,12 @@
 # Developer Guide
 
-Getting started as a Shifter developer.
+Getting started as a BigRAE developer.
 
 ## Quick Start
 
 1. [Local Setup](local-setup) - Clone, dependencies, run locally
 2. [Setup](setup) - Deploy to AWS or GCP from scratch
-3. [Installation Config](installation-config) - `shifter.yaml` schema and validation
+3. [Installation Config](installation-config) - `bigrae.yaml` schema and validation
 4. [CI/CD](ci-cd) - How deployments work
 5. [Secrets](secrets) - What secrets exist, where they live
 6. [Platform API Development](api) - DRF endpoints, scopes, schema, and error envelopes
@@ -57,9 +57,9 @@ shifter/
 │   │   ├── global/             # Cross-environment resources (IAM, OIDC, runners)
 │   │   └── gcp/               # GCP Terraform (modules/, environments/)
 │   ├── charts/shifter/        # Helm chart for the GCP control plane
-│   └── k8s/gcp/               # GCP deployment assets and base manifests
+│   └── deployer/gcp/          # GCP deployer image
 ├── scripts/                    # Bootstrap and utility scripts
-├── shifter/installation/        # shifter.yaml parser, validator, backend registry
+├── shifter/installation/        # bigrae.yaml parser, validator, backend registry
 └── .github/workflows/          # CI/CD pipelines (AWS + GCP)
 ```
 

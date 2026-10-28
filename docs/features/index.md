@@ -1,6 +1,6 @@
 # Features
 
-Detailed guides for each Shifter feature.
+Detailed guides for each BigRAE feature.
 
 ## Core Features
 

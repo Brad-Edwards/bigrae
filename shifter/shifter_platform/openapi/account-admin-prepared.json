@@ -1,9 +1,9 @@
 {
     "openapi": "3.0.3",
     "info": {
-        "title": "Shifter Platform API",
+        "title": "BigRAE Platform API",
         "version": "v1",
-        "description": "Authenticated HTTP/JSON API for Shifter platform integrations."
+        "description": "Authenticated HTTP/JSON API for BigRAE platform integrations."
     },
     "paths": {
         "/api/v1/account-workspaces/{workspace_uuid}/invitations/": {

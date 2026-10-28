@@ -7,10 +7,10 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 from pathlib import Path
 
 # SonarCloud S1192: extracted duplicated string literals.
@@ -437,6 +437,79 @@ def get_repo_root() -> Path:
     return Path(__file__).parent.parent.parent
 
 
+class RepositoryIdentityError(RuntimeError):
+    """The target GitHub repository cannot be resolved (ADR-069)."""
+
+
+_GH_REPOSITORY_RE = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", re.ASCII)
+_GITHUB_ID_RE = re.compile(r"[1-9]\d*", re.ASCII)
+
+
+def _gh_default_target(command_runner: Callable[..., object]) -> str:
+    """Return the clone's gh default repository, or fail with a clear message."""
+    default = command_runner(["gh", "repo", "set-default", "--view"], check=False, capture=True)
+    target = (getattr(default, "stdout", "") or "").strip()
+    if not target:
+        raise RepositoryIdentityError(
+            "No gh default repository is set for this clone. "
+            "Run 'gh repo set-default <owner>/<repo>', then run bootstrap again."
+        )
+    if not _GH_REPOSITORY_RE.fullmatch(target):
+        raise RepositoryIdentityError(f"The gh default repository {target!r} is not in the form <owner>/<repo>.")
+    return target
+
+
+def _gh_api_identity_rows(target: str, command_runner: Callable[..., object]) -> list[str]:
+    """Return the four identity rows from the GitHub API, or fail clearly."""
+    result = command_runner(
+        ["gh", "api", f"repos/{target}", "--jq", ".id, .owner.id, .full_name, .owner.login"],
+        check=False,
+        capture=True,
+    )
+    succeeded = result is not None and getattr(result, "returncode", 1) == 0
+    fields = [line.strip() for line in (getattr(result, "stdout", "") or "").splitlines() if line.strip()]
+    if not succeeded or len(fields) != 4:
+        detail = (getattr(result, "stderr", "") or "").strip() or "unexpected response"
+        raise RepositoryIdentityError(f"Cannot read repository {target} from the GitHub API: {detail}")
+    return fields
+
+
+def _valid_github_identity(repository_id: str, owner_id: str, full_name: str, owner: str, owner_login: str) -> bool:
+    """True when the API identity is well-formed and self-consistent."""
+    ids_valid = all(_GITHUB_ID_RE.fullmatch(value) for value in (repository_id, owner_id))
+    return bool(ids_valid and owner == owner_login and _GH_REPOSITORY_RE.fullmatch(full_name))
+
+
+def _github_identity_fields(target: str, command_runner: Callable[..., object]) -> dict[str, str]:
+    """Read and validate the identity of target from the GitHub API."""
+    repository_id, owner_id, full_name, owner_login = _gh_api_identity_rows(target, command_runner)
+    owner, _, name = full_name.partition("/")
+    if not _valid_github_identity(repository_id, owner_id, full_name, owner, owner_login):
+        raise RepositoryIdentityError(f"The GitHub API returned an invalid identity for repository {target}.")
+    return {
+        "github_org": owner_login,
+        "github_repo": name,
+        "github_repository_id": repository_id,
+        "github_owner_id": owner_id,
+    }
+
+
+def resolve_github_repository(command_runner: Callable[..., object] = run_cmd) -> dict[str, str]:
+    """Resolve the target repository from the clone's gh default and the GitHub API (ADR-069).
+
+    Returns the BootstrapConfig identity fields. The owner and name come from the
+    API, so a renamed repository resolves to its current owner and name. The
+    identity is shown so that the operator can confirm it before a write.
+    """
+    target = _gh_default_target(command_runner)
+    identity = _github_identity_fields(target, command_runner)
+    info(
+        f"Target GitHub repository: {identity['github_org']}/{identity['github_repo']} "
+        f"(repository ID {identity['github_repository_id']}, owner ID {identity['github_owner_id']})"
+    )
+    return identity
+
+
 GDC_API_SERVICES = [
     "anthos.googleapis.com",
     "anthosaudit.googleapis.com",
@@ -474,12 +547,10 @@ GDC_SERVICE_ACCOUNT_ROLES = [
     "roles/kubernetesmetadata.publisher",
 ]
 
-GCP_TERRAFORM_BOOTSTRAP_ROLES = [
-    "roles/owner",
-]
-
-GCP_TERRAFORM_BOOTSTRAP_BUCKET_ROLE = "roles/storage.objectAdmin"
 GCP_IAP_TCP_SOURCE_RANGE = "35.235.240.0/20"
+
+
+AWS_ENVIRONMENTS = ("dev", "prod")
 
 
 @dataclass
@@ -489,9 +560,30 @@ class BootstrapConfig:
     # Default AWS bootstrap region. Multi-region support is outside issue #687.
     env: str
     region: str = "us-east-2"
-    # Default GitHub target; forked deployments can override the config object.
-    github_org: str = "Brad-Edwards"
-    github_repo: str = "bigrae"
+    # ADR-069: the GitHub target has no default. Callers give the values from
+    # resolve_github_repository() or explicit operator values.
+    _: KW_ONLY
+    github_org: str
+    github_repo: str
+    github_repository_id: str
+    github_owner_id: str
+    github_subject_format: str = "immutable"
+
+    def __post_init__(self) -> None:
+        if self.env not in AWS_ENVIRONMENTS:
+            raise ValueError("AWS environment must be dev or prod")
+
+    @property
+    def github_subject_prefix(self) -> str:
+        """Select the exact repository subject format without accepting both."""
+        if self.github_subject_format == "default":
+            return f"repo:{self.github_org}/{self.github_repo}"
+        if self.github_subject_format != "immutable":
+            raise ValueError("github_subject_format must be default or immutable")
+        for key in ("github_owner_id", "github_repository_id"):
+            if not re.fullmatch(r"[1-9]\d*", getattr(self, key), flags=re.ASCII):
+                raise ValueError(f"{key} must be a positive numeric GitHub ID")
+        return f"repo:{self.github_org}@{self.github_owner_id}/{self.github_repo}@{self.github_repository_id}"
 
     @property
     def bucket_prefix(self) -> str:
@@ -524,7 +616,7 @@ class BootstrapConfig:
         Mirrors ``secret_name``: prod uses the unsuffixed ``TF_INFRA_STATE_BUCKET``
         while every other environment uses an env-suffixed name. The deploy
         workflows (``_core.yml``, ``_range.yml``, ``_shifter-platform.yml``) read
-        ``TF_INFRA_STATE_BUCKET_DEV`` / ``_PROOF`` for dev/proof and the
+        ``TF_INFRA_STATE_BUCKET_DEV`` for dev and the
         unsuffixed name only for prod, so a fresh non-prod bootstrap must set the
         suffixed secret the workflow actually reads.
         """
@@ -585,28 +677,11 @@ class GDCBootstrapConfig:
     # default deploys the keyless GKE control plane straight through, so a tenant on
     # an org that enforces iam.managed.disableServiceAccountKeyCreation is not blocked.
     range_backend: str = "gce"
-    # Terraform identity for the control-plane apply (#1718). "operator-adc"
-    # (default) runs terraform directly under the caller's Application Default
-    # Credentials, minting no service account and no key. It is secure-by-default:
-    # the operator running gdc-bootstrap already holds the project roles terraform
-    # needs, so a dedicated roles/owner SA adds standing privilege and (on the
-    # bootstrap-sa path) a JSON key with no capability gain. It is also the only
-    # path that works on orgs enforcing custom.preventPrivilegedBasicRolesForServAccounts
-    # (no owner-on-SA) or iam.managed.disableServiceAccountKeyCreation (no SA keys).
-    # "bootstrap-sa" (opt-out) impersonates a dedicated shifter-<env>-tf-bootstrap
-    # service account granted roles/owner, for operators who cannot run terraform
-    # under their own ADC.
-    terraform_identity: str = "operator-adc"
 
     @property
     def builds_gdc_substrate(self) -> bool:
         """Whether this bootstrap builds the ABM/GDC VM Runtime substrate."""
         return self.range_backend == "gdc"
-
-    @property
-    def terraform_uses_operator_adc(self) -> bool:
-        """Whether terraform runs under the caller's ADC instead of the tf-bootstrap SA."""
-        return self.terraform_identity == "operator-adc"
 
     @property
     def resolved_network_name(self) -> str:
@@ -619,14 +694,6 @@ class GDCBootstrapConfig:
     @property
     def service_account_email(self) -> str:
         return f"{self.service_account_name}@{self.project_id}.iam.gserviceaccount.com"
-
-    @property
-    def terraform_bootstrap_service_account_name(self) -> str:
-        return f"shifter-{self.environment}-tf-bootstrap"
-
-    @property
-    def terraform_bootstrap_service_account_email(self) -> str:
-        return f"{self.terraform_bootstrap_service_account_name}@{self.project_id}.iam.gserviceaccount.com"
 
     @property
     def terraform_state_bucket_name(self) -> str:
@@ -749,22 +816,68 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def read_gcp_control_plane_security_inputs(tf_dir: Path) -> dict[str, object]:
-    """Read security-sensitive Terraform inputs, honoring ``*.auto.tfvars`` overrides."""
-    tfvars_files = [tf_dir / "terraform.tfvars", *sorted(tf_dir.glob("*.auto.tfvars"))]
-    contents = "\n".join(path.read_text() for path in tfvars_files if path.exists())
+def gcp_terraform_var_files(tf_dir: Path) -> list[Path]:
+    """Return Terraform's default var-files in their native precedence order."""
+    baseline = [tf_dir / "terraform.tfvars", tf_dir / "terraform.tfvars.json"]
+    automatic = sorted([*tf_dir.glob("*.auto.tfvars"), *tf_dir.glob("*.auto.tfvars.json")])
+    return [path for path in baseline + automatic if path.is_file()]
 
-    public_hostname_matches = re.findall(r'(?m)^\s*public_hostname\s*=\s*"([^"]*)"\s*$', contents)
-    managed_tls_matches = re.findall(r"(?m)^\s*enable_managed_tls\s*=\s*(true|false)\s*$", contents)
-    cidr_block_matches = re.findall(r"gke_master_authorized_cidrs\s*=\s*\[(.*?)\]", contents, re.DOTALL)
 
-    return {
-        "public_hostname": public_hostname_matches[-1].strip() if public_hostname_matches else "",
-        "enable_managed_tls": bool(managed_tls_matches and managed_tls_matches[-1] == "true"),
-        "gke_master_authorized_cidrs": (
-            [match.strip() for match in re.findall(r'"([^"]+)"', cidr_block_matches[-1])] if cidr_block_matches else []
-        ),
+def _gcp_hcl_security_inputs(contents: str) -> dict[str, object]:
+    """Read supported HCL security fields without replacing absent values."""
+    settings: dict[str, object] = {}
+    hostnames = re.findall(r'(?m)^\s*public_hostname\s*=\s*"([^\"]*)"\s*$', contents)
+    tls_values = re.findall(r"(?m)^\s*enable_managed_tls\s*=\s*(true|false)\s*$", contents)
+    cidr_values = re.findall(r"gke_master_authorized_cidrs\s*=\s*\[(.*?)\]", contents, re.DOTALL)
+    if hostnames:
+        settings["public_hostname"] = hostnames[-1].strip()
+    if tls_values:
+        settings["enable_managed_tls"] = tls_values[-1] == "true"
+    if cidr_values:
+        settings["gke_master_authorized_cidrs"] = [
+            value.strip() for value in re.findall(r'"([^\"]+)"', cidr_values[-1])
+        ]
+    return settings
+
+
+def _gcp_json_security_inputs(contents: str) -> dict[str, object]:
+    """Validate JSON security input shapes without exposing payload values."""
+    try:
+        values = json.loads(contents)
+    except json.JSONDecodeError:
+        raise ValueError("GCP Terraform JSON variables must be valid JSON") from None
+    if not isinstance(values, dict):
+        raise ValueError("GCP Terraform JSON variables must be an object")
+    settings = {
+        key: values[key]
+        for key in ("public_hostname", "enable_managed_tls", "gke_master_authorized_cidrs")
+        if key in values
     }
+    if "public_hostname" in settings:
+        if not isinstance(settings["public_hostname"], str):
+            raise ValueError("GCP public_hostname must be a string")
+        settings["public_hostname"] = settings["public_hostname"].strip()
+    if "enable_managed_tls" in settings and not isinstance(settings["enable_managed_tls"], bool):
+        raise ValueError("GCP enable_managed_tls must be a boolean")
+    if "gke_master_authorized_cidrs" in settings:
+        cidrs = settings["gke_master_authorized_cidrs"]
+        if not isinstance(cidrs, list) or any(not isinstance(cidr, str) for cidr in cidrs):
+            raise ValueError("GCP gke_master_authorized_cidrs must be a list of strings")
+        settings["gke_master_authorized_cidrs"] = [cidr.strip() for cidr in cidrs]
+    return settings
+
+
+def read_gcp_control_plane_security_inputs(tf_dir: Path) -> dict[str, object]:
+    """Read HCL and JSON security settings in Terraform var-file order."""
+    settings: dict[str, object] = {
+        "public_hostname": "",
+        "enable_managed_tls": False,
+        "gke_master_authorized_cidrs": [],
+    }
+    for path in gcp_terraform_var_files(tf_dir):
+        reader = _gcp_json_security_inputs if path.suffix == ".json" else _gcp_hcl_security_inputs
+        settings.update(reader(path.read_text()))
+    return settings
 
 
 def validate_gcp_control_plane_security_inputs(tf_dir: Path) -> None:

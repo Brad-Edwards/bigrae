@@ -1,11 +1,20 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { submitCommunication } from "./ctfCommunications";
+import { draftBody, submitCommunication } from "./ctfCommunications";
 
 afterEach(() => vi.unstubAllGlobals());
 
-it("retries release against the same campaign and occurrence after a lost response", async () => {
+it.each(["account", "organization", "workspace"] as const)("writes the exact %s campaign parent", (kind) => {
+  const body = draftBody({ parent: { kind, id: "parent-1" }, eventIds: ["event-1"], title: "Title", subject: "Subject", body: "Message" });
+  expect(body).toMatchObject({ [kind]: "parent-1", target_event_ids: ["event-1"] });
+  expect(body).not.toHaveProperty("workspace_id");
+  for (const other of ["account", "organization", "workspace"].filter((value) => value !== kind)) {
+    expect(body).not.toHaveProperty(other);
+  }
+});
+
+it.each(["account", "organization", "workspace"] as const)("retries a %s release against the same reviewed revision after a lost response", async (kind) => {
   const responses = [
-    [200, { workspace: "workspace-1" }], [201, { id: "campaign-1" }],
+    [200, { [kind]: "parent-1" }], [201, { id: "campaign-1", latest_revision: { id: "revision-1" } }],
     [503, { error: { code: "unavailable", message: "Retry" } }],
     [202, { id: "intent-1", status: "released" }],
   ];
@@ -24,6 +33,8 @@ it("retries release against the same campaign and occurrence after a lost respon
     "/api/v1/ctf/communications/campaign-1/release/",
   ]);
   expect(writes[1][1].body).toBe(writes[2][1].body);
+  expect(JSON.parse(writes[1][1].body)).toEqual({ occurrence_key: "initial", revision_id: "revision-1" });
+  expect(JSON.parse(writes[0][1].body)).toHaveProperty(kind, "parent-1");
   expect(JSON.parse(writes[0][1].body).channels).toEqual(["in_app"]);
 });
 

@@ -140,9 +140,26 @@ def _reschedule_live_event_schedule(event: CTFEvent) -> None:
     logger.info("Rescheduled live end tasks for event %s", event.id)
 
 
+# Task types that ``_schedule_event_tasks`` and the challenge-release sync derive
+# from event times. A reschedule cancels and recreates only these; an independently
+# scheduled communication declaration keeps its authored due time (#2052).
+_EVENT_DERIVED_TASK_TYPES = tuple(
+    task_type.value
+    for task_type in (
+        ScheduledTaskType.SPIN_UP_RANGES,
+        ScheduledTaskType.EVENT_START,
+        ScheduledTaskType.EVENT_END,
+        ScheduledTaskType.CLEANUP_RANGES,
+        ScheduledTaskType.CLEANUP_WARNING,
+        ScheduledTaskType.SEND_REMINDER,
+        ScheduledTaskType.RELEASE_CHALLENGE,
+    )
+)
+
+
 def _reschedule_event_tasks(event: CTFEvent, actor: object) -> None:
-    """Reschedule tasks after event times change."""
-    _cancel_event_tasks(event)
+    """Reschedule event-derived tasks after event times change."""
+    _cancel_event_tasks(event, task_types=_EVENT_DERIVED_TASK_TYPES)
     _schedule_event_tasks(event, actor)
     _reschedule_challenge_release_tasks(event)
     logger.info("Rescheduled tasks for event %s", event.id)
@@ -165,11 +182,12 @@ def _reschedule_challenge_release_tasks(event: CTFEvent) -> None:
         _sync_release_task(challenge)
 
 
-def _cancel_event_tasks(event: CTFEvent) -> None:
-    """Cancel all scheduled tasks for an event.
+def _cancel_event_tasks(event: CTFEvent, *, task_types: tuple[str, ...] | None = None) -> None:
+    """Cancel pending scheduled tasks for an event.
 
     Args:
         event: The CTFEvent to cancel tasks for.
+        task_types: Limit cancellation to these task types; ``None`` cancels all.
     """
     from ctf.enums import ScheduledTaskStatus
     from ctf.models import CTFScheduledTask
@@ -178,6 +196,8 @@ def _cancel_event_tasks(event: CTFEvent) -> None:
         event=event,
         status=ScheduledTaskStatus.PENDING.value,
     )
+    if task_types is not None:
+        pending_tasks = pending_tasks.filter(task_type__in=task_types)
 
     cancelled_count = 0
     for task in pending_tasks:

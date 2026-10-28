@@ -167,7 +167,7 @@ def _name_matches_env(name: str, environment: str) -> bool:
     """True when a resource name follows the canonical Terraform env naming.
 
     Resources are named from ``${var.name_prefix}`` as ``shifter-<env>-*`` or
-    ``<env>-*`` (for example ``shifter-proof-s3-cost-alert``, ``proof-portal-*``).
+    ``<env>-*`` (for example ``shifter-dev-s3-cost-alert``, ``dev-portal-*``).
     A name match is a lookup key only; ownership is confirmed separately by tags.
     """
     return name.startswith((f"shifter-{environment}-", f"{environment}-"))

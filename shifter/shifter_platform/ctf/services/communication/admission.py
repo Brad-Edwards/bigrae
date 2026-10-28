@@ -1,11 +1,10 @@
 """Live re-authorization for the one communication admission transaction (#2099).
 
 Every trigger source normalizes a bounded declaration and then enters this single
-admission path. Admission re-derives authority server-side and re-checks it
-against the live actor / token / workspace / target events INSIDE the locked
-release transaction — never trusting origin, actor, token, or scope supplied by a
-request or scheduler metadata — so revoked or unauthorized principals admit
-no new work (ADR-051-R12, AC3).
+admission path. Admission resolves current native credentials and event policy
+before SQL locks. The locked release transaction then fences the exact admitted
+credential, campaign placement, and complete event set with local reads. Origin,
+actor attribution, and scheduler metadata never supply authority (ADR-051-R12).
 
 Token actors require the original live owner/token pair and the exact communication
 scope; neither event scopes nor system authority substitute for that identity.
@@ -125,17 +124,12 @@ def assert_occurrence_ready(
 class AdmissionActor:
     """Who is admitting a communication, proven server-side by the caller.
 
-    Exactly one authority mode is honored, in precedence order:
-
-    - ``token_id`` — a scheduled / token-authored declaration. The original user
-      and token must remain eligible with the exact communication scope.
-    - ``system`` — trusted lifecycle / lease automation (event-lifecycle
-      milestones, generation-bound range signals). Admitted without a live human
-      actor, but only when a source normalizer has proven the trust boundary and
-      set this flag explicitly; a merely-missing actor is never system authority.
-    - ``user_id`` — a live session actor (human-authored). Re-checked against the
-      active user row, the bound-workspace mutex, and per-event notification
-      authority.
+    HTTP and durable native callers supply ``credential``. Its owning service
+    rechecks lifecycle and narrowing before current event policy is admitted.
+    Legacy token references retain the exact original live owner/token pair;
+    trusted synchronous ``user_id`` callers enter the explicit human compatibility
+    path and still require native policy. ``system`` is reserved for proven
+    internal lifecycle automation; a missing actor never becomes system authority.
 
     ``allow_early_release`` authorizes releasing a scheduled declaration before its
     due time (organizer run-now); it is honored only on the live-session path.
@@ -314,6 +308,37 @@ def prepare_campaign_admission(campaign, actor):
     return prepare_admission(campaign, list(campaign.target_events.order_by("pk")), actor)
 
 
+def _fence_local_actor(actor: AdmissionActor, required_scope: str) -> None:
+    """Translate current local proof failures at the SQL fence into bounded domain errors."""
+    from shared.credentials import resolve_local_credential
+
+    if actor.credential is not None:
+        if actor.compatibility_user_id is None:
+            from shared.credentials import CredentialUnavailable
+
+            try:
+                current = resolve_local_credential(actor.credential)
+            except CredentialUnavailable:
+                raise CTFCommunicationError(
+                    "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+                ) from None
+            except ValueError:
+                raise CTFCommunicationError(
+                    "Communication credential changed", code="CTF_COMMUNICATION_ACTOR_DENIED"
+                ) from None
+            if current != actor.credential:
+                raise CTFCommunicationError("Communication credential changed", code="CTF_COMMUNICATION_ACTOR_DENIED")
+        if actor.token_id is not None:
+            token = ApiToken.objects.select_for_update().filter(pk=actor.token_id).first()
+            if (
+                token is None
+                or not token.is_active
+                or not token.has_eligible_owner
+                or not has_scope(token.scopes, required_scope)
+            ):
+                raise CTFCommunicationError("Communication token changed", code="CTF_COMMUNICATION_TOKEN_DENIED")
+
+
 def reauthorize(
     campaign: CommunicationCampaign,
     target_events: list[CTFEvent],
@@ -324,23 +349,10 @@ def reauthorize(
     operation: str = "admit",
 ) -> AdmissionActor:
     """Fence admitted credentials and exact ancestry under the aggregate locks."""
-    from shared.credentials import resolve_local_credential
-
     _assert_target_set(campaign, target_events)
     if actor.campaign_binding != _campaign_binding(campaign):
         raise CTFCommunicationError("Communication admission changed", code="CTF_COMMUNICATION_EVENT_DENIED")
-    if actor.credential is not None:
-        if actor.compatibility_user_id is None and resolve_local_credential(actor.credential) != actor.credential:
-            raise CTFCommunicationError("Communication credential changed", code="CTF_COMMUNICATION_ACTOR_DENIED")
-        if actor.token_id is not None:
-            token = ApiToken.objects.select_for_update().filter(pk=actor.token_id).first()
-            if (
-                token is None
-                or not token.is_active
-                or not token.has_eligible_owner
-                or not has_scope(token.scopes, required_scope)
-            ):
-                raise CTFCommunicationError("Communication token changed", code="CTF_COMMUNICATION_TOKEN_DENIED")
+    _fence_local_actor(actor, required_scope)
     if actor.credential is not None:
         from ctf.services.authorization import assert_event_action
         from ctf.services.communication.audit import audit_communication_authority

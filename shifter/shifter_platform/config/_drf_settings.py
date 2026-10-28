@@ -36,8 +36,8 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Shifter Platform API",
-    "DESCRIPTION": "Authenticated HTTP/JSON API for Shifter platform integrations.",
+    "TITLE": "BigRAE Platform API",
+    "DESCRIPTION": "Authenticated HTTP/JSON API for BigRAE platform integrations.",
     "VERSION": "v1",
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]+",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -53,6 +53,7 @@ SPECTACULAR_SETTINGS = {
         "ParticipantPasswordKindEnum": ["generated", "set"],
         "CommunicationAudienceKindEnum": "ctf.enums_communication.AudienceKind",
         "CommunicationTriggerKindEnum": "ctf.enums_communication.TriggerKind",
+        "HierarchyParentKindEnum": ["account", "organization", "workspace"],
         "ResourceStatusEnum": "mission_control.api.serializers.RESOURCE_STATUS_VALUES",
         "WorkspaceRoleEnum": "workspaces.roles.WorkspaceRole",
         "AuthorizationOperationStateEnum": "workspaces.api.serializers.AUTHORIZATION_OPERATION_STATES",

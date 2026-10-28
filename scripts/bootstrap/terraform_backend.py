@@ -17,7 +17,6 @@ _GLOBAL_STACKS: tuple[tuple[str, str], ...] = (
     ("global/iam", "global/iam/terraform.tfstate"),
     ("global/github-runner", "global/github-runner/terraform.tfstate"),
     ("global/dev-box", "global/dev-box/terraform.tfstate"),
-    ("global/ctfd-workshop", "global/ctfd-workshop/terraform.tfstate"),
     ("global/se-admins", "global/se-admins/terraform.tfstate"),
 )
 

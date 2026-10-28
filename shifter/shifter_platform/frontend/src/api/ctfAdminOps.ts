@@ -176,7 +176,7 @@ export function useDeleteCtfEventPage(eventId: string) {
 
 // --- Import/export + webhooks (CTF-1101..1104, CTF-1203) -------------------
 
-export function exportCtfChallenges(eventId: string, fmt: "shifter" | "ctfd") {
+export function exportCtfChallenges(eventId: string, fmt: "bigrae" | "shifter" | "ctfd") {
   return apiFetch<Record<string, unknown>>(`${BASE}/events/${eventId}/challenges/export/?fmt=${fmt}`);
 }
 

@@ -50,6 +50,7 @@ from ctf.services.communication.admission import (
     prepare_campaign_admission,
     reauthorize,
 )
+from ctf.services.communication.attribution import actor_attribution
 from ctf.services.communication.audience import resolve_recipients
 from ctf.services.communication.backpressure import AdmissionRequest, enforce_admission
 
@@ -266,8 +267,9 @@ def release_campaign(
         revision = _resolve_revision(locked, revision)
         recipients = resolve_recipients(set(target_event_ids), locked.audience_spec)
         channels = list(locked.channels)
-        attribution_user_id = actor.user_id if actor.user_id is not None else locked.created_by_id
-        attribution_token_id = actor.token_id if actor.token_id is not None else locked.actor_token_id
+        attribution = actor_attribution(actor)
+        attribution_user_id = attribution.user_id
+        attribution_token_id = attribution.token_id
         scope_kind, scope_id = _campaign_scope(locked)
 
         # Backpressure runs only on genuine (non-replay) admission -- the replay

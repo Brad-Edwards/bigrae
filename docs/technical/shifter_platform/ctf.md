@@ -1,4 +1,4 @@
-# Shifter CTF
+# BigRAE CTF
 
 Capture-the-flag is a Django app (`ctf`) layered on the platform's range system. It
 owns event/challenge/scoring data and orchestrates a dedicated range per participant

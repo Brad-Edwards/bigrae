@@ -1,4 +1,5 @@
 """Layer-import boundaries, INSTALLED_APPS classification, cloud-factory seam."""
+
 from __future__ import annotations
 
 import ast
@@ -185,7 +186,7 @@ def _classify_bare_import(node: ast.Import, restricted_facades: set[str], module
                 module_bypass.add(alias.name)
 
 
-def iter_facade_symbol_imports(text: str, restricted_facades: set[str]) -> "tuple[dict[str, set[str]], set[str]]":
+def iter_facade_symbol_imports(text: str, restricted_facades: set[str]) -> tuple[dict[str, set[str]], set[str]]:
     """Return (public symbols imported per restricted facade, non-facade bypasses).
 
     The only sanctioned shape for a symbol-restricted facade (ADR-001-R4) is an
@@ -319,11 +320,7 @@ def _preparation_worker_candidates(repo_root: Path, files: list[str] | None) -> 
     """Select preparation worker Python files for a full or changed-file scan."""
     if files is None:
         return (repo_root / "shifter" / "packer" / "preparation").rglob("*.py")
-    return (
-        repo_root / rel
-        for rel in files
-        if rel.startswith("shifter/packer/preparation/") and rel.endswith(".py")
-    )
+    return (repo_root / rel for rel in files if rel.startswith("shifter/packer/preparation/") and rel.endswith(".py"))
 
 
 def _imported_package_roots(path: Path, relative_path: str) -> set[str]:
@@ -338,10 +335,7 @@ def _imported_package_roots(path: Path, relative_path: str) -> set[str]:
         if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module
     }
     imported.update(
-        alias.name.split(".", 1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
+        alias.name.split(".", 1)[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
     )
     return imported
 

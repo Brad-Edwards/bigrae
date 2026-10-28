@@ -735,3 +735,13 @@ not alternate permission providers. Notification subscriptions, replay and
 delivery retain the actual credential and require current policy or exact live
 participation. Historical creators, staff groups and user flags cannot bypass
 those decisions. Public scoreboard publication remains an explicit exemption.
+
+The communications console uses the same native boundary. Campaign reads admit
+the complete target set; recipient details also require participant-management
+authority on the selected event. Discovery checks current event authority before
+pagination and returns an explicit account, organization or workspace parent.
+The retained workspace-only response is a compatibility projection of that same
+discovery, not a second authorization path. Parent names are disclosed only for
+already-admitted event scopes through the owning Workspaces service. Revision,
+release and cancellation attribution identify the actual principal and credential;
+service actions never inherit a human contact's identity.

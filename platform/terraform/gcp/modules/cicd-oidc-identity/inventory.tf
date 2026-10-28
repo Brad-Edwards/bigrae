@@ -3,20 +3,26 @@ terraform {
 }
 
 variable "github_repository_id" {
-  description = "Immutable GitHub execution repository ID, verified during bootstrap."
+  # No default: the static CKV_GCP_125 grammar check must see the immutable
+  # placeholder, and a fork or rename can not federate by omission (ADR-069).
+  # A deployment without GitHub federation sets "" explicitly.
+  description = "Immutable GitHub execution repository ID, verified during bootstrap. Set \"\" only when purpose_contexts is empty."
   type        = string
   validation {
-    condition     = can(regex("^[1-9][0-9]*$", var.github_repository_id))
-    error_message = "github_repository_id must be a numeric repository ID."
+    condition     = can(regex("^[1-9][0-9]*$", var.github_repository_id)) || (var.github_repository_id == "" && length(var.purpose_contexts) == 0)
+    error_message = "github_repository_id must be a numeric repository ID when purpose_contexts enables GitHub federation."
   }
 }
 
 variable "github_owner_id" {
-  description = "Immutable GitHub owner ID, verified during bootstrap."
+  # No default: the static CKV_GCP_125 grammar check must see the immutable
+  # placeholder, and a fork or rename can not federate by omission (ADR-069).
+  # A deployment without GitHub federation sets "" explicitly.
+  description = "Immutable GitHub owner ID, verified during bootstrap. Set \"\" only when purpose_contexts is empty."
   type        = string
   validation {
-    condition     = can(regex("^[1-9][0-9]*$", var.github_owner_id))
-    error_message = "github_owner_id must be a numeric owner ID."
+    condition     = can(regex("^[1-9][0-9]*$", var.github_owner_id)) || (var.github_owner_id == "" && length(var.purpose_contexts) == 0)
+    error_message = "github_owner_id must be a numeric owner ID when purpose_contexts enables GitHub federation."
   }
 }
 
@@ -30,7 +36,9 @@ variable "release_evidence_bucket_name" {
 }
 
 variable "purpose_contexts" {
-  description = "Validated exact execution tuples. Disabled purposes are absent; capabilities are product policy."
+  # No default, for the same static-check reason as the repository IDs. A
+  # deployment without GitHub federation sets {} explicitly (ADR-070).
+  description = "Validated exact GitHub execution tuples. An empty map disables GitHub federation. Disabled purposes are absent; capabilities are product policy."
   type = map(list(object({
     environment           = string
     ref                   = string
@@ -38,9 +46,9 @@ variable "purpose_contexts" {
     reusable_workflow_ref = string
   })))
   validation {
-    condition = length(var.purpose_contexts) > 0 && alltrue([
+    condition = alltrue([
       for purpose, contexts in var.purpose_contexts :
-      contains(["build", "validate", "promote", "release_scan", "deploy", "destroy"], purpose) && length(contexts) > 0
+      contains(["build", "validate", "promote", "release_scan", "deploy", "destroy", "release"], purpose) && length(contexts) > 0
     ])
     error_message = "purpose_contexts must enable only supported purposes with non-empty contexts."
   }
@@ -60,7 +68,7 @@ variable "purpose_contexts" {
         startswith(context.workflow_ref, "${var.github_org}/${var.github_repo}/.github/workflows/") &&
         endswith(context.workflow_ref, "@${context.ref}") &&
         can(regex("^[A-Za-z0-9_./@-]+$", context.workflow_ref)) &&
-        (context.reusable_workflow_ref == "" || can(regex("^Brad-Edwards/bigrae/\\.github/workflows/_[a-z0-9_-]+\\.yml@[a-f0-9]{40}$", context.reusable_workflow_ref)))
+        (context.reusable_workflow_ref == "" || (startswith(context.reusable_workflow_ref, "${var.github_org}/${var.github_repo}/.github/workflows/") && can(regex("^_[a-z0-9_-]+\\.yml@[a-f0-9]{40}$", trimprefix(context.reusable_workflow_ref, "${var.github_org}/${var.github_repo}/.github/workflows/")))))
       ]
     ]))
     error_message = "Trust tuples require exact repository, Environment, branch and workflow contexts."
@@ -71,6 +79,13 @@ variable "purpose_contexts" {
       contains(["refs/heads/dev", "refs/heads/main"], context.ref) && endswith(context.workflow_ref, "@${context.ref}")
     ])
     error_message = "Destroy trust tuples must bind protected refs/heads/dev or refs/heads/main; gcp-dev-destroy.yml rejects every other dispatch ref."
+  }
+  validation {
+    condition = alltrue([
+      for context in lookup(var.purpose_contexts, "release", []) :
+      context.ref == "refs/heads/main" && endswith(context.workflow_ref, "/release-gcp.yml@refs/heads/main") && context.reusable_workflow_ref == ""
+    ])
+    error_message = "Release trust tuples must bind release-gcp.yml on protected refs/heads/main; the workflow rejects every other dispatch ref."
   }
 }
 

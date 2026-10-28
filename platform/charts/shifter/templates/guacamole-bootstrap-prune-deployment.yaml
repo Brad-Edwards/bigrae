@@ -38,6 +38,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: platform-runtime
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "find /tmp/guacamole-bootstrap-prune-heartbeat -mmin -2 | grep -q ."]
+            initialDelaySeconds: 10
+            periodSeconds: 15
           livenessProbe:
             exec:
               command: ["sh", "-c", "find /tmp/guacamole-bootstrap-prune-heartbeat -mmin -2 | grep -q ."]

@@ -1443,11 +1443,13 @@ class TestRangeNetworkEnv:
     @pytest.mark.parametrize(
         "image_url",
         [
-            "oci://ghcr.io/brad-edwards/shifter-vm-ubuntu:latest",
-            "docker://ghcr.io/brad-edwards/shifter-vm-ubuntu:latest",
-            "oci://ghcr.io/brad-edwards/shifter-vm-kali@sha256:" + "a" * 64,
+            "oci://ghcr.io/example-org/shifter-vm-ubuntu:latest",
+            "docker://ghcr.io/example-org/shifter-vm-ubuntu:latest",
+            "oci://ghcr.io/example-org/shifter-vm-kali@sha256:" + "a" * 64,
             "oci://registry.example.com/shifter-vm-ubuntu@sha256:" + "a" * 64,
-            "oci://ghcr.io/brad-edwards/shifter-vm-ubuntu@sha256:" + "A" * 64,
+            "oci://ghcr.io/example-org/shifter-vm-ubuntu@sha256:" + "A" * 64,
+            "oci://ghcr.io/Example-Org/shifter-vm-ubuntu@sha256:" + "a" * 64,
+            "oci://ghcr.io/-example/shifter-vm-ubuntu@sha256:" + "a" * 64,
         ],
     )
     def test_load_gdc_vmruntime_config_rejects_invalid_ghcr_vm_disk_reference(self, mocker, image_url):
@@ -1472,13 +1474,13 @@ class TestRangeNetworkEnv:
             {
                 "CLOUD_PROVIDER": "gcp",
                 "GCP_RANGE_BACKEND": "gdc",
-                "GDC_UBUNTU_IMAGE_URL": f"{scheme}ghcr.io/brad-edwards/shifter-vm-ubuntu@sha256:{digest}",
+                "GDC_UBUNTU_IMAGE_URL": f"{scheme}ghcr.io/example-org/shifter-vm-ubuntu@sha256:{digest}",
             },
             clear=True,
         )
 
         assert load_gdc_vmruntime_config().ubuntu.source_url == (
-            f"oci://ghcr.io/brad-edwards/shifter-vm-ubuntu@sha256:{digest}"
+            f"oci://ghcr.io/example-org/shifter-vm-ubuntu@sha256:{digest}"
         )
 
     def test_load_gdc_vmruntime_config_reads_sftp_root_env_override(self, mocker):

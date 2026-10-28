@@ -174,6 +174,7 @@ def _deliver_with_retries(webhook_pk: UUID, url: str, secret: str, body: bytes, 
     if secret:
         signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
         headers["X-Shifter-Signature"] = f"sha256={signature}"
+        headers["X-BigRAE-Signature"] = headers["X-Shifter-Signature"]
 
     status = "failed"
     for attempt in range(1, _MAX_ATTEMPTS + 1):

@@ -20,6 +20,7 @@ PLATFORM = ROOT / "shifter/shifter_platform"
 sys.path.insert(0, str(ROOT / "shifter/shifter_platform"))
 
 from cms.api.operation_policy import API_OPERATION_POLICY as CMS_OPERATION_POLICY  # noqa: E402
+from config.model_access_operation_policy import API_OPERATION_POLICY as MODEL_ACCESS_OPERATION_POLICY  # noqa: E402
 from ctf.api.operation_policy import API_OPERATION_POLICY as CTF_OPERATION_POLICY  # noqa: E402
 from mission_control.api.operation_policy import API_OPERATION_POLICY as MC_OPERATION_POLICY  # noqa: E402
 
@@ -27,6 +28,7 @@ EXACT_OPERATION_POLICY = {
     **CMS_OPERATION_POLICY,
     **CTF_OPERATION_POLICY,
     **MC_OPERATION_POLICY,
+    **MODEL_ACCESS_OPERATION_POLICY,
 }
 
 
@@ -140,13 +142,14 @@ def _websocket_routes() -> list[list[str]]:
             if not isinstance(node, ast.Call) or ast.unparse(node.func) != "re_path" or not node.args:
                 continue
             route = ast.unparse(node.args[0])
+            notification = relative == "shared/routing.py" and ast.literal_eval(node.args[0]) == "ws/notifications/$"
             rows.append(
                 _row(
                     "socket",
                     f"{relative}:{route}",
-                    "continuing-access-check",
-                    "connection",
-                    "resource-account",
+                    "event.read|event.participate" if notification else "continuing-access-check",
+                    "event" if notification else "connection",
+                    "credential-bound-topic-and-live-participation" if notification else "resource-account",
                 )
             )
     return sorted(rows, key=lambda row: row[1])

@@ -116,26 +116,41 @@ After bootstrap, CI/CD can manage all other infrastructure automatically.
 
 ## GCP
 
-GCP manual setup is separate from the AWS stacks above:
+GCP manual setup is separate from the AWS stacks above. A GCP deployment can
+run without GitHub (ADR-070). The
+[GitHub-less GCP deployment guide](../handbook/gcp-github-less-deployment.md) gives the
+commands for each step:
 
-1. **GCP project setup** - Create project, enable APIs, configure billing
-2. **Workload Identity Federation** - Configure OIDC provider for GitHub Actions
-3. **Secure bootstrap inputs** - Set `public_hostname`, `enable_managed_tls = true`, and leave `gke_master_authorized_cidrs = []` for Connect Gateway (or use connected RFC1918 networks only)
-4. **Bootstrap operator credentials** - Provide `GCP_BOOTSTRAP_ADMIN_EMAIL` and `GCP_BOOTSTRAP_ADMIN_PASSWORD` in the local bootstrap env or GitHub environment secrets, or be ready to enter them interactively
-5. **Optional bootstrap admin elevation** - Provide `PLATFORM_BOOTSTRAP_STAFF_EMAILS` / `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS` if the first operator should come up with admin privileges on first login
-6. **DNS** - Point the public hostname at the reserved ingress IP if DNS is managed outside Terraform
+1. **GCP project setup** - Create the project and configure billing.
+2. **Foundation** - Run `scripts/bootstrap/deploy.py gcp-foundation` in its
+   GitHub-less mode. It creates the state bucket, the purpose identities, the
+   release-evidence bucket, and the deployment config bucket. It grants the
+   named `impersonation_principals` the right to impersonate the deploy,
+   release-scan, and destroy identities. It creates no Workload Identity pool
+   or provider.
+3. **Release access** - Add the deploy and destroy identities, and the
+   operators, to the `reader_members` of the release registry.
+4. **Initial secrets** - Store the first operator password in Secret Manager.
+   Name that secret in `settings.operator_bootstrap.admin_password_secret_ref`.
+5. **Deployment inputs** - Write `bigrae.yaml` and the Terraform values. Leave
+   `gke_master_authorized_cidrs = []` for Connect Gateway, or use connected
+   RFC1918 networks only. Publish the inputs with `gcp-config publish`.
+6. **Range images** - Import the base guest images with `gcp-images --source
+   <release registry> --store gs://<deployment config bucket>`.
+7. **First install** - Run `gcp-deploy --store gs://<deployment config bucket>
+   --first-install` from the deployer image of the release.
+8. **DNS** - Point the public hostname at the reserved ingress IP if DNS is
+   managed outside Terraform, then run `gcp-deploy` again without
+   `--first-install`.
 
-The authoritative manual bring-up path is:
+The deploy command expects and enforces:
 
-```bash
-./scripts/bootstrap/deploy.py gdc-bootstrap --project-id example-gcp-project --cluster-id cluster1
-```
-
-That bootstrap path now expects:
-
-- private GDC hosts with IAP-based operator access
-- a managed-TLS public hostname (`shifter.example.com` in the current `gcp-dev` tfvars)
-- authorized CIDRs restricting the public GKE control-plane endpoint
+- a managed-TLS public hostname from `deployment.domain`
+- a private GKE control-plane endpoint that it reaches through Connect Gateway
 - Cloud Armor on the public ingress backends
 - Terraform-managed Identity Platform for corporate login, with browser-side Google auth and server-side verified-token exchange
-- a bootstrap-seeded first operator account
+- a first operator account that it seeds from `settings.operator_bootstrap`
+- the ADR-037 release gates: the exact-digest scan, the provenance check, and the running-image check
+
+`scripts/bootstrap/deploy.py gdc-bootstrap` builds only the legacy GDC VM
+Runtime substrate for the `gdc` range backend.

@@ -10,7 +10,7 @@ import type { CtfOrganizerScoreboard } from "@/api/types";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -32,7 +32,7 @@ import { formatDateTime, rankingKey, rankingNumber, rankingString, titleCase } f
 import { EventAnalyticsCard } from "./EventAnalyticsCard";
 import { EventTasksCard } from "./EventTasksCard";
 import { ResultsExportButton } from "./ResultsExportButton";
-import { ctfAdminEventPath, ctfAdminEventsPath } from "../routes";
+import { ctfAdminCommunicationsPath, ctfAdminEventPath, ctfAdminEventsPath } from "../routes";
 
 export type MonitoringTab = "scoreboard" | "ranges" | "notifications" | "analytics";
 
@@ -326,7 +326,10 @@ function NotificationsTab({ eventId }: Readonly<{ eventId: string }>) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Link to={ctfAdminCommunicationsPath()} className={buttonVariants({ variant: "outline", size: "sm" })}>
+          Multi-event communications
+        </Link>
         <Button size="sm" onClick={() => setAnnouncing(true)}>
           New announcement
         </Button>

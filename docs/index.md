@@ -1,14 +1,14 @@
-# Shifter documentation
+# BigRAE documentation
 
-Shifter is a cyber-range platform for running XDR and NGFW demos and CTF events
+BigRAE is a cyber-range platform for running XDR and NGFW demos and CTF events
 on AWS and GCP. This site is the single home for using, deploying, operating,
 and developing it. See the [product overview](product-overview.md) for what
-Shifter does.
+BigRAE does.
 
 Start with the [current-state architecture handbook](technical/architecture.md) and
 [GCP installation and first exercise](technical/handbook/gcp-first-run.md).
 
-## Use Shifter
+## Use BigRAE
 
 | Section | Read this when |
 |---|---|
@@ -40,7 +40,7 @@ enforces the prerequisites documented here before any Terraform apply.
 | [GitHub runner health alerts](ops/github-runner-health-alerts.md) | A runner-health alert fired and you need the response steps. |
 | [Model-access operations design](ops/model-access.md) | You are implementing or reviewing planned model access, budgets, revocation, migration, and recovery under #681. |
 | [GCP event capacity profiles](ops/gcp-event-capacity.md) | You are scaling a GCP tenant for an event, running the p30 public-path gate, checking drift, or scaling down. |
-| [Operations runbooks](runbooks/index.md) | You are diagnosing or recovering a deployed Shifter environment. |
+| [Operations runbooks](runbooks/index.md) | You are diagnosing or recovering a deployed BigRAE environment. |
 | [GCP native identity](ops/gcp-native-identity.md) | You are enabling native SQL, separating policy administration or qualifying live renewal and authority. |
 | [GCP range audit telemetry](ops/gcp-range-audit-telemetry.md) | You are changing GCP range flow, NAT, or Vertex AI audit logging, or reading the deploy readback. |
 
@@ -50,3 +50,5 @@ enforces the prerequisites documented here before any Terraform apply.
 |---|---|
 | [Technical docs](technical/index.md) | You are developing the platform: setup, secrets, Terraform, CI/CD, architecture, and subsystem docs. |
 | [ADR enforcement](adr/README.md) | You need how architecture decisions are recorded and enforced in CI. |
+
+- [Deployment configuration and recovery](dev/deployment-configuration.md)

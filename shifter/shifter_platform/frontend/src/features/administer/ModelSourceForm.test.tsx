@@ -36,6 +36,6 @@ it("sends an explicit source choice and clears the transient credential after fa
 it("offers platform and external project placement without imposing a separate project", () => {
   renderRoute(<ModelSourceForm organization="org-1" onSaved={vi.fn()} />);
   expect(screen.getByLabelText("Google Cloud project")).toBeInTheDocument();
-  expect(screen.getByText(/You may use the project hosting Shifter/)).toBeInTheDocument();
+  expect(screen.getByText(/You may use the project hosting BigRAE/)).toBeInTheDocument();
   expect(screen.getByText(/access is granted through the organization authorization policy/)).toBeInTheDocument();
 });

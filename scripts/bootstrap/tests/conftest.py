@@ -1,9 +1,10 @@
 """Pytest configuration for bootstrap tests."""
 
+import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -31,6 +32,56 @@ def protect_real_files(monkeypatch):
         return original_write_text(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "write_text", safe_write_text)
+
+
+@pytest.fixture
+def github_identity():
+    """Return a synthetic resolved GitHub repository identity (ADR-069)."""
+    return {
+        "github_org": "example-org",
+        "github_repo": "example-repo",
+        "github_repository_id": "123456789",
+        "github_owner_id": "12345678",
+    }
+
+
+@pytest.fixture
+def gh_identity_responder(github_identity):
+    """Return a function that answers the gh identity commands, or None for other commands."""
+    full_name = f"{github_identity['github_org']}/{github_identity['github_repo']}"
+    api_lines = (
+        github_identity["github_repository_id"],
+        github_identity["github_owner_id"],
+        full_name,
+        github_identity["github_org"],
+    )
+
+    def respond(cmd):
+        if list(cmd) == ["gh", "repo", "set-default", "--view"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"{full_name}\n", stderr="")
+        if list(cmd[:3]) == ["gh", "api", f"repos/{full_name}"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="\n".join(api_lines) + "\n", stderr="")
+        return None
+
+    return respond
+
+
+@pytest.fixture
+def gh_default_repository(gh_identity_responder):
+    """Answer only the gh identity commands at the subprocess boundary.
+
+    Any other command fails, so a test can not run a real command. The patch
+    is a context manager, so it nests inside other subprocess patches.
+    """
+
+    def run(cmd, *_args, **_kwargs):
+        result = gh_identity_responder(cmd)
+        if result is None:
+            raise RuntimeError(f"Test attempted to run {cmd} without a fake")
+        return result
+
+    with patch("subprocess.run", side_effect=run):
+        yield
 
 
 @contextmanager
