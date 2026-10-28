@@ -85,6 +85,13 @@ run "impersonation_only_foundation" {
     error_message = "Deploy principals publish the inputs; destroy-only principals read them."
   }
   assert {
+    condition = (
+      toset(google_project_iam_custom_role.deploy_identity_platform[0].permissions) == toset(["firebase.projects.get", "firebase.projects.update"]) &&
+      google_project_iam_member.deploy_identity_platform[0].member == "serviceAccount:custunseen-deploy@example-project.iam.gserviceaccount.com"
+    )
+    error_message = "The deploy identity must be able to add Firebase when it initializes Identity Platform (#2594)."
+  }
+  assert {
     condition     = length(google_storage_bucket_iam_member.deployment_config_access_log_writer) == 0
     error_message = "Usage-log delivery is off by default; Domain Restricted Sharing rejects the google.com group (#2585)."
   }
