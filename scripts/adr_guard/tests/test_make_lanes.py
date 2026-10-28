@@ -107,9 +107,12 @@ class PackageLaneParityTests(unittest.TestCase):
         self.assertIn("--cov", ci_pytest)
         self.assertRegex(recipe, r"--with pytest-cov pytest tests/ --cov\b")
 
-    def test_postgres_lane_collects_static_files_like_ci(self) -> None:
+    def test_postgres_lane_collects_static_files_and_measures_coverage_like_ci(self) -> None:
         recipe = _dry_run("test-platform-postgres")
-        ci_commands = " ".join(_job_commands("shifter-platform-tests-postgres", "shifter/shifter_platform"))
+        ci_commands = " ".join(_job_commands("shifter-platform-tests", "shifter/shifter_platform"))
+        # The PostgreSQL lane owns the platform coverage floor (#2582).
+        self.assertIn("--cov", ci_commands)
+        self.assertRegex(recipe, r'-m "not redis and not openfga" --cov\b')
         self.assertIn("manage.py collectstatic --noinput", ci_commands)
         collect = recipe.find("manage.py collectstatic --noinput")
         self.assertGreaterEqual(collect, 0, "make test-platform-postgres omits collectstatic")

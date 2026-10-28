@@ -24,8 +24,8 @@ only additional tools or services.
 
 | Lane | Local command | Prerequisites | CI job | `make test` |
 | --- | --- | --- | --- | --- |
-| Platform (SQLite, coverage floor) | `make test-platform` | None | Tests (shifter_platform) | yes |
-| Adapter SDK and packaging | `make test-adapter-sdk` | None | Tests (shifter_platform) | yes |
+| Platform (SQLite, local only) | `make test-platform` | None | None; CI runs the PostgreSQL lane | yes |
+| Adapter SDK and packaging | `make test-adapter-sdk` | None | Tests (adapter SDK) | yes |
 | Engine provisioner | `make test-provisioner` | None | Tests (provisioner) | yes |
 | Packer helpers | `make test-packer` | None; Packer cases skip without Packer | Tests (packer) | yes |
 | Installation CLI | `make test-installation` | None | Tests (installation) | yes |
@@ -52,8 +52,8 @@ commands select only unit tests for those packages. See
 
 | Lane | Local command | Prerequisites | CI job |
 | --- | --- | --- | --- |
-| Platform PostgreSQL semantics | `make test-platform-postgres` | PostgreSQL on `:5432` | Tests (shifter_platform, PostgreSQL) |
-| Platform Redis channel layer | `make test-platform-redis` | Redis on `:6379` | Tests (shifter_platform) |
+| Platform (PostgreSQL, coverage floor) | `make test-platform-postgres` | PostgreSQL on `:5432` | Tests (shifter_platform, PostgreSQL `n`/6), Coverage (shifter_platform) |
+| Platform Redis channel layer | `make test-platform-redis` | Redis on `:6379` | Tests (shifter_platform, Redis channel layer) |
 | OpenFGA authorization | `./scripts/run_openfga_integration.sh` in `shifter/shifter_platform` | Docker | Tests (OpenFGA 1.20.0, PostgreSQL) |
 | Subnet migration proof | `uv run pytest engine/tests/test_subnet_allocation_migrations_postgres.py` in `shifter/shifter_platform` | Docker | Tests (migration proof) |
 | Guacamole authority | `mvn verify` in `shifter/engine/guacamole/authority-extension`, then the CI job's integration tests | Maven, Docker | Tests and compilation (Guacamole authority) |
@@ -61,9 +61,9 @@ commands select only unit tests for those packages. See
 | Built-image stack smoke | `bash scripts/stack-smoke/stack_smoke.sh` | Docker | Stack smoke (built image) |
 | GCP deployer image | The CI job's fixture release manifest and image build, then `docker run --rm bigrae-deployer:ci gcp-deploy --help` and its Trivy scan | Docker | Tests (GCP deployer image) |
 
-The SQLite, PostgreSQL and OpenFGA lanes run some of the same tests. They are not
+The PostgreSQL and OpenFGA lanes run some of the same tests. They are not
 duplicates: each lane proves database or authorization behavior that the other
-lanes cannot prove.
+lane cannot prove. The SQLite lane is a fast local lane; CI does not run it.
 
 ### Frontend and browser lanes
 
@@ -132,6 +132,22 @@ checkout. The settings set the platform test posture (`DEBUG`, SQLite backend,
 local provisioner off) through `config._runtime_env.IS_TEST_RUN`; CI does not
 inject it.
 
+## CI platform lane
+
+CI runs the platform suite one time, against PostgreSQL. `pytest-split` divides
+the suite into six parallel shards. It uses the `least_duration` algorithm with
+no durations file, so it deals the tests out to the shards in turn. Each xdist
+worker clones its test database from one migrated template database. The
+`Coverage (shifter_platform)` job then does these steps:
+
+1. It combines the coverage data from all shards.
+2. It enforces the whole-package coverage floor.
+3. It makes sure that at least one `postgres`-marked test ran in a shard
+   (`scripts/check_postgres_lane_evidence.py`).
+
+A skipped `postgres`-marked test fails its shard. Keep each test fast. One slow
+test makes its shard slow, because the shards do not use recorded durations.
+
 ## Test posture (why a clean run matches CI)
 
 `config._runtime_env.IS_TEST_RUN` is true when `TESTING=1` or pytest is the entry
@@ -192,12 +208,17 @@ A, and new security hotspots not fully reviewed. PR analysis waits for the gate
 `sonar-project.properties`; each owned Python package publishes its configured
 coverage report for Sonar to consume.
 
+The `sonar-rules-changed-lines` pre-commit hook finds most `new_violations`
+before a push. It applies the Python rules that fail the gate most often to the
+lines that changed against `origin/dev`. It does not run tests, so it does not
+check `new_coverage`.
+
 The released OpenFGA/PostgreSQL lane also publishes `coverage-openfga.xml`,
 including the native application and policy SQL duty tests. Sonar consumes both
 platform reports so service-only behavior contributes real coverage evidence.
 This supplemental report has no whole-package floor because it exercises a
-service-specific subset; the SQLite job still enforces the unchanged 87%
-package floor, and Sonar still enforces 80% changed-code coverage. Run it locally
+service-specific subset; the `Coverage (shifter_platform)` job still enforces the
+unchanged 87% package floor, and Sonar still enforces 80% changed-code coverage. Run it locally
 from `shifter/shifter_platform` with
 `./scripts/run_openfga_integration.sh --cov --cov-report=xml:coverage-openfga.xml --cov-fail-under=0`.
 

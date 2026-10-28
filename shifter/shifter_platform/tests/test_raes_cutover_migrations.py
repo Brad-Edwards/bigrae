@@ -1,4 +1,8 @@
-"""Forward/reverse proof for the RAES model and physical-schema cutover."""
+"""Forward/reverse proof for the RAES model and physical-schema cutover.
+
+Each migration round trip costs minutes on PostgreSQL, so the forward and the
+reverse proofs share one seeded round trip (#2582).
+"""
 
 from __future__ import annotations
 
@@ -228,7 +232,56 @@ def _digest(payload):
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def test_forward_cutover_renames_schema_removes_retired_contract_rows_and_preserves_opaque_history(historical):
+def _assert_opaque_history_preserved(apps, rows):
+    """Range, launch, input, result and event history keep their authored ``aces`` values."""
+    range_row = apps.get_model("engine", "Range").objects.get(pk=rows["range"])
+    assert range_row.provisioner_operation == "aces-range:provision"
+    assert range_row.range_config == {
+        "kind": "aces_provisioning_plan",
+        "contract_version": "aces-provisioning-plan-v1",
+        "aces_sdl_version": "0.25.0",
+        "resources": {
+            "provision.node.historical": {
+                "resource_type": "node",
+                "payload": {
+                    "notes": "aces-range",
+                    "authored": {"aces_sdl_version": "opaque authored value"},
+                },
+            }
+        },
+    }
+    launch = apps.get_model("engine", "ProvisionerLaunchIntent").objects.get(pk=rows["launch"])
+    assert launch.payload["resource"] == "aces-range"
+    operation_input = apps.get_model("engine", "OperationInput").objects.get(pk=rows["input"])
+    assert operation_input.resource == "aces-range"
+    assert operation_input.envelope["resource"] == "aces-range"
+    assert operation_input.envelope["payload"]["plan"] == range_row.range_config
+
+    expected_steps = {
+        "aces_provision_running",
+        "aces_provision_snapshot",
+        "aces_destroy_running",
+        "aces_terminal_ready",
+        "aces_terminal_destroyed",
+        "aces_terminal_failed",
+    }
+    results = list(apps.get_model("engine", "OperationResultInbox").objects.filter(pk__in=rows["results"]))
+    assert {result.resource for result in results} == {"aces-range"}
+    assert {result.envelope["resource"] for result in results} == {"aces-range"}
+    assert {result.result_step for result in results} == expected_steps
+    for result in results:
+        assert "raes_status" not in result.envelope["payload"]
+        assert result.payload_digest == _digest(result.envelope["payload"])
+        assert result.result_identity == f"{result.operation_id}:{result.result_step}:{result.payload_digest}"
+
+    events = list(apps.get_model("engine", "RangeEventOutbox").objects.filter(pk__in=rows["events"]))
+    assert {event.event_type for event in events} == {"range.aces.operation", "range.aces.snapshot"}
+    assert {event.payload["event_type"] for event in events} == {"range.aces.operation", "range.aces.snapshot"}
+    assert all("raes_status" not in event.payload for event in events)
+
+
+def test_cutover_forward_and_reverse_preserve_opaque_history(historical):
+    """Forward renames the schema and drops retired rows; reverse restores the historical models."""
     rows = _seed_historical_rows(historical)
 
     apps = _migrate(AFTER)
@@ -255,56 +308,7 @@ def test_forward_cutover_renames_schema_removes_retired_contract_rows_and_preser
     assert apps.get_model("engine", "RaesImageMapping").objects.filter(pk=rows["mapping"]).exists()
     assert not apps.get_model("shared", "RaesOperationRecord").objects.filter(pk=rows["record"]).exists()
     assert not apps.get_model("shared", "RaesParticipantRuntimeRecord").objects.filter(pk=rows["participant"]).exists()
-
-    range_row = apps.get_model("engine", "Range").objects.get(pk=rows["range"])
-    assert range_row.provisioner_operation == "aces-range:provision"
-    assert range_row.range_config == {
-        "kind": "aces_provisioning_plan",
-        "contract_version": "aces-provisioning-plan-v1",
-        "aces_sdl_version": "0.25.0",
-        "resources": {
-            "provision.node.historical": {
-                "resource_type": "node",
-                "payload": {
-                    "notes": "aces-range",
-                    "authored": {"aces_sdl_version": "opaque authored value"},
-                },
-            }
-        },
-    }
-    launch = apps.get_model("engine", "ProvisionerLaunchIntent").objects.get(pk=rows["launch"])
-    assert launch.payload["resource"] == "aces-range"
-    operation_input = apps.get_model("engine", "OperationInput").objects.get(pk=rows["input"])
-    assert operation_input.resource == "aces-range"
-    assert operation_input.envelope["resource"] == "aces-range"
-    assert operation_input.envelope["payload"]["plan"] == range_row.range_config
-
-    expected_steps = {
-        "aces_provision_running",
-        "aces_provision_snapshot",
-        "aces_destroy_running",
-        "aces_terminal_ready",
-        "aces_terminal_destroyed",
-        "aces_terminal_failed",
-    }
-    results = list(apps.get_model("engine", "OperationResultInbox").objects.filter(pk__in=rows["results"]))
-    assert {result.resource for result in results} == {"aces-range"}
-    assert {result.envelope["resource"] for result in results} == {"aces-range"}
-    assert {result.result_step for result in results} == expected_steps
-    for result in results:
-        assert "raes_status" not in result.envelope["payload"]
-        assert result.payload_digest == _digest(result.envelope["payload"])
-        assert result.result_identity == f"{result.operation_id}:{result.result_step}:{result.payload_digest}"
-
-    events = list(apps.get_model("engine", "RangeEventOutbox").objects.filter(pk__in=rows["events"]))
-    assert {event.event_type for event in events} == {"range.aces.operation", "range.aces.snapshot"}
-    assert {event.payload["event_type"] for event in events} == {"range.aces.operation", "range.aces.snapshot"}
-    assert all("raes_status" not in event.payload for event in events)
-
-
-def test_reverse_cutover_restores_historical_models_and_tables(historical):
-    rows = _seed_historical_rows(historical)
-    _migrate(AFTER)
+    _assert_opaque_history_preserved(apps, rows)
 
     apps = _migrate(BEFORE)
 
@@ -312,51 +316,7 @@ def test_reverse_cutover_restores_historical_models_and_tables(historical):
     assert apps.get_model("engine", "AcesImageMapping").objects.filter(pk=rows["mapping"]).exists()
     assert not apps.get_model("shared", "AcesOperationRecord").objects.filter(pk=rows["record"]).exists()
     assert not apps.get_model("shared", "AcesParticipantRuntimeRecord").objects.filter(pk=rows["participant"]).exists()
-
-    range_row = apps.get_model("engine", "Range").objects.get(pk=rows["range"])
-    assert range_row.provisioner_operation == "aces-range:provision"
-    assert range_row.range_config == {
-        "kind": "aces_provisioning_plan",
-        "contract_version": "aces-provisioning-plan-v1",
-        "aces_sdl_version": "0.25.0",
-        "resources": {
-            "provision.node.historical": {
-                "resource_type": "node",
-                "payload": {
-                    "notes": "aces-range",
-                    "authored": {"aces_sdl_version": "opaque authored value"},
-                },
-            }
-        },
-    }
-    launch = apps.get_model("engine", "ProvisionerLaunchIntent").objects.get(pk=rows["launch"])
-    assert launch.payload["resource"] == "aces-range"
-    operation_input = apps.get_model("engine", "OperationInput").objects.get(pk=rows["input"])
-    assert operation_input.resource == "aces-range"
-    assert operation_input.envelope["resource"] == "aces-range"
-    assert operation_input.envelope["payload"]["plan"] == range_row.range_config
-
-    expected_steps = {
-        "aces_provision_running",
-        "aces_provision_snapshot",
-        "aces_destroy_running",
-        "aces_terminal_ready",
-        "aces_terminal_destroyed",
-        "aces_terminal_failed",
-    }
-    results = list(apps.get_model("engine", "OperationResultInbox").objects.filter(pk__in=rows["results"]))
-    assert {result.resource for result in results} == {"aces-range"}
-    assert {result.envelope["resource"] for result in results} == {"aces-range"}
-    assert {result.result_step for result in results} == expected_steps
-    for result in results:
-        assert "raes_status" not in result.envelope["payload"]
-        assert result.payload_digest == _digest(result.envelope["payload"])
-        assert result.result_identity == f"{result.operation_id}:{result.result_step}:{result.payload_digest}"
-
-    events = list(apps.get_model("engine", "RangeEventOutbox").objects.filter(pk__in=rows["events"]))
-    assert {event.event_type for event in events} == {"range.aces.operation", "range.aces.snapshot"}
-    assert {event.payload["event_type"] for event in events} == {"range.aces.operation", "range.aces.snapshot"}
-    assert all("raes_status" not in event.payload for event in events)
+    _assert_opaque_history_preserved(apps, rows)
 
 
 def test_cutover_refuses_undrained_retired_work(historical):
