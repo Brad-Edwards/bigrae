@@ -138,15 +138,16 @@ module "dynamic_secret_project_services" {
   required_services = toset(["secretmanager.googleapis.com"])
 }
 
-# Secret payload reads are not logged by default. Enable DATA_READ explicitly
-# on the deployment-scoped secret project so participant, range-host, and
-# provisioner reads have an auditable revocation trail.
+# Secret payload reads are not logged by default. Enable all Data Access log
+# types on the deployment-scoped secret project. Participant, range-host, and
+# provisioner reads then have an auditable revocation trail, and metadata reads
+# and data writes are also recorded.
 module "dynamic_secret_data_access_audit" {
   source = "../project-audit-config"
 
   project_id = local.dynamic_secret_project_id
   service    = "secretmanager.googleapis.com"
-  log_types  = ["DATA_READ"]
+  log_types  = ["ADMIN_READ", "DATA_READ", "DATA_WRITE"]
 
   depends_on = [module.dynamic_secret_project_services]
 }

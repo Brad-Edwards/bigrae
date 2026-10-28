@@ -405,6 +405,7 @@ module "cognito" {
   # reminder. The ASG-refresh hook is gone with the legacy runtime; EKS consumers
   # pick up a rotated client on their next pod roll.
   alerts_topic_arn         = aws_sns_topic.alerts.arn
+  alerts_topic_kms_key_arn = aws_kms_key.alerts_sns.arn
   enable_rotation_reminder = var.alarm_email != ""
   deletion_protection      = false
 
@@ -419,9 +420,52 @@ module "cognito" {
 # Shared Alerting SNS Topic
 # ------------------------------------------------------------------------------
 
+# The topic uses a customer managed key (AWS-0136). CloudWatch alarms can
+# publish to an encrypted topic only when the key policy lets the CloudWatch
+# service principal use the key. The AWS managed alias/aws/sns key policy
+# cannot grant this. IAM publishers, such as the Cognito rotation reminder
+# role, get key access through their IAM policies.
+resource "aws_kms_key" "alerts_sns" {
+  description             = "CMK for the ${local.name_prefix} shared alerts SNS topic (AWS-0136)"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableRootAccountAdmin"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowCloudWatchAlarms"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey*",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-alerts-sns"
+  })
+}
+
+resource "aws_kms_alias" "alerts_sns" {
+  name          = "alias/${local.name_prefix}-alerts-sns"
+  target_key_id = aws_kms_key.alerts_sns.key_id
+}
+
 resource "aws_sns_topic" "alerts" {
   name              = "${local.name_prefix}-alerts"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.alerts_sns.arn
   tags              = var.tags
 }
 
@@ -505,9 +549,8 @@ module "ssm" {
   cognito_secret_arn = module.cognito.cognito_secret_arn
 
   # Application configuration
-  domain_name       = var.domain_name
-  s3_bucket_name    = var.user_storage_bucket
-  ctfd_platform_url = var.enable_ctfd ? "${module.ctfd[0].url}/login" : ""
+  domain_name    = var.domain_name
+  s3_bucket_name = var.user_storage_bucket
   ctf_content_bucket_name = (
     var.ctf_content_bucket_arn == ""
     ? ""
@@ -557,42 +600,6 @@ module "ssm" {
   # are env-owned and hydrated by both first-boot user_data and SSM redeploy.
   portal_capacity_metrics_enabled = var.portal_capacity_metrics_enabled
   portal_worker_soft_concurrency  = var.portal_worker_soft_concurrency
-}
-
-# ------------------------------------------------------------------------------
-# CTFd
-# ------------------------------------------------------------------------------
-
-module "ctfd" {
-  count = var.enable_ctfd ? 1 : 0
-
-  source = "../../../modules/portal/ctfd"
-
-  aws_region               = var.aws_region
-  name_prefix              = local.name_prefix
-  iam_name_prefix          = local.iam_name_prefix
-  permissions_boundary_arn = local.ci_role_permissions_boundary_arn
-  vpc_id                   = module.vpc.vpc_id
-  # Public-workload tier, kept out of the ALB ingress CIDR so CTFd cannot
-  # reach Django:8000 / Guacamole:8080 directly (#911 NET-2 / #933).
-  subnet_id = module.vpc.public_workload_subnet_ids[0]
-
-  ami_id                 = var.ctfd_ami_id
-  instance_type          = var.ctfd_instance_type
-  root_volume_size       = var.ctfd_root_volume_size
-  root_volume_type       = var.ctfd_root_volume_type
-  root_volume_iops       = var.ctfd_root_volume_iops
-  root_volume_throughput = var.ctfd_root_volume_throughput
-
-  domain                 = var.ctfd_domain
-  ctfd_repo_url          = var.ctfd_repo_url
-  ctfd_git_ref           = var.ctfd_git_ref
-  docker_compose_version = var.ctfd_docker_compose_version
-  docker_buildx_version  = var.ctfd_docker_buildx_version
-  ssh_public_key         = var.ctfd_ssh_public_key
-  ssh_allowed_cidrs      = var.ctfd_ssh_allowed_cidrs
-
-  tags = var.tags
 }
 
 # ------------------------------------------------------------------------------

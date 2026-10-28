@@ -83,10 +83,12 @@ resource "aws_internet_gateway" "this" {
 resource "aws_subnet" "public" {
   count = var.az_count
 
-  vpc_id                  = aws_vpc.this.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 4, count.index)
-  availability_zone       = local.azs[count.index]
-  map_public_ip_on_launch = true
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = cidrsubnet(var.vpc_cidr, 4, count.index)
+  availability_zone = local.azs[count.index]
+  # No automatic public IPs (AWS-0164). The NAT gateway uses an Elastic IP,
+  # and an internet-facing load balancer gets its public addresses from AWS.
+  map_public_ip_on_launch = false
 
   tags = merge(local.common_tags, {
     Name = "${var.name_prefix}-public-${local.azs[count.index]}"
@@ -226,10 +228,12 @@ resource "aws_route_table_association" "private" {
 resource "aws_subnet" "public_workload" {
   count = var.az_count
 
-  vpc_id                  = aws_vpc.this.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 4, count.index + 2 * var.az_count)
-  availability_zone       = local.azs[count.index]
-  map_public_ip_on_launch = true
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = cidrsubnet(var.vpc_cidr, 4, count.index + 2 * var.az_count)
+  availability_zone = local.azs[count.index]
+  # No automatic public IPs (AWS-0164). Each public workload asks for its
+  # own public address (CTFd sets associate_public_ip_address and an EIP).
+  map_public_ip_on_launch = false
 
   tags = merge(local.common_tags, {
     Name = "${var.name_prefix}-public-workload-${local.azs[count.index]}"

@@ -26,8 +26,8 @@ Toleration = tuple[str, str, OptionalStr, str]
 # image-specific and cloud-neutral: the same provisioner image runs on GKE and
 # EKS, so both the GCP and AWS adapters share one hardening contract here rather
 # than each duplicating the uid/gid/mount layout.
-_PROVISIONER_RUN_AS_UID = 1000
-_PROVISIONER_RUN_AS_GID = 1000
+_PROVISIONER_RUN_AS_UID = 10001
+_PROVISIONER_RUN_AS_GID = 10001
 # Memory-backed workspace volume size cap. Terraform staging trees are tiny, but a
 # runaway plan log or provider download could otherwise consume node memory
 # unbounded; 256Mi is generous for the staged terraform/ tree plus plan output.

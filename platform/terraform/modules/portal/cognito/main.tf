@@ -149,7 +149,6 @@ data "archive_file" "pre_signup" {
 # infrastructure), so several Lambda hardening checks do not apply in the
 # usual way. Per ADR-004-R11 exception ckv-aws-cognito-pre-signup-lambda.
 resource "aws_lambda_function" "pre_signup" {
-  # checkov:skip=CKV_AWS_50:Sync Cognito pre-signup; CloudWatch logs are sufficient observability.
   # checkov:skip=CKV_AWS_115:Hot synchronous Cognito hook; reserved concurrency would block legitimate signups.
   # checkov:skip=CKV_AWS_116:DLQ only applies to async Lambda; this is invoked synchronously by Cognito.
   # checkov:skip=CKV_AWS_117:Cognito invokes from AWS-managed infra; VPC config needs a Cognito VPC endpoint for no security gain.
@@ -165,6 +164,11 @@ resource "aws_lambda_function" "pre_signup" {
 
   role = aws_iam_role.lambda_exec.arn
 
+  # Send trace data to X-Ray (CKV_AWS_50, AWS-0066).
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       ALLOWED_DOMAINS = join(",", var.allowed_email_domains)
@@ -175,7 +179,7 @@ resource "aws_lambda_function" "pre_signup" {
 
   tags = var.tags
 
-  depends_on = [aws_cloudwatch_log_group.pre_signup]
+  depends_on = [aws_cloudwatch_log_group.pre_signup, aws_iam_role_policy.lambda_xray]
 }
 
 resource "aws_lambda_permission" "cognito_invoke" {
@@ -213,6 +217,22 @@ resource "aws_iam_role" "lambda_exec" {
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# X-Ray write access for active tracing. The X-Ray put actions do not
+# support resource-level permissions, so the resource is "*".
+resource "aws_iam_role_policy" "lambda_xray" {
+  name = "xray"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
+      Resource = "*"
+    }]
+  })
 }
 
 # ------------------------------------------------------------------------------

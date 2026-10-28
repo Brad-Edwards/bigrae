@@ -26,7 +26,7 @@ def test_phase_uses_its_separately_granted_identity_and_hardening(phase, account
     assert task.profile.node_selector == {"iam.gke.io/gke-metadata-server-enabled": "true"}
     assert task.profile.active_deadline_seconds == grant.max_duration_seconds
     assert task.profile.image_pull_secrets == ("private-registry",)
-    assert task.profile.hardening.run_as_uid == 1000
+    assert task.profile.hardening.run_as_uid == 10001
     assert task.profile.hardening.writable_mounts == (("tmp", "/tmp", "Memory", "64Mi"),)  # noqa: S108 - pod mount
     assert task.expected_identity["image"] == image
     assert task.expected_identity["command"] == []

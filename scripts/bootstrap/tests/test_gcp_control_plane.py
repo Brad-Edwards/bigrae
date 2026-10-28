@@ -1132,11 +1132,11 @@ class TestGdcControlPlaneHelmValues:
         container = pod["containers"][0]
         temp_dir = next(item for item in container["env"] if item["name"] == "TMPDIR")["value"]
         assert container["volumeMounts"] == [{"name": "tmp", "mountPath": temp_dir}]
-        # The portal image's USER is the name appuser (uid 1000); pair
+        # The portal image's USER is the name appuser (uid 10001); pair
         # runAsNonRoot with the numeric uid so the kubelet can verify non-root
         # (parity with the CI _gcp-dev.yml migrate Job; #2244).
         assert container["securityContext"]["runAsNonRoot"] is True
-        assert container["securityContext"]["runAsUser"] == 1000
+        assert container["securityContext"]["runAsUser"] == 10001
         # DB-only Job: REDIS_SECRET_ID is blank (no REDIS_PASSWORD hydration), so
         # REDIS_HOST must also be blank or Django fails closed at import (#2245).
         redis_secret = next(item for item in container["env"] if item["name"] == "REDIS_SECRET_ID")
@@ -1523,10 +1523,8 @@ class TestGdcControlPlaneHelmChart:
         assert "type: RuntimeDefault" in output
         assert "allowPrivilegeEscalation: false" in output
         assert "runAsNonRoot: true" in output
-        assert "runAsUser: 1000" in output
-        assert "runAsGroup: 1000" in output
-        assert "runAsUser: 1001" in output
-        assert "runAsGroup: 1001" in output
+        assert "runAsUser: 10001" in output
+        assert "runAsGroup: 10001" in output
         import yaml
 
         namespaces = [doc for doc in yaml.safe_load_all(output) if doc and doc["kind"] == "Namespace"]

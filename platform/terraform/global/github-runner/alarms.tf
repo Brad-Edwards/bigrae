@@ -26,9 +26,52 @@ locals {
 # target the topic; notifications deliver once a subscription exists. Email is an
 # optional subscription; Slack/Teams subscribe to the topic via the account's
 # approved integration without changing any alarm resource.
+#
+# The topic uses a customer managed key (AWS-0136). CloudWatch alarms can
+# publish to an encrypted topic only when the key policy lets the CloudWatch
+# service principal use the key. The AWS managed alias/aws/sns key policy
+# cannot grant this.
+resource "aws_kms_key" "runner_alerts" {
+  description             = "CMK for the shifter-github-runner-alerts SNS topic (AWS-0136)"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableRootAccountAdmin"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowCloudWatchAlarms"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey*",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+
+  tags = {
+    Name = "shifter-github-runner-alerts"
+  }
+}
+
+resource "aws_kms_alias" "runner_alerts" {
+  name          = "alias/shifter-github-runner-alerts"
+  target_key_id = aws_kms_key.runner_alerts.key_id
+}
+
 resource "aws_sns_topic" "runner_alerts" {
   name              = "shifter-github-runner-alerts"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.runner_alerts.arn
 
   tags = {
     Name = "shifter-github-runner-alerts"

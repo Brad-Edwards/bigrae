@@ -63,27 +63,6 @@ terminal_idle_timeout_seconds  = 1800
 terminal_max_session_seconds   = 28800
 terminal_read_poll_seconds     = 30
 
-# Standalone CTFd host in the portal VPC
-enable_ctfd                 = true
-ctfd_ami_id                 = "ami-xxxxxxxxxxxxxxxxx"
-ctfd_instance_type          = "t3.xlarge"
-ctfd_root_volume_size       = 50
-ctfd_root_volume_type       = "gp3"
-ctfd_root_volume_iops       = 3000
-ctfd_root_volume_throughput = 125
-ctfd_domain                 = "ctf.example.com"
-ctfd_repo_url               = "https://github.com/CTFd/CTFd.git"
-ctfd_git_ref                = "b5f0cf2b7f0e29f72c9227ea9bc08024230b4f06"
-ctfd_docker_compose_version = "v5.1.0"
-ctfd_docker_buildx_version  = "v0.21.2"
-# REPLACE: paste your own SSH public key (an empty string disables CTFd SSH and
-# the corresponding security-group rule); never commit a real private-key holder's
-# public key into the example.
-ctfd_ssh_public_key = ""
-# REPLACE: per-operator /32 CIDRs from which you allow SSH to the CTFd host;
-# leaving this empty disables CTFd SSH ingress.
-ctfd_ssh_allowed_cidrs = {}
-
 # ------------------------------------------------------------------------------
 # ALB
 # ------------------------------------------------------------------------------
