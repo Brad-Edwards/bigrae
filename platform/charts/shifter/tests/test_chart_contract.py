@@ -57,9 +57,10 @@ AWS_DEV_WAF_ACL_ARN = (
 # the two registered Checkov exceptions annotate their chart Deployments. The
 # portal-to-Guacamole token API policies moved from the retired base to the chart.
 # Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress.
+# Regenerated for #2622: the provisioner Job policy compiles on the API server.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "603adf8e8ff68f168041fa305ae61b519035c3612ce3f41fc7b5f64f903a78f8",
-    "gcp-prod": "cc25c36465208cd48da2ae3830ee07f8285b1273e383b6fd48caf842d6a6c4bf",
+    "gcp-dev": "da9f94af4a642c28eae8480577efcac1892e5667a4fa5d375a0854a6a80c47e3",
+    "gcp-prod": "332fc5beac54f9eeff473ba27faafca07625327027f4528ae8d09e736e856882",
 }
 
 
