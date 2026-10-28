@@ -82,17 +82,12 @@ ARG TRIVY_VERSION=0.76.1
 ARG TRIVY_SHA256=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
 ARG ORAS_VERSION=1.3.6
 ARG ORAS_SHA256=66fb0ad7206f3f6fa77ed5b552049d364ccf4b50b1684554f731f76302b52ca0
-# The gke-gcloud-auth-plugin archive and SHA-256 come from the component manifest
-# (components-v591.0.0.json) of the gcloud version in the gcloud stage above.
-# Bump them together with that stage.
-ARG GKE_PLUGIN_ARCHIVE=google-cloud-sdk-gke-gcloud-auth-plugin-linux-x86_64-20261016073856.tar.gz
-ARG GKE_PLUGIN_SHA256=7ca2be31d6faa232b733cd3e91b98e182771516732d7230c19196b51cde7f823
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl unzip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 WORKDIR /downloads
 RUN fetch() { curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL -o "$1" "$2"; } && \
-    mkdir -p /out/bin /out/gcloud && \
+    mkdir -p /out/bin && \
     fetch "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
       "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" && \
     echo "${TERRAFORM_SHA256}  terraform_${TERRAFORM_VERSION}_linux_amd64.zip" | sha256sum -c - && \
@@ -111,10 +106,7 @@ RUN fetch() { curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors
       "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz" && \
     echo "${ORAS_SHA256}  oras_${ORAS_VERSION}_linux_amd64.tar.gz" | sha256sum -c - && \
     tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" -C /out/bin oras && \
-    fetch gke-gcloud-auth-plugin.tar.gz "https://dl.google.com/dl/cloudsdk/channels/rapid/components/${GKE_PLUGIN_ARCHIVE}" && \
-    echo "${GKE_PLUGIN_SHA256}  gke-gcloud-auth-plugin.tar.gz" | sha256sum -c - && \
-    tar -xzf gke-gcloud-auth-plugin.tar.gz -C /out/gcloud bin/gke-gcloud-auth-plugin && \
-    chmod 0755 /out/bin/* /out/gcloud/bin/gke-gcloud-auth-plugin && \
+    chmod 0755 /out/bin/* && \
     rm -rf /downloads/*
 
 # ---------------------------------------------------------------------------
@@ -136,6 +128,27 @@ RUN find /opt/bigrae/platform/terraform/gcp -name .terraform.lock.hcl -printf '%
 
 # ---------------------------------------------------------------------------
 # Runtime image.
+# ---------------------------------------------------------------------------
+# gke-gcloud-auth-plugin, built from source (#2618). The newest Google build
+# (gcloud 591.0.0, plugin 0.5.20) uses Go 1.27.1, which has the CRITICAL
+# CVE-2026-56857. The source is the exact commit of kubernetes/cloud-provider-gcp
+# below, and go.sum verifies each module. Bump the commit and the Go image
+# together, and move back to the Google build when it uses a fixed Go.
+# ---------------------------------------------------------------------------
+# base image: golang:1.27.3-trixie
+FROM golang@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS gke-auth-plugin
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# Tag v37.1.13.
+ARG CLOUD_PROVIDER_GCP_COMMIT=64c3c54aced1e312f850eadb7c5d22ce31c84dbc
+WORKDIR /src
+RUN git init -q . && \
+    git fetch -q --depth 1 https://github.com/kubernetes/cloud-provider-gcp.git "${CLOUD_PROVIDER_GCP_COMMIT}" && \
+    git checkout -q FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "${CLOUD_PROVIDER_GCP_COMMIT}" && \
+    CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags "-s -w" \
+      -o /out/gke-gcloud-auth-plugin ./cmd/gke-gcloud-auth-plugin && \
+    /out/gke-gcloud-auth-plugin --help >/dev/null
+
 # ---------------------------------------------------------------------------
 # base image: python:3.12-slim-trixie
 FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS deployer
@@ -161,7 +174,7 @@ RUN apt-get update && \
     useradd --uid 10001 --gid bigrae --create-home --shell /bin/bash bigrae
 
 COPY --from=gcloud /usr/lib/google-cloud-sdk /opt/google-cloud-sdk
-COPY --from=tools /out/gcloud/bin/gke-gcloud-auth-plugin /opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin
+COPY --from=gke-auth-plugin /out/gke-gcloud-auth-plugin /opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin
 
 # Remove pip from the base Python and from the bundled Python of the SDK. The
 # image installs its dependencies at build time and runs no package manager.
