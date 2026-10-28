@@ -68,12 +68,12 @@ RUN uv export --project scripts/bootstrap --frozen --no-dev --no-emit-project \
 # base image: python:3.12-slim-trixie
 FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS tools
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-# Keep each tool at the latest release of its line (Terraform 1.16, Helm 3,
+# Keep each tool at the latest release of its line (Terraform 1.17, Helm 3,
 # kubectl 1.34, Trivy, ORAS 1.3). Older releases carry fixable HIGH and CRITICAL
 # findings in their compiled Go dependencies.
-ARG TERRAFORM_VERSION=1.16.7
-# From terraform_1.16.7_SHA256SUMS (signature checked with HashiCorp key C874011F0AB405110D02105534365D9472D7468F).
-ARG TERRAFORM_SHA256=5454efcf7fc87f0c2113111b9a5c7182f0ca1c6f0f23a1e110a50770a8fe473b
+ARG TERRAFORM_VERSION=1.17.1
+# From terraform_1.17.1_SHA256SUMS (signature checked with HashiCorp key C874011F0AB405110D02105534365D9472D7468F).
+ARG TERRAFORM_SHA256=4638628058e71a55212b1c563712eac03b902128f40740f3dc8174df12135061
 ARG HELM_VERSION=v3.22.1
 ARG HELM_SHA256=896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
 ARG KUBECTL_VERSION=v1.34.13
