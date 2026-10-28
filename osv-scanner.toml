@@ -7,5 +7,12 @@
 # still has no fix at the review date. Do NOT add entries for findings that have
 # a patched version — bump the dependency instead.
 
-# No active suppressions. Previously time-boxed entries were removed once the
-# corresponding dependency graphs stopped reporting those advisories.
+[[IgnoredVulns]]
+id = "GHSA-gcqx-w48m-w2h4"
+ignoreUntil = 2027-04-28
+# CVE-2026-93753. deepmerge@4.3.1 is a dev-only transitive dependency, pulled in
+# by jest-config for the test harness. It is not in the runtime or request path.
+# The advisory has no upstream fix: 4.3.1 is the latest published release and the
+# last affected version (affected >=4.2.0, <=4.3.1; patched: none). Bump and
+# remove this entry once a fixed release ships; re-evaluate at ignoreUntil.
+reason = "deepmerge CVE-2026-93753: no upstream fix (4.3.1 is latest and last-affected); dev-only test transitive via jest-config, not runtime-reachable."

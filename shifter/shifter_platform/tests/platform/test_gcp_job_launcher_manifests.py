@@ -232,7 +232,7 @@ def _canonical_admission_job() -> dict[str, Any]:
                     "automountServiceAccountToken": False,
                     "securityContext": {
                         "seccompProfile": {"type": "RuntimeDefault"},
-                        "fsGroup": 1000,
+                        "fsGroup": 10001,
                         "fsGroupChangePolicy": "OnRootMismatch",
                     },
                     "restartPolicy": "Never",

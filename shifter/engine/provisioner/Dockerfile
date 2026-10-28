@@ -86,13 +86,13 @@ RUN apt-get update && \
       kubectl-virt help >/dev/null; \
     fi && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    # Create non-root user matching shifter_platform's appuser:1000 / appgroup:1000.
-    groupadd --gid 1000 appgroup && \
-    useradd --uid 1000 --gid appgroup --create-home --shell /bin/bash appuser && \
+    # Create non-root user matching shifter_platform's appuser:10001 / appgroup:10001.
+    groupadd --gid 10001 appgroup && \
+    useradd --uid 10001 --gid appgroup --create-home --shell /bin/bash appuser && \
     mkdir -p /home/appuser/.terraform.d/plugin-cache && \
     chown -R appuser:appgroup /home/appuser && \
     # Pre-create the Terraform workspace path. AWS ECS/Fargate runs this image
-    # as UID 1000 on the task's ephemeral writable layer; GKE-style deployers
+    # as UID 10001 on the task's ephemeral writable layer; GKE-style deployers
     # may also mount an emptyDir here. terraform_base stages module sources
     # under this path per request (issue #1103).
     mkdir -p /var/run/provisioner/workspace && \
@@ -159,7 +159,7 @@ ENV HOME=/home/appuser \
 # Drop privileges before invoking Terraform. Numeric UID:GID is used
 # (instead of `USER appuser`) so Kubernetes admission controllers running with
 # `runAsNonRoot: true` can verify the user is non-root without resolving names.
-USER 1000:1000
+USER 10001:10001
 
 # Entrypoint receives operation as argument
 ENTRYPOINT ["python", "main.py"]

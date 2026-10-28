@@ -41,6 +41,8 @@ import { EventDetailPage } from "@/features/ctf/admin/EventDetailPage";
 import { EventFormPage } from "@/features/ctf/admin/EventFormPage";
 import { EventsListPage } from "@/features/ctf/admin/EventsListPage";
 import { MonitoringPage } from "@/features/ctf/admin/MonitoringPage";
+import { CommunicationDetailPage } from "@/features/ctf/admin/communications/CommunicationDetailPage";
+import { CommunicationsPage } from "@/features/ctf/admin/communications/CommunicationsPage";
 import { ParticipantDetailPage } from "@/features/ctf/admin/ParticipantDetailPage";
 import { ParticipantsPage } from "@/features/ctf/admin/ParticipantsPage";
 import { BriefingPage } from "@/features/ctf/BriefingPage";
@@ -209,6 +211,8 @@ export const router = createBrowserRouter(
             { path: "events/:eventId/analytics", element: <MonitoringPage defaultTab="analytics" /> },
             { path: "events/:eventId/brackets", element: <MonitoringPage defaultTab="scoreboard" /> },
             { path: "events/:eventId/email-templates", element: <MonitoringPage defaultTab="notifications" /> },
+            { path: "communications", element: <CommunicationsPage /> },
+            { path: "communications/:campaignId", element: <CommunicationDetailPage /> },
           ],
         },
         {

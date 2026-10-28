@@ -76,13 +76,15 @@ _QUALITY_CHECK = "quality-path-ownership"
 _QUALITY_RESPONSIBILITIES = ("lint", "security", "test")
 # Evidence-only jobs: soft-fail, always-run, or advisory scanners that cannot
 # by themselves own a required responsibility (per the #1530 preflight).
+# security-k8s became a blocking gate in #2558 (Kubernetes Checkov fails closed),
+# so it is no longer listed here. Making the Trivy configuration scan blocking is
+# tracked separately in #2566.
 _QUALITY_ADVISORY_JOBS = frozenset(
     {
         "security-trivy-advisory",
         "security-osv-advisory",
         "secrets-gitleaks",
         "sonarcloud",
-        "security-k8s",
     }
 )
 

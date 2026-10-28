@@ -27,7 +27,6 @@ IAM_MODULE_GLOBS: tuple[str, ...] = (
     "platform/terraform/modules/portal/vpc/*.tf",
     "platform/terraform/modules/portal/cognito/*.tf",
     "platform/terraform/modules/portal/rds/*.tf",
-    "platform/terraform/modules/portal/ctfd/*.tf",
     "platform/terraform/modules/range/vpc/*.tf",
     "platform/terraform/modules/provisioner-iam/*.tf",
     "platform/terraform/modules/log-aggregation/*.tf",

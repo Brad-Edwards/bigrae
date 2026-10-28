@@ -192,8 +192,8 @@ def _controller(configuration: PreparationInstallation) -> dict[str, Any]:
     }
     security = {
         "runAsNonRoot": True,
-        "runAsUser": 1000,
-        "runAsGroup": 1000,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
         "allowPrivilegeEscalation": False,
         "readOnlyRootFilesystem": True,
         "capabilities": {"drop": ["ALL"]},
@@ -212,7 +212,7 @@ def _controller(configuration: PreparationInstallation) -> dict[str, Any]:
                     "serviceAccountName": configuration.controller_name,
                     "nodeSelector": {"iam.gke.io/gke-metadata-server-enabled": "true"},
                     "automountServiceAccountToken": True,
-                    "securityContext": {"seccompProfile": {"type": "RuntimeDefault"}, "fsGroup": 1000},
+                    "securityContext": {"seccompProfile": {"type": "RuntimeDefault"}, "fsGroup": 10001},
                     "containers": [
                         {
                             "name": CONTROLLER,

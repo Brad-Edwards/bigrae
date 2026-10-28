@@ -8,6 +8,10 @@ kind: Deployment
 metadata:
   name: content-egress
   namespace: shifter-platform
+  annotations:
+    # CKV_K8S_43: the base manifest pins a placeholder image tag; every deploy
+    # path rewrites it to the attested digest (ADR-037, _gcp-dev.yml).
+    checkov.io/skip1: CKV_K8S_43=placeholder image is rewritten to an attested digest at deploy (ADR-037)
   labels:
     app.kubernetes.io/part-of: shifter
     app.kubernetes.io/component: content-egress
@@ -38,8 +42,8 @@ spec:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
             runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
+            runAsUser: 10001
+            runAsGroup: 10001
           command: ["python", "-m", "ctf.egress_proxy"]
           env:
             - name: CTF_EGRESS_BIND_ADDRESS

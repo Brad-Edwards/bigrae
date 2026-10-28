@@ -5703,6 +5703,119 @@
         ]
       }
     },
+    "/api/v1/ctf/communications/{campaign_id}/activity/": {
+      "get": {
+        "operationId": "ctf_communications_activity_retrieve",
+        "description": "The body-free campaign timeline from ledger attribution.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationActivity"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scopes": [
+          "ctf:communication:read"
+        ]
+      }
+    },
     "/api/v1/ctf/communications/{campaign_id}/cancel/": {
       "post": {
         "operationId": "ctf_communications_cancel_create",
@@ -5822,6 +5935,412 @@
         },
         "x-required-scopes": [
           "ctf:communication:write"
+        ]
+      }
+    },
+    "/api/v1/ctf/communications/{campaign_id}/delivery/": {
+      "get": {
+        "operationId": "ctf_communications_delivery_retrieve",
+        "description": "Aggregate delivery state per occurrence, event, and channel.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationDeliveryReport"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scopes": [
+          "ctf:communication:read"
+        ]
+      }
+    },
+    "/api/v1/ctf/communications/{campaign_id}/preview/": {
+      "get": {
+        "operationId": "ctf_communications_preview_retrieve",
+        "description": "Project a reviewed revision and the current audience estimate; writes nothing.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "revision_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationPreview"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scopes": [
+          "ctf:communication:read"
+        ]
+      }
+    },
+    "/api/v1/ctf/communications/{campaign_id}/recipients/": {
+      "get": {
+        "operationId": "ctf_communications_recipients_list",
+        "description": "Minimal recipient rows for one occurrence and one target event.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "event_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "intent_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationRecipientPage"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scopes": [
+          "ctf:communication:read"
         ]
       }
     },
@@ -6068,6 +6587,138 @@
         },
         "x-required-scopes": [
           "ctf:communication:write"
+        ]
+      }
+    },
+    "/api/v1/ctf/communications/targets/": {
+      "get": {
+        "operationId": "ctf_communications_targets_list",
+        "description": "List the workspaces and events where the actor may author a communication.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 100
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "ApiTokenAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationTargets"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scopes": [
+          "ctf:communication:read"
         ]
       }
     },
@@ -19762,6 +20413,118 @@
           "detail"
         ]
       },
+      "CommunicationActivity": {
+        "type": "object",
+        "description": "The campaign timeline; ``truncated`` reports the row bound.",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationActivityEntry"
+            },
+            "readOnly": true
+          },
+          "truncated": {
+            "type": "boolean",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "entries",
+          "truncated"
+        ]
+      },
+      "CommunicationActivityEntry": {
+        "type": "object",
+        "description": "One body-free timeline entry.",
+        "properties": {
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommunicationActivityEntryKindEnum"
+              }
+            ],
+            "readOnly": true
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "actor": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommunicationActor"
+              }
+            ],
+            "readOnly": true,
+            "nullable": true
+          },
+          "revision_number": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
+          },
+          "intent_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "readOnly": true,
+            "nullable": true
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true
+          }
+        },
+        "required": [
+          "actor",
+          "at",
+          "due_at",
+          "intent_id",
+          "kind",
+          "revision_number",
+          "status"
+        ]
+      },
+      "CommunicationActivityEntryKindEnum": {
+        "enum": [
+          "created",
+          "revised",
+          "scheduled",
+          "released",
+          "expired",
+          "fenced",
+          "cancelled"
+        ],
+        "type": "string",
+        "description": "* `created` - created\n* `revised` - revised\n* `scheduled` - scheduled\n* `released` - released\n* `expired` - expired\n* `fenced` - fenced\n* `cancelled` - cancelled"
+      },
+      "CommunicationActor": {
+        "type": "object",
+        "description": "Display actor for a timeline entry.",
+        "properties": {
+          "label": {
+            "type": "string",
+            "readOnly": true
+          },
+          "via": {
+            "type": "string",
+            "readOnly": true,
+            "description": "session | api_token | scheduler"
+          }
+        },
+        "required": [
+          "label",
+          "via"
+        ]
+      },
       "CommunicationAudience": {
         "type": "object",
         "description": "Closed audience variants; semantics remain in the domain contract.",
@@ -19994,7 +20757,31 @@
           },
           "target_event_count": {
             "type": "integer",
-            "description": "Return the number of events the campaign targets (no identities exposed).",
+            "description": "Return the number of events the campaign targets.",
+            "readOnly": true
+          },
+          "target_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationTargetRef"
+            },
+            "readOnly": true
+          },
+          "latest_revision": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommunicationRevisionRef"
+              }
+            ],
+            "nullable": true,
+            "readOnly": true
+          },
+          "trigger": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommunicationTriggerProjection"
+              }
+            ],
             "readOnly": true
           },
           "created_at": {
@@ -20008,10 +20795,84 @@
           "channels",
           "created_at",
           "id",
+          "latest_revision",
           "origin",
           "status",
           "target_event_count",
-          "title"
+          "target_events",
+          "title",
+          "trigger"
+        ]
+      },
+      "CommunicationChannelAvailability": {
+        "type": "object",
+        "description": "Whether a selected channel has a registered transport now.",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "readOnly": true
+          },
+          "available": {
+            "type": "boolean",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "available",
+          "channel"
+        ]
+      },
+      "CommunicationChannelCounts": {
+        "type": "object",
+        "description": "Delivery-command counts by truthful status for one channel.",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "readOnly": true
+          },
+          "queued": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "claimed": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "retry_due": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "accepted": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "permanent_failure": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "cancelled": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "suppressed": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "expired": {
+            "type": "integer",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "accepted",
+          "cancelled",
+          "channel",
+          "claimed",
+          "expired",
+          "permanent_failure",
+          "queued",
+          "retry_due",
+          "suppressed"
         ]
       },
       "CommunicationCreate": {
@@ -20077,6 +20938,177 @@
           "workspace_id"
         ],
         "additionalProperties": false
+      },
+      "CommunicationDeliveryEvent": {
+        "type": "object",
+        "description": "Per-event recipients, inbox receipts, and per-channel command counts.",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "readOnly": true
+          },
+          "recipients": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "inbox_available": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "read": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "acknowledged": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationChannelCounts"
+            },
+            "readOnly": true
+          }
+        },
+        "required": [
+          "acknowledged",
+          "channels",
+          "event_id",
+          "inbox_available",
+          "name",
+          "read",
+          "recipients"
+        ]
+      },
+      "CommunicationDeliveryOccurrence": {
+        "type": "object",
+        "description": "One occurrence: admission state, release-task state, and delivery facts.",
+        "properties": {
+          "intent_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "status": {
+            "type": "string",
+            "readOnly": true
+          },
+          "trigger_kind": {
+            "type": "string",
+            "readOnly": true
+          },
+          "revision_number": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true
+          },
+          "released_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true
+          },
+          "schedule_status": {
+            "type": "string",
+            "readOnly": true,
+            "nullable": true
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationDeliveryEvent"
+            },
+            "readOnly": true
+          },
+          "totals": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommunicationDeliveryTotals"
+              }
+            ],
+            "readOnly": true
+          }
+        },
+        "required": [
+          "due_at",
+          "events",
+          "intent_id",
+          "released_at",
+          "revision_number",
+          "schedule_status",
+          "status",
+          "totals",
+          "trigger_kind"
+        ]
+      },
+      "CommunicationDeliveryReport": {
+        "type": "object",
+        "description": "A bounded page of occurrences, newest first.",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationDeliveryOccurrence"
+            },
+            "readOnly": true
+          },
+          "next_offset": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
+          }
+        },
+        "required": [
+          "next_offset",
+          "results"
+        ]
+      },
+      "CommunicationDeliveryTotals": {
+        "type": "object",
+        "description": "Occurrence totals across all target events.",
+        "properties": {
+          "recipients": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "inbox_available": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "read": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "acknowledged": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationChannelCounts"
+            },
+            "readOnly": true
+          }
+        },
+        "required": [
+          "acknowledged",
+          "channels",
+          "inbox_available",
+          "read",
+          "recipients"
+        ]
       },
       "CommunicationEmpty": {
         "type": "object",
@@ -20176,6 +21208,252 @@
           "status"
         ]
       },
+      "CommunicationPreview": {
+        "type": "object",
+        "description": "A side-effect-free preview; counts are estimates, not a delivery claim.",
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "revision": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommunicationPreviewRevision"
+              }
+            ],
+            "readOnly": true
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationChannelAvailability"
+            },
+            "readOnly": true
+          },
+          "acknowledgement_policy": {
+            "type": "string",
+            "readOnly": true
+          },
+          "trigger": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommunicationTriggerProjection"
+              }
+            ],
+            "readOnly": true
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationPreviewEvent"
+            },
+            "readOnly": true
+          },
+          "recipient_total": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "audience_cap": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "exceeds_audience_cap": {
+            "type": "boolean",
+            "readOnly": true
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "acknowledgement_policy",
+          "audience_cap",
+          "campaign_id",
+          "channels",
+          "events",
+          "exceeds_audience_cap",
+          "observed_at",
+          "recipient_total",
+          "revision",
+          "trigger"
+        ]
+      },
+      "CommunicationPreviewEvent": {
+        "type": "object",
+        "description": "Current audience estimate and local due time for one target event.",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "readOnly": true
+          },
+          "event_timezone": {
+            "type": "string",
+            "readOnly": true
+          },
+          "recipient_count": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "local_due_at": {
+            "type": "string",
+            "readOnly": true,
+            "nullable": true
+          }
+        },
+        "required": [
+          "event_id",
+          "event_timezone",
+          "local_due_at",
+          "name",
+          "recipient_count"
+        ]
+      },
+      "CommunicationPreviewRevision": {
+        "type": "object",
+        "description": "The immutable revision under review.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "revision_number": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "subject": {
+            "type": "string",
+            "readOnly": true
+          },
+          "body": {
+            "type": "string",
+            "readOnly": true
+          },
+          "content_profile": {
+            "type": "string",
+            "readOnly": true
+          },
+          "content_digest": {
+            "type": "string",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "body",
+          "content_digest",
+          "content_profile",
+          "id",
+          "revision_number",
+          "subject"
+        ]
+      },
+      "CommunicationRecipient": {
+        "type": "object",
+        "description": "Minimal recipient state: name and team only, never a coordinate.",
+        "properties": {
+          "participant_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "readOnly": true,
+            "nullable": true
+          },
+          "team": {
+            "type": "string",
+            "readOnly": true,
+            "nullable": true
+          },
+          "removed": {
+            "type": "boolean",
+            "readOnly": true
+          },
+          "inbox_available": {
+            "type": "boolean",
+            "readOnly": true
+          },
+          "read_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true
+          },
+          "acknowledged_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationRecipientChannel"
+            },
+            "readOnly": true
+          }
+        },
+        "required": [
+          "acknowledged_at",
+          "channels",
+          "inbox_available",
+          "name",
+          "participant_id",
+          "read_at",
+          "removed",
+          "team"
+        ]
+      },
+      "CommunicationRecipientChannel": {
+        "type": "object",
+        "description": "One delivery command's status for a recipient.",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "readOnly": true
+          },
+          "status": {
+            "type": "string",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "channel",
+          "status"
+        ]
+      },
+      "CommunicationRecipientPage": {
+        "type": "object",
+        "description": "A bounded page of recipient rows.",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationRecipient"
+            },
+            "readOnly": true
+          },
+          "next_offset": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
+          }
+        },
+        "required": [
+          "next_offset",
+          "results"
+        ]
+      },
       "CommunicationRelease": {
         "type": "object",
         "description": "Stable occurrence identity; scheduling time comes from the pinned trigger.",
@@ -20213,6 +21491,121 @@
           "subject"
         ],
         "additionalProperties": false
+      },
+      "CommunicationRevisionRef": {
+        "type": "object",
+        "description": "Immutable revision identity.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "revision_number": {
+            "type": "integer",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "id",
+          "revision_number"
+        ]
+      },
+      "CommunicationTargetEvent": {
+        "type": "object",
+        "description": "An event the actor may message, with its display time zone.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "readOnly": true
+          },
+          "status": {
+            "type": "string",
+            "readOnly": true
+          },
+          "event_timezone": {
+            "type": "string",
+            "readOnly": true
+          },
+          "event_start": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "event_end": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "event_end",
+          "event_start",
+          "event_timezone",
+          "id",
+          "name",
+          "status",
+          "workspace_id"
+        ]
+      },
+      "CommunicationTargetRef": {
+        "type": "object",
+        "description": "Target event identity and display name.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "CommunicationTargets": {
+        "type": "object",
+        "description": "Authorized workspaces and a bounded page of events.",
+        "properties": {
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationWorkspace"
+            },
+            "readOnly": true
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommunicationTargetEvent"
+            },
+            "readOnly": true
+          },
+          "next_offset": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
+          }
+        },
+        "required": [
+          "events",
+          "next_offset",
+          "workspaces"
+        ]
       },
       "CommunicationTrigger": {
         "type": "object",
@@ -20375,6 +21768,45 @@
         ],
         "type": "string",
         "description": "* `manual` - manual\n* `event_lifecycle` - event_lifecycle\n* `absolute_time` - absolute_time\n* `raes_occurrence` - raes_occurrence\n* `range_signal` - range_signal"
+      },
+      "CommunicationTriggerProjection": {
+        "type": "object",
+        "description": "The closed trigger kind and its UTC instant (null when untimed).",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "readOnly": true
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true
+          }
+        },
+        "required": [
+          "due_at",
+          "kind"
+        ]
+      },
+      "CommunicationWorkspace": {
+        "type": "object",
+        "description": "Public workspace identity and display name.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
       },
       "ConnectionUrl": {
         "type": "object",

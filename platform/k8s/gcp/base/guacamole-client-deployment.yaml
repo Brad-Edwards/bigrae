@@ -3,6 +3,14 @@ kind: Deployment
 metadata:
   name: guacamole-client
   namespace: shifter-platform
+  annotations:
+    # CKV_K8S_35: DB credentials arrive through envFrom until the Guacamole image
+    # file-secret fork (#2565) lands. The pinned 1.6.0 image has no _FILE support
+    # (GUACAMOLE-2119). Scoped, time-boxed entry in docs/adr/exceptions.yaml.
+    checkov.io/skip1: CKV_K8S_35=Guacamole 1.6.0 image has no file-secret support (GUACAMOLE-2119); fork tracked in #2565
+    # CKV_K8S_43: the base manifest pins a placeholder tag; every deploy path
+    # rewrites it to the attested digest (ADR-037, _gcp-dev.yml).
+    checkov.io/skip2: CKV_K8S_43=placeholder image is rewritten to an attested digest at deploy (ADR-037)
   labels:
     app.kubernetes.io/part-of: shifter
     app.kubernetes.io/component: guacamole-client
@@ -34,8 +42,8 @@ spec:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
             runAsNonRoot: true
-            runAsUser: 1001
-            runAsGroup: 1001
+            runAsUser: 10001
+            runAsGroup: 10001
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -45,6 +53,10 @@ spec:
             - name: guac-home
               mountPath: /home/guacamole
           env:
+            # UID 10001 has no passwd entry in the image, so HOME is "/" by
+            # default. Set HOME to the writable home volume.
+            - name: HOME
+              value: /home/guacamole
             - name: OPENFGA_ENABLED
               valueFrom:
                 configMapKeyRef:

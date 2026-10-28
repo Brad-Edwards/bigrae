@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ctf", "0064_ctfflag_plaintext_value"),
+        ("ctf", "0065_communication_attribution"),
     ]
 
     operations = [

@@ -172,6 +172,8 @@ def create_campaign(
             body=content["body"],
             content_profile=content["profile"],
             content_digest=content["digest"],
+            actor_user_id=actor.user_id,
+            actor_token_id=actor.token_id,
         )
     logger.info("Created communication campaign %s in workspace %s", campaign.id, workspace_id)
     return campaign
@@ -211,4 +213,6 @@ def revise_message(
             body=content["body"],
             content_profile=content["profile"],
             content_digest=content["digest"],
+            actor_user_id=actor.user_id,
+            actor_token_id=actor.token_id,
         )

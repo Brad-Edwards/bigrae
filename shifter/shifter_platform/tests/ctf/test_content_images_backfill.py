@@ -10,7 +10,7 @@ from django.apps import apps
 from ctf.enums import ChallengeCategory, ChallengeDifficulty
 from ctf.models import ContentImageStatus, CTFChallenge, CTFContentImage
 
-backfill = importlib.import_module("ctf.migrations.0066_backfill_content_images").backfill
+backfill = importlib.import_module("ctf.migrations.0067_backfill_content_images").backfill
 
 
 @pytest.mark.django_db

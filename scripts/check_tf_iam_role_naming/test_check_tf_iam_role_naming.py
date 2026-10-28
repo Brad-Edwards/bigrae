@@ -648,12 +648,33 @@ class CheckTfVpnGatewayIdentityPolicyTest(unittest.TestCase):
         )
 
     def test_passrole_rejects_ec2_plus_additional_service(self) -> None:
-        exact = '            "iam:PassedToService" = "ec2.amazonaws.com"'
+        # Anchor on the VPN gateway PassRole block. The ec2-only
+        # "iam:PassedToService" condition also appears on the range/NGFW
+        # PassRole, so the bare condition line is not unique in the module.
+        exact = (
+            '        Sid      = "PassVpnGatewayRoleOnlyToEc2"\n'
+            '        Effect   = "Allow"\n'
+            '        Action   = "iam:PassRole"\n'
+            '        Resource = "arn:aws:iam::${local.account_id}:role/shifter-${var.environment}-*-vpn-gateway"\n'
+            "        Condition = {\n"
+            "          StringEquals = {\n"
+            '            "iam:PassedToService" = "ec2.amazonaws.com"\n'
+            "          }\n"
+            "        }"
+        )
         broadened = (
+            '        Sid      = "PassVpnGatewayRoleOnlyToEc2"\n'
+            '        Effect   = "Allow"\n'
+            '        Action   = "iam:PassRole"\n'
+            '        Resource = "arn:aws:iam::${local.account_id}:role/shifter-${var.environment}-*-vpn-gateway"\n'
+            "        Condition = {\n"
+            "          StringEquals = {\n"
             '            "iam:PassedToService" = [\n'
             '              "ec2.amazonaws.com",\n'
             '              "lambda.amazonaws.com"\n'
-            "            ]"
+            "            ]\n"
+            "          }\n"
+            "        }"
         )
 
         reasons = self._canonical_mutation(exact, broadened)

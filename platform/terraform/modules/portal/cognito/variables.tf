@@ -98,6 +98,12 @@ variable "alerts_topic_arn" {
   default     = ""
 }
 
+variable "alerts_topic_kms_key_arn" {
+  description = "ARN of the customer managed KMS key that encrypts the alerts topic. The reminder role gets kms:GenerateDataKey and kms:Decrypt on this key so it can publish. Empty means the topic has no customer managed key."
+  type        = string
+  default     = ""
+}
+
 variable "enable_rotation_reminder" {
   description = "Whether to create the scheduled EventBridge reminder that emails the admin when Cognito client-secret rotation is due. Root sets it to alarm_email != \"\"."
   type        = bool

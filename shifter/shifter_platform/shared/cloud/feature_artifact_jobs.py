@@ -27,7 +27,7 @@ ACQUISITION_COMMAND = ("python", "-m", "shared.feature_artifacts.job")
 #: The Job's only writable path: a dedicated disk-backed scratch volume, not a
 #: shared temporary directory. HOME and TMPDIR point here.
 ACQUISITION_WORKDIR = "/work"
-_PLATFORM_UID = 1000
+_PLATFORM_UID = 10001
 
 
 def acquisition_task_profile() -> KubernetesTaskProfile:

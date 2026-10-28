@@ -56,8 +56,16 @@ def cancel_campaign(campaign: CommunicationCampaign, *, actor: AdmissionActor) -
         CommunicationIntent.objects.filter(campaign=campaign).exclude(
             status__in=(IntentStatus.CANCELLED.value, IntentStatus.FENCED.value)
         ).update(status=IntentStatus.CANCELLED.value, updated_at=now)
+        attribution = {}
+        if campaign.status != CampaignStatus.CANCELLED.value:
+            # Record the first cancellation only; a repeated cancel keeps the original actor.
+            attribution = {
+                "cancelled_at": now,
+                "cancelled_by_user_id": actor.user_id,
+                "cancelled_by_token_id": actor.token_id,
+            }
         CommunicationCampaign.objects.filter(pk=campaign.pk).update(
-            status=CampaignStatus.CANCELLED.value, updated_at=now
+            status=CampaignStatus.CANCELLED.value, updated_at=now, **attribution
         )
     logger.info("Cancelled communication campaign %s (%d unclaimed deliveries stopped)", campaign.id, cancelled)
     return cancelled

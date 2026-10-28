@@ -85,12 +85,6 @@ variable "s3_bucket_name" {
   type        = string
 }
 
-variable "ctfd_platform_url" {
-  description = "Public URL for the standalone CTFd platform"
-  type        = string
-  default     = ""
-}
-
 variable "ctf_content_bucket_name" {
   description = "Optional private S3 bucket holding digest-pinned native CTF content bundles"
   type        = string

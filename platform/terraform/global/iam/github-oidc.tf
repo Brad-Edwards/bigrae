@@ -30,6 +30,35 @@ locals {
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
 
+# S3 actions the deploy role needs to manage the buckets that Terraform owns
+# (bucket, versioning, encryption, lifecycle, public access block, policy,
+# CORS, notification, logging, tags) and the objects in them. Read and list
+# actions use a wildcard because they cannot change data or access. Write
+# actions are explicit, so ACL, replication, object lock, retention bypass,
+# website, and access point changes are not granted (AWS-0345).
+locals {
+  terraform_s3_bucket_actions = [
+    "s3:Get*",
+    "s3:List*",
+    "s3:CreateBucket",
+    "s3:DeleteBucket",
+    "s3:PutBucketPolicy",
+    "s3:DeleteBucketPolicy",
+    "s3:PutBucketVersioning",
+    "s3:PutEncryptionConfiguration",
+    "s3:PutLifecycleConfiguration",
+    "s3:PutBucketPublicAccessBlock",
+    "s3:PutBucketCORS",
+    "s3:PutBucketNotification",
+    "s3:PutBucketLogging",
+    "s3:PutBucketTagging",
+    "s3:PutObject",
+    "s3:DeleteObject",
+    "s3:DeleteObjectVersion",
+    "s3:AbortMultipartUpload",
+  ]
+}
+
 # GitHub OIDC Provider
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
@@ -790,7 +819,7 @@ resource "aws_iam_policy" "data" {
       {
         Sid    = "S3UserStorage"
         Effect = "Allow"
-        Action = ["s3:*"]
+        Action = local.terraform_s3_bucket_actions
         Resource = [
           "arn:aws:s3:::shifter-user-storage-*",
           "arn:aws:s3:::shifter-*-user-storage-*"
@@ -799,7 +828,7 @@ resource "aws_iam_policy" "data" {
       {
         Sid    = "S3PortalBuckets"
         Effect = "Allow"
-        Action = ["s3:*"]
+        Action = local.terraform_s3_bucket_actions
         Resource = [
           # Portal-owned buckets (logs, ALB access logs, etc.) named {env}-portal-*.
           "arn:aws:s3:::*-portal-*",
@@ -819,9 +848,7 @@ resource "aws_iam_policy" "data" {
       {
         Sid    = "PulumiStateS3"
         Effect = "Allow"
-        Action = [
-          "s3:*"
-        ]
+        Action = local.terraform_s3_bucket_actions
         Resource = [
           # Bucket names carry an account-id suffix (e.g. proof-range-pulumi-state-<acct>),
           # so match the prefix with a trailing wildcard.

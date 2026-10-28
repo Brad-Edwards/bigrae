@@ -63,7 +63,7 @@ def backfill(apps, schema_editor) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ctf", "0065_ctfcontentimage"),
+        ("ctf", "0066_ctfcontentimage"),
     ]
 
     operations = [
