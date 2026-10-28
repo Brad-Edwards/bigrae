@@ -15,10 +15,24 @@
 # entry and the gate blocks the release again. When a vendor ships a fixed
 # build, bump the tool in platform/deployer/gcp/Dockerfile and remove its entry.
 #
+# A verified false positive can also have an entry. Its statement must say why
+# the finding does not apply to this image, with the advisory that proves it.
+#
 # The deployer is a one-shot command-line image. It runs one operator command,
 # opens no network listener, and exits.
 
 vulnerabilities:
+  - id: CVE-2026-56857 # Go standard library, GO-2026-6604
+    paths:
+      - opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin
+    statement: >-
+      False positive for this image. GO-2026-6604 (https://vuln.go.dev/ID/GO-2026-6604.json)
+      affects only Windows builds: the vulnerable symbols in os and internal/syscall/windows
+      have goos windows. The image installs the linux-x86_64 plugin build, so the vulnerable
+      code is not in the binary. Recheck when the plugin is bumped. Tracking: #2582.
+    expired_at: 2026-11-30
+
+
   - id: CVE-2026-111943 # Go standard library
     paths:
       - opt/google-cloud-sdk/bin/gcloud-crc32c
@@ -51,10 +65,8 @@ vulnerabilities:
 
   - id: CVE-2026-116587 # github.com/go-jose/go-jose/v4
     paths:
-      - usr/local/bin/terraform
       - usr/local/bin/trivy
     statement: >-
-      The newest vendor builds of Terraform 1.16.7 and Trivy 0.76.1 use go-jose v4 before
-      4.1.6. No vendor build with the fix exists yet. Bump each tool when its vendor ships
-      one. Tracking: #2571.
+      The newest vendor build of Trivy 0.76.1 uses go-jose v4 before 4.1.6. No vendor
+      build with the fix exists yet. Bump Trivy when its vendor ships one. Tracking: #2571.
     expired_at: 2026-11-30

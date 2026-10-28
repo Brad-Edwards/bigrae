@@ -6,11 +6,18 @@ must collect at least one ``postgres``-marked test and must fail if any selected
 ``postgres``-marked test is skipped. Keeping this in the canonical root harness
 (rather than grepping pytest prose or a per-test ``skipif``) means the
 production-semantics evidence cannot silently disappear.
+
+CI splits the lane into ``pytest-split`` shards (#2582). One shard can
+legitimately run zero ``postgres``-marked tests, so a sharded run writes its
+evidence to ``postgres-lane-evidence.json`` instead, and
+``scripts/check_postgres_lane_evidence.py`` applies the "at least one ran" rule
+across all shards. A skipped ``postgres``-marked test still fails its shard.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import tempfile
 from collections.abc import Iterator
@@ -33,6 +40,7 @@ _POSTGRES_MARKER = "postgres"
 _ran_postgres_nodeids: set[str] = set()
 _skipped_postgres_nodeids: set[str] = set()
 _TESTDB_CREATION_LOCK = os.path.join(tempfile.gettempdir(), "shifter-postgres-testdb-create.lock")
+POSTGRES_LANE_EVIDENCE = "postgres-lane-evidence.json"
 
 
 def _postgres_lane() -> bool:
@@ -48,6 +56,15 @@ def _is_primary_process(config: pytest.Config) -> bool:
     the final exit code, so the guard verdict is computed there.
     """
     return not hasattr(config, "workerinput")
+
+
+def _shard(config: pytest.Config) -> tuple[int, int] | None:
+    """Return ``(group, splits)`` when pytest-split shards this run, else ``None``."""
+    splits = getattr(config.option, "splits", None)
+    group = getattr(config.option, "group", None)
+    if splits is None or group is None:
+        return None
+    return int(group), int(splits)
 
 
 def _emit_step_summary(line: str) -> None:
@@ -73,10 +90,13 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
         _skipped_postgres_nodeids.add(report.nodeid)
 
 
-def _postgres_guard_failures() -> list[str]:
-    """Fail-closed reasons for the PostgreSQL lane: zero marked ran, or any skipped."""
+def _postgres_guard_failures(*, sharded: bool = False) -> list[str]:
+    """Fail-closed reasons for the PostgreSQL lane: zero marked ran, or any skipped.
+
+    A shard skips the "zero ran" rule; the cross-shard evidence check owns it.
+    """
     failures: list[str] = []
-    if not _ran_postgres_nodeids:
+    if not sharded and not _ran_postgres_nodeids:
         failures.append("no postgres-marked tests ran (all deselected, skipped, or none collected)")
     if _skipped_postgres_nodeids:
         failures.append(f"{len(_skipped_postgres_nodeids)} postgres-marked test(s) skipped")
@@ -89,17 +109,33 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if not _postgres_lane() or not _is_primary_process(session.config):
         return
     _emit_step_summary(f"- postgres-marked tests executed: {len(_ran_postgres_nodeids)}")
-    failures = _postgres_guard_failures()
+    shard = _shard(session.config)
+    if shard is not None:
+        _write_shard_evidence(session.config, shard)
+    failures = _postgres_guard_failures(sharded=shard is not None)
     if failures:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
         _emit_step_summary("- PostgreSQL lane fail-closed guard FAILED: " + "; ".join(failures))
+
+
+def _write_shard_evidence(config: pytest.Config, shard: tuple[int, int]) -> None:
+    """Record this shard's postgres-marked results for the cross-shard check (#2582)."""
+    group, splits = shard
+    evidence = {
+        "group": group,
+        "splits": splits,
+        "ran": sorted(_ran_postgres_nodeids),
+        "skipped": sorted(_skipped_postgres_nodeids),
+    }
+    path = config.rootpath / POSTGRES_LANE_EVIDENCE
+    path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
 
 
 def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: pytest.Config) -> None:
     """Surface the PostgreSQL lane fail-closed guard verdict (#1524)."""
     if not _postgres_lane() or not _is_primary_process(config):
         return
-    for failure in _postgres_guard_failures():
+    for failure in _postgres_guard_failures(sharded=_shard(config) is not None):
         terminalreporter.write_line(f"ERROR: PostgreSQL lane fail-closed guard: {failure} (#1524)", red=True, bold=True)
     for nodeid in sorted(_skipped_postgres_nodeids):
         terminalreporter.write_line(f"  - skipped postgres-marked: {nodeid}", red=True)
@@ -130,31 +166,87 @@ def _testdb_creation_lock() -> Iterator[None]:
 def django_db_setup(
     request: pytest.FixtureRequest,
     django_test_environment: None,
-    django_db_blocker: object,
+    django_db_blocker: Any,
     django_db_use_migrations: bool,
     django_db_keepdb: bool,
     django_db_createdb: bool,
-    django_db_modify_db_settings: None,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[None]:
-    """Wrap pytest-django's ``django_db_setup`` to serialize DB creation (#1524).
+    """Create the test database; on the xdist PostgreSQL lane, clone it (#1524, #2582).
+
+    On the PostgreSQL lane under xdist, the first worker migrates one template
+    test database, and every worker then clones its own ``_gw*`` database from
+    that template with ``CREATE DATABASE ... TEMPLATE``. This is Django's own
+    parallel-runner mechanism (``create_test_db`` + ``clone_test_db``). Without
+    it, every worker runs the full migration graph, one at a time behind the
+    lock. All other runs delegate to pytest-django's stock fixture unchanged.
+    """
+    worker = getattr(request.config, "workerinput", {}).get("workerid")
+    if not _postgres_lane() or worker is None or not django_db_use_migrations:
+        yield from _stock_django_db_setup(request, django_test_environment, django_db_blocker)
+        return
+
+    from django.db import connection
+
+    keepdb = django_db_keepdb and not django_db_createdb
+    verbosity = request.config.option.verbose
+    # The xdist base temp dir is shared by all workers of one run, and pytest
+    # removes it with its normal retention, so the marker is per run.
+    template_ready = tmp_path_factory.getbasetemp().parent / "postgres-template-ready"
+    original_name = connection.settings_dict["NAME"]
+    with django_db_blocker.unblock():
+        with _testdb_creation_lock():
+            if template_ready.exists():
+                _use_test_database(connection)
+            else:
+                # No serialize_test_db(): no test uses serialized_rollback.
+                connection.creation.create_test_db(verbosity=verbosity, autoclobber=True, keepdb=keepdb)
+                template_ready.touch()
+            connection.close()
+            connection.creation.clone_test_db(suffix=worker, verbosity=verbosity, keepdb=False)
+        connection.creation.setup_worker_connection(worker)
+    try:
+        yield
+    finally:
+        if not keepdb:
+            with django_db_blocker.unblock(), _testdb_creation_lock():
+                # Drops this worker's clone; the template stays for the next run.
+                connection.creation.destroy_test_db(original_name, verbosity, keepdb=False)
+
+
+def _use_test_database(connection: Any) -> None:
+    """Point the default connection at the existing template, as create_test_db does."""
+    from django.conf import settings
+    from django.db.backends.base.creation import TEST_DATABASE_PREFIX
+
+    name = connection.settings_dict["TEST"]["NAME"] or TEST_DATABASE_PREFIX + connection.settings_dict["NAME"]
+    connection.close()
+    settings.DATABASES[connection.alias]["NAME"] = name
+    connection.settings_dict["NAME"] = name
+
+
+def _stock_django_db_setup(
+    request: pytest.FixtureRequest, django_test_environment: None, django_db_blocker: Any
+) -> Iterator[None]:
+    """Delegate to pytest-django's stock fixture; serialize DB creation on PostgreSQL.
 
     This does NOT reimplement the test-database lifecycle: it delegates entirely
     to pytest-django's stock generator (creation, migrations, per-worker
-    ``_gw*`` naming, teardown). It only holds a cross-worker file lock around the
-    stock fixture's setup and teardown phases on the PostgreSQL lane, eliminating
-    the concurrent ``CREATE DATABASE`` race. On the SQLite lane it delegates with
-    no lock — byte-for-byte identical to not overriding the fixture.
+    ``_gw*`` naming, teardown). On the PostgreSQL lane it only holds a
+    cross-worker file lock around the stock fixture's setup and teardown phases,
+    eliminating the concurrent ``CREATE DATABASE`` race. On the SQLite lane it
+    delegates with no lock.
     """
-    from pytest_django.fixtures import django_db_setup as _stock_django_db_setup
+    from pytest_django.fixtures import django_db_setup as _stock
 
-    stock = _stock_django_db_setup.__wrapped__(  # type: ignore[attr-defined]
+    stock = _stock.__wrapped__(  # type: ignore[attr-defined]
         request,
         django_test_environment,
         django_db_blocker,
-        django_db_use_migrations,
-        django_db_keepdb,
-        django_db_createdb,
-        django_db_modify_db_settings,
+        request.getfixturevalue("django_db_use_migrations"),
+        request.getfixturevalue("django_db_keepdb"),
+        request.getfixturevalue("django_db_createdb"),
+        request.getfixturevalue("django_db_modify_db_settings"),
     )
     if not _postgres_lane():
         yield from stock
