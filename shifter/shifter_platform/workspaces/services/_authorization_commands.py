@@ -128,25 +128,15 @@ class RetainedEventOwnershipTransferMutationRequest(NativeRelationshipMutationRe
 
     def __post_init__(self) -> None:
         super(RetainedEventOwnershipTransferMutationRequest, self).__post_init__()
-        change = self.change
+        if not isinstance(self.plan, RetainedEventAuthorityPlan):
+            raise ValueError("Retained event ownership transfer does not match")
         if (
-            not isinstance(self.plan, RetainedEventAuthorityPlan)
-            or self.plan.kind != "transfer"
-            or not isinstance(change, AdministrativeRoleChange)
-            or change.policy_code != "event_administrator"
-            or change.effect != PolicyEffect.GRANT
-            or change.target != TargetRef("event", self.plan.event_uuid)
-            or change.subject != RelationshipSubject("principal", self.plan.target_uuid)
-            or self.scope != self.plan.scope
-            or self.idempotency_key != f"event-owner-{self.plan.transition_uuid.hex}-grant-target"
-            or self.model_id != self.plan.model_id
-            or not any(
-                effect.key == self.idempotency_key
-                and effect.subject_uuid == change.subject.uuid
-                and effect.policy_code == change.policy_code
-                and not effect.action
-                and effect.effect == change.effect
-                for effect in self.plan.effects
+            self.plan.kind != "transfer"
+            or not _transfer_target_grant(self.change, self.plan)
+            or (self.scope, self.idempotency_key, self.model_id)
+            != (self.plan.scope, f"event-owner-{self.plan.transition_uuid.hex}-grant-target", self.plan.model_id)
+            or not _retained_effect_matches(
+                self.plan, self.idempotency_key, self.plan.target_uuid, "", "event_administrator", PolicyEffect.GRANT
             )
         ):
             raise ValueError("Retained event ownership transfer does not match")
@@ -176,23 +166,53 @@ class RetainedEventAuthorityPolicyMutationRequest(PolicyMutationRequest):
 
     def __post_init__(self) -> None:
         super(RetainedEventAuthorityPolicyMutationRequest, self).__post_init__()
+        if not isinstance(self.plan, RetainedEventAuthorityPlan):
+            raise ValueError("Retained event authority effect does not match")
+        subject_uuid = self.plan.previous_owner_uuid if self.plan.kind == "transfer" else self.plan.target_uuid
         if (
-            not isinstance(self.plan, RetainedEventAuthorityPlan)
-            or self.target != TargetRef("event", self.plan.event_uuid)
-            or self.subject.uuid
-            != (self.plan.previous_owner_uuid if self.plan.kind == "transfer" else self.plan.target_uuid)
-            or self.subject.kind != "principal"
-            or self.scope != self.plan.scope
-            or (self.plan.kind == "transfer" and self.effect != PolicyEffect.GRANT)
-            or (self.plan.kind == "revoke" and self.effect != PolicyEffect.REVOKE)
-            or self.model_id != self.plan.model_id
-            or not any(
-                effect.key == self.idempotency_key
-                and effect.subject_uuid == self.subject.uuid
-                and effect.action == self.action
-                and not effect.policy_code
-                and effect.effect == self.effect
-                for effect in self.plan.effects
+            (self.target, self.subject.kind, self.subject.uuid, self.scope, self.model_id)
+            != (
+                TargetRef("event", self.plan.event_uuid),
+                "principal",
+                subject_uuid,
+                self.plan.scope,
+                self.plan.model_id,
+            )
+            or not _retained_policy_effect_allowed(self.plan, self.effect)
+            or not _retained_effect_matches(
+                self.plan, self.idempotency_key, self.subject.uuid, self.action, "", self.effect
             )
         ):
             raise ValueError("Retained event authority effect does not match")
+
+
+def _transfer_target_grant(change: NativeRelationshipChange, plan: RetainedEventAuthorityPlan) -> bool:
+    """Only the exact planned recipient administrator grant can settle a retained transfer."""
+    return isinstance(change, AdministrativeRoleChange) and (
+        change.policy_code,
+        change.effect,
+        change.target,
+        change.subject,
+    ) == (
+        "event_administrator",
+        PolicyEffect.GRANT,
+        TargetRef("event", plan.event_uuid),
+        RelationshipSubject("principal", plan.target_uuid),
+    )
+
+
+def _retained_effect_matches(
+    plan: RetainedEventAuthorityPlan, key: str, subject_uuid: UUID, action: str, policy_code: str, effect: PolicyEffect
+) -> bool:
+    """Bind a settlement to one exact enumerated effect of the immutable domain-owned plan."""
+    expected = (key, subject_uuid, action, policy_code, effect)
+    return any(
+        (item.key, item.subject_uuid, item.action, item.policy_code, item.effect) == expected for item in plan.effects
+    )
+
+
+def _retained_policy_effect_allowed(plan: RetainedEventAuthorityPlan, effect: PolicyEffect) -> bool:
+    """Retained transfer/revoke kinds keep their closed grant/revoke semantics."""
+    return (plan.kind != "transfer" or effect == PolicyEffect.GRANT) and (
+        plan.kind != "revoke" or effect == PolicyEffect.REVOKE
+    )

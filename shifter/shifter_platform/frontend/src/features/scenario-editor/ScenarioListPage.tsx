@@ -71,7 +71,7 @@ export function ScenarioListPage() {
           <select id="scenario-content-scope" value={scope ? contentScopeKey(scope) : ""}
             onChange={(event) => setSelectedScope(choices.find((row) => contentScopeKey(row) === event.target.value) ?? null)}
             disabled={!choices.length} className="h-9 rounded-md border bg-background px-3 text-sm">
-            {!choices.length ? <option value="">Select a catalog</option> : null}
+            {choices.length === 0 ? <option value="">Select a catalog</option> : null}
             {choices.map((row) => <option key={contentScopeKey(row)} value={contentScopeKey(row)}>
               {row.kind === "installation" ? row.name : `${titleCase(row.kind)}: ${row.name}`}
             </option>)}

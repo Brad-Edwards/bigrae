@@ -2,7 +2,6 @@
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from uuid import uuid4
 
 import pytest
 from django.db import connection
@@ -18,7 +17,9 @@ def test_warm_and_cold_launches_share_the_account_first_lock_order(
 ):
     if connection.vendor != "postgresql":
         pytest.skip("PostgreSQL lock contention")
-    from cms.services._scoped_range_launch import _reserve
+    from cms.services._scoped_launch_reservation import reserve_scoped_launch
+    from cms.services._scoped_launch_types import ScopedRangeLaunchOptions
+    from cms.services._scoped_range_launch import _prepare_launch
     from cms.services._warm_pool_claim import attempt_warm_claim
     from shared.enums import RangeSource
     from tests.cms._warm_pool_fixtures import warm_claim_fixture
@@ -50,20 +51,12 @@ def test_warm_and_cold_launches_share_the_account_first_lock_order(
     def cold():
         try:
             with connection.execute_wrapper(trace_cold):
-                return _reserve(
+                prepared = _prepare_launch(
                     cold_credential,
-                    claim.scope,
-                    source,
-                    uuid4(),
-                    cold_user.pk,
-                    None,
-                    None,
-                    owner_principal=cold_credential.principal,
-                    range_source=RangeSource.MISSION_CONTROL,
-                    remote_access_teardown_at=None,
-                    model_launch_scope=None,
-                    authority_target=None,
-                )[0].pk
+                    source.scenario_id,
+                    ScopedRangeLaunchOptions(scope=claim.scope, range_source=RangeSource.MISSION_CONTROL),
+                )
+                return reserve_scoped_launch(prepared)[0].pk
         finally:
             connection.close()
 

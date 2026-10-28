@@ -35,6 +35,8 @@ from ._preparation_adapters import (
     validate_pinned_adapter,
 )
 
+_NATIVE_PREPARATION_REQUIRED = "Preparation requires a live native credential"
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
@@ -291,7 +293,7 @@ def _mutation_snapshot(user: User | CredentialContext, operation_id: UUID) -> Pr
     from engine.models import PreparationOperation
 
     if not isinstance(user, CredentialContext):
-        raise ValidationError("Preparation requires a live native credential")
+        raise ValidationError(_NATIVE_PREPARATION_REQUIRED)
     return _authorize_operation(
         user, PreparationOperation.objects.select_related("adapter").filter(pk=operation_id).first()
     )
@@ -312,7 +314,7 @@ def _mutation_fence(
         if row.input != snapshot.input:
             raise ValidationError(_THE_ARTIFACT_PREPARATION_IS_UNAVAILABLE)
     else:
-        raise ValidationError("Preparation requires a live native credential")
+        raise ValidationError(_NATIVE_PREPARATION_REQUIRED)
     return row
 
 
@@ -389,7 +391,7 @@ def _admit_preparation_request(user: User | CredentialContext, scope: ResourceSc
             raise ValidationError("Preparation scope unavailable")
         authority = admit_preparation_authority(user, scope)
     else:
-        raise ValidationError("Preparation requires a live native credential")
+        raise ValidationError(_NATIVE_PREPARATION_REQUIRED)
     return authority
 
 

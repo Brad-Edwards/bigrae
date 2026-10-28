@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from cms.models import RaesPackageSource, RangeInstance
-    from engine.services import RaesRangeRef
+    from engine.services import PreparedRaesRangeCreation, RaesRangeRef
     from shared.authorization import TargetRef
     from shared.credentials import CredentialContext
     from shared.identity_scope import PrincipalRef, ResourceScope
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from shared.raes.participant_access import ParticipantAccessBinding
     from shared.range_instantiation_policy import BackendAdmission
     from shared.runtime_plugin_binding import RuntimePluginScope
+    from workspaces.services import ResolvedResourceScope
 
 __all__ = ["CmsRaesDispatchPort"]
 
@@ -142,7 +143,6 @@ class CmsRaesDispatchPort:
         self, compiled_plan: dict[str, Any], participant_access: Sequence[ParticipantAccessBinding]
     ) -> ShifterDispatchResult:
         """Stage policy before locks; native creation, source fences and queue commit together."""
-        from dataclasses import replace
         from uuid import UUID
 
         from cms.models import RangeInstance
@@ -188,36 +188,35 @@ class CmsRaesDispatchPort:
             authority_target=self.authority_target,
         )
         prepared = prepare_raes_range_creation(bindings, self.workspace_id, instance.user_id, compiled_plan)
-        with transaction.atomic():
-            if instance.launch_intent_digest:
-                from shared.range_workspace_aggregate import fence_range_event_launch
+        ref = self._commit_principal_runtime(instance, current, metadata, bindings, prepared, compiled_plan)
+        if prepare_models:
+            prepare_model_access_for_dispatch(UUID(self.request_id), range_id=UUID(ref.range_id))
+            if self.authority_target is None:
+                ref = dispatch_created_raes_range(UUID(self.request_id), credential=current, prepared_creation=prepared)
+        return ShifterDispatchResult(
+            request_id=ref.request_id, accepted=ref.accepted, status=ref.status, range_id=ref.range_id
+        )
 
-                if (
-                    self.authority_target is None
-                    or self.authority_target.type != "event"
-                    or self.authority_target.uuid is None
-                ):
-                    raise ValueError("Range launch intent unavailable")
-                fence_range_event_launch(UUID(self.request_id), self.authority_target.uuid)
+    def _commit_principal_runtime(
+        self,
+        instance: RangeInstance,
+        current: CredentialContext,
+        metadata: tuple[bool, bool],
+        bindings: RangeBindings,
+        prepared: PreparedRaesRangeCreation,
+        compiled_plan: dict[str, Any],
+    ) -> ShifterDispatchResult | RaesRangeRef:
+        """Commit the prepared exact runtime after the event and source fences acquire locks."""
+        from dataclasses import replace
+
+        from cms.models import RangeInstance
+
+        with transaction.atomic():
+            self._fence_event_launch(instance)
             row = RangeInstance.objects.select_for_update(of=("self",)).select_related("request").get(pk=instance.pk)
             self._assert_principal_launch_row(row, current, metadata)
-            ref: ShifterDispatchResult | RaesRangeRef
-            if row.launch_intent_digest and self.authority_target is not None and row.range_id is not None:
-                from engine.services import project_range_authority
-
-                projection = project_range_authority(UUID(self.request_id))
-                if (
-                    projection.native_id,
-                    projection.public_uuid,
-                    projection.scope,
-                    projection.owner_principal_uuid,
-                    projection.parent,
-                ) != (row.range_id, row.uuid, self.scope, row.owner_principal_uuid, self.authority_target):
-                    raise ValueError("Range replay runtime changed")
-                ref = ShifterDispatchResult(
-                    request_id=self.request_id, accepted=True, status=row.status, range_id=str(projection.native_uuid)
-                )
-            else:
+            ref: ShifterDispatchResult | RaesRangeRef | None = self._replay_runtime(row)
+            if ref is None:
                 ref = create_raes_range(
                     request_id=self.request_id,
                     user_id=row.user_id,
@@ -227,33 +226,71 @@ class CmsRaesDispatchPort:
                     egress_mode=self.egress_mode,
                     bindings=replace(bindings, prepared_creation=prepared),
                 )
-            if self.scope.kind == "installation":
-                from engine.services import native_range_id_by_request
-
-                native_id = native_range_id_by_request(UUID(self.request_id))
-            else:
-                from engine.services import project_range_authority
-
-                native_id = project_range_authority(UUID(self.request_id)).native_id
+            native_id = self._native_runtime_id()
             if row.range_id is not None and row.range_id != native_id:
                 raise ValueError("Range runtime changed")
             row.range_id = native_id
             row.save(update_fields=["range_id"])
-        if prepare_models:
-            prepare_model_access_for_dispatch(UUID(self.request_id), range_id=UUID(ref.range_id))
-            if self.authority_target is None:
-                ref = dispatch_created_raes_range(UUID(self.request_id), credential=current, prepared_creation=prepared)
+        return ref
+
+    def _fence_event_launch(self, instance: RangeInstance) -> None:
+        """Serialize a retained event launch with cancellation before locking its CMS row."""
+        from uuid import UUID
+
+        if instance.launch_intent_digest:
+            from shared.range_workspace_aggregate import fence_range_event_launch
+
+            if (
+                self.authority_target is None
+                or self.authority_target.type != "event"
+                or self.authority_target.uuid is None
+            ):
+                raise ValueError("Range launch intent unavailable")
+            fence_range_event_launch(UUID(self.request_id), self.authority_target.uuid)
+
+    def _replay_runtime(self, row: RangeInstance) -> ShifterDispatchResult | None:
+        """An identical retained event runtime is reused without another native create."""
+        from uuid import UUID
+
+        if not row.launch_intent_digest or self.authority_target is None or row.range_id is None:
+            return None
+
+        from engine.services import project_range_authority
+
+        projection = project_range_authority(UUID(self.request_id))
+        if (
+            projection.native_id,
+            projection.public_uuid,
+            projection.scope,
+            projection.owner_principal_uuid,
+            projection.parent,
+        ) != (row.range_id, row.uuid, self.scope, row.owner_principal_uuid, self.authority_target):
+            raise ValueError("Range replay runtime changed")
         return ShifterDispatchResult(
-            request_id=ref.request_id, accepted=ref.accepted, status=ref.status, range_id=ref.range_id
+            request_id=self.request_id, accepted=True, status=row.status, range_id=str(projection.native_uuid)
         )
+
+    def _native_runtime_id(self) -> int:
+        """Resolve the accepted runtime in its installation or customer authority domain."""
+        from uuid import UUID
+
+        if self.scope is None:
+            raise ValueError("Range creation authority unavailable")
+
+        if self.scope.kind == "installation":
+            from engine.services import native_range_id_by_request
+
+            return native_range_id_by_request(UUID(self.request_id))
+        else:
+            from engine.services import project_range_authority
+
+            return project_range_authority(UUID(self.request_id)).native_id
 
     def _assert_principal_launch_row(
         self, row: RangeInstance, current: CredentialContext, metadata: tuple[bool, bool]
     ) -> None:
         """Fence locked native custody and the original source before dispatch."""
         from cms.services._pack_fence import fence_pack_reference
-        from cms.services._scoped_range_launch import source_launch_binding, source_launch_metadata
-        from shared.credentials import resolve_local_credential
         from workspaces.services import resolve_resource_scope
 
         if self.scope is None or self.source is None or row.request is None:
@@ -265,6 +302,31 @@ class CmsRaesDispatchPort:
                 raise ValueError("Range original proof changed")
         source = fence_pack_reference(self.source.scenario_id, expected_digest=self.source.package_digest)
         resolved = resolve_resource_scope(self.scope)
+        self._assert_principal_custody(row, current, resolved)
+        self._assert_launch_source(source, metadata)
+
+    def _assert_launch_source(self, source: RaesPackageSource | None, metadata: tuple[bool, bool]) -> None:
+        """Require the exact registered source and availability inspected before staging."""
+        from cms.services._scoped_launch_source import source_launch_binding, source_launch_metadata
+
+        if self.source is None:
+            raise ValueError("Range creation authority unavailable")
+        if (
+            source is None
+            or source_launch_binding(source) != source_launch_binding(self.source)
+            or source_launch_metadata(self.source.scenario_id) != metadata
+            or not metadata[0]
+        ):
+            raise ValueError("Range launch changed")
+
+    def _assert_principal_custody(
+        self, row: RangeInstance, current: CredentialContext, resolved: ResolvedResourceScope
+    ) -> None:
+        """Require both CMS custody records, current native proof and exact resolved ancestry."""
+        from shared.credentials import resolve_local_credential
+
+        if row.request is None:
+            raise ValueError("Range creation authority unavailable")
         if (
             resolve_local_credential(current) != current
             or row.status != "provisioning"
@@ -280,10 +342,6 @@ class CmsRaesDispatchPort:
             )
             or (row.scope_kind, row.account_id, row.organization_id, row.workspace_id)
             != (resolved.kind, resolved.account_id, resolved.organization_id, resolved.workspace_id)
-            or source is None
-            or source_launch_binding(source) != source_launch_binding(self.source)
-            or source_launch_metadata(self.source.scenario_id) != metadata
-            or not metadata[0]
         ):
             raise ValueError("Range launch changed")
 

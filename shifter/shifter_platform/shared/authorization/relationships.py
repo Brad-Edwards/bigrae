@@ -19,6 +19,8 @@ from .catalog import (
 from .contracts import TargetRef
 from .model import deny_relation_for_action, grant_relation_for_action
 
+_INVALID_CUTOVER_RELATIONSHIP = "Invalid cutover relationship"
+
 SubjectKind = Literal["principal", "group", "role"]
 RelationshipObjectType = Literal[
     "principal",
@@ -127,18 +129,11 @@ class CutoverRelationshipChange:
         user_type, user_id = _cutover_object(self.user)
         object_type, _ = _cutover_object(self.object)
         valid_parent = (user_type, object_type) in _CUTOVER_PARENT_RELATIONS and self.relation == user_type
-        valid_administrator = (
-            user_type == "principal"
-            and self.relation == "direct_administrator"
-            and object_type in {"organization", "workspace", "event"}
-        )
-        valid_event_grant = (
-            user_type == "principal" and object_type == "event" and self.relation in _CUTOVER_EVENT_GRANTS
-        )
+        valid_principal_grant = _cutover_principal_grant(user_type, object_type, self.relation)
         if user_type == "installation" and user_id != "root":
             valid_parent = False
-        if not valid_parent and not valid_administrator and not valid_event_grant:
-            raise AuthorizationContractError("Invalid cutover relationship")
+        if not valid_parent and not valid_principal_grant:
+            raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP)
 
     @property
     def effect(self) -> PolicyEffect:
@@ -161,23 +156,32 @@ class CutoverRelationshipChange:
         return ()
 
 
+def _cutover_principal_grant(user_type: str, object_type: str, relation: str) -> bool:
+    """Accept only the closed administrator and event-action dispositions in a cutover plan."""
+    if user_type != "principal":
+        return False
+    administrator = relation == "direct_administrator" and object_type in {"organization", "workspace", "event"}
+    event_grant = object_type == "event" and relation in _CUTOVER_EVENT_GRANTS
+    return administrator or event_grant
+
+
 def _cutover_object(value: str) -> tuple[str, str]:
     """Parse one cutover object without admitting arbitrary provider syntax."""
     try:
         object_type, object_id = value.split(":", 1)
     except ValueError as exc:
-        raise AuthorizationContractError("Invalid cutover relationship") from exc
+        raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP) from exc
     if object_type == "installation":
         if object_id != "root":
-            raise AuthorizationContractError("Invalid cutover relationship")
+            raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP)
     elif object_type in {"principal", "account", "organization", "workspace", "event"}:
         try:
             if UUID(object_id).int == 0:
                 raise ValueError
         except ValueError as exc:
-            raise AuthorizationContractError("Invalid cutover relationship") from exc
+            raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP) from exc
     else:
-        raise AuthorizationContractError("Invalid cutover relationship")
+        raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP)
     return object_type, object_id
 
 

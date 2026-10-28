@@ -86,7 +86,6 @@ def render_migration_job(
                                 "/bin/sh",
                                 "-c",
                                 "python manage.py reconcile_gcp_database_duties"
-                                " && python manage.py bootstrap_inbox_catalog"
                                 " && python manage.py seed_raes_image_registry"
                                 " && python manage.py acquire_feature_artifacts",
                             ],

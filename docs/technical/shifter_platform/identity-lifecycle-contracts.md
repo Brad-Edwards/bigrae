@@ -225,6 +225,42 @@ The receipt does not disclose raw tuples or credential material.
 Migration `ctf.0076` refuses unfinished legacy transitions without effect plans.
 Settle them on the old release first; confirmed history is retained.
 
+## Deployment and catalog initialization
+
+Schema migration prepares storage. Native activation publishes and verifies the
+identity contract. Catalog initialization is a later application operation and
+requires an actual current native credential. Workload IAM and maintenance mode
+cannot authorize it.
+
+```mermaid
+sequenceDiagram
+    participant D as Deployment CLI
+    participant A as Native application
+    participant O as Installation administrator
+    participant C as CMS services
+    participant P as OpenFGA
+    D->>A: Migrate then activate and verify identity
+    D->>A: Restore application and wait for readiness
+    O->>A: Authenticate and obtain current native proof
+    O->>D: Resume with private credential file
+    D->>C: Register installation manifest with actual proof
+    C->>P: Check registration and reference authority
+    C->>C: Commit complete native registration batch
+    C->>P: Recheck qualification and publication authority
+    C->>C: Qualify then publish exact immutable identities
+```
+
+The CLI file adapter reuses the API-token authenticator. The file carries the
+bearer secret, never a credential reference treated as authentication. The Job
+copies it to an owner-only file and removes its temporary Secret after use.
+Domain services retain credential and scope checks at commit.
+
+Registration admission occurs before SQL locks. Conformance and publication
+follow registration commit and use their ordinary service boundaries. A failure
+leaves pending or unpublished native content for an exact retry. Missing proof
+leaves an active application with catalog setup explicitly incomplete, so the
+administrator can authenticate without a startup dependency cycle.
+
 ## Parked model-access sharing boundary
 
 [ADR-068](../../adr/068-model-access-broker-parked.md) parks the broker and its
@@ -342,9 +378,12 @@ Sort multiple rows from one ownership group by stable key.
 | CTF creation and cancellation | Event before retained launch and subject; recheck cancellation and exact assignment. |
 | Account quota and workspace placement | Account before Workspace; warm and cold commands use the same order. |
 | Warm claim, result and retirement | Warm generation before Range; recheck custody and operation after waiting. |
+| Prepared RAES dispatch | Use the owning ancestry resolver before Range for both first dispatch and replay. After both locks, retain the exact custody, current proof and membership recheck before enqueue. |
 | Native launch, cancellation and terminal failure | Target before launch intent when both locks are needed; recheck operation and claimed lease. |
 | Capacity reservation | Serialize limit observation and durable reservation; provider work follows the committed reservation. |
 | Result application | Inbox claim, then owning target locks; state, strict audit and outbox commit together. |
+
+Prepared RAES dispatch uses `resolve_range_scope_binding(scope, for_update=True)` before locking the native Range. It then repeats the existing local custody and membership fence under those locks. The early ancestry lock changes lock order only; it cannot replace the final recheck or the policy decision made before SQL.
 
 Application policy calls occur outside domain row locks.
 The existing launcher holds its generation lock across provider task submission to serialize cancellation.
@@ -399,6 +438,7 @@ The proposal records the checks performed. These entry points retain regression 
 | Contract | Owning implementation | Verification entry point |
 | --- | --- | --- |
 | Retained launch and cancellation | `ctf/services/range/launch_intents.py`, `launch_cleanup.py` | `tests/ctf/test_range_launch_crash_recovery.py` |
+| Closed native launch inputs | `cms/services/_scoped_range_launch.py::_validate_event_binding` | `tests/cms/services/test_principal_range_launch.py::test_mission_control_rejects_event_binding_fields_before_any_reservation`; real native proof and source, with no CMS/native reservation on denial. |
 | Exact old-generation replacement | `ctf/services/range/recovery_steps.py` | `tests/ctf/test_recovery_verified_old_generation.py` |
 | Event authority transition | `ctf/services/event/authority_plan.py`, `ctf/services/event/staff.py`, `ctf/migrations/0076_event_authority_effect_plan.py` | `tests/ctf/test_authority_plan.py`, `test_authority_plan_migration.py`, `test_retained_inactive_handoff.py` |
 | HTTP recovery response | `ctf/api/organizer/staff.py` | `tests/ctf/test_authority_plan.py`; browser `EventStaffCard.test.tsx`. |
@@ -423,3 +463,48 @@ The following references inform these choices. They do not certify this implemen
 | [AWS transactional outbox pattern](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html), accessed 2026-10-28 | Issues and considerations; relational outbox | Existing SQL outbox and idempotent consumers; no additional AWS service. |
 | [OpenFGA source of truth](https://openfga.dev/docs/best-practices/source-of-truth), API v1 guidance | Entity hierarchies; fine-grained permissions | SQL owns hierarchy; OpenFGA owns application permission relationships. |
 | [OpenFGA consistency](https://openfga.dev/docs/interacting/consistency), API v1 | Higher consistency | Bypass query caches for current authority and policy reconciliation; account for added latency. |
+
+### First personal-token eligibility
+
+Normal delegation requires the actor to hold the delegated action and forbids
+self-grants. Administrator roles do not imply personal-token eligibility. For a
+fresh installation, the private cutover facts can explicitly set
+`bootstrap_personal_token_eligibility: true`. The default is false. The plan
+records this choice and binds it to its digest. Only the existing preactivation
+bootstrap can seed that exact action for the selected first administrator.
+It checks provider readback and writes a strict audit record before confirming
+bootstrap. Activation checks the grants again. No deployment step issues a token;
+the operator must authenticate after activation and use ordinary token issuance.
+
+### Module ownership during maintainability cleanup
+
+Keep the public service entrypoints and authority flow shown above. Split
+persistence projections, read queries, command admission and state receipts
+within their current owning layer. Each caller still crosses the same service
+boundary. Preserve transaction order, credential rechecks and provider readback.
+
+| Owner | Modules and responsibilities | Boundary kept |
+| --- | --- | --- |
+| Workspaces administration | [`_account_policy_reads.py`](../../../shifter/shifter_platform/workspaces/services/_account_policy_reads.py) prepares current authority; [`_account_policy_queries.py`](../../../shifter/shifter_platform/workspaces/services/_account_policy_queries.py) filters projections; [`_account_policy_admin.py`](../../../shifter/shifter_platform/workspaces/services/_account_policy_admin.py), [`_account_policy_lifecycle.py`](../../../shifter/shifter_platform/workspaces/services/_account_policy_lifecycle.py) and [`_policy_memberships.py`](../../../shifter/shifter_platform/workspaces/services/_policy_memberships.py) own commands. | Native proof and explicit scope remain mandatory at the owning command. A directory or membership projection cannot grant permission. |
+| Workspaces policy | [`_authorization_commands.py`](../../../shifter/shifter_platform/workspaces/services/_authorization_commands.py) validates typed intent and exact retained effects; [`_authorization_delegation.py`](../../../shifter/shifter_platform/workspaces/services/_authorization_delegation.py) resolves current targets and delegation; [`_authorization_policy.py`](../../../shifter/shifter_platform/workspaces/services/_authorization_policy.py) evaluates and reconciles; [`_authorization_journal.py`](../../../shifter/shifter_platform/workspaces/services/_authorization_journal.py) persists receipts. | Retained-plan matching does not replace current administrator admission. Provider readback settles only the pinned intent; an outage cannot become a durable denial or permission to rewrite it. |
+| Workspaces cutover | [`_identity_cutover.py`](../../../shifter/shifter_platform/workspaces/services/_identity_cutover.py) classifies, converts and verifies hierarchy and membership facts; [`_identity_cutover_state.py`](../../../shifter/shifter_platform/workspaces/services/_identity_cutover_state.py) owns durable cutover progress. | Conversion keeps its original SQL transaction and row locks. Activation still requires complete membership disposition and exact account ancestry; helper extraction does not infer missing placement. |
+| CTF event authority | [`authority_plan.py`](../../../shifter/shifter_platform/ctf/services/event/authority_plan.py) freezes the full effect plan; [`_staff_policy.py`](../../../shifter/shifter_platform/ctf/services/event/_staff_policy.py) owns effect definitions; [`_staff_transitions.py`](../../../shifter/shifter_platform/ctf/services/event/_staff_transitions.py) owns transition receipts; [`_staff_projection.py`](../../../shifter/shifter_platform/ctf/services/event/_staff_projection.py) reads staff; [`staff.py`](../../../shifter/shifter_platform/ctf/services/event/staff.py) coordinates commands. | Recovery keeps semantic effect keys, provider binding and original intent. An inactive retained subject never becomes an actor; the current actor independently needs full remaining authority. |
+| CTF range commands | [`provision.py`](../../../shifter/shifter_platform/ctf/services/range/provision.py), [`spares.py`](../../../shifter/shifter_platform/ctf/services/range/spares.py) and [`recovery.py`](../../../shifter/shifter_platform/ctf/services/range/recovery.py) prepare claims; [`recovery_steps.py`](../../../shifter/shifter_platform/ctf/services/range/recovery_steps.py) checks exact generations; [`tasks.py`](../../../shifter/shifter_platform/ctf/services/range/tasks.py) coalesces queue work; [`batch.py`](../../../shifter/shifter_platform/ctf/services/range/batch.py) paces it; [`aggregate.py`](../../../shifter/shifter_platform/ctf/services/range/aggregate.py) projects retained custody. | Preserve Event before recovery, participant, spare and launch records. Policy and cleanup-evidence reads keep their existing preflight position. Queue coalescing requires the same native initiating proof. Cancellation and unrelated assignment still forbid attachment. |
+| CMS native launch | [`_scoped_launch_types.py`](../../../shifter/shifter_platform/cms/services/_scoped_launch_types.py) groups explicit inputs; [`_scoped_launch_source.py`](../../../shifter/shifter_platform/cms/services/_scoped_launch_source.py) checks current source eligibility; [`_scoped_launch_reservation.py`](../../../shifter/shifter_platform/cms/services/_scoped_launch_reservation.py) commits reservation and exact replay; [`_scoped_range_launch.py`](../../../shifter/shifter_platform/cms/services/_scoped_range_launch.py) coordinates dispatch. | Typed options carry facts and confer no authority. CTF requires the complete owner/action/target binding; Mission Control accepts none of those fields, including partial bindings, before reservation. Revalidate policy before external work, then fence current proof, immutable source and exact event request under the owning locks. An uncertain event dispatch retains its request UUID and capacity. |
+| CMS uniform registration | [`_pack_registration_types.py`](../../../shifter/shifter_platform/cms/services/_pack_registration_types.py) defines input and admission values; [`_pack_registration_custody.py`](../../../shifter/shifter_platform/cms/services/_pack_registration_custody.py) admits exact references; [`_pack_registration_fences.py`](../../../shifter/shifter_platform/cms/services/_pack_registration_fences.py) checks local commit facts; [`_content_ingestion.py`](../../../shifter/shifter_platform/cms/services/_content_ingestion.py) coordinates registration; [`_pack_feature_acquisition.py`](../../../shifter/shifter_platform/cms/services/_pack_feature_acquisition.py) requests optional artifacts after commit. | Every provenance uses the same native proof, scope and foreign-input validation. Registration remains separate from conformance and publication. Feature acquisition cannot authorize catalog registration or publication. |
+| CMS retained uploads | [`_upload_scope.py`](../../../shifter/shifter_platform/cms/services/_upload_scope.py) defines the exact storage namespace; [`_scoped_uploads.py`](../../../shifter/shifter_platform/cms/services/_scoped_uploads.py) owns upload admission and installation; [`_upload_cleanup.py`](../../../shifter/shifter_platform/cms/services/_upload_cleanup.py) owns retained cleanup. | Storage work uses only recorded exact keys. Budget and upload locks fence settlement. Revoked initiating proof does not prevent accepted cleanup, and an uncertain final copy keeps its keys and budget reserved. |
+| CMS warm claim | [`_warm_claim_types.py`](../../../shifter/shifter_platform/cms/services/_warm_claim_types.py) carries immutable claim facts; [`_warm_claim_custody.py`](../../../shifter/shifter_platform/cms/services/_warm_claim_custody.py) fences CMS custody; [`_warm_pool_claim.py`](../../../shifter/shifter_platform/cms/services/_warm_pool_claim.py) coordinates claim, lease and activation. | Policy preflight stays outside the claim transaction. CMS and Engine custody, lease, model allocation and activation queue commit together; a failed transfer rolls back the claim. Warm generation still precedes native runtime locks. |
+| CMS model preparation | [`_model_preparation_authority.py`](../../../shifter/shifter_platform/cms/services/_model_preparation_authority.py) resolves current native proof and exact retained ownership; [`_model_allocation.py`](../../../shifter/shifter_platform/cms/services/_model_allocation.py) prepares model facts and commits the Engine request. | Source and policy work precede SQL. Current proof and unchanged CMS runtime facts fence the allocation/outbox write. An existing preparation receipt cannot widen a new generation's authority. |
+| CMS range reads | [`_range_history.py`](../../../shifter/shifter_platform/cms/services/_range_history.py) owns history selection; [`_scoped_range_queries.py`](../../../shifter/shifter_platform/cms/services/_scoped_range_queries.py) applies the shared current leaf filter; [`_range_queries.py`](../../../shifter/shifter_platform/cms/services/_range_queries.py) retains the public service facade. | Candidate selection is not admission. Every disclosed native row needs its current leaf decision; provider failure propagates instead of becoming an empty authorized page. |
+| Engine RAES creation | [`_raes_range.py`](../../../shifter/shifter_platform/engine/services/_raes_range.py) retains creation and dispatch; [`_raes_range_bindings.py`](../../../shifter/shifter_platform/engine/services/_raes_range_bindings.py) defines sidecars, replay checks and remote-access capability binding; [`_raes_image.py`](../../../shifter/shifter_platform/engine/services/_raes_image.py) validates image registration values. | Preserve request, receipt and dispatch order inside the existing owning transactions. Replays cannot replace immutable participant access or plugin identity. Validated image metadata does not replace native registry admission. |
+| Engine warm lifecycle | [`_warm_pool.py`](../../../shifter/shifter_platform/engine/services/_warm_pool.py) retains the allocation/claim facade; [`_warm_pool_admission.py`](../../../shifter/shifter_platform/engine/services/_warm_pool_admission.py) owns atomic count and capacity admission; [`_warm_pool_retirement.py`](../../../shifter/shifter_platform/engine/services/_warm_pool_retirement.py) owns retained retirement and settlement; [`_principal_warm_claim.py`](../../../shifter/shifter_platform/engine/services/_principal_warm_claim.py) commits exact customer custody. | Keep the admission mutex across count and reservation, warm ledger before runtime locks, and current local proof and ancestry before custody writes. Realized native capacity needs exact accepted cleanup evidence; an unknown outcome retains its obligation. |
+| Engine cleanup retry | [`_range_cleanup_retry.py`](../../../shifter/shifter_platform/engine/services/_range_cleanup_retry.py) derives retry eligibility from the current accepted destroy and applied terminal observation. | Retain the target-before-intent order, exact resource/binding identity and bounded backoff from result application. Unknown inventory does not expire the cleanup obligation. |
+| Engine native binding | [`_launch_authority.py`](../../../shifter/shifter_platform/engine/services/_launch_authority.py) retains the validation facade; [`_launch_authority_binding.py`](../../../shifter/shifter_platform/engine/services/_launch_authority_binding.py) checks local proof, ancestry and generation; [`_range_custody.py`](../../../shifter/shifter_platform/engine/services/_range_custody.py) projects ownership-transfer and pinned-egress facts. | Preserve the established credential, scope and generation check order. A custody projection supplies facts; it cannot replace the owning command’s current admission or authorize a broader transfer. |
+| Mission Control launch and reads | [`_range_launch.py`](../../../shifter/shifter_platform/mission_control/api/_range_launch.py) owns launch orchestration; [`_retry_launch.py`](../../../shifter/shifter_platform/mission_control/api/_retry_launch.py) retains the immutable caller selection and retry key; [`ranges.py`](../../../shifter/shifter_platform/mission_control/api/ranges.py) owns current-range, lifecycle and catalog projections; [`_device_serializers.py`](../../../shifter/shifter_platform/mission_control/api/_device_serializers.py) defines device wire shapes. | Catalog selection and placement remain explicit. The public route imports retain their service facade; moving a view does not replace owning native admission with a serializer or HTTP check. |
+| Mission Control remote handoff | [`api/guacamole.py`](../../../shifter/shifter_platform/mission_control/api/guacamole.py) checks the current native subscriber; [`guacamole_bootstrap.py`](../../../shifter/shifter_platform/mission_control/guacamole_bootstrap.py) owns one-time URL delivery. | Lock exact CMS and Engine custody before the Guacamole receipt. Current and original narrowed proofs must remain live under the final lock; a user identifier cannot substitute for either proof. |
+
+Use existing typed contracts for these calls. Extract named validation and
+admission steps where a function combines unrelated decisions. Do not move an
+authorization check across a lock or replace owning-service admission with a
+view check. The focused behavior tests, import rules, type checks and hosted
+quality gate validate the resulting layout.

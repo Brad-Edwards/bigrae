@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -48,16 +49,7 @@ def list_scoped_ranges(
         filters["range_source"] = range_source
     manager = RangeInstance.all_objects if include_terminal else RangeInstance.objects
     rows = manager.defer(*PRIVATE_RANGE_FIELDS).filter(**filters).order_by("-created_at")
-    result = []
-    for row in rows:
-        try:
-            authorized = require_range_action(current, row.uuid, _RANGE_READ, include_terminal=include_terminal)
-        except CMSError as exc:
-            if exc.details and exc.details.get("code") == "authority-unavailable":
-                raise
-        else:
-            result.append(authorized)
-    return result
+    return authorized_range_rows(current, rows, include_terminal=include_terminal)
 
 
 def active_scoped_range(
@@ -67,25 +59,7 @@ def active_scoped_range(
     from shared.enums import ResourceStatus
 
     if scope is None:
-        try:
-            current = resolve_current_credential(credential)
-        except Exception:
-            raise CMSError(_RANGE_UNAVAILABLE) from None
-        candidate = (
-            RangeInstance.objects.defer(*PRIVATE_RANGE_FIELDS)
-            .filter(owner_principal_uuid=current.principal.uuid, range_source=range_source)
-            .exclude(status=ResourceStatus.DESTROYING.value)
-            .order_by("-created_at")
-            .first()
-        )
-        if candidate is None:
-            return None
-        try:
-            return require_range_action(current, candidate.uuid, _RANGE_READ)
-        except CMSError as exc:
-            if exc.details and exc.details.get("code") == "authority-unavailable":
-                raise
-            return None
+        return _active_owned_range(credential, range_source)
     rows = list_scoped_ranges(credential, scope, range_source=range_source)
     return next((row for row in rows if row.status != ResourceStatus.DESTROYING.value), None)
 
@@ -150,3 +124,44 @@ def get_scoped_range_by_request(
         pause_supported=supported,
         resume_supported=supported,
     )
+
+
+def _active_owned_range(credential: CredentialContext, range_source: str) -> RangeInstance | None:
+    """Resolve the exact principal-owned candidate, then require the current leaf read."""
+    from shared.enums import ResourceStatus
+
+    try:
+        current = resolve_current_credential(credential)
+    except Exception:
+        raise CMSError(_RANGE_UNAVAILABLE) from None
+    candidate = (
+        RangeInstance.objects.defer(*PRIVATE_RANGE_FIELDS)
+        .filter(owner_principal_uuid=current.principal.uuid, range_source=range_source)
+        .exclude(status=ResourceStatus.DESTROYING.value)
+        .order_by("-created_at")
+        .first()
+    )
+    if candidate is None:
+        return None
+    try:
+        return require_range_action(current, candidate.uuid, _RANGE_READ)
+    except CMSError as exc:
+        if exc.details and exc.details.get("code") == "authority-unavailable":
+            raise
+        return None
+
+
+def authorized_range_rows(
+    current: CredentialContext, rows: Iterable[RangeInstance], *, include_terminal: bool
+) -> list[RangeInstance]:
+    """Filter each candidate by current native leaf policy; dependency failure never becomes an empty page."""
+    result = []
+    for row in rows:
+        try:
+            authorized = require_range_action(current, row.uuid, _RANGE_READ, include_terminal=include_terminal)
+        except CMSError as exc:
+            if exc.details and exc.details.get("code") == "authority-unavailable":
+                raise
+        else:
+            result.append(authorized)
+    return result

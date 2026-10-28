@@ -17,6 +17,8 @@ from shared.identity_scope import ResourceScope
 
 from ._common import EngineError
 
+_RANGE_UNAVAILABLE = "Range unavailable"
+
 
 @dataclass(frozen=True, slots=True)
 class RangeAuthorityProjection:
@@ -39,7 +41,7 @@ def native_range_id_by_request(request_uuid: UUID) -> int:
     try:
         return int(Range.objects.values_list("pk", flat=True).get(request__request_id=request_uuid))
     except (Range.DoesNotExist, Range.MultipleObjectsReturned):
-        raise EngineError("Range unavailable") from None
+        raise EngineError(_RANGE_UNAVAILABLE) from None
 
 
 def has_range_runtime(request_uuid: UUID, public_uuid: UUID) -> bool:
@@ -90,7 +92,7 @@ def project_range_authority(request_uuid: UUID) -> RangeAuthorityProjection:
             row.resource_generation,
         )
     except Exception:
-        raise EngineError("Range unavailable") from None
+        raise EngineError(_RANGE_UNAVAILABLE) from None
 
 
 def lock_range_remote_authority(range_uuid: UUID, member: str) -> RangeAuthorityProjection:
@@ -141,7 +143,7 @@ def require_native_range_action(credential: CredentialContext, request_uuid: UUI
             raise ValueError("Range projection changed")
         return row
     except Exception:
-        raise PermissionError("Range unavailable") from None
+        raise PermissionError(_RANGE_UNAVAILABLE) from None
 
 
 def authorized_instance_range(

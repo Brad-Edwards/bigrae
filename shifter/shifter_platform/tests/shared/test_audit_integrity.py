@@ -244,7 +244,7 @@ def test_audit_verify_command_fails_closed_on_tampering():
         call_command("audit_verify", stdout=StringIO(), stderr=StringIO())
 
 
-def test_archive_is_deterministic_and_never_deletes_uncheckpointed_rows(monkeypatch):
+def test_archive_is_deterministic_and_never_deletes_uncheckpointed_rows(monkeypatch, settings):
     row = _write(entity_id=10, context="retained evidence")
     s3_client = MagicMock()
     sts_client = MagicMock()
@@ -254,7 +254,7 @@ def test_archive_is_deterministic_and_never_deletes_uncheckpointed_rows(monkeypa
         return {"s3": s3_client, "sts": sts_client}[service_name]
 
     monkeypatch.setattr("boto3.client", _client)
-    monkeypatch.setattr("django.conf.settings.LOGS_BUCKET_NAME", "audit-bucket", raising=False)
+    settings.LOGS_BUCKET_NAME = "audit-bucket"
 
     call_command("audit_archive", retention_days=0, batch_size=1)
 

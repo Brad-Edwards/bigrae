@@ -1,6 +1,9 @@
 """Principal-aware business ownership changes preserve historical attribution."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
@@ -12,6 +15,9 @@ from shared.identity_scope import PrincipalRef
 from shared.principal_port import resolve_principal
 
 from ._range_authority import RangeAuthorityProjection, project_range_authority
+
+if TYPE_CHECKING:
+    from engine.models import Range
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,8 +90,7 @@ def commit_range_owner_move(prepared: PreparedRangeOwnerMove) -> bool:
     from engine.models import Range, Request
     from workspaces.services import resolve_range_scope_binding
 
-    from ._launch_authority import assert_admitted_launch_binding, range_runtime_binding_digest
-    from ._principal_range_scope import _assert_move_supported
+    from ._launch_authority import range_runtime_binding_digest
     from ._range_authority_history import record_range_authority_change
     from ._receipt import _revoke_receipt_verifier_for_range
 
@@ -101,18 +106,7 @@ def commit_range_owner_move(prepared: PreparedRangeOwnerMove) -> bool:
         if row.request_id is None:
             raise ValueError("Range request unavailable")
         request = Request.objects.select_for_update().get(pk=row.request_id)
-        assert_admitted_launch_binding(dict(prepared.authority), row)
-        if project_range_authority(prepared.source.request_uuid) != prepared.source or row.status != prepared.status:
-            raise ValueError("Range owner changed")
-        _assert_move_supported(
-            row,
-            allow_event=prepared.event_uuid is not None,
-            allow_principal_vpn=prepared.event_uuid is not None,
-        )
-        from ._range_by_request import principal_range_owner_reassignment_available
-
-        if not principal_range_owner_reassignment_available(row):
-            raise ValueError("Range owner changed")
+        _require_prepared_owner(prepared, row)
         owner = resolve_principal(prepared.new_owner)
         if owner.uuid == row.owner_principal_uuid:
             return False
@@ -148,3 +142,22 @@ def commit_range_owner_move(prepared: PreparedRangeOwnerMove) -> bool:
             strict=True,
         )
         return True
+
+
+def _require_prepared_owner(prepared: PreparedRangeOwnerMove, row: Range) -> None:
+    """Fence admitted custody and exact source state under the existing target/request locks."""
+    from ._launch_authority import assert_admitted_launch_binding
+    from ._principal_range_scope import _assert_move_supported
+
+    assert_admitted_launch_binding(dict(prepared.authority), row)
+    if project_range_authority(prepared.source.request_uuid) != prepared.source or row.status != prepared.status:
+        raise ValueError("Range owner changed")
+    _assert_move_supported(
+        row,
+        allow_event=prepared.event_uuid is not None,
+        allow_principal_vpn=prepared.event_uuid is not None,
+    )
+    from ._range_by_request import principal_range_owner_reassignment_available
+
+    if not principal_range_owner_reassignment_available(row):
+        raise ValueError("Range owner changed")

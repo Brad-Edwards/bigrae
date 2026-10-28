@@ -9,6 +9,7 @@ progress for the organizer UI. The work itself lives in
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Literal, overload
 from uuid import UUID
 
@@ -26,13 +27,17 @@ logger = logging.getLogger(__name__)
 @overload
 def request_event_provisioning(
     event_id: UUID, *, source: str = "manual", actor_id: object | None = None, defer_if_busy: Literal[False] = False
-) -> CTFScheduledTask: ...
+) -> CTFScheduledTask:
+    """Request event provisioning, optionally returning no task while another runs."""
+    ...
 
 
 @overload
 def request_event_provisioning(
     event_id: UUID, *, source: str = "manual", actor_id: object | None = None, defer_if_busy: bool
-) -> CTFScheduledTask | None: ...
+) -> CTFScheduledTask | None:
+    """Request event provisioning, optionally returning no task while another runs."""
+    ...
 
 
 def request_event_provisioning(
@@ -56,10 +61,9 @@ def request_event_provisioning(
     Args:
         event_id: UUID of the event.
         source: Audit hint recorded in task metadata (e.g. "manual").
-        actor_id: When an interactive caller (the organizer "provision all"
-            action) supplies it, the service asserts the ``ranges`` capability
-            under the event lock (defense in depth, #1922). System callers such
-            as the participant-account post-commit enqueue omit it.
+        actor_id: The initiating native actor or prepared event admission. Every
+            caller must supply current range-management authority; the event
+            lock fences that exact admission before any queue mutation.
 
     Returns:
         The active task, or None when participant admission defers a conflicting wave.
@@ -112,12 +116,7 @@ def request_event_provisioning(
             status=ScheduledTaskStatus.RUNNING.value,
         ).first()
         if running is not None:
-            if any(getattr(running, key) != value for key, value in authority_fields.items()):
-                if defer_if_busy:
-                    return None
-                raise ValueError("Range provisioning is already running under another credential")
-            logger.info("Coalescing provision request onto running task %s", running.pk)
-            return running
+            return _coalesce_provision_task(running, authority_fields, source, now, defer_if_busy)
 
         pending = (
             CTFScheduledTask.objects.filter(
@@ -129,20 +128,7 @@ def request_event_provisioning(
             .first()
         )
         if pending is not None:
-            if any(getattr(pending, key) != value for key, value in authority_fields.items()):
-                if defer_if_busy:
-                    return None
-                raise ValueError("Range provisioning is already queued under another credential")
-            if pending.scheduled_for > now:
-                pending.scheduled_for = now
-                pending.metadata = {**(pending.metadata or {}), "source": source}
-                pending.save(update_fields=["scheduled_for", "metadata", "updated_at"])
-                logger.info(
-                    "Pulled scheduled spin-up task %s forward for event %s", pending.pk, safe_log_value(event_id)
-                )
-            else:
-                logger.info("Coalescing provision request onto pending task %s", pending.pk)
-            return pending
+            return _coalesce_provision_task(pending, authority_fields, source, now, defer_if_busy)
 
         task = CTFScheduledTask.objects.create(
             event_id=event_id,
@@ -203,3 +189,24 @@ def get_provision_progress(event_id: UUID) -> dict[str, Any]:
         }
 
     return {"counts": counts, "task": task_block}
+
+
+def _coalesce_provision_task(
+    task: CTFScheduledTask, authority_fields: dict[str, object], source: str, now: datetime, defer_if_busy: bool
+) -> CTFScheduledTask | None:
+    """Reuse only the same native initiating proof and pull a pending task forward under its event lock."""
+    running = task.status == ScheduledTaskStatus.RUNNING.value
+    if any(getattr(task, key) != value for key, value in authority_fields.items()):
+        if defer_if_busy:
+            return None
+        state = "running" if running else "queued"
+        raise ValueError(f"Range provisioning is already {state} under another credential")
+    if not running and task.scheduled_for > now:
+        task.scheduled_for = now
+        task.metadata = {**(task.metadata or {}), "source": source}
+        task.save(update_fields=["scheduled_for", "metadata", "updated_at"])
+        logger.info("Pulled scheduled spin-up task %s forward for event %s", task.pk, safe_log_value(task.event_id))
+    else:
+        state = "running" if running else "pending"
+        logger.info("Coalescing provision request onto %s task %s", state, task.pk)
+    return task

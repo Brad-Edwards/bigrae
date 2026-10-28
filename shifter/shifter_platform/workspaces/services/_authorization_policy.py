@@ -21,6 +21,7 @@ from shared.authorization import (
     PolicyEffect,
     PolicyRelationshipChange,
     RelationshipState,
+    TargetRef,
 )
 from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.principal_port import PrincipalResolutionError, resolve_principal
@@ -68,6 +69,8 @@ from ._authorization_journal import (
     _reserve,
     _set_outcome,
 )
+
+_AUTHORIZATION_EVALUATOR_UNAVAILABLE = "Authorization evaluator unavailable"
 
 _RECONCILE_LEASE = timedelta(seconds=30)
 _RECOVERABLE_STATES = {AuthorizationOperation.State.REQUESTED, AuthorizationOperation.State.UNRESOLVED}
@@ -141,15 +144,7 @@ def check_authorization_delegation(requests: tuple[MutationRequest, ...], provid
             resolve_resource_scope(request.scope)
             _assert_request_provider(request, provider)
             resolve_principal(request.actor)
-            target = (
-                request.target
-                if isinstance(request, PolicyMutationRequest)
-                else (
-                    request.change.target
-                    if isinstance(request.change, AdministrativeRoleChange)
-                    else _scope_target(request.scope)
-                )
-            )
+            target = _delegation_target(request)
             _resolve_concrete_target(target, request.scope)
             effect_checks = (
                 _native_delegation_requests(request)
@@ -171,14 +166,15 @@ def check_authorization_delegation(requests: tuple[MutationRequest, ...], provid
 
 
 def _evaluate_delegation(checks: tuple[AuthorizationRequest, ...], provider: AuthorizationProvider) -> bool:
+    """Evaluate every required delegation check against the pinned provider."""
     if not checks:
         return False
     try:
         decisions = provider.batch_check(checks)
     except Exception:
-        raise AuthorizationProviderError("Authorization evaluator unavailable") from None
+        raise AuthorizationProviderError(_AUTHORIZATION_EVALUATOR_UNAVAILABLE) from None
     if len(decisions) != len(checks) or any(item.kind == DecisionKind.EVALUATOR_ERROR for item in decisions):
-        raise AuthorizationProviderError("Authorization evaluator unavailable")
+        raise AuthorizationProviderError(_AUTHORIZATION_EVALUATOR_UNAVAILABLE)
     return all(item.allowed for item in decisions)
 
 
@@ -252,16 +248,23 @@ def _confirm_admitted_mutation(
     else:
         _resolve_policy_change(request, admitted_subject=True)
     if operation.state in _RECOVERABLE_STATES or operation.state == AuthorizationOperation.State.CONFIRMED:
-        try:
-            observed = provider.read_relationships(_change_from_operation(operation))
-        except AuthorizationProviderError:
-            return None
-        if _matches(operation.effect, observed):
-            if operation.state != AuthorizationOperation.State.CONFIRMED:
-                operation = _set_outcome(operation, AuthorizationOperation.State.CONFIRMED, "admitted_primary_read")
-        else:
-            return None
-    return _operation_result(operation)
+        operation = _readback_admitted_mutation(operation, provider)
+    return _operation_result(operation) if operation is not None else None
+
+
+def _readback_admitted_mutation(
+    operation: AuthorizationOperation, provider: AuthorizationProvider
+) -> AuthorizationOperation | None:
+    """Read back exact retained intent without a provider write or a new admission."""
+    try:
+        observed = provider.read_relationships(_change_from_operation(operation))
+    except AuthorizationProviderError:
+        return None
+    if not _matches(operation.effect, observed):
+        return None
+    if operation.state != AuthorizationOperation.State.CONFIRMED:
+        operation = _set_outcome(operation, AuthorizationOperation.State.CONFIRMED, "admitted_primary_read")
+    return operation
 
 
 def confirm_admitted_native_mutation(
@@ -386,7 +389,7 @@ def authorize_operation_reconciliation(
         checks = _native_delegation_requests(native_request)
     decisions = provider.batch_check(checks)
     if len(decisions) != len(checks) or any(item.kind == DecisionKind.EVALUATOR_ERROR for item in decisions):
-        raise AuthorizationProviderError("Authorization evaluator unavailable")
+        raise AuthorizationProviderError(_AUTHORIZATION_EVALUATOR_UNAVAILABLE)
     if not checks or not all(item.allowed for item in decisions):
         raise AuthorizationMutationConflict("authorization recovery denied")
 
@@ -423,3 +426,12 @@ def _recover_leased_operation(
     if observed is None or not _matches(operation.effect, observed):
         return _clear_reconcile_lease(operation)
     return _set_outcome(operation, AuthorizationOperation.State.CONFIRMED, "reconciled_primary_read")
+
+
+def _delegation_target(request: MutationRequest) -> TargetRef:
+    """Resolve the exact target form carried by a policy or native relationship command."""
+    if isinstance(request, PolicyMutationRequest):
+        return request.target
+    if isinstance(request.change, AdministrativeRoleChange):
+        return request.change.target
+    return _scope_target(request.scope)

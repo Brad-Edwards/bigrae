@@ -15,7 +15,7 @@ introduced here.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from ctf.enums import SpareRangeStatus
@@ -23,6 +23,13 @@ from ctf.exceptions import CTFNotFoundError
 from ctf.models import CTFEvent, CTFSpareRange
 from ctf.services.audit import audit_spare_provisioning
 from shared.log_sanitize import safe_log_value
+
+if TYPE_CHECKING:
+    from ctf.models import CTFRangeLaunch
+    from ctf.services.actors import EventActionAdmission
+    from shared.credentials import CredentialContext
+
+_EVENT_MANAGE_RANGES = "event.manage_ranges"
 
 logger = logging.getLogger(__name__)
 
@@ -59,52 +66,31 @@ def _spare_draw_key(spare_id: UUID) -> UUID:
     return uuid5(_SPARE_DRAW_NAMESPACE, str(spare_id))
 
 
-def _reserve_spare_launch(event, event_admission, spare):
+def _reserve_spare_launch(
+    event: CTFEvent, event_admission: EventActionAdmission, spare: CTFSpareRange
+) -> CTFRangeLaunch | None:
     """Record a cancellable generation while the event and spare are locked."""
     from ctf.models import CTFRangeLaunch
-    from ctf.services.actors import event_actor_credential
-    from ctf.services.range.capacity import admit_range
-    from ctf.services.range.launch_intents import assert_launch_replay, launch_parameters, reserve_launch
-    from ctf.services.range.model_allocation import project_event_model_scope
-    from management.services import resolve_principal_uuid
-    from shared.model_access import OwnedReference
 
     if spare.status != SpareRangeStatus.PROVISIONING.value or spare.consumed_by_id is not None:
         return None
-    intent = CTFRangeLaunch.all_objects.filter(pk=spare.request_id).first()
+    intent = CTFRangeLaunch.all_objects.filter(pk=spare.request_id).first() if spare.request_id else None
     if intent is not None:
-        if intent.deleted_at is not None:
-            return None
-        assert_launch_replay(intent, event_actor_credential(event_admission), intent.parameters)
-        return intent
-    owner = resolve_principal_uuid(event.owner_principal_uuid)
-    subject = OwnedReference(owner="ctf", reference=f"draw:{spare.pk}")
-    draw_key = _spare_draw_key(spare.pk)
-    parameters = launch_parameters(
-        event, owner, subject, project_event_model_scope(event, draw_key, subject, spare_id=spare.pk)
-    )
-    admission = admit_range(event.pk, draw_key)
-    if admission is not None and admission["blocking"]:
-        spare.status = SpareRangeStatus.FAILED.value
-        spare.save(update_fields=["status", "updated_at"])
-        return None
-    intent = reserve_launch(event, "spare", spare.pk, event_admission, parameters)
-    spare.request_id = intent.pk
-    spare.save(update_fields=["request_id", "updated_at"])
-    return intent
+        return _replay_spare_launch(intent, event_admission)
+    return _reserve_new_spare_launch(event, event_admission, spare)
 
 
-def _provision_one_spare(event: CTFEvent, credential, spare: CTFSpareRange) -> CTFSpareRange:
+def _provision_one_spare(event: CTFEvent, credential: CredentialContext, spare: CTFSpareRange) -> CTFSpareRange:
     """Resume the spare's one reserved generation, retaining failures for retry."""
     from django.db import transaction
 
     from ctf.services.authorization import admit_event_actions, assert_event_action
     from ctf.services.range.launch_intents import execute_launch
 
-    event_admission = admit_event_actions(credential, event, "event.manage_ranges")
+    event_admission = admit_event_actions(credential, event, _EVENT_MANAGE_RANGES)
     with transaction.atomic():
         locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk)
-        assert_event_action(event_admission, locked_event, "event.manage_ranges")
+        assert_event_action(event_admission, locked_event, _EVENT_MANAGE_RANGES)
         spare = CTFSpareRange.objects.select_for_update().get(pk=spare.pk, event=locked_event)
         intent = _reserve_spare_launch(locked_event, event_admission, spare)
     if intent is None:
@@ -148,13 +134,13 @@ def provision_event_spares(event_id: UUID, target_count: int, *, operator: objec
     from ctf.services.authorization import admit_event_actions, assert_event_action
 
     credential = event_actor_credential(operator)
-    event_admission = admit_event_actions(credential, event, "event.manage_ranges")
+    event_admission = admit_event_actions(credential, event, _EVENT_MANAGE_RANGES)
     credential = event_actor_credential(event_admission)
     from django.db import transaction
 
     with transaction.atomic():
         event = CTFEvent.objects.select_for_update().get(pk=event.pk)
-        assert_event_action(event_admission, event, "event.manage_ranges")
+        assert_event_action(event_admission, event, _EVENT_MANAGE_RANGES)
         if event.status == "cancelled":
             from ctf.exceptions import CTFStateError
 
@@ -194,7 +180,7 @@ def provision_event_spares(event_id: UUID, target_count: int, *, operator: objec
 
     with transaction.atomic():
         locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk)
-        assert_event_action(event_admission, locked_event, "event.manage_ranges")
+        assert_event_action(event_admission, locked_event, _EVENT_MANAGE_RANGES)
         if locked_event.status == "cancelled" or locked_event.spare_range_count != target_count:
             raise ValueError("Spare target changed during admission")
         existing = CTFSpareRange.objects.filter(event=event, status__in=_ACTIVE_SPARE_STATUSES).count()
@@ -289,7 +275,7 @@ def cleanup_event_spares(event_id: UUID, *, actor: object) -> dict[str, Any]:
     from ctf.services.range.launch_intents import cancel_event_launches
 
     credential = event_actor_credential(actor)
-    assert_event_action(credential, event, "event.manage_ranges")
+    assert_event_action(credential, event, _EVENT_MANAGE_RANGES)
     intents = cancel_event_launches(event_id, actor, spares_only=True)
     destroyed, failed, _ = cleanup_cancelled_launches(event_id, credential, intents)
     unconsumed = (
@@ -337,3 +323,41 @@ def cleanup_event_spares(event_id: UUID, *, actor: object) -> dict[str, Any]:
         "destroyed": destroyed,
         "failed": failed,
     }
+
+
+def _replay_spare_launch(intent: CTFRangeLaunch, admission: EventActionAdmission) -> CTFRangeLaunch | None:
+    """A cancelled spare cannot replay; an admitted live generation keeps its original credential."""
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.range.launch_intents import assert_launch_replay
+
+    if intent.deleted_at is not None:
+        return None
+    assert_launch_replay(intent, event_actor_credential(admission), intent.parameters)
+    return intent
+
+
+def _reserve_new_spare_launch(
+    event: CTFEvent, event_admission: EventActionAdmission, spare: CTFSpareRange
+) -> CTFRangeLaunch | None:
+    """Commit one exact spare draw and generation while the caller holds event and spare locks."""
+    from ctf.services.range.capacity import admit_range
+    from ctf.services.range.launch_intents import launch_parameters, reserve_launch
+    from ctf.services.range.model_allocation import project_event_model_scope
+    from management.services import resolve_principal_uuid
+    from shared.model_access import OwnedReference
+
+    owner = resolve_principal_uuid(event.owner_principal_uuid)
+    subject = OwnedReference(owner="ctf", reference=f"draw:{spare.pk}")
+    draw_key = _spare_draw_key(spare.pk)
+    parameters = launch_parameters(
+        event, owner, subject, project_event_model_scope(event, draw_key, subject, spare_id=spare.pk)
+    )
+    admission = admit_range(event.pk, draw_key)
+    if admission is not None and admission["blocking"]:
+        spare.status = SpareRangeStatus.FAILED.value
+        spare.save(update_fields=["status", "updated_at"])
+        return None
+    intent = reserve_launch(event, "spare", spare.pk, event_admission, parameters)
+    spare.request_id = intent.pk
+    spare.save(update_fields=["request_id", "updated_at"])
+    return intent

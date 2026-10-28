@@ -158,6 +158,41 @@ def test_prepared_dispatch_locks_ancestry_only_inside_its_real_transaction(defer
     assert ProvisionerLaunchIntent.objects.get().credential_uuid == case.credential.credential_uuid
 
 
+@pytest.mark.postgres
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("deferred_creation", ["human"], indirect=True)
+@pytest.mark.parametrize("replay", [False, True])
+def test_prepared_dispatch_locks_actual_ancestry_before_native_range(deferred_creation, replay):
+    """Observe public dispatch SQL directly, without a fixture prelocking ancestry."""
+    from django.db import connection
+
+    from engine.models import ProvisionerLaunchIntent, Range
+    from engine.services import dispatch_created_raes_range, prepare_raes_range_creation
+
+    case = deferred_creation
+    prepared = prepare_raes_range_creation(case.bindings, None, case.instance.user_id, case.plan)
+    if replay:
+        dispatch_created_raes_range(case.request_uuid, credential=case.credential, prepared_creation=prepared)
+    assert not connection.in_atomic_block
+    locks = []
+
+    def observe(execute, sql, params, many, context):
+        if "FOR UPDATE" in sql.upper():
+            if 'FROM "workspaces_account"' in sql:
+                locks.append("account")
+            if f'FROM "{Range._meta.db_table}"' in sql:
+                locks.append("range")
+        return execute(sql, params, many, context)
+
+    with connection.execute_wrapper(observe):
+        assert dispatch_created_raes_range(
+            case.request_uuid, credential=case.credential, prepared_creation=prepared
+        ).accepted
+    assert "account" in locks and "range" in locks, locks
+    assert locks.index("account") < locks.index("range"), locks
+    assert ProvisionerLaunchIntent.objects.count() == 1
+
+
 def test_first_dispatch_cannot_commit_a_proof_revoked_after_live_admission(deferred_creation, monkeypatch):
     from engine.models import ProvisionerLaunchIntent
     from engine.services import _launch_authority, dispatch_created_raes_range

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from engine.models import Range
+    from engine.models import ProvisionerLaunchIntent, Range, RangeAuthorityChange
 from uuid import UUID
 
 from django.db import transaction
@@ -96,17 +97,9 @@ def _commit_destroy(prepared: PreparedRangeLifecycle, *, _verification_retry: bo
     with transaction.atomic():
         row = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=prepared.native_id)
         assert_admitted_launch_binding(fields, row)
-        if row.request is None or row.request.request_id != prepared.request_id or row.status != prepared.status:
-            raise ValueError("Range operation changed")
-        if row.status == "destroyed":
-            if not _verification_retry or fields.get("authority_kind") != "cleanup":
-                return False
-            # The owning retry helper holds the current target/intent locks and
-            # has proved a terminal, unverified cleanup. Keep resource custody;
-            # reserve a fresh operation/input rather than rewriting old results.
-            row.provisioner_operation = ""
-            row.provisioner_operation_id = None
-            row.save(update_fields=["provisioner_operation", "provisioner_operation_id"])
+        _require_prepared_lifecycle_row(row, prepared)
+        if row.status == "destroyed" and not _reset_unverified_destroy(row, fields, _verification_retry):
+            return False
         if row.status in {"pending", "provisioning"} and not (
             _is_undispatched_cleanup(row, fields) or _is_quiescent_warm_claim_cleanup(row, fields)
         ):
@@ -144,10 +137,28 @@ def _commit_destroy(prepared: PreparedRangeLifecycle, *, _verification_retry: bo
         return True
 
 
+def _require_prepared_lifecycle_row(row: Range, prepared: PreparedRangeLifecycle) -> None:
+    """Require the exact admitted request and state under the runtime row lock."""
+    if row.request is None or row.request.request_id != prepared.request_id or row.status != prepared.status:
+        raise ValueError("Range operation changed")
+
+
+def _reset_unverified_destroy(row: Range, fields: Mapping[str, object], verification_retry: bool) -> bool:
+    """Reserve fresh cleanup only after its owner proves terminal but unverified absence."""
+    if not verification_retry or fields.get("authority_kind") != "cleanup":
+        return False
+    # The retry owner retains target/intent locks and exact resource custody.
+    # A fresh operation preserves the immutable prior input and observation.
+    row.provisioner_operation = ""
+    row.provisioner_operation_id = None
+    row.save(update_fields=["provisioner_operation", "provisioner_operation_id"])
+    return True
+
+
 def prepare_system_range_cleanup(request_id: UUID) -> PreparedRangeLifecycle:
     """Derive bounded teardown from an existing admitted generation, never an absent actor."""
     from engine.ecs._config import _get_engine_task_config
-    from engine.models import InterruptState, Range
+    from engine.models import Range
     from shared.operation_authority import credential_reference_from_record
 
     from ._launch_cleanup_authority import prepare_cleanup_authority
@@ -163,15 +174,7 @@ def prepare_system_range_cleanup(request_id: UUID) -> PreparedRangeLifecycle:
     payload = {"version": 1, "resource": resource, "operation": "destroy", "request_id": str(request_id)}
     fields = prepare_cleanup_authority(payload, origin.operation_id)
     operation = "destroy"
-    if (
-        row.status in {"pending", "provisioning"}
-        and not (_is_undispatched_cleanup(row, fields) or _is_quiescent_warm_claim_cleanup(row, fields))
-    ) or (
-        row.status == "destroying"
-        and row.provisioner_operation_id == origin.operation_id
-        and origin.payload.get("operation") == "provision"
-        and getattr(origin, "interrupt_state", InterruptState.NONE) != InterruptState.NONE
-    ):
+    if _cleanup_needs_cancellation(row, fields, origin):
         if resource != "raes-range":
             raise ValueError("Provision generation cannot be safely interrupted")
         operation = "cancel"
@@ -180,7 +183,33 @@ def prepare_system_range_cleanup(request_id: UUID) -> PreparedRangeLifecycle:
     )
 
 
-def _is_quiescent_warm_claim_cleanup(row, fields) -> bool:
+def _cleanup_needs_cancellation(
+    row: Range, fields: Mapping[str, object], origin: ProvisionerLaunchIntent | RangeAuthorityChange
+) -> bool:
+    """Distinguish a live provisioner from a safely quiescent retained generation."""
+    from engine.models import InterruptState
+
+    if row.status in {"pending", "provisioning"}:
+        return not (_is_undispatched_cleanup(row, fields) or _is_quiescent_warm_claim_cleanup(row, fields))
+    return (
+        row.status == "destroying"
+        and row.provisioner_operation_id == origin.operation_id
+        and origin.payload.get("operation") == "provision"
+        and getattr(origin, "interrupt_state", InterruptState.NONE) != InterruptState.NONE
+    )
+
+
+def _cleanup_origin_for_fields(
+    fields: Mapping[str, object],
+) -> ProvisionerLaunchIntent | RangeAuthorityChange | None:
+    """Resolve only a native UUID retained in server-created cleanup fields."""
+    from ._range_authority_history import cleanup_origin_record
+
+    identifier = fields.get("cleanup_origin_operation_uuid")
+    return cleanup_origin_record(identifier if isinstance(identifier, UUID) else None)
+
+
+def _is_quiescent_warm_claim_cleanup(row: Range, fields: Mapping[str, object]) -> bool:
     """A claim crash before activation has only a completed quarantine producer."""
     from engine.models import (
         OperationResultDisposition,
@@ -191,12 +220,11 @@ def _is_quiescent_warm_claim_cleanup(row, fields) -> bool:
     )
     from shared.operation_results import ResultStep
 
-    from ._range_authority_history import cleanup_origin_record
-
-    origin = cleanup_origin_record(fields.get("cleanup_origin_operation_uuid"))
+    origin = _cleanup_origin_for_fields(fields)
     if (
         fields.get("authority_kind") != "cleanup"
         or row.request is None
+        or row.provisioner_operation_id is None
         or not isinstance(origin, RangeAuthorityChange)
         or origin.operation != "scope"
         or origin.range_id != row.pk
@@ -229,13 +257,11 @@ def _is_quiescent_warm_claim_cleanup(row, fields) -> bool:
     )
 
 
-def _is_undispatched_cleanup(row, fields) -> bool:
+def _is_undispatched_cleanup(row: Range, fields: Mapping[str, object]) -> bool:
     """Only a retained creation receipt can clean a generation never queued."""
     from engine.models import RangeAuthorityChange
 
-    from ._range_authority_history import cleanup_origin_record
-
-    origin = cleanup_origin_record(fields.get("cleanup_origin_operation_uuid"))
+    origin = _cleanup_origin_for_fields(fields)
     return bool(
         fields.get("authority_kind") == "cleanup"
         and row.provisioner_operation_id is None
@@ -267,8 +293,7 @@ def _commit_pause_resume(prepared: PreparedRangeLifecycle) -> bool:
     with transaction.atomic():
         row = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=prepared.native_id)
         assert_admitted_launch_binding(fields, row)
-        if row.request is None or row.request.request_id != prepared.request_id or row.status != prepared.status:
-            raise ValueError("Range operation changed")
+        _require_prepared_lifecycle_row(row, prepared)
         if row.status in {target, settled}:
             return True
         if row.status != required:

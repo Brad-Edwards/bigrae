@@ -37,12 +37,12 @@ class HasMissionControlActor(permissions.BasePermission):
 class HasMissionControlActionCeiling(permissions.BasePermission):
     """Reject missing action ceilings before validating or enumerating resources."""
 
-    def has_permission(self, request, view) -> bool:
+    def has_permission(self, request: Request, view: APIView) -> bool:
         try:
             credential = resolve_current_credential(authenticated_credential(request))
         except ValueError:
             return False
-        return bool(credential.ceiling.actions.intersection(view.required_actions))
+        return bool(credential.ceiling.actions.intersection(getattr(view, "required_actions", ())))
 
 
 def block_participant_lifecycle_permission(verb: str) -> type[permissions.BasePermission]:

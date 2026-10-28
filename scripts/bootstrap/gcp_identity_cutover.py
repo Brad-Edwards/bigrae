@@ -45,6 +45,7 @@ class CutoverRun:
 
 
 def _unique_fields(items: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject duplicate JSON fields before retaining explicit operator facts."""
     result: dict[str, object] = {}
     for key, value in items:
         if key in result:
@@ -54,6 +55,7 @@ def _unique_fields(items: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _read_facts(path: Path) -> dict[str, object]:
+    """Read bounded private JSON from a regular file without following symlinks."""
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(descriptor, "rb") as handle:
@@ -64,7 +66,7 @@ def _read_facts(path: Path) -> dict[str, object]:
         if not payload or len(payload) > _MAX_FACTS_BYTES:
             raise IdentityCutoverError("Identity facts exceed the bounded input size")
         document = json.loads(payload, object_pairs_hook=_unique_fields)
-    except (OSError, UnicodeError, ValueError):
+    except (OSError, ValueError):
         raise IdentityCutoverError("Identity facts could not be read as private JSON documents") from None
     if not isinstance(document, dict):
         raise IdentityCutoverError("Identity facts must be JSON objects")
@@ -81,11 +83,13 @@ def validate_fact_paths(cutover: str | Path | None, bootstrap: str | Path | None
 
 
 def _apply(runner: ProcessRunner, document: object) -> None:
+    """Apply documents through sensitive stdin, keeping their contents off argv."""
     payload = document if isinstance(document, str) else yaml.safe_dump(document, sort_keys=False)
     runner.run(["kubectl", "apply", "-f", "-"], input_text=payload, sensitive=True)
 
 
 def _delete(runner: ProcessRunner, resource: str, *names: str) -> None:
+    """Wait for foreground deletion before retiring dependent private bindings."""
     runner.run(
         [
             "kubectl",
@@ -104,6 +108,7 @@ def _delete(runner: ProcessRunner, resource: str, *names: str) -> None:
 
 
 def _run_job(runner: ProcessRunner, job: Mapping[str, object], *, timeout: str) -> str:
+    """Read a completed bounded Job and remove it after success or failure."""
     name = str(job["metadata"]["name"])
     try:
         _apply(runner, job)
@@ -117,6 +122,7 @@ def _run_job(runner: ProcessRunner, job: Mapping[str, object], *, timeout: str) 
 
 
 def _probe_state(runner: ProcessRunner, manifest: str) -> str:
+    """Require one recognized status marker from the completed native probe."""
     job = render(manifest, job_name=f"identity-cutover-status-{uuid4().hex[:12]}", status_only=True)
     output = _run_job(runner, job, timeout="5m")
     results = [line[len(_RESULT_PREFIX) :] for line in output.splitlines() if line.startswith(_RESULT_PREFIX)]
@@ -132,6 +138,7 @@ def _probe_state(runner: ProcessRunner, manifest: str) -> str:
 
 
 def _mount_facts(runner: ProcessRunner, cutover: Path, bootstrap: Path) -> None:
+    """Transfer only validated private facts into the exact ceremony Secrets."""
     for name, key, path in zip(_FACT_SECRETS, ("cutover.json", "bootstrap.json"), (cutover, bootstrap), strict=True):
         _apply(
             runner,

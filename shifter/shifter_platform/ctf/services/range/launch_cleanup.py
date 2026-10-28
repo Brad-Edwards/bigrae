@@ -1,16 +1,28 @@
 """Clean cancelled launch generations even before their subject pointer exists."""
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.db.models import Q
 
 from ctf.models import CTFEvent, CTFParticipant, CTFRangeLaunch, CTFRangeRecovery, CTFSpareRange
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from uuid import UUID
+
+    from ctf.services.actors import EventActionAdmission
+    from shared.credentials import CredentialContext
+
 logger = logging.getLogger(__name__)
 
 
-def cleanup_cancelled_launches(event_id, actor, intents):
+def cleanup_cancelled_launches(
+    event_id: UUID, actor: CredentialContext, intents: Iterable[CTFRangeLaunch]
+) -> tuple[int, int, set[int]]:
     """Return accepted CMS cleanup requests, failures and already-covered IDs."""
     from ctf.bridges import cms_destroy_recovery_range, cms_find_range_instance_id
     from ctf.services.authorization import admit_event_actions
@@ -40,7 +52,13 @@ def cleanup_cancelled_launches(event_id, actor, intents):
     return dispatched, failed, covered
 
 
-def _release_absent_claim(admission, intent, instance_id, *, action="event.manage_ranges"):
+def _release_absent_claim(
+    admission: EventActionAdmission,
+    intent: CTFRangeLaunch,
+    instance_id: int | None,
+    *,
+    action: str = "event.manage_ranges",
+) -> None:
     """The cancelled journal prevents creation; release only its current claim."""
     from ctf.services.authorization import assert_event_action
     from ctf.services.range.capacity import release_range
@@ -101,7 +119,9 @@ def _release_absent_claim(admission, intent, instance_id, *, action="event.manag
                 release_range(subject.pk, strict=True)
 
 
-def event_deletion_targets(event, actor, cancelled_intents):
+def event_deletion_targets(
+    event: CTFEvent, actor: object, cancelled_intents: Iterable[CTFRangeLaunch]
+) -> list[tuple[int | None, UUID | None]]:
     """Settle fenced absent requests and retain every realized cleanup target."""
     from ctf.bridges import cms_find_range_instance_id
     from ctf.services.authorization import admit_event_actions
@@ -122,13 +142,15 @@ def event_deletion_targets(event, actor, cancelled_intents):
             "request_id", flat=True
         )
     )
+    range_ids = {value for value in ranges if value is not None}
+    request_ids = {value for value in requests if value is not None}
     cancelled = {intent.pk: intent for intent in cancelled_intents}
-    requests.update(cancelled)
+    request_ids.update(cancelled)
     unresolved = set()
-    for request_id in requests:
+    for request_id in request_ids:
         instance_id = cms_find_range_instance_id(request_id)
         if instance_id is not None:
-            ranges.add(instance_id)
+            range_ids.add(instance_id)
         elif request_id in cancelled:
             # The event lock fenced creation before absence was observed.
             _release_absent_claim(admission, cancelled[request_id], None, action="event.delete")
@@ -136,6 +158,6 @@ def event_deletion_targets(event, actor, cancelled_intents):
             # No durable cancellation fence: the owning service must refuse or
             # retain cleanup. Absence alone cannot justify releasing the claim.
             unresolved.add(request_id)
-    return [(instance_id, None) for instance_id in sorted(ranges)] + [
-        (None, request_id) for request_id in sorted(unresolved)
-    ]
+    targets: list[tuple[int | None, UUID | None]] = [(instance_id, None) for instance_id in sorted(range_ids)]
+    targets.extend((None, request_id) for request_id in sorted(unresolved))
+    return targets

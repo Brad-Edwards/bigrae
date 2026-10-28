@@ -40,6 +40,8 @@ from shared.audit import retained_audit_event_count
 from shared.model_access.messages import ContractError, strict_json
 from workspaces.services import identity_cutover_disposition, plan_identity_cutover_accounts
 
+_FACTS_DOCUMENT_IS_INVALID = "facts document is invalid"
+
 _MAX_FACTS_BYTES = 65_536
 
 
@@ -59,6 +61,7 @@ class IdentityCutoverFacts(BaseModel):
 
     schema_version: Literal["shifter.identity-cutover-facts/v1"] = Field(alias="schema")
     account_types_by_organization: dict[UUID, Literal["team", "enterprise"]]
+    bootstrap_personal_token_eligibility: bool = Field(default=False, strict=True)
     owner_user_ids_by_workspace: dict[int, set[int]]
     provider_bindings_by_user: dict[int, ProviderIdentityFact] = Field(default_factory=dict)
 
@@ -82,18 +85,8 @@ def load_identity_cutover_facts(path_value: str) -> IdentityCutoverFacts:
         payload = strict_json(path.read_bytes(), limit=_MAX_FACTS_BYTES)
         facts = IdentityCutoverFacts.model_validate(payload)
     except (OSError, ValueError, ValidationError, ContractError) as exc:
-        raise ValueError("facts document is invalid") from exc
-    if any(workspace_id <= 0 for workspace_id in facts.owner_user_ids_by_workspace):
-        raise ValueError("facts document is invalid")
-    if any(user_id <= 0 for values in facts.owner_user_ids_by_workspace.values() for user_id in values):
-        raise ValueError("facts document is invalid")
-    if any(user_id <= 0 for user_id in facts.provider_bindings_by_user):
-        raise ValueError("facts document is invalid")
-    if any(
-        item.issuer != item.issuer.strip() or item.subject != item.subject.strip()
-        for item in facts.provider_bindings_by_user.values()
-    ):
-        raise ValueError("facts document is invalid")
+        raise ValueError(_FACTS_DOCUMENT_IS_INVALID) from exc
+    _validate_cutover_identifiers(facts)
     return facts
 
 
@@ -162,6 +155,7 @@ def build_identity_cutover_plan(facts: IdentityCutoverFacts) -> dict[str, object
         raise ValueError("Cutover account plan is invalid")
     payload: dict[str, object] = {
         "schema": "shifter.identity-cutover-plan/v1",
+        "bootstrap_personal_token_eligibility": facts.bootstrap_personal_token_eligibility,
         "individuals": account_plan["individuals"],
         "organizations": account_plan["organizations"],
         "memberships": account_plan["memberships"],
@@ -171,3 +165,18 @@ def build_identity_cutover_plan(facts: IdentityCutoverFacts) -> dict[str, object
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
     payload["plan_digest"] = hashlib.sha256(canonical).hexdigest()
     return payload
+
+
+def _validate_cutover_identifiers(facts: IdentityCutoverFacts) -> None:
+    """Reject invalid local IDs or whitespace-altered provider identities."""
+    if any(workspace_id <= 0 for workspace_id in facts.owner_user_ids_by_workspace):
+        raise ValueError(_FACTS_DOCUMENT_IS_INVALID)
+    if any(user_id <= 0 for values in facts.owner_user_ids_by_workspace.values() for user_id in values):
+        raise ValueError(_FACTS_DOCUMENT_IS_INVALID)
+    if any(user_id <= 0 for user_id in facts.provider_bindings_by_user):
+        raise ValueError(_FACTS_DOCUMENT_IS_INVALID)
+    if any(
+        item.issuer != item.issuer.strip() or item.subject != item.subject.strip()
+        for item in facts.provider_bindings_by_user.values()
+    ):
+        raise ValueError(_FACTS_DOCUMENT_IS_INVALID)

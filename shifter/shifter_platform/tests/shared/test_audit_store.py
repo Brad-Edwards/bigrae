@@ -321,7 +321,7 @@ def test_audit_archive_command_remains_available(capsys):
 
 
 @pytest.mark.parametrize("no_delete", [False, True])
-def test_audit_archive_uploads_each_row_once(monkeypatch, no_delete):
+def test_audit_archive_uploads_each_row_once(monkeypatch, no_delete, settings):
     row = _create_audit_log(
         entity_type=AuditEntityType.RANGE,
         entity_id=9,
@@ -338,7 +338,7 @@ def test_audit_archive_uploads_each_row_once(monkeypatch, no_delete):
         return {"s3": s3_client, "sts": sts_client}[service_name]
 
     monkeypatch.setattr("boto3.client", _client)
-    monkeypatch.setattr("django.conf.settings.LOGS_BUCKET_NAME", "audit-bucket", raising=False)
+    settings.LOGS_BUCKET_NAME = "audit-bucket"
 
     call_command(
         "audit_archive",

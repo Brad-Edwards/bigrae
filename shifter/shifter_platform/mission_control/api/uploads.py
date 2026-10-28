@@ -6,6 +6,7 @@ import logging
 import os
 from typing import Any
 
+from django.contrib.sessions.backends.base import SessionBase
 from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
@@ -37,7 +38,7 @@ from shared.log_sanitize import safe_log_value
 logger = logging.getLogger(__name__)
 
 
-def _upload_session(request):
+def _upload_session(request: Request) -> SessionBase | dict[str, Any]:
     """Browser presentation state never supplies token/service authority."""
     from shared.api.principals import authenticated_credential
 

@@ -50,8 +50,8 @@ export function EventStaffCard({ eventId, canManage = true }: Readonly<{ eventId
           </p>
         </div>
         {pending ? (
-          <div role="status" className="space-y-2 rounded border border-border p-3 text-sm">
-            <p>A staff change for <span className="font-mono">{pending.target_principal_uuid}</span> is awaiting confirmation.</p>
+          <div className="space-y-2 rounded border border-border p-3 text-sm">
+            <output>A staff change for <span className="font-mono">{pending.target_principal_uuid}</span> is awaiting confirmation.</output>
             <p className="text-xs text-muted-foreground">Retry the recorded change before starting another staff update.</p>
             <Button type="button" disabled={changing} onClick={() => {
               if (pending.kind === "transfer") transfer.mutate(pending.target_principal_uuid);

@@ -17,6 +17,10 @@ from collections.abc import Iterable
 
 from shared.authorization import ACTION_CATALOG, CredentialCeiling, TargetRef
 
+_EVENT_MANAGE_COMMUNICATIONS = "event.manage_communications"
+_EVENT_PARTICIPATE = "event.participate"
+_RANGE_ACCESS = "range.access"
+
 # --- Mission Control API (PLAT-106 / issue #1120) -----------------------------
 # Wired by subsurface instead of overloading a single coarse Mission Control
 # token audience.
@@ -161,7 +165,7 @@ _CTF_EVENT_WRITE_ACTIONS = frozenset(
         "event.manage_submissions",
         "event.manage_content",
         "event.manage_lifecycle",
-        "event.manage_communications",
+        _EVENT_MANAGE_COMMUNICATIONS,
         "event.delete",
         "event.manage_staff",
         "event.transfer_ownership",
@@ -177,12 +181,12 @@ def credential_ceiling(scopes: Iterable[str], *, target: TargetRef | None = None
     legacy_by_scope = {
         CTF_EVENT_READ: frozenset({"event.read"}),
         CTF_EVENT_WRITE: _CTF_EVENT_WRITE_ACTIONS,
-        CTF_PLAY_READ: frozenset({"event.participate", "range.access"}),
-        CTF_PLAY_WRITE: frozenset({"event.participate"}),
-        CTF_COMMUNICATION_READ: frozenset({"event.manage_communications"}),
-        CTF_COMMUNICATION_WRITE: frozenset({"event.manage_communications"}),
-        CTF_VPN_PROFILE_READ: frozenset({"event.participate", "range.access"}),
-        MISSION_CONTROL_VPN_PROFILE_READ: frozenset({"range.access"}),
+        CTF_PLAY_READ: frozenset({_EVENT_PARTICIPATE, _RANGE_ACCESS}),
+        CTF_PLAY_WRITE: frozenset({_EVENT_PARTICIPATE}),
+        CTF_COMMUNICATION_READ: frozenset({_EVENT_MANAGE_COMMUNICATIONS}),
+        CTF_COMMUNICATION_WRITE: frozenset({_EVENT_MANAGE_COMMUNICATIONS}),
+        CTF_VPN_PROFILE_READ: frozenset({_EVENT_PARTICIPATE, _RANGE_ACCESS}),
+        MISSION_CONTROL_VPN_PROFILE_READ: frozenset({_RANGE_ACCESS}),
     }
     for scope in scopes:
         action = authorization_by_scope.get(scope)

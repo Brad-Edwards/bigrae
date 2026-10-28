@@ -29,6 +29,7 @@ from cms.models import (
     TenantPackArchive,
     TenantPackRemoval,
 )
+from engine.services import RuntimePluginBindingRemovalAdmission
 from shared.audit import (
     AuditAction,
     AuditActorType,
@@ -118,7 +119,11 @@ def request_tenant_pack_removal(
 
 
 def _commit_removal(
-    admitted: TenantPackAdmission, pack_id: str, expected_digest: str, attribution: RequestAudit, binding_admission
+    admitted: TenantPackAdmission,
+    pack_id: str,
+    expected_digest: str,
+    attribution: RequestAudit,
+    binding_admission: RuntimePluginBindingRemovalAdmission,
 ) -> UUID:
     """Fence, guard, capture and delete catalog state; return the removal id."""
     from engine.services import remove_runtime_plugin_pack_binding

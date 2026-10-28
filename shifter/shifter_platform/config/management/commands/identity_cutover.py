@@ -12,6 +12,7 @@ from django.db import transaction
 from cms.services import (
     apply_identity_cutover_resources as apply_cms_cutover_resources,
 )
+from config.identity_bootstrap import verify_bootstrap_grants
 from config.identity_cutover import (
     IdentityCutoverFacts,
     build_identity_cutover_plan,
@@ -34,7 +35,7 @@ from management.services import (
     identity_cutover_principals,
     invalidate_pre_cutover_admission,
 )
-from shared.authorization import CutoverRelationshipChange
+from shared.authorization import AuthorizationProvider, CutoverRelationshipChange
 from workspaces.services import (
     IdentityCutoverConflict,
     IdentityCutoverStateView,
@@ -68,15 +69,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options) -> None:
         phase = options["phase"]
         if phase == "status":
-            state = get_identity_cutover_state(allow_missing_schema=options["probe"])
-            result = {"state": "absent"} if state is None else _state_result(state)
-            if options["probe"] and result["state"] == "activated":
-                from config.identity_runtime import IdentityRuntimeNotReady, require_identity_runtime_ready
-
-                try:
-                    require_identity_runtime_ready()
-                except IdentityRuntimeNotReady:
-                    raise CommandError("Identity runtime is unavailable") from None
+            result = _status_result(options["probe"])
             self.stdout.write(json.dumps(result, sort_keys=True, separators=(",", ":"), default=str))
             return
         if not options["facts"]:
@@ -89,19 +82,12 @@ class Command(BaseCommand):
         if phase == "plan":
             result = payload
         else:
-            supplied_digest = options["plan_digest"]
-            if supplied_digest != payload["plan_digest"]:
-                existing = get_identity_cutover_state(plan_digest=supplied_digest)
-                if existing is None or not isinstance(existing.plan_payload, dict):
-                    raise CommandError("cutover plan digest does not match")
-                payload = existing.plan_payload
-            if payload["blockers"]:
-                raise CommandError("cutover plan contains blockers")
+            payload = _accepted_plan(payload, options["plan_digest"])
             result = self._apply(payload, facts) if phase == "apply" else self._verify(payload)
         self.stdout.write(json.dumps(result, sort_keys=True, separators=(",", ":"), default=str))
 
     @staticmethod
-    def _apply(plan: dict[str, object], facts) -> dict[str, object]:
+    def _apply(plan: dict[str, object], facts: IdentityCutoverFacts) -> dict[str, object]:
         """Commit SQL and durable policy intent before replaying provider writes."""
         with transaction.atomic():
             try:
@@ -126,16 +112,7 @@ class Command(BaseCommand):
             provider = configured_authorization_provider()
             state = _bind_provider(state.plan_digest, provider)
             for item in state.relationship_intent:
-                change = _relationship_change(item)
-                try:
-                    provider.write_relationships(change)
-                except Exception:
-                    try:
-                        recovered = provider.read_relationships(change).grant_present
-                    except Exception as exc:
-                        raise CommandError("cutover policy write is unresolved") from exc
-                    if not recovered:
-                        raise CommandError("cutover policy write is unresolved") from None
+                _write_relationship(provider, _relationship_change(item))
         return _state_result(state)
 
     @staticmethod
@@ -148,36 +125,14 @@ class Command(BaseCommand):
         if state.plan_digest != plan["plan_digest"] or state.state not in {"policy_pending", "activated"}:
             raise CommandError("cutover state is not verifiable")
         state = _bind_provider(state.plan_digest, provider)
-        for item in state.relationship_intent:
-            try:
-                present = provider.read_relationships(_relationship_change(item)).grant_present
-            except Exception as exc:
-                raise CommandError("cutover policy verification is unavailable") from exc
-            if not present:
-                raise CommandError("cutover policy verification does not match intent")
+        _verify_relationships(provider, state)
         confirm_identity_cutover_publication(provider.store_id, provider.model_id)
         if _digest(state.relationship_intent) != state.tuple_digest:
             raise CommandError("cutover relationship digest does not match")
         if state.bootstrap_principal_uuid is None or state.bootstrap_verified_at is None:
             raise CommandError("cutover administrator bootstrap is incomplete")
-        with transaction.atomic():
-            state = get_identity_cutover_state(plan_digest=state.plan_digest)
-            if state is None:
-                raise CommandError("cutover state changed during verification")
-            if state.state == "activated":
-                return _state_result(state)
-            if state.state != "policy_pending":
-                raise CommandError("cutover state changed during verification")
-            try:
-                verify_identity_cutover_hierarchy(plan)
-            except IdentityCutoverConflict as exc:
-                raise CommandError("cutover hierarchy verification failed") from exc
-            invalidate_pre_cutover_admission()
-            try:
-                state = activate_identity_cutover(state.plan_digest)
-            except IdentityCutoverConflict as exc:
-                raise CommandError(str(exc)) from exc
-        return _state_result(state)
+        verify_bootstrap_grants(provider, state.bootstrap_principal_uuid, state.plan_payload)
+        return _activate_verified_plan(plan, state)
 
 
 def _state_result(state: IdentityCutoverStateView) -> dict[str, object]:
@@ -215,11 +170,12 @@ def _apply_retained_resource_mapping(plan: Mapping[str, object]) -> None:
 
 
 def _digest(intent: object) -> str:
+    """Hash the canonical relationship intent for publication verification."""
     encoded = json.dumps(intent, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _bind_provider(plan_digest: str, provider: object):
+def _bind_provider(plan_digest: str, provider: object) -> IdentityCutoverStateView:
     """Bind pending work to one exact store/model pair."""
     store_id = str(getattr(provider, "store_id", ""))
     model_id = str(getattr(provider, "model_id", ""))
@@ -242,9 +198,82 @@ def _relationship_intent(plan: Mapping[str, object]) -> list[dict[str, str]]:
 
 
 def _relationship_change(item: object) -> CutoverRelationshipChange:
+    """Decode one closed relationship entry from the retained cutover intent."""
     if not isinstance(item, Mapping):
         raise CommandError("cutover relationship intent is invalid")
     try:
         return CutoverRelationshipChange(str(item["user"]), str(item["relation"]), str(item["object"]))
     except (KeyError, ValueError, TypeError) as exc:
         raise CommandError("cutover relationship intent is invalid") from exc
+
+
+def _status_result(probe: bool) -> dict[str, object]:
+    """Report persisted state and optionally require the activated runtime probe."""
+    state = get_identity_cutover_state(allow_missing_schema=probe)
+    result: dict[str, object] = {"state": "absent"} if state is None else _state_result(state)
+    if probe and result["state"] == "activated":
+        from config.identity_runtime import IdentityRuntimeNotReady, require_identity_runtime_ready
+
+        try:
+            require_identity_runtime_ready()
+        except IdentityRuntimeNotReady:
+            raise CommandError("Identity runtime is unavailable") from None
+    return result
+
+
+def _accepted_plan(payload: dict[str, object], supplied_digest: str) -> dict[str, object]:
+    """Select only the supplied retained plan and reject unresolved blockers."""
+    if supplied_digest != payload["plan_digest"]:
+        existing = get_identity_cutover_state(plan_digest=supplied_digest)
+        if existing is None or not isinstance(existing.plan_payload, dict):
+            raise CommandError("cutover plan digest does not match")
+        payload = existing.plan_payload
+    if payload["blockers"]:
+        raise CommandError("cutover plan contains blockers")
+    return payload
+
+
+def _write_relationship(provider: AuthorizationProvider, change: CutoverRelationshipChange) -> None:
+    """Recover a lost write acknowledgement by reading the exact retained grant."""
+    try:
+        provider.write_relationships(change)
+    except Exception:
+        try:
+            recovered = provider.read_relationships(change).grant_present
+        except Exception as exc:
+            raise CommandError("cutover policy write is unresolved") from exc
+        if not recovered:
+            raise CommandError("cutover policy write is unresolved") from None
+
+
+def _verify_relationships(provider: AuthorizationProvider, state: IdentityCutoverStateView) -> None:
+    """Read every exact retained relationship from the pinned provider."""
+    for item in state.relationship_intent:
+        try:
+            present = provider.read_relationships(_relationship_change(item)).grant_present
+        except Exception as exc:
+            raise CommandError("cutover policy verification is unavailable") from exc
+        if not present:
+            raise CommandError("cutover policy verification does not match intent")
+
+
+def _activate_verified_plan(plan: dict[str, object], verified_state: IdentityCutoverStateView) -> dict[str, object]:
+    """Fence hierarchy facts and invalidate pre-cutover admission in one transaction."""
+    with transaction.atomic():
+        state = get_identity_cutover_state(plan_digest=verified_state.plan_digest)
+        if state is None:
+            raise CommandError("cutover state changed during verification")
+        if state.state == "activated":
+            return _state_result(state)
+        if state.state != "policy_pending":
+            raise CommandError("cutover state changed during verification")
+        try:
+            verify_identity_cutover_hierarchy(plan)
+        except IdentityCutoverConflict as exc:
+            raise CommandError("cutover hierarchy verification failed") from exc
+        invalidate_pre_cutover_admission()
+        try:
+            state = activate_identity_cutover(state.plan_digest)
+        except IdentityCutoverConflict as exc:
+            raise CommandError(str(exc)) from exc
+    return _state_result(state)

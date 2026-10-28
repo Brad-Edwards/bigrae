@@ -63,7 +63,7 @@ class EventLifecycleView(APIView):
 
         try:
             event = _resolve_owned_event(request, event_id, capability=EventCapability.LIFECYCLE)
-            source = _event_authority(request, event, EventCapability.LIFECYCLE)
+            source = _event_authority()
             serializer = EventLifecycleRequestSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             action = serializer.validated_data["action"]

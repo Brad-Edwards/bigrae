@@ -151,6 +151,48 @@ fresh-namespace network prerequisites and fail closed on an inconclusive probe.
 Test the canonical CLI orchestration and rendered artifacts without claiming a
 live deployment. Do not retain a second deployment implementation in Actions.
 
+### Catalog initialization after activation
+
+Hosted image verification exposed a retained deployment path that creates a
+Django staff user and registers shipped content without native custody. The
+schema migration Job also invokes that path before policy activation. Both
+behaviors conflict with ADR-034, ADR-053 and ADR-066.
+
+Catalog CLI commands must authenticate an actual bearer proof from a bounded,
+private file through the existing API-token authenticator. A username, principal
+UUID, workload IAM role or maintenance flag is not application authentication.
+Registration and conformance reject raw Django users at their owning boundaries.
+Shipped content uses explicit installation scope and the ordinary registration,
+conformance and publication services. Publication requires its separate current
+permission and credential ceiling. No deployment actor is created or granted
+permission implicitly.
+
+Preflight the complete manifest before the registration transaction. Commit its
+native registrations together, then run conformance and publication outside that
+transaction. Failed qualification leaves native pending or unpublished rows for
+an exact retry. The shipped-only conformance promotion is removed.
+
+The schema migration Job must not initialize content. The canonical deployment
+command performs identity activation and restores the native application before
+the catalog phase. An optional `--catalog-credential-file` supplies an actual
+current native proof to a bounded post-activation Job through a private Secret
+mount. It never enters argv, logs or the deployment input bundle. Missing proof
+leaves catalog setup explicitly incomplete and returns actionable instructions;
+it does not undo verified activation or stop the application needed for login.
+
+For a fresh installation, the administrator must authenticate after activation
+and issue an ordinary native credential, or supply a proof for an explicitly
+admitted service identity. Then the same deployment command can resume catalog
+setup. Activation revokes pre-cutover personal proofs, so supplying one before
+activation cannot substitute for this step. A service proof is not permission:
+its binding, admission, ceiling and current policy still apply.
+
+Verification must use the real released policy service, actual credential
+issuance and authentication, the production image entrypoint, and native catalog
+custody. It must cover absent, expired, revoked and insufficient proof, loss of
+publication authority, pending qualification, exact retries and startup before
+the catalog phase. No live-cloud acceptance is claimed.
+
 ### Approved delivery shape
 
 S8 will replace the legacy identity and application-permission model in one
@@ -733,3 +775,65 @@ The same source references support the recovery changes:
 - [Kubernetes pod termination](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/): allow old application processes to finish shutdown before migration.
 - [Kubernetes bounded deletion wait](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_wait/): check pod deletion with an explicit timeout and fail the cutover if the wait fails.
 - [OWASP authorization guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html): check each archive's authority on the server, including stored resources, before reading or registering it.
+
+### Migration ordering after integration
+
+Apply the existing communication-attribution migration before native event
+authority. These changes rebuild the same SQLite tables. An explicit dependency
+preserves the complete historical table state during forward and reverse
+migration, including cancellation actors. The PostgreSQL and SQLite migration
+checks must both restore the full leaf schema before later tests run.
+
+### First personal-token eligibility
+
+Normal delegation requires the actor to hold the delegated action and forbids
+self-grants. Administrator roles do not imply personal-token eligibility. For a
+fresh installation, the private cutover facts can explicitly set
+`bootstrap_personal_token_eligibility: true`. The default is false. The plan
+records this choice and binds it to its digest. Only the existing preactivation
+bootstrap can seed that exact action for the selected first administrator.
+It checks provider readback and writes a strict audit record before confirming
+bootstrap. Activation checks the grants again. No deployment step issues a token;
+the operator must authenticate after activation and use ordinary token issuance.
+
+
+### Modules and validation after quality repair
+
+Public domain facades retain their contracts. Within CTF, staff admission,
+immutable transition recording and confirmed SQL projections have separate
+modules. Event deletion owns its retained range cleanup. Initialization prepares
+provider decisions before the SQL commit helper; launch binding keeps the event
+lock ahead of the journal and subject locks. The communication helpers separate
+candidate discovery, per-target admission and local proof checks without changing
+the order of those checks.
+
+Workspaces separates account views, read queries, policy admission and cutover
+state. CMS separates native launch contracts, reservations, dispatch and archive
+custody. Engine separates warm-pool reads and mutations, allocation bindings and
+transport validation. The [lifecycle contracts](../technical/shifter_platform/identity-lifecycle-contracts.md)
+identify each owner and its invariants. The existing service boundaries, policy
+journal and outbox remain the integration pattern.
+
+The quality gate requires zero open violations and at least 80% new-code coverage.
+A green local type or focused test check is not sufficient for readiness. The
+combined branch must pass the configured full CI suites, architecture checks,
+Sonar analysis and built-image smoke job. Full test and subsystem suites run only
+in CI/CD. Local checks stay focused on changed behavior, types and architecture.
+There is no live deployment to qualify.
+
+CMS launch inputs form a closed contract. Event launches require the complete
+owner, action and target tuple. Other launch sources reject every member of that
+event-only tuple. Validation occurs before a request or range reservation exists;
+it does not replace later current-proof, custody or dispatch checks. Tests cover
+partial tuples and assert that rejection leaves no reservation or launch intent.
+
+Prepared native dispatch takes the existing ancestry locks before the native
+Range lock. First dispatch and exact replay follow the same order. The final
+locked checks still validate local proof, membership, ancestry and the retained
+creation receipt. The regression observes actual PostgreSQL lock statements
+through the public dispatch service; it does not prelock the account in test setup.
+
+Range-history helpers retain creation, scope-transfer and leaf-lifecycle action
+selection separately from receipt persistence. Internal range pagination groups
+its cursor and page bound in a frozen shared input. Existing query modes, exact
+identity rejection and keyset validation remain; this adds no sharing capability.

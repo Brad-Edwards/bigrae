@@ -133,6 +133,8 @@ class AdministrationScopeSerializer(serializers.Serializer):
 
 
 class AdministrationScopePageSerializer(serializers.Serializer):
+    """Bounded policy-filtered scope discovery page for administration clients."""
+
     count = serializers.IntegerField(read_only=True)
     results = AdministrationScopeSerializer(many=True, read_only=True)
 

@@ -47,6 +47,8 @@ from shared.authorization import (
 from shared.authorization.model import decision_relation_for_action
 from shared.identity_scope import ResourceScope
 
+_INSTALLATION_ROOT = "installation:root"
+
 _CONSISTENCY_OPTIONS = {"consistency": "HIGHER_CONSISTENCY"}
 _MAX_SECRET_BYTES = 16_384
 type _SdkOptions = dict[str, int | str | dict[str, int | str]]
@@ -147,7 +149,7 @@ def configured_authorization_provider() -> OpenFgaAuthorizationProvider:
 def _provider_object(request: AuthorizationRequest) -> str:
     """Encode the validated application target as an OpenFGA object."""
     if request.target.type == "installation":
-        return "installation:root"
+        return _INSTALLATION_ROOT
     return f"{request.target.type}:{request.target.uuid}"
 
 
@@ -200,7 +202,7 @@ def _scope_parents(request: AuthorizationRequest) -> tuple[tuple[str, str, str],
     scope = request.scope
     if scope.kind == "installation":
         return ()
-    edges = [(f"account:{scope.account_uuid}", "installation", "installation:root")]
+    edges = [(f"account:{scope.account_uuid}", "installation", _INSTALLATION_ROOT)]
     if scope.organization_uuid is not None:
         edges.append((f"organization:{scope.organization_uuid}", "account", f"account:{scope.account_uuid}"))
     if scope.workspace_uuid is not None:
@@ -391,7 +393,7 @@ class OpenFgaAuthorizationProvider:
 
     def read_relationship_subjects(self, relation: str, object_value: str, *, limit: int = 2) -> tuple[str, ...]:
         """Read a bounded bootstrap relation without exposing a generic tuple query."""
-        if relation != "direct_administrator" or object_value != "installation:root" or not 1 <= limit <= 2:
+        if relation != "direct_administrator" or object_value != _INSTALLATION_ROOT or not 1 <= limit <= 2:
             raise AuthorizationProviderError("Invalid OpenFGA bootstrap relationship query")
         body = ReadRequestTupleKey(relation=relation, object=object_value)
         try:

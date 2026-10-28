@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 
 from engine.models import Range
 from engine.services import resolve_model_access_range_page, resolve_model_access_range_views
+from shared.model_access import ModelAccessRangePagination
 
 pytestmark = pytest.mark.django_db(transaction=True)
 User = get_user_model()
@@ -18,11 +19,10 @@ def test_automatic_range_assessment_pages_beyond_explicit_id_limit():
     owner = User.objects.create_user("range-pagination@test")
     Range.objects.bulk_create([Range(user=owner, workspace_id=1, status=Range.Status.READY) for _ in range(1001)])
 
-    first = resolve_model_access_range_page(all_ranges=True, page_size=1000)
+    first = resolve_model_access_range_page(all_ranges=True, pagination=ModelAccessRangePagination(page_size=1000))
     second = resolve_model_access_range_page(
         all_ranges=True,
-        page_size=1000,
-        continuation=first.continuation,
+        pagination=ModelAccessRangePagination(page_size=1000, continuation=first.continuation),
     )
 
     assert len(first.items) == 1000

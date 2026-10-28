@@ -55,14 +55,16 @@ def content_scope(row: Asset | RaesPackageSource | None) -> ResourceScope:
         raise CMSError(_UNAVAILABLE) from None
 
 
-def set_catalog_publication(credential: CredentialContext, scenario_id: str, *, published: bool) -> None:
+def set_catalog_publication(
+    credential: CredentialContext, scenario_id: str, *, published: bool, expected_package_digest: str | None = None
+) -> None:
     """Only an explicitly installation-owned source enters the shared catalog."""
     from cms.models import RaesPackageSource
 
     if type(published) is not bool:
         raise CMSError(_UNAVAILABLE)
     source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
-    if source is None:
+    if source is None or (expected_package_digest is not None and source.package_digest != expected_package_digest):
         raise CMSError("Content unavailable")
     scope = content_scope(source)
     if scope.kind != "installation":
@@ -74,6 +76,7 @@ def set_catalog_publication(credential: CredentialContext, scenario_id: str, *, 
             row is None
             or content_scope(row) != scope
             or row.scope_generation != source.scope_generation
+            or row.package_digest != source.package_digest
             or resolve_local_credential(current) != current
         ):
             raise CMSError(_UNAVAILABLE)

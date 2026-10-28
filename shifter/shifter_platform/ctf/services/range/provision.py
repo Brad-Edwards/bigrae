@@ -13,7 +13,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
@@ -22,6 +22,13 @@ from ctf.exceptions import CTFNotFoundError, CTFRangeError
 from ctf.models import CTFEvent, CTFParticipant
 from shared.log_sanitize import safe_log_value
 from shared.range_instantiation_policy import POLICY_DENIAL_CODE
+
+if TYPE_CHECKING:
+    from ctf.models import CTFRangeLaunch
+    from ctf.services.actors import EventActionAdmission
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import PrincipalRef
+    from shared.model_access import OwnedReference
 
 logger = logging.getLogger(__name__)
 
@@ -152,46 +159,29 @@ def provision_participant_range(participant_id: UUID, *, actor: object | None = 
     }
 
 
-def _claim_for_provisioning(participant_id, event, credential, event_admission):
+def _claim_for_provisioning(
+    participant_id: UUID, event: CTFEvent, credential: CredentialContext, event_admission: EventActionAdmission
+) -> CTFRangeLaunch:
     """Commit capacity, subject claim and immutable request in one transaction."""
-    from ctf.models import CTFRangeLaunch
     from ctf.services.authorization import assert_event_action
     from ctf.services.model_access_sharing import participant_model_admission_subject
     from ctf.services.range.capacity import admit_range
-    from ctf.services.range.launch_intents import assert_launch_replay, launch_parameters, reserve_launch
-    from ctf.services.range.model_allocation import project_event_model_scope
+    from ctf.services.range.launch_intents import launch_parameters, reserve_launch
     from management.services import resolve_principal_uuid
 
     participant = CTFParticipant.objects.get(pk=participant_id)
-    if participant.user_id is None:
-        raise CTFRangeError("Participant must be registered before provisioning a range")
-    existing = CTFRangeLaunch.objects.filter(pk=participant.range_request_id).first()
-    if (existing is None or existing.dispatched_at is not None) and (
-        participant.range_instance_id or participant.range_status == "provisioning"
-    ):
-        raise CTFRangeError("Participant already has a range assigned")
-    owner = resolve_principal_uuid(participant.principal_uuid)
+    existing, principal_uuid = _participant_launch_snapshot(participant)
+    owner = resolve_principal_uuid(principal_uuid)
     subject = participant_model_admission_subject(participant)
-    parameters = (
-        launch_parameters(event, owner, subject, project_event_model_scope(event, participant.pk, subject))
-        if existing is None or existing.dispatched_at is not None
-        else existing.parameters
-    )
+    parameters = _participant_launch_parameters(event, participant, owner, subject, existing)
     with transaction.atomic():
         locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk)
         assert_event_action(event_admission, locked_event, "event.manage_ranges")
         participant = CTFParticipant.objects.select_for_update().get(pk=participant_id)
-        if participant.event_id != event.pk or participant.principal_uuid != owner.uuid:
-            raise CTFRangeError("Participant changed during range authorization")
-        if participant.user_id is None:
-            raise CTFRangeError("Participant must be registered before provisioning a range")
-        if participant.range_request_id:
-            existing = CTFRangeLaunch.objects.select_for_update().filter(pk=participant.range_request_id).first()
-        if existing is not None and existing.dispatched_at is None:
-            assert_launch_replay(existing, credential, parameters)
-            return existing
-        if participant.range_instance_id or participant.range_status == "provisioning":
-            raise CTFRangeError("Participant already has a range assigned")
+        _validate_participant_claim(participant, event, owner)
+        replay = _locked_participant_replay(participant, existing, credential, parameters)
+        if replay is not None:
+            return replay
         # A completed old generation may have reached verified terminal cleanup.
         # The next claim gets a fresh immutable intent, never reuses that UUID.
         if launch_parameters(locked_event, owner, subject, None) | {"model_scope": None} != parameters | {
@@ -278,3 +268,65 @@ def provision_participant_range_with_retry(
         f"Provisioning failed after {1 + max_retries} attempts: {last_error}",
         details={"participant_id": str(participant_id), "retries": max_retries},
     ) from last_error
+
+
+def _participant_launch_snapshot(participant: CTFParticipant) -> tuple[CTFRangeLaunch | None, UUID]:
+    """Require native registration and distinguish a resumable intent from an active generation."""
+    from ctf.models import CTFRangeLaunch
+
+    if participant.user_id is None:
+        raise CTFRangeError("Participant must be registered before provisioning a range")
+    existing = (
+        CTFRangeLaunch.objects.filter(pk=participant.range_request_id).first() if participant.range_request_id else None
+    )
+    if (existing is None or existing.dispatched_at is not None) and (
+        participant.range_instance_id or participant.range_status == "provisioning"
+    ):
+        raise CTFRangeError("Participant already has a range assigned")
+    if participant.principal_uuid is None:
+        raise CTFRangeError("Participant must have a native principal before provisioning a range")
+    return existing, participant.principal_uuid
+
+
+def _participant_launch_parameters(
+    event: CTFEvent,
+    participant: CTFParticipant,
+    owner: PrincipalRef,
+    subject: OwnedReference,
+    existing: CTFRangeLaunch | None,
+) -> dict[str, object]:
+    """Retained undispatched intent keeps its exact plan; a new generation freezes current facts."""
+    from ctf.services.range.launch_intents import launch_parameters
+    from ctf.services.range.model_allocation import project_event_model_scope
+
+    if existing is not None and existing.dispatched_at is None:
+        return existing.parameters
+    return launch_parameters(event, owner, subject, project_event_model_scope(event, participant.pk, subject))
+
+
+def _validate_participant_claim(participant: CTFParticipant, event: CTFEvent, owner: PrincipalRef) -> None:
+    """Recheck the registered subject and event after acquiring the event and participant locks."""
+    if participant.event_id != event.pk or participant.principal_uuid != owner.uuid:
+        raise CTFRangeError("Participant changed during range authorization")
+    if participant.user_id is None:
+        raise CTFRangeError("Participant must be registered before provisioning a range")
+
+
+def _locked_participant_replay(
+    participant: CTFParticipant,
+    existing: CTFRangeLaunch | None,
+    credential: CredentialContext,
+    parameters: dict[str, object],
+) -> CTFRangeLaunch | None:
+    """Resume only an exact locked intent before claiming another participant generation."""
+    from ctf.models import CTFRangeLaunch
+    from ctf.services.range.launch_intents import assert_launch_replay
+
+    if participant.range_request_id:
+        existing = CTFRangeLaunch.objects.select_for_update().filter(pk=participant.range_request_id).first()
+    if existing is not None and existing.dispatched_at is None:
+        assert_launch_replay(existing, credential, parameters)
+        return existing
+    if participant.range_instance_id or participant.range_status == "provisioning":
+        raise CTFRangeError("Participant already has a range assigned")
+    return None

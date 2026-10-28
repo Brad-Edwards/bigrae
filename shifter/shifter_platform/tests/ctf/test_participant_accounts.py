@@ -362,7 +362,10 @@ def test_ctf_boundary_still_denies_non_guacamole_mission_control(ctf_event_activ
     ):
         response = _boundary_response(user, path)
         assert response.status_code == 403, path
-        assert response.content == b"Forbidden", path
+        if path.startswith("/api/"):
+            assert response.content == b'{"error": {"code": "permission_denied", "message": "Permission denied"}}', path
+        else:
+            assert response.content == b"Forbidden", path
 
 
 def test_ctf_boundary_denies_guacamole_for_non_live_participant(ctf_event, organizer_credential, monkeypatch):
@@ -378,7 +381,7 @@ def test_ctf_boundary_denies_guacamole_for_non_live_participant(ctf_event, organ
     response = _boundary_response(user, "/api/v1/mission-control/guacamole/rdp-url/")
 
     assert response.status_code == 403
-    assert response.content == b"Forbidden"
+    assert response.content == b'{"error": {"code": "permission_denied", "message": "Permission denied"}}'
 
 
 def test_platform_password_backend_rejects_ctf_credentials(ctf_event_active, organizer_credential, monkeypatch):

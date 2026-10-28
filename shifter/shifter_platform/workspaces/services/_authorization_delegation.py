@@ -48,6 +48,7 @@ _TARGET_UNAVAILABLE = "authorization target is unavailable"
 
 
 def _target_uuid(target: TargetRef) -> UUID:
+    """Require the concrete target identity before descendant lookup."""
     if target.uuid is None:
         raise AuthorizationMutationConflict(_TARGET_UNAVAILABLE)
     return target.uuid

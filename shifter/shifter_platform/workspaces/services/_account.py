@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from uuid import UUID
 
 from django.db import transaction
@@ -10,6 +9,48 @@ from django.db import transaction
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, RequestAudit, audit_log
 from shared.identity_scope import PrincipalRef, ResourceScope
 from workspaces.models import Account, AccountMembership, Organization, Workspace
+
+from ._account_views import (
+    AccountScopeError,
+    AccountView,
+    OrganizationView,
+    ResolvedResourceScope,
+    WorkspaceOptionView,
+    WorkspaceView,
+    _account_view,
+    _organization_view,
+    _workspace_view,
+    workspace_option,
+)
+
+__all__ = [
+    "AccountScopeError",
+    "AccountView",
+    "OrganizationView",
+    "ResolvedResourceScope",
+    "WorkspaceOptionView",
+    "WorkspaceView",
+    "_account_view",
+    "_organization_view",
+    "_workspace_view",
+    "active_workspace_ids_for_organization",
+    "add_account_member",
+    "assert_scope_principal_member",
+    "create_account",
+    "create_account_organization",
+    "create_account_workspace",
+    "ensure_default_hierarchy",
+    "event_placement_scope",
+    "hierarchy_target_scope",
+    "individual_account_scope",
+    "resolve_range_scope_binding",
+    "resolve_resource_scope",
+    "resource_scope_from_ids",
+    "resource_scope_parent_name",
+    "workspace_id_for_uuid",
+    "workspace_option",
+    "workspace_scope_for_id",
+]
 
 _DENIED = "Scope unavailable"
 _DEFAULT_NAME = "Default"
@@ -134,99 +175,6 @@ def _audit_create(
             request_id=request.request_id[:64] if request is not None else "",
         ),
         strict=True,
-    )
-
-
-class AccountScopeError(ValueError):
-    """An account scope is absent, malformed, or has invalid ancestry."""
-
-
-@dataclass(frozen=True, slots=True)
-class AccountView:
-    """Public projection of a durable customer account."""
-
-    id: int
-    uuid: UUID
-    kind: str
-    individual_principal_uuid: UUID | None
-
-
-@dataclass(frozen=True, slots=True)
-class OrganizationView:
-    """Public projection of an account-owned organization."""
-
-    id: int
-    uuid: UUID
-    account_id: int
-    is_default: bool
-
-
-@dataclass(frozen=True, slots=True)
-class WorkspaceView:
-    """Public projection of an organization-owned workspace."""
-
-    id: int
-    uuid: UUID
-    organization_id: int
-    is_default: bool
-
-
-@dataclass(frozen=True, slots=True)
-class WorkspaceOptionView:
-    """Display-safe workspace projection for cross-domain selectors."""
-
-    id: int
-    uuid: UUID
-    name: str
-    organization_id: int
-    organization_uuid: UUID
-    organization_name: str
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedResourceScope:
-    """Resolved scalar ancestry for a validated resource scope."""
-
-    kind: str
-    account_id: int | None
-    organization_id: int | None
-    workspace_id: int | None
-
-
-def _account_view(account: Account) -> AccountView:
-    """Project an account model without exposing persistence internals."""
-    return AccountView(account.id, account.uuid, account.kind, account.individual_principal_uuid)
-
-
-def _organization_view(organization: Organization) -> OrganizationView:
-    """Project an organization only when its account ancestry is present."""
-    account_id = organization.account_id
-    if account_id is None:
-        raise AccountScopeError(_DENIED)
-    return OrganizationView(organization.id, organization.uuid, account_id, organization.is_default)
-
-
-def _workspace_view(workspace: Workspace) -> WorkspaceView:
-    """Project a workspace without loading unrelated ancestry."""
-    return WorkspaceView(workspace.id, workspace.uuid, workspace.organization_id, workspace.is_default)
-
-
-def workspace_option(workspace_uuid: UUID) -> WorkspaceOptionView:
-    """Resolve one active workspace without exposing the tenancy model."""
-    workspace = (
-        Workspace.objects.select_related("organization")
-        .filter(uuid=workspace_uuid, archived_at__isnull=True, organization__account__isnull=False)
-        .first()
-    )
-    if workspace is None:
-        raise AccountScopeError(_DENIED)
-    return WorkspaceOptionView(
-        workspace.pk,
-        workspace.uuid,
-        workspace.name,
-        workspace.organization_id,
-        workspace.organization.uuid,
-        workspace.organization.name,
     )
 
 

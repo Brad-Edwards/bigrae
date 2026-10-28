@@ -289,6 +289,9 @@ if [[ $# -gt 1 && "$1" == "python" && "$2" == "manage.py" ]]; then
         migrate|makemigrations|check|api_contract|collectstatic|compilemessages|identity_cutover|identity_cutover_bootstrap|identity_runtime_check)
             runtime_gate=false
             ;;
+        *)
+            # Unlisted commands retain the previously selected runtime gate.
+            ;;
     esac
 fi
 if [[ "$runtime_gate" == "true" ]]; then

@@ -104,6 +104,15 @@ tracks the AWS path.
    `range-images.json`. When `GCP_RELEASE_REGISTRY` is set, `packer-gcp.yml`
    copies each published base-image artifact by digest into the release registry.
 
+Catalog initialization is an application operation after verified native
+activation and readiness. It uses the existing content services with an actual
+native bearer proof supplied through `--catalog-credential-file`; cloud IAM and
+deployment control do not grant application permission. The schema Job must not
+create a legacy catalog actor or unscoped content. Missing proof leaves catalog
+setup explicitly incomplete while the active application remains available for
+administrator login. Private credential files and transient Secret mounts stay
+outside the deployment input bundle and logs.
+
 ## Consequences
 
 - An operator can deploy, update, and tear down a GCP deployment from a release

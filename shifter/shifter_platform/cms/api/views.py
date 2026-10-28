@@ -67,7 +67,7 @@ def _raes_detail_payload(scenario_id: str, *, user: CredentialContext) -> dict[s
 class ContentAPIView(APIView):
     """Keep denied content authority behind the bounded public error envelope."""
 
-    def handle_exception(self, exc):
+    def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, CMSError):
             if self.kwargs.get("scenario_id"):
                 return _not_found(self.request)

@@ -298,7 +298,7 @@ class TestLaunchRange:
         def denied(*args, **kwargs):
             raise CMSError("SYNTHETIC_PRIVATE_PROVIDER_TEXT")
 
-        monkeypatch.setattr("mission_control.api.ranges.cms_list_launchable_scenarios", denied)
+        monkeypatch.setattr("mission_control.api._range_launch.cms_list_launchable_scenarios", denied)
         response = self._launch(client, {"scenario": "synthetic", "agent_id": agent.pk})
         assert response.status_code == 403
         assert _json(response)["error"]["code"] == "content_not_available"

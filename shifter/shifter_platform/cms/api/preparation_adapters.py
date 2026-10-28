@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from drf_spectacular.utils import extend_schema
@@ -27,9 +27,6 @@ from shared.api_tokens.permissions import require_scope
 from shared.audit import RequestAudit, get_actor_from_request, get_client_ip, get_request_id
 from shared.credentials import CredentialContext, resolve_current_credential
 from shared.exceptions import ValidationError
-
-if TYPE_CHECKING:
-    pass
 
 
 def preparation_actor(request: Request) -> CredentialContext:

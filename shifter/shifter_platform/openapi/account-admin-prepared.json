@@ -4188,6 +4188,16 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ReplaceLeasePolicy"
                             }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
+                            }
                         }
                     },
                     "required": true
@@ -4257,6 +4267,16 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ResetLeasePolicy"
                             }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetLeasePolicy"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetLeasePolicy"
+                            }
                         }
                     },
                     "required": true
@@ -4316,6 +4336,16 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ReplaceLeasePolicy"
                             }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
+                            }
                         }
                     },
                     "required": true
@@ -4372,6 +4402,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetLeasePolicy"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetLeasePolicy"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/ResetLeasePolicy"
                             }
@@ -8532,6 +8572,7 @@
             },
             "AdministrationScopePage": {
                 "type": "object",
+                "description": "Bounded policy-filtered scope discovery page for administration clients.",
                 "properties": {
                     "count": {
                         "type": "integer",
@@ -9091,6 +9132,15 @@
                 ],
                 "type": "string",
                 "description": "* `status-quo` - Inherit deployment baseline\n* `none` - Zero egress (no outbound NAT path)"
+            },
+            "HierarchyParentKindEnum": {
+                "enum": [
+                    "account",
+                    "organization",
+                    "workspace"
+                ],
+                "type": "string",
+                "description": "* `account` - account\n* `organization` - organization\n* `workspace` - workspace"
             },
             "HierarchyPendingReceipt": {
                 "type": "object",
@@ -10439,7 +10489,7 @@
                 "description": "An organizer receives a scoped create-event policy, never a Django group grant.",
                 "properties": {
                     "target_type": {
-                        "$ref": "#/components/schemas/ScopedOrganizerCommandTargetTypeEnum"
+                        "$ref": "#/components/schemas/HierarchyParentKindEnum"
                     },
                     "target_uuid": {
                         "type": "string",
@@ -10455,15 +10505,6 @@
                     "target_type",
                     "target_uuid"
                 ]
-            },
-            "ScopedOrganizerCommandTargetTypeEnum": {
-                "enum": [
-                    "account",
-                    "organization",
-                    "workspace"
-                ],
-                "type": "string",
-                "description": "* `account` - account\n* `organization` - organization\n* `workspace` - workspace"
             },
             "ServiceCredential": {
                 "type": "object",

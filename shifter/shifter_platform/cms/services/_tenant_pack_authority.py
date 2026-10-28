@@ -12,12 +12,16 @@ from ._content_authority import require_content_scope
 
 @dataclass(frozen=True, slots=True)
 class TenantPackAdmission:
+    """Bind current native content authority to one owning organization."""
+
     credential: CredentialContext
     organization_uuid: UUID
     scope: ResourceScope
 
 
-def admit_tenant_pack(credential: CredentialContext, organization_uuid: UUID, operation="manage_content"):
+def admit_tenant_pack(
+    credential: CredentialContext, organization_uuid: UUID, operation: str = "manage_content"
+) -> TenantPackAdmission:
     """Resolve the real owning organization and evaluate policy before SQL locks."""
     try:
         if not isinstance(credential, CredentialContext):

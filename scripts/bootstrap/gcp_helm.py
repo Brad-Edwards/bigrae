@@ -172,20 +172,24 @@ def _live_items(
         if not isinstance(inventory, dict) or not isinstance(inventory.get("items"), list):
             raise ValueError
         items = inventory["items"]
-        names: set[str] = set()
-        for item in items:
-            if not isinstance(item, dict) or not isinstance(item.get("metadata"), dict):
-                raise ValueError
-            if not isinstance(item["metadata"].get("name"), str) or not item["metadata"]["name"]:
-                raise ValueError
-            if item["metadata"]["name"] in names or item["metadata"].get("namespace", namespace) != namespace:
-                raise ValueError
-            names.add(item["metadata"]["name"])
+        metadata = [_inventory_metadata(item, namespace) for item in items]
+        names = [item["name"] for item in metadata]
+        if len(set(names)) != len(names):
+            raise ValueError
     except (ValueError, TypeError):
         raise HelmReleaseError("Kubernetes ownership inventory is invalid") from None
-    return {
-        str(item.get("metadata", {}).get("name")): item.get("metadata", {}) for item in items if isinstance(item, dict)
-    }
+    return {str(item["name"]): item for item in metadata}
+
+
+def _inventory_metadata(item: object, namespace: str) -> Mapping[str, object]:
+    """Validate one live ownership row before the caller can adopt any object."""
+    if not isinstance(item, dict) or not isinstance(item.get("metadata"), dict):
+        raise ValueError
+    metadata = item["metadata"]
+    name = metadata.get("name")
+    if not isinstance(name, str) or not name or metadata.get("namespace", namespace) != namespace:
+        raise ValueError
+    return metadata
 
 
 def _owned_by_release(metadata: Mapping[str, object], target: str) -> bool:

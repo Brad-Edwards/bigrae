@@ -33,11 +33,12 @@ class MissionControlAPIView(APIView):
     permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
     required_actions: ClassVar[tuple[str, ...]] = ("range.manage",)
 
-    def get_permissions(self):
+    def get_permissions(self) -> list[permissions.BasePermission]:
         """The owning service still checks the exact target and live policy."""
         return [*super().get_permissions(), HasMissionControlActionCeiling()]
 
-    def handle_exception(self, exc):
+    def handle_exception(self, exc: Exception) -> Response:
+        """Preserve bounded domain denials before delegating other DRF failures."""
         if isinstance(exc, (CMSError, PermissionError)):
             return self.error_response(code="forbidden", message="Resource unavailable", status_code=403)
         if isinstance(exc, ValueError):
@@ -115,3 +116,13 @@ def _validated(
     if not serializer.is_valid():
         return None, view.invalid(serializer)
     return cast(dict[str, Any], serializer.validated_data), None
+
+
+def _catalog_error(view: MissionControlAPIView, exc: CMSError) -> Response:
+    """Translate content denial and provider unavailability without provider text."""
+    unavailable = exc.details.get("code") == "authority-unavailable"
+    return view.error_response(
+        code="catalog_unavailable" if unavailable else "content_not_available",
+        message="Content catalog is not available.",
+        status_code=503 if unavailable else 403,
+    )

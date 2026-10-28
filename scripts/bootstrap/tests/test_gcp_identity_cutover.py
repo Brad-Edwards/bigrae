@@ -7,7 +7,7 @@ import sys
 
 import pytest
 import yaml
-from installation.gcp_identity_cutover import probe_prerequisites, quiesce
+from installation.gcp_identity_cutover import probe_prerequisites, quiesce, render
 from installation.gcp_native_identity import project_native_helm
 
 from bootstrap_core import get_repo_root
@@ -158,6 +158,9 @@ def test_real_chart_probe_retains_native_transport_and_client_identity(chart):
         assert {"name": "DB_USER", "value": f"synthetic-{role}@synthetic-project.iam"} in pod["containers"][0]["env"]
     stopped, _ = quiesce(yaml.safe_dump_all(chart))
     assert not any(doc["kind"] in {"Job", "HorizontalPodAutoscaler"} for doc in yaml.safe_load_all(stopped))
+    activation = render(yaml.safe_dump_all(chart), job_name="identity-resource-contract")
+    pod = activation["spec"]["template"]["spec"]
+    assert pod["initContainers"][0]["resources"] == pod["containers"][0]["resources"]
 
 
 @pytest.mark.parametrize("probe", ['{"state":"unknown"}', "not-json"])

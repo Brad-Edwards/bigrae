@@ -55,6 +55,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_PERMISSION_DENIED = "Permission denied"
+
 _GUAC_AUTH_NOT_CONFIGURED = "Guacamole JSON auth is not configured"
 _GUACAMOLE_BASE_PATH = "/guacamole"
 
@@ -147,7 +149,7 @@ def _bootstrap_authority(
         else:
             authority = admit_range_remote_authority(user, target_id, range_uuid=range_uuid)
     except (CMSError, PermissionError, ValueError):
-        raise BootstrapFailure("Permission denied", status_code=403) from None
+        raise BootstrapFailure(_PERMISSION_DENIED, status_code=403) from None
     return authority, uuid4()
 
 
@@ -173,7 +175,7 @@ def launch_guacamole_session(
     surfaced by the status endpoint, not raised here.
     """
     if not isinstance(user, CredentialContext):
-        raise BootstrapFailure("Permission denied", status_code=403)
+        raise BootstrapFailure(_PERMISSION_DENIED, status_code=403)
     if protocol not in GuacamoleBootstrapRequest.Protocol.values:
         raise ValueError(f"Unsupported Guacamole access kind: {protocol!r}")
     guac_client = guacamole_client or _bind_guacamole_client(_service_name(protocol))
@@ -186,7 +188,7 @@ def launch_guacamole_session(
         )
     authority_range = authority.get("authority_target_uuid")
     if authority_range is not None and not isinstance(authority_range, UUID):
-        raise BootstrapFailure("Permission denied", status_code=403)
+        raise BootstrapFailure(_PERMISSION_DENIED, status_code=403)
     build_url = _worker_build_callable(
         protocol=protocol,
         user=user,

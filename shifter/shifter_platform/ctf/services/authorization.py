@@ -32,6 +32,9 @@ from django.db.models import QuerySet
 from ctf.exceptions import CTFPermissionError
 
 if TYPE_CHECKING:
+    from ctf.services.actors import EventActionAdmission
+
+if TYPE_CHECKING:
     from django.contrib.auth.base_user import AbstractBaseUser
     from django.contrib.auth.models import AnonymousUser
 
@@ -237,7 +240,7 @@ def assert_event_action(actor: object, event: CTFEvent, action: str) -> None:
         require_event_action(actor, event.pk, action)
 
 
-def admit_event_actions(actor: object, event: CTFEvent, *actions: str):
+def admit_event_actions(actor: object, event: CTFEvent, *actions: str) -> EventActionAdmission:
     """Evaluate policy before locks; pass this closed admission to nested mutators."""
     from ctf.exceptions import CTFError
     from ctf.services.actors import EventActionAdmission, current_event_actor_credential

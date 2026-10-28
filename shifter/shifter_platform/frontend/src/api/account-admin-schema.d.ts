@@ -1675,6 +1675,7 @@ export interface components {
          * @enum {string}
          */
         AdministrationScopeKindEnum: "organization" | "workspace";
+        /** @description Bounded policy-filtered scope discovery page for administration clients. */
         AdministrationScopePage: {
             readonly count: number;
             readonly results: components["schemas"]["AdministrationScope"][];
@@ -1956,6 +1957,13 @@ export interface components {
          * @enum {string}
          */
         EgressPolicyEnum: "status-quo" | "none";
+        /**
+         * @description * `account` - account
+         *     * `organization` - organization
+         *     * `workspace` - workspace
+         * @enum {string}
+         */
+        HierarchyParentKindEnum: "account" | "organization" | "workspace";
         /** @description A committed creation awaiting policy publication. */
         HierarchyPendingReceipt: {
             /** Format: uuid */
@@ -2498,18 +2506,11 @@ export interface components {
         };
         /** @description An organizer receives a scoped create-event policy, never a Django group grant. */
         ScopedOrganizerCommand: {
-            target_type: components["schemas"]["ScopedOrganizerCommandTargetTypeEnum"];
+            target_type: components["schemas"]["HierarchyParentKindEnum"];
             /** Format: uuid */
             target_uuid: string;
             idempotency_key: string;
         };
-        /**
-         * @description * `account` - account
-         *     * `organization` - organization
-         *     * `workspace` - workspace
-         * @enum {string}
-         */
-        ScopedOrganizerCommandTargetTypeEnum: "account" | "organization" | "workspace";
         /** @description Project non-secret native service admission metadata. */
         ServiceCredential: {
             /** Format: uuid */
@@ -5102,6 +5103,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReplaceLeasePolicy"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReplaceLeasePolicy"];
+                "multipart/form-data": components["schemas"]["ReplaceLeasePolicy"];
             };
         };
         responses: {
@@ -5145,6 +5148,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ResetLeasePolicy"];
+                "application/x-www-form-urlencoded": components["schemas"]["ResetLeasePolicy"];
+                "multipart/form-data": components["schemas"]["ResetLeasePolicy"];
             };
         };
         responses: {
@@ -5186,6 +5191,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReplaceLeasePolicy"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReplaceLeasePolicy"];
+                "multipart/form-data": components["schemas"]["ReplaceLeasePolicy"];
             };
         };
         responses: {
@@ -5227,6 +5234,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ResetLeasePolicy"];
+                "application/x-www-form-urlencoded": components["schemas"]["ResetLeasePolicy"];
+                "multipart/form-data": components["schemas"]["ResetLeasePolicy"];
             };
         };
         responses: {

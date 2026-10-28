@@ -82,7 +82,9 @@ def test_native_handoff_cannot_use_legacy_user_id(native_guacamole):
     from mission_control.guacamole_bootstrap import consume_ready_url
 
     fixture = native_guacamole
-    assert consume_ready_url(request_id=fixture.row.pk, user_id=fixture.user.pk) is None
+    with pytest.raises(TypeError):
+        consume_ready_url(request_id=fixture.row.pk, user_id=fixture.user.pk)
+    assert consume_ready_url(request_id=fixture.row.pk, credential=None) is None
     assert consume_ready_url(request_id=fixture.row.pk, credential=fixture.credential)
     assert consume_ready_url(request_id=fixture.row.pk, credential=fixture.credential) is None
 
@@ -100,7 +102,9 @@ def test_legacy_authority_free_bootstrap_cannot_deliver(native_guacamole):
         result_url="https://example.test/#/client/synthetic?token=SYNTHETIC_LEGACY_TOKEN",
         expires_at=fixture.row.expires_at,
     )
-    assert consume_ready_url(request_id=row.pk, user_id=fixture.user.pk) is None
+    with pytest.raises(TypeError):
+        consume_ready_url(request_id=row.pk, user_id=fixture.user.pk)
+    assert consume_ready_url(request_id=row.pk, credential=None) is None
     assert consume_ready_url(request_id=row.pk, credential=fixture.credential) is None
     row.refresh_from_db()
     assert row.delivered_at is None

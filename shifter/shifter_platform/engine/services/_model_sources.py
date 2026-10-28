@@ -1,4 +1,4 @@
-"""Tenant source administration with immutable credentials and explicit use grants."""
+"""Tenant model sources under native organization authority and immutable credentials."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from shared.model_access.reservation import AuthorityRevision
 from shared.model_access.sources import ModelSourceConfiguration, ModelSourceUseScope
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
     from engine.models import ModelSource, ModelSourceRevision
     from shared.credentials import CredentialContext
 
@@ -23,6 +25,7 @@ REVISION_CONFLICT = "source.revision_conflict"
 
 
 SOURCE_UNAVAILABLE = "source.unavailable"
+_ORGANIZATION_ACCESS_DENIED = "Organization access denied"
 
 
 @dataclass(frozen=True)
@@ -38,7 +41,7 @@ class ModelSourceView:
     has_credential: bool
 
 
-def _principal_user(actor: CredentialContext):
+def _principal_user(actor: CredentialContext) -> User | None:
     """Return optional legacy human attribution without using it as authority."""
     if actor.principal.kind != "human":
         return None
@@ -77,7 +80,7 @@ def _authorize(actor: CredentialContext, organization_uuid: UUID) -> CredentialC
         )
         return current
     except Exception:
-        raise OrganizationAuthorizationError("Organization access denied") from None
+        raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
 
 
 def authorize_model_source_organization(actor: CredentialContext, organization_uuid: UUID) -> None:
@@ -158,18 +161,7 @@ def _store_credential(
     from engine.models import ModelSource, ModelSourceRevision
     from workspaces.services import OrganizationAuthorizationError
 
-    if payload is not None:
-        from shared.cloud import get_secrets_store
-        from shared.cloud.exceptions import CloudSecretsError
-
-        if revision.credential_version is None:
-            raise ContractError("source.credential_unavailable")
-        try:
-            reference = get_secrets_store().create_owned_secret(source.id, revision.credential_version, payload)
-        except CloudSecretsError:
-            ModelSourceRevision.objects.filter(pk=revision.pk, state="pending").update(state="failed")
-            raise ContractError("source.credential_unavailable") from None
-        revision.credential_reference = reference
+    _persist_source_secret(source, revision, payload)
     current_actor: CredentialContext | None = None
     failure: OrganizationAuthorizationError | ContractError | None = None
     try:
@@ -183,7 +175,7 @@ def _store_credential(
             try:
                 resolve_local_credential(current_actor)
             except Exception:
-                failure = OrganizationAuthorizationError("Organization access denied")
+                failure = OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED)
         current = ModelSource.objects.select_for_update().get(pk=source.pk)
         try:
             if current.revision != revision.revision:
@@ -210,6 +202,24 @@ def _store_credential(
     return _view(current, revision)
 
 
+def _persist_source_secret(source: ModelSource, revision: ModelSourceRevision, payload: str | None) -> None:
+    """Write an owned secret outside SQL and preserve a failed publication for recovery."""
+    from engine.models import ModelSourceRevision
+    from shared.cloud import get_secrets_store
+    from shared.cloud.exceptions import CloudSecretsError
+
+    if payload is None:
+        return
+    if revision.credential_version is None:
+        raise ContractError("source.credential_unavailable")
+    try:
+        reference = get_secrets_store().create_owned_secret(source.id, revision.credential_version, payload)
+    except CloudSecretsError:
+        ModelSourceRevision.objects.filter(pk=revision.pk, state="pending").update(state="failed")
+        raise ContractError("source.credential_unavailable") from None
+    revision.credential_reference = reference
+
+
 def create_model_source(
     actor: CredentialContext, organization_uuid: UUID, configuration: object, *, credential: object = None
 ) -> ModelSourceView:
@@ -232,7 +242,7 @@ def create_model_source(
         except Exception:
             from workspaces.services import OrganizationAuthorizationError
 
-            raise OrganizationAuthorizationError("Organization access denied") from None
+            raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
         if ModelSource.objects.filter(organization_uuid=organization_uuid).count() >= 128:
             raise ContractError("source.limit_reached")
         source = ModelSource.objects.create(
@@ -274,7 +284,7 @@ def update_model_source(
         except Exception:
             from workspaces.services import OrganizationAuthorizationError
 
-            raise OrganizationAuthorizationError("Organization access denied") from None
+            raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
         source = (
             ModelSource.objects.select_for_update().filter(pk=source_id, organization_uuid=organization_uuid).first()
         )
@@ -355,10 +365,8 @@ def project_authorized_model_sources(scope: ModelSourceUseScope) -> tuple[ModelS
     )
 
 
-def _assert_source_use(
-    scope: ModelSourceUseScope, source: ModelSource, revision: ModelSourceRevision, config: ModelSourceConfiguration
-) -> None:
-    """Require enabled, ready, unexpired policy with an explicit source-use grant."""
+def _assert_source_ready(source: ModelSource, revision: ModelSourceRevision, config: ModelSourceConfiguration) -> None:
+    """Require an enabled current source revision with unexpired pricing."""
     if not source.enabled or revision.state != "ready" or config.price_valid_until <= timezone.now():
         raise ContractError("source.use_denied")
 
@@ -390,7 +398,7 @@ def compile_authorized_model_sources(
         for row in rows:
             revision = ModelSourceRevision.objects.get(source=row, revision=row.revision)
             config = ModelSourceConfiguration.model_validate(revision.configuration)
-            _assert_source_use(scope, row, revision, config)
+            _assert_source_ready(row, revision, config)
             source_ref = OwnedReference(owner="engine", reference=f"model-source:{row.id}")
             fence, _ = SharingAuthorityFence.objects.get_or_create(
                 deployment_id=catalog.deployment_id,
@@ -431,7 +439,7 @@ def retire_unused_model_source_credentials(actor: CredentialContext, organizatio
         except Exception:
             from workspaces.services import OrganizationAuthorizationError
 
-            raise OrganizationAuthorizationError("Organization access denied") from None
+            raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
         source = (
             ModelSource.objects.select_for_update().filter(pk=source_id, organization_uuid=organization_uuid).first()
         )

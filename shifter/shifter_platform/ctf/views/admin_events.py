@@ -192,17 +192,7 @@ def admin_event_detail(request: HttpRequest, event_id: UUID) -> HttpResponse:
 
     from ctf.exceptions import CTFNotFoundError
     from ctf.forms import EventStatusForm
-    from ctf.services import (
-        activate_event,
-        archive_event,
-        cancel_event,
-        complete_event,
-        get_event,
-        get_event_stats,
-        pause_event,
-        resume_event,
-        schedule_event,
-    )
+    from ctf.services import get_event, get_event_stats
 
     try:
         event = get_event(event_id)
@@ -217,20 +207,7 @@ def admin_event_detail(request: HttpRequest, event_id: UUID) -> HttpResponse:
         status_form = EventStatusForm(request.POST, event=event)
         if status_form.is_valid():
             action = status_form.cleaned_data["action"]
-            action_table: dict[str, Callable[..., bool]] = {
-                "schedule": schedule_event,
-                "activate": activate_event,
-                "pause": pause_event,
-                "resume": resume_event,
-                "complete": complete_event,
-                "archive": archive_event,
-                "cancel": cancel_event,
-            }
-            handler = action_table.get(action)
-            if action in {"schedule", "complete", "cancel"} and handler:
-                success = handler(event, actor=authenticated_credential(request))
-            else:
-                success = handler(event) if handler else False
+            success = _apply_event_status(request, event, action)
             if success:
                 logger.info(
                     "User %s changed event %s status via action: %s",
@@ -464,3 +441,31 @@ def admin_analytics(request: HttpRequest, event_id: UUID) -> HttpResponse:
             "challenge_stats": challenge_stats,
         },
     )
+
+
+def _apply_event_status(request: HttpRequest, event: CTFEvent, action: str) -> bool:
+    """Dispatch the selected lifecycle command with its required request proof."""
+    from ctf.services import (
+        activate_event,
+        archive_event,
+        cancel_event,
+        complete_event,
+        pause_event,
+        resume_event,
+        schedule_event,
+    )
+
+    action_table: dict[str, Callable[..., bool]] = {
+        "schedule": schedule_event,
+        "activate": activate_event,
+        "pause": pause_event,
+        "resume": resume_event,
+        "complete": complete_event,
+        "archive": archive_event,
+        "cancel": cancel_event,
+    }
+    handler = action_table.get(action)
+    if action in {"schedule", "complete", "cancel"} and handler:
+        return handler(event, actor=authenticated_credential(request))
+    else:
+        return handler(event) if handler else False

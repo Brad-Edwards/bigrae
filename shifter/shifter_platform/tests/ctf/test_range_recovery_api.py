@@ -29,6 +29,7 @@ class TestRangeRecoveryApi:
         self,
         authenticated_organizer_client: Client,
         organizer_user,
+        organizer_credential,
         ctf_participant: CTFParticipant,
         second_participant_user,
         settings,
@@ -40,9 +41,11 @@ class TestRangeRecoveryApi:
         patch) via a real CTF-sourced old range + a pooled event spare,
         mirroring ``tests/ctf/test_services/test_range_recovery.py``.
         """
-        from ctf.enums import SpareRangeStatus
-        from ctf.models import CTFSpareRange
-        from tests.ctf.test_services.test_range_recovery import _make_spare_range
+        from tests.ctf.test_services.test_range_recovery import (
+            _make_pooled_spare,
+            _make_spare_range,
+            _retain_initial_range_custody,
+        )
 
         settings.ENGINE_TASK_CLUSTER = "synthetic-namespace"
         settings.ENGINE_TASK_DEFINITION = "example.test/synthetic@sha256:" + "1" * 64
@@ -50,15 +53,12 @@ class TestRangeRecoveryApi:
         old_range = _make_spare_range(event=ctf_participant.event, owner=ctf_participant.user)
         ctf_participant.range_instance_id = old_range.pk
         ctf_participant.save(update_fields=["range_instance_id"])
-        spare_range = _make_spare_range(
+        _retain_initial_range_custody(old_range, organizer_credential)
+        _spare, spare_range = _make_pooled_spare(
             event=ctf_participant.event,
             owner=ctf_participant.event.created_by,
+            credential=organizer_credential,
             scenario_id=ctf_participant.event.scenario_id,
-        )
-        CTFSpareRange.objects.create(
-            event=ctf_participant.event,
-            range_instance_id=spare_range.pk,
-            status=SpareRangeStatus.READY.value,
         )
 
         resp = _json(

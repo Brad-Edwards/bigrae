@@ -36,6 +36,7 @@ from ._env import (
 )
 from ._local import _is_local_provisioner_enabled, _run_local_provisioner
 from ._status import get_task_status
+from ._validation import _validate_start_ecs_task_args
 
 # SonarCloud S1192: extracted duplicated string literals.
 REQUEST_ID_NONE_MSG = "request_id cannot be None"
@@ -46,22 +47,6 @@ if TYPE_CHECKING:
     from shared.credentials import CredentialContext
 
 logger = logging.getLogger(__name__)
-
-
-def _validate_start_ecs_task_args(range_id: int, user_id: int, command: str) -> None:
-    """Validate _start_ecs_task inputs, raising TypeError/ValueError on bad input."""
-    if range_id is None or not isinstance(range_id, int):
-        raise TypeError("range_id must be an integer")
-    if user_id is None or not isinstance(user_id, int):
-        raise TypeError("user_id must be an integer")
-    if range_id < 0:
-        raise ValueError("range_id must be non-negative")
-    if user_id < 0:
-        raise ValueError("user_id must be non-negative")
-    if command is None or not isinstance(command, str):
-        raise TypeError("command must be a string")
-    if not command.strip():
-        raise ValueError("command must be a non-empty string")
 
 
 def _enqueue_provisioner_launch(command: list[str], *, credential: CredentialContext | None = None) -> str | None:

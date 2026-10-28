@@ -164,7 +164,7 @@ function WorkspaceCollection({ accountUuid, organizationUuid }: Readonly<{ accou
 function PendingCreation({ receipt, pending, onRetry }: Readonly<{
   receipt: { uuid: string } | null; pending: boolean; onRetry: () => void;
 }>) {
-  return receipt ? <div role="status"><p>Creation accepted. Access setup is pending for {receipt.uuid}.</p>
+  return receipt ? <div><output>Creation accepted. Access setup is pending for {receipt.uuid}.</output>
     <Button disabled={pending} onClick={onRetry}>Retry access setup</Button></div> : null;
 }
 

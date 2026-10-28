@@ -314,11 +314,7 @@ def transition_account(
     with transaction.atomic():
         locked_user = get_user_model().objects.select_for_update().get(pk=user.pk)
         profile, _created = UserProfile.objects.select_for_update().get_or_create(user=locked_user)
-        if isinstance(actor, CredentialContext):
-            try:
-                fence_principal_administration(actor)
-            except PermissionError as exc:
-                raise AccountLifecycleError("authority_denied", "Lifecycle authority denied") from exc
+        _fence_transition_actor(actor)
         # Keep the in-memory profile attached so derive_lifecycle_state reads the
         # locked row rather than issuing another query.
         locked_user.profile = profile
@@ -378,3 +374,12 @@ def transition_account(
     # Reflect the committed change on the caller's instance.
     user.is_active = locked_user.is_active
     return new_state
+
+
+def _fence_transition_actor(actor: User | CredentialContext) -> None:
+    """Recheck native lifecycle proof while the target user and profile are locked."""
+    if isinstance(actor, CredentialContext):
+        try:
+            fence_principal_administration(actor)
+        except PermissionError as exc:
+            raise AccountLifecycleError("authority_denied", "Lifecycle authority denied") from exc

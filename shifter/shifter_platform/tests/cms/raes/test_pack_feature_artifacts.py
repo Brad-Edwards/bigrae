@@ -5,17 +5,17 @@ from __future__ import annotations
 from io import StringIO
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.core.management import call_command
 
 from cms.raes.feature_artifacts import request_pack_feature_artifacts
 from cms.scenarios.inbox import SHIPPED_INBOX_MANIFEST, register_inbox_packs
 from engine.models import AcquiredFeatureArtifact
 from engine.services._feature_artifacts import StorageTarget
+from tests.cms._native_catalog import native_catalog as native_catalog
 
 IMAGE = "registry.example/platform@sha256:" + "a" * 64
 
-pytestmark = pytest.mark.django_db
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
 class _Storage:
@@ -23,18 +23,15 @@ class _Storage:
         return False
 
 
-def _register_inbox() -> None:
-    actor = get_user_model().objects.create_user(
-        username="feature-artifacts@example.com", email="feature-artifacts@example.com", is_staff=True
-    )
-    register_inbox_packs(actor=actor)
+def _register_inbox(actor) -> None:
+    register_inbox_packs(actor=actor.credential)
 
 
 @pytest.fixture
-def registered_inbox(monkeypatch, shipped_pack_root):
+def registered_inbox(monkeypatch, shipped_pack_root, native_catalog):
     # The shipped packs resolve under the image-shaped app root (#2550).
     monkeypatch.delenv("FEATURE_ARTIFACT_JOB_IMAGE", raising=False)
-    _register_inbox()
+    _register_inbox(native_catalog)
 
 
 def test_registration_without_an_acquisition_image_requests_nothing(registered_inbox):
@@ -79,19 +76,19 @@ def test_bootstrap_command_requests_every_registered_packs_artifacts(registered_
 
 
 def test_registering_a_pack_claims_its_artifacts_when_acquisition_is_enabled(
-    monkeypatch, shipped_pack_root, django_capture_on_commit_callbacks
+    monkeypatch, shipped_pack_root, django_capture_on_commit_callbacks, native_catalog
 ):
     monkeypatch.setenv("FEATURE_ARTIFACT_JOB_IMAGE", IMAGE)
 
     with django_capture_on_commit_callbacks(execute=True):
-        _register_inbox()
+        _register_inbox(native_catalog)
 
     row = AcquiredFeatureArtifact.objects.get()
     assert (row.source_name, row.state) == ("claude-code", AcquiredFeatureArtifact.State.ACQUIRING)
 
 
 def test_a_pack_revision_claims_artifacts_its_new_version_declares(
-    registered_inbox, monkeypatch, django_capture_on_commit_callbacks
+    registered_inbox, monkeypatch, django_capture_on_commit_callbacks, native_catalog
 ):
     from cms.models import RaesPackageSource
     from cms.scenarios.inbox import load_inbox_manifest
@@ -104,7 +101,7 @@ def test_a_pack_revision_claims_artifacts_its_new_version_declares(
     monkeypatch.setenv("FEATURE_ARTIFACT_JOB_IMAGE", IMAGE)
 
     with django_capture_on_commit_callbacks(execute=True):
-        register_inbox_packs(actor=get_user_model().objects.get(username="feature-artifacts@example.com"))
+        register_inbox_packs(actor=native_catalog.credential)
 
     assert RaesPackageSource.objects.get(scenario_id="smoke-linux-aws").package_version == "0.3.0"
     assert AcquiredFeatureArtifact.objects.get().source_name == "claude-code"

@@ -183,8 +183,8 @@ ModelSourceSponsorship.model_rebuild()
 class ModelSourceUseScope:
     """CMS-resolved tenant scope and exact credential passed internally.
 
-    This is not a wire payload. Engine separately enforces each source's use
-    action and revision; CMS resolves SQL ancestry before constructing it.
+    This is not a wire payload. Engine enforces organization.manage_model_sources
+    and checks source ownership and revision; CMS resolves SQL ancestry first.
     """
 
     credential: CredentialContext

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
@@ -14,11 +15,16 @@ from shared.authorization import CutoverRelationshipChange
 from shared.authorization.port import configured_authorization_provider
 from workspaces.services import resource_scope_from_ids
 
+if TYPE_CHECKING:
+    from shared.authorization import AuthorizationProvider
+
 _UNAVAILABLE = "Event authority publication is unavailable"
 
 
 @dataclass(frozen=True, slots=True)
 class _PublicationSnapshot:
+    """Exact event ancestry and provider binding captured before publication."""
+
     event_uuid: UUID
     owner_uuid: UUID
     parent_kind: str
@@ -55,7 +61,7 @@ def _changes(snapshot: _PublicationSnapshot) -> tuple[CutoverRelationshipChange,
     )
 
 
-def _write_and_readback(provider, change: CutoverRelationshipChange) -> bool:
+def _write_and_readback(provider: AuthorizationProvider, change: CutoverRelationshipChange) -> bool:
     """Recover a lost write acknowledgement through primary relationship readback."""
     with suppress(Exception):
         provider.write_relationships(change)
@@ -84,16 +90,9 @@ def publish_event_relationships(event_uuid: UUID) -> CTFEvent:
             raise ValueError("provider binding unavailable")
         with transaction.atomic():
             event = CTFEvent.all_objects.select_for_update().get(pk=event_uuid)
+            _require_provider_binding(event, store_id, model_id)
             if event.authorization_publication_state == "confirmed":
-                if event.authorization_provider_store_id and (
-                    event.authorization_provider_store_id != store_id or event.authorization_model_id != model_id
-                ):
-                    raise ValueError("provider binding changed")
                 return event
-            if event.authorization_provider_store_id and (
-                event.authorization_provider_store_id != store_id or event.authorization_model_id != model_id
-            ):
-                raise ValueError("provider binding changed")
             snapshot = _snapshot(event, store_id, model_id)
             event.authorization_publication_state = "requested"
             event.authorization_provider_store_id = store_id
@@ -139,3 +138,11 @@ def publish_event_relationships(event_uuid: UUID) -> CTFEvent:
     except Exception:
         _mark_unresolved(event_uuid, "provider_outcome_unknown")
         raise CTFStateError(_UNAVAILABLE, code="CTF_EVENT_AUTHORITY_UNAVAILABLE") from None
+
+
+def _require_provider_binding(event: CTFEvent, store_id: str, model_id: str) -> None:
+    """Keep retries and confirmed declarations on their exact original provider."""
+    if event.authorization_provider_store_id and (
+        event.authorization_provider_store_id != store_id or event.authorization_model_id != model_id
+    ):
+        raise ValueError("provider binding changed")

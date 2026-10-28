@@ -26,6 +26,8 @@ from shared.identity_scope import ResourceScope
 from shared.preparation_grant import PreparationGrantConfiguration
 from shared.raes.preparation_contract import AdapterManifest
 
+_PREPARATION_ACCESS_DENIED = "Artifact preparation access is not permitted"
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
@@ -65,7 +67,7 @@ def require_preparation_permission(user: User | CredentialContext, permission: s
             )
             return current
         except Exception:
-            raise ValidationError("Artifact preparation access is not permitted") from None
+            raise ValidationError(_PREPARATION_ACCESS_DENIED) from None
     # Trusted synchronous administration can supply a human identity. It still
     # uses the same application policy and is never serialized as native proof.
     from shared.api.principals import human_session_credential
@@ -85,7 +87,7 @@ def require_preparation_permission(user: User | CredentialContext, permission: s
         )
         return current
     except Exception:
-        raise ValidationError("Artifact preparation access is not permitted") from None
+        raise ValidationError(_PREPARATION_ACCESS_DENIED) from None
 
 
 def install_preparation_adapter(
@@ -159,14 +161,14 @@ def set_preparation_adapter_state(
         return _view(row)
 
 
-def _fence_preparation_actor(user) -> None:
+def _fence_preparation_actor(user: User | CredentialContext) -> None:
     """An admitted native proof must still be locally live at the SQL effect."""
     if isinstance(user, CredentialContext):
         try:
             if resolve_local_credential(user) != user:
                 raise ValueError("Credential changed")
         except ValueError:
-            raise ValidationError("Artifact preparation access is not permitted") from None
+            raise ValidationError(_PREPARATION_ACCESS_DENIED) from None
     else:
         from shared.api.principals import human_session_credential
         from shared.principal_port import resolve_principal

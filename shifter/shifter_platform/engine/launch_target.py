@@ -13,24 +13,33 @@ def lock_provisioner_target(payload: dict[str, object]) -> Range | Instance | Vp
     Generation, custody and input checks remain with the owning validators.
     """
     resource = payload.get("resource")
+    target: Range | Instance | VpnAccessProfile | None = None
     try:
         if resource == "vpn-profile":
-            return (
+            target = (
                 VpnAccessProfile.objects.select_for_update(of=("self",))
                 .filter(pk=UUID(str(payload.get("profile_id"))))
                 .first()
             )
-        if resource not in {"range", "raes-range", "ngfw"}:
-            return None
-        if "request_id" in payload:
-            request_id = UUID(str(payload["request_id"]))
-            if resource == "ngfw":
-                return (
-                    Instance.objects.select_for_update(of=("self",))
-                    .filter(request__request_id=request_id, role=Instance.Role.NGFW)
-                    .first()
+        elif resource in {"range", "raes-range", "ngfw"}:
+            if "request_id" in payload:
+                request_id = UUID(str(payload["request_id"]))
+                target = _lock_requested_target(request_id, ngfw=resource == "ngfw")
+            else:
+                target = (
+                    Range.objects.select_for_update(of=("self",)).filter(pk=int(str(payload.get("range_id")))).first()
                 )
-            return Range.objects.select_for_update(of=("self",)).filter(request__request_id=request_id).first()
-        return Range.objects.select_for_update(of=("self",)).filter(pk=int(str(payload.get("range_id")))).first()
     except (TypeError, ValueError):
         return None
+    return target
+
+
+def _lock_requested_target(request_id: UUID, *, ngfw: bool) -> Range | Instance | None:
+    """Lock only the native target kind identified by the retained request."""
+    if ngfw:
+        return (
+            Instance.objects.select_for_update(of=("self",))
+            .filter(request__request_id=request_id, role=Instance.Role.NGFW)
+            .first()
+        )
+    return Range.objects.select_for_update(of=("self",)).filter(request__request_id=request_id).first()

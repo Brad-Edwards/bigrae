@@ -160,7 +160,6 @@ def model_source_alias_options(
 
     from django.conf import settings
 
-    from cms.scenarios.model_needs import project_scenario_model_needs
     from cms.scenarios.registry import check_scenario_access
 
     if scope is not None and scope.organization_uuid != organization:
@@ -171,14 +170,9 @@ def model_source_alias_options(
         return [], False
     if not scenario:
         return [], True
-    check_scenario_access(
-        scenario,
-        actor,
-        scope=scope or (hierarchy_target_scope("organization", organization) if organization is not None else None),
-    )
-    projection = project_scenario_model_needs(scenario)
-    if projection.resolution_failed or (projection.needs and not projection.digest_verified):
-        raise ContractError("source.scenario_unavailable")
+    selected_scope = scope or _organization_scope(organization)
+    check_scenario_access(scenario, actor, scope=selected_scope)
+    projection = _verified_model_needs(scenario)
     profiles = {need.profile_id for need in projection.needs.values()}
     aliases = []
     for alias in catalog.aliases:
@@ -244,3 +238,18 @@ def _effective_source_fit(config: ModelSourceConfiguration, profile: EffectivePr
     if profile is None or config.region not in profile.data_regions:
         return False
     return config.provider != "openrouter-v1" or profile.limits.max_input_tokens >= config.context_window_tokens
+
+
+def _verified_model_needs(scenario: str) -> ScenarioModelNeedsProjection:
+    """Require verified authored model needs before listing any compatible sources."""
+    from cms.scenarios.model_needs import project_scenario_model_needs
+
+    projection = project_scenario_model_needs(scenario)
+    if projection.resolution_failed or (projection.needs and not projection.digest_verified):
+        raise ContractError("source.scenario_unavailable")
+    return projection
+
+
+def _organization_scope(organization: UUID | None) -> ResourceScope | None:
+    """Resolve only explicitly selected organization ancestry; absence selects no parent."""
+    return hierarchy_target_scope("organization", organization) if organization is not None else None

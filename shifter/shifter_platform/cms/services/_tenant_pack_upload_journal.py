@@ -1,7 +1,10 @@
 """Use the incumbent removal journal to own uncertain upload bytes before storage I/O."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from django.db import transaction
@@ -12,17 +15,24 @@ from shared.exceptions import ValidationError
 
 from ._tenant_pack_authority import TenantPackAdmission, fence_tenant_pack
 
+if TYPE_CHECKING:
+    from ._pack_registration_types import PackRegistrationRequest
+
 _UPLOAD_LEASE_SECONDS = 300
 
 
 @dataclass(frozen=True, slots=True)
 class PackUploadJournal:
+    """Retain exact upload cleanup custody and its bounded write lease."""
+
     removal: TenantPackRemoval
     archive: TenantPackArchive
     lease_id: UUID
 
 
-def reserve_pack_upload(admission, request, location, request_id) -> PackUploadJournal:
+def reserve_pack_upload(
+    admission: TenantPackAdmission, request: PackRegistrationRequest, location: tuple[str, str], request_id: str
+) -> PackUploadJournal:
     """Record exact cleanup custody before a write can be attempted or acknowledged."""
     lease_id = uuid4()
     expires_at = timezone.now() + timedelta(seconds=_UPLOAD_LEASE_SECONDS)
@@ -53,7 +63,8 @@ def reserve_pack_upload(admission, request, location, request_id) -> PackUploadJ
         return PackUploadJournal(removal, archive, lease_id)
 
 
-def _locked_journal(journal: PackUploadJournal):
+def _locked_journal(journal: PackUploadJournal) -> tuple[TenantPackRemoval, TenantPackArchive]:
+    """Lock and validate the exact immutable upload cleanup records."""
     removal = TenantPackRemoval.objects.select_for_update().get(pk=journal.removal.pk)
     archive = TenantPackArchive.objects.select_for_update().get(pk=journal.archive.pk, removal=removal)
     for current, expected, names in (
@@ -94,7 +105,9 @@ def settle_pack_upload(journal: PackUploadJournal) -> None:
         removal.save(update_fields=["upload_outcome"])
 
 
-def claim_pack_upload(journal: PackUploadJournal, admission: TenantPackAdmission, request) -> None:
+def claim_pack_upload(
+    journal: PackUploadJournal, admission: TenantPackAdmission, request: PackRegistrationRequest
+) -> None:
     """Consume exact unexpired uploader custody in the registration transaction."""
     if not transaction.get_connection().in_atomic_block:
         raise ValidationError("Pack upload commit requires a transaction")
@@ -104,13 +117,7 @@ def claim_pack_upload(journal: PackUploadJournal, admission: TenantPackAdmission
         or removal.lease_expires_at is None
         or removal.lease_expires_at <= timezone.now()
         or removal.upload_outcome != "settled"
-        or removal.organization_uuid != admission.organization_uuid
-        or removal.requested_by_principal_uuid != admission.credential.principal.uuid
-        or removal.scenario_id != request.scenario_id
-        or removal.package_name != request.package_name
-        or removal.package_version != request.package_version
-        or removal.package_digest != request.package_digest
-        or journal.archive.package_ref != request.package_ref
+        or not _matches_upload_request(removal, journal.archive, admission, request)
     ):
         raise ValidationError("Pack upload lease unavailable")
 
@@ -134,3 +141,29 @@ def release_pack_upload(journal: PackUploadJournal) -> None:
             removal.next_attempt_at = timezone.now()
             removal.save(update_fields=["lease_id", "lease_expires_at", "next_attempt_at"])
     reconcile_tenant_pack_removal(journal.removal.pk)
+
+
+def _matches_upload_request(
+    removal: TenantPackRemoval,
+    archive: TenantPackArchive,
+    admission: TenantPackAdmission,
+    request: PackRegistrationRequest,
+) -> bool:
+    """Compare every accepted uploader and immutable pack identity fact."""
+    return (
+        removal.organization_uuid,
+        removal.requested_by_principal_uuid,
+        removal.scenario_id,
+        removal.package_name,
+        removal.package_version,
+        removal.package_digest,
+        archive.package_ref,
+    ) == (
+        admission.organization_uuid,
+        admission.credential.principal.uuid,
+        request.scenario_id,
+        request.package_name,
+        request.package_version,
+        request.package_digest,
+        request.package_ref,
+    )

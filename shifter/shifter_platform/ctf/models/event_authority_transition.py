@@ -19,11 +19,15 @@ class CTFEventAuthorityTransition(models.Model):
     """
 
     class Kind(models.TextChoices):
+        """Closed kinds of retained event authority transitions."""
+
         ASSIGN = "assign", "Assign staff"
         REVOKE = "revoke", "Revoke staff"
         TRANSFER = "transfer", "Transfer ownership"
 
     class State(models.TextChoices):
+        """Publication progress for an immutable event authority plan."""
+
         PENDING = "pending", "Pending"
         CONFIRMED = "confirmed", "Confirmed"
 
@@ -44,6 +48,8 @@ class CTFEventAuthorityTransition(models.Model):
     confirmed_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
+        """Persist transition identity, ordering and pending-plan constraints."""
+
         db_table = "ctf_event_authority_transition"
         constraints = [
             models.CheckConstraint(

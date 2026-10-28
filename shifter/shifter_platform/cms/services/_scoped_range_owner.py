@@ -1,5 +1,7 @@
 """CMS-owned principal reassignment of an existing range's business owner."""
 
+from uuid import UUID
+
 from django.db import transaction
 
 from cms.exceptions import CMSError
@@ -7,7 +9,7 @@ from cms.models import RangeInstance, Request
 from engine.services import commit_range_owner_move, prepare_range_owner_move
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.credentials import CredentialContext
-from shared.identity_scope import PrincipalRef
+from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.range_workspace_aggregate import range_in_domain_aggregate
 from workspaces.services import lock_resource_scope_bindings, resource_scope_from_ids
 
@@ -15,7 +17,7 @@ from ._unified_authorization import require_range_action
 
 
 def reassign_event_range_owner(
-    credential: CredentialContext, instance_pk: int, new_owner: PrincipalRef, event_uuid
+    credential: CredentialContext, instance_pk: int, new_owner: PrincipalRef, event_uuid: UUID
 ) -> None:
     """Transfer an event spare to a participant while retaining event scope."""
     try:
@@ -104,7 +106,8 @@ def reassign_scoped_range_owner(
         raise CMSError("Range ownership unavailable") from None
 
 
-def _snapshot_scope(row):
+def _snapshot_scope(row: RangeInstance) -> ResourceScope:
+    """Resolve persisted range ancestry without deriving authority from its owner."""
     return resource_scope_from_ids(
         kind=row.scope_kind,
         account_id=row.account_id,

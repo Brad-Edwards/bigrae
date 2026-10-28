@@ -3,14 +3,16 @@
 import shutil
 
 import pytest
-from django.core.exceptions import PermissionDenied
 
+from cms.exceptions import CMSError
 from cms.models import RaesPackageSource
 from cms.scenarios.pack_validation import pack_digest
 from cms.services import PackRegistrationRequest, register_pack
 from cms.services._pack_conformance import validate_registered_pack_conformance
 from shared.exceptions import ValidationError
+from shared.identity_scope import ResourceScope
 from tests._environment_packs import ENVIRONMENT_PACKS_ROOT
+from tests.cms._native_catalog import native_catalog as native_catalog
 from tests.cms.test_content_ingestion import staff_user
 
 pytestmark = pytest.mark.django_db
@@ -25,6 +27,7 @@ def preparation_pack(tmp_path, settings, staff_user):
     shutil.copytree(source, root)
     settings.RAES_PACKAGE_ROOT = str(tmp_path)
     register_pack(
+        scope=ResourceScope("installation"),
         user=staff_user,
         request=PackRegistrationRequest(
             scenario_id=name,
@@ -54,7 +57,9 @@ def test_conformance_compiles_real_private_preparation_intent_without_artifact_i
 
 
 @pytest.mark.parametrize("failure", ["bytes", "stale", "inactive"])
-def test_conformance_cannot_promote_changed_bytes_or_stale_identity(staff_user, preparation_pack, failure):
+def test_conformance_cannot_promote_changed_bytes_or_stale_identity(
+    staff_user, preparation_pack, failure, native_catalog
+):
     root, source = preparation_pack
     digest = source.package_digest
     if failure == "bytes":
@@ -62,9 +67,8 @@ def test_conformance_cannot_promote_changed_bytes_or_stale_identity(staff_user, 
     elif failure == "stale":
         digest = "sha256:" + "0" * 64
     else:
-        staff_user.is_active = False
-        staff_user.save()
-    with pytest.raises((ValidationError, PermissionDenied)):
+        native_catalog.token.revoke()
+    with pytest.raises((ValidationError, CMSError)):
         validate_registered_pack_conformance(
             user=staff_user, scenario_id=source.scenario_id, expected_package_digest=digest
         )

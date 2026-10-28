@@ -160,7 +160,6 @@ def bind_first_use_launch(
     *,
     scenario: str,
     agents_selection: dict[str, Any],
-    agents_by_os: dict[str, int] | None,
     workspace_uuid: str | UUID | None = None,
     caller_key: str,
     model_sources: dict | None = None,
@@ -176,11 +175,7 @@ def bind_first_use_launch(
     deployment_scope = resolve_deployment_scope()
     digest = _digest(credential, scenario, agents_selection, workspace_uuid, deployment_scope, scope, model_sources)
 
-    # RAES packages own topology; agents_by_os is accepted for caller back-compat
-    # (the retry-key intent digest already binds agents_selection) but does not
-    # shape the create_range_dispatch plan after PLAT-202 dropped that parameter
-    # from the service seam. Matches ctf.bridges.cms_launch_range.
-    del agents_by_os
+    # The immutable retry digest retains the caller selection; RAES owns the actual topology.
 
     source_kwargs: dict[str, Any] = {"model_sources": model_sources} if model_sources else {}
 

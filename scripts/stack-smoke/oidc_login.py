@@ -32,7 +32,7 @@ from __future__ import annotations
 import argparse
 import http.client
 import sys
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
@@ -113,11 +113,14 @@ def _classify_phase(url: str, is_portal: bool) -> str:
     return "login-router"
 
 
-def _run_chain(browser: _Browser, start_url: str, max_redirects: int) -> None:
+def _run_chain(browser: _Browser, start_url: str, max_redirects: int, login_hint: str = "") -> None:
     """Follow the login redirect chain from /login/ to a terminal response."""
     url = start_url
     for _ in range(max_redirects):
         is_portal = browser.is_portal(urlparse(url).netloc)
+        if login_hint and not is_portal and urlparse(url).path.endswith("/oauth2/authorize"):
+            parsed = urlparse(url)
+            url = parsed._replace(query=urlencode([*parse_qsl(parsed.query), ("login_hint", login_hint)])).geturl()
         phase = _classify_phase(url, is_portal)
         status, location = browser.request(url, phase)
         if status in _REDIRECT_STATUSES:
@@ -160,11 +163,12 @@ def main() -> int:
     parser.add_argument("--cookie-name", default="sessionid")
     parser.add_argument("--max-redirects", type=int, default=12)
     parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument("--login-hint", default="", help="Explicit synthetic operator account at the local IdP")
     args = parser.parse_args()
 
     browser = _Browser(args.portal_origin, args.portal_transport, args.cookie_name, args.timeout)
     try:
-        _run_chain(browser, urljoin(args.portal_origin, args.login_path), args.max_redirects)
+        _run_chain(browser, urljoin(args.portal_origin, args.login_path), args.max_redirects, args.login_hint)
         if not browser.saw_provider:
             raise LoginError("login-router: flow never reached the provider (login shortcut?)")
         _verify_authenticated(browser, urljoin(args.portal_origin, args.protected_path), args.max_redirects)

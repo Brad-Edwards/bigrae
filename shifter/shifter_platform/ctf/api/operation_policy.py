@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from shared.authorization.operations import OperationPolicy
 
+_EVENT_READ = "event.read"
+
 _MANAGE_AWARDS = "event.manage_awards"
 _MANAGE_CHALLENGES = "event.manage_challenges"
 _MANAGE_COMMUNICATIONS = "event.manage_communications"
@@ -50,17 +52,20 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_communications_preview_retrieve": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
     "ctf_communications_delivery_retrieve": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
     "ctf_communications_recipients_list": OperationPolicy(
-        (_MANAGE_COMMUNICATIONS, "event.manage_participants"), "event", "campaign"
+        (_MANAGE_COMMUNICATIONS, "event.manage_participants"),
+        "event",
+        "campaign",
+        selector="campaign_recipient_details",
     ),
     "ctf_communications_activity_retrieve": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "campaign"),
-    "ctf_events_list": OperationPolicy(("event.read",), "event", "event_discovery"),
+    "ctf_events_list": OperationPolicy((_EVENT_READ,), "event", "event_discovery"),
     "ctf_events_create": OperationPolicy(
         ("account.create_event", "organization.create_event", "workspace.create_event"),
         "parent",
         "parent",
         selector="validated_parent_placement",
     ),
-    "ctf_events_retrieve": OperationPolicy(("event.read",), "event", "event"),
+    "ctf_events_retrieve": OperationPolicy((_EVENT_READ,), "event", "event"),
     "ctf_events_update": OperationPolicy((_MANAGE_CONFIG,), "event", "event"),
     "ctf_events_destroy": OperationPolicy((_DELETE_EVENT,), "event", "event"),
     "ctf_events_analytics_retrieve": OperationPolicy((_MANAGE_SCORING,), "event", "event"),
@@ -93,7 +98,7 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_events_registration_requests_retrieve": OperationPolicy((_MANAGE_PARTICIPANTS,), "event", "event"),
     "ctf_events_results_export_retrieve": OperationPolicy((_MANAGE_SCORING,), "event", "event"),
     "ctf_events_scoreboard_retrieve": OperationPolicy(
-        ("event.read", _PARTICIPATE),
+        (_EVENT_READ, _PARTICIPATE),
         "event",
         "event",
         "scoreboard_publication",

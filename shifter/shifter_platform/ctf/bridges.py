@@ -11,6 +11,65 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from ._capacity_bridges import (
+    cms_admit_range_capacity,
+    cms_assess_event_capacity,
+    cms_declare_event_capacity,
+    cms_release_range_capacity,
+)
+from ._model_access_bridges import (
+    cms_find_model_access_selected_ranges,
+    cms_invalidate_model_access_authority,
+    cms_project_model_launch_authority,
+    cms_project_scenario_model_demands,
+    cms_resolve_model_access_range_instances,
+    cms_resolve_model_access_range_reference,
+    cms_resolve_model_access_selected_ranges,
+    cms_resolve_model_source_sponsorship,
+)
+
+__all__ = [
+    "CTFRangeLaunchOptions",
+    "RangeProvisionResult",
+    "UserRole",
+    "cms_admit_range_capacity",
+    "cms_assess_event_capacity",
+    "cms_confirm_ctf_receipt_binding",
+    "cms_create_range",
+    "cms_declare_event_capacity",
+    "cms_destroy_event_range",
+    "cms_destroy_range",
+    "cms_destroy_recovery_range",
+    "cms_dispatch_bound_event_range",
+    "cms_fence_pack_reference",
+    "cms_find_model_access_selected_ranges",
+    "cms_find_range_instance_id",
+    "cms_get_openvpn_profile",
+    "cms_get_range_spec",
+    "cms_get_range_status",
+    "cms_get_range_target_instances",
+    "cms_has_openvpn_profile",
+    "cms_invalidate_model_access_authority",
+    "cms_is_event_range_cleanup_verified_absent",
+    "cms_list_scenarios",
+    "cms_project_ctf_receipt_binding",
+    "cms_project_model_launch_authority",
+    "cms_project_scenario_images",
+    "cms_project_scenario_model_demands",
+    "cms_range_egress_compatible_with_event",
+    "cms_range_owner_reassignment_available",
+    "cms_reassign_range_owner",
+    "cms_reconcile_ctf_range_leases",
+    "cms_release_range_capacity",
+    "cms_resolve_model_access_range_instances",
+    "cms_resolve_model_access_range_reference",
+    "cms_resolve_model_access_selected_ranges",
+    "cms_resolve_model_source_sponsorship",
+    "cms_start_range",
+    "cms_stop_range",
+    "get_user_role",
+]
+
 if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
@@ -18,18 +77,12 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from ctf.models import CTFEvent
-    from shared.capacity import CapacityAssessmentResult
     from shared.credentials import CredentialContext
     from shared.identity_scope import PrincipalRef, ResourceScope
     from shared.model_access import (
-        AuthorityInvalidation,
-        EventModelDemand,
-        ModelAccessRangeInstanceView,
-        ModelAccessRangeView,
         OwnedReference,
     )
-    from shared.model_access.reservation import AuthorityRevision, ModelLaunchScope
-    from shared.model_access.sources import ModelSourceSponsorship
+    from shared.model_access.reservation import ModelLaunchScope
     from shared.receipt_validation import ReceiptVerifierBinding
     from shared.remote_access import OpenVpnProfile
 
@@ -90,49 +143,6 @@ class CTFRangeLaunchOptions:
     request_uuid: UUID | None = None
 
 
-def cms_declare_event_capacity(
-    *,
-    event_ref: UUID,
-    event_name: str,
-    expected_concurrent_ranges: int,
-    cohort_size: int,
-    window_start: datetime | None,
-    window_end: datetime | None,
-    resource_hints: dict[str, Any],
-) -> None:
-    """Declare event capacity to the provisioning engine (CTF-908).
-
-    Best-effort producer contract: the declaration is recorded before spinup
-    so capacity-aware provisioning works from declared intent (#621); range
-    provisioning itself never depends on this call succeeding.
-    """
-    import cms.services as cms_services
-
-    signal = cms_services.EngineEventCapacitySignal(
-        event_ref=event_ref,
-        event_name=event_name,
-        expected_concurrent_ranges=expected_concurrent_ranges,
-        cohort_size=cohort_size,
-        window_start=window_start,
-        window_end=window_end,
-        resource_hints=resource_hints,
-    )
-    cms_services.engine_record_capacity_declaration(signal)
-
-
-def cms_assess_event_capacity(event_ref: UUID) -> CapacityAssessmentResult | None:
-    """Ask the engine whether an event's declared capacity fits (PLAT-201).
-
-    Best-effort consumer contract mirroring the declaration bridge: capacity
-    admission informs provisioning, and a failure to assess must never be the
-    reason an event cannot spin up. Returns the engine's assessment result, or
-    ``None`` when the layer is disabled or no declaration exists.
-    """
-    import cms.services as cms_services
-
-    return cms_services.engine_assess_declared_event_capacity(event_ref)
-
-
 def cms_project_scenario_images(scenario_id: str) -> dict[str, Any]:
     """Resolve a scenario's per-range image shape for capacity planning (PLAT-201).
 
@@ -142,39 +152,6 @@ def cms_project_scenario_images(scenario_id: str) -> dict[str, Any]:
     import cms.services as cms_services
 
     return cms_services.project_scenario_images(scenario_id).as_hint()
-
-
-def cms_admit_range_capacity(event_ref: UUID, draw_key: UUID) -> CapacityAssessmentResult:
-    """Draw one range's share from the event's capacity budget (PLAT-201).
-
-    Pure database work in the engine -- no provider call -- so this is safe to
-    run on the range-creation path. ``draw_key`` is the stable identity of the
-    thing being provisioned (participant or spare), which is known before the
-    range exists and makes a retried creation idempotent.
-    """
-    import cms.services as cms_services
-
-    return cms_services.engine_admit_range_capacity(event_ref, draw_key=draw_key)
-
-
-def cms_release_range_capacity(draw_key: UUID) -> int:
-    """Return a range's capacity draw to its event budget (PLAT-201).
-
-    Must run on every teardown path: a draw that outlives its range leaks
-    capacity and eventually refuses an event that would have fit.
-    """
-    import cms.services as cms_services
-
-    return cms_services.engine_release_range_capacity(draw_key)
-
-
-def cms_project_model_launch_authority(
-    *, deployment_id: UUID, authority_refs: tuple[OwnedReference, ...]
-) -> tuple[AuthorityRevision, ...]:
-    """Publish CTF facts checked under owner locks through the CMS/Engine bridge."""
-    from cms.services import engine_project_model_launch_authority
-
-    return engine_project_model_launch_authority(deployment_id=deployment_id, authority_refs=authority_refs)
 
 
 def cms_create_range(
@@ -263,45 +240,6 @@ def cms_find_range_instance_id(request_id: str | UUID) -> int | None:
     import cms.services as cms_services
 
     return cms_services.find_range_instance_id_by_request(request_id)
-
-
-def cms_resolve_model_access_range_instances(range_instance_ids: tuple[int, ...]) -> tuple[ModelAccessRangeView, ...]:
-    """Resolve CTF-owned CMS instance PKs to canonical Engine range subjects."""
-    import cms.services as cms_services
-
-    return cms_services.resolve_model_access_range_instances(range_instance_ids)
-
-
-def cms_resolve_model_access_range_reference(range_instance_id: int) -> OwnedReference:
-    """Resolve one CTF-owned CMS instance PK to its range's sharing identity, in any state."""
-    import cms.services as cms_services
-
-    return cms_services.resolve_model_access_range_reference(range_instance_id)
-
-
-def cms_find_model_access_selected_ranges(
-    range_uuids: tuple[UUID, ...],
-) -> tuple[ModelAccessRangeInstanceView, ...]:
-    """Find the CMS instance correlations that exist for Engine range UUIDs."""
-    import cms.services as cms_services
-
-    return cms_services.find_model_access_selected_ranges(range_uuids)
-
-
-def cms_resolve_model_access_selected_ranges(
-    range_uuids: tuple[UUID, ...],
-) -> tuple[ModelAccessRangeInstanceView, ...]:
-    """Correlate explicit Engine range UUIDs to CMS instance identities."""
-    import cms.services as cms_services
-
-    return cms_services.resolve_model_access_selected_ranges(range_uuids)
-
-
-def cms_invalidate_model_access_authority(command: AuthorityInvalidation) -> int:
-    """Advance Engine's synchronous authority fence through the CMS boundary."""
-    import cms.services as cms_services
-
-    return cms_services.engine_invalidate_sharing_authority(command)
 
 
 def cms_get_range_status(range_instance_id: int) -> str:
@@ -497,22 +435,6 @@ def cms_list_scenarios(user: User | CredentialContext, *, scope: ResourceScope |
 
     scenarios = cms_services.list_launchable_scenarios(user, "ctf_event", scope=scope)
     return [(s["id"], s["name"]) for s in scenarios]
-
-
-def cms_resolve_model_source_sponsorship(
-    actor: CredentialContext, workspace_id: int, selection: object
-) -> ModelSourceSponsorship:
-    """Keep source authorization below the CTF ownership boundary."""
-    from cms.services import resolve_model_source_sponsorship
-
-    return resolve_model_source_sponsorship(actor, workspace_id, selection)
-
-
-def cms_project_scenario_model_demands(scenario_id: str, *, expected_concurrency: int) -> tuple[EventModelDemand, ...]:
-    """Resolve typed defaults from the scenario owner's verified envelope."""
-    from cms.services import project_scenario_model_demands
-
-    return project_scenario_model_demands(scenario_id, expected_concurrency=expected_concurrency)
 
 
 def cms_dispatch_bound_event_range(credential: CredentialContext, event_uuid: UUID, range_instance_id: int) -> None:

@@ -80,9 +80,7 @@ export function CommunicationsPage() {
   const [parentKey, setParentKey] = useState("");
   const all = useCommunicationTargets();
   const parents = all.data?.pages[0]?.parents ?? [];
-  const keyFor = (parent: CommunicationParent) => `${parent.kind}:${parent.id}`;
-  const active = parents.find((parent) => keyFor(parent) === parentKey) ??
-    (!parentKey && parents.length === 1 ? parents[0] : undefined);
+  const active = selectedParent(parents, parentKey);
   const targets = useCommunicationTargets(active);
   const events = targets.data?.pages.flatMap((page) => page.events) ?? [];
 
@@ -157,4 +155,14 @@ export function CommunicationsPage() {
       {active && targets.isLoading ? <Skeleton className="h-64 w-full" /> : null}
     </div>
   );
+}
+
+
+function keyFor(parent: CommunicationParent): string {
+  return `${parent.kind}:${parent.id}`;
+}
+
+function selectedParent(parents: CommunicationParent[], selectedKey: string): CommunicationParent | undefined {
+  const selected = parents.find((parent) => keyFor(parent) === selectedKey);
+  return selected ?? (selectedKey === "" && parents.length === 1 ? parents[0] : undefined);
 }

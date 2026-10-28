@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import gcp_deploy_stages
+from gcp_catalog import initialize_catalog as actual_initialize_catalog
 from gcp_deploy_stages import (
     InfrastructureResult,
     RolloutRequest,
@@ -20,6 +21,7 @@ from gcp_deploy_stages import (
     seed_operator,
 )
 from gcp_evidence import EvidenceRun
+from gcp_identity_cutover import IdentityCutoverError
 from gcp_inputs import load_deployment_inputs
 from gcp_process import ProcessResult
 from tests.gcp_test_support import PROJECT, REVISION, FakeRunner, root_config, sample_gcp_outputs, write_bundle
@@ -56,6 +58,7 @@ def recorder(monkeypatch, chart):
         return call
 
     for module, names in {
+        "gcp_catalog": ("initialize_catalog",),
         "gcp_prereqs": ("ensure_identity_platform", "ensure_state_bucket", "release_disabled_broker_load_balancer"),
         "gcp_control_plane": (
             "ensure_gcp_artifact_registry_service_identity",
@@ -124,6 +127,22 @@ class TestInfrastructureStage:
 
 
 class TestRolloutStage:
+    def test_missing_catalog_proof_leaves_app_ready_and_prints_dns_recovery(self, inputs, recorder, monkeypatch):
+        order, outputs = recorder
+        monkeypatch.setattr("gcp_catalog.initialize_catalog", actual_initialize_catalog)
+        request = RolloutRequest(
+            identities={
+                name: f"host/{name}@sha256:" + "1" * 64
+                for name in ("portal", "provisioner", "guacd", "guacamole-client", "openvpn")
+            },
+            evidence=EvidenceRun("b-evidence", REVISION, "r", 1),
+            first_install=True,
+        )
+        with pytest.raises(IdentityCutoverError, match="Native application is active; catalog setup is incomplete"):
+            rollout_stage(activated_runner(), inputs, InfrastructureResult(outputs=outputs, kube={}), request)
+        assert order.index("helm_upgrade") < order.index("wait_for_rollouts") < order.index("wait_for_ingress_address")
+        assert order[-1] == "wait_for_certificate"
+
     def test_legacy_policy_migration_and_activation_precede_full_release_restore(self, inputs, recorder, facts):
         import yaml
 
@@ -219,6 +238,7 @@ class TestRolloutStage:
             "record_running_images",
             "wait_for_ingress_address",
             "wait_for_certificate",
+            "initialize_catalog",
         ]
         assert "KUBECONFIG" not in os.environ or os.environ["KUBECONFIG"] != "/work/kubeconfig"
 

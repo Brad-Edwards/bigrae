@@ -46,12 +46,14 @@ def _validate_ngfw_name(name: str) -> str:
 
 
 def list_ngfws(user: object, *, scope: ResourceScope | None = None) -> list[NGFWAppContext]:
+    """List devices within the explicitly authorized native scope."""
     from ._scoped_devices import list_scoped_devices
 
     return list_scoped_devices(require_native_content_credential(user), scope)
 
 
 def get_ngfw(user: object, app_id: UUID | str) -> NGFWAppContext:
+    """Resolve one device under current native custody."""
     from ._scoped_devices import get_scoped_device
 
     return get_scoped_device(require_native_content_credential(user), app_id)
@@ -67,6 +69,7 @@ def create_ngfw(
     *,
     scope: ResourceScope | None = None,
 ) -> NGFWAppRef:
+    """Create a scoped device through the owning native admission."""
     from ._scoped_device_create import create_scoped_device
 
     credential = require_native_content_credential(user)
@@ -78,6 +81,7 @@ def create_ngfw(
 
 
 def destroy_ngfw(user: object, app_id: UUID | str, confirm_name: str) -> NGFWAppRef:
+    """Retire the exact device under current native authority."""
     from ._scoped_devices import destroy_scoped_device
 
     return destroy_scoped_device(require_native_content_credential(user), app_id, confirm_name)

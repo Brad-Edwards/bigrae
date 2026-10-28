@@ -20,6 +20,7 @@ _MAX_CANDIDATES = 10000
 
 
 def _parent(scope: ResourceScope) -> tuple[str, UUID]:
+    """Select the most specific live account ancestry for the communication scope."""
     if scope.workspace_uuid is not None:
         return "workspace", scope.workspace_uuid
     if scope.organization_uuid is not None:
@@ -48,69 +49,13 @@ def list_target_options(
         raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
     if not 1 <= limit <= 100 or not 0 <= offset <= 100000 or (parent_type is None) != (parent_uuid is None):
         raise CTFCommunicationError("Invalid target page", code="CTF_COMMUNICATION_TARGET_DENIED")
-    queryset = CTFEvent.objects.exclude(status=EventStatus.CANCELLED.value)
-    if workspace_only:
-        queryset = queryset.filter(workspace_id__isnull=False)
-    if parent_type is not None and parent_uuid is not None:
-        try:
-            scope = ws.event_placement_scope(parent_type, parent_uuid)
-            binding = ws.resolve_resource_scope(scope)
-        except ws.AccountScopeError:
-            raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED") from None
-        queryset = queryset.filter(
-            scope_kind=scope.kind,
-            account_id=binding.account_id,
-            organization_id=binding.organization_id,
-            workspace_id=binding.workspace_id,
-        )
-    candidates = list(queryset.order_by("event_start", "pk")[: _MAX_CANDIDATES + 1])
-    if len(candidates) > _MAX_CANDIDATES:
-        raise CTFCommunicationError("Target collection is too large", code="CTF_COMMUNICATION_COLLECTION_BOUNDED")
+    candidates = _target_candidates(parent_type, parent_uuid, workspace_only)
     rows: list[dict[str, Any]] = []
     parents: dict[tuple[str, UUID], dict[str, Any]] = {}
     for event in candidates:
-        try:
-            admission = admit_event_actions(
-                actor.compatibility_user_id if actor.compatibility_user_id is not None else actor.credential,
-                event,
-                "event.manage_communications",
-            )
-            # Read fresh local fields after policy; never disclose a stale binding.
-            with transaction.atomic():
-                current = CTFEvent.objects.filter(pk=event.pk).exclude(status=EventStatus.CANCELLED.value).first()
-                if current is None:
-                    continue
-                assert_event_action(admission, current, "event.manage_communications")
-                scope = ws.resource_scope_from_ids(
-                    kind=current.scope_kind,
-                    account_id=current.account_id,
-                    organization_id=current.organization_id,
-                    workspace_id=current.workspace_id,
-                )
-                kind, identity = _parent(scope)
-                if (kind, identity) not in parents:
-                    parents[kind, identity] = {
-                        "kind": kind,
-                        "id": identity,
-                        "name": ws.resource_scope_parent_name(scope),
-                    }
-        except (CTFPermissionError, ws.AccountScopeError):
-            continue
-        except CTFError:
-            raise CTFCommunicationError(
-                "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
-            ) from None
-        rows.append(
-            {
-                "id": current.pk,
-                "name": current.name,
-                "status": current.status,
-                "event_timezone": current.event_timezone,
-                "event_start": current.event_start,
-                "event_end": current.event_end,
-                "parent": {"kind": kind, "id": identity},
-            }
-        )
+        row = _target_option(actor, event, parents)
+        if row is not None:
+            rows.append(row)
     # A revoked or narrowed actor is not an ordinary target-level policy denial.
     # Recheck outside SQL before disclosing any accumulated parents or page.
     current_actor = prepare_collection_actor(actor, required_scope=CTF_COMMUNICATION_READ)
@@ -141,3 +86,74 @@ def list_targets(actor: AdmissionActor, *, workspace_uuid: UUID | None, limit: i
         ],
         "next_offset": result["next_offset"],
     }
+
+
+def _target_option(
+    actor: AdmissionActor, event: CTFEvent, parents: dict[tuple[str, UUID], dict[str, Any]]
+) -> dict[str, Any] | None:
+    """Recheck one live event before projecting its name and owning parent."""
+    if actor.credential is None:
+        raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
+    try:
+        admission = admit_event_actions(
+            actor.compatibility_user_id if actor.compatibility_user_id is not None else actor.credential,
+            event,
+            "event.manage_communications",
+        )
+        # Read fresh local fields after policy; never disclose a stale binding.
+        with transaction.atomic():
+            current = CTFEvent.objects.filter(pk=event.pk).exclude(status=EventStatus.CANCELLED.value).first()
+            if current is None:
+                return None
+            assert_event_action(admission, current, "event.manage_communications")
+            scope = ws.resource_scope_from_ids(
+                kind=current.scope_kind,
+                account_id=current.account_id,
+                organization_id=current.organization_id,
+                workspace_id=current.workspace_id,
+            )
+            kind, identity = _parent(scope)
+            if (kind, identity) not in parents:
+                parents[kind, identity] = {
+                    "kind": kind,
+                    "id": identity,
+                    "name": ws.resource_scope_parent_name(scope),
+                }
+    except (CTFPermissionError, ws.AccountScopeError):
+        return None
+    except CTFError:
+        raise CTFCommunicationError(
+            "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        ) from None
+    return {
+        "id": current.pk,
+        "name": current.name,
+        "status": current.status,
+        "event_timezone": current.event_timezone,
+        "event_start": current.event_start,
+        "event_end": current.event_end,
+        "parent": {"kind": kind, "id": identity},
+    }
+
+
+def _target_candidates(parent_type: str | None, parent_uuid: UUID | None, workspace_only: bool) -> list[CTFEvent]:
+    """Read a bounded set at the exact selected placement before per-event policy."""
+    queryset = CTFEvent.objects.exclude(status=EventStatus.CANCELLED.value)
+    if workspace_only:
+        queryset = queryset.filter(workspace_id__isnull=False)
+    if parent_type is not None and parent_uuid is not None:
+        try:
+            scope = ws.event_placement_scope(parent_type, parent_uuid)
+            binding = ws.resolve_resource_scope(scope)
+        except ws.AccountScopeError:
+            raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED") from None
+        queryset = queryset.filter(
+            scope_kind=scope.kind,
+            account_id=binding.account_id,
+            organization_id=binding.organization_id,
+            workspace_id=binding.workspace_id,
+        )
+    candidates = list(queryset.order_by("event_start", "pk")[: _MAX_CANDIDATES + 1])
+    if len(candidates) > _MAX_CANDIDATES:
+        raise CTFCommunicationError("Target collection is too large", code="CTF_COMMUNICATION_COLLECTION_BOUNDED")
+    return candidates

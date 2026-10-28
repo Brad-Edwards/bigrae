@@ -55,21 +55,13 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         from cms.services import (
-            confirm_tenant_pack_archive_absent,
             reconcile_tenant_pack_removals,
-            relocate_tenant_pack_archive,
         )
         from cms.services._scoped_uploads import reconcile_upload_cleanup
 
         if not 1 <= options["interval"] <= 3600 or not 1 <= options["batch_size"] <= 100:
             raise CommandError("Invalid tenant pack removal reconciler bounds")
-        try:
-            if options["relocate_archive"] is not None:
-                relocate_tenant_pack_archive(options["relocate_archive"], options["bucket"], options["object_key"])
-            elif options["confirm_archive_absent"] is not None:
-                confirm_tenant_pack_archive_absent(options["confirm_archive_absent"])
-        except ValueError as exc:
-            raise CommandError(str(exc)) from None
+        self._configure_archive(options)
         stopped = threading.Event()
         if options["loop"]:
             signal.signal(signal.SIGTERM, lambda *_: stopped.set())
@@ -81,13 +73,13 @@ class Command(BaseCommand):
                 completed = reconcile_tenant_pack_removals(limit=options["batch_size"])
             except Exception as exc:
                 completed, failed = 0, True
-                logger.error("Pack cleanup pass failed error_type=%s", type(exc).__name__)
+                logger.exception("Pack cleanup pass failed error_type=%s", type(exc).__name__)
             HEARTBEAT_FILE.touch()
             try:
                 uploads = reconcile_upload_cleanup(limit=options["batch_size"])
             except Exception as exc:
                 uploads, failed = 0, True
-                logger.error("Installer cleanup pass failed error_type=%s", type(exc).__name__)
+                logger.exception("Installer cleanup pass failed error_type=%s", type(exc).__name__)
             HEARTBEAT_FILE.touch()
             logger.info("CMS cleanup pass complete packs=%d uploads=%d", completed, uploads)
             if not options["loop"]:
@@ -95,3 +87,15 @@ class Command(BaseCommand):
                     raise CommandError("A CMS cleanup pass failed; retained cleanup will retry")
                 return
             stopped.wait(options["interval"])
+
+    def _configure_archive(self, options: dict[str, Any]) -> None:
+        """Apply only an explicit operator correction to retained legacy storage custody."""
+        from cms.services import confirm_tenant_pack_archive_absent, relocate_tenant_pack_archive
+
+        try:
+            if options["relocate_archive"] is not None:
+                relocate_tenant_pack_archive(options["relocate_archive"], options["bucket"], options["object_key"])
+            elif options["confirm_archive_absent"] is not None:
+                confirm_tenant_pack_archive_absent(options["confirm_archive_absent"])
+        except ValueError as exc:
+            raise CommandError(str(exc)) from None

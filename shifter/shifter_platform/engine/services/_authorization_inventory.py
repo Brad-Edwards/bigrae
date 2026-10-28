@@ -11,6 +11,7 @@ from shared.authorization.inventory import (
     bind_authorization_event_range_resolver,
     bind_authorization_range_binding_resolver,
 )
+from shared.identity_scope import ResourceScope
 
 
 def list_authorization_range_uuids(workspace_ids: Sequence[int], limit: int) -> tuple[UUID, ...]:
@@ -49,7 +50,8 @@ def _authorization_event_range_targets(event_uuid: UUID, limit: int) -> tuple[Ta
     return tuple(result)
 
 
-def _authorization_range_binding(range_uuid: UUID):
+def _authorization_range_binding(range_uuid: UUID) -> tuple[TargetRef, ResourceScope]:
+    """Return the exact SQL-owned parent and ancestry of one public range identity."""
     from engine.models import Range
 
     from ._range_authority import project_range_authority

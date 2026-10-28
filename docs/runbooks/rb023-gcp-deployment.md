@@ -33,6 +33,7 @@ messages identify the stage:
 | Scan | `exact-release scan failed; the rollout is blocked`; `failed to store the redacted release verdict` |
 | Verify | `no attestation is stored with ...`; `no attestation of ... satisfies the release trust policy` |
 | Rollout | `... belongs to another Helm release; refusing to adopt it`; `running workloads do not match the approved release`; `ingress platform-external did not receive a load-balancer address within 10 minutes`; `certificate platform-managed-cert did not appear for ... within 2 minutes`; `certificate platform-managed-cert is not Active for ... after 60 minutes`; `OpenVPN pool servers did not all report healthy within 10 minutes` |
+| Catalog | Native application activation and readiness succeeded, but catalog initialization requires a current admitted credential. Preserve the active application, complete DNS and TLS, obtain a native credential, and retry with `--catalog-credential-file`. Workload IAM or an actor username is not a substitute. |
 | Teardown | `--confirm must equal the deployment name`; `terraform destroy failed after 6 attempts` |
 
 ## Investigation

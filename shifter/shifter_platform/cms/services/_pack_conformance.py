@@ -7,8 +7,7 @@ from uuid import UUID, uuid4
 
 from django.db import transaction
 
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
-from shared.auth import validate_cms_authoring_user
+from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.credentials import CredentialContext, resolve_local_credential
 from shared.exceptions import ValidationError
 from shared.raes.pack_conformance import validate_pack_contract
@@ -17,6 +16,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from cms.models import RaesPackageSource
+    from shared.identity_scope import ResourceScope
 
 
 def validate_registered_pack_conformance(
@@ -31,21 +31,18 @@ def validate_registered_pack_conformance(
     from cms.models import RaesPackageSource
     from cms.scenarios.realizability import _trusted_scenario_path
     from cms.scenarios.registry import get_catalog_entry
-    from workspaces.services import get_organization_profile
 
+    from ._content_authority import (
+        content_scope,
+        fence_content_scope,
+        require_content_scope,
+        require_native_content_credential,
+    )
+
+    user = require_native_content_credential(user)
     source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
-    scope = None
-    if isinstance(user, CredentialContext):
-        from ._content_authority import content_scope, require_content_scope
-
-        scope = content_scope(source)
-        user = require_content_scope(user, scope, "manage_content")
-    elif source is not None and source.scope_kind:
-        raise ValidationError("Native pack conformance authority unavailable")
-    elif source is not None and source.organization_uuid is not None:
-        get_organization_profile(user, source.organization_uuid)
-    else:
-        validate_cms_authoring_user(user, "validate_pack_conformance")
+    scope = content_scope(source)
+    user = require_content_scope(user, scope, "manage_content")
     if get_catalog_entry(scenario_id, user=user, scope=scope) is None:
         raise ValidationError("The pack is unavailable for conformance validation")
     if source is None or not expected_package_digest or source.package_digest != expected_package_digest:
@@ -60,17 +57,11 @@ def validate_registered_pack_conformance(
     except Exception as exc:
         # Private parser diagnostics and storage references never leave this gate.
         raise ValidationError("The registered pack failed contract conformance") from exc
-    if isinstance(user, CredentialContext):
-        user = require_content_scope(user, scope, "manage_content")
+    user = require_content_scope(user, scope, "manage_content")
     with transaction.atomic():
-        current = _locked_unchanged(source.pk, identity, user)
-        if isinstance(user, CredentialContext) and (
-            resolve_local_credential(user) != user
-            or content_scope(current) != scope
-            or current.owner_principal_uuid != source.owner_principal_uuid
-            or current.scope_generation != source.scope_generation
-        ):
-            raise ValidationError("Native pack conformance authority unavailable")
+        fence_content_scope(user, scope)
+        current = _locked_unchanged(source.pk, identity)
+        _fence_conformance_source(user, scope, current, source)
         current.conformance_status = "passed"
         current.conformance_report_ref = report
         current.save(update_fields=["conformance_status", "conformance_report_ref", "updated_at"])
@@ -80,11 +71,7 @@ def validate_registered_pack_conformance(
                 entity_id=0,
                 entity_ref=scenario_id,
                 action=AuditAction.UPDATE,
-                **(
-                    principal_actor_fields(user.principal)
-                    if isinstance(user, CredentialContext)
-                    else {"actor_type": AuditActorType.USER, "actor_id": user.id}
-                ),
+                **principal_actor_fields(user.principal),
                 new_state={
                     "scenario_id": scenario_id,
                     "package_digest": expected_package_digest,
@@ -114,16 +101,28 @@ def _identity(source: RaesPackageSource) -> tuple[str, ...]:
     )
 
 
-def _locked_unchanged(pk: UUID, identity: tuple[str, ...], user: User | CredentialContext) -> RaesPackageSource:
+def _locked_unchanged(pk: UUID, identity: tuple[str, ...]) -> RaesPackageSource:
     """Lock the validated row, reauthorize, and require its identity unchanged (or present)."""
     from cms.models import RaesPackageSource
-    from workspaces.services import get_organization_profile
 
     current = RaesPackageSource.objects.select_for_update().filter(pk=pk).first()
     if current is None:
         raise ValidationError("The pack identity changed during conformance validation")
-    if current.organization_uuid is not None and not isinstance(user, CredentialContext):
-        get_organization_profile(user, current.organization_uuid)
     if _identity(current) != identity:
         raise ValidationError("The pack identity changed during conformance validation")
     return current
+
+
+def _fence_conformance_source(
+    user: CredentialContext, scope: ResourceScope, current: RaesPackageSource, source: RaesPackageSource
+) -> None:
+    """Reject revoked proof or replaced native source custody at qualification commit."""
+    from ._content_authority import content_scope
+
+    if (
+        resolve_local_credential(user) != user
+        or content_scope(current) != scope
+        or current.owner_principal_uuid != source.owner_principal_uuid
+        or current.scope_generation != source.scope_generation
+    ):
+        raise ValidationError("Native pack conformance authority unavailable")

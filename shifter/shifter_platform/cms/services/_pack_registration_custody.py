@@ -16,7 +16,7 @@ from shared.identity_scope import ResourceScope
 from ._content_authority import ContentAuthorityError, content_scope, fence_content_scope, require_content_scope
 
 if TYPE_CHECKING:
-    from ._content_ingestion import PackRegistrationRequest
+    from ._pack_registration_types import PackRegistrationRequest
     from ._tenant_pack_upload_journal import PackUploadJournal
 
 _UNAVAILABLE = "Pack registration is unavailable"
@@ -54,11 +54,13 @@ class RegistrationReferenceAdmission:
     upload: PackUploadJournal | None = None
 
 
-def _snapshot(row, fields):
+def _snapshot(row: object, fields: tuple[str, ...]) -> tuple[tuple[str, object], ...]:
+    """Freeze the named scalar custody facts for a later local commit fence."""
     return tuple((name, getattr(row, name)) for name in fields)
 
 
 def _valid_archive(archive: TenantPackArchive, request: PackRegistrationRequest, scope: ResourceScope) -> bool:
+    """Match an archive to its exact recorded tenant scope and storage location."""
     prefix = settings.RAES_PACKAGE_PREFIX.strip().strip("/")
     key = f"{prefix}/{request.package_ref}" if prefix else request.package_ref
     return (
@@ -74,10 +76,15 @@ def _valid_archive(archive: TenantPackArchive, request: PackRegistrationRequest,
     )
 
 
-def _check_upload(credential, request, scope, journal):
+def _check_upload(
+    credential: CredentialContext, request: PackRegistrationRequest, scope: ResourceScope, journal: PackUploadJournal
+) -> None:
+    """Require the uploader's exact unexpired native journal before publication."""
     from ._tenant_pack_authority import TenantPackAdmission
     from ._tenant_pack_upload_journal import claim_pack_upload
 
+    if scope.organization_uuid is None:
+        raise ContentAuthorityError(_UNAVAILABLE)
     claim_pack_upload(journal, TenantPackAdmission(credential, scope.organization_uuid, scope), request)
 
 
@@ -90,27 +97,7 @@ def prepare_registration_reference(
     """Tenant grants admit recorded references; generic references need installation authority."""
     if scope.kind == "installation":
         return RegistrationReferenceAdmission(installation_credential=credential)
-    if request.source_kind == "object":
-        archive = TenantPackArchive.objects.filter(package_ref=request.package_ref).first()
-        if archive is not None and _valid_archive(archive, request, scope):
-            if upload is not None and upload.archive.pk == archive.pk:
-                with transaction.atomic():
-                    _check_upload(credential, request, scope, upload)
-                return RegistrationReferenceAdmission(archive=_snapshot(archive, _ARCHIVE_FIELDS), upload=upload)
-            if archive.removal_id is None:
-                return RegistrationReferenceAdmission(archive=_snapshot(archive, _ARCHIVE_FIELDS))
-        # A recorded archive's scope/location/lifecycle cannot be bypassed with
-        # a source row pointing at it, including while cleanup owns the bytes.
-        if archive is not None:
-            operator = require_content_scope(credential, ResourceScope("installation"), "manage_content")
-            return RegistrationReferenceAdmission(installation_credential=operator)
-    source = RaesPackageSource.objects.filter(
-        scenario_id=request.scenario_id, source_kind=request.source_kind, package_ref=request.package_ref
-    ).first()
-    if source is not None and content_scope(source) == scope:
-        return RegistrationReferenceAdmission(source=_snapshot(source, _SOURCE_FIELDS))
-    operator = require_content_scope(credential, ResourceScope("installation"), "manage_content")
-    return RegistrationReferenceAdmission(installation_credential=operator)
+    return _tenant_reference(credential, request, scope, upload)
 
 
 def fence_registration_reference(
@@ -125,21 +112,7 @@ def fence_registration_reference(
         fence_content_scope(admission.installation_credential, ResourceScope("installation"))
         return
     if admission.archive:
-        expected = dict(admission.archive)
-        archive_pk = expected.get("pk")
-        if type(archive_pk) is not int:
-            raise ContentAuthorityError(_UNAVAILABLE)
-        archive = TenantPackArchive.objects.select_for_update().filter(pk=archive_pk).first()
-        if (
-            archive is None
-            or _snapshot(archive, _ARCHIVE_FIELDS) != admission.archive
-            or not _valid_archive(archive, request, scope)
-        ):
-            raise ContentAuthorityError(_UNAVAILABLE)
-        if admission.upload is not None:
-            _check_upload(credential, request, scope, admission.upload)
-        elif archive.removal_id is not None:
-            raise ContentAuthorityError(_UNAVAILABLE)
+        _fence_archive_reference(credential, request, scope, admission)
         return
     expected = dict(admission.source)
     source_pk = expected.get("pk")
@@ -153,3 +126,86 @@ def fence_registration_reference(
         or TenantPackArchive.objects.filter(package_ref=request.package_ref).exists()
     ):
         raise ContentAuthorityError(_UNAVAILABLE)
+
+
+def _installation_reference(credential: CredentialContext) -> RegistrationReferenceAdmission:
+    """Generic or foreign references require independently admitted installation authority."""
+    operator = require_content_scope(credential, ResourceScope("installation"), "manage_content")
+    return RegistrationReferenceAdmission(installation_credential=operator)
+
+
+def _archive_reference(
+    credential: CredentialContext,
+    request: PackRegistrationRequest,
+    scope: ResourceScope,
+    upload: PackUploadJournal | None,
+) -> RegistrationReferenceAdmission | None:
+    """A retained archive admits exact tenant custody or requires installation authority."""
+    archive = TenantPackArchive.objects.filter(package_ref=request.package_ref).first()
+    if archive is None:
+        return None
+    admitted = _retained_archive_reference(credential, request, scope, upload, archive)
+    # Existing archive custody cannot be bypassed by a source row, including while cleanup owns its bytes.
+    return admitted or _installation_reference(credential)
+
+
+def _fence_archive_reference(
+    credential: CredentialContext,
+    request: PackRegistrationRequest,
+    scope: ResourceScope,
+    admission: RegistrationReferenceAdmission,
+) -> None:
+    """Hold exact archive identity, location and uploader lease through registration."""
+    expected = dict(admission.archive)
+    archive_pk = expected.get("pk")
+    if type(archive_pk) is not int:
+        raise ContentAuthorityError(_UNAVAILABLE)
+    archive = TenantPackArchive.objects.select_for_update().filter(pk=archive_pk).first()
+    if (
+        archive is None
+        or _snapshot(archive, _ARCHIVE_FIELDS) != admission.archive
+        or not _valid_archive(archive, request, scope)
+    ):
+        raise ContentAuthorityError(_UNAVAILABLE)
+    if admission.upload is not None:
+        _check_upload(credential, request, scope, admission.upload)
+    elif archive.removal_id is not None:
+        raise ContentAuthorityError(_UNAVAILABLE)
+
+
+def _tenant_reference(
+    credential: CredentialContext,
+    request: PackRegistrationRequest,
+    scope: ResourceScope,
+    upload: PackUploadJournal | None,
+) -> RegistrationReferenceAdmission:
+    """Resolve exact tenant custody before falling back to explicit installation authority."""
+    if request.source_kind == "object":
+        archive_admission = _archive_reference(credential, request, scope, upload)
+        if archive_admission is not None:
+            return archive_admission
+    source = RaesPackageSource.objects.filter(
+        scenario_id=request.scenario_id, source_kind=request.source_kind, package_ref=request.package_ref
+    ).first()
+    if source is not None and content_scope(source) == scope:
+        return RegistrationReferenceAdmission(source=_snapshot(source, _SOURCE_FIELDS))
+    return _installation_reference(credential)
+
+
+def _retained_archive_reference(
+    credential: CredentialContext,
+    request: PackRegistrationRequest,
+    scope: ResourceScope,
+    upload: PackUploadJournal | None,
+    archive: TenantPackArchive,
+) -> RegistrationReferenceAdmission | None:
+    """An exact live upload or installed archive can admit tenant-owned reference bytes."""
+    admitted = None
+    if _valid_archive(archive, request, scope):
+        if upload is not None and upload.archive.pk == archive.pk:
+            with transaction.atomic():
+                _check_upload(credential, request, scope, upload)
+            admitted = RegistrationReferenceAdmission(archive=_snapshot(archive, _ARCHIVE_FIELDS), upload=upload)
+        elif archive.removal_id is None:
+            admitted = RegistrationReferenceAdmission(archive=_snapshot(archive, _ARCHIVE_FIELDS))
+    return admitted

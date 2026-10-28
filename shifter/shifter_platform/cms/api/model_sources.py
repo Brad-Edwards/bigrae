@@ -28,6 +28,8 @@ from workspaces.services import OrganizationAuthorizationError
 
 from .preparation_adapters import PreparationSerializer
 
+_MANAGE_ORGANIZATION_MODEL_SOURCES = "organization.manage_model_sources"
+
 
 class ModelSourceConfigurationSerializer(PreparationSerializer):
     """Editable metadata; the service validates provider-specific combinations."""
@@ -116,7 +118,7 @@ class ModelSourceListCreateView(APIView):
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
         require_scope(
-            AUTHORIZATION_ACTION_SCOPES["organization.manage_model_sources"],
+            AUTHORIZATION_ACTION_SCOPES[_MANAGE_ORGANIZATION_MODEL_SOURCES],
         ),
     ]
     parser_classes = [ClosedJSONParser]
@@ -148,7 +150,7 @@ class ModelSourceDetailView(APIView):
 
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
-        require_scope(AUTHORIZATION_ACTION_SCOPES["organization.manage_model_sources"]),
+        require_scope(AUTHORIZATION_ACTION_SCOPES[_MANAGE_ORGANIZATION_MODEL_SOURCES]),
     ]
     parser_classes = [ClosedJSONParser]
 
@@ -173,7 +175,7 @@ class UsableModelSourceListView(APIView):
 
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
-        require_scope(AUTHORIZATION_ACTION_SCOPES["organization.manage_model_sources"]),
+        require_scope(AUTHORIZATION_ACTION_SCOPES[_MANAGE_ORGANIZATION_MODEL_SOURCES]),
     ]
 
     @extend_schema(responses=ModelSourcePageSerializer)
@@ -202,7 +204,7 @@ class ModelSourceCredentialRetirementView(APIView):
 
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
-        require_scope(AUTHORIZATION_ACTION_SCOPES["organization.manage_model_sources"]),
+        require_scope(AUTHORIZATION_ACTION_SCOPES[_MANAGE_ORGANIZATION_MODEL_SOURCES]),
     ]
     parser_classes = [ClosedJSONParser]
 

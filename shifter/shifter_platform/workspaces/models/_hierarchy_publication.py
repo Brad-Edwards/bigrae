@@ -9,16 +9,22 @@ class HierarchyPublication(models.Model):
     """Exact parent intent and verified provider outcome for one hierarchy object."""
 
     class State(models.TextChoices):
+        """Closed progress states for publishing one hierarchy relationship."""
+
         REQUESTED = "requested", "Requested"
         CONFIRMED = "confirmed", "Confirmed"
         UNRESOLVED = "unresolved", "Unresolved"
 
     class ObjectKind(models.TextChoices):
+        """Supported SQL hierarchy children."""
+
         ACCOUNT = "account", "Account"
         ORGANIZATION = "organization", "Organization"
         WORKSPACE = "workspace", "Workspace"
 
     class ParentKind(models.TextChoices):
+        """Supported authorization hierarchy parents."""
+
         INSTALLATION = "installation", "Installation"
         ACCOUNT = "account", "Account"
         ORGANIZATION = "organization", "Organization"
@@ -36,6 +42,8 @@ class HierarchyPublication(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        """Persist one indexed publication receipt for each hierarchy object."""
+
         db_table = "workspaces_hierarchy_publication"
         constraints = [
             models.UniqueConstraint(

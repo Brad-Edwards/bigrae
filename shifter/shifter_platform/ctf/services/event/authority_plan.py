@@ -29,11 +29,14 @@ if TYPE_CHECKING:
 
 
 def unavailable() -> CTFStateError:
+    """Create the opaque domain error for an unresolved authority transition."""
     return CTFStateError("Event authority is unavailable", code="CTF_EVENT_AUTHORITY_UNAVAILABLE")
 
 
 @dataclass(frozen=True)
 class AuthorityPlan:
+    """Immutable effects and provider binding for one event authority transition."""
+
     transition_uuid: UUID
     event_uuid: UUID
     kind: str
@@ -104,7 +107,6 @@ def prepare_plan(
     requested_role: str = "",
 ) -> AuthorityPlan:
     """Preflight every prospective effect before retaining a pending aggregate."""
-    from ctf.services.event.staff import actions_for_role
     from workspaces.services import check_authorization_delegation
 
     try:
@@ -112,36 +114,7 @@ def prepare_plan(
     except AuthorizationProviderBindingError:
         raise unavailable() from None
     transition_uuid = uuid4()
-    old = set(actions_for_role(previous_role or None))
-    new = set(actions_for_role(requested_role or None))
-    subject_uuid = target_uuid
-    if kind == "transfer":
-        old, new = set(), set(actions_for_role("co_organizer"))
-        subject_uuid = event.owner_principal_uuid
-    effects = tuple(
-        EventAuthorityEffect(
-            f"event-staff-{transition_uuid.hex}-{action}",
-            subject_uuid,
-            "grant" if action in new else "revoke",
-            action=action,
-        )
-        for action in sorted(old | new)
-    )
-    if kind == "transfer":
-        effects += (
-            EventAuthorityEffect(
-                f"event-owner-{transition_uuid.hex}-grant-target",
-                target_uuid,
-                "grant",
-                policy_code="event_administrator",
-            ),
-            EventAuthorityEffect(
-                f"event-owner-{transition_uuid.hex}-revoke-source",
-                event.owner_principal_uuid,
-                "revoke",
-                policy_code="event_administrator",
-            ),
-        )
+    effects = _plan_effects(transition_uuid, event, kind, target_uuid, previous_role, requested_role)
     plan = AuthorityPlan(
         transition_uuid,
         event.pk,
@@ -295,3 +268,47 @@ def publish_plan(transition: CTFEventAuthorityTransition, actor: EventActor) -> 
             raise unavailable() from None
         if result.state != "confirmed":
             raise unavailable()
+
+
+def _plan_effects(
+    transition_uuid: UUID,
+    event: CTFEvent,
+    kind: str,
+    target_uuid: UUID,
+    previous_role: str,
+    requested_role: str,
+) -> tuple[EventAuthorityEffect, ...]:
+    """Freeze the exact staff delta and any ownership handoff effects."""
+    from ctf.services.event.staff import actions_for_role
+
+    old = set(actions_for_role(previous_role or None))
+    new = set(actions_for_role(requested_role or None))
+    subject_uuid = target_uuid
+    if kind == "transfer":
+        old, new = set(), set(actions_for_role("co_organizer"))
+        subject_uuid = event.owner_principal_uuid
+    effects = tuple(
+        EventAuthorityEffect(
+            f"event-staff-{transition_uuid.hex}-{action}",
+            subject_uuid,
+            "grant" if action in new else "revoke",
+            action=action,
+        )
+        for action in sorted(old | new)
+    )
+    if kind == "transfer":
+        effects += (
+            EventAuthorityEffect(
+                f"event-owner-{transition_uuid.hex}-grant-target",
+                target_uuid,
+                "grant",
+                policy_code="event_administrator",
+            ),
+            EventAuthorityEffect(
+                f"event-owner-{transition_uuid.hex}-revoke-source",
+                event.owner_principal_uuid,
+                "revoke",
+                policy_code="event_administrator",
+            ),
+        )
+    return effects

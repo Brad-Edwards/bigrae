@@ -142,7 +142,7 @@ def _status_response(bootstrap: GuacamoleBootstrapRequest) -> JsonResponse:
         payload["error"] = bootstrap.error_message or "Guacamole session request expired"
         status_code = 410
     elif bootstrap.status == GuacamoleBootstrapRequest.Status.SUCCEEDED:
-        url = consume_ready_url(request_id=bootstrap.id, user_id=bootstrap.user_id)
+        url = consume_ready_url(request_id=bootstrap.id)
         if url:
             # Single-use delivery: the URL is returned exactly once and the
             # token material is cleared from the row inside consume_ready_url.

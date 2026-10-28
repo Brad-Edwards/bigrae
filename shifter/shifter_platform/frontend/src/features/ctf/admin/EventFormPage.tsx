@@ -15,11 +15,10 @@ import { CheckboxField, FieldError, TextAreaField, TextField } from "./form-fiel
 import { NO_SCENARIO, renderEditLoadState, useEventFormState } from "./eventFormState";
 
 export function EventFormPage({ mode }: Readonly<{ mode: "create" | "edit" }>) {
+  const form = useEventFormState(mode);
   const {
     eventId, existing, scenarios, mutation, state, formRef, nonFieldError, set, firstError, onSubmit, navigate,
-    catalog, catalogs, catalogChoices, catalogOffset, selectCatalog, browseCatalogs,
-  } =
-    useEventFormState(mode);
+  } = form;
 
   const editLoadState = renderEditLoadState(mode, existing);
   if (editLoadState) return <>{editLoadState}</>;
@@ -90,25 +89,7 @@ export function EventFormPage({ mode }: Readonly<{ mode: "create" | "edit" }>) {
               onChange={(v) => set("registration_deadline", v)}
             />
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="e-catalog">Scenario catalog</Label>
-              <select id="e-catalog" value={catalog ? contentScopeKey(catalog) : ""}
-                onChange={(event) => selectCatalog(event.target.value)} disabled={!catalogChoices.length}
-                className="h-9 rounded-md border bg-background px-3 text-sm">
-                {!catalogChoices.length ? <option value="">Select a catalog</option> : null}
-                {catalogChoices.map((row) => <option key={contentScopeKey(row)} value={contentScopeKey(row)}>
-                  {row.kind === "installation" ? row.name : `${row.kind}: ${row.name}`}
-                </option>)}
-              </select>
-              {catalogs.isError ? <p role="alert">Could not load scenario catalogs. Please retry.</p> : null}
-              {catalogOffset > 0 || (catalogs.data?.count ?? 0) > 50 ? <nav aria-label="Scenario catalog pages" className="flex gap-2">
-                <Button type="button" variant="outline" disabled={catalogOffset === 0 || catalogs.isFetching}
-                  onClick={() => browseCatalogs(Math.max(0, catalogOffset - 50))}>Previous catalogs</Button>
-                <Button type="button" variant="outline" disabled={catalogs.isFetching || catalogOffset + 50 >= (catalogs.data?.count ?? 0)}
-                  onClick={() => browseCatalogs(catalogOffset + 50)}>Next catalogs</Button>
-              </nav> : null}
-              {scenarios.isError ? <p role="alert">Could not load scenarios. Please retry.</p> : null}
-            </div>
+            <ScenarioCatalog form={form} />
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="e-scenario">Scenario</Label>
@@ -378,4 +359,30 @@ function EventHeading({ mode, name }: Readonly<{ mode: "create" | "edit"; name?:
         {mode === "create" ? "New event" : `Edit ${name ?? "event"}`}
       </h1>
   </>;
+}
+
+
+function ScenarioCatalog({ form }: Readonly<{ form: ReturnType<typeof useEventFormState> }>) {
+  const { catalog, catalogs, catalogChoices, catalogOffset, selectCatalog, browseCatalogs, scenarios } = form;
+  return (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="e-catalog">Scenario catalog</Label>
+              <select id="e-catalog" value={catalog ? contentScopeKey(catalog) : ""}
+                onChange={(event) => selectCatalog(event.target.value)} disabled={!catalogChoices.length}
+                className="h-9 rounded-md border bg-background px-3 text-sm">
+                {catalogChoices.length === 0 ? <option value="">Select a catalog</option> : null}
+                {catalogChoices.map((row) => <option key={contentScopeKey(row)} value={contentScopeKey(row)}>
+                  {row.kind === "installation" ? row.name : `${row.kind}: ${row.name}`}
+                </option>)}
+              </select>
+              {catalogs.isError ? <p role="alert">Could not load scenario catalogs. Please retry.</p> : null}
+              {catalogOffset > 0 || (catalogs.data?.count ?? 0) > 50 ? <nav aria-label="Scenario catalog pages" className="flex gap-2">
+                <Button type="button" variant="outline" disabled={catalogOffset === 0 || catalogs.isFetching}
+                  onClick={() => browseCatalogs(Math.max(0, catalogOffset - 50))}>Previous catalogs</Button>
+                <Button type="button" variant="outline" disabled={catalogs.isFetching || catalogOffset + 50 >= (catalogs.data?.count ?? 0)}
+                  onClick={() => browseCatalogs(catalogOffset + 50)}>Next catalogs</Button>
+              </nav> : null}
+              {scenarios.isError ? <p role="alert">Could not load scenarios. Please retry.</p> : null}
+            </div>
+  );
 }

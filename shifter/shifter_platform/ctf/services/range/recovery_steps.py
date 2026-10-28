@@ -21,6 +21,11 @@ from ctf.services.audit import audit_range_recovery
 from shared.enums import ResourceStatus
 
 if TYPE_CHECKING:
+    from ctf.models import CTFEvent, CTFRangeLaunch
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
+
+if TYPE_CHECKING:
     from uuid import UUID
 
     from shared.model_access import OwnedReference
@@ -38,6 +43,7 @@ def _range_error(message: str, *, category: RecoveryFailureCategory, **details: 
 
 
 def _participant_principal_uuid(participant: CTFParticipant) -> UUID:
+    """Require the participant identity that owns the replacement range."""
     principal_uuid = participant.principal_uuid
     if principal_uuid is None:
         raise _range_error("Participant principal unavailable", category=RecoveryFailureCategory.VALIDATION_FAILED)
@@ -45,7 +51,10 @@ def _participant_principal_uuid(participant: CTFParticipant) -> UUID:
 
 
 def _rebuild_replacement(
-    recovery, participant: CTFParticipant, model_subject: OwnedReference, credential
+    recovery: CTFRangeRecovery,
+    participant: CTFParticipant,
+    model_subject: OwnedReference,
+    credential: CredentialContext,
 ) -> tuple[int, UUID]:
     """Reserve and resume exactly one replacement UUID before invoking CMS."""
     from ctf.models import CTFEvent, CTFRangeLaunch
@@ -116,12 +125,7 @@ def _claim_spare(participant: CTFParticipant, spare_range_instance_id: int | Non
     MUST run inside the caller's transaction (``select_for_update``);
     :func:`_ensure_spare_reserved` wraps this claim and the pointer write atomically.
     """
-    from ctf.bridges import (
-        cms_get_range_status,
-        cms_range_egress_compatible_with_event,
-        cms_range_owner_reassignment_available,
-    )
-    from ctf.models import CTFEvent, CTFRangeLaunch
+    from ctf.models import CTFEvent
 
     event = CTFEvent.objects.select_for_update().get(pk=participant.event_id)
     if event.status == "cancelled":
@@ -143,24 +147,7 @@ def _claim_spare(participant: CTFParticipant, spare_range_instance_id: int | Non
         candidates = candidates.filter(range_instance_id=spare_range_instance_id)
 
     for candidate in candidates.order_by("-created_at"):
-        if candidate.range_instance_id is None or candidate.request_id is None:
-            continue
-        if not CTFRangeLaunch.objects.filter(
-            pk=candidate.request_id,
-            event=event,
-            subject_kind="spare",
-            subject_uuid=candidate.pk,
-            range_instance_id=candidate.range_instance_id,
-        ).exists():
-            continue
-        live_ready = candidate.status == SpareRangeStatus.READY.value or (
-            cms_get_range_status(candidate.range_instance_id) == ResourceStatus.READY.value
-        )
-        if not live_ready:
-            continue
-        if not cms_range_owner_reassignment_available(candidate.range_instance_id):
-            continue
-        if not cms_range_egress_compatible_with_event(candidate.range_instance_id, event_scope):
+        if not _spare_generation_eligible(candidate, event, event_scope):
             continue
         candidate.consumed_by = participant
         candidate.consumed_at = timezone.now()
@@ -245,7 +232,9 @@ def _ensure_spare_reserved(
         locked.save(update_fields=["replacement_range_instance_id", "replacement_request_id", "updated_at"])
 
 
-def _ensure_spare_attached(recovery: CTFRangeRecovery, participant: CTFParticipant, credential) -> None:
+def _ensure_spare_attached(
+    recovery: CTFRangeRecovery, participant: CTFParticipant, credential: CredentialContext
+) -> None:
     """Attach the reserved spare after the old range is blocked (idempotent, #307).
 
     ``cms_reassign_range_owner`` is a no-op when already owned (resume safe).
@@ -273,7 +262,10 @@ def _ensure_spare_attached(recovery: CTFRangeRecovery, participant: CTFParticipa
 
 
 def _ensure_rebuild_replacement_ready(
-    recovery: CTFRangeRecovery, participant: CTFParticipant, model_subject: OwnedReference, credential
+    recovery: CTFRangeRecovery,
+    participant: CTFParticipant,
+    model_subject: OwnedReference,
+    credential: CredentialContext,
 ) -> None:
     """Provision a fresh rebuild replacement range (idempotent; rebuild-only).
 
@@ -287,7 +279,9 @@ def _ensure_rebuild_replacement_ready(
     recovery.save(update_fields=["replacement_range_instance_id", "replacement_request_id", "phase", "updated_at"])
 
 
-def _ensure_old_range_blocked(recovery: CTFRangeRecovery, old_range_instance_id: int, credential) -> None:
+def _ensure_old_range_blocked(
+    recovery: CTFRangeRecovery, old_range_instance_id: int, credential: CredentialContext
+) -> None:
     """Tear down the old range unless it is already in a terminal state.
 
     Idempotent against retries: ``cms.services.destroy_range`` is not itself
@@ -342,33 +336,12 @@ def _ensure_participant_repointed(participant: CTFParticipant, recovery: CTFRang
         intent = CTFRangeLaunch.objects.filter(
             pk=replacement_request, event=event, range_instance_id=replacement_id
         ).first()
-        live_subject = intent is not None and (
-            (intent.subject_kind == "rebuild" and intent.subject_uuid == locked.pk)
-            or (
-                intent.subject_kind == "spare"
-                and CTFSpareRange.objects.filter(
-                    pk=intent.subject_uuid,
-                    event=event,
-                    consumed_by=current,
-                    status=SpareRangeStatus.CONSUMED.value,
-                    request_id=replacement_request,
-                    range_instance_id=replacement_id,
-                ).exists()
-            )
-        )
+        live_subject = _live_replacement_subject(intent, locked, current, replacement)
         if (
             event.status == "cancelled"
             or not live_subject
             or (locked.replacement_range_instance_id, locked.replacement_request_id) != replacement
-            or (
-                (current.range_instance_id, current.range_request_id) not in {expected_old, replacement}
-                and not (
-                    cleared_old
-                    and current.range_instance_id is None
-                    and current.range_request_id == expected_old[1]
-                    and current.range_status == ""
-                )
-            )
+            or not _recovery_pointer_matches(current, expected_old, replacement, cleared_old)
         ):
             raise _range_error(
                 "Replacement generation changed or was cancelled", category=RecoveryFailureCategory.INTERNAL_ERROR
@@ -399,3 +372,68 @@ def _complete_recovery(
     )
     recovery.phase = RecoveryPhase.COMPLETED.value
     recovery.save(update_fields=["phase", "updated_at"])
+
+
+def _spare_generation_eligible(candidate: CTFSpareRange, event: CTFEvent, scope: ResourceScope) -> bool:
+    """Require live journal identity, ready runtime, transferable owner and exact event egress."""
+    from ctf.bridges import (
+        cms_get_range_status,
+        cms_range_egress_compatible_with_event,
+        cms_range_owner_reassignment_available,
+    )
+    from ctf.models import CTFRangeLaunch
+
+    if candidate.range_instance_id is None or candidate.request_id is None:
+        return False
+    if not CTFRangeLaunch.objects.filter(
+        pk=candidate.request_id,
+        event=event,
+        subject_kind="spare",
+        subject_uuid=candidate.pk,
+        range_instance_id=candidate.range_instance_id,
+    ).exists():
+        return False
+    ready = candidate.status == SpareRangeStatus.READY.value or (
+        cms_get_range_status(candidate.range_instance_id) == ResourceStatus.READY.value
+    )
+    return (
+        ready
+        and cms_range_owner_reassignment_available(candidate.range_instance_id)
+        and cms_range_egress_compatible_with_event(candidate.range_instance_id, scope)
+    )
+
+
+def _live_replacement_subject(
+    intent: CTFRangeLaunch | None,
+    recovery: CTFRangeRecovery,
+    participant: CTFParticipant,
+    replacement: tuple[int, UUID],
+) -> bool:
+    """The exact native replacement must still belong to this recovery or its consumed spare."""
+    if intent is None:
+        return False
+    if intent.subject_kind == "rebuild":
+        return intent.subject_uuid == recovery.pk
+    return (
+        intent.subject_kind == "spare"
+        and CTFSpareRange.objects.filter(
+            pk=intent.subject_uuid,
+            event_id=recovery.event_id,
+            consumed_by=participant,
+            status=SpareRangeStatus.CONSUMED.value,
+            request_id=replacement[1],
+            range_instance_id=replacement[0],
+        ).exists()
+    )
+
+
+def _recovery_pointer_matches(
+    current: CTFParticipant, expected_old: tuple[int, UUID | None], replacement: tuple[int, UUID], cleared_old: bool
+) -> bool:
+    """Accept only the exact old/replacement pointer or verified cleanup of that old generation."""
+    return (current.range_instance_id, current.range_request_id) in {expected_old, replacement} or (
+        cleared_old
+        and current.range_instance_id is None
+        and current.range_request_id == expected_old[1]
+        and current.range_status == ""
+    )

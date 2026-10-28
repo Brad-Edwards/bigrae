@@ -1,5 +1,11 @@
-"""The GCP release performs one fail-closed S8 maintenance cut."""
+"""The CI wrapper delegates hard-cut ordering and handles private operator files.
 
+The actual maintenance/probe/activation sequence is exercised by the canonical
+bootstrap process tests; this wrapper must not contain another deploy pipeline.
+"""
+
+import hashlib
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -11,98 +17,116 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 WORKFLOW = REPO_ROOT / ".github/workflows/_gcp-dev.yml"
 
 
-def _workflow() -> str:
-    return WORKFLOW.read_text(encoding="utf-8")
+def _rollout_step():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return next(
+        step
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "Run the rollout stage"
+    )
 
 
-def test_identity_cutover_stops_effects_before_conversion_and_restores_after_verify() -> None:
-    workflow = _workflow()
-    prerequisites = workflow.index("name: Install identity probe prerequisites")
-    probe = workflow.index("name: Probe the one-time identity cutover state")
-    quiesce = workflow.index("name: Enter the identity maintenance boundary")
-    migrate = workflow.index("name: Run database migrations")
-    policy = workflow.index("name: Reconcile the private policy datastore")
-    cutover = workflow.index("name: Apply and verify the identity hard cut")
-    restore = workflow.index("name: Restart control-plane deployments")
-    assert prerequisites < probe < quiesce < migrate < policy < cutover < restore
-    prerequisite_step = workflow[prerequisites:probe]
-    assert "--probe-prerequisites" in prerequisite_step
-    assert 'kubectl apply -f "${PLATFORM_QUIESCED_MANIFEST}"' not in prerequisite_step
-    maintenance = workflow[quiesce:migrate]
-    assert 'enter_identity_maintenance.py --manifest "${PLATFORM_QUIESCED_MANIFEST}"' in maintenance
-    assert maintenance.index("enter_identity_maintenance.py") < maintenance.index("kubectl create secret")
-    assert "< <(" not in maintenance and "2>/dev/null || true" not in maintenance
-    assert "if: env.IDENTITY_CUTOVER_REQUIRED == 'true'" in maintenance
-    cutover_step = workflow[cutover:restore]
-    assert "render_identity_cutover_job.py" in cutover_step
-    assert "identity-cutover-facts" in cutover_step
-    assert "exit 1" in cutover_step
-    assert 'kubectl apply -f "${PLATFORM_NATIVE_MANIFEST}"' not in cutover_step
-    assert 'kubectl apply -f "${PLATFORM_NATIVE_MANIFEST}"' in workflow[restore:]
+def test_ci_has_one_canonical_rollout_and_no_embedded_cluster_mutations():
+    script = _rollout_step()["run"]
+    assert script.count('uv run --frozen python deploy.py "${args[@]}"') == 1
+    assert "gcp-deploy --inputs" in script and "--stage rollout" in script
+    assert "kubectl" not in script and "helm " not in script
+    assert "--trusted-repository-id" in script and "--trusted-owner-id" in script
+    assert "--identity-cutover-facts" in script and "--identity-bootstrap-facts" in script
+    assert "--catalog-credential-file" in script
 
 
-def test_cutover_facts_are_file_mounted_not_forwarded_as_job_environment() -> None:
-    workflow = _workflow()
-    assert "--from-file=cutover.json=" in workflow
-    assert "--from-file=bootstrap.json=" in workflow
-    assert "--from-literal" not in workflow
-    assert "IDENTITY_CUTOVER_FACTS_JSON" not in workflow[workflow.index("name: Apply and verify") :]
+def test_ci_credentials_are_optional_and_never_projected_into_the_input_bundle():
+    step = _rollout_step()
+    assert step["env"]["CATALOG_CREDENTIAL"] == "${{ secrets.CATALOG_CREDENTIAL }}"
+    adapter = (REPO_ROOT / "scripts/gcp/render_ci_deployment_inputs.py").read_text()
+    assert "CATALOG_CREDENTIAL" not in adapter
+    assert "unset IDENTITY_CUTOVER_FACTS_JSON IDENTITY_BOOTSTRAP_FACTS_JSON CATALOG_CREDENTIAL" in step["run"]
 
 
 @pytest.mark.parametrize(
-    ("state", "wait_status", "expected"),
+    ("cutover", "bootstrap", "credential", "first", "cli_status"),
     [
-        ("activated", 0, "false"),
-        ("absent", 0, "true"),
-        ("planned", 0, "true"),
-        ("sql_applied", 0, "true"),
-        ("policy_pending", 0, "true"),
-        ("activated", 1, None),
-        ("unknown", 0, None),
-        ("invalid-json", 0, None),
+        (False, False, False, False, 0),
+        (True, True, True, False, 0),
+        (True, False, True, False, None),
+        (False, True, True, False, None),
+        (False, False, True, False, 0),
+        (True, True, False, False, 0),
+        (False, False, False, True, 73),
+        (True, True, True, True, 0),
     ],
 )
-def test_probe_requires_confirmed_status_before_requesting_maintenance(tmp_path, state, wait_status, expected):
-    steps = next(
-        job["steps"]
-        for job in yaml.safe_load(_workflow())["jobs"].values()
-        if any(step.get("name") == "Probe the one-time identity cutover state" for step in job.get("steps", []))
-    )
-    script = next(step["run"] for step in steps if step.get("name") == "Probe the one-time identity cutover state")
+def test_private_files_delegate_and_cleanup_on_success_or_failure(
+    tmp_path, cutover, bootstrap, credential, first, cli_status
+):
     binary = tmp_path / "bin"
     binary.mkdir()
-    for name, body in {
-        "uv": "exit 0",
-        "kubectl": 'case "$1" in wait) exit "$PROBE_WAIT_STATUS";; logs) printf \'%s\\n\' "$PROBE_RESULT";; esac',
-    }.items():
-        executable = binary / name
-        executable.write_text("#!/bin/sh\n" + body + "\n")
-        executable.chmod(0o700)
-    output = tmp_path / "output"
-    output.touch()
-    # Execute only the repository-owned workflow with synthetic command adapters.
-    result = subprocess.run(  # noqa: S603
-        ["/bin/bash", "-c", script],
+    recorder = binary / "uv"
+    recorder.write_text(
+        """#!/usr/bin/env python3
+import hashlib, json, os, stat, sys
+from pathlib import Path
+args = sys.argv[1:]
+proofs = {}
+for flag in ('--identity-cutover-facts', '--identity-bootstrap-facts', '--catalog-credential-file'):
+    if flag in args:
+        path = Path(args[args.index(flag) + 1])
+        proofs[flag] = {'mode': stat.S_IMODE(path.stat().st_mode),
+                        'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+names = ('IDENTITY_CUTOVER_FACTS_JSON', 'IDENTITY_BOOTSTRAP_FACTS_JSON', 'CATALOG_CREDENTIAL')
+Path(os.environ['WRAPPER_CALL']).write_text(json.dumps({'args': args, 'proofs': proofs,
+    'raw_environment': any(name in os.environ for name in names)}))
+sys.exit(int(os.environ['CLI_STATUS']))
+""",
+        encoding="utf-8",
+    )
+    recorder.chmod(0o700)
+    values = {
+        "--identity-cutover-facts": "synthetic-cutover",
+        "--identity-bootstrap-facts": "synthetic-bootstrap",
+        "--catalog-credential-file": "synthetic-native-bearer",
+    }
+    call = tmp_path / "call.json"
+    result = subprocess.run(  # noqa: S603 — repository-owned wrapper with local command recorder
+        ["/bin/bash", "-c", _rollout_step()["run"]],
         capture_output=True,
         text=True,
+        check=False,
         env={
             **os.environ,
             "PATH": f"{binary}:{os.environ['PATH']}",
             "RUNNER_TEMP": str(tmp_path),
+            "WRAPPER_CALL": str(call),
+            "CLI_STATUS": str(cli_status or 0),
+            "DEPLOYMENT_INPUTS": "/synthetic/input",
+            "GCP_ENVIRONMENT": "synthetic",
+            "TRUSTED_REPOSITORY_ID": "42",
+            "TRUSTED_OWNER_ID": "7",
             "GITHUB_RUN_ID": "42",
             "GITHUB_RUN_ATTEMPT": "1",
-            "GITHUB_ENV": str(output),
-            "PLATFORM_NATIVE_MANIFEST": "synthetic.yaml",
-            "PROBE_WAIT_STATUS": str(wait_status),
-            "PROBE_RESULT": "Waiting for database...\nSkipping migrations\nRunning: status\n"
-            + "SHIFTER_IDENTITY_CUTOVER_RESULT="
-            + ("not-json" if state == "invalid-json" else f'{{"state":"{state}"}}')
-            + "\n",
+            "REQUIRE_ACTIVE_CERTIFICATE": "false" if first else "true",
+            "IDENTITY_CUTOVER_FACTS_JSON": values["--identity-cutover-facts"] if cutover else "",
+            "IDENTITY_BOOTSTRAP_FACTS_JSON": values["--identity-bootstrap-facts"] if bootstrap else "",
+            "CATALOG_CREDENTIAL": values["--catalog-credential-file"] if credential else "",
         },
+        timeout=10,
     )
-    if expected is None:
-        assert result.returncode != 0
-        assert "IDENTITY_CUTOVER_REQUIRED=" not in output.read_text()
+    if cli_status is None:
+        assert result.returncode != 0 and not call.exists()
     else:
-        assert result.returncode == 0, result.stderr
-        assert output.read_text() == f"IDENTITY_CUTOVER_REQUIRED={expected}\n"
+        assert result.returncode == cli_status, result.stderr
+        recorded = json.loads(call.read_text())
+        assert not recorded["raw_environment"]
+        assert ("--first-install" in recorded["args"]) == first
+        assert set(recorded["proofs"]) == {
+            flag for flag, enabled in zip(values, (cutover, bootstrap, credential), strict=True) if enabled
+        }
+        for flag, proof in recorded["proofs"].items():
+            assert proof == {"mode": 0o600, "sha256": hashlib.sha256(values[flag].encode()).hexdigest()}
+        assert all(value not in str(recorded["args"]) for value in values.values())
+    assert all(
+        not (tmp_path / name).exists()
+        for name in ("identity-cutover-facts.json", "identity-bootstrap-facts.json", "catalog-credential")
+    )

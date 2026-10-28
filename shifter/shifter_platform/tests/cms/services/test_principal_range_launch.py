@@ -459,3 +459,41 @@ def test_bulk_write_cannot_substitute_a_queued_executing_workload(launch_actor):
     create_range(launch_actor.credential, launch_actor.source.scenario_id, scope=launch_actor.scope)
     with pytest.raises(IntegrityError), transaction.atomic():
         ProvisionerLaunchIntent.objects.update(executing_workload={"namespace": "foreign"})
+
+
+@pytest.mark.parametrize(
+    ("has_owner", "has_action", "has_target"),
+    [
+        (True, False, False),
+        (False, True, False),
+        (False, False, True),
+        (False, True, True),
+        (True, True, False),
+        (True, False, True),
+        (True, True, True),
+    ],
+)
+def test_mission_control_rejects_event_binding_fields_before_any_reservation(
+    launch_actor, has_owner, has_action, has_target
+):
+    from cms.exceptions import CMSError
+    from cms.models import RangeInstance, Request
+    from cms.services import create_raes_native_range
+    from cms.services._scoped_launch_types import NativeEventLaunchOptions
+    from engine.models import ProvisionerLaunchIntent, Range
+    from management.services import create_service_principal
+    from shared.authorization import TargetRef
+
+    actor = launch_actor
+    unrelated_owner = create_service_principal("Synthetic unrelated range owner")
+    binding = NativeEventLaunchOptions(
+        owner_principal=unrelated_owner if has_owner else None,
+        authority_action="account.launch_range" if has_action else None,
+        authority_target=TargetRef("account", actor.scope.account_uuid) if has_target else None,
+    )
+    with pytest.raises(CMSError):
+        create_raes_native_range(actor.credential, actor.source.scenario_id, scope=actor.scope, event_options=binding)
+    assert not Request.objects.exists()
+    assert not RangeInstance.all_objects.exists()
+    assert not Range.objects.exists()
+    assert not ProvisionerLaunchIntent.objects.exists()

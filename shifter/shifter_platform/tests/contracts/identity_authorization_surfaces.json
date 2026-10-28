@@ -1669,7 +1669,7 @@
     {
       "authority": {
         "decision": "event.manage_communications|event.manage_participants",
-        "scope": "sql:campaign",
+        "scope": "sql:campaign;selector=campaign_recipient_details",
         "target": "event"
       },
       "disposition": "added",

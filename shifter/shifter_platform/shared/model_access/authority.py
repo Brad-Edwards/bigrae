@@ -8,6 +8,7 @@ revision namespaces.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
@@ -136,6 +137,14 @@ class ModelAccessRangeView(ClosedModel):
         if self.owner_user_id is None and self.owner_principal_uuid is None:
             raise ValueError("range owner identity is required")
         return self
+
+
+@dataclass(frozen=True, slots=True)
+class ModelAccessRangePagination:
+    """Internal keyset cursor and bound, validated with the owning query's mode."""
+
+    continuation: UUID | None = None
+    page_size: int = 1000
 
 
 class ModelAccessRangePage(ClosedModel):

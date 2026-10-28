@@ -27,21 +27,17 @@ def map_event_principals(apps, schema_editor):
     for row in receipts.objects.using(alias).all().iterator():
         principal_uuid = principal_by_user.get(row.hydrated_by_id)
         if principal_uuid is not None:
-            receipts.objects.using(alias).filter(pk=row.pk).update(
-                hydrated_by_principal_uuid=principal_uuid
-            )
+            receipts.objects.using(alias).filter(pk=row.pk).update(hydrated_by_principal_uuid=principal_uuid)
     recoveries = apps.get_model("ctf", "CTFRangeRecovery")
     for row in recoveries.objects.using(alias).all().iterator():
         principal_uuid = principal_by_user.get(row.created_by_id)
         if principal_uuid is not None:
-            recoveries.objects.using(alias).filter(pk=row.pk).update(
-                initiated_by_principal_uuid=principal_uuid
-            )
+            recoveries.objects.using(alias).filter(pk=row.pk).update(initiated_by_principal_uuid=principal_uuid)
 
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ctf", "0064_ctfflag_plaintext_value"),
+        ("ctf", "0065_communication_attribution"),
         ("management", "0020_session_reference_guards"),
     ]
 

@@ -421,10 +421,10 @@ def test_workspace_membership_needs_explicit_read_grant_and_cannot_edit_metadata
     assert list_all_scenarios(user=tenant[0].credential, scope=scope) == []
 
 
-def test_tenant_conformance_mutation_requires_admin_even_for_staff_members(upload, tenant):
+def test_tenant_conformance_mutation_requires_admin_even_for_staff_members(upload, tenant, live_session_credential):
+    from cms.exceptions import CMSError
     from cms.services._pack_conformance import validate_registered_pack_conformance
     from workspaces.models import Workspace, WorkspaceMembership
-    from workspaces.services import OrganizationAuthorizationError
 
     client, organization, root, _ = upload
     installed = _post(client, organization, root).data
@@ -432,8 +432,6 @@ def test_tenant_conformance_mutation_requires_admin_even_for_staff_members(uploa
     workspace = Workspace.objects.create(organization=organization, name="Conformance viewers")
     WorkspaceMembership.objects.create(workspace=workspace, user=staff, role="member")
     arguments = {"scenario_id": installed["scenario_id"], "expected_package_digest": installed["package_digest"]}
-    from shared.exceptions import ValidationError
-
-    with pytest.raises((OrganizationAuthorizationError, ValidationError)):
-        validate_registered_pack_conformance(user=staff, **arguments)
+    with pytest.raises(CMSError):
+        validate_registered_pack_conformance(user=live_session_credential(staff), **arguments)
     assert validate_registered_pack_conformance(user=tenant[0].credential, **arguments) == "passed"

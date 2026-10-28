@@ -25,6 +25,8 @@ from ctf.models.event import (
     RESERVED_BRIEFING_SLUG,
 )
 
+_EVENT_MANAGE_CONTENT = "event.manage_content"
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -78,7 +80,7 @@ def create_event_page(
     if actor_id is not None:
         from ctf.services.authorization import assert_event_action
 
-        assert_event_action(actor_id, event, "event.manage_content")
+        assert_event_action(actor_id, event, _EVENT_MANAGE_CONTENT)
     if len(body) > MAX_EVENT_PAGE_BODY_CHARS:
         raise CTFValidationError("Page body exceeds the maximum length.")
     active_count = CTFEventPage.objects.filter(event=event, deleted_at__isnull=True).count()
@@ -110,7 +112,7 @@ def update_event_page(
     if actor_id is not None:
         from ctf.services.authorization import assert_event_action
 
-        assert_event_action(actor_id, page.event, "event.manage_content")
+        assert_event_action(actor_id, page.event, _EVENT_MANAGE_CONTENT)
     body = fields.get("body")
     if isinstance(body, str) and len(body) > MAX_EVENT_PAGE_BODY_CHARS:
         raise CTFValidationError("Page body exceeds the maximum length.")
@@ -127,7 +129,7 @@ def delete_event_page(page: CTFEventPage, *, actor_id: object | None = None) -> 
     if actor_id is not None:
         from ctf.services.authorization import assert_event_action
 
-        assert_event_action(actor_id, page.event, "event.manage_content")
+        assert_event_action(actor_id, page.event, _EVENT_MANAGE_CONTENT)
     page.delete(soft=True)
     _audit(actor_id, event_id=page.event_id, page=page, action="delete")
 

@@ -11,7 +11,7 @@ from cms.exceptions import CMSError
 from cms.models import RangeInstance
 from engine.services import RangeOwnershipTransferBlocked, RangeWorkspaceRebindOutcome
 from shared.credentials import CredentialContext
-from shared.identity_scope import PrincipalRef
+from shared.identity_scope import PrincipalRef, ResourceScope
 
 from ._common import _validate_caller_user
 from ._range_launch_common import _is_active_range_conflict
@@ -84,7 +84,7 @@ def range_egress_compatible_with_event(
     return pinned_mode is not None and pinned_mode == current_mode
 
 
-def range_egress_compatible_with_scope(range_instance_pk: int, scope) -> bool:
+def range_egress_compatible_with_scope(range_instance_pk: int, scope: ResourceScope) -> bool:
     """Compare an event range's pinned posture with its immutable SQL scope."""
     from engine.services import get_pinned_range_egress_mode_by_request
     from workspaces.services import resolve_resource_scope

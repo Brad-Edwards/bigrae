@@ -12,6 +12,8 @@ from shared.authorization import ACTION_CATALOG, CredentialCeiling
 from shared.credentials import CredentialContext, resolve_current_credential, temporary_credential
 from shared.principal_port import principal_for_user, resolve_principal
 
+_CREDENTIAL_CONTEXT_UNAVAILABLE = "Credential context unavailable"
+
 if TYPE_CHECKING:
     from rest_framework.request import Request
 
@@ -38,7 +40,7 @@ def authenticated_credential(request: Request) -> CredentialContext:
         resolve_principal(request_auth.principal)
         return request_auth
     if request_auth is not None:
-        raise ValueError("Credential context unavailable")
+        raise ValueError(_CREDENTIAL_CONTEXT_UNAVAILABLE)
     user = active_actor_user(request)
     if user is None:
         raise ValueError("Unrestricted human session unavailable")
@@ -46,10 +48,10 @@ def authenticated_credential(request: Request) -> CredentialContext:
     try:
         reference = getattr(getattr(request, "session", None), "credential_uuid", None)
     except (AttributeError, ValueError):
-        raise ValueError("Credential context unavailable") from None
+        raise ValueError(_CREDENTIAL_CONTEXT_UNAVAILABLE) from None
     if reference is not None:
         if not isinstance(reference, UUID):
-            raise ValueError("Credential context unavailable")
+            raise ValueError(_CREDENTIAL_CONTEXT_UNAVAILABLE)
         return resolve_current_credential(
             CredentialContext(
                 candidate.principal,
@@ -62,7 +64,7 @@ def authenticated_credential(request: Request) -> CredentialContext:
         )
     # S8 requires the reference-bearing backend. A framework-authenticated user
     # without a live session reference is not an operation credential.
-    raise ValueError("Credential context unavailable")
+    raise ValueError(_CREDENTIAL_CONTEXT_UNAVAILABLE)
 
 
 def human_session_credential(user: User) -> CredentialContext:

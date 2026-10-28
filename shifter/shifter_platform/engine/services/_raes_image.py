@@ -135,31 +135,8 @@ def upsert_raes_image_mapping(
     normalized_provider = _normalize_provider(provider)
     name = _require(source_name, field="source_name")
     ref = _require(image_ref, field="image_ref")
-    if opts.disk_size_gb is not None and opts.disk_size_gb <= 0:
-        raise RaesImageMappingError("disk_size_gb must be a positive integer when set")
-    try:
-        management_port = validate_management_ssh_port(opts.management_ssh_port)
-        management_user = validate_management_ssh_username(opts.management_ssh_username)
-    except ValueError as exc:
-        raise RaesImageMappingError(str(exc)) from None
-    portable = _validate_portable_identity(opts)
-    runtime_profile = _validate_runtime_profile(normalized_provider, ref, opts, management_user)
-    if runtime_profile["image_kind"] == "machine-image" and portable["artifact_digest"]:
-        raise RaesImageMappingError("machine-image mappings do not support portable artifact admission")
-
     key = {"provider": normalized_provider, "source_name": name, "source_version": (opts.source_version or "").strip()}
-    defaults = {
-        "image_ref": ref,
-        "machine_type": (opts.machine_type or "").strip(),
-        "disk_size_gb": opts.disk_size_gb,
-        "management_ssh_port": management_port,
-        "management_ssh_username": management_user,
-        **runtime_profile,
-        "disk_type": (opts.disk_type or "").strip(),
-        "enabled": opts.enabled,
-        "notes": opts.notes or "",
-        **portable,
-    }
+    defaults = _validated_image_values(normalized_provider, ref, opts)
     if credential is not None:
         from ._principal_image_registry import upsert_operator_image
 
@@ -482,3 +459,31 @@ def _require(value: str, *, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise RaesImageMappingError(f"{field} must be a non-empty string")
     return value.strip()
+
+
+def _validated_image_values(normalized_provider: str, ref: str, opts: RaesImageMappingOptions) -> dict[str, object]:
+    """Validate complete portable and runtime identity before either native or legacy persistence."""
+    if opts.disk_size_gb is not None and opts.disk_size_gb <= 0:
+        raise RaesImageMappingError("disk_size_gb must be a positive integer when set")
+    try:
+        management_port = validate_management_ssh_port(opts.management_ssh_port)
+        management_user = validate_management_ssh_username(opts.management_ssh_username)
+    except ValueError as exc:
+        raise RaesImageMappingError(str(exc)) from None
+    portable = _validate_portable_identity(opts)
+    runtime_profile = _validate_runtime_profile(normalized_provider, ref, opts, management_user)
+    if runtime_profile["image_kind"] == "machine-image" and portable["artifact_digest"]:
+        raise RaesImageMappingError("machine-image mappings do not support portable artifact admission")
+
+    return {
+        "image_ref": ref,
+        "machine_type": (opts.machine_type or "").strip(),
+        "disk_size_gb": opts.disk_size_gb,
+        "management_ssh_port": management_port,
+        "management_ssh_username": management_user,
+        **runtime_profile,
+        "disk_type": (opts.disk_type or "").strip(),
+        "enabled": opts.enabled,
+        "notes": opts.notes or "",
+        **portable,
+    }

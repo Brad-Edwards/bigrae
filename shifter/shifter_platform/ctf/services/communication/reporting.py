@@ -281,9 +281,16 @@ def _actor(
     """Retain native attribution without guessing a human from a service contact."""
     if user_id is None and principal_uuid is None:
         return None
+    if not via:
+        if token_id is not None:
+            via = "api_token"
+        elif user_id is not None:
+            via = "session"
+        else:
+            via = "credential"
     return {
         "label": labels.get(user_id, "") if user_id is not None else "Principal",
-        "via": via or ("api_token" if token_id is not None else "session" if user_id is not None else "credential"),
+        "via": via,
         "principal_uuid": principal_uuid,
     }
 

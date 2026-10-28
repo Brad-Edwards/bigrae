@@ -39,6 +39,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from cms.services._warm_pool_claim import ISOLATION_ACCOUNT
+from shared.credentials import CredentialContext
 from shared.enums import RangeSource, ResourceStatus
 from shared.identity_scope import ResourceScope
 from shared.operation_envelope import canonical_payload_digest
@@ -47,6 +48,7 @@ from shared.warm_pool.compatibility import CompatibilityKey, compatibility_diges
 from shared.warm_pool.policy import WarmPoolBucketPolicy, WarmPoolRuntimePolicy
 
 if TYPE_CHECKING:
+    from cms.models import RaesPackageSource
     from shared.range_instantiation_policy import BackendAdmission
 
 logger = logging.getLogger(__name__)
@@ -96,7 +98,7 @@ def _bucket_compatibility_digest(bucket: WarmPoolBucketPolicy, *, package_digest
     )
 
 
-def _warm_pool_credential():
+def _warm_pool_credential() -> CredentialContext:
     """Resolve the configured service credential's current lifecycle state."""
     from management.services import resolve_service_credential_reference
 
@@ -366,14 +368,17 @@ def _warm_prepare_dispatch(
                 principal_scope=ResourceScope("installation"),
             ),
         )
-        return True
+        prepared = True
     except Exception:
         logger.exception("warm-pool: failed to prepare a generation for bucket=%s", bucket.id)
         _abandon_preparation(request_id, draw_key)
-        return False
+        prepared = False
+    return prepared
 
 
-def _reserve_warm_intent(credential, source, request_id: UUID):
+def _reserve_warm_intent(
+    credential: CredentialContext, source: RaesPackageSource, request_id: UUID
+) -> CredentialContext:
     """Persist one installation-scoped service-owned intent before provider work."""
     from cms.models import RaesPackageSource, RangeInstance, Request
     from cms.services._pack_fence import fence_pack_reference

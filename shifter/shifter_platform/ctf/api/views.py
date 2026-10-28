@@ -48,8 +48,6 @@ class PublicScoreboardView(APIView):
         """Return the public scoreboard payload for an event."""
         from ctf.exceptions import CTFError, CTFNotFoundError
         from ctf.services import get_event
-        from ctf.services.scoring import get_scoreboard, get_team_scoreboard
-        from ctf.views import _parsing
 
         try:
             event = get_event(event_id)
@@ -65,46 +63,54 @@ class PublicScoreboardView(APIView):
             return api_error_response(
                 request=request, code="scoreboard_unavailable", message="Scoreboard unavailable", status_code=503
             )
-        if not allowed:
-            return JsonResponse(
-                {
-                    "scoreboard_hidden": True,
-                    "event_id": str(event.id),
-                    "team_mode": event.team_mode,
-                    "frozen": event.is_scoreboard_frozen,
-                    "rankings": [],
-                    "bracket_rankings": None,
-                    "brackets": [],
-                }
-            )
+        return _scoreboard_payload(event, request, allowed)
 
-        freeze_at = event.scoreboard_freeze_at if event.is_scoreboard_frozen else None
-        bracket_param = request.query_params.get("bracket")
-        brackets, _selected_bracket, bracket_id = _parsing._resolve_bracket_filter(event.id, bracket_param)
-        rankings = (
-            get_team_scoreboard(event.id, freeze_at=freeze_at)
-            if event.team_mode
-            else get_scoreboard(event.id, freeze_at=freeze_at)
-        )
-        bracket_rankings = None
-        if bracket_id:
-            bracket_rankings = (
-                get_team_scoreboard(event.id, freeze_at=freeze_at, bracket_id=bracket_id)
-                if event.team_mode
-                else get_scoreboard(event.id, freeze_at=freeze_at, bracket_id=bracket_id)
-            )
 
+def _scoreboard_payload(event: CTFEvent, request: Request, allowed: bool) -> JsonResponse:
+    """Project admitted rankings or the published empty scoreboard shape."""
+    from ctf.services.scoring import get_scoreboard, get_team_scoreboard
+    from ctf.views import _parsing
+
+    if not allowed:
         return JsonResponse(
             {
-                "scoreboard_hidden": False,
+                "scoreboard_hidden": True,
                 "event_id": str(event.id),
                 "team_mode": event.team_mode,
                 "frozen": event.is_scoreboard_frozen,
-                "rankings": rankings,
-                "bracket_rankings": bracket_rankings,
-                "brackets": [{"id": str(bracket.id), "name": bracket.name} for bracket in brackets],
+                "rankings": [],
+                "bracket_rankings": None,
+                "brackets": [],
             }
         )
+
+    freeze_at = event.scoreboard_freeze_at if event.is_scoreboard_frozen else None
+    bracket_param = request.query_params.get("bracket")
+    brackets, _selected_bracket, bracket_id = _parsing._resolve_bracket_filter(event.id, bracket_param)
+    rankings = (
+        get_team_scoreboard(event.id, freeze_at=freeze_at)
+        if event.team_mode
+        else get_scoreboard(event.id, freeze_at=freeze_at)
+    )
+    bracket_rankings = None
+    if bracket_id:
+        bracket_rankings = (
+            get_team_scoreboard(event.id, freeze_at=freeze_at, bracket_id=bracket_id)
+            if event.team_mode
+            else get_scoreboard(event.id, freeze_at=freeze_at, bracket_id=bracket_id)
+        )
+
+    return JsonResponse(
+        {
+            "scoreboard_hidden": False,
+            "event_id": str(event.id),
+            "team_mode": event.team_mode,
+            "frozen": event.is_scoreboard_frozen,
+            "rankings": rankings,
+            "bracket_rankings": bracket_rankings,
+            "brackets": [{"id": str(bracket.id), "name": bracket.name} for bracket in brackets],
+        }
+    )
 
 
 api_scoreboard = PublicScoreboardView.as_view()

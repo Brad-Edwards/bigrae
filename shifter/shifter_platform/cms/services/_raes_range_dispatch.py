@@ -79,6 +79,7 @@ def create_range_dispatch(  # NOSONAR -- stable cross-service facade retained fo
     bridge) omit it, so their ranges bind to the launcher's personal workspace.
     """
     from cms.services._raes_range_create import create_raes_native_range
+    from cms.services._scoped_launch_types import NativeEventLaunchOptions
 
     if isinstance(user, CredentialContext):
         if content_authorizer is not None or ctf_policy_workspace_id is not None:
@@ -90,13 +91,15 @@ def create_range_dispatch(  # NOSONAR -- stable cross-service facade retained fo
             workspace_uuid=workspace_uuid,
             scope=scope,
             model_sources=model_sources,
-            owner_principal=owner_principal,
-            authority_action=authority_action,
-            authority_target=authority_target,
-            remote_access_teardown_at=remote_access_teardown_at,
-            model_admission_subject=model_admission_subject,
-            model_launch_scope=model_launch_scope,
-            request_uuid=request_uuid,
+            event_options=NativeEventLaunchOptions(
+                owner_principal=owner_principal,
+                authority_action=authority_action,
+                authority_target=authority_target,
+                remote_access_teardown_at=remote_access_teardown_at,
+                model_admission_subject=model_admission_subject,
+                model_launch_scope=model_launch_scope,
+                request_uuid=request_uuid,
+            ),
         )
     if (
         scope is not None

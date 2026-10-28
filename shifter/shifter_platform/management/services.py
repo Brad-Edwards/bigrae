@@ -23,31 +23,21 @@ from shared.log_sanitize import safe_log_fingerprint, safe_log_value
 from shared.model_access import AuthorityInvalidation, AuthorityState, OwnedReference
 from shared.model_access.authority_port import invalidate_authority, suppress_authority_invalidation_signals
 
+from . import identity_cutover as _identity_cutover
 from . import model_access_authority as _model_access_authority
 from . import policy as _policy
 from . import principals as _principals
 from . import session_backend as _session_backend
 from . import temporary_accounts as _temporary_accounts
 from .audit_context import AuditContext
-from .identity_cutover import (
-    apply_identity_provider_bindings as apply_identity_provider_bindings,
-)
-from .identity_cutover import (
-    bootstrap_principal_uuid as bootstrap_principal_uuid,
-)
-from .identity_cutover import (
-    identity_cutover_disposition as identity_cutover_disposition,
-)
-from .identity_cutover import (
-    identity_cutover_principals as identity_cutover_principals,
-)
-from .identity_cutover import (
-    identity_cutover_token_count as identity_cutover_token_count,
-)
-from .identity_cutover import (
-    invalidate_pre_cutover_admission as invalidate_pre_cutover_admission,
-)
 from .models import ActivityLog, UserProfile
+
+apply_identity_provider_bindings = _identity_cutover.apply_identity_provider_bindings
+bootstrap_principal_uuid = _identity_cutover.bootstrap_principal_uuid
+identity_cutover_disposition = _identity_cutover.identity_cutover_disposition
+identity_cutover_principals = _identity_cutover.identity_cutover_principals
+identity_cutover_token_count = _identity_cutover.identity_cutover_token_count
+invalidate_pre_cutover_admission = _identity_cutover.invalidate_pre_cutover_admission
 
 save_session_assurance = _session_backend.save_session_assurance
 session_for_credential = _session_backend.session_for_credential

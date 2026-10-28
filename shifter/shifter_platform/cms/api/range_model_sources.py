@@ -65,12 +65,17 @@ def source_policy_error(
     """Report stale revisions separately from unavailable range authority."""
     conflict = isinstance(exc, ContractError) and exc.code == "source.revision_conflict"
     unavailable = isinstance(exc, CMSError) and exc.details.get("code") == "authority-unavailable"
+    response_status = 403
+    if unavailable:
+        response_status = 503
+    elif conflict:
+        response_status = 409
     return api_error_response(
         code="source_revision_conflict" if conflict else "range_model_sources_unavailable",
         message="Model sources changed. Reload this range before saving."
         if conflict
         else "Range model sources are unavailable.",
-        status_code=503 if unavailable else 409 if conflict else 403,
+        status_code=response_status,
         request=request,
     )
 

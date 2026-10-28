@@ -110,6 +110,7 @@ def _registrations_for_topic(topic: str) -> list[NotificationRegistration]:
 
 
 def _browser_credential(credential: CredentialContext) -> CredentialContext:
+    """Resolve a current human browser credential before notification access."""
     if not isinstance(credential, CredentialContext) or credential.principal.kind != "human":
         raise ValueError("Browser credential unavailable")
     return resolve_current_credential(credential)
@@ -307,9 +308,9 @@ def authorized_notification_payload(
     credential: CredentialContext, notification: WebSocketNotification
 ) -> dict[str, Any] | None:
     """Recheck live topic policy and current projection for both replay and fan-out."""
-    if notification_user_id(credential, notification.recipient) != notification.recipient_id:
-        return None
-    if not authorize_subscription(credential, notification.topic):
+    if notification_user_id(
+        credential, notification.recipient
+    ) != notification.recipient_id or not authorize_subscription(credential, notification.topic):
         return None
     registration = _registry.get(notification.notification_type)
     if registration is None:

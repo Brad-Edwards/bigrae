@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -163,8 +164,7 @@ def provision_event_ranges_throttled(
         event_id,
         participants,
         delay,
-        tallies,
-        errors,
+        _ProvisioningProgress(tallies, errors),
         shutdown_check=shutdown_check,
         heartbeat=heartbeat,
         actor=credential,
@@ -188,12 +188,19 @@ def provision_event_ranges_throttled(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class _ProvisioningProgress:
+    """Accumulate bounded per-wave outcome counts and public participant errors."""
+
+    tallies: dict[str, int]
+    errors: list[dict[str, str]]
+
+
 def _provision_participants_paced(
     event_id: UUID,
     participants: list[CTFParticipant],
     delay: float,
-    tallies: dict[str, int],
-    errors: list[dict[str, str]],
+    progress: _ProvisioningProgress,
     *,
     shutdown_check: Callable[[], bool] | None = None,
     heartbeat: Callable[[], None] | None = None,
@@ -216,16 +223,16 @@ def _provision_participants_paced(
             return True
 
         _safe_heartbeat(heartbeat, event_id)
-        _record_provision_attempt(participant, tallies, errors, heartbeat=heartbeat, actor=actor)
+        _record_provision_attempt(participant, progress.tallies, progress.errors, heartbeat=heartbeat, actor=actor)
 
         logger.info(
             "Throttled provisioning progress for event %s: %d/%d (%d ready, %d failed, %d skipped)",
             event_id,
             i + 1,
             count,
-            tallies["successful"],
-            tallies["failed"],
-            tallies["skipped"],
+            progress.tallies["successful"],
+            progress.tallies["failed"],
+            progress.tallies["skipped"],
         )
 
         # Sleep between provisions (skip after the last one). The wait is

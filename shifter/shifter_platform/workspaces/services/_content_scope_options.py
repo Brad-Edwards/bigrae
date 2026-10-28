@@ -17,6 +17,8 @@ from ._account_policy_reads import _collection_ceiling, _valid_page, _visible_pa
 
 @dataclass(frozen=True, slots=True)
 class ContentScopeOption:
+    """One policy-admitted content scope with its persisted ancestry."""
+
     kind: str
     name: str
     scope: ResourceScope
@@ -24,6 +26,8 @@ class ContentScopeOption:
 
 @dataclass(frozen=True, slots=True)
 class ContentScopePage:
+    """Bounded scope options and continuation metadata for discovery."""
+
     count: int
     results: tuple[ContentScopeOption, ...]
 

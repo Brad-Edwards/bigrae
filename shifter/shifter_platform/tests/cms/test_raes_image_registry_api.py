@@ -83,7 +83,7 @@ def threat_research_user(django_user_model, content_policy):
 
 
 @pytest.fixture
-def non_authoring_user(django_user_model):
+def non_authoring_user(django_user_model, content_policy):
     return django_user_model.objects.create_user(
         username="raes-img-viewer@example.com",
         email="raes-img-viewer@example.com",

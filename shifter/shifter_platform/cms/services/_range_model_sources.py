@@ -22,6 +22,11 @@ from ._model_source_selection import resolve_model_source_sponsorship
 REVISION_CONFLICT = "source.revision_conflict"
 
 
+_RANGE_ACCESS_DENIED = "Range access denied"
+_MANAGE_RANGE = "range.manage"
+_SOURCE_RANGE_UNAVAILABLE = "source.range_unavailable"
+
+
 def _authorized_instance(actor: CredentialContext, request_id: UUID, action: str) -> RangeInstance:
     """Resolve one range and require its exact policy action."""
     from ._unified_authorization import require_range_action
@@ -29,13 +34,13 @@ def _authorized_instance(actor: CredentialContext, request_id: UUID, action: str
     query = RangeInstance.objects.select_related("request")
     instance = query.filter(request__request_id=request_id).first()
     if instance is None:
-        raise WorkspaceAuthorizationError("Range access denied")
+        raise WorkspaceAuthorizationError(_RANGE_ACCESS_DENIED)
     try:
         require_range_action(actor, instance.uuid, action)
     except CMSError as exc:
         if exc.details.get("code") == "authority-unavailable":
             raise
-        raise WorkspaceAuthorizationError("Range access denied") from None
+        raise WorkspaceAuthorizationError(_RANGE_ACCESS_DENIED) from None
     return instance
 
 
@@ -55,7 +60,7 @@ def _lock_admitted_instance(actor: CredentialContext, snapshot: RangeInstance) -
     if resolve_local_credential(actor) != actor or any(
         getattr(current, name) != getattr(snapshot, name) for name in fields
     ):
-        raise WorkspaceAuthorizationError("Range access denied")
+        raise WorkspaceAuthorizationError(_RANGE_ACCESS_DENIED)
     return current
 
 
@@ -96,19 +101,19 @@ def change_range_model_sources(
     """
     from ._model_allocation import _snapshot_needs, prepare_model_access_for_dispatch
 
-    snapshot = _authorized_instance(actor, request_id, "range.manage")
+    snapshot = _authorized_instance(actor, request_id, _MANAGE_RANGE)
     if snapshot.workspace_id is None:
-        raise ContractError("source.range_unavailable")
+        raise ContractError(_SOURCE_RANGE_UNAVAILABLE)
     sponsorship = resolve_model_source_sponsorship(actor, snapshot.workspace_id, selection)
     with transaction.atomic():
         instance = _lock_admitted_instance(actor, snapshot)
         if instance.model_source_policy_revision != expected_revision:
             raise ContractError(REVISION_CONFLICT)
         if not _snapshot_needs(instance):
-            raise ContractError("source.range_unavailable")
+            raise ContractError(_SOURCE_RANGE_UNAVAILABLE)
         workspace_id = instance.workspace_id
         if workspace_id is None:
-            raise ContractError("source.range_unavailable")
+            raise ContractError(_SOURCE_RANGE_UNAVAILABLE)
         retry_pending = (
             instance.model_source_policy_error == "source.admission_pending"
             and instance.model_source_sponsorship == sponsorship.model_dump(mode="json")
@@ -135,7 +140,7 @@ def change_range_model_sources(
             ]
         )
     try:
-        admitted_snapshot = _authorized_instance(actor, request_id, "range.manage")
+        admitted_snapshot = _authorized_instance(actor, request_id, _MANAGE_RANGE)
         (view,) = resolve_model_access_range_views(request_uuids=(request_id,))
         prepare_model_access_for_dispatch(request_id, range_id=view.range_uuid, renew=True, credential=actor)
         with transaction.atomic():
@@ -168,8 +173,8 @@ def revoke_range_model_sources(actor: CredentialContext, *, request_id: UUID) ->
         native = project_range_authority(request_id)
         operation_id = operation_id_for_request(request_id)
     except Exception:
-        raise WorkspaceAuthorizationError("Range access denied") from None
-    snapshot = _authorized_instance(actor, request_id, "range.manage")
+        raise WorkspaceAuthorizationError(_RANGE_ACCESS_DENIED) from None
+    snapshot = _authorized_instance(actor, request_id, _MANAGE_RANGE)
     with transaction.atomic():
         _lock_admitted_instance(actor, snapshot)
         revoke_range_model_access(

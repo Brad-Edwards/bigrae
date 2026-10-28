@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from ctf.services.audit import _entity_id_from_uuid
+from ctf.services._audit_attribution import _ActorFields, _entity_id_from_uuid
 from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.credentials import CredentialContext
 
@@ -17,14 +17,13 @@ def audit_communication_authority(
     operation: str = "admit",
 ) -> None:
     """Persist each target's live authority, including delegated and override use."""
-    actor_fields = (
-        dict(principal_actor_fields(actor_id.principal))
-        if isinstance(actor_id, CredentialContext)
-        else {
+    if isinstance(actor_id, CredentialContext):
+        actor_fields: _ActorFields = {**principal_actor_fields(actor_id.principal)}
+    else:
+        actor_fields = {
             "actor_type": AuditActorType.APIKEY if token_id is not None else AuditActorType.USER,
             "actor_id": token_id if token_id is not None else actor_id,
         }
-    )
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.COMMUNICATION,

@@ -28,6 +28,8 @@ from ._challenge_release import _sync_release_task
 from ._flag_crud import _reject_non_flag_live_edits
 from ._resolve import _resolve_next_challenge, _resolve_tags, _resolve_topics
 
+_EVENT_MANAGE_CHALLENGES = "event.manage_challenges"
+
 logger = logging.getLogger(__name__)
 
 # Fields that organizers may set when creating or updating challenges.
@@ -163,7 +165,7 @@ def create_challenge(
             details={"event_id": str(event_id)},
         ) from None
 
-    actor_id = admit_event_actions(actor_id, event, "event.manage_challenges")
+    actor_id = admit_event_actions(actor_id, event, _EVENT_MANAGE_CHALLENGES)
     _assert_event_capability(actor_id, event, EventCapability.CHALLENGES)
 
     if not event.is_content_modifiable:
@@ -290,7 +292,7 @@ def update_challenge(challenge_id: UUID, challenge_data: dict[str, Any], *, acto
             details={"challenge_id": str(challenge_id)},
         ) from None
 
-    actor_id = admit_event_actions(actor_id, challenge.event, "event.manage_challenges")
+    actor_id = admit_event_actions(actor_id, challenge.event, _EVENT_MANAGE_CHALLENGES)
     _assert_event_capability(actor_id, challenge.event, EventCapability.CHALLENGES)
 
     _reject_non_flag_live_edits(challenge, challenge_data)
@@ -361,7 +363,7 @@ def delete_challenge(challenge_id: UUID, *, actor_id: object) -> None:
             details={"challenge_id": str(challenge_id)},
         ) from None
 
-    actor_id = admit_event_actions(actor_id, challenge.event, "event.manage_challenges")
+    actor_id = admit_event_actions(actor_id, challenge.event, _EVENT_MANAGE_CHALLENGES)
     _assert_event_capability(actor_id, challenge.event, EventCapability.CHALLENGES)
 
     if not challenge.event.is_content_modifiable:

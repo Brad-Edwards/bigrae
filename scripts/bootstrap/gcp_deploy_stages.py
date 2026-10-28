@@ -290,6 +290,7 @@ class RolloutRequest:
     first_install: bool
     identity_cutover_facts: str = ""
     identity_bootstrap_facts: str = ""
+    catalog_credential_file: str = ""
 
 
 def rollout_stage(
@@ -299,6 +300,7 @@ def rollout_stage(
     request: RolloutRequest,
 ) -> bool:
     """Render, migrate, upgrade, verify, and wait. Return True when the certificate is Active."""
+    from gcp_catalog import initialize_catalog
     from gcp_control_plane import (
         ensure_gcp_control_plane_namespaces,
         run_gcp_database_migrations,
@@ -395,6 +397,12 @@ def rollout_stage(
         wait_for_ingress_address(runner, {})
         active = wait_for_certificate(
             runner, {}, hostname=inputs.public_hostname, require_active=not request.first_install
+        )
+        initialize_catalog(
+            runner,
+            documents,
+            credential_file=request.catalog_credential_file,
+            hostname=inputs.public_hostname,
         )
     success("Rollout stage complete")
     return active

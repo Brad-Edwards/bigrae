@@ -14,13 +14,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
+if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
 
 
 def ctf_range_aggregate_guard(pairs: Sequence[tuple[uuid.UUID, int]]) -> set[int]:
     """Return the ``range_instance_id`` values in ``pairs`` bound to a CTF event."""
-    from ctf.models import CTFParticipant, CTFRangeLaunch, CTFRangeRecovery, CTFSpareRange
+    from ctf.models import CTFParticipant, CTFRangeLaunch, CTFRangeRecovery
 
     request_to_range = {
         request_id: range_instance_id for request_id, range_instance_id in pairs if range_instance_id is not None
@@ -38,17 +41,7 @@ def ctf_range_aggregate_guard(pairs: Sequence[tuple[uuid.UUID, int]]) -> set[int
     ):
         if range_instance_id is not None:
             bound.add(range_instance_id)
-    for range_instance_id in CTFSpareRange.objects.filter(range_instance_id__in=range_ids).values_list(
-        "range_instance_id", flat=True
-    ):
-        if range_instance_id is not None:
-            bound.add(range_instance_id)
-    for request_id in CTFSpareRange.objects.filter(request_id__in=request_ids).values_list("request_id", flat=True):
-        if request_id is None:
-            continue
-        range_instance_id = request_to_range.get(request_id)
-        if range_instance_id is not None:
-            bound.add(range_instance_id)
+    bound.update(_spare_aggregate_bindings(request_to_range))
     bound.update(
         instance_id
         for instance_id in CTFRangeRecovery.objects.filter(
@@ -92,7 +85,7 @@ def ctf_range_event_parent(
     return next(iter(events), None)
 
 
-def require_ctf_range_association(request_id, event_uuid, *, for_update=False) -> None:
+def require_ctf_range_association(request_id: UUID, event_uuid: UUID, *, for_update: bool = False) -> None:
     """Only an exact live participant/spare/replacement pointer may dispatch."""
     from ctf.bridges import cms_find_range_instance_id
     from ctf.models import CTFEvent, CTFRangeLaunch
@@ -126,3 +119,24 @@ def register_ctf_range_aggregate_guard() -> None:
     from ctf.services.range.launch_intents import fence_launch_intent
 
     register_range_event_launch_validator(fence_launch_intent)
+
+
+def _spare_aggregate_bindings(request_to_range: dict[UUID, int]) -> set[int]:
+    """Retained spare custody binds both its exact instance and reserved request identities."""
+    from ctf.models import CTFSpareRange
+
+    range_ids = set(request_to_range.values())
+    request_ids = set(request_to_range)
+    bound: set[int] = set()
+    for range_instance_id in CTFSpareRange.objects.filter(range_instance_id__in=range_ids).values_list(
+        "range_instance_id", flat=True
+    ):
+        if range_instance_id is not None:
+            bound.add(range_instance_id)
+    for request_id in CTFSpareRange.objects.filter(request_id__in=request_ids).values_list("request_id", flat=True):
+        if request_id is None:
+            continue
+        range_instance_id = request_to_range.get(request_id)
+        if range_instance_id is not None:
+            bound.add(range_instance_id)
+    return bound

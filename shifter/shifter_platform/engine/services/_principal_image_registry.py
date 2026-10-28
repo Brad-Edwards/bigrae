@@ -1,17 +1,29 @@
 """Explicit installation image administration under the canonical preparation action."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
+
 from django.db import transaction
 
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.authorization import AuthorizationRequest, TargetRef
 from shared.authorization.policy import require_authorization
-from shared.credentials import resolve_current_credential, resolve_local_credential
+from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.identity_scope import ResourceScope
 
+if TYPE_CHECKING:
+    from engine.models import RaesImageMapping
 
-def authorize_image_registry(credential):
+_IMAGE_REGISTRY_UNAVAILABLE = "Image registry unavailable"
+
+
+def authorize_image_registry(credential: object) -> CredentialContext:
     """Evaluate live policy before any image lookup or write transaction."""
     try:
+        if not isinstance(credential, CredentialContext):
+            raise ValueError("Native credential required")
         current = resolve_current_credential(credential)
         require_authorization(
             AuthorizationRequest(
@@ -24,10 +36,10 @@ def authorize_image_registry(credential):
         )
         return current
     except Exception:
-        raise PermissionError("Image registry unavailable") from None
+        raise PermissionError(_IMAGE_REGISTRY_UNAVAILABLE) from None
 
 
-def operator_image_selection():
+def operator_image_selection() -> dict[str, str | None]:
     """Only native installation inventory belongs to this explicit global registry."""
     return {
         "scope_kind": "installation",
@@ -37,15 +49,18 @@ def operator_image_selection():
     }
 
 
-def _fence_image_credential(current):
+def _fence_image_credential(current: CredentialContext) -> None:
+    """Refuse changed local proof before the image mutation commits."""
     try:
         if resolve_local_credential(current) != current:
             raise ValueError("Image registry authority changed")
     except ValueError:
-        raise PermissionError("Image registry unavailable") from None
+        raise PermissionError(_IMAGE_REGISTRY_UNAVAILABLE) from None
 
 
-def upsert_operator_image(credential, *, key, defaults):
+def upsert_operator_image(
+    credential: object, *, key: Mapping[str, object], defaults: Mapping[str, object]
+) -> RaesImageMapping:
     """Retain immutable ownership and commit current-proof fencing with strict audit."""
     from engine.models import PreparedArtifactAdmission, RaesImageMapping
 
@@ -58,7 +73,7 @@ def upsert_operator_image(credential, *, key, defaults):
             existing.owner_principal_uuid is None
             or PreparedArtifactAdmission.objects.filter(image_mapping=existing).exists()
         ):
-            raise PermissionError("Image registry unavailable")
+            raise PermissionError(_IMAGE_REGISTRY_UNAVAILABLE)
         row, _ = RaesImageMapping.objects.update_or_create(
             **selection,
             defaults=defaults,
@@ -72,7 +87,7 @@ def upsert_operator_image(credential, *, key, defaults):
         return row
 
 
-def disable_operator_image(credential, *, key):
+def disable_operator_image(credential: object, *, key: Mapping[str, object]) -> RaesImageMapping:
     """Disable only the exact scoped row; historical unscoped aliases remain isolated."""
     from engine.models import RaesImageMapping
 
@@ -85,14 +100,15 @@ def disable_operator_image(credential, *, key):
 
             raise RaesImageMappingError("Image mapping unavailable")
         if row.owner_principal_uuid is None:
-            raise PermissionError("Image registry unavailable")
+            raise PermissionError(_IMAGE_REGISTRY_UNAVAILABLE)
         row.enabled = False
         row.save(update_fields=["enabled", "updated_at"])
         _audit_image(row, current)
         return row
 
 
-def _audit_image(row, current):
+def _audit_image(row: RaesImageMapping, current: CredentialContext) -> None:
+    """Record exact principal attribution for the persisted installation image."""
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.CONFIG,

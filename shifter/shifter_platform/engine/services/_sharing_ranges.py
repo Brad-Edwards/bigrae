@@ -7,13 +7,14 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Q
 
-from shared.model_access import ModelAccessRangePage, ModelAccessRangeView, OwnedReference
+from shared.model_access import ModelAccessRangePage, ModelAccessRangePagination, ModelAccessRangeView, OwnedReference
 
 from ._sharing_persistence import SharingError
 
 _RANGE_RESOLUTION_SHAPE = "sharing.range_resolution_shape"
 _RANGE_MEMBERSHIP_CHANGED = "sharing.range_membership_changed"
 _RANGE_MEMBERSHIP_UNAVAILABLE = "sharing.range_membership_unavailable"
+_DEFAULT_PAGINATION = ModelAccessRangePagination()
 
 
 def model_access_range_reference(range_uuid: UUID) -> OwnedReference:
@@ -109,8 +110,7 @@ def resolve_model_access_range_page(
     user_principal_uuids: tuple[UUID, ...] | None = None,
     workspace_ids: tuple[int, ...] | None = None,
     all_ranges: bool = False,
-    continuation: UUID | None = None,
-    page_size: int = 1000,
+    pagination: ModelAccessRangePagination = _DEFAULT_PAGINATION,
 ) -> ModelAccessRangePage:
     """Lock one bounded keyset page from an exact range-membership query.
 
@@ -121,6 +121,7 @@ def resolve_model_access_range_page(
     """
     from engine.models import Range
 
+    continuation, page_size = pagination.continuation, pagination.page_size
     supplied, explicit_values, filters = _query_shape(
         range_uuids=range_uuids,
         request_uuids=request_uuids,
@@ -184,7 +185,7 @@ def resolve_model_access_range_views(
             user_principal_uuids=user_principal_uuids,
             workspace_ids=workspace_ids,
             all_ranges=all_ranges,
-            continuation=continuation,
+            pagination=ModelAccessRangePagination(continuation=continuation),
         )
         if assessment_count is None:
             assessment_count = page.assessment_count

@@ -197,6 +197,7 @@ class TestCompleteUpload:
     @override_settings(AWS_S3_BUCKET_NAME="test-bucket", AGENT_UPLOAD_URL_EXPIRES=900)
     def test_repeated_completion_preserves_another_current_upload_marker(self, authenticated_client):
         client, _ = authenticated_client(email="comp-repeated@example.com")
+        OperatingSystem.objects.get_or_create(slug="windows", defaults={"name": "Windows", "extensions": [".msi"]})
         old_token = _upload_token(client, filename="completed.msi")
         with patch("boto3.client", return_value=_s3_mock()):
             assert _post(client, COMPLETE, {"upload_token": old_token}).status_code == 200

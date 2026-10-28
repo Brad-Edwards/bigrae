@@ -33,6 +33,9 @@ from workspaces.models import Account
 from workspaces.services import create_account, reconcile_hierarchy_publications
 
 if TYPE_CHECKING:
+    from shared.authorization import AuthorizationProvider, AuthorizationRelationshipChange
+
+if TYPE_CHECKING:
     from django.contrib.auth.models import User as DjangoUser
 
 User = get_user_model()
@@ -111,7 +114,8 @@ class Command(BaseCommand):
                 ),
             )
         while reconcile_hierarchy_publications(provider, limit=100):
-            pass
+            # Each call publishes one bounded batch; continue until the queue is empty.
+            continue
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -123,7 +127,7 @@ class Command(BaseCommand):
         )
 
     @staticmethod
-    def _grant(provider, change):
+    def _grant(provider: AuthorizationProvider, change: AuthorizationRelationshipChange) -> None:
         provider.write_relationships(change)
         state = provider.read_relationships(change)
         if not state.grant_present or state.deny_present:

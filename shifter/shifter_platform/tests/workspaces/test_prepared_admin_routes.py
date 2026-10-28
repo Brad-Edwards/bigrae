@@ -334,7 +334,7 @@ def test_descendant_only_administrator_can_discover_and_enter_its_exact_scope(mo
     assert provider.requests and all(request.action == f"{kind}.read" for request in provider.requests)
 
 
-def test_lease_command_rejects_an_advertised_form_payload(django_user_model):
+def test_lease_command_validates_an_incomplete_advertised_form_payload(django_user_model):
     user = django_user_model.objects.create_superuser(
         username="json-lease-administrator", password="synthetic-test-password"
     )
@@ -345,4 +345,5 @@ def test_lease_command_rejects_an_advertised_form_payload(django_user_model):
         "expected_revision=0&initial_days=1&maximum_days=3",
         content_type="application/x-www-form-urlencoded",
     )
-    assert response.status_code == 415
+    assert response.status_code == 400
+    assert set(response.data["error"]["details"]) == {"extension_days", "extensions_enabled"}

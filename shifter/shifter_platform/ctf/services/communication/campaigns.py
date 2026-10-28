@@ -43,6 +43,8 @@ from ctf.services.unified_authorization import require_event_action
 from shared.identity_scope import ResourceScope
 from workspaces.services import ResolvedResourceScope
 
+_CAMPAIGN_SCOPE_IS_UNAVAILABLE = "Campaign scope is unavailable"
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,11 +103,11 @@ def campaign_rate_scope(campaign: CommunicationCampaign) -> tuple[str, int]:
         return "workspace", campaign.workspace_id
     if campaign.account_id is not None:
         return "account", campaign.account_id
-    raise CTFCommunicationError("Campaign scope is unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED")
+    raise CTFCommunicationError(_CAMPAIGN_SCOPE_IS_UNAVAILABLE, code="CTF_COMMUNICATION_WORKSPACE_DENIED")
 
 
 def _authorized_target_events(
-    credential, scope: ResourceScope, binding: ResolvedResourceScope, target_event_ids: list[UUID]
+    credential: EventActor, scope: ResourceScope, binding: ResolvedResourceScope, target_event_ids: list[UUID]
 ) -> list[CTFEvent]:
     """Return only exact-scope events admitted by current native communication policy.
 
@@ -181,17 +183,7 @@ def create_campaign(
     actor = prepare_admission(prospective, events, actor)
     with transaction.atomic():
         events = list(CTFEvent.objects.select_for_update().filter(pk__in=[event.pk for event in events]).order_by("pk"))
-        if maintenance:
-            from ctf.models import CommunicationCutover
-
-            if not CommunicationCutover.objects.filter(pk=1, activated_at__isnull=True).exists():
-                raise CTFCommunicationError("Maintenance fence required", code="CTF_COMMUNICATION_CUTOVER_BLOCKED")
-        else:
-            rate_kind = "workspace" if workspace_id is not None else "account"
-            rate_id = workspace_id or binding.account_id
-            if rate_id is None:
-                raise CTFCommunicationError("Campaign scope is unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED")
-            enforce_operation_rate(credential.principal.uuid, rate_kind, rate_id)
+        _enforce_creation_rate(credential.principal.uuid, binding, maintenance)
         actor = reauthorize(prospective, events, actor, operation="create")
         attribution = actor_attribution(actor)
         campaign = CommunicationCampaign.objects.create(
@@ -242,9 +234,7 @@ def create_system_event_campaign(event: CTFEvent, draft: CampaignDraft, *, campa
         )
         binding = workspace_services.resolve_resource_scope(scope)
     except workspace_services.AccountScopeError:
-        raise CTFCommunicationError(
-            "Campaign scope is unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED"
-        ) from None
+        raise CTFCommunicationError(_CAMPAIGN_SCOPE_IS_UNAVAILABLE, code="CTF_COMMUNICATION_WORKSPACE_DENIED") from None
     audience = validate_audience_spec(draft.audience_spec)
     trigger = validate_trigger_spec(draft.trigger_spec)
     selected_channels = validate_channels(draft.channels)
@@ -256,7 +246,7 @@ def create_system_event_campaign(event: CTFEvent, draft: CampaignDraft, *, campa
     scope_kind = "workspace" if binding.workspace_id is not None else "account"
     scope_id = binding.workspace_id or binding.account_id
     if scope_id is None:
-        raise CTFCommunicationError("Campaign scope is unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED")
+        raise CTFCommunicationError(_CAMPAIGN_SCOPE_IS_UNAVAILABLE, code="CTF_COMMUNICATION_WORKSPACE_DENIED")
     enforce_operation_rate("system", scope_kind, scope_id)
     campaign = CommunicationCampaign.objects.create(
         id=campaign_id,
@@ -328,3 +318,19 @@ def revise_message(
             actor_token_id=attribution.token_id,
             actor_principal_uuid=attribution.principal_uuid,
         )
+
+
+def _enforce_creation_rate(principal_uuid: UUID, binding: ResolvedResourceScope, maintenance: bool) -> None:
+    """Require the cutover fence or enforce the owning scope's ordinary rate limit."""
+    workspace_id = binding.workspace_id
+    if maintenance:
+        from ctf.models import CommunicationCutover
+
+        if not CommunicationCutover.objects.filter(pk=1, activated_at__isnull=True).exists():
+            raise CTFCommunicationError("Maintenance fence required", code="CTF_COMMUNICATION_CUTOVER_BLOCKED")
+    else:
+        rate_kind = "workspace" if workspace_id is not None else "account"
+        rate_id = workspace_id or binding.account_id
+        if rate_id is None:
+            raise CTFCommunicationError(_CAMPAIGN_SCOPE_IS_UNAVAILABLE, code="CTF_COMMUNICATION_WORKSPACE_DENIED")
+        enforce_operation_rate(principal_uuid, rate_kind, rate_id)

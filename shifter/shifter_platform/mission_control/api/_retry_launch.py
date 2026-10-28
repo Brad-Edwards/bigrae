@@ -45,6 +45,7 @@ class LaunchChoices:
     workspace_uuid: str | UUID | None = None
     agents_selection: dict[str, Any] = field(default_factory=dict)
     model_sources: dict[str, Any] | None = None
+    agents_by_os: dict[str, int] | None = None
 
 
 class RetrySafeLaunchMixin:
@@ -147,7 +148,6 @@ class RetrySafeLaunchMixin:
         credential: CredentialContext,
         scope: ResourceScope,
         scenario: str,
-        agents_by_os: dict[str, int] | None,
         caller_key: str,
         choices: LaunchChoices,
     ) -> Response:
@@ -162,7 +162,6 @@ class RetrySafeLaunchMixin:
                 credential,
                 scenario=scenario,
                 agents_selection=choices.agents_selection,
-                agents_by_os=agents_by_os or {},
                 workspace_uuid=choices.workspace_uuid,
                 caller_key=caller_key,
                 model_sources=choices.model_sources,
@@ -189,7 +188,7 @@ class RetrySafeLaunchMixin:
                 _raw_request(request),
                 AuditAction.PROVISION,
                 range_request_id=outcome.request_id,
-                extra_state={"scenario": scenario, "agents": agents_by_os, "retry_safe": True},
+                extra_state={"scenario": scenario, "agents": choices.agents_by_os, "retry_safe": True},
             )
         return self._bound_range_response(credential, outcome, recovered=not outcome.created)
 

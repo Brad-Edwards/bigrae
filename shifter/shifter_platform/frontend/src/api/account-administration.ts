@@ -41,7 +41,7 @@ export function useHierarchyCreation<T, B extends object>(path: string) {
   const create = useAdministrationMutation<T | Pending, B & { publication_receipt?: string }>(path);
   const accept = (result: T | Pending) => {
     if (result && typeof result === "object" && "publication_state" in result && result.publication_state === "pending") {
-      setPendingPublication(result as Pending);
+      setPendingPublication(result);
     } else {
       setPendingPublication(null);
       setDeclaration(null);

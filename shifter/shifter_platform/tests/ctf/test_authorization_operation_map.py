@@ -27,13 +27,15 @@ def test_every_published_ctf_operation_has_one_registered_action_or_exemption() 
     for binding in API_OPERATION_POLICY.values():
         assert binding.actions or binding.exemption
         if binding.actions and binding.exemption:
-            assert binding.selector == "publication_or_participation"
+            assert binding.selector == "publication_or_current_policy_or_participation"
         if binding.actions:
             assert binding.target in {"event", "parent", "range"}
             assert binding.locator
             assert len(binding.actions) == 1 or binding.selector in {
                 "validated_parent_placement",
                 "file_audience",
+                "campaign_recipient_details",
+                "publication_or_current_policy_or_participation",
             }
             for action in binding.actions:
                 definition = action_definition(action)
@@ -41,8 +43,11 @@ def test_every_published_ctf_operation_has_one_registered_action_or_exemption() 
         if binding.exemption:
             assert binding.exemption in {"scoreboard_publication", "cms_model_access"}
     scoreboard = API_OPERATION_POLICY["ctf_events_scoreboard_retrieve"]
-    assert scoreboard.actions == ("event.participate",)
+    assert scoreboard.actions == ("event.read", "event.participate")
     assert scoreboard.exemption == "scoreboard_publication"
+    recipients = API_OPERATION_POLICY["ctf_communications_recipients_list"]
+    assert recipients.actions == ("event.manage_communications", "event.manage_participants")
+    assert recipients.selector == "campaign_recipient_details"
 
 
 def test_ctf_browser_routes_and_commands_have_explicit_effect_classification() -> None:

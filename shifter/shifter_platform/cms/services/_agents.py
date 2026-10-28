@@ -25,18 +25,21 @@ def create_agent(user: object, **kwargs: Any) -> AgentConfig:
 
 
 def delete_agent(user: object, agent_id: int) -> None:
+    """Retire an installer only under current native content authority."""
     from ._scoped_agents import delete_scoped_agent
 
     return delete_scoped_agent(require_native_content_credential(user), agent_id)
 
 
 def list_agents(user: object, *, scope: ResourceScope | None = None) -> list[AgentListItem]:
+    """List installers in the explicitly authorized native scope."""
     from ._scoped_agents import list_scoped_agents
 
     return list_scoped_agents(require_native_content_credential(user), scope)
 
 
 def get_agent(user: object, agent_id: int) -> AgentConfig:
+    """Resolve one installer under current native custody."""
     from ._scoped_agents import get_scoped_agent
 
     return get_scoped_agent(require_native_content_credential(user), agent_id)
@@ -50,6 +53,7 @@ def get_allowed_extensions() -> list[str]:
 
 
 def max_agent_file_size_bytes() -> int:
+    """Expose the owning validator's upload-size limit."""
     from cms.assets.validation import agent_max_file_size_bytes
 
     return agent_max_file_size_bytes()

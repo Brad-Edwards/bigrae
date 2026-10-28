@@ -54,11 +54,12 @@ def _authorize_status_scope(credential: CredentialContext, path: str) -> bool:
         from cms.services import get_range_by_request_id
 
         get_range_by_request_id(credential, status.group("request_id"), include_terminal=True)
-        return True
-    ngfw = _NGFW_STATUS.fullmatch(path)
-    if ngfw:
+        allowed = True
+    elif ngfw := _NGFW_STATUS.fullmatch(path):
         from cms.services import get_ngfw
 
         get_ngfw(credential, ngfw.group("app_id"))
-        return True
-    return False
+        allowed = True
+    else:
+        allowed = False
+    return allowed

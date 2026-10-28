@@ -28,6 +28,7 @@ from ctf.api.organizer._audit import _audit_admin_from_request
 from ctf.enums import EventCapability
 from shared.api.principals import authenticated_credential
 from shared.api_tokens import scopes
+from shared.credentials import CredentialContext
 
 # Staff-delegable capability selector: one noun, several, or None (owner-only).
 Capability = str | tuple[str, ...] | None
@@ -94,7 +95,7 @@ def _actor(request: Request) -> User:
     return actor
 
 
-def _credential(request: Request) -> Any:
+def _credential(request: Request) -> CredentialContext:
     """Return the canonical human or service credential for service calls."""
     try:
         return authenticated_credential(request)
@@ -159,7 +160,7 @@ def _resolve_owned_event(
     return event
 
 
-def _event_authority(request: Request, event: CTFEvent, capability: Capability) -> EventAuthoritySource | None:
+def _event_authority() -> EventAuthoritySource | None:
     """Return the sole application-policy authority source."""
     from ctf.services.authorization import EventAuthoritySource
 
@@ -205,12 +206,13 @@ def _actor_may_manage(
             message="Service unavailable",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         ) from exc
-    source = _event_authority(request, event, capability)
+    source = _event_authority()
     _capture_event_authority(request, event, source)
     return True
 
 
-def _event_action_allowed(credential: Any, event_id: UUID, action: str) -> bool:
+def _event_action_allowed(credential: CredentialContext, event_id: UUID, action: str) -> bool:
+    """Evaluate one exact event action for the current native credential."""
     from ctf.exceptions import CTFError, CTFPermissionError
     from ctf.services.unified_authorization import require_event_action
 
@@ -228,13 +230,15 @@ def _event_action_allowed(credential: Any, event_id: UUID, action: str) -> bool:
 
 
 def _actions_for_capability(capability: Capability) -> tuple[str, ...]:
-    if capability is None:
-        return ("event.manage_staff",)
-    values = (capability,) if isinstance(capability, str) else capability
-    try:
-        return tuple(_CAPABILITY_ACTIONS[str(value)] for value in values)
-    except KeyError:
-        return ()
+    """Map a retained UI capability to its registered event actions."""
+    actions: tuple[str, ...] = ("event.manage_staff",)
+    if capability is not None:
+        values = (capability,) if isinstance(capability, str) else capability
+        try:
+            actions = tuple(_CAPABILITY_ACTIONS[str(value)] for value in values)
+        except KeyError:
+            actions = ()
+    return actions
 
 
 def _resolve_owned_challenge(request: Request, challenge_id: UUID) -> CTFChallenge:

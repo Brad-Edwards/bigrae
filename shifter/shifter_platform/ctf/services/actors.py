@@ -9,12 +9,18 @@ legacy owner, group, staff, or superuser authorization rules.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User
 
 from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
+
+if TYPE_CHECKING:
+    from ctf.models import CTFEvent
+
+_CTF_ACTOR_UNAVAILABLE = "CTF actor unavailable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +34,7 @@ class EventActionAdmission:
     compatibility_user_id: int | None = None
 
     @staticmethod
-    def event_binding(event) -> tuple[object, ...]:
+    def event_binding(event: CTFEvent) -> tuple[object, ...]:
         return tuple(
             getattr(event, name)
             for name in (
@@ -42,7 +48,7 @@ class EventActionAdmission:
             )
         )
 
-    def validate(self, event, action: str) -> None:
+    def validate(self, event: CTFEvent, action: str) -> None:
         if (
             event.pk != self.event_uuid
             or action not in self.actions
@@ -83,17 +89,17 @@ def event_actor_credential(actor: object) -> CredentialContext:
     if isinstance(actor, CredentialContext):
         return actor
     if isinstance(actor, bool):
-        raise ValueError("CTF actor unavailable")
+        raise ValueError(_CTF_ACTOR_UNAVAILABLE)
     if isinstance(actor, int):
         user = get_user_model().objects.filter(pk=actor, is_active=True).first()
         if user is None:
-            raise ValueError("CTF actor unavailable")
+            raise ValueError(_CTF_ACTOR_UNAVAILABLE)
     elif isinstance(actor, User):
         user = actor
         if not user.is_active or user.pk is None:
-            raise ValueError("CTF actor unavailable")
+            raise ValueError(_CTF_ACTOR_UNAVAILABLE)
     else:
-        raise ValueError("CTF actor unavailable")
+        raise ValueError(_CTF_ACTOR_UNAVAILABLE)
     from shared.api.principals import human_session_credential
 
     return human_session_credential(user)
@@ -105,7 +111,7 @@ def current_event_actor_credential(actor: object) -> CredentialContext:
         return resolve_current_credential(actor)
     if isinstance(actor, (User, int)) and not isinstance(actor, bool):
         return event_actor_credential(actor)
-    raise ValueError("CTF actor unavailable")
+    raise ValueError(_CTF_ACTOR_UNAVAILABLE)
 
 
 def fence_event_actor(actor: EventActor) -> None:
@@ -120,7 +126,7 @@ def fence_event_actor(actor: EventActor) -> None:
     else:
         valid = False
     if not valid:
-        raise ValueError("CTF actor unavailable")
+        raise ValueError(_CTF_ACTOR_UNAVAILABLE)
 
 
 def event_actor_user_id(actor: object) -> int | None:
@@ -128,19 +134,21 @@ def event_actor_user_id(actor: object) -> int | None:
     if isinstance(actor, EventActionAdmission):
         actor = actor.credential
     if isinstance(actor, int):
-        return actor
-    if isinstance(actor, User):
-        return actor.pk
-    if not isinstance(actor, CredentialContext):
-        raise ValueError("CTF actor unavailable")
-    if actor.principal.kind != "human":
-        return None
-    try:
-        from management.services import human_principal_user_id
+        user_id = actor
+    elif isinstance(actor, User):
+        user_id = actor.pk
+    elif not isinstance(actor, CredentialContext):
+        raise ValueError(_CTF_ACTOR_UNAVAILABLE)
+    elif actor.principal.kind != "human":
+        user_id = None
+    else:
+        try:
+            from management.services import human_principal_user_id
 
-        return human_principal_user_id(actor.principal)
-    except Exception:
-        return None
+            user_id = human_principal_user_id(actor.principal)
+        except Exception:
+            user_id = None
+    return user_id
 
 
 def event_actor_user(actor: EventActor) -> User | None:

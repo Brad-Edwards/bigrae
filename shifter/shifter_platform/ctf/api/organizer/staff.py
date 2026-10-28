@@ -37,6 +37,8 @@ from ctf.api.serializers import (
 from ctf.exceptions import CTFError, CTFNotFoundError, CTFPermissionError, CTFStateError, CTFValidationError
 from shared.audit import AuditAction
 
+_EVENT_MANAGE_STAFF = "event.manage_staff"
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -48,19 +50,21 @@ logger = logging.getLogger(__name__)
 def _authority_error(error: CTFError) -> _CtfApiError:
     """Keep known domain failures identical across authority commands and reads."""
     if isinstance(error, CTFNotFoundError):
-        return _CtfApiError(status_code=404, code="not_found", message=str(error))
-    if isinstance(error, CTFPermissionError):
-        return _CtfApiError(status_code=403, code="permission_denied", message="Forbidden")
-    if isinstance(error, CTFValidationError):
-        return _CtfApiError(status_code=400, code="invalid", message=str(error))
-    if isinstance(error, CTFStateError) or error.code in {
+        result = _CtfApiError(status_code=404, code="not_found", message=str(error))
+    elif isinstance(error, CTFPermissionError):
+        result = _CtfApiError(status_code=403, code="permission_denied", message="Forbidden")
+    elif isinstance(error, CTFValidationError):
+        result = _CtfApiError(status_code=400, code="invalid", message=str(error))
+    elif isinstance(error, CTFStateError) or error.code in {
         "CTF_AUTHORITY_UNAVAILABLE",
         "CTF_EVENT_AUTHORITY_UNAVAILABLE",
     }:
-        return _CtfApiError(
+        result = _CtfApiError(
             status_code=503, code="event_authority_unavailable", message="Event authority is unavailable."
         )
-    raise error
+    else:
+        raise error
+    return result
 
 
 def _staff_payload(staff: CTFEventStaff) -> dict[str, object]:
@@ -85,7 +89,7 @@ class EventStaffView(APIView):
         from ctf.services.event import list_event_staff, pending_event_authority
 
         try:
-            _resolve_owned_event(request, event_id, action="event.manage_staff")
+            _resolve_owned_event(request, event_id, action=_EVENT_MANAGE_STAFF)
             pending = pending_event_authority(event_id, _credential(request))
         except CTFError as exc:
             return _authority_error(exc).to_response(request)
@@ -104,7 +108,7 @@ class EventStaffView(APIView):
             serializer = EventStaffAssignRequestSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             try:
-                _resolve_owned_event(request, event_id, action="event.manage_staff")
+                _resolve_owned_event(request, event_id, action=_EVENT_MANAGE_STAFF)
                 with admin_external_audit(request, "staff.assign", action=AuditAction.CREATE):
                     staff = assign_event_staff(
                         event_id,
@@ -132,7 +136,7 @@ class EventStaffMemberView(APIView):
 
         try:
             try:
-                _resolve_owned_event(request, event_id, action="event.manage_staff")
+                _resolve_owned_event(request, event_id, action=_EVENT_MANAGE_STAFF)
                 with admin_external_audit(request, "staff.revoke", action=AuditAction.DELETE):
                     revoke_event_staff(event_id, _credential(request), principal_uuid)
             except CTFError as exc:

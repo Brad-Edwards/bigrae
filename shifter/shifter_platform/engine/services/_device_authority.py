@@ -348,6 +348,7 @@ def admit_native_device_access(credential: CredentialContext, identifier: UUID |
 
 
 def _device_remote_authority_fields(runtime: Instance) -> dict[str, Any]:
+    """Pin the exact native device custody and access action for the final handoff."""
     fields = _device_authority_fields(runtime)
     fields["authority_action"] = fields["authority_action"].replace("manage_devices", "access_devices")
     fields["authority_resource_uuid"] = runtime.uuid

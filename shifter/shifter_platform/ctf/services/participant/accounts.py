@@ -24,6 +24,8 @@ from ctf.services.range import request_event_provisioning
 from management.services import configure_temporary_ctf_account
 from shared.auth import CTF_PARTICIPANT_GROUP
 
+_EVENT_MANAGE_PARTICIPANTS = "event.manage_participants"
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import AnonymousUser, User
 else:
@@ -222,7 +224,7 @@ def create_participant_accounts(
         candidate = CTFEvent.objects.get(pk=event_id)
     except CTFEvent.DoesNotExist:
         raise CTFNotFoundError("Event not found", details={"event_id": str(event_id)}) from None
-    participant_admission = admit_event_actions(actor, candidate, "event.manage_participants")
+    participant_admission = admit_event_actions(actor, candidate, _EVENT_MANAGE_PARTICIPANTS)
     provisioning_admission = None
     with suppress(CTFPermissionError):
         provisioning_admission = admit_event_actions(actor, candidate, "event.manage_ranges")
@@ -230,7 +232,7 @@ def create_participant_accounts(
     created: list[CTFParticipant] = []
     with transaction.atomic():
         event, active_count = _event_for_account_creation(event_id, count)
-        assert_event_action(participant_admission, event, "event.manage_participants")
+        assert_event_action(participant_admission, event, _EVENT_MANAGE_PARTICIPANTS)
         # Reject an invalid event-wide credential before accepting any
         # provisioning work. The subsequent seat writes share this transaction.
         _event_shared_participant_password(event)
@@ -310,11 +312,11 @@ def rename_participant_username(
         candidate = CTFParticipant.objects.select_related("event").get(pk=participant_id)
     except CTFParticipant.DoesNotExist:
         raise CTFValidationError("Participant unavailable") from None
-    actor = admit_event_actions(actor, candidate.event, "event.manage_participants")
+    actor = admit_event_actions(actor, candidate.event, _EVENT_MANAGE_PARTICIPANTS)
     with transaction.atomic():
         participant = _locked_rename_target(participant_id)
         try:
-            assert_event_action(actor, participant.event, "event.manage_participants")
+            assert_event_action(actor, participant.event, _EVENT_MANAGE_PARTICIPANTS)
         except CTFPermissionError:
             raise CTFValidationError(
                 "Only the event organizer may rename this account", code="CTF_PERMISSION_DENIED"

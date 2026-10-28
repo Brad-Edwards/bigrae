@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+from typing import Any
 
 import yaml
 
@@ -33,18 +34,19 @@ printf 'SHIFTER_IDENTITY_CUTOVER_RESULT=%s\\n' "$result"
 """
 
 
-def render(manifest: str, *, job_name: str, status_only: bool = False) -> dict[str, object]:
-    """Clone the exact portal database/policy binding into a bounded Job."""
-    if _DNS_LABEL.fullmatch(job_name) is None:
-        raise ValueError("Cutover Job name must be a bounded DNS label")
-    deployments = [
-        item
-        for item in yaml.safe_load_all(manifest)
-        if isinstance(item, dict)
+def _is_portal_deployment(item: object) -> bool:
+    """Select only the canonical portal Deployment in its owning namespace."""
+    return (
+        isinstance(item, dict)
         and item.get("kind") == "Deployment"
         and item.get("metadata", {}).get("name") == "portal-web"
         and item.get("metadata", {}).get("namespace") == "shifter-platform"
-    ]
+    )
+
+
+def _portal_template(manifest: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Clone one complete runtime binding and validate its sole portal container."""
+    deployments = [item for item in yaml.safe_load_all(manifest) if _is_portal_deployment(item)]
     if len(deployments) != 1:
         raise ValueError("Release manifest must contain exactly one portal-web Deployment")
     pod = copy.deepcopy(deployments[0]["spec"]["template"]["spec"])
@@ -52,6 +54,14 @@ def render(manifest: str, *, job_name: str, status_only: bool = False) -> dict[s
     portal = next((item for item in containers if item.get("name") == "portal"), None)
     if portal is None or len(containers) != 1:
         raise ValueError("Portal workload shape is not eligible for cutover")
+    return pod, portal
+
+
+def render(manifest: str, *, job_name: str, status_only: bool = False) -> dict[str, object]:
+    """Clone the exact portal database/policy binding into a bounded Job."""
+    if _DNS_LABEL.fullmatch(job_name) is None:
+        raise ValueError("Cutover Job name must be a bounded DNS label")
+    pod, portal = _portal_template(manifest)
     pod["restartPolicy"] = "Never"
     pod.pop("terminationGracePeriodSeconds", None)
     portal["args"] = ["/bin/sh", "-ceu", _STATUS_SCRIPT if status_only else _SCRIPT]
@@ -60,53 +70,7 @@ def render(manifest: str, *, job_name: str, status_only: bool = False) -> dict[s
     env = portal.setdefault("env", [])
     env.append({"name": "SHIFTER_IDENTITY_MAINTENANCE", "value": "true"})
     if not status_only:
-        mounts = portal.setdefault("volumeMounts", [])
-        mounts.extend(
-            [
-                {"name": "identity-cutover-facts", "mountPath": "/run/identity-cutover", "readOnly": True},
-                {"name": "identity-bootstrap-facts", "mountPath": "/run/identity-bootstrap", "readOnly": True},
-            ]
-        )
-        pod_security = pod.setdefault("securityContext", {})
-        pod_security["fsGroup"] = 1000
-        pod_security["fsGroupChangePolicy"] = "OnRootMismatch"
-        prepare = {
-            "name": "identity-facts-prepare",
-            "image": portal["image"],
-            "command": ["/bin/sh", "-ceu"],
-            "args": [
-                "for pair in cutover bootstrap; do "
-                'source="/run/identity-${pair}-source/${pair}.json"; '
-                'target="/run/identity-${pair}/${pair}.json"; '
-                'if [ -f "$source" ]; then install -m 600 "$source" "$target"; fi; '
-                "done"
-            ],
-            "securityContext": copy.deepcopy(portal.get("securityContext", {})),
-            "volumeMounts": [
-                {"name": "identity-cutover-source", "mountPath": "/run/identity-cutover-source", "readOnly": True},
-                {"name": "identity-bootstrap-source", "mountPath": "/run/identity-bootstrap-source", "readOnly": True},
-                {"name": "identity-cutover-facts", "mountPath": "/run/identity-cutover"},
-                {"name": "identity-bootstrap-facts", "mountPath": "/run/identity-bootstrap"},
-            ],
-        }
-        if "imagePullPolicy" in portal:
-            prepare["imagePullPolicy"] = portal["imagePullPolicy"]
-        pod["initContainers"] = [prepare, *pod.get("initContainers", [])]
-        volumes = pod.setdefault("volumes", [])
-        volumes.extend(
-            [
-                {
-                    "name": "identity-cutover-source",
-                    "secret": {"secretName": "identity-cutover-facts", "optional": True, "defaultMode": 0o440},
-                },
-                {
-                    "name": "identity-bootstrap-source",
-                    "secret": {"secretName": "identity-bootstrap-facts", "optional": True, "defaultMode": 0o440},
-                },
-                {"name": "identity-cutover-facts", "emptyDir": {"sizeLimit": "1Mi"}},
-                {"name": "identity-bootstrap-facts", "emptyDir": {"sizeLimit": "1Mi"}},
-            ]
-        )
+        _mount_private_facts(pod, portal)
     labels = {"app.kubernetes.io/part-of": "shifter", "app.kubernetes.io/component": "identity-cutover"}
     return {
         "apiVersion": "batch/v1",
@@ -118,6 +82,58 @@ def render(manifest: str, *, job_name: str, status_only: bool = False) -> dict[s
             "template": {"metadata": {"labels": labels}, "spec": pod},
         },
     }
+
+
+def _mount_private_facts(pod: dict[str, Any], portal: dict[str, Any]) -> None:
+    """Copy projected ceremony Secrets into private files owned by the image user."""
+    mounts = portal.setdefault("volumeMounts", [])
+    mounts.extend(
+        [
+            {"name": "identity-cutover-facts", "mountPath": "/run/identity-cutover", "readOnly": True},
+            {"name": "identity-bootstrap-facts", "mountPath": "/run/identity-bootstrap", "readOnly": True},
+        ]
+    )
+    pod_security = pod.setdefault("securityContext", {})
+    pod_security["fsGroup"] = 1000
+    pod_security["fsGroupChangePolicy"] = "OnRootMismatch"
+    prepare = {
+        "name": "identity-facts-prepare",
+        "image": portal["image"],
+        "command": ["/bin/sh", "-ceu"],
+        "args": [
+            "for pair in cutover bootstrap; do "
+            'source="/run/identity-${pair}-source/${pair}.json"; '
+            'target="/run/identity-${pair}/${pair}.json"; '
+            'if [ -f "$source" ]; then install -m 600 "$source" "$target"; fi; '
+            "done"
+        ],
+        "securityContext": copy.deepcopy(portal.get("securityContext", {})),
+        "resources": copy.deepcopy(portal.get("resources", {})),
+        "volumeMounts": [
+            {"name": "identity-cutover-source", "mountPath": "/run/identity-cutover-source", "readOnly": True},
+            {"name": "identity-bootstrap-source", "mountPath": "/run/identity-bootstrap-source", "readOnly": True},
+            {"name": "identity-cutover-facts", "mountPath": "/run/identity-cutover"},
+            {"name": "identity-bootstrap-facts", "mountPath": "/run/identity-bootstrap"},
+        ],
+    }
+    if "imagePullPolicy" in portal:
+        prepare["imagePullPolicy"] = portal["imagePullPolicy"]
+    pod["initContainers"] = [prepare, *pod.get("initContainers", [])]
+    volumes = pod.setdefault("volumes", [])
+    volumes.extend(
+        [
+            {
+                "name": "identity-cutover-source",
+                "secret": {"secretName": "identity-cutover-facts", "optional": True, "defaultMode": 0o440},
+            },
+            {
+                "name": "identity-bootstrap-source",
+                "secret": {"secretName": "identity-bootstrap-facts", "optional": True, "defaultMode": 0o440},
+            },
+            {"name": "identity-cutover-facts", "emptyDir": {"sizeLimit": "1Mi"}},
+            {"name": "identity-bootstrap-facts", "emptyDir": {"sizeLimit": "1Mi"}},
+        ]
+    )
 
 
 _POLICY_DEPLOYMENTS = frozenset({"openfga", "openfga-admin"})

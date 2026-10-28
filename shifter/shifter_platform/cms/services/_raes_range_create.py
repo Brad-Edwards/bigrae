@@ -39,19 +39,20 @@ from shared.audit import (
 )
 from shared.credentials import CredentialContext
 from shared.enums import ResourceStatus
-from shared.identity_scope import PrincipalRef, ResourceScope
+from shared.identity_scope import ResourceScope
 from shared.range_instantiation_policy import InstantiationPurpose
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from cms.models import RaesPackageSource, Request
-    from shared.authorization import TargetRef
     from shared.enums import RangeSource
     from shared.model_access import OwnedReference
     from shared.model_access.reservation import ModelLaunchScope
     from shared.range_instantiation_policy import BackendAdmission
     from shared.schemas.range import RangeContext
+
+    from ._scoped_launch_types import NativeEventLaunchOptions
 
 logger = logging.getLogger(__name__)
 
@@ -194,13 +195,7 @@ def create_raes_native_range(
     workspace_uuid: str | UUID | None = None,
     scope: ResourceScope | None = None,
     model_sources: dict | None = None,
-    owner_principal: PrincipalRef | None = None,
-    authority_action: str | None = None,
-    authority_target: TargetRef | None = None,
-    remote_access_teardown_at: datetime | None = None,
-    model_admission_subject: OwnedReference | None = None,
-    model_launch_scope: ModelLaunchScope | None = None,
-    request_uuid: UUID | None = None,
+    event_options: NativeEventLaunchOptions | None = None,
 ) -> RangeContext:
     """Launch a registered RAES package through the native provisioning path.
 
@@ -214,24 +209,21 @@ def create_raes_native_range(
     error propagates.
     """
     if isinstance(user, CredentialContext):
+        from ._scoped_launch_types import NativeEventLaunchOptions, ScopedRangeLaunchOptions
         from ._scoped_range_launch import create_scoped_range
 
         return create_scoped_range(
             user,
             scenario,
-            scope=scope,
-            range_source=range_source,
-            workspace_uuid=workspace_uuid,
-            model_sources=model_sources,
-            owner_principal=owner_principal,
-            authority_action=authority_action,
-            authority_target=authority_target,
-            remote_access_teardown_at=remote_access_teardown_at,
-            model_admission_subject=model_admission_subject,
-            model_launch_scope=model_launch_scope,
-            request_uuid=request_uuid,
+            ScopedRangeLaunchOptions(
+                scope=scope,
+                range_source=range_source,
+                workspace_uuid=workspace_uuid,
+                model_sources=model_sources,
+                event=event_options or NativeEventLaunchOptions(),
+            ),
         )
-    if scope is not None or model_sources or request_uuid is not None:
+    if scope is not None or model_sources or event_options is not None:
         raise CMSError("Range launch scope unavailable")
     return _create_raes_native_range_impl(
         user,

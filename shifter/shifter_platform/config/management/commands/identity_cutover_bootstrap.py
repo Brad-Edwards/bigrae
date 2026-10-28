@@ -5,16 +5,11 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 
+from config.identity_bootstrap import bootstrap_grants, ensure_bootstrap_grant
 from config.identity_cutover import load_identity_bootstrap_facts
 from config.openfga_authorization import configured_authorization_provider
 from management.services import bootstrap_principal_uuid
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
-from shared.authorization import (
-    AdministrativeRoleChange,
-    PolicyEffect,
-    RelationshipSubject,
-    TargetRef,
-)
 from workspaces.services import (
     IdentityCutoverConflict,
     bind_identity_cutover_provider,
@@ -54,24 +49,9 @@ class Command(BaseCommand):
             raise CommandError("bootstrap relationship lookup is unavailable") from exc
         if current and current != (principal_subject,):
             raise CommandError("authorization store already has an administrator")
-        change = AdministrativeRoleChange(
-            RelationshipSubject("principal", principal_uuid),
-            "application_administrator",
-            TargetRef("installation"),
-            PolicyEffect.GRANT,
-        )
-        write_error: Exception | None = None
-        if not current:
-            try:
-                provider.write_relationships(change)
-            except Exception as exc:
-                write_error = exc
-        try:
-            relationship = provider.read_relationships(change)
-        except Exception as exc:
-            raise CommandError("bootstrap administrator grant is unresolved") from exc
-        if not relationship.grant_present or relationship.deny_present:
-            raise CommandError("bootstrap administrator grant is unresolved") from write_error
+        changes = bootstrap_grants(principal_uuid, state.plan_payload)
+        for change in changes:
+            ensure_bootstrap_grant(provider, change)
         with transaction.atomic():
             audit_log(
                 AuditEvent(
@@ -81,7 +61,14 @@ class Command(BaseCommand):
                     action=AuditAction.AUTHORIZATION_CONFIRMED,
                     actor_type="principal",
                     actor_principal_uuid=principal_uuid,
-                    new_state={"policy": "application_administrator", "state": "verified"},
+                    new_state={
+                        "policy": "application_administrator",
+                        "personal_token_eligibility": state.plan_payload.get(
+                            "bootstrap_personal_token_eligibility", False
+                        ),
+                        "plan_digest": state.plan_digest,
+                        "state": "verified",
+                    },
                     context="identity_cutover",
                 ),
                 strict=True,

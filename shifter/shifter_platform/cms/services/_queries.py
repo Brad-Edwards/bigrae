@@ -210,6 +210,5 @@ def is_event_range_cleanup_verified_absent(event_uuid: UUID, range_instance_id: 
         bound, _scope, parent = _range_binding(candidate.uuid, include_terminal=True)
     except ValueError:
         return False
-    if parent.type != "event" or parent.uuid != event_uuid or bound.pk != range_instance_id:
-        return False
-    return is_range_generation_cleanup_verified_absent(request_id, candidate.uuid, candidate.range_id)
+    exact_event = parent.type == "event" and parent.uuid == event_uuid and bound.pk == range_instance_id
+    return exact_event and is_range_generation_cleanup_verified_absent(request_id, candidate.uuid, candidate.range_id)

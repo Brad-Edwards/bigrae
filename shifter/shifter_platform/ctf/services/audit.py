@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from shared.audit import (
@@ -15,47 +15,14 @@ from shared.audit import (
     get_request_id,
 )
 
+from ._audit_attribution import EventMutationOutcome, _actor_fields, _entity_id_from_uuid
+
 if TYPE_CHECKING:
     from django.http import HttpRequest
     from rest_framework.request import Request
 
     from ctf.models import CTFContentHydrationReceipt, CTFEvent, CTFParticipant, CTFRangeRecovery
     from shared.identity_scope import PrincipalRef
-
-
-class _ActorFields(TypedDict):
-    actor_type: str
-    actor_id: int | None
-    actor_principal_uuid: NotRequired[UUID]
-
-
-def _actor_fields(actor: object | None) -> _ActorFields:
-    """Return canonical human, service-principal, or system attribution."""
-    from django.contrib.auth import get_user_model
-
-    from ctf.services.actors import EventActionAdmission
-    from shared.credentials import CredentialContext
-
-    if isinstance(actor, EventActionAdmission):
-        actor = actor.credential
-    if isinstance(actor, CredentialContext):
-        from shared.audit import principal_actor_fields
-
-        return {**principal_actor_fields(actor.principal)}
-    if isinstance(actor, int):
-        return {"actor_type": AuditActorType.USER, "actor_id": actor}
-    if isinstance(actor, get_user_model()):
-        from ctf.services.actors import event_actor_credential
-
-        credential = event_actor_credential(actor)
-        return {
-            "actor_type": AuditActorType.USER,
-            "actor_id": actor.pk,
-            "actor_principal_uuid": credential.principal.uuid,
-        }
-    if actor is None:
-        return {"actor_type": AuditActorType.SYSTEM, "actor_id": None}
-    raise ValueError("Invalid CTF audit actor")
 
 
 def audit_platform_admin_event_action(
@@ -65,9 +32,7 @@ def audit_platform_admin_event_action(
     operation: str,
     effective_actor_id: object | None,
     authority_source: str = "policy",
-    action: str = AuditAction.UPDATE,
-    changed_fields: list[str] | None = None,
-    outcome: str | None = None,
+    result: EventMutationOutcome,
 ) -> None:
     """Strictly audit a successful platform-admin override mutation on an event (ADR-052-R4).
 
@@ -84,16 +49,16 @@ def audit_platform_admin_event_action(
             str(actor_fields["actor_principal_uuid"]) if actor_fields.get("actor_principal_uuid") is not None else None
         ),
     }
-    if changed_fields:
-        new_state["changed_fields"] = sorted(changed_fields)
-    if outcome:
-        new_state["outcome"] = outcome
+    if result.changed_fields:
+        new_state["changed_fields"] = sorted(result.changed_fields)
+    if result.outcome:
+        new_state["outcome"] = result.outcome
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.CONFIG,
             entity_id=_entity_id_from_uuid(event.pk),
             entity_ref=str(event.pk),
-            action=action,
+            action=result.action,
             **actor_fields,
             new_state=new_state,
             context="ctf_event_action",
@@ -105,28 +70,23 @@ def audit_platform_admin_event_action(
     )
 
 
-def _entity_id_from_uuid(entity_uuid: UUID) -> int:
-    """Map a UUID to a positive int for AuditLog.entity_id."""
-    return int.from_bytes(entity_uuid.bytes[:4], "big") % (2**31 - 1) or 1
-
-
 def audit_public_registration_publication(
     *, actor_id: int | None, event_id: UUID, enabled: bool, principal: PrincipalRef | None = None
 ) -> None:
     """Strictly record an event's public-publication toggle without content or PII."""
+    if actor_id is not None:
+        actor_type = AuditActorType.USER
+    elif principal is not None:
+        actor_type = AuditActorType.PRINCIPAL
+    else:
+        actor_type = AuditActorType.SYSTEM
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.CONFIG,
             entity_id=_entity_id_from_uuid(event_id),
             entity_ref=str(event_id),
             action=AuditAction.UPDATE,
-            actor_type=(
-                AuditActorType.USER
-                if actor_id is not None
-                else AuditActorType.PRINCIPAL
-                if principal is not None
-                else AuditActorType.SYSTEM
-            ),
+            actor_type=actor_type,
             actor_id=actor_id,
             actor_principal_uuid=principal.uuid if principal is not None else None,
             new_state={

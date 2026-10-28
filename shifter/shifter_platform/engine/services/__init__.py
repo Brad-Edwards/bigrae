@@ -4,51 +4,67 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from django.db import transaction
+import django.db as _api_django_db
 
-from engine.secrets import SecretsError, get_rdp_password, get_ssh_key
-from engine.ssh import SSHConnection
+import engine.secrets as _api_engine_secrets
+import engine.ssh as _api_engine_ssh
 
-from ._authorization_inventory import list_authorization_range_uuids
-from ._capacity import EventCapacitySignal, latest_capacity_declaration, record_capacity_declaration
-from ._capacity_admit import admit_range_capacity, reconcile_capacity_budgets, release_range_capacity
-from ._capacity_plan import (
-    EventCapacityRequest,
-    assess_declared_event_capacity,
-    assess_event_capacity,
-    release_capacity_reservations,
-)
-from ._cleanup_outcome import (
-    CLEANUP_NOT_APPLICABLE,
-    CLEANUP_PENDING,
-    CLEANUP_UNKNOWN,
-    CLEANUP_VERIFIED_TERMINAL,
-    CleanupObligation,
-    RangeCleanupOutcome,
-    project_range_cleanup_outcome,
-)
-from ._cleanup_verification import (
-    CleanupVerificationView,
-    is_cleanup_verified_absent,
-    is_range_generation_cleanup_verified_absent,
-    latest_cleanup_verification,
-    record_cleanup_verification,
-)
-from ._common import EngineError
-from ._device_authority import (
-    admit_native_device_access,
-    lock_native_device_access_binding,
-    prepare_ngfw_creation,
-    verified_device_status_projection,
-)
-from ._feature_artifact_launcher import default_storage_target, reconcile_feature_artifact_acquisitions
-from ._feature_artifacts import (
-    ArtifactRequest,
-    FeatureArtifactUnavailableError,
-    StorageTarget,
-    await_ready,
-    request_acquisition,
-)
+from . import _authorization_inventory as _api_authorization_inventory
+from . import _capacity as _api_capacity
+from . import _capacity_admit as _api_capacity_admit
+from . import _capacity_plan as _api_capacity_plan
+from . import _cleanup_outcome as _api_cleanup_outcome
+from . import _cleanup_verification as _api_cleanup_verification
+from . import _common as _api_common
+from . import _device_authority as _api_device_authority
+from . import _feature_artifact_launcher as _api_feature_artifact_launcher
+from . import _feature_artifacts as _api_feature_artifacts
+from . import _lifecycle as _api_lifecycle
+from . import _model_admission as _api_model_admission
+from . import _model_broker_control as _api_model_broker_control
+from . import _model_credentials as _api_model_credentials
+from . import _model_launch_api as _api_model_launch_api
+from . import _model_policy_transition as _api_model_policy_transition
+from . import _model_request_accounting as _api_model_request_accounting
+from . import _model_request_commit as _api_model_request_commit
+from . import _model_request_lifecycle as _api_model_request_lifecycle
+from . import _model_request_reconcile as _api_model_request_reconcile
+from . import _model_source_control as _api_model_source_control
+from . import _model_sources as _api_model_sources
+from . import _ngfw as _api_ngfw
+from . import _operation_apply as _api_operation_apply
+from . import _preparation_adapters as _api_preparation_adapters
+from . import _preparation_controller as _api_preparation_controller
+from . import _preparation_grants as _api_preparation_grants
+from . import _preparation_operations as _api_preparation_operations
+from . import _preparation_worker as _api_preparation_worker
+from . import _principal_lifecycle as _api_principal_lifecycle
+from . import _principal_ngfw as _api_principal_ngfw
+from . import _principal_range_create as _api_principal_range_create
+from . import _principal_warm_claim as _api_principal_warm_claim
+from . import _public_operations as _api_public_operations
+from . import _queries as _api_queries
+from . import _raes_evidence as _api_raes_evidence
+from . import _raes_image as _api_raes_image
+from . import _raes_range as _api_raes_range
+from . import _raes_status as _api_raes_status
+from . import _range as _api_range
+from . import _range_by_request as _api_range_by_request
+from . import _range_escape as _api_range_escape
+from . import _range_ownership as _api_range_ownership
+from . import _receipt as _api_receipt
+from . import _runtime_plugin_bindings as _api_runtime_plugin_bindings
+from . import _runtime_plugin_controller as _api_runtime_plugin_controller
+from . import _runtime_plugin_operations as _api_runtime_plugin_operations
+from . import _runtime_plugins as _api_runtime_plugins
+from . import _sharing as _api_sharing
+from . import _subnet_coordination as _api_subnet_coordination
+from . import _terminal as _api_terminal
+from . import _vpn as _api_vpn
+from . import _vpn_sessions as _api_vpn_sessions
+from . import _warm_pool as _api_warm_pool
+from . import _warm_pool_admission as _api_warm_pool_admission
+from . import _warm_pool_sweep as _api_warm_pool_sweep
 from ._identity_cutover import (
     apply_identity_cutover_resources as apply_identity_cutover_resources,
 )
@@ -59,239 +75,330 @@ from ._identity_cutover import (
 from ._identity_cutover import (
     pending_identity_cutover_work as pending_identity_cutover_work,
 )
-from ._lifecycle import dispatch_prepared_range_resume, pause_range, resume_range
-from ._model_admission import admit_range_model_access
-from ._model_broker_control import advance_model_call, commit_model_call, finish_model_call, reserve_model_call
-from ._model_credentials import (
-    authenticate_model_access,
-    exchange_model_enrollment,
-    issue_model_enrollment,
-    refresh_model_access,
-)
-from ._model_launch_api import (
-    disable_optional_model_preparation,
-    fence_model_policy_publication,
-    get_model_launch_preparation,
-    get_model_warm_scope,
-    list_model_launch_refreshes,
-    prepare_model_launch,
-    project_model_launch_authority,
-    record_model_observations,
-)
-from ._model_policy_transition import (
-    admit_range_model_policy_change,
-    begin_range_model_policy_change,
-    get_range_model_policy_status,
-    revoke_range_model_access,
-)
-from ._model_request_accounting import RequestIdempotency, ReservationOutcome, reserve_request
-from ._model_request_commit import commit_request_spend
-from ._model_request_lifecycle import (
-    DispatchGrant,
-    charge_unknown,
-    check_dispatch_lease,
-    fence_revoked_requests,
-    open_dispatch,
-    release_before_dispatch,
-    renew_continuation_lease,
-    settle_request,
-)
-from ._model_request_reconcile import (
-    apply_late_evidence,
-    close_expired_revocations,
-    reconcile_expired_dispatches,
-    reconcile_model_requests,
-)
-from ._model_source_control import model_source_execution
-from ._model_sources import (
-    ModelSourceView,
-    authorize_model_source_organization,
-    compile_authorized_model_sources,
-    create_model_source,
-    list_model_sources,
-    project_authorized_model_sources,
-    retire_unused_model_source_credentials,
-    update_model_source,
-)
-from ._ngfw import create_ngfw, destroy_ngfw, start_ngfw, stop_ngfw
-from ._operation_apply import apply_pending_operation_results, evaluate_operation_result
-from ._preparation_adapters import (
-    PreparationAdapterView,
-    install_preparation_adapter,
-    list_preparation_adapter_grants,
-    list_preparation_adapters,
-    set_preparation_adapter_state,
-)
-from ._preparation_controller import reconcile_preparations
-from ._preparation_grants import activate_preparation_grant, revoke_preparation_grant
-from ._preparation_operations import (
-    PreparationView,
-    cancel_artifact_preparation,
-    get_artifact_preparation,
-    request_artifact_preparation,
-    retry_artifact_preparation,
-)
-from ._preparation_worker import read_preparation_worker_input, record_preparation_worker_result
 from ._principal_lifecycle import commit_prepared_range_lifecycle as commit_prepared_range_lifecycle
 from ._principal_lifecycle import prepare_range_lifecycle as prepare_range_lifecycle
 from ._principal_lifecycle import prepare_system_range_cleanup as prepare_system_range_cleanup
-from ._principal_ngfw import commit_ngfw_lifecycle, prepare_ngfw_lifecycle
-from ._principal_range_create import prepare_raes_range_creation
 from ._principal_range_events import verified_range_status_projection as verified_range_status_projection
 from ._principal_range_owner import commit_range_owner_move as commit_range_owner_move
 from ._principal_range_owner import prepare_event_range_owner_move as prepare_event_range_owner_move
 from ._principal_range_owner import prepare_range_owner_move as prepare_range_owner_move
 from ._principal_range_scope import commit_range_scope_move as commit_range_scope_move
 from ._principal_range_scope import prepare_range_scope_move as prepare_range_scope_move
-from ._principal_warm_claim import commit_warm_range_claim, prepare_warm_range_claim
-from ._public_operations import (
-    DEFAULT_RETRY_TTL_SECONDS,
-    MintedOperation,
-    RetryBindingResult,
-    RetryKeyConflict,
-    bind_public_operation,
-    lookup_public_operation,
-    operation_id_for_request,
-    prune_expired_retry_bindings,
-)
-from ._queries import (
-    get_authoritative_range_status,
-    get_principal_ready_range_instances,
-    get_ranges_for_ngfw,
-    get_user_ready_range_instances,
-)
-from ._raes_evidence import record_raes_operation_status, record_raes_runtime_snapshot
-from ._raes_image import (
-    RaesImageMappingError,
-    RaesImageMappingOptions,
-    RaesImageMappingView,
-    disable_raes_image_mapping,
-    list_backend_artifacts,
-    list_raes_image_mappings,
-    upsert_raes_image_mapping,
-)
-from ._raes_range import (
-    RaesRangeRef,
-    RangeBindings,
-    create_raes_range,
-    dispatch_created_raes_range,
-    grant_raes_remote_access,
-)
-from ._raes_status import project_raes_operation_status
-from ._range import (
-    cancel_range,
-    destroy_range,
-    get_instance_ips_by_uuid,
-    get_range_pause_resume_capability,
-    get_range_status,
-)
+from ._public_api import PUBLIC_API as _DECLARED_PUBLIC_API
 from ._range_authority import RangeAuthorityProjection as RangeAuthorityProjection
 from ._range_authority import has_range_runtime as has_range_runtime
 from ._range_authority import lock_range_remote_authority as lock_range_remote_authority
 from ._range_authority import native_range_id_by_request as native_range_id_by_request
 from ._range_authority import project_range_authority as project_range_authority
-from ._range_by_request import (
-    RangeOwnershipTransferBlocked,
-    RangeProjectionIntegrityError,
-    RangeWorkspaceRebindOutcome,
-    cancel_range_by_request,
-    destroy_range_by_request,
-    get_pinned_range_egress_mode_by_request,
-    get_range_failure_reason_by_request,
-    range_owner_reassignment_available_by_request,
-    reassign_range_owner_by_request,
-    rebind_range_workspace_by_request,
-)
-from ._range_escape import GuestProbeError, GuestProbeRequest, RangeMembership, get_range_membership, run_guest_probe
-from ._range_ownership import RangeOwnershipProjection, range_ownership_projection
-from ._receipt import (
-    ReceiptBindingUnavailable,
-    ReceiptRegistrationConflict,
-    confirm_receipt_verifier_binding,
-    project_receipt_verifier_binding,
-    register_receipt_verifier,
-    revoke_receipt_verifier,
-)
-from ._runtime_plugin_bindings import (
-    RuntimePluginBindingRemovalAdmission,
-    RuntimePluginPackView,
-    bind_runtime_plugin,
-    has_runtime_plugin_binding,
-    list_runtime_plugin_bindings,
-    prepare_runtime_plugin_binding,
-    prepare_runtime_plugin_pack_binding_removal,
-    remove_runtime_plugin_pack_binding,
-)
-from ._runtime_plugin_controller import reconcile_runtime_plugins
-from ._runtime_plugin_operations import reconcile_runtime_plugin_operations
-from ._runtime_plugins import change_runtime_plugin, install_runtime_plugin, list_runtime_plugins
-from ._sharing import (
-    MembershipEvidence,
-    ModelAccessRangeView,
-    SharingError,
-    drain_sharing_binding,
-    get_or_create_allocation_group,
-    invalidate_sharing_authority,
-    preview_effective_policy,
-    project_selector_resolution,
-    publish_authority_fence,
-    publish_membership_projection,
-    publish_sharing_binding,
-    resolve_model_access_range_page,
-    resolve_model_access_range_reference,
-    resolve_model_access_range_views,
-    validate_sharing_binding,
-)
-from ._subnet_coordination import read_subnet_reservation, release_subnet_reservation, reserve_subnet_cidrs
-from ._terminal import (
-    connect_ngfw_terminal,
-    connect_terminal,
-    get_active_range_provisioned_instances,
-    get_owned_instance_request_ref,
-    get_rdp_connection_info,
-    get_ssh_connection_info,
-)
-from ._vpn import (
-    VpnProfileConflict,
-    VpnProfileNotFound,
-    VpnProfilePending,
-    VpnProfileUnavailable,
-    get_openvpn_profile,
-    has_openvpn_profile,
-)
 from ._vpn_profiles import get_vpn_crl as get_vpn_crl
-from ._vpn_sessions import (
-    VPN_SESSION_HEARTBEAT_SECONDS,
-    VPN_SESSION_LEASE_SECONDS,
-    VpnSessionDenied,
-    VpnSessionGrant,
-    authorize_vpn_session,
-    end_vpn_session,
-    renew_vpn_sessions,
-)
-from ._warm_pool import (
-    WarmGenerationDraft,
-    abandon_warm_preparation,
-    active_generation_count,
-    admit_warm_generation_capacity,
-    bucket_state_counts,
-    claim_ready_generation,
-    create_warm_generation,
-    enqueue_admitted_warm_activation,
-    enqueue_range_activation,
-    finalize_retiring_generations,
-    preview_ready_generation,
-    ready_generations,
-    recover_stalled_generations,
-    release_warm_generation_capacity,
-    retire_generation,
-    retire_generations_for_request,
-    retire_removed_bucket_generations,
-    total_active_generation_count,
-    warm_capacity_scope_ref,
-)
-from ._warm_pool_admission import reserve_warm_generation
-from ._warm_pool_sweep import WarmRecoveryProgress, reconcile_retained_warm_generations
+
+transaction = _api_django_db.transaction
+
+
+SecretsError = _api_engine_secrets.SecretsError
+get_rdp_password = _api_engine_secrets.get_rdp_password
+get_ssh_key = _api_engine_secrets.get_ssh_key
+
+SSHConnection = _api_engine_ssh.SSHConnection
+
+
+list_authorization_range_uuids = _api_authorization_inventory.list_authorization_range_uuids
+
+EventCapacitySignal = _api_capacity.EventCapacitySignal
+latest_capacity_declaration = _api_capacity.latest_capacity_declaration
+record_capacity_declaration = _api_capacity.record_capacity_declaration
+
+admit_range_capacity = _api_capacity_admit.admit_range_capacity
+reconcile_capacity_budgets = _api_capacity_admit.reconcile_capacity_budgets
+release_range_capacity = _api_capacity_admit.release_range_capacity
+
+EventCapacityRequest = _api_capacity_plan.EventCapacityRequest
+assess_declared_event_capacity = _api_capacity_plan.assess_declared_event_capacity
+assess_event_capacity = _api_capacity_plan.assess_event_capacity
+release_capacity_reservations = _api_capacity_plan.release_capacity_reservations
+
+CLEANUP_NOT_APPLICABLE = _api_cleanup_outcome.CLEANUP_NOT_APPLICABLE
+CLEANUP_PENDING = _api_cleanup_outcome.CLEANUP_PENDING
+CLEANUP_UNKNOWN = _api_cleanup_outcome.CLEANUP_UNKNOWN
+CLEANUP_VERIFIED_TERMINAL = _api_cleanup_outcome.CLEANUP_VERIFIED_TERMINAL
+CleanupObligation = _api_cleanup_outcome.CleanupObligation
+RangeCleanupOutcome = _api_cleanup_outcome.RangeCleanupOutcome
+project_range_cleanup_outcome = _api_cleanup_outcome.project_range_cleanup_outcome
+
+CleanupVerificationView = _api_cleanup_verification.CleanupVerificationView
+is_cleanup_verified_absent = _api_cleanup_verification.is_cleanup_verified_absent
+is_range_generation_cleanup_verified_absent = _api_cleanup_verification.is_range_generation_cleanup_verified_absent
+latest_cleanup_verification = _api_cleanup_verification.latest_cleanup_verification
+record_cleanup_verification = _api_cleanup_verification.record_cleanup_verification
+
+EngineError = _api_common.EngineError
+
+admit_native_device_access = _api_device_authority.admit_native_device_access
+lock_native_device_access_binding = _api_device_authority.lock_native_device_access_binding
+prepare_ngfw_creation = _api_device_authority.prepare_ngfw_creation
+verified_device_status_projection = _api_device_authority.verified_device_status_projection
+
+default_storage_target = _api_feature_artifact_launcher.default_storage_target
+reconcile_feature_artifact_acquisitions = _api_feature_artifact_launcher.reconcile_feature_artifact_acquisitions
+
+ArtifactRequest = _api_feature_artifacts.ArtifactRequest
+FeatureArtifactUnavailableError = _api_feature_artifacts.FeatureArtifactUnavailableError
+StorageTarget = _api_feature_artifacts.StorageTarget
+await_ready = _api_feature_artifacts.await_ready
+request_acquisition = _api_feature_artifacts.request_acquisition
+
+dispatch_prepared_range_resume = _api_lifecycle.dispatch_prepared_range_resume
+pause_range = _api_lifecycle.pause_range
+resume_range = _api_lifecycle.resume_range
+
+admit_range_model_access = _api_model_admission.admit_range_model_access
+
+advance_model_call = _api_model_broker_control.advance_model_call
+commit_model_call = _api_model_broker_control.commit_model_call
+finish_model_call = _api_model_broker_control.finish_model_call
+reserve_model_call = _api_model_broker_control.reserve_model_call
+
+authenticate_model_access = _api_model_credentials.authenticate_model_access
+exchange_model_enrollment = _api_model_credentials.exchange_model_enrollment
+issue_model_enrollment = _api_model_credentials.issue_model_enrollment
+refresh_model_access = _api_model_credentials.refresh_model_access
+
+disable_optional_model_preparation = _api_model_launch_api.disable_optional_model_preparation
+fence_model_policy_publication = _api_model_launch_api.fence_model_policy_publication
+get_model_launch_preparation = _api_model_launch_api.get_model_launch_preparation
+get_model_warm_scope = _api_model_launch_api.get_model_warm_scope
+list_model_launch_refreshes = _api_model_launch_api.list_model_launch_refreshes
+prepare_model_launch = _api_model_launch_api.prepare_model_launch
+project_model_launch_authority = _api_model_launch_api.project_model_launch_authority
+record_model_observations = _api_model_launch_api.record_model_observations
+
+admit_range_model_policy_change = _api_model_policy_transition.admit_range_model_policy_change
+begin_range_model_policy_change = _api_model_policy_transition.begin_range_model_policy_change
+get_range_model_policy_status = _api_model_policy_transition.get_range_model_policy_status
+revoke_range_model_access = _api_model_policy_transition.revoke_range_model_access
+
+RequestIdempotency = _api_model_request_accounting.RequestIdempotency
+ReservationOutcome = _api_model_request_accounting.ReservationOutcome
+reserve_request = _api_model_request_accounting.reserve_request
+
+commit_request_spend = _api_model_request_commit.commit_request_spend
+
+DispatchGrant = _api_model_request_lifecycle.DispatchGrant
+charge_unknown = _api_model_request_lifecycle.charge_unknown
+check_dispatch_lease = _api_model_request_lifecycle.check_dispatch_lease
+fence_revoked_requests = _api_model_request_lifecycle.fence_revoked_requests
+open_dispatch = _api_model_request_lifecycle.open_dispatch
+release_before_dispatch = _api_model_request_lifecycle.release_before_dispatch
+renew_continuation_lease = _api_model_request_lifecycle.renew_continuation_lease
+settle_request = _api_model_request_lifecycle.settle_request
+
+apply_late_evidence = _api_model_request_reconcile.apply_late_evidence
+close_expired_revocations = _api_model_request_reconcile.close_expired_revocations
+reconcile_expired_dispatches = _api_model_request_reconcile.reconcile_expired_dispatches
+reconcile_model_requests = _api_model_request_reconcile.reconcile_model_requests
+
+model_source_execution = _api_model_source_control.model_source_execution
+
+ModelSourceView = _api_model_sources.ModelSourceView
+authorize_model_source_organization = _api_model_sources.authorize_model_source_organization
+compile_authorized_model_sources = _api_model_sources.compile_authorized_model_sources
+create_model_source = _api_model_sources.create_model_source
+list_model_sources = _api_model_sources.list_model_sources
+project_authorized_model_sources = _api_model_sources.project_authorized_model_sources
+retire_unused_model_source_credentials = _api_model_sources.retire_unused_model_source_credentials
+update_model_source = _api_model_sources.update_model_source
+
+create_ngfw = _api_ngfw.create_ngfw
+destroy_ngfw = _api_ngfw.destroy_ngfw
+start_ngfw = _api_ngfw.start_ngfw
+stop_ngfw = _api_ngfw.stop_ngfw
+
+apply_pending_operation_results = _api_operation_apply.apply_pending_operation_results
+evaluate_operation_result = _api_operation_apply.evaluate_operation_result
+
+PreparationAdapterView = _api_preparation_adapters.PreparationAdapterView
+install_preparation_adapter = _api_preparation_adapters.install_preparation_adapter
+list_preparation_adapter_grants = _api_preparation_adapters.list_preparation_adapter_grants
+list_preparation_adapters = _api_preparation_adapters.list_preparation_adapters
+set_preparation_adapter_state = _api_preparation_adapters.set_preparation_adapter_state
+
+reconcile_preparations = _api_preparation_controller.reconcile_preparations
+
+activate_preparation_grant = _api_preparation_grants.activate_preparation_grant
+revoke_preparation_grant = _api_preparation_grants.revoke_preparation_grant
+
+PreparationView = _api_preparation_operations.PreparationView
+cancel_artifact_preparation = _api_preparation_operations.cancel_artifact_preparation
+get_artifact_preparation = _api_preparation_operations.get_artifact_preparation
+request_artifact_preparation = _api_preparation_operations.request_artifact_preparation
+retry_artifact_preparation = _api_preparation_operations.retry_artifact_preparation
+
+read_preparation_worker_input = _api_preparation_worker.read_preparation_worker_input
+record_preparation_worker_result = _api_preparation_worker.record_preparation_worker_result
+
+PreparedRangeLifecycle = _api_principal_lifecycle.PreparedRangeLifecycle
+
+commit_ngfw_lifecycle = _api_principal_ngfw.commit_ngfw_lifecycle
+prepare_ngfw_lifecycle = _api_principal_ngfw.prepare_ngfw_lifecycle
+
+PreparedRaesRangeCreation = _api_principal_range_create.PreparedRaesRangeCreation
+prepare_raes_range_creation = _api_principal_range_create.prepare_raes_range_creation
+
+PreparedWarmRangeClaim = _api_principal_warm_claim.PreparedWarmRangeClaim
+commit_warm_range_claim = _api_principal_warm_claim.commit_warm_range_claim
+prepare_warm_range_claim = _api_principal_warm_claim.prepare_warm_range_claim
+
+__all__ = _DECLARED_PUBLIC_API
+
+DEFAULT_RETRY_TTL_SECONDS = _api_public_operations.DEFAULT_RETRY_TTL_SECONDS
+MintedOperation = _api_public_operations.MintedOperation
+RetryBindingResult = _api_public_operations.RetryBindingResult
+RetryKeyConflict = _api_public_operations.RetryKeyConflict
+bind_public_operation = _api_public_operations.bind_public_operation
+lookup_public_operation = _api_public_operations.lookup_public_operation
+operation_id_for_request = _api_public_operations.operation_id_for_request
+prune_expired_retry_bindings = _api_public_operations.prune_expired_retry_bindings
+
+get_authoritative_range_status = _api_queries.get_authoritative_range_status
+get_principal_ready_range_instances = _api_queries.get_principal_ready_range_instances
+get_ranges_for_ngfw = _api_queries.get_ranges_for_ngfw
+get_user_ready_range_instances = _api_queries.get_user_ready_range_instances
+
+record_raes_operation_status = _api_raes_evidence.record_raes_operation_status
+record_raes_runtime_snapshot = _api_raes_evidence.record_raes_runtime_snapshot
+
+RaesImageMappingError = _api_raes_image.RaesImageMappingError
+RaesImageMappingOptions = _api_raes_image.RaesImageMappingOptions
+RaesImageMappingView = _api_raes_image.RaesImageMappingView
+disable_raes_image_mapping = _api_raes_image.disable_raes_image_mapping
+list_backend_artifacts = _api_raes_image.list_backend_artifacts
+list_raes_image_mappings = _api_raes_image.list_raes_image_mappings
+upsert_raes_image_mapping = _api_raes_image.upsert_raes_image_mapping
+
+RaesRangeRef = _api_raes_range.RaesRangeRef
+RangeBindings = _api_raes_range.RangeBindings
+create_raes_range = _api_raes_range.create_raes_range
+dispatch_created_raes_range = _api_raes_range.dispatch_created_raes_range
+grant_raes_remote_access = _api_raes_range.grant_raes_remote_access
+
+project_raes_operation_status = _api_raes_status.project_raes_operation_status
+
+cancel_range = _api_range.cancel_range
+destroy_range = _api_range.destroy_range
+get_instance_ips_by_uuid = _api_range.get_instance_ips_by_uuid
+get_range_pause_resume_capability = _api_range.get_range_pause_resume_capability
+get_range_status = _api_range.get_range_status
+
+RangeOwnershipTransferBlocked = _api_range_by_request.RangeOwnershipTransferBlocked
+RangeProjectionIntegrityError = _api_range_by_request.RangeProjectionIntegrityError
+RangeWorkspaceRebindOutcome = _api_range_by_request.RangeWorkspaceRebindOutcome
+cancel_range_by_request = _api_range_by_request.cancel_range_by_request
+destroy_range_by_request = _api_range_by_request.destroy_range_by_request
+get_pinned_range_egress_mode_by_request = _api_range_by_request.get_pinned_range_egress_mode_by_request
+get_range_failure_reason_by_request = _api_range_by_request.get_range_failure_reason_by_request
+range_owner_reassignment_available_by_request = _api_range_by_request.range_owner_reassignment_available_by_request
+reassign_range_owner_by_request = _api_range_by_request.reassign_range_owner_by_request
+rebind_range_workspace_by_request = _api_range_by_request.rebind_range_workspace_by_request
+
+GuestProbeError = _api_range_escape.GuestProbeError
+GuestProbeRequest = _api_range_escape.GuestProbeRequest
+RangeMembership = _api_range_escape.RangeMembership
+get_range_membership = _api_range_escape.get_range_membership
+run_guest_probe = _api_range_escape.run_guest_probe
+
+RangeOwnershipProjection = _api_range_ownership.RangeOwnershipProjection
+range_ownership_projection = _api_range_ownership.range_ownership_projection
+
+ReceiptBindingUnavailable = _api_receipt.ReceiptBindingUnavailable
+ReceiptRegistrationConflict = _api_receipt.ReceiptRegistrationConflict
+confirm_receipt_verifier_binding = _api_receipt.confirm_receipt_verifier_binding
+project_receipt_verifier_binding = _api_receipt.project_receipt_verifier_binding
+register_receipt_verifier = _api_receipt.register_receipt_verifier
+revoke_receipt_verifier = _api_receipt.revoke_receipt_verifier
+
+RuntimePluginBindingRemovalAdmission = _api_runtime_plugin_bindings.RuntimePluginBindingRemovalAdmission
+RuntimePluginPackView = _api_runtime_plugin_bindings.RuntimePluginPackView
+bind_runtime_plugin = _api_runtime_plugin_bindings.bind_runtime_plugin
+has_runtime_plugin_binding = _api_runtime_plugin_bindings.has_runtime_plugin_binding
+list_runtime_plugin_bindings = _api_runtime_plugin_bindings.list_runtime_plugin_bindings
+prepare_runtime_plugin_binding = _api_runtime_plugin_bindings.prepare_runtime_plugin_binding
+prepare_runtime_plugin_pack_binding_removal = _api_runtime_plugin_bindings.prepare_runtime_plugin_pack_binding_removal
+remove_runtime_plugin_pack_binding = _api_runtime_plugin_bindings.remove_runtime_plugin_pack_binding
+
+reconcile_runtime_plugins = _api_runtime_plugin_controller.reconcile_runtime_plugins
+
+reconcile_runtime_plugin_operations = _api_runtime_plugin_operations.reconcile_runtime_plugin_operations
+
+change_runtime_plugin = _api_runtime_plugins.change_runtime_plugin
+install_runtime_plugin = _api_runtime_plugins.install_runtime_plugin
+list_runtime_plugins = _api_runtime_plugins.list_runtime_plugins
+
+MembershipEvidence = _api_sharing.MembershipEvidence
+ModelAccessRangeView = _api_sharing.ModelAccessRangeView
+SharingError = _api_sharing.SharingError
+drain_sharing_binding = _api_sharing.drain_sharing_binding
+get_or_create_allocation_group = _api_sharing.get_or_create_allocation_group
+invalidate_sharing_authority = _api_sharing.invalidate_sharing_authority
+preview_effective_policy = _api_sharing.preview_effective_policy
+project_selector_resolution = _api_sharing.project_selector_resolution
+publish_authority_fence = _api_sharing.publish_authority_fence
+publish_membership_projection = _api_sharing.publish_membership_projection
+publish_sharing_binding = _api_sharing.publish_sharing_binding
+resolve_model_access_range_page = _api_sharing.resolve_model_access_range_page
+resolve_model_access_range_reference = _api_sharing.resolve_model_access_range_reference
+resolve_model_access_range_views = _api_sharing.resolve_model_access_range_views
+validate_sharing_binding = _api_sharing.validate_sharing_binding
+
+read_subnet_reservation = _api_subnet_coordination.read_subnet_reservation
+release_subnet_reservation = _api_subnet_coordination.release_subnet_reservation
+reserve_subnet_cidrs = _api_subnet_coordination.reserve_subnet_cidrs
+
+connect_ngfw_terminal = _api_terminal.connect_ngfw_terminal
+connect_terminal = _api_terminal.connect_terminal
+get_active_range_provisioned_instances = _api_terminal.get_active_range_provisioned_instances
+get_owned_instance_request_ref = _api_terminal.get_owned_instance_request_ref
+get_rdp_connection_info = _api_terminal.get_rdp_connection_info
+get_ssh_connection_info = _api_terminal.get_ssh_connection_info
+
+VpnProfileConflict = _api_vpn.VpnProfileConflict
+VpnProfileNotFound = _api_vpn.VpnProfileNotFound
+VpnProfilePending = _api_vpn.VpnProfilePending
+VpnProfileUnavailable = _api_vpn.VpnProfileUnavailable
+get_openvpn_profile = _api_vpn.get_openvpn_profile
+has_openvpn_profile = _api_vpn.has_openvpn_profile
+
+VPN_SESSION_HEARTBEAT_SECONDS = _api_vpn_sessions.VPN_SESSION_HEARTBEAT_SECONDS
+VPN_SESSION_LEASE_SECONDS = _api_vpn_sessions.VPN_SESSION_LEASE_SECONDS
+VpnSessionDenied = _api_vpn_sessions.VpnSessionDenied
+VpnSessionGrant = _api_vpn_sessions.VpnSessionGrant
+authorize_vpn_session = _api_vpn_sessions.authorize_vpn_session
+end_vpn_session = _api_vpn_sessions.end_vpn_session
+renew_vpn_sessions = _api_vpn_sessions.renew_vpn_sessions
+
+WarmGenerationDraft = _api_warm_pool.WarmGenerationDraft
+abandon_warm_preparation = _api_warm_pool.abandon_warm_preparation
+active_generation_count = _api_warm_pool.active_generation_count
+admit_warm_generation_capacity = _api_warm_pool.admit_warm_generation_capacity
+bucket_state_counts = _api_warm_pool.bucket_state_counts
+claim_ready_generation = _api_warm_pool.claim_ready_generation
+create_warm_generation = _api_warm_pool.create_warm_generation
+enqueue_admitted_warm_activation = _api_warm_pool.enqueue_admitted_warm_activation
+enqueue_range_activation = _api_warm_pool.enqueue_range_activation
+finalize_retiring_generations = _api_warm_pool.finalize_retiring_generations
+preview_ready_generation = _api_warm_pool.preview_ready_generation
+ready_generations = _api_warm_pool.ready_generations
+recover_stalled_generations = _api_warm_pool.recover_stalled_generations
+release_warm_generation_capacity = _api_warm_pool.release_warm_generation_capacity
+retire_generation = _api_warm_pool.retire_generation
+retire_generations_for_request = _api_warm_pool.retire_generations_for_request
+retire_removed_bucket_generations = _api_warm_pool.retire_removed_bucket_generations
+total_active_generation_count = _api_warm_pool.total_active_generation_count
+warm_capacity_scope_ref = _api_warm_pool.warm_capacity_scope_ref
+
+reserve_warm_generation = _api_warm_pool_admission.reserve_warm_generation
+
+WarmRecoveryProgress = _api_warm_pool_sweep.WarmRecoveryProgress
+reconcile_retained_warm_generations = _api_warm_pool_sweep.reconcile_retained_warm_generations
 
 
 def reconcile_model_allocations(*, now: datetime | None = None, limit: int = 100) -> int:
@@ -299,250 +406,3 @@ def reconcile_model_allocations(*, now: datetime | None = None, limit: int = 100
     from ._model_allocation_lifecycle import reconcile_model_allocations as reconcile
 
     return reconcile(now=now, limit=limit)
-
-
-__all__ = (
-    "CLEANUP_NOT_APPLICABLE",
-    "CLEANUP_PENDING",
-    "CLEANUP_UNKNOWN",
-    "CLEANUP_VERIFIED_TERMINAL",
-    "DEFAULT_RETRY_TTL_SECONDS",
-    "VPN_SESSION_HEARTBEAT_SECONDS",
-    "VPN_SESSION_LEASE_SECONDS",
-    "ArtifactRequest",
-    "CleanupObligation",
-    "CleanupVerificationView",
-    "DispatchGrant",
-    "EngineError",
-    "EventCapacityRequest",
-    "EventCapacitySignal",
-    "FeatureArtifactUnavailableError",
-    "GuestProbeError",
-    "GuestProbeRequest",
-    "MembershipEvidence",
-    "MintedOperation",
-    "ModelAccessRangeView",
-    "ModelSourceView",
-    "PreparationAdapterView",
-    "PreparationView",
-    "RaesImageMappingError",
-    "RaesImageMappingOptions",
-    "RaesImageMappingView",
-    "RaesRangeRef",
-    "RangeBindings",
-    "RangeCleanupOutcome",
-    "RangeMembership",
-    "RangeOwnershipProjection",
-    "RangeOwnershipTransferBlocked",
-    "RangeProjectionIntegrityError",
-    "RangeWorkspaceRebindOutcome",
-    "ReceiptBindingUnavailable",
-    "ReceiptRegistrationConflict",
-    "RequestIdempotency",
-    "ReservationOutcome",
-    "RetryBindingResult",
-    "RetryKeyConflict",
-    "RuntimePluginBindingRemovalAdmission",
-    "RuntimePluginPackView",
-    "SSHConnection",
-    "SecretsError",
-    "SharingError",
-    "StorageTarget",
-    "VpnProfileConflict",
-    "VpnProfileNotFound",
-    "VpnProfilePending",
-    "VpnProfileUnavailable",
-    "VpnSessionDenied",
-    "VpnSessionGrant",
-    "WarmGenerationDraft",
-    "WarmRecoveryProgress",
-    "abandon_warm_preparation",
-    "activate_preparation_grant",
-    "active_generation_count",
-    "admit_native_device_access",
-    "admit_range_capacity",
-    "admit_range_model_access",
-    "admit_range_model_policy_change",
-    "admit_warm_generation_capacity",
-    "advance_model_call",
-    "apply_late_evidence",
-    "apply_pending_operation_results",
-    "assess_declared_event_capacity",
-    "assess_event_capacity",
-    "authenticate_model_access",
-    "authorize_model_source_organization",
-    "authorize_vpn_session",
-    "await_ready",
-    "begin_range_model_policy_change",
-    "bind_public_operation",
-    "bind_runtime_plugin",
-    "bucket_state_counts",
-    "cancel_artifact_preparation",
-    "cancel_range",
-    "cancel_range_by_request",
-    "change_runtime_plugin",
-    "charge_unknown",
-    "check_dispatch_lease",
-    "claim_ready_generation",
-    "close_expired_revocations",
-    "commit_model_call",
-    "commit_ngfw_lifecycle",
-    "commit_request_spend",
-    "commit_warm_range_claim",
-    "compile_authorized_model_sources",
-    "confirm_receipt_verifier_binding",
-    "connect_ngfw_terminal",
-    "connect_terminal",
-    "create_model_source",
-    "create_ngfw",
-    "create_raes_range",
-    "create_warm_generation",
-    "default_storage_target",
-    "destroy_ngfw",
-    "destroy_range",
-    "destroy_range_by_request",
-    "disable_optional_model_preparation",
-    "disable_raes_image_mapping",
-    "dispatch_created_raes_range",
-    "dispatch_prepared_range_resume",
-    "drain_sharing_binding",
-    "end_vpn_session",
-    "enqueue_admitted_warm_activation",
-    "enqueue_range_activation",
-    "evaluate_operation_result",
-    "exchange_model_enrollment",
-    "fence_model_policy_publication",
-    "fence_revoked_requests",
-    "finalize_retiring_generations",
-    "finish_model_call",
-    "get_active_range_provisioned_instances",
-    "get_artifact_preparation",
-    "get_authoritative_range_status",
-    "get_instance_ips_by_uuid",
-    "get_model_launch_preparation",
-    "get_model_warm_scope",
-    "get_openvpn_profile",
-    "get_or_create_allocation_group",
-    "get_owned_instance_request_ref",
-    "get_pinned_range_egress_mode_by_request",
-    "get_principal_ready_range_instances",
-    "get_range_failure_reason_by_request",
-    "get_range_membership",
-    "get_range_model_policy_status",
-    "get_range_pause_resume_capability",
-    "get_range_status",
-    "get_ranges_for_ngfw",
-    "get_rdp_connection_info",
-    "get_rdp_password",
-    "get_ssh_connection_info",
-    "get_ssh_key",
-    "get_user_ready_range_instances",
-    "grant_raes_remote_access",
-    "has_openvpn_profile",
-    "has_runtime_plugin_binding",
-    "install_preparation_adapter",
-    "install_runtime_plugin",
-    "invalidate_sharing_authority",
-    "is_cleanup_verified_absent",
-    "is_range_generation_cleanup_verified_absent",
-    "issue_model_enrollment",
-    "latest_capacity_declaration",
-    "latest_cleanup_verification",
-    "list_authorization_range_uuids",
-    "list_backend_artifacts",
-    "list_model_launch_refreshes",
-    "list_model_sources",
-    "list_preparation_adapter_grants",
-    "list_preparation_adapters",
-    "list_raes_image_mappings",
-    "list_runtime_plugin_bindings",
-    "list_runtime_plugins",
-    "lock_native_device_access_binding",
-    "lookup_public_operation",
-    "model_source_execution",
-    "open_dispatch",
-    "operation_id_for_request",
-    "pause_range",
-    "prepare_model_launch",
-    "prepare_ngfw_creation",
-    "prepare_ngfw_lifecycle",
-    "prepare_raes_range_creation",
-    "prepare_runtime_plugin_binding",
-    "prepare_runtime_plugin_pack_binding_removal",
-    "prepare_warm_range_claim",
-    "preview_effective_policy",
-    "preview_ready_generation",
-    "project_authorized_model_sources",
-    "project_model_launch_authority",
-    "project_raes_operation_status",
-    "project_range_cleanup_outcome",
-    "project_receipt_verifier_binding",
-    "project_selector_resolution",
-    "prune_expired_retry_bindings",
-    "publish_authority_fence",
-    "publish_membership_projection",
-    "publish_sharing_binding",
-    "range_owner_reassignment_available_by_request",
-    "range_ownership_projection",
-    "read_preparation_worker_input",
-    "read_subnet_reservation",
-    "ready_generations",
-    "reassign_range_owner_by_request",
-    "rebind_range_workspace_by_request",
-    "reconcile_capacity_budgets",
-    "reconcile_expired_dispatches",
-    "reconcile_feature_artifact_acquisitions",
-    "reconcile_model_allocations",
-    "reconcile_model_requests",
-    "reconcile_preparations",
-    "reconcile_retained_warm_generations",
-    "reconcile_runtime_plugin_operations",
-    "reconcile_runtime_plugins",
-    "record_capacity_declaration",
-    "record_cleanup_verification",
-    "record_model_observations",
-    "record_preparation_worker_result",
-    "record_raes_operation_status",
-    "record_raes_runtime_snapshot",
-    "recover_stalled_generations",
-    "refresh_model_access",
-    "register_receipt_verifier",
-    "release_before_dispatch",
-    "release_capacity_reservations",
-    "release_range_capacity",
-    "release_subnet_reservation",
-    "release_warm_generation_capacity",
-    "remove_runtime_plugin_pack_binding",
-    "renew_continuation_lease",
-    "renew_vpn_sessions",
-    "request_acquisition",
-    "request_artifact_preparation",
-    "reserve_model_call",
-    "reserve_request",
-    "reserve_subnet_cidrs",
-    "reserve_warm_generation",
-    "resolve_model_access_range_page",
-    "resolve_model_access_range_reference",
-    "resolve_model_access_range_views",
-    "resume_range",
-    "retire_generation",
-    "retire_generations_for_request",
-    "retire_removed_bucket_generations",
-    "retire_unused_model_source_credentials",
-    "retry_artifact_preparation",
-    "revoke_preparation_grant",
-    "revoke_range_model_access",
-    "revoke_receipt_verifier",
-    "run_guest_probe",
-    "set_preparation_adapter_state",
-    "settle_request",
-    "start_ngfw",
-    "stop_ngfw",
-    "total_active_generation_count",
-    "transaction",
-    "update_model_source",
-    "upsert_raes_image_mapping",
-    "validate_sharing_binding",
-    "verified_device_status_projection",
-    "warm_capacity_scope_ref",
-)

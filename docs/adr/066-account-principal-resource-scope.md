@@ -326,6 +326,22 @@ customer-private assets or executable installation authority. Account-level
 ranges must be represented in the canonical action/model/ancestry and descendant
 contracts without inventing a workspace.
 
+Catalog management commands authenticate actual native bearer proof from a
+private file through the existing API-token authenticator. Django staff flags,
+actor names, credential references, workload IAM and maintenance mode cannot
+authorize registration or conformance. Shipped content uses explicit installation
+scope and the ordinary registration, conformance and publication services.
+Registration admission precedes the atomic manifest batch; conformance and
+publication follow commit with current proof and policy. Failed qualification
+leaves native pending or unpublished content for exact retry.
+
+Deployment schema Jobs do not initialize the application catalog. Catalog setup
+follows verified native activation and application readiness. Without an actual
+current proof, deployment reports catalog setup incomplete and leaves the active
+application available for administrator login and credential issuance. It must
+not create an implicit deployment grant or weaken the runtime gate to resolve
+that prerequisite.
+
 Principal RAES creation carries exact customer scope and public identity through
 the incumbent dispatch port and `RangeBindings`. Engine evaluates parent
 authority before the creation transaction. CMS linkage, native input, queued

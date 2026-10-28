@@ -30,6 +30,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_LEASE_UNAVAILABLE = "Range lease is unavailable"
+_RANGE_NOT_FOUND = "Range not found"
+
+
 def _effective_lease_policy() -> MissionControlLeasePolicy:
     """Return the deployment's effective Mission Control lease policy.
 
@@ -169,7 +173,7 @@ def build_resolved_mission_control_range_lease(
 def _projection(instance: RangeInstance, *, extensions_enabled: bool | None = None) -> RangeLeaseProjection:
     """Build a lease projection from a fully leased range instance."""
     if instance.expires_at is None or instance.maximum_expires_at is None:
-        raise RangeLeaseConflict("Range lease is unavailable")
+        raise RangeLeaseConflict(_LEASE_UNAVAILABLE)
     can_extend = (
         instance.range_source == RangeSource.MISSION_CONTROL.value
         and (_extensions_enabled() if extensions_enabled is None else extensions_enabled)
@@ -197,17 +201,15 @@ def get_mission_control_range_lease(user: User | CredentialContext) -> RangeLeas
     """Return the caller's active Mission Control lease projection."""
     if isinstance(user, CredentialContext):
         instance = _principal_mission_control_range(user, "range.read")
-        if instance is None or instance.expires_at is None or instance.maximum_expires_at is None:
-            return None
-        return _projection(instance, extensions_enabled=_extensions_enabled(user))
-    if getattr(user, "id", None) is None:
+    elif getattr(user, "id", None) is not None:
+        instance = (
+            RangeInstance.objects.filter(user_id=user.id, range_source=RangeSource.MISSION_CONTROL.value)
+            .filter(workspace_id__in=authorized_range_workspace_ids(user, WorkspaceOperation.MANAGE_RANGE))
+            .exclude(status=ResourceStatus.DESTROYING.value)
+            .first()
+        )
+    else:
         return None
-    instance = (
-        RangeInstance.objects.filter(user_id=user.id, range_source=RangeSource.MISSION_CONTROL.value)
-        .filter(workspace_id__in=authorized_range_workspace_ids(user, WorkspaceOperation.MANAGE_RANGE))
-        .exclude(status=ResourceStatus.DESTROYING.value)
-        .first()
-    )
     if instance is None or instance.expires_at is None or instance.maximum_expires_at is None:
         return None
     return _projection(instance, extensions_enabled=_extensions_enabled(user))
@@ -218,7 +220,7 @@ def extend_mission_control_range(user: User | CredentialContext) -> RangeLeasePr
     if isinstance(user, CredentialContext):
         return _extend_principal_mission_control_range(user)
     if getattr(user, "id", None) is None:
-        raise RangeLeaseNotFound("Range not found")
+        raise RangeLeaseNotFound(_RANGE_NOT_FOUND)
     with transaction.atomic():
         instance = (
             RangeInstance.objects.select_for_update()
@@ -234,10 +236,10 @@ def extend_mission_control_range(user: User | CredentialContext) -> RangeLeasePr
             .first()
         )
         if instance is None:
-            raise RangeLeaseNotFound("Range not found")
+            raise RangeLeaseNotFound(_RANGE_NOT_FOUND)
         authorize_range_workspace(user, instance.workspace_id, WorkspaceOperation.MANAGE_RANGE)
         if instance.expires_at is None or instance.maximum_expires_at is None:
-            raise RangeLeaseConflict("Range lease is unavailable")
+            raise RangeLeaseConflict(_LEASE_UNAVAILABLE)
         if instance.expires_at <= timezone.now():
             raise RangeLeaseConflict("Range lease has expired")
         if instance.expires_at >= instance.maximum_expires_at:
@@ -290,7 +292,7 @@ def _principal_mission_control_range(credential: CredentialContext, operation: s
     except CMSError:
         raise
     except Exception:
-        raise RangeLeaseNotFound("Range not found") from None
+        raise RangeLeaseNotFound(_RANGE_NOT_FOUND) from None
 
 
 def _extend_principal_mission_control_range(credential: CredentialContext) -> RangeLeaseProjection:
@@ -298,7 +300,7 @@ def _extend_principal_mission_control_range(credential: CredentialContext) -> Ra
     current = resolve_current_credential(credential)
     snapshot = _principal_mission_control_range(current, "range.manage")
     if snapshot is None:
-        raise RangeLeaseNotFound("Range not found")
+        raise RangeLeaseNotFound(_RANGE_NOT_FOUND)
     binding = {
         "owner_principal_uuid": snapshot.owner_principal_uuid,
         "scope_kind": snapshot.scope_kind,
@@ -314,7 +316,7 @@ def _extend_principal_mission_control_range(credential: CredentialContext) -> Ra
         if instance is None:
             raise RangeLeaseConflict("Range lease changed")
         if instance.expires_at is None or instance.maximum_expires_at is None:
-            raise RangeLeaseConflict("Range lease is unavailable")
+            raise RangeLeaseConflict(_LEASE_UNAVAILABLE)
         if instance.expires_at <= timezone.now():
             raise RangeLeaseConflict("Range lease has expired")
         if instance.expires_at >= instance.maximum_expires_at:

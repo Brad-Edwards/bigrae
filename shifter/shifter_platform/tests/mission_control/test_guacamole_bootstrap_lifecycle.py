@@ -94,7 +94,9 @@ class TestConsumeReadyUrl:
     def test_legacy_user_id_is_not_delivered(self):
         row = self._make(result_url="https://guac/token")
 
-        assert consume_ready_url(request_id=row.id, user_id=2) is None
+        with pytest.raises(TypeError):
+            consume_ready_url(request_id=row.id, user_id=2)
+        assert consume_ready_url(request_id=row.id, credential=None) is None
         row.refresh_from_db()
         assert row.result_url == "https://guac/token"
 

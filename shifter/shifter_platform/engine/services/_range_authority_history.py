@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from engine.models import ProvisionerLaunchIntent, Range, RangeAuthorityChange
+    from engine.models import ProvisionerLaunchIntent, Range, RangeAuthorityChange, WarmRangeGeneration
 
 from uuid import UUID
 
@@ -16,7 +16,7 @@ from shared.operation_authority import credential_reference_fields
 from shared.raes.runtime_target import is_raes_provisioning_plan
 
 from ._launch_authority import range_runtime_binding_digest
-from ._range_authority import project_range_authority
+from ._range_authority import RangeAuthorityProjection, project_range_authority
 
 
 def record_range_authority_change(
@@ -35,12 +35,7 @@ def record_range_authority_change(
     projection = project_range_authority(row.request.request_id)
     if not isinstance(row.resource_generation, UUID) or not row.resource_generation.int:
         raise ValueError("Range generation unavailable")
-    parent = projection.parent if operation == "create" else scope_parent(projection.scope)
-    target = parent if operation in {"create", "scope"} else TargetRef("range", row.cms_range_uuid)
-    if operation == "create":
-        action = "event.manage_ranges" if parent.type == "event" else f"{parent.type}.launch_range"
-    else:
-        action = f"{parent.type}.manage_range_scope" if operation == "scope" else "range.manage"
+    action, parent, target = _change_action_target(projection, operation, row.cms_range_uuid)
     RangeAuthorityChange.objects.create(
         range=row,
         request_uuid=row.request.request_id,
@@ -65,7 +60,20 @@ def record_range_authority_change(
     )
 
 
-def lock_warm_range_creation(request_id: UUID):
+def _change_action_target(
+    projection: RangeAuthorityProjection, operation: str, range_uuid: UUID | None
+) -> tuple[str, TargetRef, TargetRef]:
+    """Retain parent creation/scope authority separately from exact leaf lifecycle authority."""
+    parent = projection.parent if operation == "create" else scope_parent(projection.scope)
+    target = parent if operation in {"create", "scope"} else TargetRef("range", range_uuid)
+    if operation == "create":
+        action = "event.manage_ranges" if parent.type == "event" else f"{parent.type}.launch_range"
+    else:
+        action = f"{parent.type}.manage_range_scope" if operation == "scope" else "range.manage"
+    return action, parent, target
+
+
+def lock_warm_range_creation(request_id: UUID) -> WarmRangeGeneration:
     """Serialize creation with retirement before a native runtime can exist."""
     from engine.models import WarmRangeGeneration
 
@@ -80,6 +88,7 @@ def lock_warm_range_creation(request_id: UUID):
 
 
 def _record_warm_creation(row: Range, credential: CredentialContext) -> None:
+    """Bind the exact service-owned generation to its retained creation receipt."""
     from engine.models import RangeAuthorityChange, WarmRangeGeneration
 
     from ._principal_range_create import _installation_creation_authority

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 from dataclasses import dataclass
+from typing import Literal, overload
 from uuid import UUID
 
 from django.db import transaction
@@ -21,7 +22,7 @@ _UNAVAILABLE = "Authorization hierarchy publication is unavailable"
 class HierarchyPublicationPending(AuthorizationProviderBindingError):
     """A committed object whose exact hierarchy intent can be retried."""
 
-    def __init__(self, object_uuid: UUID, publication_receipt: UUID):
+    def __init__(self, object_uuid: UUID, publication_receipt: UUID) -> None:
         super().__init__(_UNAVAILABLE)
         self.object_uuid = object_uuid
         self.publication_receipt = publication_receipt
@@ -32,6 +33,8 @@ _KIND_ORDER = {"account": 0, "organization": 1, "workspace": 2}
 
 @dataclass(frozen=True, slots=True)
 class _PublicationSnapshot:
+    """Immutable child, parent and provider identity for publication readback."""
+
     publication_id: UUID
     object_kind: str
     object_uuid: UUID
@@ -95,6 +98,7 @@ def _live_parent(object_kind: str, object_uuid: UUID) -> tuple[str, UUID | None]
 
 
 def _snapshot(publication: HierarchyPublication, store_id: str, model_id: str) -> _PublicationSnapshot:
+    """Bind a publication receipt to its current SQL parent and provider."""
     parent_kind, parent_uuid = _live_parent(publication.object_kind, publication.object_uuid)
     if (publication.parent_kind, publication.parent_uuid) != (parent_kind, parent_uuid):
         raise ValueError("hierarchy binding changed")
@@ -110,6 +114,7 @@ def _snapshot(publication: HierarchyPublication, store_id: str, model_id: str) -
 
 
 def _change(snapshot: _PublicationSnapshot) -> HierarchyRelationshipChange:
+    """Build the exact provider relationship represented by a snapshot."""
     parent = (
         "installation:root"
         if snapshot.parent_kind == "installation"
@@ -134,6 +139,7 @@ def _write_and_readback(provider: AuthorizationProvider, change: HierarchyRelati
 
 
 def _mark_unresolved(publication_id: UUID, reason: str) -> None:
+    """Retain a bounded retry reason without reopening confirmed publication."""
     HierarchyPublication.objects.filter(pk=publication_id).exclude(state="confirmed").update(
         state="unresolved",
         outcome_reason=reason,
@@ -261,7 +267,31 @@ def publish_created_hierarchy(root_kind: str, root_uuid: UUID, provider: Authori
         raise HierarchyPublicationPending(root_uuid, receipt.pk) from exc
 
 
-def creation_for_receipt(receipt_uuid: UUID, kind: str, parent_uuid: UUID | None):
+@overload
+def creation_for_receipt(receipt_uuid: UUID, kind: Literal["account"], parent_uuid: UUID | None) -> Account:
+    """Resolve the retained account creation beneath its exact authorized parent."""
+    ...
+
+
+@overload
+def creation_for_receipt(receipt_uuid: UUID, kind: Literal["organization"], parent_uuid: UUID | None) -> Organization:
+    """Resolve the retained organization creation beneath its exact authorized parent."""
+    ...
+
+
+@overload
+def creation_for_receipt(receipt_uuid: UUID, kind: Literal["workspace"], parent_uuid: UUID | None) -> Workspace:
+    """Resolve the retained workspace creation beneath its exact authorized parent."""
+    ...
+
+
+@overload
+def creation_for_receipt(receipt_uuid: UUID, kind: str, parent_uuid: UUID | None) -> Account | Organization | Workspace:
+    """Resolve a runtime-selected hierarchy creation with its exact retained kind."""
+    ...
+
+
+def creation_for_receipt(receipt_uuid: UUID, kind: str, parent_uuid: UUID | None) -> Account | Organization | Workspace:
     """Resolve only the exact creation beneath the caller's authorized parent."""
     from ._account import AccountScopeError
 

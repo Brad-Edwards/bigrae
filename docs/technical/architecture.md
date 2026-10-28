@@ -81,6 +81,15 @@ Owner-handoff recovery can read back its exact admitted revoke after the source
 loses administrative authority; it requires the original live credential and
 does not replay a provider write.
 
+CMS validates the complete event owner/action/target tuple before reserving a
+launch; non-event sources reject those fields. Engine separates current policy
+admission from local credential, ancestry and generation checks. Prepared first
+dispatch and replay lock ancestry before the native range, then recheck exact
+membership, custody and the retained creation receipt under the final locks.
+The domain facades remain stable while focused modules own policy reads, durable
+receipts, locked projections and cleanup. See the lifecycle contracts for their
+module responsibilities and recovery invariants.
+
 ## Deployables and cloud boundaries
 
 | Process or workload | Owner and responsibility |

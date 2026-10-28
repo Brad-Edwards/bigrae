@@ -22,19 +22,7 @@ def _references(range_obj: Range, previous: dict[str, object] | None = None) -> 
         ("engine", f"range:{range_obj.uuid}"),
     }
     if previous is None or previous.get("owner_principal_uuid") != range_obj.owner_principal_uuid:
-        from management.services import model_access_user_references_for_principals
-
-        owners = []
-        if range_obj.owner_principal_uuid is not None:
-            refs.add(("management", f"principal:{range_obj.owner_principal_uuid}"))
-            owners.append(range_obj.owner_principal_uuid)
-        previous_owner = previous.get("owner_principal_uuid") if previous is not None else None
-        if previous_owner is not None:
-            if not isinstance(previous_owner, UUID):
-                raise ValueError("Previous range owner identity unavailable")
-            refs.add(("management", f"principal:{previous_owner}"))
-            owners.append(previous_owner)
-        refs.update((ref.owner, ref.reference) for ref in model_access_user_references_for_principals(tuple(owners)))
+        refs.update(_owner_references(range_obj, previous))
     if previous is None or previous.get("workspace_id") != range_obj.workspace_id:
         if range_obj.workspace_id is not None:
             refs.add(("workspaces", f"workspace-id:{range_obj.workspace_id}"))
@@ -140,3 +128,22 @@ def invalidate_deleted_warm_authority(
     from engine.services._model_warm_authority import invalidate_warm_preparation
 
     invalidate_warm_preparation(instance)
+
+
+def _owner_references(range_obj: Range, previous: dict[str, object] | None) -> set[tuple[str, str]]:
+    """Retain exact current and previous principals and their compatibility selector references."""
+    refs: set[tuple[str, str]] = set()
+    from management.services import model_access_user_references_for_principals
+
+    owners = []
+    if range_obj.owner_principal_uuid is not None:
+        refs.add(("management", f"principal:{range_obj.owner_principal_uuid}"))
+        owners.append(range_obj.owner_principal_uuid)
+    previous_owner = previous.get("owner_principal_uuid") if previous is not None else None
+    if previous_owner is not None:
+        if not isinstance(previous_owner, UUID):
+            raise ValueError("Previous range owner identity unavailable")
+        refs.add(("management", f"principal:{previous_owner}"))
+        owners.append(previous_owner)
+    refs.update((ref.owner, ref.reference) for ref in model_access_user_references_for_principals(tuple(owners)))
+    return refs

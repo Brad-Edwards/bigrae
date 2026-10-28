@@ -1,10 +1,16 @@
 """Explicit native placement for Mission Control creation commands."""
 
+from collections.abc import Mapping
+from typing import Any
+
 from rest_framework import serializers
 
 from cms.services import mission_control_resource_scope
 from shared.api.closed_serializer import ClosedSerializer
+from shared.credentials import CredentialContext
 from shared.identity_scope import ResourceScope
+
+WORKSPACE_UNAVAILABLE = "Selected workspace is not available."
 
 
 class ResourcePlacementSerializer(ClosedSerializer):
@@ -15,7 +21,7 @@ class ResourcePlacementSerializer(ClosedSerializer):
     workspace_uuid = serializers.UUIDField(required=False)
 
 
-def resource_placement(credential, values) -> ResourceScope:
+def resource_placement(credential: CredentialContext, values: Mapping[str, Any]) -> ResourceScope:
     """Resolve SQL ancestry; the owning service separately evaluates its action."""
     return mission_control_resource_scope(
         credential.principal,

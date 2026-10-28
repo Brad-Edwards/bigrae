@@ -1,9 +1,4 @@
-"""CTFEvent — competition events.
-
-Split from monolithic ctf/models.py (PR #856) to satisfy python:S104
-(file too large). Public symbols are re-exported by ctf/models/__init__.py
-so ``from ctf.models import X`` keeps working unchanged.
-"""
+"""Competition event persistence and derived lifecycle properties."""
 
 from __future__ import annotations
 
@@ -443,11 +438,7 @@ class CTFEvent(ImmutableFieldsMixin, CTFBaseModel):
 
     @property
     def is_content_modifiable(self) -> bool:
-        """Return True if event content (challenges, etc.) can be modified.
-
-        Content is only modifiable in DRAFT and REGISTRATION states.
-        Active events should not have their challenges changed.
-        """
+        """Permit content changes only in draft and registration states."""
         try:
             return EventStatus(self.status) in {EventStatus.DRAFT, EventStatus.REGISTRATION}
         except ValueError:
@@ -500,19 +491,7 @@ class CTFEvent(ImmutableFieldsMixin, CTFBaseModel):
         return self.event_start - timedelta(minutes=self.range_spinup_minutes)
 
 
-# Reserved event-page slug carrying the per-event participant briefing (#1854).
-# Defined once so views, services, and serializers key behaviour on the slug
-# constant rather than the mutable display title; the existing conditional
-# ``(event, slug)`` uniqueness constraint makes it a per-event singleton.
+# Public page limits remain available here for existing callers.
 RESERVED_BRIEFING_SLUG = "briefing"
-
-# Organizer-authored page source is untrusted input rendered to other
-# participants, so bound the stored source (characters) and the number of pages
-# an event may carry. This keeps request, database, and render work bounded
-# regardless of the render allowlist (#1854).
 MAX_EVENT_PAGE_BODY_CHARS = 20_000
 MAX_EVENT_PAGES_PER_EVENT = 50
-
-# ``CTFEventPage`` lives in ``ctf.models.event_page`` (python:S104 file-size
-# budget); the constants above stay here because other layers import them from
-# ``ctf.models.event``. Both are re-exported from ``ctf.models``.

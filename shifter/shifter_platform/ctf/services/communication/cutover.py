@@ -72,24 +72,7 @@ def _draft(row: CTFNotification) -> CommunicationCampaign:
         raise _blocked()
     if (row.status == "scheduled") != (row.scheduled_at is not None):
         raise _blocked()
-    try:
-        scope = ws.resource_scope_from_ids(
-            kind=row.event.scope_kind,
-            account_id=row.event.account_id,
-            organization_id=row.event.organization_id,
-            workspace_id=row.event.workspace_id,
-        )
-        parent_uuid: UUID | None
-        if scope.workspace_uuid is not None:
-            parent_type, parent_uuid = "workspace", scope.workspace_uuid
-        elif scope.organization_uuid is not None:
-            parent_type, parent_uuid = "organization", scope.organization_uuid
-        else:
-            parent_type, parent_uuid = "account", scope.account_uuid
-        if parent_uuid is None:
-            raise ValueError
-    except (ValueError, ws.AccountScopeError):
-        raise _blocked() from None
+    parent_type, parent_uuid = _legacy_parent(row)
     trigger = (
         {"kind": "manual"}
         if row.scheduled_at is None
@@ -208,3 +191,26 @@ def resume_migrated_schedule(mapping_id: UUID) -> CommunicationIntent:
         )
         LegacyCommunication.objects.filter(pk=mapping.pk).update(disposition="transferred")
         return intent
+
+
+def _legacy_parent(row: CTFNotification) -> tuple[str, UUID]:
+    """Resolve a complete, live parent for the retained legacy declaration."""
+    try:
+        scope = ws.resource_scope_from_ids(
+            kind=row.event.scope_kind,
+            account_id=row.event.account_id,
+            organization_id=row.event.organization_id,
+            workspace_id=row.event.workspace_id,
+        )
+        parent_uuid: UUID | None
+        if scope.workspace_uuid is not None:
+            parent_type, parent_uuid = "workspace", scope.workspace_uuid
+        elif scope.organization_uuid is not None:
+            parent_type, parent_uuid = "organization", scope.organization_uuid
+        else:
+            parent_type, parent_uuid = "account", scope.account_uuid
+        if parent_uuid is None:
+            raise ValueError
+    except (ValueError, ws.AccountScopeError):
+        raise _blocked() from None
+    return parent_type, parent_uuid

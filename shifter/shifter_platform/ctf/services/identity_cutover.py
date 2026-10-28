@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ctf.models import CTFEvent
+
 from collections.abc import Mapping
 from uuid import UUID
 
@@ -93,21 +98,7 @@ def identity_cutover_relationships() -> set[tuple[str, str, str]]:
 
     relationships: set[tuple[str, str, str]] = set()
     for event in CTFEvent.all_objects.order_by("pk"):
-        scope = resource_scope_from_ids(
-            kind=event.scope_kind,
-            account_id=event.account_id,
-            organization_id=event.organization_id,
-            workspace_id=event.workspace_id,
-        )
-        if scope.workspace_uuid is not None:
-            parent_kind, parent_uuid = "workspace", scope.workspace_uuid
-        elif scope.organization_uuid is not None:
-            parent_kind, parent_uuid = "organization", scope.organization_uuid
-        elif scope.account_uuid is not None:
-            parent_kind, parent_uuid = "account", scope.account_uuid
-        else:
-            raise ValueError("cutover event scope is incomplete")
-        relationships.add((f"{parent_kind}:{parent_uuid}", parent_kind, f"event:{event.pk}"))
+        relationships.add(_event_parent_relationship(event))
         if event.owner_principal_uuid is None:
             raise ValueError("cutover event owner principal is incomplete")
         relationships.add((f"principal:{event.owner_principal_uuid}", "direct_administrator", f"event:{event.pk}"))
@@ -145,3 +136,22 @@ def confirm_identity_cutover_publication(store_id: str, model_id: str) -> None:
         authorization_model_id=model_id,
         authorization_publication_reason="cutover_primary_readback_confirmed",
     )
+
+
+def _event_parent_relationship(event: CTFEvent) -> tuple[str, str, str]:
+    """Project only complete canonical SQL ancestry for a retained event."""
+    scope = resource_scope_from_ids(
+        kind=event.scope_kind,
+        account_id=event.account_id,
+        organization_id=event.organization_id,
+        workspace_id=event.workspace_id,
+    )
+    if scope.workspace_uuid is not None:
+        parent_kind, parent_uuid = "workspace", scope.workspace_uuid
+    elif scope.organization_uuid is not None:
+        parent_kind, parent_uuid = "organization", scope.organization_uuid
+    elif scope.account_uuid is not None:
+        parent_kind, parent_uuid = "account", scope.account_uuid
+    else:
+        raise ValueError("cutover event scope is incomplete")
+    return (f"{parent_kind}:{parent_uuid}", parent_kind, f"event:{event.pk}")

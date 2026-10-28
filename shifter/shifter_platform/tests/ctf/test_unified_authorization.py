@@ -318,7 +318,12 @@ def test_service_principal_creates_updates_and_delegates_event_without_human_pro
     assert staff.principal_uuid == delegate.uuid
     delegated_actions = [request.action for request in checked[staff_checks_start:]]
     assert set(actions_for_role(EventStaffRole.CO_ORGANIZER.value)) <= set(delegated_actions)
-    assert delegated_actions.count("event.manage") == len(actions_for_role(EventStaffRole.CO_ORGANIZER.value))
+    from workspaces.models import AuthorizationOperation
+
+    effects = AuthorizationOperation.objects.filter(subject_uuid=delegate.uuid, target_uuid=event.pk)
+    assert set(effects.values_list("action", flat=True)) == set(actions_for_role(EventStaffRole.CO_ORGANIZER.value))
+    assert effects.count() == len(actions_for_role(EventStaffRole.CO_ORGANIZER.value))
+    assert not effects.exclude(state="confirmed").exists()
 
 
 @pytest.mark.django_db(transaction=True)

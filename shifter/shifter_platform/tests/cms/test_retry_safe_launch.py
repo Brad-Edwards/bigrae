@@ -70,7 +70,6 @@ def _bind(actor, scenario, caller_key):
         _credential(actor),
         scenario=scenario,
         agents_selection=SELECTION,
-        agents_by_os={"linux": 5},
         workspace_uuid=None,
         caller_key=caller_key,
         scope=_scope(actor),
@@ -191,7 +190,7 @@ def test_explicit_scope_change_conflicts_on_recovery_and_first_use(actor, monkey
     with pytest.raises(RetryKeyConflict):
         resolve_retry_recovery(_credential(actor), **declaration)
     with pytest.raises(RetryKeyConflict):
-        bind_first_use_launch(_credential(actor), agents_by_os={}, **declaration)
+        bind_first_use_launch(_credential(actor), **declaration)
     assert calls == ["basic"]
     recovered = resolve_retry_recovery(_credential(actor), **(declaration | {"scope": original}))
     assert recovered.request_id == first.request_id

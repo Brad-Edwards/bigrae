@@ -7,7 +7,12 @@ from django.utils import timezone
 
 from cms.exceptions import CMSError
 from cms.models import RangeInstance
-from engine.services import commit_prepared_range_lifecycle, prepare_range_lifecycle, prepare_system_range_cleanup
+from engine.services import (
+    PreparedRangeLifecycle,
+    commit_prepared_range_lifecycle,
+    prepare_range_lifecycle,
+    prepare_system_range_cleanup,
+)
 from shared.audit import AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.authorization import TargetRef
 from shared.credentials import CredentialContext
@@ -29,6 +34,9 @@ _BINDING_FIELDS = (
 
 
 _RANGE_UNAVAILABLE = "Range unavailable"
+
+
+_MANAGE_EVENT_RANGES = "event.manage_ranges"
 
 
 def run_scoped_range_lifecycle(
@@ -173,7 +181,7 @@ def run_event_range_lifecycle(
         credential,
         operation,
         instance_pk=range_instance_pk,
-        authority_action="event.manage_ranges",
+        authority_action=_MANAGE_EVENT_RANGES,
         authority_target=TargetRef("event", event_uuid),
     )
 
@@ -225,17 +233,21 @@ def destroy_expired_scoped_range(range_uuid: UUID) -> None:
         raise CMSError("Range cleanup unavailable") from None
 
 
-def destroy_event_range_for_deletion(credential, event_uuid, instance_pk, *, request_id=None) -> None:
+def destroy_event_range_for_deletion(
+    credential: CredentialContext, event_uuid: UUID, instance_pk: int | None, *, request_id: UUID | None = None
+) -> None:
     """Retain exact generation cleanup under current event deletion authority."""
     _destroy_event_range_with_native_cleanup(
         credential, event_uuid, instance_pk, request_id=request_id, authority_action="event.delete"
     )
 
 
-def destroy_event_range_for_recovery(credential, event_uuid, instance_pk, *, request_id=None) -> bool:
+def destroy_event_range_for_recovery(
+    credential: CredentialContext, event_uuid: UUID, instance_pk: int | None, *, request_id: UUID | None = None
+) -> bool:
     """Retain old-generation cleanup before a recovery removes its live pointer."""
     return _destroy_event_range_with_native_cleanup(
-        credential, event_uuid, instance_pk, request_id=request_id, authority_action="event.manage_ranges"
+        credential, event_uuid, instance_pk, request_id=request_id, authority_action=_MANAGE_EVENT_RANGES
     )
 
 
@@ -269,47 +281,14 @@ def _destroy_event_range_with_native_cleanup(
 
         verified_absent = snapshot.status == "destroyed" and is_cleanup_verified_absent(snapshot.request.request_id)
         prepared = None if verified_absent else prepare_system_range_cleanup(snapshot.request.request_id)
-        fence = {field: getattr(snapshot, field) for field in _BINDING_FIELDS}
-        with transaction.atomic():
-            row = (
-                RangeInstance.all_objects.select_for_update()
-                .filter(pk=snapshot.pk, status=snapshot.status, deleted_at=snapshot.deleted_at, **fence)
-                .first()
-            )
-            from shared.credentials import resolve_local_credential
-
-            if row is None or resolve_local_credential(current) != current:
-                raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
-            if prepared is None:
-                if not is_cleanup_verified_absent(snapshot.request.request_id):
-                    raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
-                return True
-            if not commit_prepared_range_lifecycle(prepared):
-                raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
-            row.status = "destroying"
-            row.deleted_at = row.deleted_at or timezone.now()
-            row.save(update_fields=["status", "deleted_at"])
-            audit_log(
-                AuditEvent(
-                    entity_type=AuditEntityType.RANGE,
-                    entity_id=row.pk,
-                    entity_ref=str(row.uuid),
-                    action="deprovision",
-                    **principal_actor_fields(current.principal),
-                    request_id=str(prepared.request_id),
-                    new_state={"status": "destroying"},
-                    context="event_deletion_cleanup"
-                    if authority_action == "event.delete"
-                    else "event_recovery_cleanup",
-                ),
-                strict=True,
-            )
-        return False
+        return _commit_event_cleanup(current, snapshot, prepared, authority_action)
     except Exception:
         raise CMSError("Event range cleanup unavailable") from None
 
 
-def _cancel_unrealized_event_intent(current, event_uuid, candidate, action) -> bool:
+def _cancel_unrealized_event_intent(
+    current: CredentialContext, event_uuid: UUID, candidate: RangeInstance, action: str
+) -> bool:
     """Fence native creation before releasing a reservation with no runtime."""
     from engine.services import has_range_runtime
     from shared.authorization import AuthorizationRequest
@@ -384,7 +363,7 @@ def dispatch_bound_event_range(credential: CredentialContext, event_uuid: UUID, 
 
     instance = _scoped_lifecycle_candidate(instance_pk, None)
     admitted = require_range_action(
-        credential, instance.uuid, "event.manage_ranges", authority_target=TargetRef("event", event_uuid)
+        credential, instance.uuid, _MANAGE_EVENT_RANGES, authority_target=TargetRef("event", event_uuid)
     )
     if admitted.request is None:
         raise CMSError(_RANGE_UNAVAILABLE)
@@ -392,3 +371,46 @@ def dispatch_bound_event_range(credential: CredentialContext, event_uuid: UUID, 
         dispatch_created_raes_range(admitted.request.request_id, credential=credential)
     except (ValueError, PermissionError):
         raise CMSError("Event range dispatch unavailable") from None
+
+
+def _commit_event_cleanup(
+    current: CredentialContext, snapshot: RangeInstance, prepared: PreparedRangeLifecycle | None, authority_action: str
+) -> bool:
+    """Commit accepted exact native cleanup against unchanged CMS custody and live caller proof."""
+    from engine.services import is_cleanup_verified_absent
+
+    assert snapshot.request is not None
+    fence = {field: getattr(snapshot, field) for field in _BINDING_FIELDS}
+    with transaction.atomic():
+        row = (
+            RangeInstance.all_objects.select_for_update()
+            .filter(pk=snapshot.pk, status=snapshot.status, deleted_at=snapshot.deleted_at, **fence)
+            .first()
+        )
+        from shared.credentials import resolve_local_credential
+
+        if row is None or resolve_local_credential(current) != current:
+            raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
+        if prepared is None:
+            if not is_cleanup_verified_absent(snapshot.request.request_id):
+                raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
+            return True
+        if not commit_prepared_range_lifecycle(prepared):
+            raise ValueError(_RANGE_OPERATION_UNAVAILABLE)
+        row.status = "destroying"
+        row.deleted_at = row.deleted_at or timezone.now()
+        row.save(update_fields=["status", "deleted_at"])
+        audit_log(
+            AuditEvent(
+                entity_type=AuditEntityType.RANGE,
+                entity_id=row.pk,
+                entity_ref=str(row.uuid),
+                action="deprovision",
+                **principal_actor_fields(current.principal),
+                request_id=str(prepared.request_id),
+                new_state={"status": "destroying"},
+                context="event_deletion_cleanup" if authority_action == "event.delete" else "event_recovery_cleanup",
+            ),
+            strict=True,
+        )
+    return False

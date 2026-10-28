@@ -172,6 +172,7 @@ def admit_device_remote_authority(credential: CredentialContext, identifier: UUI
 
 
 def _assert_device_remote_projection(row: App, fields: dict[str, object], scope: ResourceScope) -> None:
+    """Require CMS and Engine to agree on exact device identity and custody."""
     if row.instance is None or (
         fields["authority_resource_uuid"] != row.instance.pk
         or fields["authority_owner_uuid"] != row.instance.request.owner_principal_uuid

@@ -245,6 +245,7 @@ def _operator_ref(actor: object) -> OwnedReference:
 
 
 def _required_selector_id(value: int | None) -> int:
+    """Reject missing identifiers in the parked sharing implementation."""
     if value is None:
         raise ModelAccessSelectorError()
     return value
@@ -261,13 +262,11 @@ def _resolve_selected(actor: object, selector: SharingSelector) -> SelectorResol
     ranges = resolve_model_access_range_views(range_uuids=_uuid_ids(selector.ids))
     is_operator = is_platform_operator(actor)
     actor_id = getattr(actor, "pk", None)
-    actor_principal_uuid = (
-        actor.principal.uuid
-        if isinstance(actor, CredentialContext)
-        else principal_for_user(actor).uuid
-        if isinstance(actor, User)
-        else None
-    )
+    actor_principal_uuid = None
+    if isinstance(actor, CredentialContext):
+        actor_principal_uuid = actor.principal.uuid
+    elif isinstance(actor, User):
+        actor_principal_uuid = principal_for_user(actor).uuid
     if not is_operator and any(
         (
             item.owner_principal_uuid != actor_principal_uuid

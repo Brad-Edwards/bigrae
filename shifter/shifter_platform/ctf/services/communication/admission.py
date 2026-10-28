@@ -25,6 +25,9 @@ from ctf.services.actors import EventActionAdmission
 from shared.api_tokens.models import ApiToken
 from shared.api_tokens.scopes import CTF_COMMUNICATION_WRITE, has_scope
 
+_COMMUNICATION_AUTHORITY_UNAVAILABLE = "Communication authority unavailable"
+_COMMUNICATION_TOKEN_IS_NOT_AUTHORIZED = "Communication token is not authorized"
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
@@ -170,21 +173,27 @@ def _assert_target_set(campaign: CommunicationCampaign, target_events: list[CTFE
         raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_TARGET_DENIED")
 
 
+def _require_admitted_token(actor: AdmissionActor, token: ApiToken | None, required_scope: str) -> ApiToken:
+    """Check token ownership, lifecycle, scope and forbidden system flags together."""
+    if (
+        token is None
+        or actor.user_id is None
+        or token.created_by_id != actor.user_id
+        or not token.is_active
+        or not token.has_eligible_owner
+        or not has_scope(token.scopes, required_scope)
+        or actor.system
+        or actor.allow_early_release
+    ):
+        raise CTFCommunicationError(_COMMUNICATION_TOKEN_IS_NOT_AUTHORIZED, code="CTF_COMMUNICATION_TOKEN_DENIED")
+    return token
+
+
 def _authorize_token(actor: AdmissionActor, required_scope: str) -> CredentialContext | None:
     """Lock the original token and return its current canonical credential."""
     if actor.token_id is not None:
         token = ApiToken.objects.filter(pk=actor.token_id).first()
-        if (
-            token is None
-            or actor.user_id is None
-            or token.created_by_id != actor.user_id
-            or not token.is_active
-            or not token.has_eligible_owner
-            or not has_scope(token.scopes, required_scope)
-            or actor.system
-            or actor.allow_early_release
-        ):
-            raise CTFCommunicationError("Communication token is not authorized", code="CTF_COMMUNICATION_TOKEN_DENIED")
+        token = _require_admitted_token(actor, token, required_scope)
         try:
             from shared.api_tokens.policy import personal_credential_for_token
 
@@ -194,16 +203,16 @@ def _authorize_token(actor: AdmissionActor, required_scope: str) -> CredentialCo
 
             if isinstance(exc, CredentialUnavailable):
                 raise CTFCommunicationError(
-                    "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+                    _COMMUNICATION_AUTHORITY_UNAVAILABLE, code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
                 ) from None
             raise CTFCommunicationError(
-                "Communication token is not authorized", code="CTF_COMMUNICATION_TOKEN_DENIED"
+                _COMMUNICATION_TOKEN_IS_NOT_AUTHORIZED, code="CTF_COMMUNICATION_TOKEN_DENIED"
             ) from None
         if actor.credential is not None and (
             actor.credential.principal != credential.principal
             or actor.credential.credential_uuid != credential.credential_uuid
         ):
-            raise CTFCommunicationError("Communication token is not authorized", code="CTF_COMMUNICATION_TOKEN_DENIED")
+            raise CTFCommunicationError(_COMMUNICATION_TOKEN_IS_NOT_AUTHORIZED, code="CTF_COMMUNICATION_TOKEN_DENIED")
         return credential
     return None
 
@@ -213,35 +222,45 @@ def _canonical_actor(actor: AdmissionActor, required_scope: str) -> AdmissionAct
     from shared.credentials import resolve_current_credential
 
     if actor.compatibility_user_id is not None:
-        from ctf.services.actors import event_actor_credential
-
-        compatibility = event_actor_credential(_live_actor(actor.compatibility_user_id))
-        if actor.token_id is not None or actor.system or actor.credential != compatibility:
-            raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
-        return actor
+        return _retained_compatibility_actor(actor)
     if actor.credential is not None:
         actor = replace(actor, credential=resolve_current_credential(actor.credential))
     token_credential = _authorize_token(actor, required_scope)
     if token_credential is not None:
-        return replace(actor, credential=actor.credential or token_credential)
-    if actor.credential is not None:
-        if actor.credential.kind in {"personal", "service"} and not has_scope(actor.credential.scopes, required_scope):
-            raise CTFCommunicationError(
-                "Communication credential is not authorized", code="CTF_COMMUNICATION_TOKEN_DENIED"
-            )
-        return actor
-    if actor.system:
-        return actor
-    if actor.user_id is None:
-        raise CTFCommunicationError("A communication actor is required", code="CTF_COMMUNICATION_ACTOR_REQUIRED")
+        actor = replace(actor, credential=actor.credential or token_credential)
+    elif actor.credential is not None:
+        _require_credential_scope(actor.credential, required_scope)
+    elif not actor.system:
+        if actor.user_id is None:
+            raise CTFCommunicationError("A communication actor is required", code="CTF_COMMUNICATION_ACTOR_REQUIRED")
+        from ctf.services.actors import event_actor_credential
+
+        actor = replace(
+            actor, credential=event_actor_credential(_live_actor(actor.user_id)), compatibility_user_id=actor.user_id
+        )
+    return actor
+
+
+def _retained_compatibility_actor(actor: AdmissionActor) -> AdmissionActor:
+    """Fence only the explicitly retained synchronous human compatibility path."""
     from ctf.services.actors import event_actor_credential
 
-    return replace(
-        actor, credential=event_actor_credential(_live_actor(actor.user_id)), compatibility_user_id=actor.user_id
-    )
+    if actor.compatibility_user_id is None:
+        raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
+    compatibility = event_actor_credential(_live_actor(actor.compatibility_user_id))
+    if actor.token_id is not None or actor.system or actor.credential != compatibility:
+        raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
+    return actor
 
 
-def _campaign_binding(campaign) -> tuple[object, ...]:
+def _require_credential_scope(credential: CredentialContext, required_scope: str) -> None:
+    """Require token/service scope independently of the principal's policy grants."""
+    if credential.kind in {"personal", "service"} and not has_scope(credential.scopes, required_scope):
+        raise CTFCommunicationError("Communication credential is not authorized", code="CTF_COMMUNICATION_TOKEN_DENIED")
+
+
+def _campaign_binding(campaign: CommunicationCampaign) -> tuple[object, ...]:
+    """Snapshot the exact campaign identity and tenant ancestry for later fencing."""
     return tuple(
         getattr(campaign, name) for name in ("pk", "scope_kind", "account_id", "organization_id", "workspace_id")
     )
@@ -264,7 +283,13 @@ def prepare_collection_actor(actor: AdmissionActor, *, required_scope: str) -> A
         raise CTFCommunicationError("Communication credential unavailable", code=code) from None
 
 
-def prepare_admission(campaign, target_events, actor, *, required_scope=CTF_COMMUNICATION_WRITE):
+def prepare_admission(
+    campaign: CommunicationCampaign,
+    target_events: list[CTFEvent],
+    actor: AdmissionActor,
+    *,
+    required_scope: str = CTF_COMMUNICATION_WRITE,
+) -> AdmissionActor:
     """Resolve live policy before opening the bounded aggregate transaction."""
     from ctf.services.authorization import admit_event_actions
 
@@ -289,7 +314,7 @@ def prepare_admission(campaign, target_events, actor, *, required_scope=CTF_COMM
         raise CTFCommunicationError("Communication authority denied", code="CTF_COMMUNICATION_EVENT_DENIED") from None
     except CTFError:
         raise CTFCommunicationError(
-            "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+            _COMMUNICATION_AUTHORITY_UNAVAILABLE, code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
         ) from None
     except ValueError as exc:
         from shared.credentials import CredentialRevoked
@@ -303,40 +328,26 @@ def prepare_admission(campaign, target_events, actor, *, required_scope=CTF_COMM
     return replace(actor, event_admissions=admissions, campaign_binding=_campaign_binding(campaign))
 
 
-def prepare_campaign_admission(campaign, actor):
+def prepare_campaign_admission(campaign: CommunicationCampaign, actor: AdmissionActor) -> AdmissionActor:
     """Read the immutable target set and admit it before campaign locks."""
     return prepare_admission(campaign, list(campaign.target_events.order_by("pk")), actor)
 
 
 def _fence_local_actor(actor: AdmissionActor, required_scope: str) -> None:
     """Translate current local proof failures at the SQL fence into bounded domain errors."""
-    from shared.credentials import resolve_local_credential
-
-    if actor.credential is not None:
-        if actor.compatibility_user_id is None:
-            from shared.credentials import CredentialUnavailable
-
-            try:
-                current = resolve_local_credential(actor.credential)
-            except CredentialUnavailable:
-                raise CTFCommunicationError(
-                    "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
-                ) from None
-            except ValueError:
-                raise CTFCommunicationError(
-                    "Communication credential changed", code="CTF_COMMUNICATION_ACTOR_DENIED"
-                ) from None
-            if current != actor.credential:
-                raise CTFCommunicationError("Communication credential changed", code="CTF_COMMUNICATION_ACTOR_DENIED")
-        if actor.token_id is not None:
-            token = ApiToken.objects.select_for_update().filter(pk=actor.token_id).first()
-            if (
-                token is None
-                or not token.is_active
-                or not token.has_eligible_owner
-                or not has_scope(token.scopes, required_scope)
-            ):
-                raise CTFCommunicationError("Communication token changed", code="CTF_COMMUNICATION_TOKEN_DENIED")
+    if actor.credential is None:
+        return
+    if actor.compatibility_user_id is None:
+        _fence_native_credential(actor.credential)
+    if actor.token_id is not None:
+        token = ApiToken.objects.select_for_update().filter(pk=actor.token_id).first()
+        if (
+            token is None
+            or not token.is_active
+            or not token.has_eligible_owner
+            or not has_scope(token.scopes, required_scope)
+        ):
+            raise CTFCommunicationError("Communication token changed", code="CTF_COMMUNICATION_TOKEN_DENIED")
 
 
 def reauthorize(
@@ -353,41 +364,26 @@ def reauthorize(
     if actor.campaign_binding != _campaign_binding(campaign):
         raise CTFCommunicationError("Communication admission changed", code="CTF_COMMUNICATION_EVENT_DENIED")
     _fence_local_actor(actor, required_scope)
-    if actor.credential is not None:
-        from ctf.services.authorization import assert_event_action
-        from ctf.services.communication.audit import audit_communication_authority
-
-        try:
-            current = actor.credential
-            admissions = {admission.event_uuid: admission for admission in actor.event_admissions}
-            if set(admissions) != {event.pk for event in target_events}:
-                raise CTFPermissionError("Communication admission changed")
-            for event in target_events:
-                assert_event_action(admissions[event.pk], event, "event.manage_communications")
-                if audit_authority and required_scope == CTF_COMMUNICATION_WRITE:
-                    audit_communication_authority(
-                        event_id=event.pk,
-                        actor_id=current,
-                        token_id=None,
-                        authority_source="policy",
-                        request_id=actor.request_id,
-                        operation=operation,
-                    )
-        except CTFCommunicationError:
-            raise
-        except CTFPermissionError:
-            raise CTFCommunicationError(
-                "Actor lacks communication authority on a target event",
-                code="CTF_COMMUNICATION_EVENT_DENIED",
-            ) from None
-        except CTFError:
-            raise CTFCommunicationError(
-                "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
-            ) from None
-        return actor
-    if actor.system and actor.token_id is None:
-        return actor
-    raise CTFCommunicationError("Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE")
+    if actor.credential is None:
+        if actor.system and actor.token_id is None:
+            return actor
+        raise CTFCommunicationError(
+            _COMMUNICATION_AUTHORITY_UNAVAILABLE, code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        )
+    try:
+        _fence_event_admissions(target_events, actor, actor.credential, audit_authority, required_scope, operation)
+    except CTFCommunicationError:
+        raise
+    except CTFPermissionError:
+        raise CTFCommunicationError(
+            "Actor lacks communication authority on a target event",
+            code="CTF_COMMUNICATION_EVENT_DENIED",
+        ) from None
+    except CTFError:
+        raise CTFCommunicationError(
+            _COMMUNICATION_AUTHORITY_UNAVAILABLE, code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        ) from None
+    return actor
 
 
 def lock_authorized_campaign(
@@ -419,7 +415,7 @@ def admit_session_early_release(actor: AdmissionActor) -> AdmissionActor:
         current = resolve_current_credential(actor.credential)
     except CredentialUnavailable:
         raise CTFCommunicationError(
-            "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+            _COMMUNICATION_AUTHORITY_UNAVAILABLE, code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
         ) from None
     except ValueError:
         raise CTFCommunicationError("Communication actor denied", code="CTF_COMMUNICATION_ACTOR_DENIED") from None
@@ -428,4 +424,49 @@ def admit_session_early_release(actor: AdmissionActor) -> AdmissionActor:
             "Early release of a scheduled communication is not authorized",
             code="CTF_COMMUNICATION_EARLY_RELEASE_DENIED",
         )
-    return replace(actor, credential=current)
+    actor = replace(actor, credential=current)
+    return actor
+
+
+def _fence_native_credential(credential: CredentialContext) -> None:
+    """Translate local proof resolution errors without querying the policy provider."""
+    from shared.credentials import CredentialUnavailable, resolve_local_credential
+
+    try:
+        current = resolve_local_credential(credential)
+    except CredentialUnavailable:
+        raise CTFCommunicationError(
+            _COMMUNICATION_AUTHORITY_UNAVAILABLE, code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        ) from None
+    except ValueError:
+        raise CTFCommunicationError("Communication credential changed", code="CTF_COMMUNICATION_ACTOR_DENIED") from None
+    if current != credential:
+        raise CTFCommunicationError("Communication credential changed", code="CTF_COMMUNICATION_ACTOR_DENIED")
+
+
+def _fence_event_admissions(
+    target_events: list[CTFEvent],
+    actor: AdmissionActor,
+    current: CredentialContext,
+    audit_authority: bool,
+    required_scope: str,
+    operation: str,
+) -> None:
+    """Fence every retained admission and persist its strict per-target authority evidence."""
+    from ctf.services.authorization import assert_event_action
+    from ctf.services.communication.audit import audit_communication_authority
+
+    admissions = {admission.event_uuid: admission for admission in actor.event_admissions}
+    if set(admissions) != {event.pk for event in target_events}:
+        raise CTFPermissionError("Communication admission changed")
+    for event in target_events:
+        assert_event_action(admissions[event.pk], event, "event.manage_communications")
+        if audit_authority and required_scope == CTF_COMMUNICATION_WRITE:
+            audit_communication_authority(
+                event_id=event.pk,
+                actor_id=current,
+                token_id=None,
+                authority_source="policy",
+                request_id=actor.request_id,
+                operation=operation,
+            )

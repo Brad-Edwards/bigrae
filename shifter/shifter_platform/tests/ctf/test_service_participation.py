@@ -7,7 +7,6 @@ import pytest
 
 from management.services import create_service_principal
 from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind
-from shared.credentials import CredentialContext
 
 
 @pytest.mark.django_db
@@ -40,7 +39,7 @@ def test_temporary_resolver_confines_canonical_authorization_to_its_event(
 @pytest.mark.django_db
 @pytest.mark.parametrize("ineligible", [{"status": "banned"}, {"status": "disqualified"}, {"registered_at": None}])
 def test_service_participation_is_independent_and_obeys_live_event(
-    ctf_event_active, monkeypatch, django_user_model, ineligible
+    ctf_event_active, monkeypatch, django_user_model, ineligible, settings
 ):
     from ctf.models import CTFEvent
     from ctf.services import admit_service_participant, participant_for_credential
@@ -56,25 +55,27 @@ def test_service_participation_is_independent_and_obeys_live_event(
         event_start=ctf_event_active.event_start,
         event_end=ctf_event_active.event_end,
     )
-    operator = create_service_principal("operator")
-    service = create_service_principal("qa")
-    actor = CredentialContext(
-        operator, "service", uuid4(), CredentialCeiling(frozenset({"event.manage_participants"})), frozenset()
+    from dataclasses import replace
+
+    from tests.cms._warm_pool_fixtures import service_credential
+
+    administrator_with_play_ceiling = service_credential(
+        settings,
+        scopes=[
+            "authorization:event.manage_participants",
+            "authorization:event.participate",
+        ],
     )
-    credential = CredentialContext(
-        service, "service", uuid4(), CredentialCeiling(frozenset({"event.participate"})), frozenset()
+    operator = administrator_with_play_ceiling.principal
+    actor = replace(
+        administrator_with_play_ceiling, ceiling=CredentialCeiling(frozenset({"event.manage_participants"}))
     )
+    credential = service_credential(settings, scopes=["authorization:event.participate"])
+    service = credential.principal
     monkeypatch.setattr(
         port,
         "_provider_factory",
         lambda: SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")),
-    )
-    administrator_with_play_ceiling = CredentialContext(
-        operator,
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"event.manage_participants", "event.participate"})),
-        frozenset(),
     )
     with pytest.raises(ValueError, match="Participation denied"):
         participant_for_credential(administrator_with_play_ceiling, ctf_event_active.pk)

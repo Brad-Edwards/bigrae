@@ -90,7 +90,13 @@ def test_aws_and_gcp_render_the_same_private_server_contract(tmp_path, provider_
     assert int(policy_hooks["helm.sh/hook-weight"]) < int(migration["metadata"]["annotations"]["helm.sh/hook-weight"])
     assert "hook-succeeded" not in policy_hooks["helm.sh/hook-delete-policy"]
     assert migration_policy["spec"]["egress"][0]["to"] == [{"ipBlock": {"cidr": "10.60.0.12/32"}}]
-    assert by_identity["PodDisruptionBudget", "openfga"]["spec"]["minAvailable"] == 1
+    runtime_budget = by_identity["PodDisruptionBudget", "openfga"]["spec"]
+    admin_budget = by_identity["PodDisruptionBudget", "openfga-admin"]["spec"]
+    assert runtime_budget["minAvailable"] == 1
+    assert admin_budget["maxUnavailable"] == 1
+    assert "minAvailable" not in admin_budget
+    assert runtime_budget["unhealthyPodEvictionPolicy"] == "AlwaysAllow"
+    assert admin_budget["unhealthyPodEvictionPolicy"] == "AlwaysAllow"
 
     portal = by_identity["Deployment", "portal-web"]["spec"]["template"]["spec"]
     portal_environment = {item["name"]: item for item in portal["containers"][0]["env"]}
@@ -224,6 +230,8 @@ def test_policy_administration_network_is_separate_from_runtime_clients(tmp_path
     documents = [item for item in yaml.safe_load_all(result.stdout) if item]
     runtime_clients = {
         "portal",
+        "identity-cutover",
+        "catalog-initializer",
         "worker-cms",
         "worker-engine",
         "worker-mc",

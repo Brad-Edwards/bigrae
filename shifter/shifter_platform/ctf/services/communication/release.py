@@ -107,14 +107,7 @@ def _assert_replay_matches(
         conflicts.append("revision")
     if requested_due_at is not None and existing.due_at != requested_due_at:
         conflicts.append("due_at")
-    if actor.user_id is not None and existing.actor_user_id != actor.user_id:
-        conflicts.append("actor")
-    if actor.token_id is not None and existing.actor_token_id != actor.token_id:
-        conflicts.append("actor_token")
-    if actor.credential is not None and existing.initiating_principal_uuid != actor.credential.principal.uuid:
-        conflicts.append("actor")
-    if actor.credential is not None and existing.credential_uuid != actor.credential.credential_uuid:
-        conflicts.append("credential")
+    conflicts.extend(_actor_replay_conflicts(existing, actor))
     if conflicts:
         raise CTFCommunicationError(
             f"Replay conflicts with the released declaration ({', '.join(conflicts)})",
@@ -462,3 +455,17 @@ def release_due_declaration(
         )
     logger.info("Released scheduled communication intent %s at due time (%d recipients)", intent.id, len(recipients))
     return RELEASE_OUTCOME_RELEASED
+
+
+def _actor_replay_conflicts(existing: CommunicationIntent, actor: AdmissionActor) -> list[str]:
+    """Compare every supplied actor reference against the original released proof."""
+    conflicts: list[str] = []
+    if actor.user_id is not None and existing.actor_user_id != actor.user_id:
+        conflicts.append("actor")
+    if actor.token_id is not None and existing.actor_token_id != actor.token_id:
+        conflicts.append("actor_token")
+    if actor.credential is not None and existing.initiating_principal_uuid != actor.credential.principal.uuid:
+        conflicts.append("actor")
+    if actor.credential is not None and existing.credential_uuid != actor.credential.credential_uuid:
+        conflicts.append("credential")
+    return conflicts

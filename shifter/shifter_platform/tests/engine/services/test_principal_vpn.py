@@ -427,7 +427,9 @@ def test_ctf_service_profile_preserves_participation_decision_and_live_assignmen
         principal=admission.binding.principal, issuer=admission.binding.issuer, subject=str(uuid4())
     )
     admission = ServiceCredentialAdmission.objects.create(
-        binding=binding, audience=admission.audience, scopes=[*admission.scopes, "authorization:event.participate"]
+        binding=binding,
+        audience=admission.audience,
+        scopes=[*admission.scopes, "authorization:event.participate", "ctf:vpn-profile:read"],
     )
     credential = resolve_service_credential_reference(admission.uuid, audience=settings.GCP_SERVICE_TOKEN_AUDIENCE)
     creator = django_user_model.objects.create_user(username="synthetic-vpn-event-creator")
@@ -448,6 +450,7 @@ def test_ctf_service_profile_preserves_participation_decision_and_live_assignmen
         status="active",
         registered_at=timezone.now(),
         range_instance_id=fixture.instance.pk,
+        range_request_id=fixture.request.request_id,
     )
     fixture.instance.event_uuid, fixture.instance.range_source = event.pk, "ctf"
     fixture.instance.save(update_fields=["event_uuid", "range_source"])

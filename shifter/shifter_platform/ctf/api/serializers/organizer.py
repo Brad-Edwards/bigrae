@@ -18,6 +18,7 @@ from rest_framework import serializers
 from ctf.models import CTFEvent
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api.model_sources import ModelSourceRevisionField, ModelSourceSelectionField
+from shared.identity_scope import ResourceScope
 
 # ---------------------------------------------------------------------------
 # Organizer serializers (event management)
@@ -64,20 +65,18 @@ class _EventAccessProjectionMixin:
         # mixin's methods type-check against the serializer context.
         context: dict[str, Any]
 
+    @staticmethod
     @extend_schema_field(OwnerRefSerializer)
-    def get_owner(self, event: CTFEvent) -> dict[str, str]:
+    def get_owner(event: CTFEvent) -> dict[str, str]:
         """Return the bounded owner reference for ``event``."""
         owner = event.created_by
         display = (owner.get_full_name() or owner.get_username()) if owner is not None else ""
         return {"id": str(event.owner_principal_uuid), "display_name": display}
 
-    def _access_source(self, event: CTFEvent) -> str:
-        """Compute the discovery access source without a per-row query."""
-        return "policy"
-
-    def get_access_source(self, event: CTFEvent) -> str:
+    @staticmethod
+    def get_access_source(event: CTFEvent) -> str:
         """Return the closed authority source by which the actor reaches ``event``."""
-        return self._access_source(event)
+        return "policy"
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_access_capabilities(self, event: CTFEvent) -> list[str]:
@@ -180,7 +179,7 @@ class EventDetailSerializer(_EventAccessProjectionMixin, serializers.Serializer)
     workspace = serializers.SerializerMethodField()
 
     @staticmethod
-    def _scope(event: CTFEvent):
+    def _scope(event: CTFEvent) -> ResourceScope:
         from workspaces.services import resource_scope_from_ids
 
         return resource_scope_from_ids(
@@ -398,7 +397,7 @@ class CtfScenarioListQuerySerializer(ClosedSerializer):
     organization = serializers.UUIDField(required=False)
     workspace = serializers.UUIDField(required=False)
 
-    def validate(self, attrs):
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         from shared.identity_scope import ResourceScope
         from workspaces.services import resolve_resource_scope
 

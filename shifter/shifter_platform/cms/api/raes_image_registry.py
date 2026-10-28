@@ -137,6 +137,7 @@ def _domain_error(request: Request, exc: RaesImageMappingError) -> Response:
 
 
 def _authority_error(request: Request) -> Response:
+    """Keep image-registry denial behind the bounded public error envelope."""
     return api_error_response(code="forbidden", message="Image registry unavailable", status_code=403, request=request)
 
 

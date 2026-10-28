@@ -1,12 +1,18 @@
 """CTF-owned event ancestry projection for credential authority checks."""
 
+from __future__ import annotations
+
 from contextlib import contextmanager
 from contextvars import ContextVar
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from ctf.models import CTFEvent
 from shared.identity_scope import ResourceScope
 from workspaces.services import event_placement_scope, resource_scope_from_ids
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _SCOPE_UNAVAILABLE = "Credential scope unavailable"
 _INITIALIZING_EVENT: ContextVar[tuple[UUID, UUID] | None] = ContextVar("ctf_initializing_event", default=None)
@@ -14,7 +20,7 @@ _CLEANUP_EVENT: ContextVar[UUID | None] = ContextVar("ctf_cleanup_event", defaul
 
 
 @contextmanager
-def _retained_event_cleanup_scope(event_uuid: UUID):
+def _retained_event_cleanup_scope(event_uuid: UUID) -> Iterator[None]:
     """Expose retained ancestry only during deletion; CMS still checks live event.delete."""
     token = _CLEANUP_EVENT.set(event_uuid)
     try:
@@ -24,7 +30,7 @@ def _retained_event_cleanup_scope(event_uuid: UUID):
 
 
 @contextmanager
-def _event_initialization_scope(event_uuid: UUID, principal_uuid: UUID):
+def _event_initialization_scope(event_uuid: UUID, principal_uuid: UUID) -> Iterator[None]:
     """Admit only the original creator's internal initialization in this context."""
     token = _INITIALIZING_EVENT.set((event_uuid, principal_uuid))
     try:

@@ -10,21 +10,20 @@ from django.db import transaction
 
 from cms.models import RangeInstance
 from cms.scenarios.model_needs import project_scenario_model_needs
-from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
+from shared.authorization import TargetRef
+from shared.credentials import CredentialContext, resolve_local_credential
 from shared.model_access import ContractError, EventModelDemand, ModelAccessCatalog, OwnedReference
 from shared.model_access.core_models import ScenarioNeed
 from shared.model_access.reservation import (
+    AuthorityRevision,
     ModelLaunchScope,
     ModelWarmScope,
-    SystemPreparationAuthority,
     WarmPreparationAuthority,
 )
-from shared.operation_authority import credential_reference_from_record
+
+from ._model_preparation_authority import _AUTHORITY_UNAVAILABLE, _authorize_preparation, _owner_reference
 
 _SCENARIO_UNAVAILABLE = "allocation.scenario_unavailable"
-
-
-_AUTHORITY_UNAVAILABLE = "allocation.authority_unavailable"
 
 
 def needs_model_preparation(request_id: UUID | str) -> bool:
@@ -137,97 +136,6 @@ def _resolve_model_catalog(
     return None
 
 
-def _owner_reference(instance: RangeInstance) -> OwnedReference:
-    """Use the durable principal identity; a contact user is never authority."""
-    if instance.owner_principal_uuid is None:
-        raise ContractError(_AUTHORITY_UNAVAILABLE)
-    return OwnedReference(owner="management", reference=f"principal:{instance.owner_principal_uuid}")
-
-
-def _authorize_preparation(
-    instance: RangeInstance,
-    owner: OwnedReference,
-    system: SystemPreparationAuthority | WarmPreparationAuthority | None,
-    *,
-    credential: CredentialContext | None = None,
-    renew: bool = False,
-    authority_action: str = "range.manage",
-    authority_target=None,
-) -> CredentialContext:
-    """Revalidate the exact initiating credential before delayed provider work."""
-    assert instance.request is not None
-    try:
-        if renew:
-            if credential is None:
-                raise ContractError(_AUTHORITY_UNAVAILABLE)
-            current = resolve_current_credential(credential)
-            from ._unified_authorization import require_range_action
-
-            require_range_action(current, instance.uuid, authority_action, authority_target=authority_target)
-        else:
-            current = resolve_current_credential(credential_reference_from_record(instance.request))
-        if not renew and current.principal.uuid != instance.owner_principal_uuid:
-            if instance.range_source != "ctf" or instance.event_uuid is None:
-                raise ContractError(_AUTHORITY_UNAVAILABLE)
-            from shared.authorization import (
-                AuthorizationRequest,
-                TargetRef,
-                configured_authorization_provider,
-            )
-            from workspaces.services import resource_scope_from_ids
-
-            scope = resource_scope_from_ids(
-                kind=instance.scope_kind,
-                account_id=instance.account_id,
-                organization_id=instance.organization_id,
-                workspace_id=instance.workspace_id,
-            )
-            decision = configured_authorization_provider().check(
-                AuthorizationRequest(
-                    current.principal,
-                    "event.manage_ranges",
-                    TargetRef("event", instance.event_uuid),
-                    scope,
-                    current.ceiling,
-                )
-            )
-            if not decision.allowed:
-                raise ContractError(_AUTHORITY_UNAVAILABLE)
-        if system is not None:
-            warm = (
-                system.owner_ref == owner
-                and system.kind == "warm_pool"
-                and current.principal.kind == "service"
-                and instance.user_id is None
-                and instance.request.user_id is None
-                and instance.scope_kind == "installation"
-                and instance.request.scope_kind == "installation"
-                and all(
-                    value is None
-                    for value in (
-                        instance.account_id,
-                        instance.organization_id,
-                        instance.workspace_id,
-                        instance.request.account_id,
-                        instance.request.organization_id,
-                        instance.request.workspace_id,
-                    )
-                )
-            )
-            ctf_spare = (
-                system.owner_ref == owner
-                and system.kind == "ctf_spare"
-                and instance.range_source == "ctf"
-                and instance.event_uuid is not None
-                and instance.request.scope_kind == instance.scope_kind == "account"
-            )
-            if not (warm or ctf_spare):
-                raise ContractError("allocation.system_owner_unavailable")
-        return current
-    except Exception:
-        raise ContractError(_AUTHORITY_UNAVAILABLE) from None
-
-
 def _source_policy_scope(instance: RangeInstance, scope: ModelLaunchScope) -> ModelLaunchScope:
     """Apply the range's current source-policy revision and optional sponsorship."""
     from shared.model_access.sources import ModelSourceSponsorship
@@ -288,7 +196,7 @@ class PreparedClaimModelSources:
     instance_pk: int
     facts: tuple[object, ...]
     catalog: ModelAccessCatalog
-    source_revisions: tuple
+    source_revisions: tuple[AuthorityRevision, ...]
 
 
 def prepare_claim_model_sources(
@@ -320,6 +228,16 @@ def prepare_claim_model_sources(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparationAuthority:
+    """Current actor and exact optional event target for one dispatch preparation."""
+
+    credential: CredentialContext | None
+    renew: bool
+    action: str
+    target: TargetRef | None
+
+
 def prepare_model_access_for_dispatch(
     request_id: UUID,
     *,
@@ -327,7 +245,7 @@ def prepare_model_access_for_dispatch(
     renew: bool = False,
     credential: CredentialContext | None = None,
     authority_action: str = "range.manage",
-    authority_target=None,
+    authority_target: TargetRef | None = None,
     _claim_sources: PreparedClaimModelSources | None = None,
 ) -> None:
     """Authenticate current persisted ownership, then hand closed facts downward.
@@ -351,45 +269,16 @@ def prepare_model_access_for_dispatch(
     catalog = _resolve_model_catalog(request_id, owner, needs)
     if catalog is None:
         return
-    scope = (
-        ModelLaunchScope.model_validate(instance.model_launch_scope)
-        if instance.model_launch_scope
-        else _standalone_scope(instance, range_id, needs, catalog.deployment_id)
-    )
-
-    scope = _source_policy_scope(instance, scope)
+    scope = _preparation_scope(instance, range_id, needs, catalog.deployment_id)
     system = scope.system_preparation
-    if _claim_sources is not None:
-        if (
-            not renew
-            or credential != _claim_sources.credential
-            or instance.pk != _claim_sources.instance_pk
-            or tuple(getattr(instance, field) for field in _MODEL_SOURCE_FENCE_FIELDS) != _claim_sources.facts
-        ):
-            raise ContractError(_AUTHORITY_UNAVAILABLE)
-        catalog = _claim_sources.catalog
-        source_revisions = _claim_sources.source_revisions
-    else:
-        credential = _authorize_preparation(
-            instance,
-            owner,
-            system,
-            credential=credential,
-            renew=renew,
-            authority_action=authority_action,
-            authority_target=authority_target,
-        )
-        from cms.services._model_source_selection import resolve_launch_sources, resolve_sponsored_sources
-
-        if scope.source_sponsorship:
-            catalog, source_revisions = resolve_sponsored_sources(scope.source_sponsorship, catalog=catalog)
-        else:
-            catalog, source_revisions = resolve_launch_sources(
-                credential,
-                instance.workspace_id,
-                instance.model_sources,
-                catalog=catalog,
-            )
+    credential, catalog, source_revisions = _resolve_dispatch_sources(
+        instance,
+        owner,
+        scope,
+        catalog,
+        _PreparationAuthority(credential, renew, authority_action, authority_target),
+        _claim_sources,
+    )
     refs = (() if system else (owner,)) + (OwnedReference(owner="engine", reference=f"model-launch:{range_id}"),)
     if instance.workspace_id is not None:
         refs += (OwnedReference(owner="workspaces", reference=f"workspace-id:{instance.workspace_id}"),)
@@ -417,11 +306,7 @@ def prepare_model_access_for_dispatch(
     )
     fence = {name: getattr(instance, name) for name in fence_fields}
     with transaction.atomic():
-        current_instance = RangeInstance.objects.select_for_update().get(pk=instance.pk)
-        if resolve_local_credential(credential) != credential or any(
-            getattr(current_instance, name) != value for name, value in fence.items()
-        ):
-            raise ContractError(_AUTHORITY_UNAVAILABLE)
+        _fence_preparation_instance(credential, instance.pk, fence)
         prepare_model_launch(
             request_id=request_id,
             owner_ref=owner,
@@ -452,3 +337,68 @@ def resume_model_range(request_id: UUID) -> bool:
         if not dispatch_prepared_range_resume(request_id):
             raise ContractError("allocation.dispatch_unavailable")
         return True
+
+
+def _resolve_dispatch_sources(
+    instance: RangeInstance,
+    owner: OwnedReference,
+    scope: ModelLaunchScope,
+    catalog: ModelAccessCatalog,
+    authority: _PreparationAuthority,
+    claim: PreparedClaimModelSources | None,
+) -> tuple[CredentialContext, ModelAccessCatalog, tuple[AuthorityRevision, ...]]:
+    """Use exact pre-admitted warm facts or current original actor and funding policy."""
+    if claim is not None:
+        if (
+            not authority.renew
+            or authority.credential != claim.credential
+            or instance.pk != claim.instance_pk
+            or tuple(getattr(instance, field) for field in _MODEL_SOURCE_FENCE_FIELDS) != claim.facts
+        ):
+            raise ContractError(_AUTHORITY_UNAVAILABLE)
+        credential = claim.credential
+        catalog = claim.catalog
+        source_revisions = claim.source_revisions
+    else:
+        credential = _authorize_preparation(
+            instance,
+            owner,
+            scope.system_preparation,
+            credential=authority.credential,
+            renew=authority.renew,
+            authority_action=authority.action,
+            authority_target=authority.target,
+        )
+        from cms.services._model_source_selection import resolve_launch_sources, resolve_sponsored_sources
+
+        if scope.source_sponsorship:
+            catalog, source_revisions = resolve_sponsored_sources(scope.source_sponsorship, catalog=catalog)
+        else:
+            catalog, source_revisions = resolve_launch_sources(
+                credential,
+                instance.workspace_id,
+                instance.model_sources,
+                catalog=catalog,
+            )
+    return credential, catalog, source_revisions
+
+
+def _preparation_scope(
+    instance: RangeInstance, range_id: UUID, needs: tuple[ScenarioNeed, ...], deployment_id: UUID
+) -> ModelLaunchScope:
+    """Resolve the retained event or standalone envelope before applying current funding policy."""
+    scope = (
+        ModelLaunchScope.model_validate(instance.model_launch_scope)
+        if instance.model_launch_scope
+        else _standalone_scope(instance, range_id, needs, deployment_id)
+    )
+    return _source_policy_scope(instance, scope)
+
+
+def _fence_preparation_instance(credential: CredentialContext, pk: int, fence: dict[str, object]) -> None:
+    """Hold the exact CMS runtime facts and native proof through the Engine outbox write."""
+    current = RangeInstance.objects.select_for_update().get(pk=pk)
+    if resolve_local_credential(credential) != credential or any(
+        getattr(current, name) != value for name, value in fence.items()
+    ):
+        raise ContractError(_AUTHORITY_UNAVAILABLE)

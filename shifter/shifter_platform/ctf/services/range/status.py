@@ -7,14 +7,17 @@ provides the participant-with-range loader shared by the lifecycle actions in
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from ctf.exceptions import CTFNotFoundError, CTFRangeError
 from ctf.models import CTFParticipant
 
+if TYPE_CHECKING:
+    from shared.credentials import CredentialContext
 
-def get_range_status(participant_id: UUID, *, credential=None) -> dict[str, Any]:
+
+def get_range_status(participant_id: UUID, *, credential: CredentialContext | None = None) -> dict[str, Any]:
     """Get range status for a participant.
 
     Args:

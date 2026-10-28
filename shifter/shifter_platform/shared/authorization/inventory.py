@@ -10,6 +10,8 @@ from shared.identity_scope import ResourceScope
 
 from .contracts import TargetRef
 
+_AUTHORIZATION_RANGE_BINDING_UNAVAILABLE = "Authorization range binding unavailable"
+
 
 class AuthorizationDescendantResolutionError(RuntimeError):
     """The authoritative descendant inventory is unavailable or exceeds its bound."""
@@ -56,7 +58,7 @@ def resolve_authorization_event_scope(event_uuid: UUID) -> ResourceScope:
     return scope
 
 
-def bind_authorization_event_range_resolver(resolver) -> None:
+def bind_authorization_event_range_resolver(resolver: Callable[[UUID, int], tuple[TargetRef, ...]]) -> None:
     """Bind the native range owner's SQL inventory below an event."""
     global _event_range_resolver
     if not callable(resolver) or (_event_range_resolver is not None and _event_range_resolver is not resolver):
@@ -64,25 +66,25 @@ def bind_authorization_event_range_resolver(resolver) -> None:
     _event_range_resolver = resolver
 
 
-def bind_authorization_range_binding_resolver(resolver) -> None:
+def bind_authorization_range_binding_resolver(resolver: Callable[[UUID], tuple[TargetRef, ResourceScope]]) -> None:
     """Bind native SQL custody for public range policy targets."""
     global _range_binding_resolver
     if not callable(resolver) or (_range_binding_resolver is not None and _range_binding_resolver is not resolver):
-        raise AuthorizationDescendantResolutionError("Authorization range binding unavailable")
+        raise AuthorizationDescendantResolutionError(_AUTHORIZATION_RANGE_BINDING_UNAVAILABLE)
     _range_binding_resolver = resolver
 
 
 def resolve_authorization_range_binding(range_uuid: UUID) -> tuple[TargetRef, ResourceScope]:
     """Retain event ancestry instead of deriving it from a workspace alone."""
     if _range_binding_resolver is None:
-        raise AuthorizationDescendantResolutionError("Authorization range binding unavailable")
+        raise AuthorizationDescendantResolutionError(_AUTHORIZATION_RANGE_BINDING_UNAVAILABLE)
     try:
         parent, scope = _range_binding_resolver(range_uuid)
         if not isinstance(parent, TargetRef) or not isinstance(scope, ResourceScope):
             raise ValueError("Invalid range binding")
         return parent, scope
     except Exception:
-        raise AuthorizationDescendantResolutionError("Authorization range binding unavailable") from None
+        raise AuthorizationDescendantResolutionError(_AUTHORIZATION_RANGE_BINDING_UNAVAILABLE) from None
 
 
 def resolve_authorization_event_ranges(event_uuid: UUID, limit: int) -> tuple[tuple[TargetRef, ResourceScope], ...]:

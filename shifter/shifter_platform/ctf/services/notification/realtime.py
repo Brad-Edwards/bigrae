@@ -57,9 +57,10 @@ def _can_subscribe(credential: CredentialContext, topic: str) -> bool:
         return False
     try:
         authorize_event_projection(credential, event.pk)
-        return True
+        allowed = True
     except CTFError:
-        return False
+        allowed = False
+    return allowed
 
 
 def _reference_payload(payload: Mapping[str, Any]) -> dict[str, str]:

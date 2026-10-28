@@ -41,6 +41,8 @@ class CredentialReferenceRecord(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class _CredentialReference:
+    """Typed scalar projection of a retained initiating credential."""
+
     initiating_principal_uuid: UUID | None
     initiating_principal_kind: str
     credential_kind: str
@@ -56,12 +58,14 @@ def credential_reference_from_fields(fields: Mapping[str, object]) -> Credential
     """Decode existing server-owned scalar snapshots with the same record contract."""
 
     def identity(name: str) -> UUID | None:
+        """Read a UUID reference without coercing arbitrary serialized values."""
         value = fields[name]
         if value is not None and not isinstance(value, UUID):
             raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)
         return value
 
     def text(name: str) -> str:
+        """Read a retained textual field without accepting other scalar types."""
         value = fields[name]
         if not isinstance(value, str):
             raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE)

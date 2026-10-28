@@ -87,6 +87,31 @@ same command. Helm is the sole renderer. For the first cutover, supply both
 file paths. Their values do not belong in the deployment bundle or command line.
 Provider account creation alone grants no native application permission.
 
+For the fresh-install personal-token path, explicitly set
+`"bootstrap_personal_token_eligibility": true` in the private cutover facts
+before planning. Its default is false; administrator status alone does not grant
+this eligibility. The reviewed plan digest binds this one-time choice. Bootstrap
+reads back and audits the separate eligibility grant, and activation verifies it.
+After activation, sign in and issue the credential through the ordinary service.
+This does not change the normal prohibition on self-grants or the requirement
+that a grantor hold each delegated action.
+
+Catalog initialization follows verified activation and application readiness.
+Supply `--catalog-credential-file` with a current native bearer proof in an
+owner-only file. It is separate from the identity facts and deployment bundle.
+The catalog Job uses explicit installation scope and checks content registration,
+conformance and publication authority. It does not create or grant a deployment
+actor. Workload IAM alone cannot authorize these application operations.
+
+Without this proof, the command reports catalog setup incomplete while leaving
+the activated application available. Complete DNS and certificate setup, sign in
+as the explicitly granted administrator, issue an ordinary native credential,
+then rerun the same deployment command with its private file. A service proof
+works only for an already bound and admitted service principal. Pre-cutover
+personal proofs cannot be reused because activation revokes them. Credential
+expiry or revocation during setup leaves native pending or unpublished content
+for an exact retry; it does not weaken the runtime gate.
+
 The identity status probe installs namespace, service-account, configuration,
 secret and DNS, metadata-server, Google API and native SQL network prerequisites.
 The complete set is required on a fresh namespace before proxy authentication
@@ -154,3 +179,12 @@ Check all of the following before activation:
 The runtime client remains a trusted relationship writer. SQL administration
 isolation does not provide per-user HTTP authorization or contain a compromised
 authorized tuple writer.
+
+### Voluntary pod disruption
+
+The runtime OpenFGA budget retains at least one healthy replica. The separate
+single-replica administration service permits one unavailable pod during node
+maintenance. Policy writes can fail closed during that brief restart; runtime
+checks use their separate service. Both budgets allow eviction of unhealthy
+pods so a failed pod cannot block node drain. This follows the
+[Kubernetes disruption-budget semantics](https://kubernetes.io/docs/tasks/run-application/configure-pdb/).

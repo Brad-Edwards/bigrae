@@ -45,11 +45,19 @@ from ctf.enums import EventCapability
 from shared.api.strict_json import ModelSelectionJSONParser
 
 if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+    from shared.credentials import CredentialContext
+
+_SERVICE_UNAVAILABLE = "Service unavailable"
+
+if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Any
     from uuid import UUID
 
     from ctf.models import CTFEvent
+    from shared.authorization import AuthorizationRequest
 
 # Bound both policy discovery and serialized pages. Counts cover every readable
 # candidate, not merely the current page (ADR-052-R3, ADR-040).
@@ -57,7 +65,9 @@ _EVENT_LIST_PAGE_SIZE = 200
 _EVENT_LIST_CANDIDATE_LIMIT = 1000
 
 
-def _authorized_event_page(events, credential, *, page: int | None, page_size: int | None):
+def _authorized_event_page(
+    events: QuerySet[CTFEvent], credential: CredentialContext, *, page: int | None, page_size: int | None
+) -> tuple[list[CTFEvent], dict[str, int | None]]:
     """Filter a finite candidate set before paging; broad discovery must be refined."""
     from ctf.exceptions import CTFPermissionError, CTFValidationError
     from ctf.services.unified_authorization import require_event_action
@@ -70,18 +80,12 @@ def _authorized_event_page(events, credential, *, page: int | None, page_size: i
     candidates = list(events[: _EVENT_LIST_CANDIDATE_LIMIT + 1])
     if len(candidates) > _EVENT_LIST_CANDIDATE_LIMIT:
         raise CTFValidationError("Refine event filters", code="CTF_EVENT_DISCOVERY_LIMIT")
-    offset = 0
-    while offset < len(candidates):
-        batch = candidates[offset : offset + _EVENT_LIST_PAGE_SIZE]
-        if not batch:
-            break
-        offset += len(batch)
-        for event in batch:
-            try:
-                require_event_action(credential, event.pk, "event.read")
-            except CTFPermissionError:
-                continue
-            readable.append(event)
+    for event in candidates:
+        try:
+            require_event_action(credential, event.pk, "event.read")
+        except CTFPermissionError:
+            continue
+        readable.append(event)
     return readable[start:stop], {
         "count": len(readable),
         "active_count": sum(event.status in {"registration", "active", "paused"} for event in readable),
@@ -92,42 +96,27 @@ def _authorized_event_page(events, credential, *, page: int | None, page_size: i
     }
 
 
-def _event_projection_context(request: Request, credential, events: Sequence[CTFEvent]) -> dict[str, Any]:
+def _event_projection_context(
+    request: Request, credential: CredentialContext, events: Sequence[CTFEvent]
+) -> dict[str, Any]:
     """Build advisory capabilities from the same live decisions as mutations."""
-    from ctf.services.credential_scope import event_credential_scope
-    from ctf.services.event.staff import capability_action_pairs
-    from shared.authorization import AuthorizationRequest, TargetRef, configured_authorization_provider
+    from shared.authorization import configured_authorization_provider
 
     context: dict[str, Any] = {"request": request, "access_capabilities": {}}
-    indexed: list[tuple[UUID, str]] = []
-    checks: list[AuthorizationRequest] = []
-    for event in events:
-        scope = event_credential_scope(event.pk)
-        target = TargetRef("event", event.pk)
-        for capability, action in capability_action_pairs():
-            if not credential.ceiling.permits(action, target):
-                continue
-            indexed.append((event.pk, capability))
-            checks.append(
-                AuthorizationRequest(
-                    credential.principal,
-                    action,
-                    target,
-                    scope,
-                    credential.ceiling,
-                )
-            )
-    if checks:
-        try:
-            decisions = configured_authorization_provider().batch_check(tuple(checks))
-        except Exception:
-            decisions = ()
-        if len(decisions) == len(indexed) and all(decision.kind != "evaluator_error" for decision in decisions):
-            capabilities: dict[UUID, list[str]] = {}
-            for (event_id, capability), decision in zip(indexed, decisions, strict=True):
-                if decision.allowed:
-                    capabilities.setdefault(event_id, []).append(capability)
-            context["access_capabilities"] = capabilities
+    indexed, checks = _projection_checks(credential, events)
+    if not checks:
+        return context
+    try:
+        decisions = configured_authorization_provider().batch_check(tuple(checks))
+    except Exception:
+        decisions = ()
+    if len(decisions) != len(indexed) or any(decision.kind == "evaluator_error" for decision in decisions):
+        return context
+    capabilities: dict[UUID, list[str]] = {}
+    for (event_id, capability), decision in zip(indexed, decisions, strict=True):
+        if decision.allowed:
+            capabilities.setdefault(event_id, []).append(capability)
+    context["access_capabilities"] = capabilities
     return context
 
 
@@ -186,7 +175,7 @@ class EventListView(APIView):
                 ).to_response(request)
             return _CtfApiError(
                 code="dependency_unavailable",
-                message="Service unavailable",
+                message=_SERVICE_UNAVAILABLE,
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             ).to_response(request)
         context = _event_projection_context(request, credential, rows)
@@ -222,7 +211,7 @@ class EventListView(APIView):
             except CTFError as exc:
                 raise _CtfApiError(
                     code="dependency_unavailable",
-                    message="Service unavailable",
+                    message=_SERVICE_UNAVAILABLE,
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 ) from exc
             return Response(
@@ -263,7 +252,7 @@ class EventDetailView(APIView):
 
         try:
             event = _resolve_owned_event(request, event_id, capability=EventCapability.CONFIG)
-            source = _event_authority(request, event, EventCapability.CONFIG)
+            source = _event_authority()
             serializer = EventWriteSerializer(data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             changed = sorted(serializer.validated_data.keys())
@@ -290,7 +279,7 @@ class EventDetailView(APIView):
 
         try:
             event = _resolve_owned_event(request, event_id, capability=EventCapability.DELETE)
-            source = _event_authority(request, event, EventCapability.DELETE)
+            source = _event_authority()
         except _CtfApiError as exc:
             return exc.to_response(request)
         from shared.audit import AuditAction
@@ -377,7 +366,37 @@ class ScenarioListView(APIView):
             unavailable = exc.details.get("code") == "authority-unavailable"
             return _CtfApiError(
                 code="dependency_unavailable" if unavailable else "forbidden",
-                message="Service unavailable" if unavailable else "Permission denied",
+                message=_SERVICE_UNAVAILABLE if unavailable else "Permission denied",
                 status_code=503 if unavailable else 403,
             ).to_response(request)
         return Response({"scenarios": scenarios})
+
+
+def _projection_checks(
+    credential: CredentialContext,
+    events: Sequence[CTFEvent],
+) -> tuple[list[tuple[UUID, str]], list[AuthorizationRequest]]:
+    """Build only concrete event actions permitted by the current credential ceiling."""
+    from ctf.services.credential_scope import event_credential_scope
+    from ctf.services.event.staff import capability_action_pairs
+    from shared.authorization import AuthorizationRequest, TargetRef
+
+    indexed: list[tuple[UUID, str]] = []
+    checks: list[AuthorizationRequest] = []
+    for event in events:
+        scope = event_credential_scope(event.pk)
+        target = TargetRef("event", event.pk)
+        for capability, action in capability_action_pairs():
+            if not credential.ceiling.permits(action, target):
+                continue
+            indexed.append((event.pk, capability))
+            checks.append(
+                AuthorizationRequest(
+                    credential.principal,
+                    action,
+                    target,
+                    scope,
+                    credential.ceiling,
+                )
+            )
+    return indexed, checks
