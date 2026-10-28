@@ -61,6 +61,23 @@ was not found". Set the quota project and a private data directory for the run:
 export GOOGLE_CLOUD_QUOTA_PROJECT=<project> TF_DATA_DIR="$(mktemp -d)"
 ```
 
+## Read the release manifest without Docker
+
+A checkout deploy needs `--release-manifest`. The deployer image holds the
+manifest at `/opt/bigrae/release.json`, and the release run summary prints it.
+Without Docker, extract it from the image layer with ORAS:
+
+```bash
+REF=<release registry>/deployer@<digest>
+IMAGE=$(oras manifest fetch "$REF" | jq -r '.manifests[0].digest')
+for layer in $(oras manifest fetch "${REF%@*}@$IMAGE" | jq -r '.layers[] | select(.size < 200000) | .digest'); do
+  oras blob fetch "${REF%@*}@$layer" --output - | tar -xzO opt/bigrae/release.json 2>/dev/null > release.json && break
+done
+```
+
+ORAS uses the Docker credential helper for Artifact Registry, so
+`docker-credential-gcloud` must be on `PATH`.
+
 ## Range images that are already in the project
 
 If the base guest images already exist in the project, record them with
