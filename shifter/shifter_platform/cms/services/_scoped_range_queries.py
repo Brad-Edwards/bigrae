@@ -37,7 +37,7 @@ def list_scoped_ranges(
         resolved = resolve_resource_scope(scope)
         if resolved.kind != "account":
             raise ValueError("Missing customer scope")
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise CMSError(_RANGE_UNAVAILABLE) from None
     filters = {"scope_kind": "account", "account_id": resolved.account_id, "owner_principal_uuid__isnull": False}
     if resolved.organization_id is not None:

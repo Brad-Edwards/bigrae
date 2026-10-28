@@ -91,8 +91,10 @@ def _rebuild_replacement(participant: CTFParticipant, model_subject: OwnedRefere
             ),
         )
     except Exception as e:
+        # Authored message only: this log line and the chained cause carry the detail.
+        logger.exception("Replacement range provisioning failed for participant %s", participant.pk)
         raise _range_error(
-            f"Replacement range provisioning failed: {e}",
+            "Replacement range provisioning failed",
             category=RecoveryFailureCategory.PROVISIONING_FAILED,
             participant_id=str(participant.pk),
         ) from e
@@ -259,8 +261,10 @@ def _ensure_old_range_blocked(recovery: CTFRangeRecovery, old_range_instance_id:
         try:
             cms_destroy_range(user, old_range_instance_id)
         except Exception as e:
+            # Authored message only: this log line and the chained cause carry the detail.
+            logger.exception("Failed to block old range %s", old_range_instance_id)
             raise _range_error(
-                f"Failed to block old range {old_range_instance_id}: {e}",
+                f"Failed to block old range {old_range_instance_id}",
                 category=RecoveryFailureCategory.OLD_RANGE_TEARDOWN_FAILED,
                 old_range_instance_id=old_range_instance_id,
             ) from e

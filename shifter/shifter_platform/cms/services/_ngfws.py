@@ -212,7 +212,7 @@ def get_ngfw(user: User | CredentialContext, app_id: UUID | str) -> NGFWAppConte
             app_type__slug="panw-ngfw",
         )
     except App.DoesNotExist:
-        logger.error("get_ngfw: App id=%s not found for user_id=%s", app_id, user.id)
+        logger.warning("get_ngfw: App id=%s not found for user_id=%s", validated_app_id, user.id)
         raise CMSError("NGFW not found") from None
     return _app_to_ngfw_context(app)
 
@@ -435,11 +435,11 @@ def destroy_ngfw(user: User | CredentialContext, app_id: UUID | str, confirm_nam
             app_type__slug="panw-ngfw",
         )
     except App.DoesNotExist:
-        logger.error("destroy_ngfw: App id=%s not found for user_id=%s", safe_log_value(app_id), user.id)
+        logger.warning("destroy_ngfw: App id=%s not found for user_id=%s", safe_log_value(app_id), user.id)
         raise CMSError("NGFW not found") from None
 
     if confirm_name != app.name:
-        logger.error(
+        logger.warning(
             "destroy_ngfw: name mismatch for App id=%s (expected=%s, got=%s)",
             safe_log_value(app_id),
             safe_log_value(app.name),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import suppress
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -19,6 +20,8 @@ from shared.raes.operation_input import parse_raes_operation_input
 from shared.runtime_plugin_binding import runtime_plugin_requests
 
 from ._runtime_plugin_controller import _pull_secret
+
+logger = logging.getLogger(__name__)
 
 
 def queue_runtime_plugin_plans(envelope: dict[str, Any]) -> None:
@@ -146,10 +149,16 @@ def _reconcile(row: RuntimePluginInvocation) -> None:
         launch_plugin(request, image_pull_secret=secret_name)
         _pull_secret(installation, request)
         result, state = _observe_plan(request)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - plugin and registry errors can carry private output; log the type only
         # Private code, scripts and registry diagnostics never enter public logs.
         state = "failed"
         result = None
+        logger.warning(
+            "runtime plugin planning failed invocation_id=%s operation_id=%s exc_type=%s",
+            row.pk,
+            row.operation_id,
+            type(exc).__name__,
+        )
         if request is not None:
             # The Job deadline still bounds execution if interruption is unavailable.
             with suppress(Exception):
@@ -163,7 +172,14 @@ def _reconcile(row: RuntimePluginInvocation) -> None:
             _authorized_request(current)
             if current.expires_at <= timezone.now():
                 raise ValueError("Plugin planning expired")
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - fail-closed recheck; input errors can carry private plan content
+            if state != "failed":
+                logger.warning(
+                    "runtime plugin planning revoked at commit invocation_id=%s operation_id=%s exc_type=%s",
+                    row.pk,
+                    row.operation_id,
+                    type(exc).__name__,
+                )
             state, result = "failed", None
         current.state = state
         current.result = result.model_dump(mode="json") if result is not None else None

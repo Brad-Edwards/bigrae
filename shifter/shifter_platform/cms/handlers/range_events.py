@@ -10,6 +10,7 @@ from django.db import transaction
 from cms.handlers.ctf_bridge import notify_ctf_range_status
 from cms.models import RangeInstance
 from shared.enums import ResourceStatus
+from shared.log_sanitize import safe_log_value
 from shared.messages.envelope import parse_sns_message
 from shared.messages.events import EVENT_TYPE_STATUS_UPDATED
 from shared.messages.payloads import RangeStatusUpdatedPayload
@@ -73,10 +74,10 @@ def _lookup_range_instance(
     manager = RangeInstance.all_objects if include_deleted else RangeInstance.objects
     if request_id:
         lookup: dict[str, str | int] = {"request__request_id": request_id}
-        label = f"request_id={request_id}"
+        label = f"request_id={safe_log_value(request_id)}"
     elif range_id is not None:
         lookup = {"range_id": range_id}
-        label = f"range_id={range_id}"
+        label = f"range_id={safe_log_value(range_id)}"
     else:
         logger.warning("Missing both request_id and range_id in event")
         return None
@@ -148,8 +149,9 @@ def apply_range_status(
         # Transient DB/broker failure on the save or a bridge effect. The
         # atomic block has rolled the status write back; restore the in-memory
         # value so the object matches the committed DB state, then propagate so
-        # the worker retry (or DLQ) re-runs the whole status+bridge unit.
-        logger.exception(
+        # the worker retry (or DLQ) re-runs the whole status+bridge unit. The
+        # SQS worker and the reconciler log the propagated traceback.
+        logger.info(
             "Failed to apply RangeInstance status pk=%s status=%s — rolled back",
             instance.pk,
             new_status,
@@ -172,7 +174,7 @@ def _validated_status(new_status: str | None, range_id: int | None) -> str | Non
     try:
         ResourceStatus(new_status)
     except ValueError:
-        logger.error("Invalid status value: %s (range_id=%s)", new_status, range_id)
+        logger.warning("Invalid status value: %s (range_id=%s)", safe_log_value(new_status), safe_log_value(range_id))
         return None
     return new_status
 
@@ -191,11 +193,11 @@ def _event_owns_instance(
     if instance.owner_principal_uuid is not None:
         return _principal_event_owns_instance(instance, event)
     if instance.user_id != user_id:
-        logger.error(
+        logger.warning(
             "user_id mismatch: message=%s, instance=%s (range_id=%s)",
-            user_id,
+            safe_log_value(user_id),
             instance.user_id,
-            range_id,
+            safe_log_value(range_id),
         )
         return False
     return True
@@ -225,7 +227,7 @@ def process_range_event(message: str | dict) -> None:
 
     event_type = event.get("event_type")
     if event_type != EVENT_TYPE_STATUS_UPDATED:
-        logger.debug("Ignoring event_type=%s", event_type)
+        logger.debug("Ignoring event_type=%s", safe_log_value(event_type))
         return
 
     # event_type confirmed; narrow to the typed payload. Runtime shape/ownership
@@ -261,11 +263,11 @@ def process_range_event(message: str | dict) -> None:
     if applied:
         logger.info(
             "CMS updated RangeInstance: request_id=%s range_id=%s status=%s->%s event_id=%s",
-            request_id,
-            range_id,
+            safe_log_value(request_id),
+            safe_log_value(range_id),
             previous_status,
             new_status,
-            event_id,
+            safe_log_value(event_id),
         )
 
 
@@ -292,4 +294,6 @@ def _principal_event_owns_instance(instance: RangeInstance, event: RangeStatusUp
             )
         )
     except Exception:
+        # Fail closed: an ownership check that cannot complete rejects the event.
+        logger.exception("Principal range callback ownership check failed: instance_pk=%s", instance.pk)
         return False

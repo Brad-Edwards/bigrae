@@ -81,8 +81,8 @@ def _publish(metric_data: list[dict[str, object]], *, client: MetricPublisher | 
         publisher.put_metric_data(Namespace=_namespace(), MetricData=metric_data)
         return True
     # Observability is best-effort; a metrics outage never breaks delivery.
-    except Exception as exc:
-        logger.warning("ctf communication metric emit failed: %s", safe_log_value(str(exc)))
+    except Exception as exc:  # noqa: BLE001 - metrics provider SDK errors may carry provider payloads
+        logger.warning("ctf communication metric emit failed exc_type=%s", type(exc).__name__)
         return False
 
 

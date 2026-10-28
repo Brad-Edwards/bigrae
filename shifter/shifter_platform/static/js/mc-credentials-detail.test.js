@@ -87,13 +87,21 @@ describe('mc-credentials-detail', () => {
 
     test('alerts the server error and does not redirect on a logical failure', async () => {
         loadModule();
-        fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: 'in use' }) });
+        fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: { code: 'not_found', message: 'in use' } }) });
 
         document.getElementById('delete-btn').click();
         await flush();
         await flush();
 
         expect(alertMock).toHaveBeenCalledWith('in use');
+
+        // An envelope without a message falls back to fixed copy, never an object.
+        fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: { code: 'not_found' } }) });
+        document.getElementById('delete-btn').click();
+        await flush();
+        await flush();
+
+        expect(alertMock).toHaveBeenLastCalledWith('An error occurred. Please try again.');
     });
 
     test('alerts a generic message when the delete fetch rejects', async () => {

@@ -113,7 +113,7 @@ def admin_participant_rename(request: HttpRequest, participant_id: UUID) -> Http
         except CTFNotFoundError:
             raise Http404(_PARTICIPANT_NOT_FOUND_MSG) from None
         except CTFValidationError as exc:
-            messages.error(request, str(exc))
+            messages.error(request, exc.message)
         else:
             messages.success(request, "Participant username updated.")
             return redirect(_PARTICIPANT_DETAIL_ROUTE, participant_id=participant.pk)
@@ -238,15 +238,15 @@ def admin_participant_add(request: HttpRequest, event_id: UUID) -> HttpResponse:
                     name=form.cleaned_data["name"],
                 )
                 logger.info(
-                    "User %s added participant %s to event %s",
-                    request.user.email,
-                    participant.email,
+                    "User added participant user_id=%s participant_id=%s event_id=%s",
+                    request.user.pk,
+                    participant.pk,
                     safe_log_value(event_id),
                 )
                 messages.success(request, f"Participant {participant.name} added successfully.")
                 return redirect(_PARTICIPANT_LIST_ROUTE, event_id=event_id)
             except CTFValidationError as e:
-                form.add_error(None, str(e))
+                form.add_error(None, e.message)
     else:
         form = CTFParticipantForm(event=event)
 

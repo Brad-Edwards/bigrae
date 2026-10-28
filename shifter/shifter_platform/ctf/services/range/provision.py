@@ -158,8 +158,9 @@ def provision_participant_range(participant_id: UUID) -> dict[str, Any]:
         CTFParticipant.objects.filter(pk=participant.pk, range_status="provisioning", range_instance_id=None).update(
             range_status=previous_status, updated_at=timezone.now()
         )
+        # Authored message only: the log line above and the chained cause carry the detail.
         raise CTFRangeError(
-            f"Range provisioning failed: {e}",
+            "Range provisioning failed",
             code=_underlying_policy_code(e),
             details={"participant_id": str(participant_id)},
         ) from e
@@ -291,11 +292,11 @@ def provision_participant_range_with_retry(
                     attempt + 1,
                     participant_id,
                     delay,
-                    e,
+                    safe_log_value(str(e)),
                 )
                 _interruptible_sleep(delay, heartbeat=heartbeat)
 
-    # All retries exhausted — mark as error
+    # All retries exhausted — mark as error. The caller logs the raised error with its traceback.
     try:
         participant = CTFParticipant.objects.get(pk=participant_id)
         participant.range_status = "error"
@@ -303,12 +304,6 @@ def provision_participant_range_with_retry(
     except CTFParticipant.DoesNotExist:
         pass
 
-    logger.error(
-        "Provisioning failed after %d attempts for participant %s: %s",
-        1 + max_retries,
-        participant_id,
-        last_error,
-    )
     raise CTFRangeError(
         f"Provisioning failed after {1 + max_retries} attempts: {last_error}",
         details={"participant_id": str(participant_id), "retries": max_retries},

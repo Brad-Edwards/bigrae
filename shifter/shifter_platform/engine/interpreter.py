@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from django.db import transaction
 
+from shared.log_sanitize import safe_log_value
 from shared.schemas.persistence import wrap_persisted_spec
 
 if TYPE_CHECKING:
@@ -126,7 +127,7 @@ def _interpret_instance(instance_spec: InstanceSpec, request: Request, subnet: S
         status=ResourceStatus.PENDING.value,
     )
 
-    logger.info(
+    logger.debug(
         "interpret: created instance uuid=%s role=%s",
         instance_uuid,
         instance_spec.role,
@@ -160,7 +161,7 @@ def _interpret_ngfw_app(ngfw_app_spec: NGFWAppSpec, instance: Instance, request:
 
     app = App.objects.create(**app_kwargs)
 
-    logger.info(
+    logger.debug(
         "interpret: created app uuid=%s type=ngfw",
         app.uuid,
     )
@@ -196,11 +197,11 @@ def _interpret_subnet(subnet_spec: SubnetSpec, request: Request) -> Subnet:
         status=ResourceStatus.PENDING.value,
     )
 
-    logger.info(
+    logger.debug(
         "interpret: created subnet uuid=%s name=%s connected_to=%s",
         subnet_uuid,
-        subnet_spec.name,
-        subnet_spec.connected_to,
+        safe_log_value(subnet_spec.name),
+        safe_log_value(subnet_spec.connected_to),
     )
 
     # Create instances within this subnet

@@ -49,7 +49,7 @@ def admit_preparation_authority(credential: CredentialContext, scope: ResourceSc
             "authority_workspace_uuid": scope.workspace_uuid,
             "authority_owner_uuid": current.principal.uuid,
         }
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
         raise ValidationError(_ARTIFACT_PREPARATION_AUTHORITY_UNAVAILABLE) from None
 
 
@@ -83,7 +83,7 @@ def reauthorize_preparation_initiator(operation: PreparationOperation) -> None:
     """A retry or input read retains the original proof and exact ceiling."""
     try:
         authorize_preparation_credential(credential_reference_from_record(operation), operation)
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
         raise ValidationError(_ARTIFACT_PREPARATION_AUTHORITY_UNAVAILABLE) from None
 
 

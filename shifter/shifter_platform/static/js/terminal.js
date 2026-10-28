@@ -80,7 +80,6 @@ class TerminalManager extends TerminalLayoutBaseClass {
      * Initialize the terminal manager
      */
     init() {
-        console.log(`TerminalManager: Initializing with ${this.instances.length} instances`);
         this.loadLayoutPreference();
         this.createTerminalInstances();
         this.createTabs();
@@ -101,7 +100,6 @@ class TerminalManager extends TerminalLayoutBaseClass {
                 this.activateTerminal(this.activeTerminalUuid || this.instances[0].uuid);
             }
         }
-        console.log(`TerminalManager: Initialized in ${this.layoutMode} mode`);
     }
 
     /**
@@ -166,6 +164,9 @@ class TerminalManager extends TerminalLayoutBaseClass {
             terminal.loadAddon(webLinksAddon);
             terminal.open(container);
 
+            // Clipboard access is best-effort: the browser rejects the call when
+            // permission is denied or the page does not have focus, and the copy
+            // or paste is then skipped. There is nothing to recover or report.
             const copySelection = () => {
                 const selection = terminal.getSelection();
                 if (selection && navigator.clipboard) {
@@ -294,11 +295,9 @@ class TerminalManager extends TerminalLayoutBaseClass {
         this.updateStatus(uuid, 'connecting');
 
         const url = `${this.wsProtocol}//${this.wsHost}${terminalUrl}`;
-        console.log(`TerminalManager: Connecting WebSocket to ${url}`);
         const socket = new WebSocket(url);
 
         socket.onopen = () => {
-            console.log(`TerminalManager: WebSocket connected for ${termData.instance?.name || uuid}`);
             this.updateStatus(uuid, 'connected');
             termData.retries = 0;
             termData.fitAddon.fit();

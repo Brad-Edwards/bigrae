@@ -21,7 +21,7 @@ from django.db.models import QuerySet
 from ctf.enums import EventStatus
 from ctf.exceptions import CTFNotFoundError, CTFStateError, CTFValidationError
 from ctf.models import CTFEvent
-from shared.log_sanitize import safe_log_value
+from shared.log_sanitize import safe_log_fingerprint, safe_log_value
 
 from ._validation import validate_content_scenario_access, validate_scoring_mode
 from ._workspace import resolve_event_workspace_id
@@ -83,7 +83,7 @@ def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
     Raises:
         CTFValidationError: If event data is invalid.
     """
-    logger.info("Creating CTF event for user %s", safe_log_value(user.email))
+    logger.info("Creating CTF event for user_id=%s", user.pk)
 
     # Validate required fields
     required_fields = ["name", "event_start", "event_end"]
@@ -144,7 +144,7 @@ def create_event(user: User, event_data: dict[str, Any]) -> CTFEvent:
                 enabled=True,
             )
 
-        logger.info("Created CTF event %s: %s", event.id, event.name)
+        logger.info("Created CTF event %s: %s", event.id, safe_log_value(event.name))
 
     return event
 
@@ -270,7 +270,7 @@ def force_delete_event(
     """
     from ctf.enums import EventCapability
     from ctf.models import CTFChallengeFile, CTFParticipant
-    from ctf.s3 import delete_challenge_file
+    from ctf.s3 import CTFFileError, delete_challenge_file
     from ctf.services import event as _e
     from ctf.services.authorization import assert_event_capability
     from ctf.services.range.lifecycle import _destroy_single_range
@@ -336,8 +336,14 @@ def force_delete_event(
     for s3_key in s3_keys:
         try:
             delete_challenge_file(s3_key)
+        except CTFFileError:
+            # ctf.s3 logs a storage failure with its traceback before it raises.
+            logger.warning(
+                "Failed to delete object=%s during force delete; continuing",
+                safe_log_fingerprint(s3_key),
+            )
         except Exception:
-            logger.exception("Failed to delete S3 object %s during force delete", s3_key)
+            logger.exception("Failed to delete object=%s during force delete", safe_log_fingerprint(s3_key))
 
     # Hard delete inside atomic block — Django CASCADE handles children. The
     # cascade removes the participant rows the retention purge discovers accounts
@@ -354,10 +360,9 @@ def force_delete_event(
         event.delete(soft=False)
 
     logger.warning(
-        "FORCE DELETE: Event %s (%s) permanently deleted by %s (pk=%s). Ranges destroyed: %d, ranges failed: %d.",
+        "FORCE DELETE: Event %s (%s) permanently deleted by user_id=%s. Ranges destroyed: %d, ranges failed: %d.",
         safe_log_value(event_id),
         safe_log_value(event_name),
-        safe_log_value(actor.email),
         actor.pk,
         ranges_destroyed,
         ranges_failed,

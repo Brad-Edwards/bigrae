@@ -345,6 +345,7 @@ function MappingsTable({
   canAuthor: boolean;
 }>) {
   const disableMutation = useDisableRaesImageMapping();
+  const disableError = describeMutationError(disableMutation.error, "The mapping could not be disabled.");
 
   if (query.isLoading) {
     return (
@@ -381,29 +382,39 @@ function MappingsTable({
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead>Mapping</TableHead>
-          <TableHead>Image</TableHead>
-          <TableHead>Management SSH port</TableHead>
-          <TableHead className="w-[120px]">Status</TableHead>
-          {canAuthor ? (
-            <TableHead className="w-[100px]">Actions</TableHead>
-          ) : null}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => (
-          <MappingRow
-            key={row.id}
-            row={row}
-            canAuthor={canAuthor}
-            disableMutation={disableMutation}
-          />
-        ))}
-      </TableBody>
-    </Table>
+    <>
+      {disableError ? (
+        <div className="p-4">
+          <Alert variant="destructive">
+            <AlertTitle>Could not disable mapping</AlertTitle>
+            <AlertDescription>{disableError}</AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead>Mapping</TableHead>
+            <TableHead>Image</TableHead>
+            <TableHead>Management SSH port</TableHead>
+            <TableHead className="w-[120px]">Status</TableHead>
+            {canAuthor ? (
+              <TableHead className="w-[100px]">Actions</TableHead>
+            ) : null}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <MappingRow
+              key={row.id}
+              row={row}
+              canAuthor={canAuthor}
+              disableMutation={disableMutation}
+            />
+          ))}
+        </TableBody>
+      </Table>
+    </>
   );
 }
 

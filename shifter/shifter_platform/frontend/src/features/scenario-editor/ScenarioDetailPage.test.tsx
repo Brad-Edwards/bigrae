@@ -121,7 +121,11 @@ describe("ScenarioDetailPage", () => {
     });
     renderDetail();
     await user.click(await screen.findByRole("button", { name: "Disable" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not update availability");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not update availability");
+    // A non-API failure shows authored copy, never the raw exception text.
+    expect(alert).toHaveTextContent("The scenario availability could not be changed.");
+    expect(alert).not.toHaveTextContent("Update failed");
     expect(screen.getByRole("button", { name: "Disable" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
   });

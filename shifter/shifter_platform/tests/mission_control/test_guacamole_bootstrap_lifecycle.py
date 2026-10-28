@@ -169,16 +169,34 @@ class TestWorkerNoPersistAfterExpiry:
             raise RuntimeError(secret)
 
         bootstrap_logger = logging.getLogger("mission_control.guacamole_bootstrap")
-        bootstrap_logger.addHandler(caplog.handler)
-        try:
-            with caplog.at_level(logging.ERROR, logger=bootstrap_logger.name):
-                _run_bootstrap(row.id, fail, slots)
-        finally:
-            bootstrap_logger.removeHandler(caplog.handler)
+        with caplog.at_level(logging.ERROR, logger=bootstrap_logger.name):
+            _run_bootstrap(row.id, fail, slots)
 
         row.refresh_from_db()
         assert row.status == GuacamoleBootstrapRequest.Status.FAILED
         assert row.error_message == "Guacamole session bootstrap failed"
+        assert secret not in caplog.text
+
+    def test_worker_boundary_logs_unexpected_error_by_type(self, caplog):
+        from mission_control.guacamole_bootstrap import _run_bootstrap
+
+        secret = "native-token-not-for-logs"
+        row = _make(status=GuacamoleBootstrapRequest.Status.PENDING)
+        slots = BoundedSemaphore(1)
+        slots.acquire()
+
+        def build_after_concurrent_prune() -> str:
+            # A concurrent prune removes the row, so persisting the result fails.
+            GuacamoleBootstrapRequest.objects.filter(pk=row.id).delete()
+            return f"https://guac/#/client/c?token={secret}"
+
+        with caplog.at_level(logging.ERROR, logger="mission_control.guacamole_bootstrap"):
+            _run_bootstrap(row.id, build_after_concurrent_prune, slots)
+
+        assert slots.acquire(blocking=False)
+        assert "Guacamole bootstrap worker failed" in caplog.text
+        assert "exc_type=" in caplog.text
+        assert "Traceback" not in caplog.text
         assert secret not in caplog.text
 
 

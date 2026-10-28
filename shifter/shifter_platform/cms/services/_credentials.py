@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from cms.exceptions import CMSError
@@ -142,6 +143,14 @@ def create_credential(user: User | AdmittedCredential, credential_type_slug: str
 
     except (CMSError, ValueError):
         raise
+    except ValidationError:
+        # Model validation refused the input (for example a duplicate name); the caller maps it to a 400.
+        logger.info(
+            "create_credential: model validation rejected input for user_id=%s, credential_type_slug=%s",
+            user.id,
+            credential_type_slug,
+        )
+        raise
     except Exception:
         logger.exception(
             "Error in create_credential for user_id=%s, credential_type_slug=%s",
@@ -216,7 +225,7 @@ def delete_credential(user: User | AdmittedCredential, credential_id: int) -> Cr
                 scope_kind="",
             )
         except Credential.DoesNotExist:
-            logger.error(
+            logger.warning(
                 "delete_credential: credential_id=%s not found for user_id=%s",
                 safe_log_value(credential_id),
                 user.id,
@@ -423,7 +432,7 @@ def get_credential(user: User | AdmittedCredential, credential_id: int) -> Crede
             scope_kind="",
         )
     except Credential.DoesNotExist:
-        logger.error(
+        logger.warning(
             "get_credential: credential_id=%s not found for user_id=%s",
             safe_log_value(credential_id),
             user.id,

@@ -193,6 +193,45 @@ function resetSubmitButton(state) {
     state.submitBtn.textContent = state.config.isEdit ? 'Save Changes' : 'Create Event';
 }
 
+// The event API answers with the shared envelope
+// {"error": {"code", "message", "details"}} or a legacy flat
+// {"error": "<message>", "details": {"field_errors": {...}}}. The helpers
+// below read both shapes and never return a non-string for display.
+
+// The error text, or the fallback when neither shape carries one.
+function apiErrorMessage(data, fallback) {
+    var error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
+// The field -> messages map: error.details in the envelope, details.field_errors
+// in the flat shape.
+function apiFieldErrors(data) {
+    var error = data?.error;
+    if (error && typeof error === 'object') {
+        return error.details;
+    }
+    return data?.details?.field_errors;
+}
+
+// A field error as display text: a string, or the string items of a list.
+// Anything else (a nested object) yields '' and is not shown.
+function fieldErrorText(value) {
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (Array.isArray(value)) {
+        return value.filter(function (item) { return typeof item === 'string'; }).join(' ');
+    }
+    return '';
+}
+
 function handleSubmitResult(result, state) {
     var config = state.config;
     if (result.ok) {
@@ -202,13 +241,16 @@ function handleSubmitResult(result, state) {
     }
 
     clearErrors();
-    var errorMsg = result.data.error || 'An error occurred.';
+    var errorMsg = apiErrorMessage(result.data, 'An error occurred.');
 
     // Try to map field-specific errors
-    var fieldErrors = result.data.details?.field_errors;
-    if (fieldErrors) {
+    var fieldErrors = apiFieldErrors(result.data);
+    if (fieldErrors && typeof fieldErrors === 'object') {
         Object.entries(fieldErrors).forEach(function (entry) {
-            showFieldError(entry[0], entry[1]);
+            var text = fieldErrorText(entry[1]);
+            if (text) {
+                showFieldError(entry[0], text);
+            }
         });
     }
 
@@ -240,9 +282,11 @@ function submitForm(state) {
     .then(function (result) {
         handleSubmitResult(result, state);
     })
-    .catch(function (err) {
+    .catch(function () {
+        // A network failure or a non-JSON response: show fixed text, never the
+        // browser exception text (a JSON parse error can quote an HTML page).
         clearErrors();
-        showAlert('Network error: ' + err.message);
+        showAlert('The event could not be saved. Please try again.');
         resetSubmitButton(state);
     });
 }
@@ -314,8 +358,8 @@ function populateForm(state) {
     })
     .then(function (resp) { return resp.json(); })
     .then(function (event) { applyEventToForm(event, state); })
-    .catch(function (err) {
-        showAlert('Failed to load event data: ' + err.message);
+    .catch(function () {
+        showAlert('Failed to load event data. Reload the page to try again.');
     });
 }
 

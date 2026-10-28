@@ -274,9 +274,10 @@ document.getElementById('scenarioForm').addEventListener('submit', function(e) {
     try {
         document.getElementById('instances_json').value = JSON.stringify(instances);
         document.getElementById('subnets_json').value = JSON.stringify(subnets);
-    } catch (err) {
+    } catch {
+        // JSON.stringify failed; its exception text is not shown to the user.
         e.preventDefault();
-        alert('Error preparing form data: ' + err.message);
+        alert('Error preparing form data. Reload the page and try again.');
     }
 });
 

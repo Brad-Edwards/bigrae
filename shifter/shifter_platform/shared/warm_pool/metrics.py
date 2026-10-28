@@ -105,8 +105,8 @@ def emit_gauges(snapshots: list[WarmPoolBucketSnapshot], *, client: MetricPublis
         publisher = client or _resolve_client()
         publisher.put_metric_data(Namespace=_namespace(), MetricData=build_gauge_metric_data(snapshots))
         return True
-    except Exception as exc:
-        logger.warning("warm-pool gauge emit failed: %s", safe_log_value(str(exc)))
+    except Exception as exc:  # noqa: BLE001 - best-effort telemetry; provider SDK text is not logged (class only)
+        logger.warning("warm-pool gauge emit failed: exc_type=%s", type(exc).__name__)
         return False
 
 
@@ -137,8 +137,8 @@ def emit_claim_outcome(*, bucket_id: str, backend: str, outcome: str, client: Me
             ],
         )
         return True
-    except Exception as exc:
-        logger.warning("warm-pool claim-outcome emit failed: %s", safe_log_value(str(exc)))
+    except Exception as exc:  # noqa: BLE001 - best-effort telemetry; provider SDK text is not logged (class only)
+        logger.warning("warm-pool claim-outcome emit failed: exc_type=%s", type(exc).__name__)
         return False
 
 

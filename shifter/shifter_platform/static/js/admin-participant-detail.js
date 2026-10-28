@@ -4,6 +4,20 @@
 // templates/ctf/admin/participant_detail.html so the template stays
 // within Sonar Web:LongJavaScriptCheck limits.
 
+// Read the server's error text from the shared API envelope
+// {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+// Any other shape returns the fallback, so a non-string is never shown.
+function apiErrorMessage(data, fallback) {
+    const error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
 function resendInvite(participantId, csrfToken) {
     if (!globalThis.confirm('Resend invitation email to this participant?')) return;
 
@@ -20,11 +34,13 @@ function resendInvite(participantId, csrfToken) {
             globalThis.alert('Invitation resent successfully.');
             globalThis.location.reload();
         } else {
-            globalThis.alert('Error: ' + (data.error || 'Failed to resend invite'));
+            globalThis.alert('Error: ' + apiErrorMessage(data, 'Failed to resend invite'));
         }
     })
-    .catch(function(err) {
-        globalThis.alert('Error resending invite: ' + err.message);
+    .catch(function() {
+        // A network failure or a non-JSON response: never show the browser
+        // exception text.
+        globalThis.alert('Error resending invite. Please try again.');
     });
 }
 

@@ -209,11 +209,7 @@ def _resolve_solve_history_access(
     role = _access.get_user_role(user)
     is_event_organizer = role.is_ctf_organizer and target.event.created_by_id == user.pk
     if target.user_id != user.pk and not is_event_organizer:
-        logger.warning(
-            "CTF solve-history access denied for user %s on participant %s",
-            user.email,
-            target.id,
-        )
+        logger.warning("CTF solve-history access denied user_id=%s participant_id=%s", user.pk, target.id)
         return None, False, HttpResponse("Forbidden", status=403)
 
     return target, is_event_organizer, None

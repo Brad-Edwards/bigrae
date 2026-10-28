@@ -91,11 +91,7 @@ class Command(BaseCommand):
             email=email,
             password=get_random_string(32),
         )
-        logger.info(
-            "run_post_deploy_smoke: created smoke user id=%s email=%s",
-            user.id,
-            safe_log_value(email),
-        )
+        logger.info("run_post_deploy_smoke: created smoke user id=%s", user.id)
         self.stdout.write(f"created smoke user email={email}")
         return user
 
@@ -169,10 +165,10 @@ class Command(BaseCommand):
                     probe_rdp_endpoint(str(info["host"]), 3389)
                 self.stdout.write(f"{protocol} probe succeeded for instance {target_uuid}")
                 return
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - probe retry until the deadline; the last error is raised below
                 last_error = exc
                 time.sleep(15)
-        raise CommandError(f"connectivity probe failed: {last_error}")
+        raise CommandError(f"connectivity probe failed: {last_error}") from last_error
 
     def _destroy_range(self, user: User, request_id: UUID) -> None:
         cms_services.destroy_range_by_request_id(user, str(request_id))

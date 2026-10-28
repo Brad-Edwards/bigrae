@@ -1,5 +1,6 @@
 """DRF security and response-contract tests for participant VPN delivery."""
 
+import logging
 from uuid import uuid4
 
 import pytest
@@ -208,7 +209,7 @@ def test_rate_limit_failure_returns_retry_after_without_resolving_profile(settin
     secrets_client.get_secret_value.assert_not_called()
 
 
-def test_rate_limit_backend_failure_fails_closed(monkeypatch, participant_user, ctf_participant):
+def test_rate_limit_backend_failure_fails_closed(monkeypatch, participant_user, ctf_participant, caplog):
     _active_range_participant(participant_user, ctf_participant)
     raw = _token(participant_user, scopes.CTF_VPN_PROFILE_READ)
     client = APIClient()
@@ -218,11 +219,15 @@ def test_rate_limit_backend_failure_fails_closed(monkeypatch, participant_user, 
         raise RuntimeError("cache unavailable")
 
     monkeypatch.setattr(caches["launch_rate_limit"], "add", fail_add)
-
+    vpn_logger = logging.getLogger("ctf.api.organizer.vpn")
     response = client.post(URL)
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "vpn_profile_unavailable"
+    # The limiter outage is not swallowed: it is logged once, with its traceback.
+    failures = [record for record in caplog.records if record.name == vpn_logger.name]
+    assert [record.levelno for record in failures] == [logging.ERROR]
+    assert failures[0].exc_info is not None
 
 
 def test_range_status_projects_vpn_availability_without_delivering_a_secret(participant_user, ctf_participant):

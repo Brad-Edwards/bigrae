@@ -106,8 +106,8 @@ def _resolve_modifiable_event_for_challenge(
 
     if not event.is_content_modifiable:
         logger.warning(
-            "User %s attempted to add challenge to non-modifiable event %s",
-            request.user.email,
+            "User attempted to add challenge to non-modifiable event user_id=%s event_id=%s",
+            request.user.pk,
             event.pk,
         )
         return None, redirect("ctf:admin_challenge_list", event_id=event.pk)
@@ -134,13 +134,13 @@ def _handle_challenge_create_post(request: HttpRequest, event: CTFEvent) -> Http
         except CTFPermissionError:
             return HttpResponse(_FORBIDDEN_EVENT_MSG, status=403)
         except (CTFStateError, CTFValidationError) as e:
-            form.add_error(None, str(e))
+            form.add_error(None, e.message)
         else:
             logger.info(
-                "User %s created challenge %s: %s for event %s",
-                user.email,
+                "User created challenge user_id=%s challenge_id=%s name=%s event_id=%s",
+                user.pk,
                 challenge.pk,
-                challenge.name,
+                safe_log_value(challenge.name),
                 event.pk,
             )
             return redirect(_ADMIN_CHALLENGE_DETAIL_URL, challenge_id=challenge.pk)
@@ -291,8 +291,8 @@ def _resolve_editable_challenge(
 
     if not event.is_content_modifiable:
         logger.warning(
-            "User %s attempted to edit challenge %s in non-modifiable event %s",
-            request.user.email,
+            "User attempted to edit challenge in non-modifiable event user_id=%s challenge_id=%s event_id=%s",
+            request.user.pk,
             challenge.pk,
             event.pk,
         )
@@ -320,13 +320,13 @@ def _handle_challenge_edit_post(request: HttpRequest, challenge: CTFChallenge, e
         except CTFPermissionError:
             return HttpResponse(_FORBIDDEN_CHALLENGE_ACCESS_MSG, status=403)
         except (CTFStateError, CTFValidationError) as e:
-            form.add_error(None, str(e))
+            form.add_error(None, e.message)
         else:
             logger.info(
-                "User %s updated challenge %s: %s",
-                user.email,
+                "User updated challenge user_id=%s challenge_id=%s name=%s",
+                user.pk,
                 challenge.pk,
-                challenge.name,
+                safe_log_value(challenge.name),
             )
             return redirect(_ADMIN_CHALLENGE_DETAIL_URL, challenge_id=challenge.pk)
 
@@ -388,7 +388,7 @@ def _admin_upload_challenge_file(request: HttpRequest, challenge_id: UUID) -> Ht
     except CTFPermissionError:
         return HttpResponse("Forbidden", status=403)
     except (CTFNotFoundError, CTFStateError, CTFValidationError) as e:
-        logger.warning("File upload failed for challenge %s: %s", safe_log_value(challenge_id), e)
+        logger.warning("File upload failed for challenge %s: %s", safe_log_value(challenge_id), safe_log_value(str(e)))
 
     return redirect(_ADMIN_CHALLENGE_DETAIL_URL, challenge_id=challenge_id)
 

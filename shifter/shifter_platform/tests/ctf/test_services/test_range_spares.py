@@ -638,29 +638,22 @@ class TestCleanupEventSparesBestEffort:
     """
 
     @pytest.mark.django_db
-    def test_swallows_a_real_cleanup_failure_without_raising(self, monkeypatch):
+    def test_swallows_a_real_cleanup_failure_without_raising(self, caplog):
+        import logging
         import uuid
 
         from ctf.services.range import lifecycle
 
-        # Spy on the module logger (app loggers set propagate=False, so caplog's
-        # root handler would miss the record). This asserts the swallow path is
-        # the one exercised — the failure is logged for on-call visibility with
-        # the event id and the exception traceback, not silently discarded.
-        calls: list[tuple] = []
-        monkeypatch.setattr(
-            lifecycle.logger,
-            "exception",
-            lambda msg, *args, **kwargs: calls.append((msg, args)),
-        )
-
+        # The swallow path is the one exercised: the failure is logged for on-call
+        # visibility with the event id and the exception traceback, not discarded.
         # No event exists for this id, so the real `cleanup_event_spares` call
         # inside genuinely raises `CTFNotFoundError`; the wrapper must swallow it
         # rather than let it propagate.
         event_id = uuid.uuid4()
-        lifecycle._cleanup_event_spares_best_effort(event_id)
+        with caplog.at_level(logging.ERROR, logger=lifecycle.logger.name):
+            lifecycle._cleanup_event_spares_best_effort(event_id)
 
-        assert calls, "expected the swallowed spare-cleanup failure to be logged"
-        msg, args = calls[0]
-        assert "spare-pool cleanup failed" in msg
-        assert any(str(event_id) == str(arg) for arg in args)
+        failures = [record for record in caplog.records if "spare-pool cleanup failed" in record.getMessage()]
+        assert failures, "expected the swallowed spare-cleanup failure to be logged"
+        assert str(event_id) in failures[0].getMessage()
+        assert failures[0].exc_info is not None

@@ -36,7 +36,7 @@ class AWSSecretsStore:
                 Tags=[{"Key": "shifter-model-source", "Value": source_id.hex}],
             )
             return response["ARN"]
-        except Exception:
+        except Exception:  # noqa: BLE001 - the request carries the secret value; a fixed error replaces provider text
             raise CloudSecretsError("Failed to store model credential") from None
 
     def retire_owned_secret(self, source_id: UUID, version_id: UUID) -> None:
@@ -49,7 +49,7 @@ class AWSSecretsStore:
             if exc.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
                 return
             raise CloudSecretsError("Failed to retire model credential") from None
-        except Exception:
+        except Exception:  # noqa: BLE001 - secret-store errors can name the secret; a fixed error replaces them
             raise CloudSecretsError("Failed to retire model credential") from None
 
     @staticmethod

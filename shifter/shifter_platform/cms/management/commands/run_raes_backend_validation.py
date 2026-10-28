@@ -93,7 +93,7 @@ class Command(BaseCommand):
         if user is not None:
             return user
         user = user_model.objects.create_user(username=email, email=email, password=get_random_string(32))
-        logger.info("run_raes_backend_validation: created user id=%s email=%s", user.id, safe_log_value(email))
+        logger.info("run_raes_backend_validation: created user id=%s", user.id)
         return user
 
     def _launch(self, user: User, scenario: str) -> UUID:

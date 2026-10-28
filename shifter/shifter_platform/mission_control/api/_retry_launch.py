@@ -106,7 +106,7 @@ class RetrySafeLaunchMixin:
                 model_sources=data.get("model_sources"),
             )
         except RetryKeyConflict:
-            logger.info("Retry key conflict: user=%s", user.pk)
+            logger.warning("Retry key conflict: user_id=%s", user.pk)
             return self.error_response(
                 code="retry_key_conflict",
                 message="This idempotency key is already bound to a different launch request.",
@@ -142,7 +142,7 @@ class RetrySafeLaunchMixin:
                 model_sources=choices.model_sources,
             )
         except RetryKeyConflict:
-            logger.info("Retry key conflict: user=%s scenario=%s", user.pk, safe_log_value(scenario))
+            logger.warning("Retry key conflict: user_id=%s scenario=%s", user.pk, safe_log_value(scenario))
             return self.error_response(
                 code="retry_key_conflict",
                 message="This idempotency key is already bound to a different launch request.",
@@ -153,8 +153,8 @@ class RetrySafeLaunchMixin:
 
         if outcome.created:
             logger.info(
-                "Range launched (retry-safe): user=%s request_id=%s scenario=%s",
-                safe_log_value(user.email),
+                "Range launched (retry-safe): user_id=%s request_id=%s scenario=%s",
+                user.pk,
                 outcome.request_id,
                 safe_log_value(scenario),
             )

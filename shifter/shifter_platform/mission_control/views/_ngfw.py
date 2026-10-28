@@ -168,7 +168,13 @@ def api_ngfw_create(request: HttpRequest) -> JsonResponse:
         try:
             ngfw_ref = cms_create_ngfw(user=user, **payload)
         except (TypeError, ValueError, CMSError) as e:
-            logger.exception("NGFW creation failed: user=%s name=%s", user.pk, safe_log_value(payload.get("name", "")))
+            # Type only: hydration errors can carry NGFW registration secrets.
+            logger.warning(
+                "NGFW creation failed: user_id=%s name=%s exc_type=%s",
+                user.pk,
+                safe_log_value(payload.get("name", "")),
+                type(e).__name__,
+            )
             raise _NgfwError(
                 JsonResponse({"error": classify_user_message(str(e), default="NGFW could not be created")}, status=400)
             ) from e
@@ -176,8 +182,8 @@ def api_ngfw_create(request: HttpRequest) -> JsonResponse:
         return err.response
 
     logger.info(
-        "NGFW provisioning started: user=%s app_id=%s",
-        safe_log_value(user.email),
+        "NGFW provisioning started: user_id=%s app_id=%s",
+        user.pk,
         ngfw_ref.app_id,
     )
     return JsonResponse(
@@ -214,12 +220,12 @@ def _run_ngfw_destroy(user: User, app_id: str, confirm_name: str) -> None:
     except CMSError as e:
         if "not found" in str(e).lower():
             raise Http404(NGFW_NOT_FOUND) from None
-        logger.exception("NGFW destroy failed (CMSError): user=%s app_id=%s", user.pk, safe_log_value(app_id))
+        logger.exception("NGFW destroy failed (CMSError): user_id=%s app_id=%s", user.pk, safe_log_value(app_id))
         raise _NgfwError(
             JsonResponse({"error": classify_user_message(str(e), default="NGFW could not be destroyed")}, status=400)
         ) from e
     except ValueError as e:
-        logger.exception("NGFW destroy failed (ValueError): user=%s app_id=%s", user.pk, safe_log_value(app_id))
+        logger.warning("NGFW destroy rejected: user_id=%s app_id=%s", user.pk, safe_log_value(app_id))
         raise _NgfwError(
             JsonResponse({"error": classify_user_message(str(e), default="Invalid destroy request")}, status=400)
         ) from e
@@ -241,8 +247,8 @@ def api_ngfw_destroy(request: HttpRequest, app_id: str) -> JsonResponse:
         return err.response
 
     logger.info(
-        "NGFW deprovisioning started: user=%s app_id=%s",
-        safe_log_value(user.email),
+        "NGFW deprovisioning started: user_id=%s app_id=%s",
+        user.pk,
         safe_log_value(app_id),
     )
     return JsonResponse({"status": "deprovisioning"})

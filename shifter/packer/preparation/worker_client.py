@@ -131,5 +131,5 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
+    except Exception:  # noqa: BLE001 - entry point: fixed exit text keeps credential and cloud detail out of logs
         raise SystemExit("preparation worker failed") from None

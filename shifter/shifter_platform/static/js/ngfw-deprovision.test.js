@@ -113,7 +113,7 @@ describe('ngfw-deprovision', () => {
 
     test('alerts the server error and re-enables the button', async () => {
         fetchMock.mockResolvedValue({
-            json: () => Promise.resolve({ error: 'still has attachments' }),
+            json: () => Promise.resolve({ error: { code: 'invalid', message: 'still has attachments' } }),
         });
         load();
         const input = document.getElementById('confirm-input');
@@ -127,6 +127,13 @@ describe('ngfw-deprovision', () => {
         expect(globalThis.alert).toHaveBeenCalledWith('still has attachments');
         expect(btn.disabled).toBe(false);
         expect(btn.textContent).toBe('Deprovision NGFW');
+
+        // An envelope without a message falls back to fixed copy, never an object.
+        fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: { code: 'invalid' } }) });
+        btn.click();
+        await flush();
+
+        expect(globalThis.alert).toHaveBeenLastCalledWith('An error occurred. Please try again.');
     });
 
     test('alerts a generic message and re-enables the button on network failure', async () => {

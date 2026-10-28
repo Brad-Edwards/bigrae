@@ -220,7 +220,7 @@ def authorize_vpn_session(
                 target_ip, ports = assert_profile_runtime(profile)
                 if (target_ip, ports) != admitted_destination:
                     raise ValueError("Destination changed")
-            except Exception:
+            except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
                 raise VpnSessionDenied(_ACCESS_REVOKED) from None
         for previous in VpnSession.objects.select_for_update().filter(range=range_obj, state=VpnSessionState.ACTIVE):
             _end(previous, VpnSessionEndReason.SUPERSEDED)
@@ -297,6 +297,8 @@ def renew_vpn_sessions(*, server: object, session_ids: object) -> tuple[UUID, ..
         "profile__range__request"
     ):
         if session.profile is not None:
+            # Fail closed: a profile that no longer authorizes stays out of
+            # ``admitted``, so _renewed ends its session as revoked.
             with suppress(Exception):
                 admitted[session.id] = authorize_vpn_profile(session.profile)
     with transaction.atomic():
@@ -360,7 +362,7 @@ def _admitted_certificate(
                 raise ValueError("Certificate mismatch")
             admitted_destination = authorize_vpn_profile(profile)
             generation = profile.generation
-        except Exception:
+        except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
             raise VpnSessionDenied(_ACCESS_REVOKED) from None
     else:
         generation = _require_generation(common_name)

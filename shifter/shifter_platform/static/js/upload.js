@@ -98,7 +98,11 @@ class DirectUploader {
         } catch (error) {
             this._unregisterBeforeUnload();
             if (!this.cancelled) {
-                this.onError(error.message || 'Upload failed');
+                // The Errors thrown by this class carry server or authored
+                // text. A browser error (fetch TypeError, JSON SyntaxError,
+                // DOMException) can quote a response body or the presigned
+                // URL, so report fixed text for it instead.
+                this.onError(error?.name === 'Error' && error.message ? error.message : 'Upload failed');
                 // Try to cancel/cleanup on error
                 this._cancelUpload();
             }
@@ -120,6 +124,22 @@ class DirectUploader {
         this.onCancel();
     }
 
+    /**
+     * Read the server's error text from the shared API envelope
+     * {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+     * Any other shape returns the fallback, so a non-string is never shown.
+     */
+    _apiErrorMessage(data, fallback) {
+        const error = data?.error;
+        if (typeof error === 'string' && error) {
+            return error;
+        }
+        if (typeof error?.message === 'string' && error.message) {
+            return error.message;
+        }
+        return fallback;
+    }
+
     async _initiateUpload(file, agentName, agentType = 'xdr') {
         const response = await fetch(this.initiateUrl, {
             method: 'POST',
@@ -138,7 +158,7 @@ class DirectUploader {
         const data = await response.json();
 
         if (!response.ok) {
-            throw new Error(data.error || 'Failed to initiate upload');
+            throw new Error(this._apiErrorMessage(data, 'Failed to initiate upload'));
         }
 
         return data;
@@ -195,7 +215,7 @@ class DirectUploader {
         const data = await response.json();
 
         if (!response.ok) {
-            throw new Error(data.error || 'Failed to complete upload');
+            throw new Error(this._apiErrorMessage(data, 'Failed to complete upload'));
         }
 
         return data;

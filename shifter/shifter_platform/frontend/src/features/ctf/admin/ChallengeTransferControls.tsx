@@ -31,12 +31,18 @@ export function ChallengeTransferControls({ eventId }: Readonly<{ eventId: strin
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<unknown>(null);
   const result = importPack.data;
   const errorMessage = describeMutationError(importPack.error, "Import failed.");
 
   async function exportPack(fmt: "bigrae" | "ctfd") {
-    const data = await exportCtfChallenges(eventId, fmt);
-    downloadJson(fmt === "ctfd" ? "challenges-ctfd.json" : "challenges-bigrae.json", data);
+    setExportError(null);
+    try {
+      const data = await exportCtfChallenges(eventId, fmt);
+      downloadJson(fmt === "ctfd" ? "challenges-ctfd.json" : "challenges-bigrae.json", data);
+    } catch (error_) {
+      setExportError(error_);
+    }
   }
 
   function runImport() {
@@ -59,6 +65,11 @@ export function ChallengeTransferControls({ eventId }: Readonly<{ eventId: strin
       <Button type="button" variant="outline" size="sm" onClick={() => void exportPack("ctfd")}>
         Export (CTFd)
       </Button>
+      {exportError ? (
+        <p className="text-xs text-destructive">
+          {describeMutationError(exportError, "Could not export the challenges.")}
+        </p>
+      ) : null}
       <Dialog
         open={open}
         onOpenChange={(next) => {

@@ -241,7 +241,7 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
             try:
                 agent = cms_get_agent(user, agent_id)
             except CMSError as exc:
-                logger.exception("Agent lookup failed: user=%s agent_id=%s", user.pk, safe_log_value(agent_id))
+                logger.warning("Agent lookup failed: user_id=%s agent_id=%s", user.pk, safe_log_value(agent_id))
                 agents_error = self.bad_request(classify_user_message(str(exc), default="Agent not available"))
             else:
                 os_type = "windows" if agent.os.slug == "windows" else "linux"
@@ -272,8 +272,8 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
             return self._launch_failure_response(exc, user, scenario)
 
         logger.info(
-            "Range launched: user=%s request_id=%s agent=%s scenario=%s",
-            safe_log_value(user.email),
+            "Range launched: user_id=%s request_id=%s agent=%s scenario=%s",
+            user.pk,
             range_ctx.request_id,
             safe_log_value(range_ctx.agent_name),
             safe_log_value(scenario),
@@ -294,20 +294,20 @@ class LaunchRangeView(RetrySafeLaunchMixin, MissionControlAPIView):
         Conflict (ADR-046-R10), never a 403 or a request-rate 429.
         """
         if isinstance(exc, WorkspaceLaunchDenied):
-            logger.info("Range launch workspace denied: user=%s scenario=%s", user.pk, safe_log_value(scenario))
+            logger.warning("Range launch workspace denied: user_id=%s scenario=%s", user.pk, safe_log_value(scenario))
             return self.error_response(
                 code="workspace_not_available",
                 message="Selected workspace is not available.",
                 status_code=403,
             )
         if isinstance(exc, WorkspaceLaunchQuotaExceeded):
-            logger.info("Range launch quota exhausted: user=%s scenario=%s", user.pk, safe_log_value(scenario))
+            logger.info("Range launch quota exhausted: user_id=%s scenario=%s", user.pk, safe_log_value(scenario))
             return self.error_response(
                 code="workspace_range_quota_exceeded",
                 message="This workspace has reached its concurrent range limit.",
                 status_code=409,
             )
-        logger.exception("Range creation failed: user=%s scenario=%s", user.pk, safe_log_value(scenario))
+        logger.error("Range creation failed: user_id=%s scenario=%s", user.pk, safe_log_value(scenario), exc_info=exc)
         text = str(exc).lower()
         if "already have" in text or "active range" in text:
             response_msg = "You already have an active range"
@@ -347,22 +347,22 @@ class RangeLifecycleView(MissionControlAPIView):
             if request_id:
                 getattr(cms_services_mod, self.by_request_attr)(user, request_id)
                 logger.info(
-                    "Range %s: user=%s request_id=%s",
+                    "Range %s: user_id=%s request_id=%s",
                     self.log_verb,
-                    safe_log_value(user.email),
+                    user.pk,
                     safe_log_value(request_id),
                 )
             else:
                 getattr(cms_services_mod, self.by_id_attr)(user, range_id)
                 logger.info(
-                    "Range %s: user=%s range_id=%s",
+                    "Range %s: user_id=%s range_id=%s",
                     self.log_verb,
-                    safe_log_value(user.email),
+                    user.pk,
                     safe_log_value(range_id),
                 )
         except CMSError as exc:
             logger.exception(
-                "Range %s failed: user=%s request_id=%s range_id=%s",
+                "Range %s failed: user_id=%s request_id=%s range_id=%s",
                 self.log_verb,
                 user.pk,
                 safe_log_value(request_id),

@@ -417,7 +417,7 @@ describe('DirectUploader', () => {
 
         test('initiate fails (HTTP error): calls onError, calls _cancelUpload', async () => {
             globalThis.fetch.mockImplementationOnce(() =>
-                mockFetchError(400, { error: 'Invalid file type' })
+                mockFetchError(400, { error: { code: 'invalid', message: 'Invalid file type' } })
             );
 
             await uploader.upload(createMockFile(), 'Test Agent');
@@ -486,7 +486,7 @@ describe('DirectUploader', () => {
                     })
                 )
                 .mockImplementationOnce(() =>
-                    mockFetchError(500, { error: 'Database error' })
+                    mockFetchError(500, { error: { code: 'invalid', message: 'Database error' } })
                 )
                 .mockImplementationOnce(() => mockFetchSuccess({})); // cancel endpoint
 
@@ -502,7 +502,7 @@ describe('DirectUploader', () => {
 
         test('error with custom message from server: uses server-provided error message', async () => {
             globalThis.fetch.mockImplementationOnce(() =>
-                mockFetchError(400, { error: 'Custom server error message' })
+                mockFetchError(400, { error: { code: 'invalid', message: 'Custom server error message' } })
             );
 
             await uploader.upload(createMockFile(), 'Test Agent');
@@ -510,6 +510,14 @@ describe('DirectUploader', () => {
             expect(mockCallbacks.onError).toHaveBeenCalledWith(
                 'Custom server error message'
             );
+        });
+
+        test('error object without message: uses default fallback, never the object', async () => {
+            globalThis.fetch.mockImplementationOnce(() => mockFetchError(400, { error: { code: 'invalid' } }));
+
+            await uploader.upload(createMockFile(), 'Test Agent');
+
+            expect(mockCallbacks.onError).toHaveBeenCalledWith('Failed to initiate upload');
         });
 
         test('error without message: uses default fallback message', async () => {
@@ -532,7 +540,8 @@ describe('DirectUploader', () => {
 
             await uploader.upload(createMockFile(), 'Test Agent');
 
-            expect(mockCallbacks.onError).toHaveBeenCalled();
+            // The SyntaxError text is browser-generated, so the fixed fallback is shown.
+            expect(mockCallbacks.onError).toHaveBeenCalledWith('Upload failed');
             expect(mockCallbacks.onSuccess).not.toHaveBeenCalled();
         });
 
@@ -567,7 +576,7 @@ describe('DirectUploader', () => {
                     })
                 )
                 .mockImplementationOnce(() =>
-                    mockFetchError(400, { error: 'Invalid upload token' })
+                    mockFetchError(400, { error: { code: 'invalid', message: 'Invalid upload token' } })
                 );
 
             const uploadPromise = uploader.upload(createMockFile(), 'Test Agent');
@@ -704,7 +713,7 @@ describe('DirectUploader', () => {
             });
 
             globalThis.fetch.mockImplementationOnce(() =>
-                mockFetchError(500, { error: 'Server error' })
+                mockFetchError(500, { error: { code: 'invalid', message: 'Server error' } })
             );
 
             // Should not throw even though callback throws
@@ -1021,7 +1030,7 @@ describe('DirectUploader', () => {
 
         test('throws Error with data.error on non-2xx', async () => {
             globalThis.fetch.mockImplementationOnce(() =>
-                mockFetchError(400, { error: 'Specific error message' })
+                mockFetchError(400, { error: { code: 'invalid', message: 'Specific error message' } })
             );
 
             await expect(
@@ -1212,7 +1221,7 @@ describe('DirectUploader', () => {
 
         test('throws Error with data.error on non-2xx', async () => {
             globalThis.fetch.mockImplementationOnce(() =>
-                mockFetchError(500, { error: 'Completion failed' })
+                mockFetchError(500, { error: { code: 'invalid', message: 'Completion failed' } })
             );
 
             await expect(uploader._completeUpload()).rejects.toThrow(
@@ -1423,7 +1432,7 @@ describe('DirectUploader', () => {
             });
 
             globalThis.fetch.mockImplementationOnce(() =>
-                mockFetchError(500, { error: 'Server error' })
+                mockFetchError(500, { error: { code: 'invalid', message: 'Server error' } })
             );
 
             await trackingUploader.upload(createMockFile(), 'Test');

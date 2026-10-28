@@ -111,7 +111,6 @@ class TerminalLayoutBase {
      * Set layout mode and apply changes
      */
     setLayoutMode(mode) {
-        console.log(`TerminalManager: Switching to ${mode} mode`);
         this.layoutMode = mode;
         localStorage.setItem('terminal-layout', mode);
 
@@ -190,9 +189,6 @@ class TerminalLayoutBase {
      */
     activateTerminal(uuid) {
         if (!uuid || !this.terminals.has(uuid)) return;
-
-        const instance = this.instances.find(i => i.uuid === uuid);
-        console.log(`TerminalManager: Activating terminal ${instance?.name || uuid}`);
 
         this.activeTerminalUuid = uuid;
         localStorage.setItem('terminal-active-tab', uuid);

@@ -27,7 +27,7 @@ from typing import Any
 from urllib.parse import ParseResult, urlencode
 from uuid import UUID
 
-from shared.log_sanitize import safe_log
+from shared.log_sanitize import safe_log_value
 
 from ._http_config import (
     DEFAULT_HTTP_TIMEOUT,
@@ -57,9 +57,9 @@ def _resolve_literal_address(
 ) -> list[str] | None:
     """Validate *hostname* (already parsed as *addr*) as a literal IP against SSRF policy."""
     if _is_blocked_address(addr):
-        logger.error(
+        logger.warning(
             "HTTP validator URL blocked (literal address) for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
         return None
     return [hostname]
@@ -68,25 +68,25 @@ def _resolve_literal_address(
 def _resolve_hostname_via_dns(hostname: str, port: int, challenge_id: UUID) -> list[str] | None:
     """Resolve *hostname* via DNS, applying SSRF policy to every address in the reply."""
     if hostname in _BLOCKED_HOSTNAMES:
-        logger.error(
+        logger.warning(
             "HTTP validator URL blocked (metadata hostname) for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
         return None
 
     try:
         return _resolve_and_validate(hostname, port)
     except _BlockedDestinationError:
-        logger.exception(
+        logger.warning(
             "HTTP validator URL blocked (DNS answer in restricted range) for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
     except OSError:
         # socket.gaierror is a subclass of OSError; this branch covers
         # both DNS lookup failure and any other resolver-layer OSError.
         logger.warning(
             "HTTP validator hostname resolution failed for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
     return None
 
@@ -202,7 +202,7 @@ def _read_response_body(resp: http.client.HTTPResponse, challenge_id: UUID) -> d
     if len(raw) > _MAX_RESPONSE_BYTES:
         logger.warning(
             "HTTP validator response oversized for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
         return None
 
@@ -213,7 +213,7 @@ def _read_response_body(resp: http.client.HTTPResponse, challenge_id: UUID) -> d
         # covers a non-UTF-8 response body.
         logger.warning(
             "HTTP validator response not JSON for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
         return None
 
@@ -226,8 +226,8 @@ def _parse_response(resp: http.client.HTTPResponse, challenge_id: UUID) -> bool:
     if status != 200:
         logger.warning(
             "HTTP validator returned status %s for challenge %s",
-            safe_log(status),
-            safe_log(challenge_id),
+            safe_log_value(status),
+            safe_log_value(challenge_id),
         )
         return False
 
@@ -290,21 +290,21 @@ def _try_one_address(
         logger.warning(
             "HTTP validator timed out after %ds for challenge %s",
             timeout,
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
     except ssl.SSLError:
         logger.warning(
             "HTTP validator TLS error for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
     except (OSError, http.client.HTTPException):
         logger.warning(
             "HTTP validator transport error for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
     finally:
         if conn is not None:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError):
                 conn.close()
     return False, False
 
@@ -356,21 +356,24 @@ def _validate_and_parse_config_url(config: dict[str, Any], challenge_id: UUID) -
     """
     url = config.get("url")
     if not url:
-        logger.error("HTTP validator missing 'url' in config")
+        logger.warning(
+            "HTTP validator missing 'url' in config for challenge %s",
+            safe_log_value(challenge_id),
+        )
         return None
 
     if not isinstance(url, str) or not url.startswith("https://"):
-        logger.error(
+        logger.warning(
             "HTTP validator URL must use HTTPS for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
         return None
 
     parsed_tuple = _safe_parse_url(url)
     if parsed_tuple is None:
-        logger.error(
+        logger.warning(
             "HTTP validator URL is malformed for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
     return parsed_tuple
 
@@ -401,7 +404,7 @@ def validate_http(
     except HTTPValidatorConfigError:
         logger.warning(
             "HTTP validator configuration is invalid for challenge %s",
-            safe_log(challenge_id),
+            safe_log_value(challenge_id),
         )
     else:
         parsed_tuple = _validate_and_parse_config_url(canonical_config, challenge_id)

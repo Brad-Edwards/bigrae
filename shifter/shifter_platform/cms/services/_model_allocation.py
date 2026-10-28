@@ -159,7 +159,7 @@ def _authorize_preparation(
         else:
             resolve_model_preparation_user(instance.user_id)
         authorize_launch_workspace_locked(actor, instance.workspace_id, WorkspaceOperation.LAUNCH_RANGE)
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise ContractError(_AUTHORITY_UNAVAILABLE) from None
 
 

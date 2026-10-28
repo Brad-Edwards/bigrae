@@ -145,7 +145,7 @@ class KubernetesTaskRunner:
             return read_task_output(batch_api, core_api, cluster, task_ref, expected_identity)
         except CloudTaskError:
             raise
-        except Exception:
+        except Exception:  # noqa: BLE001 - untrusted worker output; the cause stays out of the chain and the logs
             raise CloudTaskError("Task output is unavailable") from None
 
     def delete_completed_task(self, cluster: str, task_ref: str, expected_identity: dict[str, Any]) -> None:
@@ -179,5 +179,5 @@ class KubernetesTaskRunner:
         except api_exception as exc:
             if getattr(exc, "status", None) != 404:
                 raise CloudTaskError("Task cleanup is unavailable") from None
-        except Exception:
+        except Exception:  # noqa: BLE001 - value-free cleanup boundary; the cause stays out of the chain
             raise CloudTaskError("Task cleanup is unavailable") from None

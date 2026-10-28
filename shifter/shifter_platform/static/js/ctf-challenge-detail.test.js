@@ -194,7 +194,7 @@ describe('ctf-challenge-detail', () => {
         test('shows the API error on a non-ok response', async () => {
             loadModule();
             fetchMock.mockResolvedValue(
-                response({ status: 500, ok: false, data: { error: 'Server boom' } })
+                response({ status: 500, ok: false, data: { error: { code: 'ctf_error', message: 'Server boom' } } })
             );
 
             globalThis.submitFlag({ preventDefault: jest.fn() });
@@ -261,7 +261,9 @@ describe('ctf-challenge-detail', () => {
 
         test('alerts the error when the hint request fails logically', async () => {
             loadModule();
-            fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: 'no hint' }) });
+            fetchMock.mockResolvedValue({
+                json: () => Promise.resolve({ error: { code: 'invalid', message: 'no hint' } }),
+            });
 
             globalThis.useHint('hint-1', 10);
             await flush();
@@ -323,7 +325,9 @@ describe('ctf-challenge-detail', () => {
 
         test('alerts the API error when the download is refused', async () => {
             loadModule();
-            fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: 'denied' }) });
+            fetchMock.mockResolvedValue({
+                json: () => Promise.resolve({ error: { code: 'permission_denied', message: 'denied' } }),
+            });
 
             document.querySelector('[data-download-url]').click();
             await flush();
@@ -363,7 +367,9 @@ describe('ctf-challenge-detail', () => {
 
         test('shows the API error when rating is rejected', async () => {
             loadModule();
-            fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: 'already rated' }) });
+            fetchMock.mockResolvedValue({
+                json: () => Promise.resolve({ error: { code: 'invalid', message: 'already rated' } }),
+            });
 
             globalThis.rateChallenge(3);
             await flush();
@@ -372,6 +378,17 @@ describe('ctf-challenge-detail', () => {
             const rr = ratingResult();
             expect(rr.className).toBe('alert alert-danger mb-3');
             expect(rr.textContent).toBe('already rated');
+        });
+
+        test('shows fixed copy, never an object, when the error carries no message', async () => {
+            loadModule();
+            fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: { code: 'invalid' } }) });
+
+            globalThis.rateChallenge(3);
+            await flush();
+            await flush();
+
+            expect(ratingResult().textContent).toBe('Rating failed. Please try again.');
         });
 
         test('shows a failure message when the rating fetch rejects', async () => {

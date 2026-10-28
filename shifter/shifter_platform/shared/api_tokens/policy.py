@@ -85,5 +85,5 @@ def require_personal_token_grant(principal: PrincipalRef) -> None:
         decision = configured_authorization_provider().check(request)
         if not decision.allowed:
             raise ValueError("Personal credential use denied")
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed credential boundary; the cause stays out of the chain
         raise ValueError("Personal credential use denied") from None

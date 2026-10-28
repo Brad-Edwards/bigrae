@@ -58,10 +58,7 @@ def ctf_organizer_required(view_func: Callable[..., HttpResponse]) -> Callable[.
         user = _get_user(request)
         role = get_user_role(user)
         if not role.is_ctf_organizer:
-            logger.warning(
-                "CTF organizer access denied for user %s",
-                user.email,
-            )
+            logger.warning("CTF organizer access denied user_id=%s", user.pk)
             return HttpResponse("Forbidden: CTF organizer access required", status=403)
         return view_func(request, *args, **kwargs)
 
@@ -88,10 +85,7 @@ def ctf_participant_required(view_func: Callable[..., HttpResponse]) -> Callable
         # gate that admits them is admitting users to surfaces the scoring
         # view treats as non-existent.
         if not is_active_participant(user):
-            logger.warning(
-                "CTF participant access denied for user %s",
-                user.email,
-            )
+            logger.warning("CTF participant access denied user_id=%s", user.pk)
             return HttpResponse("Forbidden: CTF participant access required", status=403)
         return view_func(request, *args, **kwargs)
 
@@ -111,10 +105,7 @@ def ctf_role_required(view_func: Callable[..., HttpResponse]) -> Callable[..., H
         user = _get_user(request)
         role = get_user_role(user)
         if not role.is_ctf_organizer and not role.is_ctf_participant:
-            logger.warning(
-                "CTF access denied for user %s (no CTF role)",
-                user.email,
-            )
+            logger.warning("CTF access denied (no CTF role) user_id=%s", user.pk)
             return HttpResponse("Forbidden: CTF access required", status=403)
         return view_func(request, *args, **kwargs)
 

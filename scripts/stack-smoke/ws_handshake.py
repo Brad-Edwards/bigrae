@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 import websockets
+from websockets.exceptions import WebSocketException
 
 
 def _parse_args() -> argparse.Namespace:
@@ -64,7 +65,8 @@ def main() -> int:
     args = _parse_args()
     try:
         asyncio.run(asyncio.wait_for(_handshake(args), timeout=args.timeout * 2))
-    except Exception as exc:
+    # connect() and ping() fail with OSError (including TimeoutError) or a websockets protocol error.
+    except (OSError, WebSocketException) as exc:
         print(f"ws-handshake: FAILED {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     return 0

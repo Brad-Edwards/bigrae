@@ -42,7 +42,7 @@ def admin_participant_batch(request: HttpRequest, event_id: UUID) -> HttpRespons
         try:
             participants = create_participant_accounts(event_id, count=form.cleaned_data["count"])
         except CTFValidationError as exc:
-            form.add_error(None, str(exc))
+            form.add_error(None, exc.message)
         else:
             messages.success(request, f"Generated {len(participants)} participant accounts.")
             return redirect(_PARTICIPANT_LIST_ROUTE, event_id=event_id)

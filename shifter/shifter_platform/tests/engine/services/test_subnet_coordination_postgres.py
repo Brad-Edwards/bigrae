@@ -309,7 +309,7 @@ class TestSerialization:
             started.wait(timeout=10)
             try:
                 result["cidrs"] = reserve_subnet_cidrs(_request(second_op, second_req))
-            except Exception as exc:  # surfaced by the assertions below
+            except Exception as exc:  # noqa: BLE001 - surfaced by the assertions below
                 result["error"] = exc
             finally:
                 finished.set()

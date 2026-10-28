@@ -103,11 +103,18 @@ def _reset_secret_cache():
 def enable_log_propagation():
     """Enable log propagation for caplog to work with our configured loggers.
 
-    Django settings sets propagate=False on our loggers (engine, cms, etc.)
-    which prevents pytest's caplog from capturing log records. This fixture
-    temporarily enables propagation for all tests.
+    Django settings sets propagate=False on our loggers (engine, cms, ctf,
+    config, mission_control) which prevents pytest's caplog from capturing log
+    records. This fixture temporarily enables propagation for all tests. The
+    names come from the LOGGING config, so a newly configured logger is covered.
     """
-    loggers = ["engine", "cms", "mission_control", "engine.handlers", "management"]
+    from django.conf import settings
+
+    loggers = [
+        name
+        for name, config in settings.LOGGING.get("loggers", {}).items()
+        if not name.startswith("django") and config.get("propagate") is False
+    ]
     original_propagate = {}
 
     for name in loggers:

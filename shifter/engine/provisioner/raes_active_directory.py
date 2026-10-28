@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -32,6 +33,8 @@ from plans.raes_active_directory import (
     RaesDomainOfflineJoinProvisionPlan,
 )
 from raes_plan import RaesPlan, RaesPlanAccount, RaesPlanDomain, RaesPlanNode
+
+logger = logging.getLogger(__name__)
 
 
 class RaesActiveDirectoryError(RuntimeError):
@@ -207,7 +210,11 @@ def _initial_controller_execution(
     try:
         _wait_for_ready(execution, 60)
         return execution
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - expected after promotion: fall back to the reconciled authority login
+        logger.info(
+            "RAES directory controller bootstrap login unavailable; reconnecting as domain authority exc_type=%s",
+            type(exc).__name__,
+        )
         execution.close()
     execution = _build_execution(runtime, output, authority_username)
     _wait_for_ready(execution, 600)
@@ -363,7 +370,7 @@ def realize_raes_active_directory(
             _realize_domain(runtime, domain)
     except RaesActiveDirectoryError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - value-free boundary: the cause can carry directory credential material
         raise RaesActiveDirectoryError("RAES directory realization failed") from None
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 
     from engine.models import ModelSource, ModelSourceRevision
 
+logger = logging.getLogger(__name__)
 
 REVISION_CONFLICT = "source.revision_conflict"
 
@@ -132,7 +134,13 @@ def _store_credential(
             raise ContractError("source.credential_unavailable")
         try:
             reference = get_secrets_store().create_owned_secret(source.id, revision.credential_version, payload)
-        except CloudSecretsError:
+        except CloudSecretsError as exc:
+            logger.error(
+                "model source credential store failed source_id=%s credential_version=%s exc_type=%s",
+                source.id,
+                revision.credential_version,
+                type(exc).__name__,
+            )
             ModelSourceRevision.objects.filter(pk=revision.pk, state="pending").update(state="failed")
             raise ContractError("source.credential_unavailable") from None
         revision.credential_reference = reference
@@ -404,7 +412,13 @@ def retire_unused_model_source_credentials(actor: User, organization_uuid: UUID,
             raise ContractError("source.credential_cleanup_pending")
         try:
             get_secrets_store().retire_owned_secret(source.id, version)
-        except CloudSecretsError:
+        except CloudSecretsError as exc:
+            logger.warning(
+                "model source credential retirement deferred source_id=%s credential_version=%s exc_type=%s",
+                source.id,
+                version,
+                type(exc).__name__,
+            )
             raise ContractError("source.credential_cleanup_pending") from None
         ModelSourceRevision.objects.filter(source=source, credential_version=version, state="retired").update(
             retired_at=timezone.now()

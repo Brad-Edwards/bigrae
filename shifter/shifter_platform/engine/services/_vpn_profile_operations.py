@@ -246,7 +246,7 @@ def authorize_vpn_operation(payload: dict[str, Any], operation_id: UUID | str | 
             )
             if any(getattr(profile, name) != value for name, value in fields.items()):
                 raise ValueError("VPN credential changed")
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
         raise PermissionError("VPN operation unavailable") from None
 
 

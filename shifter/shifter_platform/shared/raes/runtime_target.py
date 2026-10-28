@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass, replace
 from enum import Enum
@@ -61,6 +62,8 @@ from shared.raes.manifest import SHIFTER_PROVISIONER_CAPABILITIES, create_shifte
 from shared.raes.network_addressing import static_network_address_diagnostics
 from shared.raes.participant_access import ParticipantAccessBinding
 from shared.raes.realization import create_shifter_realization_envelope
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "DOMAIN_CONTROLLER_PLACEMENT_RESOURCE_TYPE",
@@ -320,7 +323,12 @@ class ShifterProvisioner:
         # Boundary: never leak a raw dispatch exception past apply.
         try:
             result = self._port.realize(serialized, self._participant_access)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - dispatch boundary: errors can carry private provider material; class only
+            logger.warning(
+                "shifter provisioner: dispatch failed in apply operation_id=%s exc_type=%s",
+                safe_log_value(plan.operation_id),
+                type(exc).__name__,
+            )
             failure = _diagnostic(
                 "shifter-provisioner.dispatch-failed", "plan", f"provisioning dispatch failed: {safe_log_value(exc)}"
             )
@@ -337,7 +345,12 @@ class ShifterProvisioner:
             return ShifterEnqueueResult(False, "rejected", (), tuple(diagnostics))
         try:
             receipt = self._port.realize(serialized, self._participant_access)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - dispatch boundary: errors can carry private provider material; class only
+            logger.warning(
+                "shifter provisioner: dispatch failed in enqueue operation_id=%s exc_type=%s",
+                safe_log_value(plan.operation_id),
+                type(exc).__name__,
+            )
             failure = _diagnostic("shifter-provisioner.dispatch-failed", "plan", safe_log_value(exc))
             return ShifterEnqueueResult(False, "rejected", (), (*diagnostics, failure))
         addresses = tuple(serialized["resources"]) if receipt.accepted else ()

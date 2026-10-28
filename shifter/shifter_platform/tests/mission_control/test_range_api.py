@@ -276,6 +276,12 @@ class TestLaunchRange:
         response = self._launch(client, {"agent_id": 999999, "scenario": hydratable_scenario.scenario_id})
         assert response.status_code == 400
 
+    def test_rejects_negative_agent_id_as_validation_error(self, authenticated_client, hydratable_scenario):
+        client, _ = authenticated_client(email="negativeagent@example.com")
+        response = self._launch(client, {"agent_id": -1, "scenario": hydratable_scenario.scenario_id})
+        assert response.status_code == 400
+        assert _json(response)["error"]["details"] == {"agent_id": ["Invalid value."]}
+
     def test_rejects_non_launchable_raes_scenario(self, authenticated_client, make_agent):
         from cms.models import RaesPackageSource
 

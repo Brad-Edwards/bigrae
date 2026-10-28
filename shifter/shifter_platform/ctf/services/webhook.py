@@ -111,6 +111,7 @@ def _post_pinned(url: str, body: bytes, headers: dict[str, str]) -> int:
         except (OSError, http.client.HTTPException):
             continue
         finally:
+            # Best-effort close: a close failure must not replace the delivery result.
             with suppress(Exception):
                 connection.close()
     raise OSError("Webhook transport unavailable")
@@ -161,7 +162,8 @@ def _delivery_is_current(webhook_pk: UUID, url: str, secret: str, event_type: st
     return bool(
         row is not None
         and row.url == url
-        and hmac.compare_digest(row.secret, secret)
+        # Compare UTF-8 bytes: compare_digest raises TypeError for non-ASCII str values.
+        and hmac.compare_digest(row.secret.encode("utf-8"), secret.encode("utf-8"))
         and (event_type is None or not row.subscribed_events or event_type in row.subscribed_events)
     )
 
@@ -197,6 +199,11 @@ def _deliver_with_retries(webhook_pk: UUID, url: str, secret: str, body: bytes, 
             break
         except (OSError, http.client.HTTPException):
             status = "failed:transport"
+        except Exception as exc:  # noqa: BLE001 - delivery errors may carry the webhook URL, which can embed a token
+            # Thread-pool boundary: an unexpected error must not end the delivery without a record.
+            logger.error("Webhook %s delivery failed unexpectedly exc_type=%s", webhook_pk, type(exc).__name__)
+            status = "failed"
+            break
         if attempt < _MAX_ATTEMPTS:
             time.sleep(_BACKOFF_BASE_SECONDS**attempt)
     _record_delivery(webhook_pk, status)

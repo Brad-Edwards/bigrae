@@ -17,7 +17,7 @@ import {
   useOrganizationProfile,
   useUpdateOrganizationProfile,
 } from "@/api/organization";
-import { ApiError } from "@/api/errors";
+import { ApiError, describeMutationError } from "@/api/errors";
 import type { OrganizationProfile, OrganizationProfileUpdate } from "@/api/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -154,7 +154,9 @@ function OrganizationSettingsForm({ uuid, data }: Readonly<{ uuid: string; data:
 
   const fieldErrors = mutation.error instanceof ApiError ? mutation.error.fieldErrors() : {};
   const topLevelError =
-    mutation.error instanceof ApiError && Object.keys(fieldErrors).length === 0 ? mutation.error.message : null;
+    Object.keys(fieldErrors).length === 0
+      ? describeMutationError(mutation.error, "The organization settings could not be saved.")
+      : null;
 
   function update(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));

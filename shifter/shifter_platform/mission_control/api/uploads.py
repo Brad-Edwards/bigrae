@@ -69,17 +69,22 @@ class UploadInitiateView(MissionControlAPIView):
         try:
             result = cms_initiate_upload(user, data["name"], filename, data["file_size"], data["agent_type"])
         except CMSError as exc:
-            logger.exception(
-                "Upload initiation failed: user=%s filename=%s",
-                safe_log_value(user.email),
+            # The CMS and storage layers log rejections and failures where they are raised.
+            logger.warning(
+                "Upload initiation failed: user_id=%s filename=%s exc_type=%s",
+                user.pk,
                 safe_log_value(filename),
+                type(exc).__name__,
             )
             return self.bad_request(classify_user_message(str(exc), default="Upload could not be initiated"))
 
         set_upload_in_progress(request.session, True, upload_token=str(result["upload_token"]))
-        safe_filename = filename.replace("\r", " ").replace("\n", " ").replace("\t", " ")[:200]
-        safe_email = user.email.replace("\r", " ").replace("\n", " ").replace("\t", " ")[:200]
-        logger.info("Upload initiated: user=%s filename=%s size=%d", safe_email, safe_filename, data["file_size"])
+        logger.info(
+            "Upload initiated: user_id=%s filename=%s size=%d",
+            user.pk,
+            safe_log_value(filename),
+            data["file_size"],
+        )
         return Response(result)
 
 
@@ -105,11 +110,12 @@ class UploadCompleteView(MissionControlAPIView):
             agent = cms_complete_upload(user, data.get("upload_token", ""))
         except CMSError as exc:
             set_upload_in_progress(request.session, False)
-            logger.exception("Upload completion failed: user=%s", user.pk)
+            # The CMS and storage layers log rejections and failures where they are raised.
+            logger.warning("Upload completion failed: user_id=%s exc_type=%s", user.pk, type(exc).__name__)
             return self.bad_request(classify_user_message(str(exc), default="Upload could not be completed"))
 
         set_upload_in_progress(request.session, False)
-        logger.info("Upload completed: user=%s agent_id=%s", safe_log_value(user.email), agent.id)
+        logger.info("Upload completed: user_id=%s agent_id=%s", user.pk, agent.id)
         return Response(
             {
                 "success": True,
@@ -151,7 +157,7 @@ class UploadCancelView(MissionControlAPIView):
             try:
                 # CMS validates the token and absorbs best-effort storage cleanup failures.
                 cms_cancel_upload(user, upload_token)
-                logger.info("Cancelled upload cleaned up: user=%s", safe_log_value(user.email))
+                logger.info("Cancelled upload cleaned up: user_id=%s", user.pk)
             except (ValueError, CMSError):
                 response = self.bad_request("Upload cancel token is invalid or stale")
             else:

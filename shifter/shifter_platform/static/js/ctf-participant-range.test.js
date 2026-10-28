@@ -159,6 +159,38 @@ describe('ctf-participant-range openRdpSession', () => {
         expect(btn.disabled).toBe(false);
     });
 
+    test.each([
+        [{ error: { code: 'invalid', message: 'Invalid request' } }, 'Failed to open session: Invalid request'],
+        [{ error: { code: 'invalid' } }, 'Failed to open session: Failed to generate access URL'],
+    ])('reads the envelope error from a refused POST (%j)', async (body, expected) => {
+        loadModule();
+        openMock.mockReturnValue(makeSessionWindow());
+        fetchMock.mockResolvedValueOnce({ ok: false, json: () => Promise.resolve(body) });
+        const btn = makeButton();
+
+        globalThis.openRdpSession(btn, 'uuid-1');
+        await flush();
+        await flush();
+
+        expect(alertMock).toHaveBeenCalledWith(expected);
+    });
+
+    test('shows fixed text, not the browser error, when the error body is not JSON', async () => {
+        loadModule();
+        openMock.mockReturnValue(makeSessionWindow());
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            json: () => Promise.reject(new SyntaxError("Unexpected token '<'")),
+        });
+        const btn = makeButton();
+
+        globalThis.openRdpSession(btn, 'uuid-1');
+        await flush();
+        await flush();
+
+        expect(alertMock).toHaveBeenCalledWith('Failed to open session: The request could not be completed.');
+    });
+
     test('alerts when the POST response omits a status URL', async () => {
         loadModule();
         openMock.mockReturnValue(makeSessionWindow());

@@ -28,7 +28,7 @@ _MAX_REPORTED_GAPS = 3
 def _verify_scenario_exists(scenario_id: str, *, user: User) -> None:
     """Confirm the RAES source exists before metadata changes."""
     if get_catalog_entry(scenario_id, user=user) is None:
-        logger.error(
+        logger.warning(
             "update_metadata: scenario not found, scenario_id=%s, user_id=%s",
             safe_log_value(scenario_id),
             user.id,

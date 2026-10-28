@@ -258,6 +258,22 @@ class NGFWWizardManager {
         setTextContent('summary-region', regionNames[this.formData.sls_region] || this.formData.sls_region);
     }
 
+    /**
+     * Read the server's error text from the shared API envelope
+     * {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+     * Any other shape returns the fallback, so a non-string is never shown.
+     */
+    _apiErrorMessage(data, fallback) {
+        const error = data?.error;
+        if (typeof error === 'string' && error) {
+            return error;
+        }
+        if (typeof error?.message === 'string' && error.message) {
+            return error.message;
+        }
+        return fallback;
+    }
+
     async startProvisioning() {
         this.goToStep(4);
 
@@ -289,7 +305,7 @@ class NGFWWizardManager {
             const data = await response.json();
 
             if (data.error) {
-                alert('Error: ' + data.error);
+                alert('Error: ' + this._apiErrorMessage(data, 'The NGFW could not be provisioned.'));
                 this.goToStep(3);
                 return;
             }
@@ -310,29 +326,17 @@ class NGFWWizardManager {
         const wsProtocol = globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${globalThis.location.host}/ws/ngfw-status/${this.ngfwId}/`;
 
-        console.log('Connecting to WebSocket:', wsUrl);
         this.ws = new WebSocket(wsUrl);
-
-        this.ws.onopen = () => {
-            console.log('NGFW status WebSocket connected');
-        };
 
         this.ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                // Log the status only when it is a known, safe literal; any
-                // other value (including an attacker-influenced one carrying
-                // CR/LF) logs as 'unknown' so it cannot forge log entries
-                // (CodeQL js/log-injection).
-                const KNOWN_STATUSES = ['ready', 'failed', 'pending', 'provisioning', 'stopped'];
-                const safeStatus = KNOWN_STATUSES.includes(data.status) ? data.status : 'unknown';
-                console.log('NGFW status update:', safeStatus);
 
                 if (data.status === 'ready') {
                     this.showSuccess();
                     this.ws.close();
                 } else if (data.status === 'failed') {
-                    alert('Provisioning failed: ' + (data.error || 'Unknown error'));
+                    alert('Provisioning failed: ' + this._apiErrorMessage(data, 'Unknown error'));
                     globalThis.location.href = this.detailUrlTemplate.replace('{id}', this.ngfwId);
                 }
                 // For other statuses (pending, provisioning, stopped), just wait for next message
@@ -343,10 +347,6 @@ class NGFWWizardManager {
 
         this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
-        };
-
-        this.ws.onclose = (event) => {
-            console.log('WebSocket closed:', event.code, event.reason);
         };
     }
 

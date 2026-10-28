@@ -1,5 +1,9 @@
 """The RouteResult record is the common unit produced by route executors."""
 
+import dataclasses
+
+import pytest
+
 from event_load_harness.results import RouteResult
 
 
@@ -36,9 +40,5 @@ def test_ws_result_fields():
 
 def test_result_is_frozen():
     r = RouteResult(route_class="page:home", kind="http", ok=True, status_code=200, latency_ms=1.0)
-    try:
+    with pytest.raises(dataclasses.FrozenInstanceError):
         r.ok = False  # type: ignore[misc]
-    except Exception as exc:
-        assert "frozen" in str(exc).lower() or exc.__class__.__name__ == "FrozenInstanceError"
-    else:
-        raise AssertionError("RouteResult should be immutable")

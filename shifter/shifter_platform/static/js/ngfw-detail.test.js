@@ -172,6 +172,19 @@ describe('ngfw-detail', () => {
             );
         });
 
+        test.each([
+            [{ error: { code: 'invalid', message: 'Invalid request' } }, 'Error opening CLI:\n\nInvalid request'],
+            [{ error: { code: 'invalid' } }, 'Error opening CLI:\n\nFailed to generate CLI URL'],
+        ])('reads the envelope error from a refused request (%j)', async (body, expected) => {
+            fetchMock.mockResolvedValue({ ok: false, statusText: 'Bad Request', json: () => Promise.resolve(body) });
+            const btn = cliButton();
+
+            btn.click();
+            await jest.advanceTimersByTimeAsync(1100);
+
+            expect(globalThis.alert).toHaveBeenCalledWith(expected);
+        });
+
         test('falls back to statusText when the error body is not JSON', async () => {
             fetchMock.mockResolvedValue({
                 ok: false,
@@ -200,6 +213,21 @@ describe('ngfw-detail', () => {
 
             expect(globalThis.alert).toHaveBeenCalledWith(
                 expect.stringContaining('Server returned invalid response'),
+            );
+        });
+
+        test('shows fixed text, not the browser error, when the success body is not JSON', async () => {
+            fetchMock.mockResolvedValue({
+                ok: true,
+                json: () => Promise.reject(new SyntaxError("Unexpected token '<', \"<html>\" is not valid JSON")),
+            });
+            const btn = cliButton();
+
+            btn.click();
+            await jest.advanceTimersByTimeAsync(1100);
+
+            expect(globalThis.alert).toHaveBeenCalledWith(
+                'Error opening CLI:\n\nThe request could not be completed. Please try again.',
             );
         });
 

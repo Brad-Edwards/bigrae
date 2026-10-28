@@ -12,10 +12,12 @@ persistence and new provisioning use RAES. The platform currently pins
 and lockfile. Check those files when upgrading; a historical page is not a
 second pin registry.
 
-The 2026-10-25 repository-wide dependency security refresh changed supporting
-framework and tool dependencies only. It did not change the RAES package pins,
-serialized plan versions, ownership boundary or migration contract described
-here.
+Repository-wide maintenance can change this manifest without a change to the
+scenario contract. The 2026-10-25 dependency security refresh changed only
+supporting framework and tool dependencies. The 2026-10-28 logging and
+exception-handling cleanup (#2569) changed only the Ruff lint rules. These
+changes did not alter the RAES package pins, the serialized plan versions, the
+ownership boundary, or the migration contract on this page.
 
 Only `shared.raes` imports the released RAES module family. It validates and
 compiles authored intent into the RAES ProvisioningPlan. The independent

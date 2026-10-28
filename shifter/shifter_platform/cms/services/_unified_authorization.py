@@ -102,7 +102,7 @@ def range_authorization_binding(
             range_uuid, include_terminal=include_terminal, read_only_intent=read_only_intent
         )
         return parent, scope
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise ValueError(_UNAVAILABLE) from None
 
 
@@ -128,5 +128,5 @@ def require_range_action(
         return instance
     except AuthorizationProviderBindingError:
         raise CMSError("Range authority unavailable", details={"code": "authority-unavailable"}) from None
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise CMSError(_UNAVAILABLE) from None

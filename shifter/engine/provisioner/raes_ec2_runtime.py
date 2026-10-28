@@ -111,8 +111,12 @@ def _release_failed_reservation(
         if inventory_ec2_resources(scope, ec2)["outcome"] == "VERIFIED_ABSENT":
             delete_ec2_guest_credentials(scope.range_id, plan, secrets)
             _release_subnet_allocations_best_effort(run.request_id, operation_id=run.operation_id)
-    except Exception:
-        logger.warning("EC2 failed-launch reservation retained after incomplete cleanup")
+    except Exception as exc:  # noqa: BLE001 - best-effort release must not mask the launch failure being raised
+        logger.warning(
+            "EC2 failed-launch reservation retained after incomplete cleanup range_id=%s exc_type=%s",
+            scope.range_id,
+            type(exc).__name__,
+        )
 
 
 def provision_ec2_run(

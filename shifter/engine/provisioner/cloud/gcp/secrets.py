@@ -24,6 +24,8 @@ class GCPSecretsStore:
             return response.payload.data.decode("utf-8")
         except ImportError as e:
             raise CloudSecretsError("GCP secrets support requires google-cloud-secret-manager") from e
-        except Exception as e:
-            logger.exception("get_secret: failed secret_id_fp=%s", safe_log_fingerprint(secret_id))
-            raise CloudSecretsError(f"Failed to retrieve GCP secret: {e}") from e
+        except Exception as e:  # noqa: BLE001 - secret-manager read: provider text names the secret; class name only
+            logger.error(
+                "get_secret: failed secret_id_fp=%s exc_type=%s", safe_log_fingerprint(secret_id), type(e).__name__
+            )
+            raise CloudSecretsError("Failed to retrieve GCP secret") from None

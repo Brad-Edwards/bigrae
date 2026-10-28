@@ -29,7 +29,6 @@ class DashboardConnectionBase {
      * Redirect to login page when session expires.
      */
     _handleSessionExpired() {
-        console.log('Session expired, redirecting to login...');
         this._closeStatusSocket();
         // Only navigate to a same-origin target: loginUrl is a server-rendered
         // path, but validating it blocks a javascript:/cross-origin value from
@@ -81,8 +80,6 @@ class DashboardConnectionBase {
         this._closeStatusSocket(!isReconnect);
 
         const wsUrl = this._buildWebSocketUrl(requestId);
-        console.log(`Connecting to WebSocket: ${wsUrl}`);
-
         this.statusSocket = new WebSocket(wsUrl);
 
         // Start provisioning timeout timer
@@ -94,7 +91,6 @@ class DashboardConnectionBase {
         this._startStatusPolling();
 
         this.statusSocket.onopen = () => {
-            console.log('WebSocket connected for range status');
             this.reconnectAttempts = 0;
             this.reconnectDelay = 1000;
         };
@@ -121,7 +117,6 @@ class DashboardConnectionBase {
 
             if (data.type === 'status') {
                 const newStatus = data.status;
-                console.log(`Range status received: ${newStatus}`);
 
                 // Update current range status
                 if (this.currentRange) {
@@ -135,7 +130,6 @@ class DashboardConnectionBase {
 
                 // Close socket if we've reached a stable state
                 if (!this._isTransitionalState(newStatus)) {
-                    console.log('Range reached stable state, closing WebSocket');
                     this._clearProvisioningTimer();
                     this._closeStatusSocket();
                 }
@@ -151,8 +145,6 @@ class DashboardConnectionBase {
      * @param {string} requestId - UUID of the request for reconnection
      */
     _handleSocketClose(event, requestId) {
-        console.log(`WebSocket closed: code=${event.code}, reason=${event.reason}`);
-
         // Don't reconnect if intentionally closed or auth failed
         if (event.code === 1000 || event.code === 4001 || event.code === 4003) {
             return;
@@ -166,7 +158,7 @@ class DashboardConnectionBase {
         // Attempt reconnect with exponential backoff
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
-            console.log(`Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${this.reconnectDelay}ms`);
+            console.warn(`Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${this.reconnectDelay}ms`);
 
             setTimeout(() => {
                 if (this.currentRange && this._isTransitionalState(this.currentRange.status)) {
@@ -232,7 +224,6 @@ class DashboardConnectionBase {
 
             // If we discovered a stable state via poll (missed WebSocket update)
             if (!this._isTransitionalState(polledStatus)) {
-                console.log(`Poll detected stable state: ${polledStatus}`);
                 this.currentRange = data.range;
                 this.currentRaesProjection = data.raes_projection || null;
                 this.currentRaesParticipantRuntime = data.raes_participant_runtime || null;

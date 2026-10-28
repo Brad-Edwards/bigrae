@@ -66,10 +66,16 @@ class NGFWCreateView(MissionControlAPIView):
         try:
             ngfw_ref = cms_create_ngfw(user=user, **payload)
         except (TypeError, ValueError, CMSError) as exc:
-            logger.exception("NGFW creation failed: user=%s name=%s", user.pk, safe_log_value(payload.get("name", "")))
+            # Type only: hydration errors can carry NGFW registration secrets.
+            logger.warning(
+                "NGFW creation failed: user_id=%s name=%s exc_type=%s",
+                user.pk,
+                safe_log_value(payload.get("name", "")),
+                type(exc).__name__,
+            )
             return self.bad_request(classify_user_message(str(exc), default="NGFW could not be created"))
 
-        logger.info("NGFW provisioning started: user=%s app_id=%s", safe_log_value(user.email), ngfw_ref.app_id)
+        logger.info("NGFW provisioning started: user_id=%s app_id=%s", user.pk, ngfw_ref.app_id)
         return Response({"id": str(ngfw_ref.app_id), "name": payload["name"], "status": "provisioning"}, status=201)
 
 
@@ -123,8 +129,8 @@ class NGFWDestroyView(MissionControlAPIView):
             return err.response
 
         logger.info(
-            "NGFW deprovisioning started: user=%s app_id=%s",
-            safe_log_value(user.email),
+            "NGFW deprovisioning started: user_id=%s app_id=%s",
+            user.pk,
             safe_log_value(app_id),
         )
         return Response({"status": "deprovisioning"})
@@ -161,8 +167,8 @@ class CredentialCreateView(MissionControlAPIView):
             return err.response
 
         logger.info(
-            "Credential created: user=%s credential_id=%s type=%s",
-            safe_log_value(user.email),
+            "Credential created: user_id=%s credential_id=%s type=%s",
+            user.pk,
             cred_ref.credential_id,
             safe_log_value(credential_type_slug),
         )
@@ -188,8 +194,8 @@ class CredentialDeleteView(MissionControlAPIView):
             raise Http404("Credential not found") from None
 
         logger.info(
-            "Credential deleted: user=%s credential_id=%s",
-            safe_log_value(user.email),
+            "Credential deleted: user_id=%s credential_id=%s",
+            user.pk,
             safe_log_value(credential_id),
         )
         return Response({"success": True})

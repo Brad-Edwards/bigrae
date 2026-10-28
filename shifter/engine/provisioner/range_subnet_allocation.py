@@ -146,7 +146,7 @@ def _release_subnet_allocations_best_effort(request_id: str, *, operation_id: st
         from components.network import release_range_subnets
 
         release_range_subnets(operation_id=operation_id, request_id=request_id)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort release; the class name is logged below (ADR-043-R5)
         failure = type(e).__name__
     if failure is not None:
         logger.error(

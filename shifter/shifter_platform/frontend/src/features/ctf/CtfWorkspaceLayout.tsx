@@ -60,14 +60,15 @@ function useEventNotifications(eventId: string | undefined, onNotification: (n: 
       socket.send(JSON.stringify({ type: "subscribe", topic: `ctf:event:${eventId}` }));
     };
     socket.onmessage = (message: MessageEvent<string>) => {
+      let parsed: BusMessage | null;
       try {
-        const parsed = JSON.parse(message.data) as BusMessage;
-        if (parsed.type !== "notification" || !parsed.payload) return;
-        const described = describeNotification(parsed.payload);
-        if (described) handler.current(described);
+        parsed = JSON.parse(message.data) as BusMessage | null;
       } catch {
-        // Malformed frames are dropped; the socket stays up.
+        return; // Malformed frames are dropped; the socket stays up.
       }
+      if (parsed?.type !== "notification" || !parsed.payload) return;
+      const described = describeNotification(parsed.payload);
+      if (described) handler.current(described);
     };
     return () => socket.close();
   }, [eventId]);

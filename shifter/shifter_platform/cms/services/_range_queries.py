@@ -212,7 +212,7 @@ def get_range(user: User | CredentialContext, range_id: int) -> RangeInstance:
             raise TypeError(msg)
 
         if range_obj.user_id != user.id:
-            logger.error(
+            logger.warning(
                 "get_range: access denied - range_id=%s owned by user_id=%s, requested by user_id=%s",
                 range_id,
                 range_obj.user_id,
@@ -229,7 +229,7 @@ def get_range(user: User | CredentialContext, range_id: int) -> RangeInstance:
         return range_obj
 
     except RangeInstance.DoesNotExist:
-        logger.error("get_range: range_id=%s not found", range_id)
+        logger.warning("get_range: range_id=%s not found", range_id)
         raise CMSError(f"Range {range_id} not found") from None
     except (TypeError, CMSError):
         raise

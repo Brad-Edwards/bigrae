@@ -76,7 +76,7 @@ def run_scoped_range_lifecycle(
             )
     except CMSError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise CMSError(_RANGE_OPERATION_UNAVAILABLE) from None
 
 
@@ -157,7 +157,7 @@ def destroy_expired_scoped_range(range_uuid: UUID) -> None:
             )
     except CMSError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise CMSError("Range cleanup unavailable") from None
 
 

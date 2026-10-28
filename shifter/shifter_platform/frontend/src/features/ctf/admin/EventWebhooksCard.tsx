@@ -16,6 +16,7 @@ export function EventWebhooksCard({ eventId }: Readonly<{ eventId: string }>) {
   const [url, setUrl] = useState("");
   const [secret, setSecret] = useState("");
   const errorMessage = describeMutationError(create.error, "Could not register the webhook.");
+  const removeErrorMessage = describeMutationError(remove.error, "Could not remove the webhook.");
 
   return (
     <Card>
@@ -83,6 +84,7 @@ export function EventWebhooksCard({ eventId }: Readonly<{ eventId: string }>) {
         ) : (
           <p className="text-xs text-muted-foreground">No webhooks registered.</p>
         )}
+        {remove.error ? <p className="text-xs text-destructive">{removeErrorMessage}</p> : null}
       </CardContent>
     </Card>
   );

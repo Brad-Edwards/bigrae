@@ -62,7 +62,7 @@ def update_scoped_metadata(
             return metadata
     except ScenarioEditorError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed metadata boundary; the cause stays out of the chain
         raise ScenarioEditorError("Scenario metadata unavailable") from None
 
 

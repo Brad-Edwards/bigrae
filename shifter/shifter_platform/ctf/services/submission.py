@@ -243,7 +243,7 @@ def submit_flag(
     """
     submitted_flag = _validate_submitted_flag(submitted_flag)
 
-    logger.info(
+    logger.debug(
         "Flag submission: participant=%s, challenge=%s",
         participant_id,
         safe_log_value(challenge_id),
@@ -467,7 +467,7 @@ def rate_challenge(
         "Challenge rated: participant=%s, challenge=%s, value=%d",
         participant_id,
         safe_log_value(challenge_id),
-        safe_log_value(value),
+        value,
     )
 
     return rating

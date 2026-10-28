@@ -244,14 +244,39 @@ describe('event-form', () => {
             expect(state.submitBtn.textContent).toBe('Save Changes');
         });
 
-        test('shows a network error message when the request rejects', async () => {
+        test('maps envelope field details and shows the envelope message', async () => {
             fillValidForm();
-            globalThis.fetch.mockRejectedValue(new Error('offline'));
+            globalThis.fetch.mockResolvedValue({
+                ok: false,
+                status: 400,
+                json: () => Promise.resolve({
+                    error: {
+                        code: 'invalid',
+                        message: 'Invalid request',
+                        details: { name: ['This field is required.'], description: { nested: ['x'] } },
+                    },
+                }),
+            });
+            const state = makeState({ isEdit: true, eventId: '5' });
+
+            await eventForm.submitForm(state);
+
+            expect(document.getElementById('error-name').textContent).toBe('This field is required.');
+            // A nested detail is not a string, so it is never rendered.
+            expect(document.getElementById('error-description').textContent).toBe('');
+            expect(document.getElementById('form-alert').textContent).toBe('Invalid request');
+        });
+
+        test('shows fixed text, not the browser error, when the request rejects', async () => {
+            fillValidForm();
+            globalThis.fetch.mockRejectedValue(new TypeError('offline'));
             const state = makeState();
 
             await eventForm.submitForm(state);
 
-            expect(document.getElementById('form-alert').textContent).toContain('Network error: offline');
+            expect(document.getElementById('form-alert').textContent).toBe(
+                'The event could not be saved. Please try again.'
+            );
             expect(state.submitBtn.disabled).toBe(false);
             expect(state.submitBtn.textContent).toBe('Create Event');
         });
@@ -260,6 +285,10 @@ describe('event-form', () => {
     describe('handleSubmitResult', () => {
         test('shows a generic alert when the error response has no field errors', () => {
             eventForm.handleSubmitResult({ ok: false, data: {} }, makeState());
+            expect(document.getElementById('form-alert').textContent).toBe('An error occurred.');
+
+            // An envelope without a message is never rendered as an object.
+            eventForm.handleSubmitResult({ ok: false, data: { error: { code: 'invalid' } } }, makeState());
             expect(document.getElementById('form-alert').textContent).toBe('An error occurred.');
         });
     });
@@ -293,11 +322,13 @@ describe('event-form', () => {
 
         test('shows an alert when loading the event fails', async () => {
             const state = makeState({ isEdit: true, eventId: '42' });
-            globalThis.fetch.mockRejectedValue(new Error('nope'));
+            globalThis.fetch.mockRejectedValue(new TypeError('nope'));
 
             await eventForm.populateForm(state);
 
-            expect(document.getElementById('form-alert').textContent).toContain('Failed to load event data: nope');
+            expect(document.getElementById('form-alert').textContent).toBe(
+                'Failed to load event data. Reload the page to try again.'
+            );
         });
     });
 

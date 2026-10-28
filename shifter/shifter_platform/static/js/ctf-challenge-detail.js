@@ -29,6 +29,20 @@ const config = readConfig();
 const ALERT_DANGER_CLASS = 'alert alert-danger mb-3';
 const GENERIC_ERROR = 'An error occurred. Please try again.';
 
+// Read the server's error text from the shared API envelope
+// {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+// Any other shape returns the fallback, so a non-string is never shown.
+function apiErrorMessage(data, fallback) {
+    const error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
 function submitFlag(e) {
     e.preventDefault();
     const flag = document.getElementById('flag-input').value;
@@ -82,7 +96,7 @@ function submitFlag(e) {
             document.getElementById('flag-input').value = '';
         } else {
             resultDiv.className = ALERT_DANGER_CLASS;
-            resultDiv.textContent = data.error || GENERIC_ERROR;
+            resultDiv.textContent = apiErrorMessage(data, GENERIC_ERROR);
             btn.disabled = false;
             btn.textContent = 'Submit';
         }
@@ -134,7 +148,7 @@ function useHint(hintId, hintPenalty) {
         if (data.text) {
             location.reload();
         } else if (data.error) {
-            alert(data.error);
+            alert(apiErrorMessage(data, GENERIC_ERROR));
         }
     })
     .catch(function () {
@@ -147,7 +161,7 @@ function downloadFile(apiUrl) {
         .then(function (r) { return r.json(); })
         .then(function (data) {
             if (data.url) { globalThis.location.href = data.url; }
-            else if (data.error) { alert(data.error); }
+            else if (data.error) { alert(apiErrorMessage(data, 'Download failed.')); }
         })
         .catch(function () { alert('Download failed.'); });
 }
@@ -175,7 +189,7 @@ function rateChallenge(value) {
         if (data.error) {
             resultDiv.classList.remove('d-none');
             resultDiv.className = ALERT_DANGER_CLASS;
-            resultDiv.textContent = data.error;
+            resultDiv.textContent = apiErrorMessage(data, 'Rating failed. Please try again.');
         } else {
             resultDiv.classList.remove('d-none');
             resultDiv.className = 'alert alert-success mb-3';

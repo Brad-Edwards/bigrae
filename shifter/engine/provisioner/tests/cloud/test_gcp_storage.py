@@ -7,7 +7,9 @@ since it is an optional dependency absent from the base provisioner venv).
 
 from __future__ import annotations
 
+import logging
 import sys
+import traceback
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
@@ -158,17 +160,22 @@ class TestPresignedDownloadUrlIamSigning:
 
         assert fake_client.bucket.return_value.blob.call_args.kwargs["generation"] is None
 
-    def test_signing_failure_maps_to_cloud_storage_error(self):
+    def test_signing_failure_maps_to_cloud_storage_error(self, caplog):
         storage = GCPObjectStorage()
         fake_client, fake_blob = _client_returning("https://signed/get")
-        fake_blob.generate_signed_url.side_effect = RuntimeError("boom")
+        # Signing refreshes credentials, whose errors can carry proof material.
+        fake_blob.generate_signed_url.side_effect = RuntimeError("synthetic-credential-proof")
         creds = self._wi_credentials()
 
         with (
             _install_fake_google(fake_client, MagicMock(return_value=(creds, "proj"))),
-            pytest.raises(CloudStorageError),
+            caplog.at_level(logging.DEBUG),
+            pytest.raises(CloudStorageError) as error,
         ):
             storage.generate_presigned_download_url("b", "k", 600)
+
+        assert "synthetic-credential-proof" not in caplog.text
+        assert "synthetic-credential-proof" not in "".join(traceback.format_exception(error.value))
 
 
 class TestHeadObjectIdentity:

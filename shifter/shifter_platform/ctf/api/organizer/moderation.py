@@ -73,9 +73,9 @@ class _ModerationActionView(APIView):
                 try:
                     participant = action(body)
                 except CTFStateError as exc:
-                    _raise_conflict(str(exc))
+                    _raise_conflict(exc.message)
                 except CTFValidationError as exc:
-                    _raise_bad_request(str(exc))
+                    _raise_bad_request(exc.message)
                 _audit_admin_from_request(request, "participant.moderate")
             return Response(_participant_detail_payload(participant))
         except _CtfApiError as exc:

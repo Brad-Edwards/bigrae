@@ -121,13 +121,35 @@ describe('admin-challenge-detail', () => {
 
         test('alerts the returned error instead of reloading', async () => {
             loadModule();
-            fetchMock.mockResolvedValue(okJson({ error: 'duplicate flag' }));
+            fetchMock.mockResolvedValue(okJson({ error: { code: 'invalid', message: 'duplicate flag' } }));
 
             globalThis.addFlag();
             await flush();
             await flush();
 
             expect(alertMock).toHaveBeenCalledWith('duplicate flag');
+        });
+
+        test('alerts fixed copy, never an object, when the error carries no message', async () => {
+            loadModule();
+            fetchMock.mockResolvedValue(okJson({ error: { code: 'invalid' } }));
+
+            globalThis.addFlag();
+            await flush();
+            await flush();
+
+            expect(alertMock).toHaveBeenCalledWith('The request failed. Please try again.');
+        });
+
+        test('alerts fixed copy, not the browser error, when the request fails', async () => {
+            loadModule();
+            fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+            globalThis.addFlag();
+            await flush();
+            await flush();
+
+            expect(alertMock).toHaveBeenCalledWith('The request failed. Please try again.');
         });
     });
 
@@ -294,7 +316,7 @@ describe('admin-challenge-detail', () => {
             loadModule();
             fetchMock.mockResolvedValue({
                 ok: false,
-                json: () => Promise.resolve({ error: 'cannot remove' }),
+                json: () => Promise.resolve({ error: { code: 'invalid', message: 'cannot remove' } }),
             });
 
             globalThis.removeHint('hint-4');
@@ -302,6 +324,20 @@ describe('admin-challenge-detail', () => {
             await flush();
 
             expect(alertMock).toHaveBeenCalledWith('cannot remove');
+        });
+
+        test('alerts fixed copy when a non-ok response body is not JSON', async () => {
+            loadModule();
+            fetchMock.mockResolvedValue({
+                ok: false,
+                json: () => Promise.reject(new SyntaxError('Unexpected token \'<\'')),
+            });
+
+            globalThis.removeHint('hint-4');
+            await flush();
+            await flush();
+
+            expect(alertMock).toHaveBeenCalledWith('The request failed. Please try again.');
         });
     });
 
@@ -321,7 +357,9 @@ describe('admin-challenge-detail', () => {
 
         test('alerts the API error when the download is refused', async () => {
             loadModule();
-            fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: 'denied' }) });
+            fetchMock.mockResolvedValue({
+                json: () => Promise.resolve({ error: { code: 'permission_denied', message: 'denied' } }),
+            });
 
             document.querySelector('[data-download-url]').click();
             await flush();

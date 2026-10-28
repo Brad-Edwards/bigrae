@@ -20,6 +20,15 @@ from ._workspace import (
 logger = logging.getLogger(__name__)
 
 
+class TerraformCommandError(RuntimeError):
+    """A Terraform command exited with a non-zero status.
+
+    The message is authored: it names the subcommand and the exit code only.
+    ``run_terraform`` logs Terraform's stderr and keeps it out of the message, so
+    the message can go into range error text and operation results (ADR-043-R5).
+    """
+
+
 def run_terraform(
     args: list[str],
     working_dir: Path,
@@ -38,7 +47,7 @@ def run_terraform(
         Completed process result
 
     Raises:
-        RuntimeError: If command fails
+        TerraformCommandError: If command fails
     """
     cmd = ["terraform", *args]
     run_env = {**os.environ, **(env or {})}
@@ -54,8 +63,11 @@ def run_terraform(
     )
 
     if result.returncode != 0:
-        logger.error("Terraform command failed: %s", result.stderr)
-        raise RuntimeError(f"Terraform command failed: {result.stderr}")
+        subcommand = args[0] if args else "command"
+        logger.error("Terraform %s failed exit_code=%d stderr=%s", subcommand, result.returncode, result.stderr)
+        # stderr is logged once above. It stays out of the exception, whose text
+        # reaches range error text and operation results (ADR-043-R5).
+        raise TerraformCommandError(f"Terraform {subcommand} failed (exit_code={result.returncode})")
 
     return result
 
@@ -96,7 +108,9 @@ def apply(
             ],
             staged,
         )
-        logger.info("Terraform apply stdout:\n%s", result.stdout)
+        # Apply stdout echoes the plan and every non-sensitive output (for
+        # example presigned agent URLs), so only its size is logged.
+        logger.info("Terraform apply for %s completed (%d bytes of output)", label, len(result.stdout or ""))
 
         logger.info("Retrieving Terraform outputs...")
         output_result = _tb.run_terraform(
@@ -107,17 +121,18 @@ def apply(
         try:
             raw_outputs = json.loads(output_result.stdout)
         except json.JSONDecodeError as e:
-            logger.exception("Failed to parse Terraform output: %s", output_result.stdout[:500])
+            # Raw output values can be secrets; the caller logs the translated error.
             raise RuntimeError(f"Failed to parse Terraform output as JSON: {e}") from e
 
         outputs: dict[str, Any] = {}
         for key, val in raw_outputs.items():
             if not isinstance(val, dict) or "value" not in val:
-                logger.warning("Unexpected output format for %s: %s", key, val)
+                logger.warning("Unexpected Terraform output format for key=%s", key)
                 continue
             outputs[key] = val["value"]
 
-        logger.info("Terraform outputs: %s", json.dumps(outputs, indent=2))
+        # Output values can carry secrets (secret ARNs, presigned URLs): log the keys only.
+        logger.info("Retrieved %d Terraform outputs for %s: keys=%s", len(outputs), label, sorted(outputs))
         return outputs
     finally:
         _finalize_workspace(staged)
@@ -157,8 +172,8 @@ def destroy(
         import terraform_base as _tb
 
         result = _tb.run_terraform(destroy_args, staged)
-        logger.info("Terraform destroy stdout:\n%s", result.stdout)
-        logger.info("%s Terraform destroy completed successfully", label)
+        # Destroy stdout echoes the plan, including prior output values, so only its size is logged.
+        logger.info("%s Terraform destroy completed successfully (%d bytes of output)", label, len(result.stdout or ""))
     finally:
         _finalize_workspace(staged)
 
@@ -193,11 +208,13 @@ def cleanup_state(state_key_prefix: str, request_uuid: str, label: str) -> None:
 
     try:
         storage.delete_object(bucket=backend.bucket, key=backend.state_object_key)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort state cleanup after a confirmed destroy; adapter logs traceback
         logger.warning("Failed to delete state file: %s", e)
 
     if backend.backend_type == _AWS_BACKEND:
         lock_key = f"{backend.state_object_key}.tflock"
+        # Best-effort: the lock object is usually absent, and the storage adapter
+        # logs any provider failure with its traceback before raising.
         with contextlib.suppress(Exception):
             storage.delete_object(bucket=backend.bucket, key=lock_key)
 

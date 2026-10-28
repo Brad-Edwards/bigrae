@@ -119,7 +119,12 @@ def _persist_credential(user: User, credential_type_slug: str, kwargs: dict[str,
     try:
         return cms_create_credential(user, credential_type_slug, **kwargs)
     except (CMSError, ValueError) as e:
-        logger.exception("Credential creation failed: user=%s type=%s", user.pk, credential_type_slug)
+        logger.warning(
+            "Credential creation failed: user_id=%s type=%s exc_type=%s",
+            user.pk,
+            credential_type_slug,
+            type(e).__name__,
+        )
         raise _CredentialError(
             JsonResponse({"error": classify_user_message(str(e), default="Invalid credential data")}, status=400)
         ) from e
@@ -130,7 +135,7 @@ def _persist_credential(user: User, credential_type_slug: str, kwargs: dict[str,
             response_msg = "A credential with this name already exists"
         else:
             response_msg = "Invalid credential data"
-        logger.exception("Credential validation failed: user=%s type=%s", user.pk, credential_type_slug)
+        logger.warning("Credential validation failed: user_id=%s type=%s", user.pk, credential_type_slug)
         raise _CredentialError(JsonResponse({"error": response_msg}, status=400)) from e
 
 
@@ -166,8 +171,8 @@ def api_credential_create(request: HttpRequest) -> JsonResponse:
         return err.response
 
     logger.info(
-        "Credential created: user=%s credential_id=%s type=%s",
-        safe_log_value(user.email),
+        "Credential created: user_id=%s credential_id=%s type=%s",
+        user.pk,
         cred_ref.credential_id,
         safe_log_value(credential_type_slug),
     )
@@ -192,8 +197,8 @@ def api_credential_delete(request: HttpRequest, credential_id: int) -> JsonRespo
         raise Http404("Credential not found") from None
 
     logger.info(
-        "Credential deleted: user=%s credential_id=%s",
-        safe_log_value(user.email),
+        "Credential deleted: user_id=%s credential_id=%s",
+        user.pk,
         safe_log_value(credential_id),
     )
     return JsonResponse({"success": True})

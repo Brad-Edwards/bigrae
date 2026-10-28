@@ -25,19 +25,34 @@ function readConfig() {
 }
 
 const config = readConfig();
+const ACCESS_URL_ERROR = 'Failed to generate access URL';
+
+// Read the server's error text from the shared API envelope
+// {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+// Any other shape returns the fallback, so a non-string is never shown.
+function apiErrorMessage(data, fallback) {
+    const error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
 
 function pollRdpSession(statusUrl, attemptsRemaining) {
     return fetch(statusUrl, { credentials: 'same-origin' })
         .then(function (response) {
             return response.json().then(function (data) {
                 if (!response.ok) {
-                    throw new Error(data.error || 'Failed to generate access URL');
+                    throw new Error(apiErrorMessage(data, ACCESS_URL_ERROR));
                 }
                 if (data.url) {
                     return data.url;
                 }
                 if (data.error) {
-                    throw new Error(data.error);
+                    throw new Error(apiErrorMessage(data, ACCESS_URL_ERROR));
                 }
                 if (attemptsRemaining <= 1) {
                     throw new Error('RDP session request timed out');
@@ -76,7 +91,7 @@ function openRdpSession(button, instanceUuid) {
     .then(function (response) {
         if (!response.ok) {
             return response.json().then(function (data) {
-                throw new Error(data.error || 'Failed to generate access URL');
+                throw new Error(apiErrorMessage(data, ACCESS_URL_ERROR));
             });
         }
         return response.json();
@@ -98,7 +113,11 @@ function openRdpSession(button, instanceUuid) {
         if (sessionWindow) {
             sessionWindow.close();
         }
-        alert('Failed to open session: ' + error.message);
+        // The Errors thrown above carry server or authored text. A browser
+        // error (fetch TypeError, JSON SyntaxError, DOMException) can quote a
+        // response body or URL, so show fixed text for it instead.
+        const reason = error?.name === 'Error' ? error.message : 'The request could not be completed.';
+        alert('Failed to open session: ' + reason);
     })
     .finally(function () {
         button.disabled = false;

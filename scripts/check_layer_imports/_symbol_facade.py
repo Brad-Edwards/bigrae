@@ -9,6 +9,7 @@ presentation layer may reach a symbol-restricted facade (for example
 """
 
 import ast
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -100,8 +101,8 @@ def get_facade_symbol_imports(layer_path: Path, restricted_facades: set[str]) ->
     for py_file in layer_path.rglob("*.py"):
         try:
             tree = ast.parse(py_file.resolve().read_text())
-        except (OSError, SyntaxError):
-            # nosec B112 - skip unreadable / unparseable files
+        except (OSError, SyntaxError) as exc:
+            print(f"WARNING: skipped unreadable or unparseable file {py_file}: {exc}", file=sys.stderr)
             continue
         file_symbols, file_bypass = _facade_symbol_imports_in_tree(tree, restricted_facades)
         for facade, names in file_symbols.items():

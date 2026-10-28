@@ -125,8 +125,8 @@ describe('yaml_editor', () => {
             expect(items[1].textContent).toBe('missing name');
         });
 
-        test('shows the caught error message when the request rejects', async () => {
-            globalThis.fetch.mockRejectedValue(new Error('offline'));
+        test('shows fixed text, not the browser error, when the request rejects', async () => {
+            globalThis.fetch.mockRejectedValue(new TypeError('offline'));
 
             globalThis.validateYAML();
             await flush();
@@ -134,7 +134,7 @@ describe('yaml_editor', () => {
             const result = document.getElementById('validationResult');
             expect(result.style.display).toBe('block');
             expect(result.className).toBe('validation-result validation-invalid');
-            expect(result.textContent).toBe('Error validating: offline');
+            expect(result.textContent).toBe('Error validating. Please try again.');
         });
     });
 });

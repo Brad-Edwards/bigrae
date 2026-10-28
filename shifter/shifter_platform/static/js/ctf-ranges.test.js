@@ -51,6 +51,35 @@ describe('CTFRangeManager', () => {
         if (manager) manager._stopProgressPolling();
     });
 
+    test('shows the authored fallback, never an object, when the error carries no message', async () => {
+        jest.spyOn(manager, 'startProgressPolling').mockImplementation(() => {});
+        fetchMock.mockResolvedValue({ ok: false, json: () => Promise.resolve({ error: { code: 'invalid' } }) });
+
+        await manager.provisionAll();
+
+        expect(globalThis.alert).toHaveBeenCalledWith('Error: Provisioning failed');
+    });
+
+    describe('browser failures', () => {
+        test.each([
+            ['provisionAll', (m) => m.provisionAll(), 'Error provisioning ranges. Please try again.'],
+            ['provisionOne', (m) => m.provisionOne('aaa-111', null), 'Error provisioning range. Please try again.'],
+            ['destroyOne', (m) => m.destroyOne('bbb-222', null), 'Error destroying range. Please try again.'],
+            ['recoverOne', (m) => m.recoverOne('aaa-111', null), 'Error recovering range. Please try again.'],
+            ['setSparePool', (m) => m.setSparePool(), 'Error updating spare pool. Please try again.'],
+            ['stopOne', (m) => m.stopOne('aaa-111', null), 'Error: stop failed. Please try again.'],
+        ])('%s shows fixed text, not the JSON parse error', async (_name, run, expected) => {
+            fetchMock.mockResolvedValue({
+                ok: false,
+                json: () => Promise.reject(new SyntaxError("Unexpected token '<', \"<html>\" is not valid JSON")),
+            });
+
+            await run(manager);
+
+            expect(globalThis.alert).toHaveBeenCalledWith(expected);
+        });
+    });
+
     describe('provisionAll', () => {
         test('sends POST to provision all URL with CSRF token', async () => {
             await manager.provisionAll();
@@ -92,7 +121,7 @@ describe('CTFRangeManager', () => {
             let pollSpy = jest.spyOn(manager, 'startProgressPolling').mockImplementation(() => {});
             fetchMock.mockResolvedValue({
                 ok: false,
-                json: () => Promise.resolve({ error: 'Event not found' }),
+                json: () => Promise.resolve({ error: { code: 'invalid', message: 'Event not found' } }),
             });
 
             await manager.provisionAll();
@@ -217,7 +246,7 @@ describe('CTFRangeManager', () => {
         test('shows error and re-enables button on failure', async () => {
             fetchMock.mockResolvedValue({
                 ok: false,
-                json: () => Promise.resolve({ error: 'No agent configured' }),
+                json: () => Promise.resolve({ error: { code: 'invalid', message: 'No agent configured' } }),
             });
 
             let btn = document.querySelector('.btn-provision');
@@ -275,7 +304,7 @@ describe('CTFRangeManager', () => {
         test('shows error and re-enables button on failure', async () => {
             fetchMock.mockResolvedValue({
                 ok: false,
-                json: () => Promise.resolve({ error: 'No range assigned' }),
+                json: () => Promise.resolve({ error: { code: 'invalid', message: 'No range assigned' } }),
             });
 
             let btn = document.querySelector('.btn-destroy');
@@ -329,7 +358,7 @@ describe('CTFRangeManager', () => {
         test('shows error on non-ok response and does not throw', async () => {
             fetchMock.mockResolvedValue({
                 ok: false,
-                json: () => Promise.resolve({ error: 'count must be non-negative' }),
+                json: () => Promise.resolve({ error: { code: 'invalid', message: 'count must be non-negative' } }),
             });
             document.getElementById('spare-pool-count').value = '-1';
 

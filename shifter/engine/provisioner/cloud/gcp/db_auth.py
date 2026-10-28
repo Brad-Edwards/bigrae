@@ -37,8 +37,8 @@ class GCPDBAuth:
             return str(token)
         except ImportError:
             raise CloudDBAuthError("GCP DB auth support requires google-auth") from None
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - credential suppliers can put proof in exception text; class name only
             # Native credential suppliers can include proof in their errors.
             # Neither log the provider exception nor expose its traceback chain.
-            logger.error("generate_auth_token: native authentication failed")
+            logger.error("generate_auth_token: native authentication failed exc_type=%s", type(exc).__name__)
             raise CloudDBAuthError("Failed to generate Cloud SQL IAM auth token") from None

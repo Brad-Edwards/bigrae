@@ -281,34 +281,33 @@ describe('NGFWWizardManager', () => {
             console.error = originalError;
         });
 
-        test('WebSocket onmessage logs an unknown status as "unknown" (no raw payload)', () => {
+        test('WebSocket onmessage does not write the status payload to the console', () => {
             wizard.ngfwId = 42;
             wizard.connectWebSocket();
 
             const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-            // A status outside the known set (here carrying CR/LF) must not reach
-            // the log verbatim; it is collapsed to the safe 'unknown' literal.
+            // A server-sent status (here carrying CR/LF) must never reach the
+            // console: status updates are not logged at all.
             mockWebSocket.onmessage({ data: JSON.stringify({ status: 'pending\r\nforged-log-entry' }) });
+            mockWebSocket.onmessage({ data: JSON.stringify({ status: 'pending' }) });
 
-            const statusLog = logSpy.mock.calls.find((args) => args[0] === 'NGFW status update:');
-            expect(statusLog).toBeDefined();
-            expect(statusLog[1]).toBe('unknown');
+            expect(logSpy).not.toHaveBeenCalled();
 
             logSpy.mockRestore();
         });
+    });
 
-        test('WebSocket onmessage logs a known status verbatim', () => {
-            wizard.ngfwId = 42;
-            wizard.connectWebSocket();
+    describe('startProvisioning', () => {
+        test.each([
+            [{ error: { code: 'invalid', message: 'Name already used' } }, 'Error: Name already used'],
+            [{ error: { code: 'invalid' } }, 'Error: The NGFW could not be provisioned.'],
+        ])('alerts the envelope error and returns to step 3 (%j)', async (body, expected) => {
+            globalThis.fetch.mockResolvedValue({ json: () => Promise.resolve(body) });
 
-            const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-            mockWebSocket.onmessage({ data: JSON.stringify({ status: 'pending' }) });
+            await wizard.startProvisioning();
 
-            const statusLog = logSpy.mock.calls.find((args) => args[0] === 'NGFW status update:');
-            expect(statusLog).toBeDefined();
-            expect(statusLog[1]).toBe('pending');
-
-            logSpy.mockRestore();
+            expect(globalThis.alert).toHaveBeenCalledWith(expected);
+            expect(wizard.currentStep).toBe(3);
         });
     });
 

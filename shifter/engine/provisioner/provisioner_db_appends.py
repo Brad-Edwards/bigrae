@@ -135,7 +135,7 @@ def append_operation_result(
             json.dumps(envelope),
         )
         _write_append(params, cur, savepoint=True)
-    except Exception:
+    except Exception:  # noqa: BLE001 - best-effort shadow append; logged with traceback, never fails the operation
         logger.warning(
             "%s operation_id_fp=%s result_kind=%s",
             _OPERATION_RESULT_APPEND_FAILED,

@@ -80,13 +80,13 @@ def log_activity(action: str, user: User | None, **metadata: Any) -> None:
     if user is not None and user.pk is None:
         raise ValueError(USER_PK_REQUIRED_MSG)
 
-    user_display = safe_log_value(user.email) if user else "anonymous"
+    user_id = user.pk if user else None
 
     try:
         ActivityLog.log(action, user=user, **metadata)
-        logger.debug("Logged activity '%s' for user %s", action, user_display)
+        logger.debug("Logged activity: action=%s user_id=%s", safe_log_value(action), user_id)
     except Exception:
-        logger.exception("Failed to log activity '%s' for user %s", action, user_display)
+        logger.exception("Failed to log activity: action=%s user_id=%s", safe_log_value(action), user_id)
         raise
 
 
@@ -145,7 +145,7 @@ def mark_user_deleted(
     profile = get_user_profile(user)
 
     if profile.is_deleted:
-        logger.warning("User %s is already deleted, updating timestamp", safe_log_value(user.email))
+        logger.warning("User is already deleted, updating timestamp: user_id=%s", user.pk)
 
     if audit is None:
         audit = AuditContext(
@@ -195,9 +195,9 @@ def mark_user_deleted(
                 strict=strict,
             )
 
-        logger.debug("Marked user %s as deleted", safe_log_value(user.email))
+        logger.info("Marked user deleted: user_id=%s actor_id=%s", user.pk, audit.actor_id)
     except Exception:
-        logger.exception("Failed to mark user %s as deleted", safe_log_value(user.email))
+        logger.exception("Failed to mark user deleted: user_id=%s", user.pk)
         raise
 
 
@@ -256,9 +256,9 @@ def create_user_profile(user: User) -> None:
 
     try:
         UserProfile.objects.create(user=user)
-        logger.debug("Created profile for user %s", safe_log_value(user.email))
+        logger.debug("Created profile: user_id=%s", user.pk)
     except Exception:
-        logger.exception("Failed to create profile for user %s", safe_log_value(user.email))
+        logger.exception("Failed to create profile: user_id=%s", user.pk)
         raise
 
 
@@ -279,9 +279,9 @@ def save_user_profile(user: User) -> None:
 
     try:
         UserProfile.objects.get_or_create(user=user)
-        logger.debug("Ensured profile for user %s", safe_log_value(user.email))
+        logger.debug("Ensured profile: user_id=%s", user.pk)
     except Exception:
-        logger.exception("Failed to ensure profile for user %s", safe_log_value(user.email))
+        logger.exception("Failed to ensure profile: user_id=%s", user.pk)
         raise
 
 
@@ -395,15 +395,15 @@ def bind_provider_identity(user: User, issuer: str, subject: str) -> BindOutcome
             stored_subject = locked_profile.cognito_sub or ""
 
             if stored_issuer == issuer and stored_subject == subject:
-                logger.debug("Provider identity already bound for user %s", safe_log_value(user.email))
+                logger.debug("Provider identity already bound: user_id=%s", user.pk)
                 return BindOutcome.UNCHANGED
 
             if not stored_issuer and stored_subject == subject:
                 locked_profile.issuer = issuer
                 locked_profile.save(update_fields=["issuer"])
                 logger.info(
-                    "Legacy identity row for user %s acquired verified issuer (subject=%s)",
-                    safe_log_value(user.email),
+                    "Legacy identity row acquired verified issuer: user_id=%s subject=%s",
+                    user.pk,
                     safe_log_fingerprint(subject),
                 )
                 return BindOutcome.ISSUER_ACQUIRED
@@ -413,8 +413,8 @@ def bind_provider_identity(user: User, issuer: str, subject: str) -> BindOutcome
                 locked_profile.cognito_sub = subject
                 locked_profile.save(update_fields=["issuer", "cognito_sub"])
                 logger.info(
-                    "Bound provider identity for user %s (subject=%s)",
-                    safe_log_value(user.email),
+                    "Bound provider identity: user_id=%s subject=%s",
+                    user.pk,
                     safe_log_fingerprint(subject),
                 )
                 return BindOutcome.BOUND
@@ -424,8 +424,8 @@ def bind_provider_identity(user: User, issuer: str, subject: str) -> BindOutcome
             )
     except IntegrityError as exc:
         logger.warning(
-            "Provider identity bind collided with a different account for user %s (subject=%s)",
-            safe_log_value(user.email),
+            "Provider identity bind collided with a different account: user_id=%s subject=%s",
+            user.pk,
             safe_log_fingerprint(subject),
         )
         raise BindingConflictError("Presented provider identity is already bound to a different account") from exc

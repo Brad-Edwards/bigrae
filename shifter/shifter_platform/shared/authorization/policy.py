@@ -26,7 +26,7 @@ def require_authorization(request: AuthorizationRequest) -> None:
     """Require the sole provider decision while keeping outages fail-closed."""
     try:
         decision = configured_authorization_provider().check(request)
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise AuthorizationProviderBindingError(_APPLICATION_AUTHORITY_UNAVAILABLE) from None
     if decision.kind == DecisionKind.EVALUATOR_ERROR:
         raise AuthorizationProviderBindingError(_APPLICATION_AUTHORITY_UNAVAILABLE)
@@ -43,5 +43,5 @@ def authorized_requests(requests: Sequence[AuthorizationRequest]) -> tuple[bool,
         if len(decisions) != len(requests) or any(result.kind == DecisionKind.EVALUATOR_ERROR for result in decisions):
             raise ValueError("Incomplete authorization result")
         return tuple(result.allowed for result in decisions)
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise AuthorizationProviderBindingError(_APPLICATION_AUTHORITY_UNAVAILABLE) from None

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from cms.exceptions import CMSError
 from cms.models import AgentConfig
 from shared.credentials import CredentialContext
+from shared.exceptions import AssetError
 from shared.identity_scope import ResourceScope
 
 from ._common import (
@@ -184,6 +185,9 @@ def delete_agent(user: User | CredentialContext, agent_id: int) -> None:
             user.id,
         )
 
+    # get_agent and the asset service log these outcomes where they are raised.
+    except (TypeError, ValueError, CMSError, AssetError):
+        raise
     except Exception:
         logger.exception(
             "Error in delete_agent for user_id=%s, agent_id=%s",
@@ -286,7 +290,7 @@ def get_agent(user: User | CredentialContext, agent_id: int) -> AgentConfig:
             raise TypeError(msg)
 
         if agent.user_id != user.id:
-            logger.error(
+            logger.warning(
                 "get_agent: access denied - agent_id=%s owned by user_id=%s, requested by user_id=%s",
                 agent_id,
                 agent.user_id,
@@ -295,7 +299,7 @@ def get_agent(user: User | CredentialContext, agent_id: int) -> AgentConfig:
             raise CMSError(f"Agent {agent_id} not found")
 
         if agent.deleted_at is not None:
-            logger.error(
+            logger.warning(
                 "get_agent: agent_id=%s is deleted",
                 agent_id,
             )
@@ -309,7 +313,7 @@ def get_agent(user: User | CredentialContext, agent_id: int) -> AgentConfig:
         return agent
 
     except AgentConfig.DoesNotExist:
-        logger.error("get_agent: agent_id=%s not found", agent_id)
+        logger.warning("get_agent: agent_id=%s not found", agent_id)
         raise CMSError(f"Agent {agent_id} not found") from None
     except (TypeError, CMSError):
         raise

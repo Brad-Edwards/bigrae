@@ -49,6 +49,13 @@ class UploadCompleteSerializer(serializers.Serializer):
 
     upload_token = serializers.CharField(allow_blank=True, required=False, default="")
 
+    def validate_upload_token(self, value: str) -> str:
+        # The completion service requires a token; reject a blank one as a 400
+        # here instead of letting the service contract error become a 500.
+        if not value.strip():
+            raise serializers.ValidationError("This field is required.", code="required")
+        return value
+
 
 class UploadCancelSerializer(serializers.Serializer):
     """Validate agent-upload cancel requests."""

@@ -49,7 +49,7 @@ class TestSubnetIndexSerialization:
             started.wait(timeout=10)
             try:
                 result["index"] = Range.allocate_subnet_index()
-            except Exception as exc:  # surfaced by the assertions below
+            except Exception as exc:  # noqa: BLE001 - surfaced by the assertions below
                 result["error"] = exc
             finally:
                 finished.set()

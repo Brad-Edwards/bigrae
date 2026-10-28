@@ -116,6 +116,27 @@ describe("ParticipantDetailPage", () => {
     expect(screen.queryByText("Generated-Participant-Password-42")).not.toBeInTheDocument();
   });
 
+  it("reports a failed award revocation", async () => {
+    mockApi.mockImplementation((path: string, options?: RequestOptions) => {
+      if (path === "/ctf/participants/p1/") {
+        return Promise.resolve({ ...PARTICIPANT, awards: [{ id: "a1", points: 50, reason: "Bonus" }] });
+      }
+      if (path === "/ctf/events/e1/ranges/") return Promise.resolve({ event_id: "e1", ranges: [], progress: {} });
+      if (path === "/ctf/events/e1/organizer-scoreboard/") return Promise.resolve({ brackets: [], rankings: [] });
+      if (path === "/ctf/awards/a1/delete/" && options?.method === "POST") {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      return Promise.resolve({});
+    });
+    const user = userEvent.setup();
+    render();
+
+    await user.click(await screen.findByRole("button", { name: "Revoke" }));
+
+    expect(await screen.findByText("Could not revoke the award.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
+
   it("sets an organizer-supplied password through the same dialog", async () => {
     mockApi.mockImplementation((path: string, options?: RequestOptions) => {
       if (path === "/ctf/participants/p1/") return Promise.resolve(PARTICIPANT);

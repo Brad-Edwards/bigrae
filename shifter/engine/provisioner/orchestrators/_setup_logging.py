@@ -40,7 +40,8 @@ class _SetupOrchestratorLoggingMixin:
         "RDP_PASSWORD",
         "GUEST_PASSWORD",
     )
-    SENSITIVE_CONTEXT_KEY_PARTS = ("password", "secret", "token")
+    # "presigned": XDR plans carry a presigned agent download URL in their context.
+    SENSITIVE_CONTEXT_KEY_PARTS = ("password", "secret", "token", "presigned")
 
     def _log_step_success(
         self,

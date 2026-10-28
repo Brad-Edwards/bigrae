@@ -424,11 +424,11 @@ def _abandon_preparation(request_id: UUID | None, system_user: User | None, draw
         try:
             retire_generations_for_request(request_id)
         except Exception:
-            logger.exception("warm-pool cleanup: ledger retire failed")
+            logger.exception("warm-pool cleanup: ledger retire failed request_id=%s", request_id)
         try:
             RangeInstance.objects.filter(request__request_id=request_id).update(status=ResourceStatus.FAILED.value)
         except Exception:
-            logger.exception("warm-pool cleanup: range-instance fail-mark failed")
+            logger.exception("warm-pool cleanup: range-instance fail-mark failed request_id=%s", request_id)
     _delete_managed_warm_user(system_user)
 
 

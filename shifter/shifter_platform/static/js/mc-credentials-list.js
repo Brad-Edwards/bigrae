@@ -9,6 +9,20 @@
  * #mc-credentials-config JSON payload.
  */
 
+// Read the server's error text from the shared API envelope
+// {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+// Any other shape returns the fallback, so a non-string is never shown.
+function apiErrorMessage(data, fallback) {
+    const error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
 function initFilterTabs() {
     document.querySelectorAll('.filter-tab').forEach(function (tab) {
         tab.addEventListener('click', function () {
@@ -48,7 +62,7 @@ function initDeleteButtons(csrfToken) {
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
-                        alert(data.error);
+                        alert(apiErrorMessage(data, 'An error occurred. Please try again.'));
                     } else {
                         globalThis.location.reload();
                     }

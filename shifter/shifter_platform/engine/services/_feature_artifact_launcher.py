@@ -100,7 +100,7 @@ def _reconcile(
             return
         finalize_attempt(row.id, attempt, result, target=target)
         jobs.cleanup_acquisition(attempt, image=image, args=args, runner=runner)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - retried next tick; provider text stays out of the log
         # Kubernetes and provider errors can carry diagnostics; log only the type.
         # The attempt stays leased and is retried next tick until it expires.
         logger.warning(

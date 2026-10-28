@@ -78,7 +78,7 @@ def _check_asset(url: str, label: str, session: str, cookie_name: str, failures:
     except urllib.error.HTTPError as exc:
         failures.append(f"{label} -> HTTP {exc.code}")
         return b""
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - text can carry the session cookie; record only the class name
         failures.append(f"{label} -> {type(exc).__name__}")
         return b""
     if status != 200:

@@ -54,10 +54,7 @@ def ctf_navigation(request: HttpRequest) -> dict[str, Any]:
 
         return result
     except Exception:
-        logger.exception(
-            "Error in ctf_navigation context processor for user %s",
-            request.user.email,
-        )
+        logger.exception("Error in ctf_navigation context processor user_id=%s", request.user.pk)
         return {
             "is_ctf_user": False,
             "is_ctf_organizer": False,

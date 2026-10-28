@@ -496,7 +496,7 @@ def ensure_gcp_identity_platform_operator(
     _validate_gcp_bootstrap_operator_email(email, outputs=outputs)
 
     if dry_run:
-        info(f"[DRY-RUN] Would create or verify the Identity Platform operator account for {email}")
+        info("[DRY-RUN] Would create or verify the Identity Platform operator account")
         return email
 
     try:
@@ -511,11 +511,11 @@ def ensure_gcp_identity_platform_operator(
                 "emailVerified": True,
             },
         )
-        success(f"Created Identity Platform operator {email}")
+        success("Created the Identity Platform operator account")
         return email
     except RuntimeError as exc:
         if "EMAIL_EXISTS" in str(exc):
-            info(f"Identity Platform operator {email} already exists")
+            info("The Identity Platform operator account already exists")
             return email
         raise
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from shared.identity_scope import ResourceScope
     from shared.schemas.cms_projections import UploadInitiation
 
+
+logger = logging.getLogger(__name__)
 
 _INVALID_UPLOAD_REFERENCE = "Invalid upload reference"
 _UPLOAD_UNAVAILABLE = "Upload unavailable"
@@ -149,7 +152,7 @@ def initiate_scoped_upload(
         require_content_scope(credential, scope, "manage_content")
         token = generate_scoped_upload_token(row)
         return {"presigned_url": url, "s3_key": row.staging_key, "upload_token": token, "expected_os": row.os_slug}
-    except Exception:
+    except Exception:  # noqa: BLE001 - value-free upload boundary; storage and token errors stay out of the chain
         # A provider timeout can have issued a capability. Preserve custody and
         # cleanup evidence; cancellation cannot make that URL expire early.
         AgentUpload.objects.filter(pk=row.pk).update(state="cancelled")
@@ -188,7 +191,7 @@ def _authorized_upload(credential: CredentialContext, token: str) -> tuple[Agent
         if row.storage_provider != str(settings.CLOUD_PROVIDER) or payload["s3_key"] != row.staging_key:
             raise ValueError("Invalid storage binding")
         return row, scope
-    except Exception:
+    except Exception:  # noqa: BLE001 - value-free upload boundary; storage and token errors stay out of the chain
         raise CMSError(_UPLOAD_UNAVAILABLE) from None
 
 
@@ -278,7 +281,7 @@ def complete_scoped_upload(credential: CredentialContext, token: str) -> AgentCo
         )
         storage.tag_object(bucket=row.storage_bucket, key=row.install_key, tags={"status": "completed"})
         return _commit_installer(credential, token, row, scope)
-    except Exception:
+    except Exception:  # noqa: BLE001 - value-free upload boundary; storage and token errors stay out of the chain
         # Keep the original generation and both storage keys for bounded cleanup.
         AgentUpload.objects.filter(pk=row.pk).exclude(state="completed").update(state="cancelled", cleanup_pending=True)
         raise CMSError("Upload could not be finalized") from None
@@ -331,7 +334,7 @@ def cancel_scoped_upload(credential: CredentialContext, token: str) -> None:
             )
     except CMSError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - value-free upload boundary; storage and token errors stay out of the chain
         raise CMSError(_UPLOAD_UNAVAILABLE) from None
 
 
@@ -434,8 +437,13 @@ def reconcile_upload_cleanup(*, limit: int = 100) -> int:
                     row.save(update_fields=["state", "updated_at"])
             _cleanup_upload(row)
             cleaned += 1
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - storage errors carry provider payloads; the row is retried
             # Retain the original resource evidence and reservation on uncertainty.
+            logger.warning(
+                "reconcile_upload_cleanup: cleanup failed upload_id=%s exc_type=%s",
+                candidate.pk,
+                type(exc).__name__,
+            )
             AgentUpload.objects.filter(pk=candidate.pk).update(updated_at=now)
     return cleaned
 

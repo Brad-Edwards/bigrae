@@ -163,6 +163,13 @@ class TestCompleteUpload:
         client, _ = authenticated_client(email="comp-json@example.com")
         assert _post(client, COMPLETE, "not json").status_code == 400
 
+    @pytest.mark.parametrize("payload", [{}, {"upload_token": ""}, {"upload_token": "   "}])
+    def test_missing_or_blank_token_is_a_validation_error(self, authenticated_client, payload):
+        client, _ = authenticated_client(email="comp-blank@example.com")
+        resp = _post(client, COMPLETE, payload)
+        assert resp.status_code == 400
+        assert resp.json()["error"]["details"] == {"upload_token": ["This field is required."]}
+
     def test_invalid_token_is_rejected_and_clears_lock(self, authenticated_client):
         client, _ = authenticated_client(email="comp-bad@example.com")
         session = client.session

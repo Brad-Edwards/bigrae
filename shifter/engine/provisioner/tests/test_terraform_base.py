@@ -147,6 +147,28 @@ class TestWorkspaceInitialization:
         assert not any("dynamodb_table=" in arg for arg in init_args)
 
 
+class TestRunTerraformFailure:
+    """A failed Terraform command keeps raw stderr out of the raised error text."""
+
+    def test_failure_logs_stderr_once_and_raises_bounded_error(self, tmp_path, caplog):
+        import logging
+
+        from terraform_base import TerraformCommandError, run_terraform
+
+        failed = MagicMock(returncode=1, stdout="", stderr="Error: synthetic provider response")
+        with (
+            patch("terraform_base._run.subprocess.run", return_value=failed),
+            caplog.at_level(logging.ERROR, logger="terraform_base._run"),
+            pytest.raises(RuntimeError) as error,
+        ):
+            run_terraform(["apply", "-auto-approve"], tmp_path)
+
+        # The exception text reaches range error text and operation results (ADR-043-R5).
+        assert isinstance(error.value, TerraformCommandError)
+        assert str(error.value) == "Terraform apply failed (exit_code=1)"
+        assert caplog.text.count("synthetic provider response") == 1
+
+
 class TestStateCleanup:
     """Tests for provider-aware cleanup behavior."""
 
@@ -538,9 +560,11 @@ class TestWorkspaceStaging:
         clear=True,
     )
     @patch("terraform_base.run_terraform")
-    def test_apply_runs_from_staged_path_and_cleans_up(self, mock_run, tmp_path, monkeypatch):
+    def test_apply_runs_from_staged_path_and_cleans_up(self, mock_run, tmp_path, monkeypatch, caplog):
         """apply() must stage the module, run terraform from the staged path, and clean up the
         staged tree on exit (success path) so successive runs do not pile up in the workspace."""
+        import logging
+
         from terraform_base import apply
 
         source = tmp_path / "src" / "modules" / "range"
@@ -564,13 +588,24 @@ class TestWorkspaceStaging:
             )
             result = MagicMock()
             result.returncode = 0
-            result.stdout = "{}" if args[0] == "output" else "apply ok"
+            # Output values and apply stdout can carry secrets (presigned agent URLs).
+            result.stdout = (
+                json.dumps({"instances": {"value": [{"xdr_agent_url": "https://synthetic-presigned-url"}]}})
+                if args[0] == "output"
+                else "apply ok: synthetic-plan-echo"
+            )
             result.stderr = ""
             return result
 
         mock_run.side_effect = _fake_run
 
-        apply("ranges", "req-clean", {"foo": "bar"}, source, "Range")
+        with caplog.at_level(logging.DEBUG, logger="terraform_base._run"):
+            outputs = apply("ranges", "req-clean", {"foo": "bar"}, source, "Range")
+
+        assert outputs == {"instances": [{"xdr_agent_url": "https://synthetic-presigned-url"}]}
+        assert "synthetic-presigned-url" not in caplog.text
+        assert "synthetic-plan-echo" not in caplog.text
+        assert "keys=['instances']" in caplog.text
 
         # init + apply + output → at least 3 invocations
         assert len(observed) >= 3

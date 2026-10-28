@@ -206,4 +206,5 @@ def _audit_assessment(assessment: CapacityAssessment, result: CapacityAssessment
             ),
         )
     except Exception:
-        logger.warning("capacity: failed to write assessment audit record")
+        # audit_log already logs writer failures; anything reaching here is unexpected.
+        logger.exception("capacity: failed to write assessment audit record assessment_id=%s", assessment.pk)

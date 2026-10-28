@@ -25,6 +25,7 @@ from executors.base import (
     ExecutorTimeoutError,
     GuestReadinessTimeoutError,
 )
+from log_redact import safe_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -428,7 +429,10 @@ class GuestSSHExecutor:
             if elapsed > timeout_seconds:
                 detail = self._last_probe_detail or "no probe diagnostic captured"
                 logger.warning(
-                    "SSH on %s did not become available within %ss (last probe: %s)", target, timeout_seconds, detail
+                    "SSH on %s did not become available within %ss (last probe: %s)",
+                    target,
+                    timeout_seconds,
+                    safe_log_value(detail),
                 )
                 raise GuestReadinessTimeoutError(
                     f"guest SSH did not become ready within {timeout_seconds}s: {_probe_failure_category(detail)}"
@@ -438,12 +442,12 @@ class GuestSSHExecutor:
                 logger.info("SSH ready on %s after %.1fs", target, elapsed)
                 return True
 
-            logger.info(
+            logger.debug(
                 "Waiting for SSH on %s... (%.1fs / %ds) last_probe=%s",
                 target,
                 elapsed,
                 timeout_seconds,
-                self._last_probe_detail or "(pending)",
+                safe_log_value(self._last_probe_detail or "(pending)"),
             )
             time.sleep(self._poll_interval)
 

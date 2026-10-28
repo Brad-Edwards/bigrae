@@ -79,6 +79,12 @@ _SD_SUFFIX_TO_OUTPUT_KEY: dict[str, str] = {
 
 _CLUSTER_OUTPUT_KEY = "guacamole_ecs_cluster_name"
 
+# Failures that the default aws/terraform runners below raise:
+# - RuntimeError: the CLI is missing or exits non-zero.
+# - OSError: the CLI cannot start.
+# - ValueError: the output is not valid UTF-8 JSON.
+_RUNNER_ERRORS = (OSError, RuntimeError, ValueError)
+
 # ---------------------------------------------------------------------------
 # Default subprocess-based runners (no boto3; mirrors check_rds pattern)
 # ---------------------------------------------------------------------------
@@ -279,7 +285,7 @@ def _wait_for_ecs_drain(
     for attempt in range(max(1, deps.max_attempts)):
         try:
             poll_resp = deps.ecs_describe(cluster, service_name)
-        except Exception as exc:
+        except _RUNNER_ERRORS as exc:
             out_stream.write(
                 f"::error::Poll describe failed service={service_name!r} "
                 f"cluster={cluster!r} attempt={attempt + 1}: {exc}\n"
@@ -315,7 +321,7 @@ def _wait_for_cloud_map_deregister(
     for attempt in range(max(1, deps.sd_max_attempts)):
         try:
             instances_resp = deps.sd_list(sd_service_id)
-        except Exception as exc:
+        except _RUNNER_ERRORS as exc:
             out_stream.write(
                 f"::error::Cloud Map list-instances failed "
                 f"service_id={sd_service_id!r} address={address!r} "
@@ -394,7 +400,7 @@ def _drain_one_service(
     # Describe ECS service to verify it exists and capture desiredCount.
     try:
         describe_resp = deps.ecs_describe(cluster, service_name)
-    except Exception as exc:
+    except _RUNNER_ERRORS as exc:
         out_stream.write(
             f"::error::Failed to describe ECS service={service_name!r} cluster={cluster!r} address={address!r}: {exc}\n"
         )
@@ -420,7 +426,7 @@ def _drain_one_service(
     # Scale ECS service to 0.
     try:
         deps.ecs_update(cluster, service_name, 0)
-    except Exception as exc:
+    except _RUNNER_ERRORS as exc:
         out_stream.write(f"::error::Failed to scale service={service_name!r} cluster={cluster!r} to 0: {exc}\n")
         return False
 
@@ -455,7 +461,7 @@ def drain(
     """
     try:
         plan_json = terraform_show(tf_plan)
-    except Exception as exc:
+    except _RUNNER_ERRORS as exc:
         out_stream.write(f"::error::Failed to read terraform plan {tf_plan!r}: {exc}\n")
         return 1
 
@@ -473,7 +479,7 @@ def drain(
     # Load TF outputs once (kept in memory only; may include sensitive values).
     try:
         tf_out = terraform_outputs(tf_outputs_from)
-    except Exception as exc:
+    except _RUNNER_ERRORS as exc:
         out_stream.write(f"::error::Failed to read terraform outputs: {exc}\n")
         return 1
 
@@ -522,7 +528,7 @@ def restore(
 
     try:
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         out_stream.write(f"::error::Failed to read snapshot {snapshot_path}: {exc}\n")
         return 1
 
@@ -543,7 +549,7 @@ def restore(
         out_stream.write(f"Restoring: cluster={cluster!r} service={service_name!r} desiredCount={desired_count}\n")
         try:
             ecs_update(cluster, service_name, desired_count)
-        except Exception as exc:
+        except _RUNNER_ERRORS as exc:
             out_stream.write(
                 f"::error::Failed to restore service={service_name!r} "
                 f"cluster={cluster!r} to desiredCount={desired_count}: {exc}\n"

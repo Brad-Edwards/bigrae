@@ -604,11 +604,18 @@ class TestChallengeRatings:
         )
         return challenge
 
-    def test_rate_challenge_after_solving(self, participant, solved_challenge):
+    def test_rate_challenge_after_solving(self, participant, solved_challenge, caplog):
+        import logging
+
         from ctf.services.submission import rate_challenge
 
-        rating = rate_challenge(participant.id, solved_challenge.id, 4)
+        # caplog fails the test on a bad format spec in the rating log line,
+        # instead of the logging module dropping the record.
+        submission_logger = logging.getLogger("ctf.services.submission")
+        with caplog.at_level(logging.INFO, logger=submission_logger.name):
+            rating = rate_challenge(participant.id, solved_challenge.id, 4)
         assert rating.value == 4
+        assert "value=4" in caplog.text
 
     def test_rate_challenge_before_solving_fails(self, active_event, participant):
         from ctf.exceptions import CTFValidationError

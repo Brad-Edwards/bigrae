@@ -11,6 +11,20 @@ const BOOTSTRAP_POLL_ATTEMPTS = 60;
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// Read the server's error text from the shared API envelope
+// {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+// Any other shape returns the fallback, so a non-string is never shown.
+function apiErrorMessage(data, fallback) {
+    const error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
 async function readJson(response) {
     try {
         return await response.json();
@@ -26,7 +40,7 @@ async function pollGuacamoleBootstrap(statusUrl, sessionLabel) {
         });
         const data = await readJson(response);
         if (!response.ok) {
-            throw new Error(data.error || `Failed to generate ${sessionLabel} URL`);
+            throw new Error(apiErrorMessage(data, `Failed to generate ${sessionLabel} URL`));
         }
         if (data.url) {
             return data.url;
@@ -67,7 +81,7 @@ async function openGuacamoleSession(button, instanceUuid, endpointUrl, sessionLa
 
         const data = await readJson(response);
         if (!response.ok) {
-            throw new Error(data.error || `Failed to generate ${sessionLabel} URL`);
+            throw new Error(apiErrorMessage(data, `Failed to generate ${sessionLabel} URL`));
         }
 
         const sessionUrl = await resolveGuacamoleUrl(data, sessionLabel);
@@ -81,7 +95,11 @@ async function openGuacamoleSession(button, instanceUuid, endpointUrl, sessionLa
         }
     } catch (error) {
         console.error(`${sessionLabel} button error:`, error);
-        alert(`Failed to open ${sessionLabel} session: ${error.message}`);
+        // The Errors thrown above carry server or authored text. A browser
+        // error (fetch TypeError, JSON SyntaxError, DOMException) can quote a
+        // response body or URL, so show fixed text for it instead.
+        const reason = error?.name === 'Error' ? error.message : 'The request could not be completed.';
+        alert(`Failed to open ${sessionLabel} session: ${reason}`);
     } finally {
         button.disabled = false;
         button.classList.remove('loading');

@@ -36,6 +36,7 @@ from ctf.enums_communication import (
     IntentStatus,
     TriggerKind,
 )
+from ctf.exceptions import CTFCommunicationError
 from shared.field_encryption import EncryptedStringField
 
 from ._base import CTFBaseModel, ImmutableFieldsMixin
@@ -172,8 +173,8 @@ class CommunicationCampaign(CTFBaseModel):
         ):
             try:
                 validator(getattr(self, field))
-            except Exception as exc:
-                errors.setdefault(field, []).append(str(exc))
+            except CTFCommunicationError as exc:
+                errors.setdefault(field, []).append(exc.message)
         if errors:
             raise ValidationError(errors)
 

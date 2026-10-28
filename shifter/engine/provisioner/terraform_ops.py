@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from shared.range_cells import RangeCellContractError, validate_scenario_artifact
+from shared.range_cells import validate_scenario_artifact
 from shared.range_instantiation_policy import InstantiationPurpose
 
 import range_terraform_runner
@@ -43,7 +43,7 @@ from range_subnet_allocation import (
     _realized_range_spec_for_destroy,
     _reserve_range_subnet_cidrs,
 )
-from state_helpers import _validate_provisioned_outputs
+from state_helpers import _authored_failure_message, _validate_provisioned_outputs
 from terraform_ngfw_range import (
     _configure_ngfw_for_range,
     _ensure_ngfw_ready_for_provisioning,
@@ -171,7 +171,7 @@ def _attempt_terraform_auto_cleanup(operation: RangeOperation) -> None:
     failure: str | None = None
     try:
         _teardown_owned_range_resources(operation)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - best-effort compensation; the class name is logged below (ADR-043-R5)
         failure = type(exc).__name__
     if failure is None:
         logger.info("Compensation destroy succeeded for range_id=%s", operation.range_id)
@@ -200,11 +200,10 @@ def _dispatch_terraform_operation(kind: str, operation: RangeOperation) -> None:
         raise ValueError(f"Unknown operation: {kind}")
 
 
-def _safe_failure_message(exc: Exception) -> str:
-    """Return a bounded authored event message for a lifecycle failure."""
-    if isinstance(exc, RangeCellContractError):
-        return "Range-cell contract validation failed"
-    return str(exc)[:1000]
+def _safe_failure_message(exc: Exception, operation: str) -> str:
+    """Return the authored range error text for a lifecycle failure (STANDARD A5, ADR-043-R5)."""
+    stage = "provision" if operation == "up" else operation
+    return _authored_failure_message(exc, f"Range {stage}")
 
 
 def run_range_terraform(operation: str, request_id: str, *, operation_id: str | None = None) -> None:
@@ -257,8 +256,10 @@ def run_range_terraform(operation: str, request_id: str, *, operation_id: str | 
         )
         _dispatch_terraform_operation(operation, range_operation)
     except Exception as e:
-        error_msg = _safe_failure_message(e)
-        logger.exception("Range Terraform operation failed: %s", error_msg)
+        error_msg = _safe_failure_message(e, operation)
+        logger.exception(
+            "Range Terraform operation failed operation=%s range_id=%s request_id=%s", operation, range_id, request_id
+        )
         if operation == "up" and range_operation is not None:
             _attempt_terraform_auto_cleanup(range_operation)
         update_range_status(

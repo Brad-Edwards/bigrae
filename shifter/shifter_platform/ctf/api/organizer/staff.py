@@ -93,9 +93,9 @@ class EventStaffView(APIView):
                     serializer.validated_data["role"],
                 )
             except CTFNotFoundError as exc:
-                _raise_not_found(str(exc))
+                _raise_not_found(exc.message)
             except CTFValidationError as exc:
-                _raise_bad_request(str(exc))
+                _raise_bad_request(exc.message)
             return Response(_staff_payload(staff), status=status.HTTP_201_CREATED)
         except _CtfApiError as exc:
             return exc.to_response(request)
@@ -119,9 +119,9 @@ class EventStaffMemberView(APIView):
             try:
                 revoke_event_staff(event_id, _actor(request), user_id)
             except CTFNotFoundError as exc:
-                _raise_not_found(str(exc))
+                _raise_not_found(exc.message)
             except CTFValidationError as exc:
-                _raise_bad_request(str(exc))
+                _raise_bad_request(exc.message)
             return Response({"deleted": True, "id": str(user_id)})
         except _CtfApiError as exc:
             return exc.to_response(request)
@@ -152,9 +152,9 @@ class EventOwnershipTransferView(APIView):
                     serializer.validated_data["user_id"],
                 )
             except CTFNotFoundError as exc:
-                _raise_not_found(str(exc))
+                _raise_not_found(exc.message)
             except CTFValidationError as exc:
-                _raise_bad_request(str(exc))
+                _raise_bad_request(exc.message)
             return Response({"id": str(event.id), "name": event.name, "status": event.status})
         except _CtfApiError as exc:
             return exc.to_response(request)

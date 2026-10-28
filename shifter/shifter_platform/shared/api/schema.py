@@ -171,7 +171,7 @@ class PlatformAutoSchema(AutoSchema):
         if callable(get_permissions):
             try:
                 return list(get_permissions())
-            except Exception:
+            except Exception:  # noqa: BLE001 - isolates view code; falls back to static permission classes
                 # Schema generation must not crash on a view's dynamic permissions.
                 logger.debug(
                     "get_permissions() failed during schema generation for %s; using static permission_classes",

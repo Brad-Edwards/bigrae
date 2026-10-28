@@ -89,7 +89,7 @@ async def run_load(
             route_class = weighted_choice(weights, rng.random())
             try:
                 result = await execute_one(actor, route_class)
-            except Exception:
+            except Exception:  # noqa: BLE001 - virtual-user loop: the result records executor_error; the run continues
                 result = RouteResult(
                     route_class,
                     _kind(route_class),

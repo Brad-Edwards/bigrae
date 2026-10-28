@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from cms.exceptions import CMSError, WorkspaceLaunchQuotaExceeded
 from cms.models import RaesPackageSource, RangeInstance, Request
 from shared.credentials import resolve_local_credential
 from shared.enums import RangeSource, ResourceStatus
+from shared.log_sanitize import safe_log_value
 from shared.range_instantiation_policy import InstantiationPurpose, assert_range_backend_egress_supported
 from workspaces.services import (
     WorkspaceQuotaAuditContext,
@@ -35,6 +37,7 @@ if TYPE_CHECKING:
     from shared.range_instantiation_policy import BackendAdmission
     from shared.schemas.range import RangeContext
 
+logger = logging.getLogger(__name__)
 
 _SOURCE_FIELDS = (
     "scenario_id",
@@ -141,7 +144,12 @@ def create_scoped_range(
         )
     except WorkspaceLaunchQuotaExceeded:
         raise
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - dispatch causes can carry private provider material
+        logger.warning(
+            "create_scoped_range: launch refused scenario_id=%s exc_type=%s",
+            safe_log_value(scenario),
+            type(exc).__name__,
+        )
         raise CMSError("Range launch unavailable") from None
 
 

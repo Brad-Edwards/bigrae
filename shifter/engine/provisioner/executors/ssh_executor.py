@@ -406,7 +406,7 @@ class SSHExecutor:
                 )
 
             return is_ready
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - readiness probe: any SSH/CLI failure means "not ready yet"; caller polls
             logger.info("SSH readiness check exception for %s: %s", host, exc)
             return False
 

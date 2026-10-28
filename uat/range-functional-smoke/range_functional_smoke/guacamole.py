@@ -224,7 +224,7 @@ def _decode_client_id(client_id: str) -> tuple[str, str]:
     padded = client_id + "=" * (-len(client_id) % 4)
     try:
         raw = base64.b64decode(padded).decode("utf-8")
-    except Exception as exc:
+    except ValueError as exc:  # binascii.Error and UnicodeDecodeError are both ValueError
         raise GuacamoleCheckError("Guacamole client identifier is not decodable base64") from exc
     parts = raw.split("\0")
     if len(parts) != 3 or not parts[0]:

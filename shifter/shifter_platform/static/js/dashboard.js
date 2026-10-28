@@ -222,6 +222,33 @@ class DashboardManager extends DashboardLaunchBaseClass {
         }
     }
 
+    /**
+     * Read the server's error text from the shared API envelope
+     * {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+     * Any other shape returns the fallback, so a non-string is never shown.
+     */
+    _apiErrorMessage(data, fallback) {
+        const error = data?.error;
+        if (typeof error === 'string' && error) {
+            return error;
+        }
+        if (typeof error?.message === 'string' && error.message) {
+            return error.message;
+        }
+        return fallback;
+    }
+
+    /**
+     * User-facing text for a failed range action. The action methods throw a
+     * plain Error that carries the server's error text or the authored
+     * fallback. A browser error (a fetch TypeError, or a JSON SyntaxError that
+     * can quote an HTML error page) gets the authored fallback instead, so raw
+     * exception text never reaches the user.
+     */
+    _actionErrorMessage(error, fallback) {
+        return error?.name === 'Error' ? error.message : fallback;
+    }
+
     async launchRange() {
         const scenario = this.scenarioSelect?.value || 'basic';
         const req = this.scenarioRequirements[scenario] || {}; // eslint-disable-line security/detect-object-injection
@@ -273,7 +300,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to launch range');
+                throw new Error(this._apiErrorMessage(data, 'Failed to launch range'));
             }
 
             this.currentRange = data.range;
@@ -283,7 +310,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             this._connectStatusSocket(data.range.request_id);
 
         } catch (error) {
-            alert(error.message);
+            alert(this._actionErrorMessage(error, 'Failed to launch range'));
             // Sync UI with CMS state (handles "already has active range" case)
             await this.loadRange();
             this.launchBtn.disabled = false;
@@ -309,7 +336,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to cancel range');
+                throw new Error(this._apiErrorMessage(data, 'Failed to cancel range'));
             }
 
             this._closeStatusSocket();
@@ -319,7 +346,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             this._updateUI();
 
         } catch (error) {
-            alert(error.message);
+            alert(this._actionErrorMessage(error, 'Failed to cancel range'));
         }
     }
 
@@ -341,7 +368,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to destroy range');
+                throw new Error(this._apiErrorMessage(data, 'Failed to destroy range'));
             }
 
             // Range is destroyed immediately - show no-range state
@@ -352,7 +379,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             this._updateUI();
 
         } catch (error) {
-            alert(error.message);
+            alert(this._actionErrorMessage(error, 'Failed to destroy range'));
         }
     }
 
@@ -381,7 +408,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to pause range');
+                throw new Error(this._apiErrorMessage(data, 'Failed to pause range'));
             }
 
             // Update local state to pausing and connect WebSocket for updates
@@ -390,7 +417,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             this._connectStatusSocket(this.currentRange.request_id);
 
         } catch (error) {
-            alert(error.message);
+            alert(this._actionErrorMessage(error, 'Failed to pause range'));
             // Re-enable button on failure
             if (pauseBtn) {
                 pauseBtn.disabled = false;
@@ -424,7 +451,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to resume range');
+                throw new Error(this._apiErrorMessage(data, 'Failed to resume range'));
             }
 
             // Update local state to resuming and connect WebSocket for updates
@@ -433,7 +460,7 @@ class DashboardManager extends DashboardLaunchBaseClass {
             this._connectStatusSocket(this.currentRange.request_id);
 
         } catch (error) {
-            alert(error.message);
+            alert(this._actionErrorMessage(error, 'Failed to resume range'));
             // Re-enable button on failure
             if (resumeBtn) {
                 resumeBtn.disabled = false;

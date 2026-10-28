@@ -77,7 +77,7 @@ class CTFRangeManager {
             let data = await response.json();
 
             if (!response.ok) {
-                alert('Error: ' + (data.error || 'Provisioning failed'));
+                alert('Error: ' + this._apiErrorMessage(data, 'Provisioning failed'));
                 return;
             }
 
@@ -85,8 +85,10 @@ class CTFRangeManager {
             // instead of blocking on a synchronous result.
             this._showProgress('Provisioning queued. Tracking progress...');
             this.startProgressPolling();
-        } catch (err) {
-            alert('Error provisioning ranges: ' + err.message);
+        } catch {
+            // Only a network failure or a non-JSON response lands here; its
+            // browser exception text is not shown to the user.
+            alert('Error provisioning ranges. Please try again.');
         } finally {
             this._clearButtonLoading(btn, 'Provision All Ranges');
         }
@@ -169,14 +171,14 @@ class CTFRangeManager {
             let data = await response.json();
 
             if (!response.ok) {
-                alert('Error: ' + (data.error || 'Provisioning failed'));
+                alert('Error: ' + this._apiErrorMessage(data, 'Provisioning failed'));
                 this._clearButtonLoading(btn, 'Provision');
                 return;
             }
 
             this._reload();
-        } catch (err) {
-            alert('Error provisioning range: ' + err.message);
+        } catch {
+            alert('Error provisioning range. Please try again.');
             this._clearButtonLoading(btn, 'Provision');
         }
     }
@@ -199,14 +201,14 @@ class CTFRangeManager {
             let data = await response.json();
 
             if (!response.ok) {
-                alert('Error: ' + (data.error || 'Destruction failed'));
+                alert('Error: ' + this._apiErrorMessage(data, 'Destruction failed'));
                 this._clearButtonLoading(btn, 'Destroy');
                 return;
             }
 
             this._reload();
-        } catch (err) {
-            alert('Error destroying range: ' + err.message);
+        } catch {
+            alert('Error destroying range. Please try again.');
             this._clearButtonLoading(btn, 'Destroy');
         }
     }
@@ -248,14 +250,14 @@ class CTFRangeManager {
             let data = await response.json();
 
             if (!response.ok) {
-                alert('Error: ' + (data.error || 'Recovery failed'));
+                alert('Error: ' + this._apiErrorMessage(data, 'Recovery failed'));
                 this._clearButtonLoading(btn, 'Recover');
                 return;
             }
 
             this._reload();
-        } catch (err) {
-            alert('Error recovering range: ' + err.message);
+        } catch {
+            alert('Error recovering range. Please try again.');
             this._clearButtonLoading(btn, 'Recover');
         }
     }
@@ -286,13 +288,13 @@ class CTFRangeManager {
             let data = await response.json();
 
             if (!response.ok) {
-                alert('Error: ' + (data.error || 'Could not update spare pool'));
+                alert('Error: ' + this._apiErrorMessage(data, 'Could not update spare pool'));
                 return;
             }
 
             this._renderSparePoolSummary(data);
-        } catch (err) {
-            alert('Error updating spare pool: ' + err.message);
+        } catch {
+            alert('Error updating spare pool. Please try again.');
         } finally {
             this._clearButtonLoading(btn, 'Update');
         }
@@ -321,16 +323,32 @@ class CTFRangeManager {
             let data = await response.json();
 
             if (!response.ok) {
-                alert('Error: ' + (data.error || action + ' failed'));
+                alert('Error: ' + this._apiErrorMessage(data, action + ' failed'));
                 this._clearButtonLoading(btn, fallbackText);
                 return;
             }
 
             this._reload();
-        } catch (err) {
-            alert('Error: ' + err.message);
+        } catch {
+            alert('Error: ' + action + ' failed. Please try again.');
             this._clearButtonLoading(btn, fallbackText);
         }
+    }
+
+    /**
+     * Read the server's error text from the shared API envelope
+     * {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+     * Any other shape returns the fallback, so a non-string is never shown.
+     */
+    _apiErrorMessage(data, fallback) {
+        const error = data?.error;
+        if (typeof error === 'string' && error) {
+            return error;
+        }
+        if (typeof error?.message === 'string' && error.message) {
+            return error.message;
+        }
+        return fallback;
     }
 
     _reload() {

@@ -84,13 +84,13 @@ def resolve_template(template: str, instance_data: dict[str, dict[str, Any]]) ->
 
         if instance_name not in instance_data:
             msg = f"Cannot resolve {{{{{instance_name}.{prop}}}}}: instance not found"
-            logger.error("resolve_template: %s", msg)
+            logger.debug("resolve_template: %s", msg)
             raise ValueError(msg)
 
         instance = instance_data[instance_name]
         if prop not in instance:
             msg = f"Cannot resolve {{{{{instance_name}.{prop}}}}}: property not found"
-            logger.error("resolve_template: %s", msg)
+            logger.debug("resolve_template: %s", msg)
             raise ValueError(msg)
 
         value = str(instance[prop])

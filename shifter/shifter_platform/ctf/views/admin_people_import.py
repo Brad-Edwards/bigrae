@@ -35,7 +35,7 @@ def _participant_import_error_messages(exc: CTFValidationError) -> list[str]:
     the SonarCloud threshold (python:S3776).
     """
     details = exc.details
-    errors = details.get("errors") or details.get("existing") or [str(exc)]
+    errors = details.get("errors") or details.get("existing") or [exc.message]
     if details.get("duplicates"):
         errors = [f"Duplicate emails: {', '.join(details['duplicates'])}"]
     if details.get("existing"):
@@ -65,8 +65,8 @@ def _run_participant_import(request: HttpRequest, event_id: UUID) -> tuple[list[
         # Nothing importable: stay on the form and show every row error.
         return result["errors"], 0, None
     logger.info(
-        "User %s imported %d participants to event %s",
-        getattr(request.user, "email", ""),
+        "User imported participants user_id=%s count=%d event_id=%s",
+        request.user.pk,
         imported_count,
         safe_log_value(event_id),
     )

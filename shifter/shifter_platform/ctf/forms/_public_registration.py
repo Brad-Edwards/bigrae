@@ -27,4 +27,4 @@ class PublicRegistrationForm(forms.Form):
         try:
             return normalize_participant_username(self.cleaned_data["username"])
         except CTFValidationError as exc:
-            raise forms.ValidationError(str(exc)) from exc
+            raise forms.ValidationError(exc.message) from exc

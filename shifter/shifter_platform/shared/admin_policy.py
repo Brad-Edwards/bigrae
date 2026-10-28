@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, cast
 
 from django.contrib import admin
@@ -11,13 +12,20 @@ from shared.api.principals import authenticated_credential
 from shared.authorization import AuthorizationRequest, TargetRef, configured_authorization_provider
 from shared.credentials import CredentialContext
 from shared.identity_scope import ResourceScope
-from shared.principal_port import resolve_principal
+from shared.principal_port import PrincipalResolutionError, resolve_principal
 
 if TYPE_CHECKING:
     from django.db.models import Model, QuerySet
     from django.forms import ModelForm
     from django.http import HttpRequest
     from rest_framework.request import Request
+
+logger = logging.getLogger(__name__)
+
+# Expected denials: no admitted session credential, an inactive principal, or a
+# non-session credential (and account-scope denials, which are ValueErrors). Any
+# other failure is unexpected, and the policy checks log it.
+EXPECTED_ADMIN_DENIALS = (PermissionDenied, PrincipalResolutionError, ValueError)
 
 
 class PolicyReadOnlyAdmin(admin.ModelAdmin):
@@ -52,7 +60,10 @@ class PolicyReadOnlyAdmin(admin.ModelAdmin):
     def has_view_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         try:
             return self._allowed(request, obj)
+        except EXPECTED_ADMIN_DENIALS:
+            return False
         except Exception:
+            logger.exception("policy admin view check failed; access denied")
             return False
 
     def has_module_permission(self, request: HttpRequest) -> bool:
@@ -91,5 +102,8 @@ class PolicyAdminSite(admin.AdminSite):
             if actor.kind != "session":
                 return False
             return resolve_principal(actor.principal) == actor.principal
+        except EXPECTED_ADMIN_DENIALS:
+            return False
         except Exception:
+            logger.exception("policy admin site check failed; access denied")
             return False

@@ -20,6 +20,7 @@ from cms.services import (
 from cms.services import (
     list_agents as cms_list_agents,
 )
+from shared.errors import classify_user_message
 from shared.exceptions import AssetError, CMSError
 from shared.log_sanitize import safe_log_value
 
@@ -83,13 +84,15 @@ def delete_agent(request: HttpRequest, agent_id: int) -> HttpResponse:
     try:
         cms_delete_agent(user, agent_id)
         messages.success(request, "Agent deleted.")
-        logger.info("Agent deleted: user=%s agent_id=%s", safe_log_value(user.email), safe_log_value(agent_id))
+        logger.info("Agent deleted: user_id=%s agent_id=%s", user.pk, safe_log_value(agent_id))
     except (CMSError, AssetError) as e:
-        messages.error(request, str(e))
-        logger.exception(
-            "Agent delete error: user=%s agent_id=%s",
-            safe_log_value(user.email),
+        messages.error(request, classify_user_message(e.message, default="Agent could not be deleted."))
+        # The CMS and storage layers log failures where they are raised.
+        logger.warning(
+            "Agent delete failed: user_id=%s agent_id=%s exc_type=%s",
+            user.pk,
             safe_log_value(agent_id),
+            type(e).__name__,
         )
 
     return redirect("mission_control:agents")

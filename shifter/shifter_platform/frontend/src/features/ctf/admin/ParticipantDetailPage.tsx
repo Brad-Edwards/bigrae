@@ -181,6 +181,9 @@ function AwardsCard({ participant }: Readonly<{ participant: CtfOrganizerPartici
         ) : (
           <p className="mt-3 text-sm text-muted-foreground">No awards granted.</p>
         )}
+        {revoke.isError ? (
+          <p className="mt-2 text-xs text-destructive">{describeMutationError(revoke.error, "Could not revoke the award.")}</p>
+        ) : null}
         <form
           className="mt-4 flex flex-wrap items-end gap-2"
           onSubmit={(event) => {

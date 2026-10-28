@@ -71,7 +71,7 @@ def _build_active_range_context(
 ) -> dict[str, Any]:
     """Compose the populated active_range context dict from a resolved RangeContext."""
     if range_context is None:
-        logger.info("active_range context processor: no active range for user_id=%s", user_id)
+        logger.debug("active_range context processor: no active range for user_id=%s", user_id)
         return {
             "has_active_range": False,
             "active_range": None,
@@ -81,7 +81,7 @@ def _build_active_range_context(
         }
 
     is_ready = range_context.is_ready
-    logger.info(
+    logger.debug(
         "active_range context processor: found range for user_id=%s, status=%s, is_ready=%s",
         user_id,
         range_context.status,
@@ -99,8 +99,12 @@ def _build_active_range_context(
         try:
             scenario = get_scenario(range_context.scenario_id)
             scenario_name = scenario.get("name", range_context.scenario_id)
-        except Exception:
-            logger.warning("Could not look up scenario name for scenario_id=%s", range_context.scenario_id)
+        except Exception as exc:  # noqa: BLE001 - best-effort display name; get_scenario logs its own failures
+            logger.warning(
+                "Could not look up scenario name for scenario_id=%s exc_type=%s",
+                range_context.scenario_id,
+                type(exc).__name__,
+            )
             scenario_name = range_context.scenario_id
 
     return {

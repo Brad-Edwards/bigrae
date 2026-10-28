@@ -116,7 +116,7 @@ def _default_repr(node: ast.expr | None) -> str | None:
         case _:
             try:
                 result = ast.unparse(node)
-            except Exception:
+            except Exception:  # noqa: BLE001 - best-effort manifest rendering; an unrenderable default is "<dynamic>"
                 result = "<dynamic>"
     return result
 

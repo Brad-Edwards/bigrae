@@ -88,7 +88,7 @@ class GCPNetworkInventory:
         except ImportError as e:
             raise CloudNetworkInventoryError("GCE network inventory requires google-cloud-compute") from e
         except Exception as e:
-            logger.exception("list_subnet_cidrs: failed to list GCE subnetworks for %s: %s", network_id, e)
+            logger.exception("list_subnet_cidrs: failed to list GCE subnetworks network_id=%s", network_id)
             raise CloudNetworkInventoryError(f"Failed to read GCE subnetwork inventory: {e}") from e
 
         return self._gce_subnet_cidrs(response, network_id)
@@ -127,9 +127,14 @@ class GCPNetworkInventory:
             )
         except ImportError as e:
             raise CloudNetworkInventoryError("GDC network inventory requires kubernetes and PyYAML") from e
-        except Exception as e:
-            logger.exception("list_subnet_cidrs: failed to build GDC client for %s: %s", network_id, e)
-            raise CloudNetworkInventoryError(f"Failed to read GDC network inventory: {e}") from e
+        except Exception as e:  # noqa: BLE001 - kubeconfig parse errors can quote credential lines; class name only
+            logger.error(
+                "list_subnet_cidrs: failed to read GDC network inventory network_id=%s exc_type=%s status=%s",
+                network_id,
+                type(e).__name__,
+                getattr(e, "status", None),
+            )
+            raise CloudNetworkInventoryError("Failed to read GDC network inventory") from None
 
         cidrs: list[str] = []
         items = response.get("items", [])

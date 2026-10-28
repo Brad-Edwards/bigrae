@@ -12,6 +12,20 @@
 let sendInvitationsUrl = '';
 let csrfToken = '';
 
+// Read the server's error text from the shared API envelope
+// {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+// Any other shape returns the fallback, so a non-string is never shown.
+function apiErrorMessage(data, fallback) {
+    const error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
 function postJson(url) {
     return fetch(url, {
         method: 'POST',
@@ -31,11 +45,13 @@ function sendAllInvites() {
                 alert(`Sent ${data.sent} invitation(s). Failed: ${data.failed}.`);
                 location.reload();
             } else {
-                alert('Error: ' + (data.error || 'Failed to send invitations'));
+                alert('Error: ' + apiErrorMessage(data, 'Failed to send invitations'));
             }
         })
-        .catch(function (err) {
-            alert('Error sending invitations: ' + err.message);
+        .catch(function () {
+            // A network failure or a non-JSON response: never show the
+            // browser exception text.
+            alert('Error sending invitations. Please try again.');
         });
 }
 
@@ -47,11 +63,11 @@ function resendInvite(participantId) {
             if (data.success) {
                 alert('Invitation resent successfully.');
             } else {
-                alert('Error: ' + (data.error || 'Failed to resend invite'));
+                alert('Error: ' + apiErrorMessage(data, 'Failed to resend invite'));
             }
         })
-        .catch(function (err) {
-            alert('Error resending invite: ' + err.message);
+        .catch(function () {
+            alert('Error resending invite. Please try again.');
         });
 }
 

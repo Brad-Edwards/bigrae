@@ -212,6 +212,10 @@ select = [
     "SIM",    # flake8-simplify
     "RUF",    # ruff-specific
     "C901",   # mccabe per-function complexity (ADR-012)
+    "BLE",    # flake8-blind-except (#2569)
+    "G",      # flake8-logging-format (#2569)
+    "LOG",    # flake8-logging (#2569)
+    "TRY401", # redundant exception object in logging.exception (#2569)
 ]
 ignore = [
     "S101",   # assert - OK in tests

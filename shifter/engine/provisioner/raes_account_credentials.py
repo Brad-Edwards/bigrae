@@ -153,7 +153,7 @@ def install_instance_account_credentials(
         return {}
     try:
         execution = secret_ops.execution_builder(instance_output, os_type=platform, role="raes-node")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - helper logs the class name only and raises a secret-safe error
         _fail_credential_setup_channel(
             message="credential setup channel build failed",
             range_id=range_id,
@@ -163,7 +163,7 @@ def install_instance_account_credentials(
     try:
         try:
             execution.wait_for_ready(timeout_seconds=300)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - helper logs the class name only and raises a secret-safe error
             _fail_credential_setup_channel(
                 message="credential setup channel not ready",
                 range_id=range_id,
@@ -187,7 +187,7 @@ def install_instance_account_credentials(
                 # Defense in depth; the plan parser rejects this first.
                 else:
                     raise ValueError("unsupported authored-account credential strategy")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - helper logs the class name only and raises a secret-safe error
                 _fail_account_credential(range_id=range_id, instance_key=instance_key, account=account, exc=exc)
             secret_refs[account.address] = secret_ref
         # Process-local projection. The access publisher selects only the exact

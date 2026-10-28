@@ -114,7 +114,7 @@ class EventPagesView(APIView):
                     actor_id=_actor(request).pk,
                 )
             except CTFValidationError as exc:
-                _raise_bad_request(str(exc))
+                _raise_bad_request(exc.message)
             return Response(_page_payload(page), status=status.HTTP_201_CREATED)
         except _CtfApiError as exc:
             return exc.to_response(request)
@@ -149,7 +149,7 @@ class EventPageDetailView(APIView):
             try:
                 update_event_page(page, fields=serializer.validated_data, actor_id=_actor(request).pk)
             except CTFValidationError as exc:
-                _raise_bad_request(str(exc))
+                _raise_bad_request(exc.message)
             return Response(_page_payload(page))
         except _CtfApiError as exc:
             return exc.to_response(request)

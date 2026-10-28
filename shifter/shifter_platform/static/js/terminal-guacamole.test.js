@@ -154,6 +154,27 @@ describe('terminal-guacamole', () => {
         expect(alertMock).toHaveBeenCalledWith(expect.stringContaining('no soup'));
     });
 
+    test.each([
+        [{ error: { code: 'invalid', message: 'Invalid request' } }, 'Failed to open SSH session: Invalid request'],
+        [{ error: { code: 'invalid' } }, 'Failed to open SSH session: Failed to generate SSH URL'],
+    ])('reads the envelope error from a refused request (%j)', async (body, expected) => {
+        globalThis.fetch.mockResolvedValue({ ok: false, json: jest.fn().mockResolvedValue(body) });
+        loadScript();
+        document.querySelector('.ssh-btn[data-uuid="kali-uuid"]').click();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+        expect(alertMock).toHaveBeenCalledWith(expected);
+    });
+
+    test('shows fixed text, not the browser error, when the request fails', async () => {
+        globalThis.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+        loadScript();
+        document.querySelector('.ssh-btn[data-uuid="kali-uuid"]').click();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+        expect(alertMock).toHaveBeenCalledWith('Failed to open SSH session: The request could not be completed.');
+    });
+
     test('triggers fallback navigation when popup blocked and user confirms', async () => {
         // jsdom's Location is non-configurable; we can't observe the
         // assignment directly. Instead verify the script attempts it by

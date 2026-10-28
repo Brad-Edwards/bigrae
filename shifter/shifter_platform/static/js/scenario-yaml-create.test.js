@@ -108,8 +108,8 @@ describe('scenario-yaml-create', () => {
             expect(items[1].textContent).toBe('missing name');
         });
 
-        test('shows the caught error message when the request rejects', async () => {
-            globalThis.fetch.mockRejectedValue(new Error('offline'));
+        test('shows fixed text, not the browser error, when the request rejects', async () => {
+            globalThis.fetch.mockRejectedValue(new TypeError('offline'));
 
             globalThis.validateYAML();
             await flush();
@@ -117,7 +117,7 @@ describe('scenario-yaml-create', () => {
             const result = document.getElementById('validationResult');
             expect(result.style.display).toBe('block');
             expect(result.className).toBe('validation-result validation-invalid');
-            expect(result.textContent).toBe('Error validating: offline');
+            expect(result.textContent).toBe('Error validating. Please try again.');
         });
 
         test('sends an empty CSRF token when the hidden field is absent', async () => {

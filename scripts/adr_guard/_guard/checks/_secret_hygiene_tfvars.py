@@ -320,12 +320,20 @@ def _scan_tfvars_file(path: Path, repo_root: Path) -> list[Violation]:
     (including any ``password = "..."`` examples) cannot trigger the regex;
     line numbers are preserved.
     """
+    rel = _repo_relative(path, repo_root)
     try:
         raw_text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return []
+    except (OSError, UnicodeDecodeError) as exc:
+        # Fail closed: a file this check cannot read is a file it cannot clear.
+        return [
+            Violation(
+                "no-plaintext-secrets-in-tfvars",
+                "ADR-004-R7",
+                rel,
+                f"cannot scan the file for plaintext secrets ({type(exc).__name__}); it must be readable UTF-8",
+            )
+        ]
     lines = _strip_hcl_comments(raw_text).splitlines()
-    rel = _repo_relative(path, repo_root)
     violations: list[Violation] = []
     for idx, line in enumerate(lines):
         if _is_line_commented(line):

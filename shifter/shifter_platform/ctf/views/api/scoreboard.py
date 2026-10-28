@@ -55,11 +55,7 @@ def _resolve_scoreboard_access(
     role = _access.get_user_role(user)
     is_organizer = role.is_ctf_organizer and event.created_by_id == user.pk
     if not is_organizer and not is_active_participant(user, event=event):
-        logger.warning(
-            "CTF scoreboard access denied for user %s on event %s",
-            user.email,
-            event.id,
-        )
+        logger.warning("CTF scoreboard access denied user_id=%s event_id=%s", user.pk, event.id)
         return None, False, JsonResponse({"error": "Forbidden"}, status=403)
 
     return event, is_organizer, None

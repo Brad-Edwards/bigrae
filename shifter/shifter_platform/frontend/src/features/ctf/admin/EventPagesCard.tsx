@@ -70,6 +70,7 @@ export function EventPagesCard({ eventId }: Readonly<{ eventId: string }>) {
   const [body, setBody] = useState("");
   const [briefingBody, setBriefingBody] = useState("");
   const errorMessage = describeMutationError(create.error ?? update.error, "Could not save the page.");
+  const removeErrorMessage = describeMutationError(remove.error, "Could not remove the page.");
 
   const allPages = pages.data?.pages ?? [];
   const briefingPage = allPages.find((page) => page.slug === RESERVED_BRIEFING_SLUG);
@@ -188,6 +189,7 @@ export function EventPagesCard({ eventId }: Readonly<{ eventId: string }>) {
         </section>
 
         {create.error ?? update.error ? <p className="text-xs text-destructive">{errorMessage}</p> : null}
+        {remove.error ? <p className="text-xs text-destructive">{removeErrorMessage}</p> : null}
       </CardContent>
     </Card>
   );

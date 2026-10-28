@@ -27,19 +27,16 @@ from .config import load_config
 from .controller import Controller, RevocationControl
 from .crl import CrlStore
 from .firewall import Firewall
+from .logging_config import configure_logging
 from .management import Management
 from .portal import PortalClient
 from .server_config import write_config, write_material
 
 _OPENVPN = "/usr/sbin/openvpn"
 
-
+# Named explicitly: under ``python -m shifter_openvpn`` this module's
+# ``__name__`` is ``__main__``.
 _LOGGER = logging.getLogger("shifter_openvpn")
-
-
-def _log(message: str) -> None:
-    """Write one operational line to the container log."""
-    _LOGGER.info(message)
 
 
 def _wait_for_socket(path: str, process: subprocess.Popen[bytes], timeout: float = 30) -> None:
@@ -88,15 +85,15 @@ def _heartbeat(controller: Controller) -> None:
     while True:
         try:
             interval = controller.heartbeat()
-        except Exception:
-            _log("VPN control failed; stopping the server")
+        except Exception as error:  # noqa: BLE001 - fail closed; VPN control errors are logged by class only
+            _LOGGER.error("VPN control failed; stopping the server exc_type=%s", type(error).__name__)
             os._exit(1)
         time.sleep(interval)
 
 
 def main() -> int:
     """Start the server; return only when the management connection closes."""
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
+    configure_logging()
     config = load_config()
     write_material(config.runtime_dir, gcp.read_secret(config.server_secret))
     portal = PortalClient(config.portal_url, config.control_audience, config.server_name, gcp.identity_token)
@@ -114,7 +111,6 @@ def main() -> int:
         management,
         portal,
         Firewall(),
-        log=_log,
         revocation=RevocationControl(crl, portal.crl if crl is not None else None, lambda: os._exit(1)),
     )
     threading.Thread(target=_heartbeat, args=(controller,), daemon=True, name="heartbeat").start()
@@ -123,10 +119,13 @@ def main() -> int:
         signal.signal(stop_signal, _forward_stop(process, stopping))
     threading.Thread(target=_watch_openvpn, args=(process, stopping), daemon=True, name="openvpn-watch").start()
     threading.Thread(target=_serve_health, args=(config.health_port,), daemon=True, name="health").start()
-    _log(f"pool server {config.server_name} ready")
+    _LOGGER.info("pool server %s ready", config.server_name)
     while (event := management.events.get()) is not None:
         controller.handle(event)
-    _log("management connection closed")
+    if stopping.is_set():
+        _LOGGER.info("management connection closed after a requested stop")
+    else:
+        _LOGGER.error("management connection closed; stopping the server")
     return 1
 
 

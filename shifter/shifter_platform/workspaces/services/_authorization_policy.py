@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Literal, cast
 from uuid import UUID
@@ -19,6 +20,7 @@ from shared.authorization import (
     RelationshipState,
 )
 from shared.identity_scope import PrincipalRef, ResourceScope
+from shared.log_sanitize import safe_log_value
 from workspaces.models import (
     AuthorizationOperation,
 )
@@ -56,6 +58,8 @@ from ._authorization_journal import (
     _set_outcome,
 )
 
+logger = logging.getLogger(__name__)
+
 _RECONCILE_LEASE = timedelta(seconds=30)
 _RECOVERABLE_STATES = {AuthorizationOperation.State.REQUESTED, AuthorizationOperation.State.UNRESOLVED}
 
@@ -75,7 +79,12 @@ def apply_policy_mutation(request: PolicyMutationRequest, provider: Authorizatio
         _resolve_policy_change(request)
         decisions = provider.batch_check(_delegation_requests(request))
         allowed = len(decisions) == 2 and all(decision.allowed for decision in decisions)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - fail closed; an unresolvable or undelegable change is journaled as denied
+        logger.warning(
+            "Policy mutation delegation check failed closed: idempotency_key=%s exc_type=%s",
+            safe_log_value(request.idempotency_key),
+            type(exc).__name__,
+        )
         allowed = False
     return _apply_authorized_mutation(request, provider, allowed)
 
@@ -132,7 +141,12 @@ def apply_native_relationship_mutation(
         checks = _native_delegation_requests(request)
         decisions = provider.batch_check(checks)
         allowed = bool(checks) and len(decisions) == len(checks) and all(item.allowed for item in decisions)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - fail closed; an unresolvable or undelegable change is journaled as denied
+        logger.warning(
+            "Native relationship delegation check failed closed: idempotency_key=%s exc_type=%s",
+            safe_log_value(request.idempotency_key),
+            type(exc).__name__,
+        )
         allowed = False
     return _apply_authorized_mutation(request, provider, allowed)
 

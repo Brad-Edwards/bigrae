@@ -7,11 +7,14 @@ provides the participant-with-range loader shared by the lifecycle actions in
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
 from ctf.exceptions import CTFNotFoundError, CTFRangeError
 from ctf.models import CTFParticipant
+
+logger = logging.getLogger(__name__)
 
 
 def get_range_status(participant_id: UUID) -> dict[str, Any]:
@@ -134,6 +137,4 @@ def _notify_range_ready(participant: CTFParticipant) -> None:
             )
     # pragma: no cover — defensive; notification must never break status reads
     except Exception:
-        import logging
-
-        logging.getLogger(__name__).exception("Range-ready notification failed for %s", participant.pk)
+        logger.exception("Range-ready notification failed for %s", participant.pk)

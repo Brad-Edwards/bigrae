@@ -77,6 +77,9 @@ describe("CtfWorkspaceLayout", () => {
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0];
     act(() => socket.onmessage?.({ data: "not-json" }));
+    // Well-formed JSON that is not a notification object is ignored, not thrown.
+    act(() => socket.onmessage?.({ data: "null" }));
+    act(() => socket.onmessage?.({ data: "5" }));
     expect(screen.queryByText("First blood!")).not.toBeInTheDocument();
   });
 });

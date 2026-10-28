@@ -78,7 +78,7 @@ def _initiate_upload_inner(
     quota_bytes = settings.AGENT_USER_STORAGE_QUOTA_MB * 1024 * 1024
     if current_usage + file_size > quota_bytes:
         available_mb = (quota_bytes - current_usage) / 1024 / 1024
-        logger.error(
+        logger.warning(
             "initiate_upload: quota exceeded for user_id=%s - current=%s, requested=%s, quota=%s",
             user.id,
             current_usage,
@@ -95,7 +95,11 @@ def _initiate_upload_inner(
     try:
         file_format = validate_file_extension(filename)
     except ValidationError as e:
-        logger.exception("initiate_upload: validation error for user_id=%s", user.id)
+        logger.warning(
+            "initiate_upload: file extension rejected for user_id=%s filename=%s",
+            user.id,
+            safe_log_value(filename),
+        )
         raise CMSError(str(e)) from e
 
     try:
@@ -105,7 +109,8 @@ def _initiate_upload_inner(
             content_length=file_size,
         )
     except S3Error as e:
-        logger.exception("initiate_upload: S3 error for user_id=%s", user.id)
+        # cms.assets.s3 already logged the storage failure with its traceback.
+        logger.info("initiate_upload: S3 error for user_id=%s", user.id)
         raise CMSError("Failed to initiate upload") from e
 
     # Agent installer formats always carry an os_slug — the shared FileFormat
@@ -220,8 +225,9 @@ def complete_upload(user: User | CredentialContext, upload_token: str) -> AgentC
             mismatch, header inspection rejects the upload, or the validated
             object changed before it could be immutably installed.
     """
-    from cms.assets.s3 import tag_s3_object
+    from cms.assets.s3 import S3Error, tag_s3_object
     from cms.assets.services import AgentUploadSpec, create_agent
+    from shared.exceptions import AssetError
 
     if isinstance(user, CredentialContext):
         from ._scoped_uploads import complete_scoped_upload
@@ -255,7 +261,8 @@ def complete_upload(user: User | CredentialContext, upload_token: str) -> AgentC
         logger.debug("complete_upload completed for user_id=%s, agent_id=%s", user.id, agent.id)
         return agent
 
-    except (TypeError, ValueError, CMSError):
+    # S3Error and AssetError are logged where they are raised.
+    except (TypeError, ValueError, CMSError, S3Error, AssetError):
         raise
     except Exception:
         logger.exception("Error in complete_upload for user_id=%s", user.id)
@@ -311,11 +318,8 @@ def cancel_upload(user: User | CredentialContext, upload_token: str) -> None:
         try:
             payload = verify_upload_token(upload_token, user.id)
         except ValueError as e:
-            logger.exception(
-                "cancel_upload: token verification failed for user_id=%s - %s",
-                user.id,
-                str(e),
-            )
+            # verify_upload_token already logged the rejection reason at WARNING.
+            logger.info("cancel_upload: token verification failed for user_id=%s", user.id)
             raise CMSError("Invalid upload token") from e
 
         s3_key = str(payload["s3_key"])

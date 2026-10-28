@@ -55,6 +55,28 @@ describe('DashboardManager destroyRange', () => {
 
         expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    test('alerts the server error text, or the fallback for a browser error', async () => {
+        globalThis.alert = jest.fn();
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            json: () => Promise.resolve({ error: { code: 'conflict', message: 'Range is busy' } }),
+        });
+        await dashboard.destroyRange();
+        expect(globalThis.alert).toHaveBeenLastCalledWith('Range is busy');
+
+        // An envelope without a message falls back; an object is never shown.
+        fetchMock.mockResolvedValueOnce({ ok: false, json: () => Promise.resolve({ error: { code: 'conflict' } }) });
+        await dashboard.destroyRange();
+        expect(globalThis.alert).toHaveBeenLastCalledWith('Failed to destroy range');
+
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            json: () => Promise.reject(new SyntaxError("Unexpected token '<'")),
+        });
+        await dashboard.destroyRange();
+        expect(globalThis.alert).toHaveBeenLastCalledWith('Failed to destroy range');
+    });
 });
 
 describe('DashboardManager dropdown initialization', () => {

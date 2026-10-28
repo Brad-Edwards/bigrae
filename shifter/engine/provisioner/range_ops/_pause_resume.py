@@ -26,6 +26,7 @@ from orchestrators.ops_orchestrator import OpsOrchestrator
 from plans.range_pause import RangePausePlan
 from plans.range_resume import RangeResumePlan
 from provisioner_db_appends import OperationRef, append_operation_step_result
+from state_helpers import _authored_failure_message
 
 # Classification lives in a sibling module so orchestration stays small; re-import
 # here so ``range_ops.<name>`` re-exports and existing patch targets resolve.
@@ -205,7 +206,8 @@ def _execute_instance_operation(
         result = orchestrator.orchestrate(aws_instance_id, plan, context)
         error_msg = None if result.success else f"Operation failed: {result.error}"
         if error_msg:
-            logger.error("Operation failed for instance %s (uuid=%s): %s", aws_instance_id, uuid, result.error)
+            # Provider stderr stays out of logs (see OpsOrchestrator); the executor logged the error code.
+            logger.error("Operation failed for instance %s (uuid=%s)", aws_instance_id, uuid)
         else:
             logger.info("Operation succeeded for instance %s (uuid=%s)", aws_instance_id, uuid)
         return (uuid, bool(result.success), error_msg)
@@ -309,7 +311,7 @@ def run_range_pause(request_id: str, *, operation_id: str | None = None) -> None
     # Cascade: pause NGFW if no other ranges need it (before reporting paused)
     try:
         _pkg.pause_ngfw_for_range(request_id, ref=ref)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - non-fatal NGFW cascade; the range instances are already paused
         # Non-fatal: log and continue - range instances are already paused
         logger.warning(
             "run_range_pause: NGFW pause failed (non-fatal): %s request_id=%s",
@@ -371,9 +373,10 @@ def run_range_resume(request_id: str, *, operation_id: str | None = None) -> Non
     try:
         _pkg.ensure_ngfw_running(request_id, ref=ref)
     except Exception as e:
-        # Fatal: range cannot resume without NGFW
-        error_msg = f"Failed to start NGFW: {e}"
-        logger.exception("run_range_resume: %s request_id=%s", error_msg, request_id)
+        # Fatal: range cannot resume without NGFW. The diagnostic is durable:
+        # authored text only (ADR-043-R5). The log keeps the detail.
+        error_msg = _authored_failure_message(e, "NGFW start")
+        logger.exception("run_range_resume: failed to start NGFW request_id=%s", request_id)
         _report_terminal_failure(ref, "resume", error_msg)
         raise RuntimeError(error_msg) from e
 

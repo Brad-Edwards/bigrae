@@ -9,6 +9,20 @@
 // json_script payload. ShifterDropdown is provided by dropdown.js.
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Read the server's error text from the shared API envelope
+    // {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+    // Any other shape returns the fallback, so a non-string is never shown.
+    function apiErrorMessage(data, fallback) {
+        const error = data?.error;
+        if (typeof error === 'string' && error) {
+            return error;
+        }
+        if (typeof error?.message === 'string' && error.message) {
+            return error.message;
+        }
+        return fallback;
+    }
+
     const configEl = document.getElementById('mc-credentials-add-config');
     const config = configEl ? JSON.parse(configEl.textContent) : {};
     const csrfToken = config.csrfToken;
@@ -127,7 +141,7 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(response => response.json())
         .then(result => {
             if (result.error) {
-                alert(result.error);
+                alert(apiErrorMessage(result, 'An error occurred. Please try again.'));
             } else {
                 // config.listUrl is a server-rendered path; validate same-origin
                 // so a tampered DOM value can't redirect off-origin or via a

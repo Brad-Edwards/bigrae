@@ -6,6 +6,7 @@ is patched to return a fake S3 client, instead of patching the first-party
 ``_get_client`` method directly.
 """
 
+import logging
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
@@ -177,6 +178,23 @@ class TestHeadObjectIdentity:
             identity = storage.head_object("b", "k")
 
         assert identity == {"content_length": 42, "etag": "deadbeef"}
+
+    def test_missing_object_raises_without_an_error_traceback(self, caplog):
+        storage = AWSObjectStorage()
+        fake_client = MagicMock()
+        fake_client.head_object.side_effect = ClientError(
+            {"Error": {"Code": "404", "Message": "Not Found"}, "ResponseMetadata": {"HTTPStatusCode": 404}},
+            "HeadObject",
+        )
+
+        with (
+            patch("boto3.client", return_value=fake_client),
+            caplog.at_level(logging.ERROR, logger="shared.cloud.aws.storage"),
+            pytest.raises(CloudStorageError, match="S3 object not found"),
+        ):
+            storage.head_object("b", "k")
+
+        assert not caplog.records
 
 
 class TestDownloadObject:

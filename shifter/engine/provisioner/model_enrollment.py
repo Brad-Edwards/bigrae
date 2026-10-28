@@ -72,7 +72,7 @@ class EnrollmentDelivery:
                 raise ValueError
             for binding in self.bindings:
                 self._deliver(binding, outputs[f"{binding.target_address}#0"])
-        except Exception:
+        except Exception:  # noqa: BLE001 - credential boundary: only the closed diagnostic leaves, cause dropped
             raise ModelEnrollmentError("Guest model enrollment failed") from None
 
     def _deliver(self, binding: ModelGuestBinding, instance: dict[str, Any]) -> None:
@@ -169,7 +169,7 @@ def load_model_enrollment(run: RaesOperationRun) -> EnrollmentDelivery | None:
         if provider == "gcp":
             delivery.gce_egress_capability()
         return delivery
-    except Exception:
+    except Exception:  # noqa: BLE001 - credential boundary: only the closed diagnostic leaves, cause dropped
         raise ModelEnrollmentError("Guest model enrollment configuration is unavailable") from None
 
 

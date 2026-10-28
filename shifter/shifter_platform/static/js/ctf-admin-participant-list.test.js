@@ -90,13 +90,13 @@ describe('ctf-admin-participant-list', () => {
 
         test('alerts the API error message on failure', async () => {
             fetchMock.mockResolvedValue({
-                json: () => Promise.resolve({ success: false, error: 'rate limited' }),
+                json: () => Promise.resolve({ error: { code: 'ctf_notification_retired', message: 'Retired.' } }),
             });
 
             globalThis.sendAllInvites();
             await flushPromises();
 
-            expect(globalThis.alert).toHaveBeenCalledWith('Error: rate limited');
+            expect(globalThis.alert).toHaveBeenCalledWith('Error: Retired.');
         });
 
         test('falls back to a default error message when none is returned', async () => {
@@ -116,7 +116,7 @@ describe('ctf-admin-participant-list', () => {
             globalThis.sendAllInvites();
             await flushPromises();
 
-            expect(globalThis.alert).toHaveBeenCalledWith('Error sending invitations: network down');
+            expect(globalThis.alert).toHaveBeenCalledWith('Error sending invitations. Please try again.');
         });
     });
 
@@ -156,13 +156,13 @@ describe('ctf-admin-participant-list', () => {
 
         test('alerts the API error message on failure', async () => {
             fetchMock.mockResolvedValue({
-                json: () => Promise.resolve({ success: false, error: 'nope' }),
+                json: () => Promise.resolve({ error: { code: 'ctf_notification_retired', message: 'Retired.' } }),
             });
 
             clickResend();
             await flushPromises();
 
-            expect(globalThis.alert).toHaveBeenCalledWith('Error: nope');
+            expect(globalThis.alert).toHaveBeenCalledWith('Error: Retired.');
         });
 
         test('falls back to a default error message when none is returned', async () => {
@@ -182,7 +182,7 @@ describe('ctf-admin-participant-list', () => {
             clickResend();
             await flushPromises();
 
-            expect(globalThis.alert).toHaveBeenCalledWith('Error resending invite: offline');
+            expect(globalThis.alert).toHaveBeenCalledWith('Error resending invite. Please try again.');
         });
     });
 });

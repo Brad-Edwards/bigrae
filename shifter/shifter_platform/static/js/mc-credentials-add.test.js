@@ -220,7 +220,9 @@ describe('mc-credentials-add', () => {
 
         test('alerts the server-provided error and does not redirect', async () => {
             loadModule();
-            fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: 'duplicate name' }) });
+            fetchMock.mockResolvedValue({
+                json: () => Promise.resolve({ error: { code: 'invalid', message: 'duplicate name' } }),
+            });
 
             selectType('deployment_profile');
             setInput('name', 'Prod License');
@@ -233,6 +235,16 @@ describe('mc-credentials-add', () => {
             await flush();
 
             expect(alertMock).toHaveBeenCalledWith('duplicate name');
+
+            // An envelope without a message falls back to fixed copy, never an object.
+            fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: { code: 'invalid' } }) });
+            document
+                .getElementById('credentialForm')
+                .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            await flush();
+            await flush();
+
+            expect(alertMock).toHaveBeenLastCalledWith('An error occurred. Please try again.');
         });
 
         test('alerts a generic message when the create fetch rejects', async () => {

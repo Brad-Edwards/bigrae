@@ -45,20 +45,22 @@ describe('resendInvite', () => {
         expect(globalThis.alert).toHaveBeenCalledWith('Invitation resent successfully.');
     });
 
-    test('alerts the error message when the API reports failure', async () => {
+    test('alerts the envelope error message when the API reports failure', async () => {
         fetchMock.mockResolvedValue({
-            json: () => Promise.resolve({ success: false, error: 'rate limited' }),
+            json: () => Promise.resolve({
+                error: { code: 'ctf_notification_retired', message: 'Legacy notification writes are retired.' },
+            }),
         });
 
         await globalThis.resendInvite('p-9', 'csrf');
 
-        expect(globalThis.alert).toHaveBeenCalledWith('Error: rate limited');
+        expect(globalThis.alert).toHaveBeenCalledWith('Error: Legacy notification writes are retired.');
         expect(globalThis.alert).not.toHaveBeenCalledWith('Invitation resent successfully.');
     });
 
-    test('falls back to a default error message when no error field is returned', async () => {
+    test('falls back to a default error message when the error carries no message', async () => {
         fetchMock.mockResolvedValue({
-            json: () => Promise.resolve({ success: false }),
+            json: () => Promise.resolve({ error: { code: 'ctf_notification_retired' } }),
         });
 
         await globalThis.resendInvite('p-9', 'csrf');
@@ -71,7 +73,7 @@ describe('resendInvite', () => {
 
         await globalThis.resendInvite('p-9', 'csrf');
 
-        expect(globalThis.alert).toHaveBeenCalledWith('Error resending invite: network down');
+        expect(globalThis.alert).toHaveBeenCalledWith('Error resending invite. Please try again.');
     });
 });
 

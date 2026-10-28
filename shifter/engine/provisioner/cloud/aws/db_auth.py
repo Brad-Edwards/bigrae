@@ -36,5 +36,7 @@ class AWSDBAuth(BaseAWSAdapter):
             )
             return token
         except (ClientError, BotoCoreError) as e:
-            logger.exception("generate_auth_token: failed hostname=%s error=%s", hostname, e)
-            raise CloudDBAuthError(f"Failed to generate RDS IAM auth token: {e}") from e
+            # DB auth is a credential operation. Log the exception class only, and
+            # keep the provider text out of the raised error and its cause chain.
+            logger.error("generate_auth_token: failed hostname=%s exc_type=%s", hostname, type(e).__name__)
+            raise CloudDBAuthError("Failed to generate RDS IAM auth token") from None

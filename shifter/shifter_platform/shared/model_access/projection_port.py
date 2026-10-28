@@ -22,5 +22,5 @@ def refresh_launch_projections(deployment_id: UUID) -> None:
         raise ContractError("allocation.projection_adapter_missing")
     try:
         _refresher(deployment_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
         raise ContractError("allocation.authority_unavailable") from None

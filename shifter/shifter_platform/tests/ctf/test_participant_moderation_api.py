@@ -89,6 +89,7 @@ class TestBanUnban:
         _event, participant, organizer_client = moderated
         resp = _action(organizer_client, "api_participant_unban", participant)
         assert resp.status_code == 409
+        assert resp.json()["error"]["message"] == "Participant is not banned"
 
     def test_ban_preserves_submission_history(self, moderated, ctf_challenge_active):
         from ctf.models import CTFSubmission

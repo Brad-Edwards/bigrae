@@ -490,7 +490,7 @@ def _request_feature_artifacts(scenario_id: str) -> None:
 
     try:
         request_pack_feature_artifacts(scenario_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - best effort; RAES pack errors embed local filesystem paths
         logger.warning(
             "register_pack: feature artifact acquisition not requested scenario_id=%s error=%s",
             safe_log_value(scenario_id),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, NoReturn, cast
 from uuid import UUID
 
@@ -20,6 +21,8 @@ if TYPE_CHECKING:
 
     from ctf.models import CTFParticipant
     from ctf.services import ParticipantPasswordIssuance
+
+logger = logging.getLogger(__name__)
 
 _FORBIDDEN_EVENT_MSG = "Forbidden: You do not have access to this event"
 _PARTICIPANT_NOT_FOUND_MSG = "Participant not found"
@@ -68,6 +71,7 @@ def _enforce_participant_password_rate_limit(actor: User) -> None:
     try:
         allowed = _check_credential_delivery_rate_limit(actor.pk)
     except Exception:
+        logger.exception("CTF credential delivery rate limiter unavailable user_id=%s", actor.pk)
         _reject_participant_password("Credential service is temporarily unavailable.", status=503)
     if not allowed:
         _reject_participant_password(

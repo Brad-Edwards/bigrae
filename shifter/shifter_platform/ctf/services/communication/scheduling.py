@@ -183,12 +183,13 @@ def run_release_communication_task(task: CTFScheduledTask) -> dict[str, Any]:
 def _denied_result(intent: CommunicationIntent, exc: CTFCommunicationError) -> dict[str, Any]:
     """Map an admission denial at due time to a scheduler result.
 
-    Transient backpressure reschedules a bounded retry (the grace window still caps
-    total lateness); a permanent denial records a terminal no-work outcome instead
-    of leaving the intent SCHEDULED with a completed task.
+    Transient backpressure or an unavailable admission counter reschedules a bounded
+    retry (the grace window still caps total lateness); a permanent denial records a
+    terminal no-work outcome instead of leaving the intent SCHEDULED with a completed
+    task.
     """
     if exc.code in RETRYABLE_ADMISSION_CODES:
-        logger.info("Scheduled communication %s hit transient backpressure (%s); retrying", intent.id, exc.code)
+        logger.warning("Scheduled communication %s hit transient admission denial (%s); retrying", intent.id, exc.code)
         return {
             "reschedule_for": timezone.now() + timedelta(seconds=_BACKPRESSURE_RETRY_SECONDS),
             "outcome": "backpressure_retry",
@@ -203,7 +204,9 @@ def _expire_unadmittable(intent: CommunicationIntent, code: str) -> None:
         status=IntentStatus.EXPIRED.value, updated_at=timezone.now()
     )
     if updated:
-        logger.info("Scheduled communication %s reached a terminal no-work outcome at due time (%s)", intent.id, code)
+        logger.warning(
+            "Scheduled communication %s reached a terminal no-work outcome at due time (%s)", intent.id, code
+        )
 
 
 def request_early_release(intent: CommunicationIntent, *, actor: AdmissionActor) -> str:

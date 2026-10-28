@@ -272,8 +272,10 @@ def test_ensure_key_planted_raises_on_failure(monkeypatch):
     executor = _make_executor(MagicMock())
     monkeypatch.setattr(executor, "_exec", lambda command, timeout_seconds: (1, b"", b"boom"))
 
-    with pytest.raises(GuestSSHConnectionError, match="plant guest SSH key"):
+    with pytest.raises(GuestSSHConnectionError, match="plant guest SSH key") as exc_info:
         executor._ensure_key_planted()
+    # The planting command carries the private key in argv, so its stderr stays out.
+    assert "boom" not in str(exc_info.value)
 
 
 @pytest.mark.parametrize(

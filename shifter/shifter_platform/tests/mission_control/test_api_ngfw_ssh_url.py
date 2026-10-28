@@ -249,12 +249,13 @@ class TestApiNGFWSSHURL:
         assert len(exchange.requests) == 1
         assert app_id in caplog.text
 
-    def test_logs_permission_denied_errors(self, rf, user, other_user, guac_secret, make_ngfw, caplog):
+    def test_logs_permission_denied_as_warning(self, rf, user, other_user, guac_secret, make_ngfw, caplog):
         ngfw = make_ngfw(user, owner=other_user)
         app_id = str(ngfw.uuid)
         request = _post_request(rf, user, app_id)
 
-        with caplog.at_level(logging.ERROR, logger="mission_control"):
+        with caplog.at_level(logging.WARNING, logger="engine.services._terminal"):
             api_ngfw_ssh_url(request, app_id)
 
-        assert "permission" in caplog.text.lower()
+        denials = [record for record in caplog.records if "permission denied" in record.getMessage().lower()]
+        assert [record.levelno for record in denials] == [logging.WARNING]

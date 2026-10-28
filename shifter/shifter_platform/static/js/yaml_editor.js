@@ -53,10 +53,12 @@ function validateYAML() {
             resultDiv.appendChild(ul);
         }
     })
-    .catch(function (err) {
+    .catch(function () {
+        // A network failure, a non-JSON response, or an unexpected body: show
+        // fixed text, never the browser exception text.
         resultDiv.style.display = 'block';
         resultDiv.className = 'validation-result validation-invalid';
-        resultDiv.textContent = 'Error validating: ' + err.message;
+        resultDiv.textContent = 'Error validating. Please try again.';
     });
 }
 

@@ -6,6 +6,7 @@ Participant range status/access plus the organizer range operations
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
     from ctf.models import CTFParticipant
     from shared.remote_access import OpenVpnProfile
 
+
+logger = logging.getLogger(__name__)
 
 _VPN_PROFILE_READ = (scopes.CTF_VPN_PROFILE_READ,)
 _VPN_PROFILE_FILENAME = "shifter-ctf-range.ovpn"
@@ -136,6 +139,7 @@ def _admit_vpn_delivery_rate(actor_id: UUID | int) -> None:
     try:
         allowed = _check_credential_delivery_rate_limit(actor_id)
     except Exception as exc:
+        logger.exception("CTF VPN profile delivery rate limiter unavailable")
         raise _CtfApiError(
             code="vpn_profile_unavailable",
             message=_VPN_PROFILE_UNAVAILABLE,

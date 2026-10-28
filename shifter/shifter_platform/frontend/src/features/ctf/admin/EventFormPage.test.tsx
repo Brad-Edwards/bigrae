@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
-import { renderRoute } from "@/test/utils";
+import { renderRoute, setupUser } from "@/test/utils";
 
 vi.mock("@/api/client", () => ({ apiFetch: vi.fn() }));
 
@@ -58,7 +57,7 @@ describe("EventFormPage (create)", () => {
       if (path === "/ctf/events/") return { id: "e9", name: "New", status: "draft" };
       return {};
     });
-    const user = userEvent.setup();
+    const user = setupUser();
     renderRoute(<EventFormPage mode="create" />, { path: "/*", initialEntries: ["/ctf/admin/events/create"] });
 
     expect(await screen.findByRole("checkbox", { name: "Publish public registration page" })).not.toBeChecked();
@@ -70,6 +69,25 @@ describe("EventFormPage (create)", () => {
       expect(call).toBeDefined();
       expect(call?.[1]?.body).toMatchObject({ public_registration_enabled: false });
     });
+  });
+
+  it("shows authored copy when the save fails without an API error", async () => {
+    routeApi((path, options) => {
+      if (path === "/ctf/scenarios/") return { scenarios: [] };
+      if (path === "/ctf/events/" && options?.method === "POST") {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      return {};
+    });
+    const user = setupUser();
+    renderRoute(<EventFormPage mode="create" />, { path: "/*", initialEntries: ["/ctf/admin/events/create"] });
+
+    await user.type(await screen.findByLabelText("Name"), "New event");
+    await user.click(screen.getByRole("button", { name: "Create event" }));
+
+    expect(await screen.findByText("Could not save")).toBeInTheDocument();
+    expect(screen.getByText("The event could not be saved.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
   });
 });
 

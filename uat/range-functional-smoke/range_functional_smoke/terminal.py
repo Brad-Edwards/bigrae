@@ -82,10 +82,8 @@ def output_text(frame: str | bytes) -> str:
     types, and a malformed frame must not abort a bounded wait.
     """
     if isinstance(frame, bytes):
-        try:
-            frame = frame.decode("utf-8", "replace")
-        except Exception:
-            return ""
+        # "replace" substitutes undecodable bytes, so this decode cannot raise.
+        frame = frame.decode("utf-8", "replace")
     try:
         message = json.loads(frame)
     except (TypeError, ValueError):

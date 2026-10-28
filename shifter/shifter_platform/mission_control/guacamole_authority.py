@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -9,11 +10,14 @@ from django.utils import timezone
 
 from cms.services import admit_device_remote_authority, admit_range_remote_authority
 from shared.credentials import CredentialContext
+from shared.exceptions import CMSError
 from shared.operation_authority import credential_reference_from_record
 
 if TYPE_CHECKING:
     from .guacamole import GuacamoleClient
     from .models import GuacamoleBootstrapRequest
+
+logger = logging.getLogger(__name__)
 
 
 def renew_gateway_authority(bootstrap_id: object) -> bool:
@@ -54,7 +58,16 @@ def authorize_bootstrap(row: GuacamoleBootstrapRequest, credential: CredentialCo
             # Handoff also respects the current HTTP admission's exact ceiling.
             admit(credential, row.target_id, **context)
         return _authority_fields_match(row, fields)
+    except (ValueError, CMSError, PermissionError) as exc:
+        # Expected denial: a revoked credential, removed authority, or changed target.
+        logger.warning(
+            "Guacamole bootstrap reauthorization denied: bootstrap_id=%s exc_type=%s",
+            row.pk,
+            type(exc).__name__,
+        )
+        return False
     except Exception:
+        logger.exception("Guacamole bootstrap reauthorization failed closed: bootstrap_id=%s", row.pk)
         return False
 
 

@@ -189,8 +189,7 @@ def test_success_metric_is_emitted_only_after_enclosing_commit(django_user_model
     with caplog.at_level(logging.INFO, logger="engine.services._model_allocation"):
         with transaction.atomic():
             allocate(inputs)
-            assert not any(getattr(record, "model_access_outcome", None) for record in caplog.records)
-        recorded = [record for record in caplog.records if getattr(record, "model_access_outcome", None)]
+            assert not any(record.getMessage().startswith("model-access allocation ") for record in caplog.records)
+        recorded = [record for record in caplog.records if record.getMessage().startswith("model-access allocation ")]
         assert len(recorded) == 1
-        assert recorded[0].model_access_outcome == "admitted"
-        assert recorded[0].model_access_namespace == "Shifter/ModelAccess"
+        assert "namespace=Shifter/ModelAccess outcome=admitted " in recorded[0].getMessage()

@@ -256,6 +256,10 @@ class ParticipantPasswordView(APIView):
             try:
                 allowed = _check_credential_delivery_rate_limit(_actor(request).pk)
             except Exception as exc:
+                logger.exception(
+                    "CTF credential delivery rate limiter unavailable participant_id=%s",
+                    safe_log_value(participant_id),
+                )
                 raise _CtfApiError(
                     code="service_unavailable",
                     message="Credential service is temporarily unavailable.",

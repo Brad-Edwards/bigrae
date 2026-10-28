@@ -202,8 +202,8 @@ def _set_ctf_participant_profile(user: User, event: CTFEvent) -> None:
 
     set_active_ctf_event(user, event.pk)
     logger.info(
-        "Set CTF participant profile for user %s (event %s)",
-        user.email,
+        "Set CTF participant profile for user_id=%s (event %s)",
+        user.pk,
         event.pk,
     )
 
@@ -239,8 +239,8 @@ def _clear_ctf_participant_profile(user: User, event: CTFEvent) -> None:
         # active event so role-scoped views resolve the remaining participation.
         set_active_ctf_event(user, other.event_id)
         logger.info(
-            "Re-pointed CTF active event for user %s from %s to %s",
-            user.email,
+            "Re-pointed CTF active event for user_id=%s from %s to %s",
+            user.pk,
             event.pk,
             other.event_id,
         )
@@ -251,7 +251,7 @@ def _clear_ctf_participant_profile(user: User, event: CTFEvent) -> None:
         user.groups.remove(participant_group)
     set_active_ctf_event(user, None)
     logger.info(
-        "Cleared CTF participant profile for user %s (event %s)",
-        user.email,
+        "Cleared CTF participant profile for user_id=%s (event %s)",
+        user.pk,
         event.pk,
     )

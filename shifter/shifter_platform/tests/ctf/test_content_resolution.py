@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -111,21 +112,29 @@ def test_digest_mismatch_fails_before_parse(monkeypatch) -> None:
         (CloudStorageError("unavailable"), "CTF_CONTENT_RESOLUTION_FAILED"),
     ],
 )
-def test_storage_failures_are_safely_classified(monkeypatch, storage_error, expected_code) -> None:
+def test_storage_failures_are_safely_classified(monkeypatch, caplog, storage_error, expected_code) -> None:
     raw = _raw_bundle()
     storage = _storage(raw)
     storage.download_object.side_effect = storage_error
     monkeypatch.setattr("shared.cloud.get_object_storage", lambda: storage)
+    resolver_logger = logging.getLogger("ctf.services.content_resolution")
     with (
         override_settings(
             CTF_CONTENT_BUCKET="private-content",
             CTF_CONTENT_MAX_BYTES=1024 * 1024,
             CTF_CONTENT_REFERENCES=_references(raw),
         ),
+        caplog.at_level(logging.ERROR, logger=resolver_logger.name),
         pytest.raises(CTFValidationError) as error,
     ):
         resolve_scenario_ctf_content("scenario-one")
     assert error.value.code == expected_code
+    [record] = [record for record in caplog.records if record.levelno == logging.ERROR]
+    message = record.getMessage()
+    assert f"code={expected_code}" in message
+    assert f"cause_type={type(storage_error).__name__}" in message
+    assert str(storage_error) not in message
+    assert record.exc_info is None
 
 
 def test_declared_oversized_object_is_rejected_before_download(monkeypatch) -> None:

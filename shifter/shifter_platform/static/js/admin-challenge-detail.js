@@ -30,6 +30,7 @@ const config = readConfig();
 // Placeholder id embedded in the reversed "remove" URLs; swapped for the real
 // object id at call time.
 const PLACEHOLDER_ID = '00000000-0000-0000-0000-000000000000';
+const REQUEST_FAILED_TEXT = 'The request failed. Please try again.';
 
 function postJson(url, body) {
     const options = {
@@ -45,8 +46,28 @@ function postJson(url, body) {
     return fetch(url, options);
 }
 
+// Read the server's error text from the shared API envelope
+// {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+// Any other shape returns the fallback, so a non-string is never shown.
+function apiErrorMessage(data, fallback) {
+    const error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
 function reloadOrAlert(data) {
-    if (data.error) { alert(data.error); } else { location.reload(); }
+    if (data.error) { alert(apiErrorMessage(data, REQUEST_FAILED_TEXT)); } else { location.reload(); }
+}
+
+// A network failure or a non-JSON error page rejects the request chain. Report
+// it with fixed copy so the browser's exception text never reaches the user.
+function alertRequestFailed() {
+    alert(REQUEST_FAILED_TEXT);
 }
 
 function downloadFile(apiUrl) {
@@ -54,7 +75,7 @@ function downloadFile(apiUrl) {
         .then(function (r) { return r.json(); })
         .then(function (data) {
             if (data.url) { globalThis.location.href = data.url; }
-            else if (data.error) { alert(data.error); }
+            else if (data.error) { alert(apiErrorMessage(data, 'Download failed.')); }
         })
         .catch(function () { alert('Download failed.'); });
 }
@@ -73,21 +94,24 @@ function addFlag() {
     const caseSensitive = document.getElementById('new-flag-case-sensitive').value === 'true';
     postJson(config.addFlagUrl, { flag: flagValue, flag_type: flagType, case_sensitive: caseSensitive })
         .then(function (r) { return r.json(); })
-        .then(reloadOrAlert);
+        .then(reloadOrAlert)
+        .catch(alertRequestFailed);
 }
 
 function removeFlag(flagId) {
     if (!confirm('Remove this flag?')) return;
     postJson(config.removeFlagUrl.replace(PLACEHOLDER_ID, flagId))
         .then(function (r) { return r.json(); })
-        .then(reloadOrAlert);
+        .then(reloadOrAlert)
+        .catch(alertRequestFailed);
 }
 
 function removeFile(fileId) {
     if (!confirm('Remove this file?')) return;
     postJson(config.removeFileUrl.replace(PLACEHOLDER_ID, fileId))
         .then(function (r) { return r.json(); })
-        .then(reloadOrAlert);
+        .then(reloadOrAlert)
+        .catch(alertRequestFailed);
 }
 
 function addPrerequisite() {
@@ -95,14 +119,16 @@ function addPrerequisite() {
     if (!challengeId) { alert('Select a challenge'); return; }
     postJson(config.addPrerequisiteUrl, { required_challenge_id: challengeId })
         .then(function (r) { return r.json(); })
-        .then(reloadOrAlert);
+        .then(reloadOrAlert)
+        .catch(alertRequestFailed);
 }
 
 function removePrerequisite(prereqId) {
     if (!confirm('Remove this prerequisite?')) return;
     postJson(config.removePrerequisiteUrl.replace(PLACEHOLDER_ID, prereqId))
         .then(function (r) { return r.json(); })
-        .then(reloadOrAlert);
+        .then(reloadOrAlert)
+        .catch(alertRequestFailed);
 }
 
 function addHint() {
@@ -112,15 +138,18 @@ function addHint() {
     if (!text) { alert('Hint text is required.'); return; }
     postJson(config.addHintUrl, { text: text, penalty: penalty, order: order })
         .then(function (r) { return r.json(); })
-        .then(reloadOrAlert);
+        .then(reloadOrAlert)
+        .catch(alertRequestFailed);
 }
 
 function removeHint(hintId) {
     if (!confirm('Remove this hint?')) return;
     postJson(config.removeHintUrl.replace(PLACEHOLDER_ID, hintId))
         .then(function (r) {
-            if (r.ok) { location.reload(); } else { r.json().then(function (d) { alert(d.error); }); }
-        });
+            if (r.ok) { location.reload(); return undefined; }
+            return r.json().then(function (d) { alert(apiErrorMessage(d, REQUEST_FAILED_TEXT)); });
+        })
+        .catch(alertRequestFailed);
 }
 
 globalThis.addFlag = addFlag;

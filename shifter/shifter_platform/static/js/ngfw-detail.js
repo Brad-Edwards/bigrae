@@ -23,6 +23,20 @@ function getCookie(name) {
     return match ? decodeURIComponent(match.slice(prefix.length)) : null;
 }
 
+// Read the server's error text from the shared API envelope
+// {"error": {"code", "message"}} or a legacy flat {"error": "<message>"}.
+// Any other shape returns the fallback, so a non-string is never shown.
+function apiErrorMessage(data, fallback) {
+    const error = data?.error;
+    if (typeof error === 'string' && error) {
+        return error;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+        return error.message;
+    }
+    return fallback;
+}
+
 function initRefreshButton() {
     const refreshBtn = document.querySelector('.ngfw-refresh-btn');
     if (!refreshBtn) return;
@@ -77,7 +91,7 @@ function initCliButton() {
                 let errorMsg = 'Failed to generate CLI URL';
                 try {
                     const data = await response.json();
-                    errorMsg = data.error || errorMsg;
+                    errorMsg = apiErrorMessage(data, errorMsg);
                 } catch {
                     // Response wasn't JSON, use status text
                     errorMsg = response.statusText || errorMsg;
@@ -124,6 +138,10 @@ function initCliButton() {
                 userMsg = 'Request timed out. Please try again.';
             } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
                 userMsg = 'Network error. Please check your connection and try again.';
+            } else if (error.name !== 'Error') {
+                // Any other browser error (JSON SyntaxError, DOMException) can
+                // quote a response body or URL; show fixed text instead.
+                userMsg = 'The request could not be completed. Please try again.';
             }
 
             alert('Error opening CLI:\n\n' + userMsg);

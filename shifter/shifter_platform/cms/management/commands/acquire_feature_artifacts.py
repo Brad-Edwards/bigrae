@@ -13,6 +13,8 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
+from shared.log_sanitize import safe_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,9 +35,11 @@ class Command(BaseCommand):
         for scenario_id in RaesPackageSource.objects.order_by("scenario_id").values_list("scenario_id", flat=True):
             try:
                 requested += request_pack_feature_artifacts(scenario_id)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - per-pack boundary; RAES pack errors embed local filesystem paths
                 # One unassessable pack never blocks the others or the deploy.
                 logger.warning(
-                    "acquire_feature_artifacts: skipped scenario_id=%s error=%s", scenario_id, type(exc).__name__
+                    "acquire_feature_artifacts: skipped scenario_id=%s error=%s",
+                    safe_log_value(scenario_id),
+                    type(exc).__name__,
                 )
         self.stdout.write(f"requested {requested} feature artifact acquisition(s)")

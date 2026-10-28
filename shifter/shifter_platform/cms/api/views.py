@@ -32,6 +32,7 @@ from cms.services import PackRegistrationRequest, register_pack
 from shared.api.errors import api_error_response
 from shared.audit import get_request_id
 from shared.errors import classify_user_message
+from shared.log_sanitize import safe_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,12 @@ class PackRegisterView(APIView):
                 request_id=get_request_id(request._request),
             )
         except CMSError as exc:
-            logger.exception("pack registration failed")
+            # A refused registration is a client outcome (400); the audit seam logs its own failures.
+            logger.warning(
+                "pack registration rejected scenario_id=%s reason=%s",
+                safe_log_value(data["scenario_id"]),
+                safe_log_value(exc.message),
+            )
             return api_error_response(
                 code="invalid",
                 message=classify_user_message(

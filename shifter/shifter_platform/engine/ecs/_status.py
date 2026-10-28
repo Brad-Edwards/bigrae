@@ -49,7 +49,8 @@ def get_task_status(task_arn: str) -> dict[str, Any] | None:
         runner = get_task_runner()
         result = runner.get_task_status(cluster=cluster, task_id=task_arn)
     except CloudTaskError as e:
-        logger.exception("Failed to get task status: %s", e)
+        # Type only: the chained Kubernetes API error carries provider response text.
+        logger.error("Failed to get task status task_arn=%s exc_type=%s", task_arn, type(e).__name__)
         return None
 
     return _project_task_status(result)

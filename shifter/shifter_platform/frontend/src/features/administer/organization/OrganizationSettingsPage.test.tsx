@@ -123,6 +123,20 @@ describe("OrganizationSettingsDetailPage", () => {
     expect(await screen.findByText(/enter a valid email address/i)).toBeInTheDocument();
   });
 
+  it("shows authored copy when the save fails without an API error", async () => {
+    const user = setupUser();
+    mockApi.mockResolvedValueOnce(profile());
+    renderEditor();
+    await screen.findByDisplayValue("Acme");
+
+    mockApi.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await user.click(screen.getByRole("button", { name: /save/i }));
+
+    expect(await screen.findByText("Could not save changes")).toBeInTheDocument();
+    expect(screen.getByText("The organization settings could not be saved.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
+
   it("shows an access-denied state on 403", async () => {
     mockApi.mockRejectedValueOnce(new ApiError(403, { code: "organization_access_denied", message: "Organization access denied" }));
 

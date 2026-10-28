@@ -227,8 +227,8 @@ def admin_event_detail(request: HttpRequest, event_id: UUID) -> HttpResponse:
             success = handler(event) if handler else False
             if success:
                 logger.info(
-                    "User %s changed event %s status via action: %s",
-                    request.user.email,
+                    "User changed event status via action user_id=%s event_id=%s action=%s",
+                    request.user.pk,
                     event.pk,
                     action,
                 )
@@ -346,8 +346,8 @@ def admin_event_edit(request: HttpRequest, event_id: UUID) -> HttpResponse:
     # Check if event is modifiable
     if not event.is_modifiable:
         logger.warning(
-            "User %s attempted to edit non-modifiable event %s",
-            request.user.email,
+            "User attempted to edit non-modifiable event user_id=%s event_id=%s",
+            request.user.pk,
             event.pk,
         )
         return redirect("ctf:admin_event_detail", event_id=event.pk)

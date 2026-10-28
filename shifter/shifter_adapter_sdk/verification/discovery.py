@@ -222,21 +222,21 @@ def load_plugin(
     identity = f"distribution={candidate.distribution} entry_point={candidate.entry_point}"
     try:
         factory = candidate._entry_point_object.load()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - untrusted plugin exception text: only the class is kept
         raise PluginDiscoveryError(f"failed to load {identity}: {type(exc).__name__}") from None
     if not callable(factory):
         raise PluginDiscoveryError(f"{identity} does not expose a zero-argument factory")
     plugin_factory = cast(Callable[[], object], factory)
     try:
         declaration = plugin_factory()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - untrusted plugin exception text: only the class is kept
         raise PluginDiscoveryError(f"plugin factory failed for {identity}: {type(exc).__name__}") from None
     try:
         validated = _validate_declaration(declaration)
     except PluginDiscoveryError:
         raise
     # Defensive containment for malformed declarations from out-of-tree code.
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - untrusted plugin exception text: only the class is kept
         raise PluginDiscoveryError(f"invalid plugin declaration for {identity}: {type(exc).__name__}") from None
     return LoadedPlugin(
         distribution=candidate.distribution,
