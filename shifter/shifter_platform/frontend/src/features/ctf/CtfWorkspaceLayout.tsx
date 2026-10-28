@@ -3,7 +3,7 @@ import { Outlet } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { ctfKeys, useCtfCurrentEvent } from "@/api/ctf";
+import { ctfKeys, useCtfContentImages, useCtfCurrentEvent } from "@/api/ctf";
 import {
   Toast,
   ToastDescription,
@@ -11,6 +11,8 @@ import {
   ToastTitle,
   ToastViewport,
 } from "@/components/ui/toast";
+
+import { ContentImageProvider } from "./contentImages";
 
 interface LiveNotification {
   id: number;
@@ -76,6 +78,7 @@ function useEventNotifications(eventId: string | undefined, onNotification: (n: 
 /** Participant workspace shell: routes render through the outlet with live toasts on top. */
 export function CtfWorkspaceLayout() {
   const { data } = useCtfCurrentEvent();
+  const contentImages = useCtfContentImages();
   const queryClient = useQueryClient();
   const [toasts, setToasts] = useState<LiveNotification[]>([]);
   const nextId = useRef(0);
@@ -86,9 +89,11 @@ export function CtfWorkspaceLayout() {
       setToasts((current) => [...current.slice(-3), { ...notification, id: nextId.current }]);
       if (notification.kind === "announcement") {
         queryClient.invalidateQueries({ queryKey: ctfKeys.announcements() });
+        queryClient.invalidateQueries({ queryKey: ctfKeys.contentImages() });
       }
       if (notification.kind === "challenge_released") {
         queryClient.invalidateQueries({ queryKey: ctfKeys.challenges() });
+        queryClient.invalidateQueries({ queryKey: ctfKeys.contentImages() });
       }
       if (notification.kind === "range_ready") {
         queryClient.invalidateQueries({ queryKey: ctfKeys.rangeStatus() });
@@ -105,7 +110,9 @@ export function CtfWorkspaceLayout() {
 
   return (
     <ToastProvider>
-      <Outlet />
+      <ContentImageProvider images={contentImages.data?.images}>
+        <Outlet />
+      </ContentImageProvider>
       {toasts.map((toast) => (
         <LiveToast key={toast.id} toast={toast} onDismiss={dismiss} />
       ))}

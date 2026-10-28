@@ -286,6 +286,7 @@ def _challenge_detail_payload(challenge: CTFChallenge) -> dict[str, object]:
     """
     return {
         "id": str(challenge.id),
+        "event_id": str(challenge.event_id),
         "name": challenge.name,
         "description": challenge.description,
         "category": challenge.category,

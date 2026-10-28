@@ -99,6 +99,10 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_events_transfer_ownership_create": OperationPolicy(("event.transfer_ownership",), "event", "event"),
     "ctf_events_webhooks_retrieve": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "event"),
     "ctf_events_webhooks_create": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "event"),
+    "ctf_content_images_retrieve": OperationPolicy(
+        (_MANAGE_CHALLENGES, _PARTICIPATE), "event", "content_image", selector="content_image_audience"
+    ),
+    "ctf_events_content_images_retrieve": OperationPolicy((_MANAGE_CHALLENGES,), "event", "event"),
     "ctf_files_delete_create": OperationPolicy((_MANAGE_CHALLENGES,), "event", "file"),
     "ctf_files_download_retrieve": OperationPolicy(
         (_MANAGE_CHALLENGES, _PARTICIPATE), "event", "file", selector="file_audience"
@@ -106,6 +110,7 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_flags_remove_create": OperationPolicy((_MANAGE_CHALLENGES,), "event", "flag"),
     "ctf_hints_delete_create": OperationPolicy((_MANAGE_CHALLENGES,), "event", "hint"),
     "ctf_me_announcements_retrieve": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
+    "ctf_me_content_images_retrieve": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
     "ctf_me_briefing_retrieve": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
     "ctf_me_challenges_list": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
     "ctf_me_challenges_retrieve": OperationPolicy((_PARTICIPATE,), "event", "challenge"),
@@ -255,6 +260,7 @@ CTF_EXTERNAL_EFFECT_POLICY: dict[str, str] = {
     "submission_receipt": "signed_receipt_and_live_participant",
     "range_status_changed": "trusted_cms_signal_and_event_binding",
     "webhook_delivery": "committed_event_effect_and_pinned_destination",
+    "content_image_copy": "committed_content_reference_and_pinned_destination",
     "communication_delivery": "admitted_intent_and_claim_fence",
 }
 

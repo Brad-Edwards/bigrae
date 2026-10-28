@@ -2392,6 +2392,19 @@
           "source": "rendered from validated Terraform outputs and the normalized root config"
         },
         {
+          "description": "Public GCP runtime configuration value (CTF_EGRESS_PROXY) emitted into the platform runtime environment.",
+          "destination": "runtime-env",
+          "kind": "runtime-env",
+          "name": "CTF_EGRESS_PROXY",
+          "owner": "gcp backend runtime-env renderer (scripts/gcp/render_runtime_env.py)",
+          "process_roles": [
+            "portal",
+            "worker"
+          ],
+          "sensitivity": "public",
+          "source": "rendered from validated Terraform outputs and the normalized root config"
+        },
+        {
           "description": "Public GCP runtime configuration value (DB_AUTH_MODE) emitted into the platform runtime environment.",
           "destination": "runtime-env",
           "kind": "runtime-env",

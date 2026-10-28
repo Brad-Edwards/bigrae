@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import { resolveContentImage, useContentImageMap } from "./contentImages";
 import { titleCase, formatDateTime } from "./format";
 import { MarkdownContent } from "./MarkdownContent";
 import {
@@ -196,14 +197,15 @@ function EventOverview({ data }: Readonly<{ data: CtfCurrentEvent }>) {
   const briefingQuery = useCtfBriefing();
   const briefing = briefingQuery.data;
   const quickLinks = briefing ? [{ to: ctfBriefingPath(), label: "Briefing", icon: BookOpen }, ...QUICK_LINKS] : QUICK_LINKS;
+  // The enforced CSP admits only portal-origin images: show the logo's
+  // first-party copy, and nothing while no copy is ready (#2090).
+  const logo = resolveContentImage(useContentImageMap(), event.logo_url || undefined);
   return (
     <>
       {event.theme_color ? (
         <div className="mb-3 h-1 w-full rounded" style={{ backgroundColor: event.theme_color }} aria-hidden />
       ) : null}
-      {event.logo_url ? (
-        <img src={event.logo_url} alt={`${event.name} logo`} className="mb-3 h-12 w-auto" />
-      ) : null}
+      {logo?.kind === "image" ? <img src={logo.src} alt={`${event.name} logo`} className="mb-3 h-12 w-auto" /> : null}
       <PageHeader
         title={event.name}
         description={

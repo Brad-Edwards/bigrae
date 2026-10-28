@@ -2,16 +2,12 @@
 
 These render the authenticated pages that carry the event load through the real
 Django request/response stack with ``django.test.Client`` and count the actual
-SQL queries with ``CaptureQueriesContext`` — no ``render`` patching, no mocked
-context processors. Each budget is an exact, named integer: a regression that
-adds a query (the #898 / #852 per-render cost concern) fails the assertion and
-must be justified by bumping the number deliberately.
+SQL queries with ``CaptureQueriesContext``, with no ``render`` patching. Each
+budget is an exact, named integer: a regression that adds a query fails the
+assertion and must be justified by bumping the number deliberately.
 
-Every authenticated Mission Control render runs the four context processors
-(``active_range``, ``terminal_cdn_assets``, ``user_permissions``,
-``ctf_navigation``); the dashboard/terminal budgets pin that shared cost, the
-active-range case pins the range-projection overhead, and the CTF case pins a
-real participant page.
+Every page here is the SPA shell. Its render runs no project context processor,
+so an active range or an active CTF event adds no query (#2593).
 """
 
 from __future__ import annotations
@@ -30,21 +26,14 @@ from django.utils import timezone
 
 User = get_user_model()
 
-# Exact per-page query budgets. Bump deliberately (with justification) when a
+# Exact per-page query budget. Bump deliberately (with justification) when a
 # real change adds queries; an accidental regression must fail here first.
 #
-# Tightened by #898: request-scoped group caching collapses the five per-render
-# auth_user_groups lookups to one, select_related("agent", "request") removes the
-# get_active_range FK N+1, and the full active-range payload is now built only on
-# the terminal render — so non-terminal pages pay a single cheap has_active_range
-# query instead of the runtime-IP / scenario / instance-context projection.
-# #2316 adds one live principal-lifecycle lookup before every authenticated
-# render, so deactivated or retired identities cannot retain a session.
-DASHBOARD_NO_RANGE_BUDGET = 5
-DASHBOARD_ACTIVE_RANGE_BUDGET = 6
-TERMINAL_BUDGET = 5
-TERMINAL_ACTIVE_RANGE_BUDGET = 8
-CTF_PARTICIPANT_DASHBOARD_BUDGET = 7
+# The SPA shell render costs the session, the authenticated user, and the live
+# principal-lifecycle lookup (#2316) that stops a deactivated or retired
+# identity from keeping a session. #2593 removed the legacy template context
+# processors that added range, permission and CTF navigation queries.
+SPA_SHELL_BUDGET = 3
 
 
 @pytest.fixture
@@ -131,40 +120,6 @@ def _render_query_count(client: Client, url: str):
     return response, len(ctx.captured_queries)
 
 
-@pytest.fixture(autouse=True)
-def _real_context_processors():
-    """Pin the real context processors for these exact-count budgets.
-
-    Django caches the resolved context-processor callables on each template
-    ``Engine`` (a ``cached_property``). Several ctf view suites patch the
-    context processors by module path (``mission_control.context_processors
-    .active_range``, ``config.context_processors.user_permissions``,
-    ``ctf.context_processors.ctf_navigation``) to isolate their view tests; if
-    one of those patched renders is the first to warm a cold ``Engine`` on a
-    pytest-xdist worker, the *mocked* processors get cached process-wide and
-    survive the ``with patch`` block — so later renders silently skip those
-    processors' queries and every exact-count budget on the worker fails (the
-    measured count drops, e.g. 4 -> 2). Dropping the cached resolution before
-    and after each budget test forces re-resolution against the live (real,
-    unpatched) module attributes, so the budgets are deterministic regardless of
-    worker scheduling; clearing on teardown also leaves the next test a cold
-    cache so a ctf suite that follows can still apply its own patch. The
-    underlying ctf-suite fragility (relying on a cold Engine cache) is tracked
-    for the ctf decomposition.
-    """
-    from django.template import engines
-
-    def _reset() -> None:
-        for backend in engines.all():
-            engine = getattr(backend, "engine", None)
-            if engine is not None:
-                engine.__dict__.pop("template_context_processors", None)
-
-    _reset()
-    yield
-    _reset()
-
-
 @pytest.mark.django_db
 class TestPageRenderQueryBudgets:
     """Numeric per-render query budgets for authenticated pages."""
@@ -174,46 +129,32 @@ class TestPageRenderQueryBudgets:
         response, queries = _render_query_count(client, "/mission-control/")
 
         assert response.status_code == 200
-        assert queries == DASHBOARD_NO_RANGE_BUDGET
+        assert queries == SPA_SHELL_BUDGET
 
     def test_dashboard_active_range_budget(self, user, client_for, active_range):
         client = client_for(user)
         response, queries = _render_query_count(client, "/mission-control/")
 
         assert response.status_code == 200
-        assert queries == DASHBOARD_ACTIVE_RANGE_BUDGET
+        assert queries == SPA_SHELL_BUDGET
 
     def test_terminal_budget(self, user, client_for):
         client = client_for(user)
         response, queries = _render_query_count(client, "/mission-control/terminal/")
 
         assert response.status_code == 200
-        assert queries == TERMINAL_BUDGET
+        assert queries == SPA_SHELL_BUDGET
 
     def test_terminal_active_range_budget(self, user, client_for, active_range):
-        """The terminal render is the one page that still builds the full
-        active-range payload (#898 terminal_full tier); this pins its budget so
-        the workspace-authorization, FK/runtime-IP, and scenario work cannot
-        silently regress or migrate to non-terminal pages."""
         client = client_for(user)
         response, queries = _render_query_count(client, "/mission-control/terminal/")
 
         assert response.status_code == 200
-        assert queries == TERMINAL_ACTIVE_RANGE_BUDGET
-
-    def test_membership_removal_hides_active_range_from_terminal(self, user, client_for, active_range):
-        from workspaces.models import WorkspaceMembership
-
-        WorkspaceMembership.objects.filter(user=user).delete()
-        response = client_for(user).get("/mission-control/terminal/")
-
-        assert response.status_code == 200
-        assert response.context["has_active_range"] is False
-        assert response.context["active_range"] is None
+        assert queries == SPA_SHELL_BUDGET
 
     def test_ctf_participant_dashboard_budget(self, user, client_for, ctf_participant):
         client = client_for(user)
         response, queries = _render_query_count(client, "/ctf/")
 
         assert response.status_code == 200
-        assert queries == CTF_PARTICIPANT_DASHBOARD_BUDGET
+        assert queries == SPA_SHELL_BUDGET

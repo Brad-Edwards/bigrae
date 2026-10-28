@@ -82,6 +82,7 @@ dependencies = [
     "httpx>=0.28,<1",
     "defusedxml>=0.7.1",
     "openfga-sdk==0.10.4",
+    "markdown-it-py>=4.0.0",
 ]
 
 [dependency-groups]

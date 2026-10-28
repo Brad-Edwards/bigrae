@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:21.583957Z
-updated_at: 2026-03-26T07:16:06.186905Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-106: Case-Insensitive Flags
@@ -21,6 +21,5 @@ Case sensitivity is a common source of frustration when participants find the co
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `ctf/models.py` (CTFFlag.case_sensitive boolean field, configurable per flag)
-- IMPLEMENTS → CODE_FILE `ctf/services/challenge.py` (verify_single_flag(), lowercase normalization for static, `re.IGNORECASE` for regex)
-- TESTS → TEST `tests/ctf/test_challenges.py` (test_verify_flag_regex_case_insensitive, case sensitivity tests)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFFlag.case_sensitive boolean field, configurable per flag)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (verify_single_flag(), lowercase normalization for static, `re.IGNORECASE` for regex)

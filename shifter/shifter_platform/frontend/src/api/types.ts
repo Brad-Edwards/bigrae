@@ -292,6 +292,8 @@ export interface CtfEventAnalytics {
   };
 }
 export type CtfEventPagesResponse = components["schemas"]["EventPagesResponse"];
+export type CtfContentImages = components["schemas"]["ParticipantContentImages"];
+export type CtfOrganizerContentImages = components["schemas"]["OrganizerContentImagesResponse"];
 export type CtfEventPageWrite = components["schemas"]["EventPageWrite"];
 export type CtfAnnouncementListResponse = components["schemas"]["ParticipantAnnouncementList"];
 export type CtfNotificationListResponse = components["schemas"]["NotificationListResponse"];
