@@ -325,7 +325,7 @@ The self-hosted runner has:
 - AWS CLI configured
 - gcloud SDK support for GCP workflows
 - Docker + BuildX
-- Terraform (AWS deploy jobs pin `1.13.3`; GCP deploy jobs pin `1.16.7`)
+- Terraform (AWS deploy jobs pin `1.13.3`; GCP deploy jobs pin `1.17.1`)
 - Python 3.12
 - Network access to AWS and GCP APIs
 

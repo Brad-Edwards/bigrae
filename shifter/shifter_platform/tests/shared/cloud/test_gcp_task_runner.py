@@ -35,6 +35,7 @@ def _make_fake_k8s_client() -> SimpleNamespace:
         V1OwnerReference=lambda **kwargs: SimpleNamespace(**kwargs),
         V1Container=lambda **kwargs: SimpleNamespace(**kwargs),
         V1PodSpec=lambda **kwargs: SimpleNamespace(**kwargs),
+        V1ResourceRequirements=lambda **kwargs: SimpleNamespace(**kwargs),
         V1ObjectMeta=lambda **kwargs: SimpleNamespace(**kwargs),
         V1PodTemplateSpec=lambda **kwargs: SimpleNamespace(**kwargs),
         V1JobSpec=lambda **kwargs: SimpleNamespace(**kwargs),
@@ -157,6 +158,10 @@ class TestGCPTaskRunnerRunTask:
             "provisioner",
             "NoSchedule",
         )
+        # The provisioner pod is not BestEffort: the scheduler counts it (#2606).
+        resources = pod_spec.containers[0].resources
+        assert resources.requests == {"cpu": "250m", "memory": "512Mi", "ephemeral-storage": "1Gi"}
+        assert resources.limits == {"cpu": "2", "memory": "2Gi", "ephemeral-storage": "4Gi"}
 
     def test_requires_namespace(self) -> None:
         runner = GCPTaskRunner()
