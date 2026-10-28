@@ -7,9 +7,11 @@ CSRF cookie so the SPA's first unsafe API call has a token.
 
 Authorization is intentionally thin here: the view requires an authenticated
 session (anonymous users redirect to the shared login), but per-surface access
-is *not* enforced at this layer. The shell is public, cacheable markup that
-leaks nothing; the SPA renders its own access-denied state when the
-authoritative ``/api/v1/`` endpoints return 403.
+is *not* enforced at this layer. The shell leaks nothing; the SPA renders its
+own access-denied state when the authoritative ``/api/v1/`` endpoints return 403.
+
+The shell carries the per-response CSP style nonce (ADR-036, #2090), so the
+response is never cached: a cached nonce would be reused across responses.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from django.conf import settings
 from django.contrib.auth.views import redirect_to_login
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_safe
 
@@ -25,6 +28,7 @@ from shared.spa import vite_asset_urls
 
 
 @require_safe
+@never_cache
 @ensure_csrf_cookie
 def platform_spa_host(request: HttpRequest, *args, **kwargs) -> HttpResponse:
     """Serve the platform SPA shell for any GET page path the shell owns."""

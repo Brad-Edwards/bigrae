@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:23.462051Z
-updated_at: 2026-03-26T06:11:01.701812Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-901: Per-Participant Range Provisioning
@@ -21,12 +21,12 @@ Per-participant ranges are Shifter's core differentiator from CTFd. Each partici
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `ctf/models.py` (CTFParticipant model with range_instance_id and range_status fields)
-- IMPLEMENTS → CODE_FILE `ctf/management/commands/run_ctf_scheduler.py` (Scheduler command executing SPIN_UP_RANGES tasks at configurable time before event start)
-- IMPLEMENTS → CODE_FILE `ctf/views.py` (API endpoints for manual provisioning triggers and range status queries)
-- IMPLEMENTS → CODE_FILE `ctf/signals.py` (Signal handler syncing range_status (including failed) from CMS to CTFParticipant)
-- IMPLEMENTS → CODE_FILE `shared/enums.py` (ResourceStatus enum defining PENDING, PROVISIONING, READY, FAILED states)
-- IMPLEMENTS → CODE_FILE `ctf/bridges.py` (Bridge module for CMS range creation, status polling, and destruction)
-- IMPLEMENTS → CODE_FILE `cms/handlers.py` (CMS event handler propagating range status (including FAILED) via CTF signal bridge)
-- IMPLEMENTS → CODE_FILE `ctf/services/range.py` (Range provisioning service (per-participant and bulk provisioning, status tracking))
-- TESTS → TEST `ctf/tests/test_services/test_range.py` (Range service tests covering provisioning, status tracking, and failure handling)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFParticipant model with range_instance_id and range_status fields)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (Scheduler command executing SPIN_UP_RANGES tasks at configurable time before event start)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (API endpoints for manual provisioning triggers and range status queries)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/signals.py` (Signal handler syncing range_status (including failed) from CMS to CTFParticipant)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/enums.py` (ResourceStatus enum defining PENDING, PROVISIONING, READY, FAILED states)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/bridges.py` (Bridge module for CMS range creation, status polling, and destruction)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/handlers/` (CMS event handler propagating range status (including FAILED) via CTF signal bridge)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/` (Range provisioning service (per-participant and bulk provisioning, status tracking))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (Range service tests covering provisioning, status tracking, and failure handling)

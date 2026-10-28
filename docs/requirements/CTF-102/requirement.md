@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:21.446320Z
-updated_at: 2026-03-26T06:36:07.487894Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-102: Challenge Categories
@@ -22,9 +22,8 @@ Categories are the primary organizational axis for CTF challenges. Participants 
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (ChallengeCategory enum - defines 9 named categories (web, forensics, crypto, reverse, pwn, misc, osint, hardware, network))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFChallenge model - category CharField with ChallengeCategory.choices(), indexed, ordered by category)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge model - category CharField with ChallengeCategory.choices(), indexed, ordered by category)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenges.html` (Participant challenges UI - category filter buttons and challenges grouped by category sections)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_list.html` (Admin challenge list UI - challenges grouped by category with headers and counts)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/admin/challenge_form.html` (Challenge create/edit form - category select dropdown from ChallengeCategory.choices() for organizer selection)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_challenges.py` (Challenge tests - tests challenge creation/listing with category field using ChallengeCategory enum values)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant_challenges.py` (Challenge views - category_filter via query param, challenges_by_category grouping for participant and admin views)

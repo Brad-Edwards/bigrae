@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:21.848842Z
-updated_at: 2026-03-27T03:26:55.522847Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-113: Challenge Tags
@@ -21,8 +21,7 @@ Tags provide a secondary organizational axis orthogonal to categories. A forensi
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFChallengeTag model and tags M2M field on CTFChallenge)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge.py` (Tag resolution in create_challenge() and update_challenge())
-- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_challenges.py` (TestChallengeTags: create, update, reuse, uniqueness, clear tests)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallengeTag model and tags M2M field on CTFChallenge)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (Tag resolution in create_challenge() and update_challenge())
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#550` (CTF-113: Challenge Tags)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant_challenges.py` (Tag filtering in participant_challenges() and tags in API responses)

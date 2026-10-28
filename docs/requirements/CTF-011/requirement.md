@@ -1,12 +1,12 @@
 ---
 id: CTF-011
 title: "Import/Export & Data Management"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:21.269023Z
-updated_at: 2026-03-26T06:33:57.412225Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-011: Import/Export & Data Management
@@ -21,8 +21,7 @@ Import/export enables challenge reuse across events and leveraging community cha
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant.py` (Participant CSV bulk import service (partial: imports participants, not challenges))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms.py` (CTFParticipantImportForm - CSV upload form for participant import)
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_participant_views.py` (Tests for participant CSV import views)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/bulk_import.py` (Participant CSV bulk import service (partial: imports participants, not challenges))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms/` (CTFParticipantImportForm - CSV upload form for participant import)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#625` (CTF-011: Import/Export & Data Management)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/admin_people.py` (Participant import views (CSV form + JSON API) - partial import capability)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 
+import { ContentImageProvider } from "./contentImages";
 import { MarkdownContent } from "./MarkdownContent";
 
 /** The href the first rendered anchor carries, or "" when the element/attribute is absent. */
@@ -36,9 +37,28 @@ describe("MarkdownContent (safe render)", () => {
     expect(anchorHref(container)).toBe("https://example.test/guide");
   });
 
-  it("renders images by default for existing consumers", () => {
+  it("renders the first-party copy of a mapped external image (#2090)", () => {
+    const { container } = render(
+      <ContentImageProvider images={[{ source_url: "https://example.test/net.png", url: "/api/v1/ctf/content-images/1/" }]}>
+        <MarkdownContent text={"![diagram](https://example.test/net.png)"} />
+      </ContentImageProvider>,
+    );
+    const img = container.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("/api/v1/ctf/content-images/1/");
+    expect(img?.getAttribute("alt")).toBe("diagram");
+  });
+
+  it("links to an external image that has no ready copy instead of loading it", () => {
     const { container } = render(<MarkdownContent text={"![diagram](https://example.test/net.png)"} />);
-    expect(container.querySelector("img")).not.toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    const link = container.querySelector("a");
+    expect(link?.getAttribute("href")).toBe("https://example.test/net.png");
+    expect(link?.textContent).toBe("diagram");
+  });
+
+  it("keeps same-origin images", () => {
+    const { container } = render(<MarkdownContent text={"![local](/static/images/net.png)"} />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("/static/images/net.png");
   });
 
   it("drops images when the caller disallows them (briefing policy)", () => {
@@ -48,9 +68,10 @@ describe("MarkdownContent (safe render)", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
-  it("neutralizes an unsafe image source to an empty src", () => {
+  it("renders no image for an unsafe image source", () => {
     const { container } = render(<MarkdownContent text={"![x](javascript:alert(1))"} />);
-    expect(container.querySelector("img")?.getAttribute("src") ?? "").toBe("");
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
   });
 
   it("neutralizes a scheme smuggled past a naive prefix test with an entity-encoded tab", () => {

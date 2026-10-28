@@ -6,7 +6,7 @@ type: INTERFACE
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:23.534781Z
-updated_at: 2026-03-26T06:10:26.923031Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-903: Browser-Based Range Access
@@ -21,12 +21,12 @@ Browser-based access is non-negotiable for Shifter's target users, PANW consulta
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTF Models - CTFParticipant range fields)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTF Models - CTFParticipant range fields)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/mission_control/guacamole.py` (Guacamole integration - RDP and SSH URL generation)
-- IMPLEMENTS → CODE_FILE `mission_control/views.py` (mission_control guacamole_rdp_url endpoint - browser-based RDP access)
-- IMPLEMENTS → CODE_FILE `templates/mission_control/terminal.html` (Terminal page - browser-based RDP/SSH UI for range access)
-- IMPLEMENTS → CODE_FILE `engine/services.py` (engine get_rdp_connection_info - connection info for Guacamole)
-- TESTS → TEST `tests/mission_control/test_guacamole_ssh.py` (Guacamole SSH/RDP URL generation tests)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/mission_control/views/` (mission_control guacamole_rdp_url endpoint - browser-based RDP access)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/mission_control/terminal.html` (Terminal page - browser-based RDP/SSH UI for range access)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/services/` (engine get_rdp_connection_info - connection info for Guacamole)
+- TESTS → TEST `shifter/shifter_platform/tests/mission_control/test_guacamole_ssh.py` (Guacamole SSH/RDP URL generation tests)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#543` (CTF-903: Browser-Based Range Access)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#848` (Guacamole URL bootstrap blocks portal requests on synchronous token API call)
 - IMPLEMENTS → PULL_REQUEST `Brad-Edwards/shifter#854` (Fix Guacamole bootstrap request blocking)

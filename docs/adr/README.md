@@ -2,6 +2,11 @@
 
 This directory holds the machine-readable part of ADR enforcement.
 
+The [#2090 verification and adoption design](../architecture/verification-adoption-ownership-design-2090.md)
+applies existing quality-ownership, test-boundary, browser-security and repository
+identity rules to command and evidence reconciliation. It adds no check,
+exception, delivery assertion or live qualification claim.
+
 ADR-068's [gateway replacement evaluation](../architecture/model-access/gateway-replacement-evaluation-2274.md)
 records the clarified #2274 scope, maintained-product comparison, selected
 LiteLLM OSS edition, deployment-owned rotation and proposed qualification. Its

@@ -4,7 +4,7 @@
 // and the destination page's own heading renders (proving the intended surface
 // loaded, not the SPA not-found fallback that also renders under the shell).
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/csp";
 
 import { ACTORS } from "../support/actors";
 
@@ -16,8 +16,8 @@ const LANDINGS = [
 ] as const;
 
 for (const { role, actor, path, heading } of LANDINGS) {
-  test(`${role} reaches its authenticated workspace`, async ({ browser }) => {
-    const context = await browser.newContext({ storageState: actor.state });
+  test(`${role} reaches its authenticated workspace`, async ({ newGuardedContext }) => {
+    const context = await newGuardedContext({ storageState: actor.state });
     const page = await context.newPage();
 
     const bootstrap = page.waitForResponse(

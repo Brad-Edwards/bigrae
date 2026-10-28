@@ -6,7 +6,7 @@ type: CONSTRAINT
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:23.689350Z
-updated_at: 2026-04-16T22:50:07.317157Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-907: MC + CTF Range Coexistence
@@ -21,11 +21,11 @@ CTF events and Mission Control demos share provisioning infrastructure. Concurre
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `ctf/bridges.py` (CTF-CMS bridge module (shared provisioning path))
-- IMPLEMENTS → CODE_FILE `ctf/models.py` (CTF models (event config, max_participants))
-- IMPLEMENTS → CODE_FILE `cms/services.py` (CMS range creation service (shared infrastructure entry point))
-- IMPLEMENTS → CODE_FILE `ctf/services/range.py` (CTF range provisioning service (throttled provisioning))
-- IMPLEMENTS → CODE_FILE `mission_control/views.py` (Mission Control views (shared cms.services.create_range() call))
-- IMPLEMENTS → CODE_FILE `shared/auth.py` (Shared auth (CTF participants as standard platform users via group membership))
-- TESTS → TEST `tests/ctf/test_services/test_range.py` (CTF range provisioning tests (verifies shared CMS path))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/bridges.py` (CTF-CMS bridge module (shared provisioning path))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTF models (event config, max_participants))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/services/` (CMS range creation service (shared infrastructure entry point))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/` (CTF range provisioning service (throttled provisioning))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/mission_control/views/` (Mission Control views (shared cms.services.create_range() call))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/auth.py` (Shared auth (CTF participants as standard platform users via group membership))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (CTF range provisioning tests (verifies shared CMS path))
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#546` (CTF-907: MC + CTF Range Coexistence)

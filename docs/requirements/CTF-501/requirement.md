@@ -1,12 +1,12 @@
 ---
 id: CTF-501
 title: "Team Mode Toggle"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:22.539243Z
-updated_at: 2026-03-26T06:37:59.861516Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-501: Team Mode Toggle
@@ -21,6 +21,6 @@ Not all CTF events are team-based, some are individual competitions. Organizers 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFEvent.team_mode field (line 279))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFEvent.team_mode field (line 279))
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#644` (CTF-501: Team Mode Toggle)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant.py` (Scoreboard view team_mode branching (line 373))

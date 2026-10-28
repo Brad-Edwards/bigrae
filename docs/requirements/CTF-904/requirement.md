@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:23.574150Z
-updated_at: 2026-03-30T05:24:25.480334Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-904: Range Connection Info
@@ -21,7 +21,7 @@ Participants need to know how to connect to their range VMs and what credentials
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `ctf/services/range.py::get_range_access_url` (Range service: assembles Guacamole URL with credentials for participant access)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/` (Range service: assembles Guacamole URL with credentials for participant access)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/range.html` (Range template - VM table with IPs/OS/status and browser-based RDP access buttons)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (Range service tests - provisioning, status, cleanup, destroy)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#569` (CTF-904: Range Connection Info)

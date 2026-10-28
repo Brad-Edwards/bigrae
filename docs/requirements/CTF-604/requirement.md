@@ -1,12 +1,12 @@
 ---
 id: CTF-604
 title: "Participant Roles"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:22.869388Z
-updated_at: 2026-03-26T06:10:51.252561Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-604: Participant Roles
@@ -23,9 +23,9 @@ Role separation ensures participants cannot accidentally or intentionally modify
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/auth.py` (CTF role group constants and helper functions (organizer, participant))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/bridges.py` (UserRole dataclass and get_user_role() role detection)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant.py` (Per-event participant role assignment (_set/_clear_ctf_participant_profile))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFParticipant model with per-event FK (event-scoped participation))
-- TESTS → TEST `shifter/shifter_platform/ctf/tests/test_auth.py` (Dual-role and per-event role assignment tests)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/lifecycle.py` (Per-event participant role assignment (_set/_clear_ctf_participant_profile))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFParticipant model with per-event FK (event-scoped participation))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_auth.py` (Dual-role and per-event role assignment tests)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (UserType enum (ctf_organizer, ctf_participant -- no observer))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums_registration.py` (Event-scoped PLAYER and OBSERVER participation roles)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#653` (CTF-604: Participant Roles)

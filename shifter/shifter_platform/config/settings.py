@@ -36,6 +36,7 @@ from config._cloud import *  # NOSONAR  # noqa: E402
 from config._credential_settings import *  # NOSONAR  # noqa: E402
 from config._ctf_communication_settings import *  # NOSONAR  # noqa: E402
 from config._ctf_content_settings import *  # NOSONAR  # noqa: E402
+from config._ctf_egress_settings import *  # NOSONAR  # noqa: E402
 from config._drf_settings import *  # NOSONAR  # noqa: E402
 from config._email import *  # NOSONAR  # noqa: E402
 from config._guacamole_settings import *  # NOSONAR  # noqa: E402
@@ -201,6 +202,8 @@ TEMPLATES = [
             "context_processors": [
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
+                # Lazy per-response CSP nonce (ADR-036); only the SPA host reads it.
+                "django.template.context_processors.csp",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "mission_control.context_processors.active_range",
