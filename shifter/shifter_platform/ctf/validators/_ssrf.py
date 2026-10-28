@@ -156,6 +156,8 @@ def _deadline_response_class(deadline: float) -> type[http.client.HTTPResponse]:
     """Return an ``HTTPResponse`` class whose every receive ends by ``deadline``."""
 
     class _DeadlineResponse(http.client.HTTPResponse):
+        """An ``HTTPResponse`` that reads through a deadline-bounded socket file."""
+
         def __init__(self, sock: socket.socket, *args: Any, **kwargs: Any) -> None:
             super().__init__(sock, *args, **kwargs)
             # Keep the stock socket file (and its socket reference); bound its receives.
@@ -304,6 +306,38 @@ def _connections(
         )
 
 
+def _validated_destination(url: str) -> tuple[Any, str, int]:
+    """Return ``(parsed, hostname, port)`` for an admissible HTTPS URL, or raise."""
+    parsed_tuple = _safe_parse_url(url)
+    if parsed_tuple is None:
+        raise _BlockedDestinationError("Invalid destination")
+    parsed, hostname, port = parsed_tuple
+    if parsed.scheme != "https" or parsed.username or parsed.password or hostname in _BLOCKED_HOSTNAMES:
+        raise _BlockedDestinationError("Invalid destination")
+    return parsed, hostname, port
+
+
+def _send(
+    connection: http.client.HTTPConnection,
+    method: str,
+    target: str,
+    *,
+    body: bytes | None,
+    headers: dict[str, str],
+    deadline: float | None,
+) -> http.client.HTTPResponse | None:
+    """Send the request on one connection; return ``None`` to try the next address."""
+    if deadline is not None:
+        connection.response_class = _deadline_response_class(deadline)
+    try:
+        connection.request(method, target, body=body, headers=headers)
+        return connection.getresponse()
+    except (OSError, http.client.HTTPException) as exc:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("request deadline exceeded") from exc
+        return None
+
+
 @contextmanager
 def pinned_https_response(
     url: str,
@@ -331,29 +365,17 @@ def pinned_https_response(
     """
     from ctf.validators._http import _request_target
 
-    parsed_tuple = _safe_parse_url(url)
-    if parsed_tuple is None:
-        raise _BlockedDestinationError("Invalid destination")
-    parsed, hostname, port = parsed_tuple
-    if parsed.scheme != "https" or parsed.username or parsed.password or hostname in _BLOCKED_HOSTNAMES:
-        raise _BlockedDestinationError("Invalid destination")
+    parsed, hostname, port = _validated_destination(url)
     pinned_ips = _resolve_and_validate(hostname, port)
     context = ssl.create_default_context()
     context.minimum_version = ssl.TLSVersion.TLSv1_2
-    response_class = None if deadline is None else _deadline_response_class(deadline)
+    target = _request_target(parsed)
     for connection in _connections(hostname, port, pinned_ips, timeout=timeout, context=context):
         try:
-            if response_class is not None:
-                connection.response_class = response_class
-            try:
-                connection.request(method, _request_target(parsed), body=body, headers=headers or {})
-                response = connection.getresponse()
-            except (OSError, http.client.HTTPException) as exc:
-                if deadline is not None and time.monotonic() >= deadline:
-                    raise TimeoutError("request deadline exceeded") from exc
-                continue
-            yield response
-            return
+            response = _send(connection, method, target, body=body, headers=headers or {}, deadline=deadline)
+            if response is not None:
+                yield response
+                return
         finally:
             with suppress(Exception):
                 connection.close()

@@ -40,7 +40,7 @@ export function installStyleNonce(doc: Document = document): () => void {
     }
     return element;
   };
-  doc.createElement = stamped as Document["createElement"];
+  doc.createElement = stamped;
   return () => {
     if (doc.createElement === stamped) {
       // Removing the own property restores the prototype factory.

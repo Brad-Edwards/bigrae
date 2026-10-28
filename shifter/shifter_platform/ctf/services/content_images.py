@@ -102,6 +102,7 @@ class _CopyError(Exception):
 
 
 def _digest(url: str) -> str:
+    """Return the SHA-256 hex digest that keys a source URL within its event."""
     return hashlib.sha256(url.encode("utf-8")).hexdigest()
 
 
@@ -116,6 +117,7 @@ def image_url(image_id: UUID) -> str:
 
 
 def _collect_urls(logo_url: str, texts: list[str]) -> list[str]:
+    """Return the unique admissible image URLs of the logo and the texts, in order."""
     found: dict[str, None] = {}
     if logo_url and is_admissible_image_url(logo_url):
         found[logo_url] = None
@@ -126,6 +128,7 @@ def _collect_urls(logo_url: str, texts: list[str]) -> list[str]:
 
 
 def _page_bodies(event_id: UUID) -> list[str]:
+    """Return the bodies of the event pages that can show images."""
     # The briefing renders without images (BriefingPage), so it needs no copy.
     from ctf.models import CTFEventPage
     from ctf.models.event import RESERVED_BRIEFING_SLUG
@@ -138,6 +141,7 @@ def _page_bodies(event_id: UUID) -> list[str]:
 
 
 def _announcement_bodies(event_id: UUID, *, sent_only: bool) -> list[str]:
+    """Return the announcement bodies of the event; only sent ones when ``sent_only``."""
     from ctf.enums import NotificationStatus, NotificationType
     from ctf.models import CTFNotification
 
@@ -219,6 +223,7 @@ def sync_event_content_images(event_id: UUID) -> None:
 
 
 def _delete_copy(storage_key: str) -> None:
+    """Delete one stored copy; log a storage failure and continue."""
     try:
         get_object_storage().delete_object(settings.STORAGE_BUCKET_NAME, storage_key)
     except CloudStorageError:
@@ -232,6 +237,7 @@ def _delete_copy(storage_key: str) -> None:
 
 
 def _detect_type(header: bytes) -> str | None:
+    """Return the accepted image type whose magic bytes match ``header``, if any."""
     for content_type, alternatives in _IMAGE_SIGNATURES.items():
         if any(all(sig.matches(header) for sig in alternative) for alternative in alternatives):
             return content_type
@@ -239,12 +245,16 @@ def _detect_type(header: bytes) -> str | None:
 
 
 def _check_deadline(deadline: float) -> None:
+    """Fail the copy as a transient timeout once ``deadline`` has passed."""
     if time.monotonic() > deadline:
         raise _CopyError(FailureCode.TIMEOUT, transient=True)
 
 
 def _read_bounded(response: http.client.HTTPResponse) -> bytes:
-    # The transport ends every receive by the copy deadline (TimeoutError).
+    """Read the body and fail once it exceeds the size limit.
+
+    The transport ends every receive by the copy deadline (``TimeoutError``).
+    """
     declared_length = response.getheader("Content-Length")
     if declared_length is not None and declared_length.isdigit() and int(declared_length) > MAX_IMAGE_BYTES:
         raise _CopyError(FailureCode.TOO_LARGE)
@@ -287,6 +297,7 @@ def _fetch_image(url: str, deadline: float) -> tuple[bytes, str]:
 
 
 def _store(image: CTFContentImage, data: bytes, content_type: str) -> str:
+    """Upload the copy under the image-copy prefix and return its storage key."""
     key = f"{STORAGE_PREFIX}/{image.event_id}/{image.pk}"
     try:
         get_object_storage().upload_file(io.BytesIO(data), settings.STORAGE_BUCKET_NAME, key, content_type)
@@ -322,6 +333,7 @@ def _claim_next() -> CTFContentImage | None:
 
 
 def _copy_one(image: CTFContentImage, deadline: float) -> None:
+    """Copy one claimed image before ``deadline`` and record the result on its row."""
     from ctf.models import ContentImageStatus, CTFContentImage
 
     try:

@@ -53,6 +53,7 @@ def is_admissible_image_url(url: str) -> bool:
 
 
 def _image_sources(tokens: Iterable[Token]) -> Iterable[str]:
+    """Yield the ``src`` of every image token, including images nested in inline tokens."""
     for token in tokens:
         if token.type == "image":
             src = token.attrGet("src")

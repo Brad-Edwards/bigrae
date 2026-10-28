@@ -141,43 +141,57 @@ def _destination_ip_block_cidr(destination: object) -> object:
 # selected by exactly its component label, ingress restricted to pod peers, TCP 443
 # only, and every private, shared, loopback, link-local and special range excluded.
 DESIGNATED_EGRESS_PROXIES = frozenset({"content-egress", "model-provider-egress"})
+# The IANA special-purpose IPv4 blocks every proxy boundary must exclude. They
+# are deny-list data for the policy check, not addresses that any code reaches.
 REQUIRED_PUBLIC_EGRESS_EXCEPT = frozenset(
     {
         "0.0.0.0/8",
-        "10.0.0.0/8",
-        "100.64.0.0/10",
+        "10.0.0.0/8",  # NOSONAR - RFC 1918 private range that the policy must exclude.
+        "100.64.0.0/10",  # NOSONAR - RFC 6598 shared range that the policy must exclude.
         "127.0.0.0/8",
-        "169.254.0.0/16",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "224.0.0.0/4",
-        "240.0.0.0/4",
+        "169.254.0.0/16",  # NOSONAR - RFC 3927 link-local range that the policy must exclude.
+        "172.16.0.0/12",  # NOSONAR - RFC 1918 private range that the policy must exclude.
+        "192.168.0.0/16",  # NOSONAR - RFC 1918 private range that the policy must exclude.
+        "224.0.0.0/4",  # NOSONAR - RFC 5771 multicast range that the policy must exclude.
+        "240.0.0.0/4",  # NOSONAR - RFC 1112 reserved range that the policy must exclude.
     }
 )
 _COMPONENT_LABEL = "app.kubernetes.io/component"
 
 
-def _is_designated_proxy_boundary(spec: dict[str, object]) -> bool:
-    """Return whether ``spec`` selects only a designated proxy and restricts its ingress."""
+def _selected_component(spec: dict[str, object]) -> object:
+    """Return the component label when the pod selector matches on that label only."""
     selector = spec.get("podSelector")
-    if not isinstance(selector, dict) or set(selector) != {"matchLabels"}:
-        return False
-    labels = selector["matchLabels"]
-    if not isinstance(labels, dict) or set(labels) != {_COMPONENT_LABEL}:
-        return False
-    if labels[_COMPONENT_LABEL] not in DESIGNATED_EGRESS_PROXIES:
-        return False
+    labels = selector.get("matchLabels") if isinstance(selector, dict) and set(selector) == {"matchLabels"} else None
+    return labels.get(_COMPONENT_LABEL) if isinstance(labels, dict) and set(labels) == {_COMPONENT_LABEL} else None
+
+
+def _is_pod_peer_rule(rule: object) -> bool:
+    """Return whether one ingress rule admits only pod-selector peers."""
+    peers = rule.get("from") if isinstance(rule, dict) else None
+    return (
+        isinstance(peers, list)
+        and bool(peers)
+        and all(isinstance(peer, dict) and set(peer) == {"podSelector"} for peer in peers)
+    )
+
+
+def _ingress_only_from_pods(spec: dict[str, object]) -> bool:
+    """Return whether the policy restricts ingress and admits only pod peers."""
     policy_types = spec.get("policyTypes")
     ingress = spec.get("ingress")
-    if not isinstance(policy_types, list) or "Ingress" not in policy_types or not isinstance(ingress, list):
-        return False
-    for rule in ingress:
-        peers = rule.get("from") if isinstance(rule, dict) else None
-        if not isinstance(peers, list) or not peers:
-            return False
-        if any(not isinstance(peer, dict) or set(peer) != {"podSelector"} for peer in peers):
-            return False
-    return True
+    return (
+        isinstance(policy_types, list)
+        and "Ingress" in policy_types
+        and isinstance(ingress, list)
+        and all(_is_pod_peer_rule(rule) for rule in ingress)
+    )
+
+
+def _is_designated_proxy_boundary(spec: dict[str, object]) -> bool:
+    """Return whether ``spec`` selects only a designated proxy and restricts its ingress."""
+    component = _selected_component(spec)
+    return isinstance(component, str) and component in DESIGNATED_EGRESS_PROXIES and _ingress_only_from_pods(spec)
 
 
 def _is_designated_public_rule(doc: dict[str, object], rule_index: int, destination: object) -> bool:

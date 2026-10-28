@@ -732,8 +732,9 @@ The first slice intentionally stays small:
   designated egress proxy (`content-egress`, `model-provider-egress`).
   It must select only that component, admit ingress only from named
   pods, allow only TCP 443, and exclude every private, shared,
-  loopback, link-local, multicast, and reserved IPv4 range. Runs in
-  the `ci` level and shares the Helm-rendered validation boundary with
+  loopback, link-local, multicast, and reserved IPv4 range
+  (`REQUIRED_PUBLIC_EGRESS_EXCEPT`). Runs in the `ci` level and shares
+  the Helm-rendered validation boundary with
   `k8s-deployment-security-context`.
 
 - `eks-cross-stack-sourcing`
