@@ -88,7 +88,7 @@ jobs:
           persist-credentials: false
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
-          terraform_version: "1.16.7"
+          terraform_version: "1.17.1"
       - run: terraform fmt -check -recursive
         working-directory: platform/terraform/gcp
       - run: terraform init -backend=false
@@ -146,7 +146,7 @@ jobs:
           version: v1.34.1
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
-          terraform_version: "1.16.7"
+          terraform_version: "1.17.1"
           terraform_wrapper: false
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: Preflight - validate deploy prerequisites
@@ -509,7 +509,7 @@ jobs:
           version: v1.34.1
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
-          terraform_version: "1.16.7"
+          terraform_version: "1.17.1"
           terraform_wrapper: false
       - name: Render deployment inputs
         env:
@@ -661,7 +661,7 @@ jobs:
           version: v1.34.1
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
-          terraform_version: "1.16.7"
+          terraform_version: "1.17.1"
           terraform_wrapper: false
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: Render deployment inputs
