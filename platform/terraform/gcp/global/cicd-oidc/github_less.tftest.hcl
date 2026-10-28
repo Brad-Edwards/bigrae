@@ -147,7 +147,7 @@ run "config_bucket_differs_from_evidence" {
   expect_failures = [var.deployment_config_bucket_name]
 }
 
-run "release_purpose_on_protected_main" {
+run "release_purpose_on_release_refs" {
   command = plan
   module {
     source = "../../modules/cicd-oidc-identity"
@@ -158,10 +158,10 @@ run "release_purpose_on_protected_main" {
     github_repository_id = "123"
     github_owner_id      = "456"
     purpose_contexts = {
-      release = [{
+      release = [for ref in ["refs/heads/main", "refs/heads/dev", "refs/heads/deploy-test"] : {
         environment           = "gcp-release"
-        ref                   = "refs/heads/main"
-        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@refs/heads/main"
+        ref                   = ref
+        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@${ref}"
         reusable_workflow_ref = ""
       }]
     }
@@ -178,9 +178,13 @@ run "release_purpose_on_protected_main" {
     condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.workflow_ref == 'example/product/.github/workflows/release-gcp.yml@refs/heads/main'")
     error_message = "The provider must bind the release workflow on protected main."
   }
+  assert {
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.workflow_ref == 'example/product/.github/workflows/release-gcp.yml@refs/heads/deploy-test'")
+    error_message = "The provider must bind the release workflow on deploy-test."
+  }
 }
 
-run "release_purpose_off_main_rejected" {
+run "release_purpose_off_release_refs_rejected" {
   command = plan
   module {
     source = "../../modules/cicd-oidc-identity"
@@ -193,8 +197,8 @@ run "release_purpose_off_main_rejected" {
     purpose_contexts = {
       release = [{
         environment           = "gcp-release"
-        ref                   = "refs/heads/dev"
-        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@refs/heads/dev"
+        ref                   = "refs/heads/feature"
+        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@refs/heads/feature"
         reusable_workflow_ref = ""
       }]
     }
