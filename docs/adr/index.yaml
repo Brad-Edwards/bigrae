@@ -2607,7 +2607,7 @@
       },
       {
         "id": "ADR-043-R5",
-        "description": "Process argv is limited to the canonical resource/operation, request or legacy identifiers, and optional operation-generation UUID correlation; payloads, capabilities, credentials, database tokens, signed URLs, VPN profiles, provider responses, and environment maps MUST NOT enter argv, logs, audit context, range error text, events, or public error envelopes. Existing IAM/Cloud SQL DB auth, TLS, sensitive-env projection, env inventories/renderers, admission policy, shared.log_sanitize/provisioner log_redact, and shared API error envelopes remain authoritative.",
+        "description": "Process argv is limited to the canonical resource/operation, request or legacy identifiers, and optional operation-generation UUID correlation; payloads, capabilities, credentials, database tokens, signed URLs, VPN profiles, provider responses, and environment maps MUST NOT enter argv, logs, audit context, range error text, events, or public error envelopes. One exception applies: when a Terraform command fails, the provisioner's own log MAY record that command's stderr once, sanitized by provisioner log_redact and bounded in length. That copy MUST NOT enter argv, audit context, range error text, events, operation results, or public error envelopes. Existing IAM/Cloud SQL DB auth, TLS, sensitive-env projection, env inventories/renderers, admission policy, shared.log_sanitize/provisioner log_redact, and shared API error envelopes remain authoritative.",
         "checks": []
       },
       {

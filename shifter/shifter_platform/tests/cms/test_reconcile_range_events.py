@@ -11,6 +11,7 @@ Import structure:
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
@@ -202,6 +203,37 @@ class TestApplyRangeStatus:
                 apply_range_status(instance, ResourceStatus.READY.value)
         finally:
             pre_save.disconnect(_fail_if_target, sender=RangeInstance)
+
+    @pytest.mark.parametrize("failure", ["raise", "sql"])
+    def test_ctf_receiver_failure_is_logged_and_the_status_write_stands(self, db, caplog, failure):
+        """A failing CTF receiver rolls back only its own writes; the CMS status commits."""
+        from django.db import connection
+
+        user = _user()
+        cms_req = _cms_request(user)
+        instance = _range_instance(user, cms_req, status=ResourceStatus.PROVISIONING.value)
+
+        def _failing_receiver(sender, range_instance_id, **kwargs):
+            RangeInstance.all_objects.filter(pk=range_instance_id).update(scenario_id="receiver-write")
+            if failure == "sql":
+                # A DB-level error must not leave the status-write transaction unusable.
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT * FROM missing_ctf_projection_table")
+            raise RuntimeError("CTF projection unavailable")
+
+        range_status_changed.connect(_failing_receiver, weak=False)
+        try:
+            with caplog.at_level(logging.ERROR, logger="cms.handlers.ctf_bridge"):
+                assert apply_range_status(instance, ResourceStatus.READY.value) is True
+        finally:
+            range_status_changed.disconnect(_failing_receiver)
+
+        instance.refresh_from_db()
+        assert instance.status == ResourceStatus.READY.value
+        assert instance.scenario_id == "basic"
+        failures = [r for r in caplog.records if "CTF range status receiver failed" in r.getMessage()]
+        assert len(failures) == 1
+        assert failures[0].exc_info is not None
 
     def test_already_converged_no_op_returns_without_raising(self, db):
         """Already at target status → returns False without saving or raising."""

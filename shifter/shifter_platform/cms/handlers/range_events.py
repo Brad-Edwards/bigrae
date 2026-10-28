@@ -102,11 +102,13 @@ def apply_range_status(
     validating ``new_status`` and enforcing any forward-only ordering before
     calling this function.
 
-    The status write and the downstream CTF bridge effects are
-    committed as a single atomic unit.  If any bridge raises (e.g. a transient
-    publish failure), the status update rolls back together with it, so a
-    redelivered event is not seen as an already-converged no-op with the bridge
-    effect permanently skipped — the worker retry re-runs the whole unit.
+    The status write and the CMS quota release are committed as a single atomic
+    unit. If either raises (for example a transient DB failure), the status
+    update rolls back with it, so a redelivered event is not seen as an
+    already-converged no-op — the worker retry re-runs the whole unit. The CTF
+    bridge runs its receivers in a savepoint inside that unit: a receiver failure
+    is logged and rolls back only the receivers' writes, so it never blocks the
+    CMS status. #2577 tracks a durable handoff for the CTF side effects.
 
     Args:
         instance: The RangeInstance to update.
@@ -146,11 +148,11 @@ def apply_range_status(
                 cleanup_verified=_cleanup_verified_for(instance, new_status),
             )
     except Exception:
-        # Transient DB/broker failure on the save or a bridge effect. The
-        # atomic block has rolled the status write back; restore the in-memory
-        # value so the object matches the committed DB state, then propagate so
-        # the worker retry (or DLQ) re-runs the whole status+bridge unit. The
-        # SQS worker and the reconciler log the propagated traceback.
+        # Transient DB failure on the save or the quota release. The atomic
+        # block has rolled the status write back; restore the in-memory value so
+        # the object matches the committed DB state, then propagate so the
+        # worker retry (or DLQ) re-runs the whole unit. The SQS worker and the
+        # reconciler log the propagated traceback.
         logger.info(
             "Failed to apply RangeInstance status pk=%s status=%s — rolled back",
             instance.pk,

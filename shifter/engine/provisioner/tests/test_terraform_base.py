@@ -155,7 +155,8 @@ class TestRunTerraformFailure:
 
         from terraform_base import TerraformCommandError, run_terraform
 
-        failed = MagicMock(returncode=1, stdout="", stderr="Error: synthetic provider response")
+        stderr = "Error: synthetic provider response\nsecond line" + "x" * 6000
+        failed = MagicMock(returncode=1, stdout="", stderr=stderr)
         with (
             patch("terraform_base._run.subprocess.run", return_value=failed),
             caplog.at_level(logging.ERROR, logger="terraform_base._run"),
@@ -167,6 +168,13 @@ class TestRunTerraformFailure:
         assert isinstance(error.value, TerraformCommandError)
         assert str(error.value) == "Terraform apply failed (exit_code=1)"
         assert caplog.text.count("synthetic provider response") == 1
+        # The one stderr copy that ADR-043-R5 allows is sanitized and bounded.
+        [record] = [r for r in caplog.records if r.name == "terraform_base._run"]
+        message = record.getMessage()
+        assert "\\nsecond line" in message
+        assert "\n" not in message
+        assert message.endswith("...")
+        assert len(message) < 4100
 
 
 class TestStateCleanup:
