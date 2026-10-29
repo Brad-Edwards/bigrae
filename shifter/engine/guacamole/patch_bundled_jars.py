@@ -14,9 +14,10 @@ Usage::
         --replace 'failureaccess-[0-9.]+\\.jar=/patch/failureaccess-1.0.3.jar' ARCHIVE...
 
 Each ``--replace`` pairs a regular expression for the nested jar file name with
-the replacement jar. The script rewrites each archive in place, recurses into
-nested jars that contain a match, and fails when an archive has no match, so a
-changed upstream layout can not pass silently.
+the replacement jar. The script rewrites each archive in place and recurses into
+nested jars that contain a match. It fails, and writes no archive, when an
+archive has no match or a replacement matches no archive, so a changed upstream
+layout can not pass silently.
 """
 
 from __future__ import annotations
@@ -51,8 +52,13 @@ def _matching(name: str, replacements: list[Replacement]) -> Replacement | None:
     return next((r for r in replacements if r.pattern.fullmatch(base)), None)
 
 
-def patch_archive(data: bytes, replacements: list[Replacement]) -> tuple[bytes, int]:
-    """Return the patched archive bytes and the number of replaced entries."""
+def patch_archive(data: bytes, replacements: list[Replacement], used: set[Path] | None = None) -> tuple[bytes, int]:
+    """Return the patched archive bytes and the number of replaced entries.
+
+    Each replacement that matches at least one entry is added to ``used``.
+    """
+    if used is None:
+        used = set()
     replaced = 0
     out = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(data)) as source, zipfile.ZipFile(out, "w") as target:
@@ -64,9 +70,10 @@ def patch_archive(data: bytes, replacements: list[Replacement]) -> tuple[bytes, 
                 info = zipfile.ZipInfo(directory + match.name, date_time=info.date_time)
                 info.compress_type = zipfile.ZIP_STORED
                 payload = match.data()
+                used.add(match.path)
                 replaced += 1
             elif info.filename.endswith(".jar"):
-                nested, count = patch_archive(payload, replacements)
+                nested, count = patch_archive(payload, replacements, used)
                 if count:
                     payload = nested
                     replaced += count
@@ -86,13 +93,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--replace", action="append", type=_parse_replacement, required=True)
     parser.add_argument("archives", nargs="+", type=Path)
     args = parser.parse_args(argv)
+    used: set[Path] = set()
+    patched: dict[Path, bytes] = {}
     for archive in args.archives:
-        patched, count = patch_archive(archive.read_bytes(), args.replace)
+        data, count = patch_archive(archive.read_bytes(), args.replace, used)
         if not count:
             print(f"{archive}: no bundled jar matched; the upstream layout changed", file=sys.stderr)
             return 1
-        archive.write_bytes(patched)
+        patched[archive] = data
         print(f"{archive}: replaced {count} bundled jar(s)")
+    unused = [r.pattern.pattern for r in args.replace if r.path not in used]
+    if unused:
+        print(f"no archive bundles a jar that matches: {', '.join(unused)}", file=sys.stderr)
+        return 1
+    for archive, data in patched.items():
+        archive.write_bytes(data)
     return 0
 
 

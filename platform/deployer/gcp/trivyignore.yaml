@@ -15,6 +15,9 @@
 # entry and the gate blocks the release again. When a vendor ships a fixed
 # build, bump the tool in platform/deployer/gcp/Dockerfile and remove its entry.
 #
+# A verified false positive can also have an entry. Its statement must say why
+# the finding does not apply to this image, with the advisory that proves it.
+#
 # The deployer is a one-shot command-line image. It runs one operator command,
 # opens no network listener, and exits.
 
@@ -53,6 +56,6 @@ vulnerabilities:
     paths:
       - usr/local/bin/trivy
     statement: >-
-      The newest vendor build of Trivy 0.76.1 uses go-jose v4 before 4.1.6. No Trivy
-      release with the fix exists yet. Bump Trivy when one ships. Tracking: #2571.
+      The newest vendor build of Trivy 0.76.1 uses go-jose v4 before 4.1.6. No vendor
+      build with the fix exists yet. Bump Trivy when its vendor ships one. Tracking: #2571.
     expired_at: 2026-11-30
