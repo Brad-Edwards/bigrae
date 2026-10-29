@@ -152,6 +152,14 @@ class TestRealtimeBus:
         assert _can_subscribe(participant_user, topic) is True
         assert _can_subscribe(stranger, topic) is False
 
+        # A demoted owner keeps no event feed on ownership alone (#2617).
+        from django.contrib.auth.models import Group
+
+        from shared.auth import CTF_ORGANIZER_GROUP
+
+        organizer_user.groups.remove(Group.objects.get(name=CTF_ORGANIZER_GROUP))
+        assert _can_subscribe(organizer_user, topic) is False
+
     def test_first_blood_published_once(self, ctf_event_active, participant_user, monkeypatch):
         from ctf.enums import ChallengeCategory, ChallengeDifficulty
         from ctf.models import CTFChallenge

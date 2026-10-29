@@ -122,7 +122,9 @@ Control-plane workloads run as the non-root runtime identity UID 10001, with a
 read-only root filesystem, dropped capabilities, and the `RuntimeDefault` seccomp
 profile. The admission policies pin that identity for the provisioner,
 preparation, and acquisition Jobs. The Cloud SQL proxy keeps its own 65532
-identity. The repository tests evaluate the admission policies with a Python
+identity. The provisioner Job policy inlines the platform-runtime values as its
+parameters, because GKE 1.36 and EKS do not resolve ConfigMap parameters (#2633).
+The repository tests evaluate the admission policies with a Python
 CEL interpreter. They do not prove that a policy compiles on the Kubernetes API
 server. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
 each supported values file. A scoped waiver uses a chart template annotation
@@ -188,7 +190,11 @@ WebSocket notifications are projections and can be recovered by an authorized re
 | Cloud secret stores | Workload-scoped secret material and persisted references; application/runtime owners enforce audience and lifecycle, operators own rotation. Never use guest access as a management credential. |
 | Terraform state | Infrastructure ownership and recovery inputs; privileged operator data, separate from application operation truth. |
 
-Use request/operation/generation identifiers for correlation. Existing structured
+Use request/operation/generation identifiers for correlation. The portal keeps a
+client `X-Request-ID` only when it is a token of 64 or fewer safe characters, and
+replaces any other value. Audit attribution trusts only the load balancer's own
+`X-Forwarded-For` hops: one on the AWS ALB and two on the GCP external Application
+Load Balancer (`AUDIT_TRUSTED_PROXY_HOPS`, set by the GCP runtime renderer). Existing structured
 logging and sanitized error builders exclude raw provider responses, credentials,
 signed URLs and private scenario material. Audit evidence is not a work queue.
 Backup existence is not evidence of a successful restore rehearsal.

@@ -193,6 +193,23 @@ def _websocket_boundary_messages(user, path):
     return downstream_calls, messages
 
 
+def test_socket_revalidation_closes_a_banned_participants_open_socket(ctf_event_active, monkeypatch):
+    """A ban ends authority on the next socket revalidation, not only on reconnect (#2617)."""
+    from config.socket_authority import authorize_socket_resource
+    from ctf.services.participant.moderation import ban_participant
+    from management.services import set_ctf_password_change_required
+
+    monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
+    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    set_ctf_password_change_required(participant.user, False)
+    scope = {"user": User.objects.get(pk=participant.user_id), "path": "/ws/notifications/"}
+    assert authorize_socket_resource(scope) is True
+
+    ban_participant(participant.id, reason="synthetic")
+
+    assert authorize_socket_resource({**scope, "user": User.objects.get(pk=participant.user_id)}) is False
+
+
 @pytest.mark.django_db(transaction=True)
 def test_ctf_websocket_boundary_admits_live_participant_terminal(ctf_event_active, monkeypatch):
     from management.services import set_ctf_password_change_required

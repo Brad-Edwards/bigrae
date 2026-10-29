@@ -69,10 +69,10 @@ class TestStaffAssignment:
         assert [s["role"] for s in listing.json()["staff"]] == ["judge"]
 
     def test_assign_rejects_unknown_email_and_bad_role(self, ctf_event, authenticated_organizer_client):
+        # Unknown and ineligible accounts share one bounded failure (#2617).
         unknown = _assign(authenticated_organizer_client, ctf_event, "nobody@test.com", "moderator")
-        assert unknown.status_code == 404
-        # The envelope carries the authored domain message, not the "[CODE] message" form.
-        assert unknown.json()["error"]["message"] == "No active user with that email"
+        assert unknown.status_code == 400
+        assert unknown.json()["error"]["message"] == "No active CTF organizer has that email"
         bad_role = _assign(authenticated_organizer_client, ctf_event, "organizer@test.com", "sheriff")
         assert bad_role.status_code == 400
         assert bad_role.json()["error"]["message"] == "Invalid staff role"

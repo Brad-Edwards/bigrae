@@ -244,6 +244,55 @@ def test_identity_platform_session_creates_django_session(client, monkeypatch, i
     DEBUG=False,
     IDENTITY_ALLOWED_EMAIL_DOMAIN="paloaltonetworks.com",
 )
+def test_identity_platform_session_refuses_a_stale_provider_sign_in(client, monkeypatch, identity_user, settings):
+    """A stored provider sign-in replayed after the portal session ends cannot start a new session (#2617).
+
+    The sign-in is 30 minutes old: inside the 8-hour session lifetime, outside
+    the window that a new portal session requires.
+    """
+    from config import views
+
+    settings.IDENTITY_PLATFORM_PROJECT_ID = "synthetic-project"
+    settings.IDENTITY_PLATFORM_API_KEY = "synthetic-public-api-key"
+    provider = views.identity_platform_auth
+    monkeypatch.setattr(provider.firebase_admin, "get_app", lambda: object())
+    monkeypatch.setattr(
+        provider.firebase_auth,
+        "verify_id_token",
+        lambda *args, **kwargs: {
+            "iss": "https://securetoken.google.com/synthetic-project",
+            "aud": "synthetic-project",
+            "sub": "synthetic-human",
+            "email": identity_user.email,
+            "email_verified": True,
+            "auth_time": int(time.time()) - 1800,
+            "firebase": {"sign_in_second_factor": "totp"},
+        },
+    )
+    monkeypatch.setattr(
+        provider.requests,
+        "post",
+        lambda *args, **kwargs: SimpleNamespace(
+            ok=True,
+            json=lambda: {"users": [{"emailVerified": True, "mfaInfo": [{"mfaEnrollmentId": "factor"}]}]},
+        ),
+    )
+
+    response = client.post(
+        reverse("identity_platform_session"),
+        data=json.dumps({"idToken": "verified-id-token"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert "_auth_user_id" not in client.session
+
+
+@override_settings(
+    AUTH_PROVIDER="identity_platform",
+    DEBUG=False,
+    IDENTITY_ALLOWED_EMAIL_DOMAIN="paloaltonetworks.com",
+)
 def test_identity_platform_session_returns_email_verification_error(client, monkeypatch):
     from config import views
 

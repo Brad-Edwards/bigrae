@@ -170,6 +170,7 @@ def run_release_communication_task(task: CTFScheduledTask) -> dict[str, Any]:
 
     actor = _actor_for_scheduled(intent)
     try:
+        _require_author_event_admin_standing(actor)
         outcome = release_due_declaration(intent, actor=actor)
     except CTFCommunicationError as exc:
         return _denied_result(intent, exc)
@@ -178,6 +179,26 @@ def run_release_communication_task(task: CTFScheduledTask) -> dict[str, Any]:
     if outcome == RELEASE_OUTCOME_NOT_DUE and intent.due_at is not None:
         result["reschedule_for"] = intent.due_at
     return result
+
+
+def _require_author_event_admin_standing(actor: AdmissionActor) -> None:
+    """Deny a due-time release whose human author lost event-administration standing.
+
+    The REST surface admits communications only for an active CTF organizer or a
+    platform administrator (``HasCTFEventAdminAccess``). A declaration made before
+    the author was demoted must not release later on event ownership alone.
+    Trusted automation (no user) keeps its own authority.
+    """
+    if actor.user_id is None:
+        return
+    from django.contrib.auth import get_user_model
+
+    from ctf.services.authorization import is_ctf_platform_admin
+    from ctf.services.event.staff import actor_is_active_ctf_organizer
+
+    user = get_user_model().objects.filter(pk=actor.user_id, is_active=True).first()
+    if user is None or not (actor_is_active_ctf_organizer(user.pk) or is_ctf_platform_admin(user)):
+        raise CTFCommunicationError("Communication actor is not active", code="CTF_COMMUNICATION_ACTOR_DENIED")
 
 
 def _denied_result(intent: CommunicationIntent, exc: CTFCommunicationError) -> dict[str, Any]:

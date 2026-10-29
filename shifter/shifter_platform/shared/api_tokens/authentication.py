@@ -26,11 +26,36 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
 
 _DEFAULT_COALESCE_SECONDS = 300
+# Audit reason for a bearer header that cannot carry a credential.
+_MALFORMED_BEARER_HEADER = "Malformed bearer header"
 
 
 def _invalid_token_message() -> str:
     """Return the intentionally generic bearer authentication failure."""
     return "Invalid or expired API token"
+
+
+def _rejected(
+    request: Request,
+    detail: str,
+    *,
+    reason: str,
+    token: ApiToken | None = None,
+) -> exceptions.AuthenticationFailed:
+    """Audit a rejected bearer credential and return the error to raise.
+
+    Every rejection path records one best-effort ``AUTH_FAILED`` event so a
+    revoked or ineligible credential that is still in use stays visible. The
+    event carries only the public token id, never credential material.
+    """
+    record_token_event(
+        TokenEvent.AUTH_FAILED,
+        request=request,
+        token_id=token.token_id if token is not None else None,
+        token_pk=token.pk if token is not None else None,
+        context=reason,
+    )
+    return exceptions.AuthenticationFailed(detail)
 
 
 class ApiTokenAuthentication(authentication.BaseAuthentication):
@@ -46,23 +71,31 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
         """
         raw_header = authentication.get_authorization_header(request)
         if len(raw_header) > 16384:
-            raise exceptions.AuthenticationFailed(_invalid_token_message())
+            raise _rejected(request, _invalid_token_message(), reason="Oversized authorization header")
         header = raw_header.split()
 
         if not header or header[0].lower() != self.keyword.lower().encode():
             return None
 
         if len(header) == 1:
-            raise exceptions.AuthenticationFailed("Invalid token header. No credentials provided.")
+            raise _rejected(request, "Invalid token header. No credentials provided.", reason=_MALFORMED_BEARER_HEADER)
         if len(header) > 2:
-            raise exceptions.AuthenticationFailed("Invalid token header. Token string should not contain spaces.")
+            raise _rejected(
+                request,
+                "Invalid token header. Token string should not contain spaces.",
+                reason=_MALFORMED_BEARER_HEADER,
+            )
 
         try:
             return header[1].decode()
         except UnicodeError as exc:
-            raise exceptions.AuthenticationFailed("Invalid token header. Token string is malformed.") from exc
+            raise _rejected(
+                request,
+                "Invalid token header. Token string is malformed.",
+                reason=_MALFORMED_BEARER_HEADER,
+            ) from exc
 
-    def _reject_ineligible_owner(self, token: ApiToken) -> None:
+    def _reject_ineligible_owner(self, request: Request, token: ApiToken) -> None:
         """Fail closed for a token whose owner may not authenticate.
 
         A CTF-account owner's token is revoked on sight; a token whose owner is
@@ -72,9 +105,14 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
         owner = token.created_by
         if token.created_by_id and getattr(getattr(owner, "profile", None), "is_ctf_account", False):
             token.revoke()
-            raise exceptions.AuthenticationFailed(_invalid_token_message())
+            raise _rejected(
+                request,
+                _invalid_token_message(),
+                reason="Token owner is a CTF account; token revoked",
+                token=token,
+            )
         if not token.has_eligible_owner:
-            raise exceptions.AuthenticationFailed(_invalid_token_message())
+            raise _rejected(request, _invalid_token_message(), reason="Token owner is not eligible", token=token)
 
     def authenticate(self, request: Request) -> tuple[None, ApiToken | CredentialContext] | None:
         request.credential_context = None
@@ -89,24 +127,24 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
                     raise ValueError("Unknown credential shape")
                 credential = verify_service_credential(raw_token)
             except Exception:  # noqa: BLE001  # fail closed; verifier errors can echo the bearer token
-                raise exceptions.AuthenticationFailed(_invalid_token_message()) from None
+                raise _rejected(request, _invalid_token_message(), reason="Service credential rejected") from None
             request.credential_context = credential
             return None, credential
 
         token = ApiToken.authenticate(raw_token) if raw_token.startswith(TOKEN_PREFIX) else None
         if token is None:
-            record_token_event(
-                TokenEvent.AUTH_FAILED,
-                request=request,
-                context=_invalid_token_message(),
-            )
-            raise exceptions.AuthenticationFailed(_invalid_token_message())
+            raise _rejected(request, _invalid_token_message(), reason=_invalid_token_message())
 
-        self._reject_ineligible_owner(token)
+        self._reject_ineligible_owner(request, token)
         try:
             request.credential_context = personal_credential_for_token(token)
         except Exception:  # noqa: BLE001  # fail-closed token boundary; the cause stays out of the chain
-            raise exceptions.AuthenticationFailed(_invalid_token_message()) from None
+            raise _rejected(
+                request,
+                _invalid_token_message(),
+                reason="Token use is not authorized",
+                token=token,
+            ) from None
 
         coalesce_seconds = getattr(settings, "API_TOKEN_LAST_USED_COALESCE_SECONDS", _DEFAULT_COALESCE_SECONDS)
         token.touch_last_used(coalesce_seconds=coalesce_seconds)

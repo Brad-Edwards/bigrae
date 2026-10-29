@@ -66,34 +66,37 @@ def _can_subscribe(user: AbstractBaseUser | AnonymousUser, topic: str) -> bool:
     A live staff row authorizes only while the account still holds the global CTF
     Organizer role (#1922 review — no stale-row bypass).
     """
-    from ctf.models import CTFEventStaff, CTFParticipant
-    from ctf.services.event.staff import actor_is_active_ctf_organizer
-    from ctf.services.participant import viewing_participant_q
     from ctf.services.participant.accounts import live_participant_for_user
     from management.services import is_ctf_password_change_required, is_temporary_ctf_account
 
     live_user = _live_notification_user(user)
-    if live_user is None:
-        return False
-    user_id = live_user.pk
-    event = _topic_event(topic)
-    if event is None:
+    event = _topic_event(topic) if live_user is not None else None
+    if live_user is None or event is None:
         return False
     if is_temporary_ctf_account(live_user):
         participant = live_participant_for_user(live_user)
-        allowed = bool(
-            participant and participant.event_id == event.pk and not is_ctf_password_change_required(live_user)
-        )
-    else:
-        allowed = (
-            event.created_by_id == user_id
-            or (
-                CTFEventStaff.objects.filter(event=event, user_id=user_id, deleted_at__isnull=True).exists()
-                and actor_is_active_ctf_organizer(user_id)
-            )
-            or CTFParticipant.objects.filter(viewing_participant_q(), event=event, user_id=user_id).exists()
-        )
-    return allowed
+        return bool(participant and participant.event_id == event.pk and not is_ctf_password_change_required(live_user))
+    return _account_may_follow_event(live_user, event)
+
+
+def _account_may_follow_event(live_user: User, event: CTFEvent) -> bool:
+    """Admit an organizing owner, a live staff organizer, or a viewing participant.
+
+    Ownership alone is not standing: a demoted owner keeps no event feed (#2617).
+    """
+    from ctf.models import CTFEventStaff, CTFParticipant
+    from ctf.services.authorization import is_ctf_platform_admin
+    from ctf.services.event.staff import actor_is_active_ctf_organizer
+    from ctf.services.participant import viewing_participant_q
+
+    user_id = live_user.pk
+    if event.created_by_id == user_id and (actor_is_active_ctf_organizer(user_id) or is_ctf_platform_admin(live_user)):
+        return True
+    if CTFEventStaff.objects.filter(
+        event=event, user_id=user_id, deleted_at__isnull=True
+    ).exists() and actor_is_active_ctf_organizer(user_id):
+        return True
+    return CTFParticipant.objects.filter(viewing_participant_q(), event=event, user_id=user_id).exists()
 
 
 def _reference_payload(payload: Mapping[str, Any]) -> dict[str, str]:

@@ -186,16 +186,16 @@ def assign_event_staff(event_id: UUID, actor: User, email: str, role: str) -> CT
         )
     event = _resolve_owned_event_for_staff(event_id, actor)
     target = User.objects.filter(email__iexact=email.strip(), is_active=True).first()
-    if target is None:
-        raise CTFNotFoundError("No active user with that email", details={"email": email.strip()})
-    if target.pk == event.created_by_id:
+    if target is not None and target.pk == event.created_by_id:
         raise CTFValidationError(
             "The event organizer already holds every capability",
             code="CTF_STAFF_IS_ORGANIZER",
         )
-    if not get_user_role(target).is_ctf_organizer:
+    if target is None or not get_user_role(target).is_ctf_organizer:
+        # One answer for "no account" and "account without the organizer role",
+        # so this lookup cannot tell whether any other email has an account (#2617).
         raise CTFValidationError(
-            "Staff members need the CTF organizer platform role",
+            "No active CTF organizer has that email",
             code="CTF_STAFF_ROLE_REQUIRED",
         )
     staff = CTFEventStaff.objects.filter(event=event, user=target, deleted_at__isnull=True).first()

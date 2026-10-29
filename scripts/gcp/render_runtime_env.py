@@ -507,6 +507,11 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
         if native.enabled
         else database["provisioner_user_name"],
         "AUDIT_DEPLOYMENT_SCOPE": f"gcp:{real_project}",
+        # The GCE ingress is an external Application Load Balancer. It appends
+        # "<client-ip>,<load-balancer-ip>" to X-Forwarded-For, so the client is
+        # the second hop from the right. With one trusted hop, every audit
+        # source IP and every per-source throttle used the load balancer's IP.
+        "AUDIT_TRUSTED_PROXY_HOPS": "2",
         "SKIP_MIGRATIONS": "1",
         # Redis host/port are non-secret and ride in the runtime ConfigMap.
         # REDIS_TLS / REDIS_SECRET_ID (added below) flag the secure posture
