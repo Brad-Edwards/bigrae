@@ -25,6 +25,17 @@ def _reload_email_module():
     return importlib.reload(email_module)
 
 
+def _deployed_runtime(monkeypatch) -> None:
+    """Simulate a deployed process: no test/build/debug escape hatch."""
+    import sys
+
+    for var in ("TESTING", "EMAIL_API_KEY", "MAILGUN_SENDER_DOMAIN"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DJANGO_DEBUG", "false")
+    monkeypatch.setattr(sys, "argv", ["manage.py"])
+
+
 # ---------------------------------------------------------------------------
 # build_anymail_config — pure function, no env / no I/O
 # ---------------------------------------------------------------------------
@@ -74,20 +85,17 @@ def test_defaults_use_console_backend_and_no_anymail(monkeypatch) -> None:
 
 
 def test_production_requires_explicit_email_backend(monkeypatch) -> None:
-    for var in ("EMAIL_BACKEND", "DEFAULT_FROM_EMAIL", "EMAIL_API_KEY", "MAILGUN_SENDER_DOMAIN", "TESTING"):
+    _deployed_runtime(monkeypatch)
+    for var in ("EMAIL_BACKEND", "DEFAULT_FROM_EMAIL"):
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("DJANGO_DEBUG", "false")
 
     with pytest.raises(ImproperlyConfigured, match="EMAIL_BACKEND"):
         _reload_email_module()
 
 
 def test_production_anymail_backend_requires_hydrated_api_key(monkeypatch) -> None:
-    for var in ("DEFAULT_FROM_EMAIL", "EMAIL_API_KEY", "MAILGUN_SENDER_DOMAIN", "TESTING"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("DJANGO_DEBUG", "false")
+    _deployed_runtime(monkeypatch)
+    monkeypatch.delenv("DEFAULT_FROM_EMAIL", raising=False)
     monkeypatch.setenv("EMAIL_BACKEND", SENDGRID_BACKEND)
 
     with pytest.raises(ImproperlyConfigured, match="EMAIL_API_KEY"):
@@ -120,3 +128,46 @@ def test_aws_ses_region_defaults_preserved_and_overridable(monkeypatch) -> None:
     email_module = _reload_email_module()
     assert email_module.AWS_SES_REGION_NAME == "us-west-2"
     assert email_module.AWS_SES_REGION_ENDPOINT == "email.us-west-2.amazonaws.com"
+
+
+# ---------------------------------------------------------------------------
+# Delivery availability (ADR-071)
+# ---------------------------------------------------------------------------
+
+NON_DELIVERING = (
+    CONSOLE_BACKEND,
+    "django.core.mail.backends.filebased.EmailBackend",
+    "django.core.mail.backends.dummy.EmailBackend",
+)
+
+
+@pytest.mark.parametrize("backend", NON_DELIVERING)
+def test_non_delivering_backend_is_unavailable_in_a_deployed_runtime(monkeypatch, backend) -> None:
+    _deployed_runtime(monkeypatch)
+    monkeypatch.setenv("EMAIL_BACKEND", backend)
+
+    assert _reload_email_module().EMAIL_DELIVERY_AVAILABLE is False
+
+
+def test_console_backend_is_available_for_local_development(monkeypatch) -> None:
+    _deployed_runtime(monkeypatch)
+    monkeypatch.setenv("DJANGO_DEBUG", "true")
+    monkeypatch.setenv("EMAIL_BACKEND", CONSOLE_BACKEND)
+
+    assert _reload_email_module().EMAIL_DELIVERY_AVAILABLE is True
+
+
+@pytest.mark.parametrize("backend", ["django_ses.SESBackend", "django.core.mail.backends.smtp.EmailBackend"])
+def test_provider_backend_is_available_in_a_deployed_runtime(monkeypatch, backend) -> None:
+    _deployed_runtime(monkeypatch)
+    monkeypatch.setenv("EMAIL_BACKEND", backend)
+
+    assert _reload_email_module().EMAIL_DELIVERY_AVAILABLE is True
+
+
+def test_ses_automatic_throttle_sleep_is_disabled(monkeypatch) -> None:
+    # The communication worker owns retry; a blocking SDK throttle would break
+    # the per-attempt time bound.
+    monkeypatch.setenv("EMAIL_BACKEND", "django_ses.SESBackend")
+
+    assert _reload_email_module().AWS_SES_AUTO_THROTTLE is None

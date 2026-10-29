@@ -41,7 +41,8 @@ def test_organizer_alert_never_broadcasts_to_participants(name):
 
 
 @pytest.mark.django_db
-def test_reminder_retry_uses_same_staged_campaign(ctf_event):
+def test_reminder_retry_uses_same_staged_campaign(ctf_event, settings):
+    settings.EMAIL_DELIVERY_AVAILABLE = False
     from ctf.models import CommunicationCampaign, CommunicationIntent, CTFNotification
 
     first = notification.send_reminder(ctf_event.pk, hours_before=1)

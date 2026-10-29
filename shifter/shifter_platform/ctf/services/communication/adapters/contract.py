@@ -9,9 +9,9 @@ the ledger and the worker.
 
 Registration is a plain, closed module-level mapping populated at import, never an
 ``AppConfig.ready()`` workflow hook or a dynamic plugin registry (preflight
-non-goal). The email adapter is #1525 and is deliberately absent, so the worker
-simply does not claim ``email`` commands until its owner registers it (no silent
-downgrade, no invented acceptance).
+non-goal). A registered adapter also reports whether its transport is available
+in this deployment; an unavailable channel is invisible to release and to the
+worker (no silent downgrade, no invented acceptance; ADR-071).
 """
 
 from __future__ import annotations
@@ -43,8 +43,10 @@ class DeliveryCommand:
     """Bounded, immutable input for one delivery attempt (reference-only).
 
     Carries stable identities and non-secret projections. The in-app channel never
-    receives the email coordinate or decrypted body; the email adapter (#1525)
-    resolves its own coordinate from the snapshot under its own boundary.
+    receives the email coordinate or decrypted body; the email adapter resolves
+    its own coordinate from the snapshot under its own boundary.
+    ``idempotency_key`` is the row's stable per (intent, snapshot, channel) key,
+    identical across claims and retries of the same command.
     """
 
     attempt_id: UUID
@@ -55,6 +57,7 @@ class DeliveryCommand:
     participant_public_id: UUID
     recipient_user_id: int | None
     occurrence_key: str
+    idempotency_key: str
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,10 @@ class ChannelAdapter(Protocol):
 
     channel: str
 
+    def available(self) -> bool:
+        """Return True when this deployment can deliver on the channel."""
+        ...
+
     def deliver(self, command: DeliveryCommand, *, timeout: float) -> DeliveryOutcome:
         """Attempt exactly one delivery for ``command`` within ``timeout`` seconds."""
         ...
@@ -91,15 +98,16 @@ def register_adapter(adapter: ChannelAdapter) -> None:
 
 
 def get_adapter(channel: str) -> ChannelAdapter | None:
-    """Return the registered adapter for ``channel``, or ``None`` when unavailable."""
-    return _ADAPTERS.get(channel)
+    """Return the registered, available adapter for ``channel``, or ``None``."""
+    adapter = _ADAPTERS.get(channel)
+    return adapter if adapter is not None and adapter.available() else None
 
 
 def registered_channels() -> frozenset[str]:
-    """Return the channels that currently have a registered adapter.
+    """Return the channels whose registered adapter is available in this deployment.
 
-    The worker claims only commands whose channel is in this set, so an
-    unregistered channel (e.g. ``email`` before #1525) is never claimed, downgraded,
-    or falsely marked accepted.
+    Release admits and the worker claims only commands whose channel is in this
+    set, so an unavailable channel (for example ``email`` with a console backend)
+    is never claimed, downgraded, or falsely marked accepted.
     """
-    return frozenset(_ADAPTERS)
+    return frozenset(channel for channel, adapter in _ADAPTERS.items() if adapter.available())

@@ -21,12 +21,13 @@ from django.utils.translation import gettext as _
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.auth import is_temporary_ctf_account
 from shared.credential_delivery import credential_delivery_allowed
-from shared.email import render_template, send_email_async
+from shared.email import render_template
 from shared.site_url import SiteUrlUnavailable, validated_site_url
 from shared.verified_identity import VerifiedIdentity
 from workspaces.models import Workspace, WorkspaceInvitation, WorkspaceMembership
 from workspaces.roles import WorkspaceOperation, WorkspaceRole
 
+from ._invitation_delivery import deliver_invitation, reset_delivery
 from ._memberships import (
     MembershipAuditContext,
     WorkspaceMembershipError,
@@ -77,6 +78,7 @@ class WorkspaceInvitationProjection:
     email: str
     role: str
     status: str
+    delivery_status: str
     expires_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -119,10 +121,16 @@ def _projection(invitation: WorkspaceInvitation, *, now: datetime | None = None)
         email=invitation.email,
         role=invitation.role,
         status=_status(invitation, now=now),
+        delivery_status=invitation.delivery_status,
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         updated_at=invitation.updated_at,
     )
+
+
+def _committed_projection(invitation_id: int) -> WorkspaceInvitationProjection:
+    """Project the committed row, including the outcome its post-commit send recorded."""
+    return _projection(WorkspaceInvitation.objects.select_related("workspace").get(pk=invitation_id))
 
 
 def _audit_state(invitation: WorkspaceInvitation) -> dict[str, int | str]:
@@ -200,9 +208,11 @@ def _render_delivery(invitation: WorkspaceInvitation) -> tuple[str, str, str]:
 
 
 def _schedule_delivery(invitation: WorkspaceInvitation) -> None:
-    """Schedule delivery only after the surrounding transaction commits."""
+    """Render now (an unsafe origin fails the command) and send once after commit."""
     subject, html, text = _render_delivery(invitation)
-    transaction.on_commit(partial(send_email_async, invitation.email, subject, html, text))
+    transaction.on_commit(
+        partial(deliver_invitation, invitation.pk, invitation.generation, invitation.email, subject, html, text)
+    )
 
 
 def _consume_delivery_budget(actor_id: int | uuid.UUID) -> None:
@@ -284,7 +294,7 @@ def issue_workspace_invitation(
         invitation = WorkspaceInvitation.objects.select_related("workspace__organization").get(pk=invitation.pk)
         _write_audit(invitation, AuditAction.CREATE, audit, new_state=_audit_state(invitation))
         _schedule_delivery(invitation)
-        return _projection(invitation)
+    return _committed_projection(invitation.pk)
 
 
 def _locked_managed_invitation(
@@ -329,10 +339,10 @@ def resend_workspace_invitation(
         previous = _audit_state(invitation)
         invitation.generation = uuid.uuid4()
         invitation.expires_at = timezone.now() + timedelta(seconds=WORKSPACE_INVITATION_TOKEN_MAX_AGE_SECONDS)
-        invitation.save(update_fields=["generation", "expires_at", "updated_at"])
+        invitation.save(update_fields=["generation", "expires_at", "updated_at", *reset_delivery(invitation)])
         _write_audit(invitation, AuditAction.UPDATE, audit, previous_state=previous, new_state=_audit_state(invitation))
         _schedule_delivery(invitation)
-        return _projection(invitation)
+    return _committed_projection(invitation.pk)
 
 
 def revoke_workspace_invitation(

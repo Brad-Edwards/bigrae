@@ -6,12 +6,14 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-04-16T22:49:32.549002Z
-updated_at: 2026-09-19T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # PLAT-202: Per-Range LLM Access Management
 
 ## Statement
+
+Status note (2026-10-29): ADR-068 parks the model access broker. Every deployment keeps `settings.model_broker` and `settings.model_access` disabled, and keyless direct access (ADR-064) is the only supported guest model path. The broker-based capability in this statement is parked, and no work extends it. Optional model-access controls continue in #2411.
 
 The platform shall provision per-range access to external LLM and agentic-tool APIs, with shardable allocation across models, clouds, and accounts. Shard assignment, credential plumbing, and endpoint routing shall be a first-class platform capability rather than an out-of-band operator script. Shard strategy shall be configurable per scenario or per event, informed by event capacity declarations (CTF-908) and planned by capacity-aware provisioning (PLAT-201).
 
@@ -330,3 +332,4 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/model-access/vertex-adapter-preflight-2124.md`
 - TESTS → TEST `shifter/shifter_platform/tests/shared/model_access/test_broker_count_reservation.py`
 - TESTS → TEST `shifter/shifter_platform/tests/shared/model_access/test_vertex_token_cache.py`
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2411` (Optional model-access controls through a gateway, ADR-068)

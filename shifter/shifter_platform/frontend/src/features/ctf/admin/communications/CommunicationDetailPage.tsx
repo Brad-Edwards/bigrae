@@ -105,6 +105,7 @@ function OccurrenceCard({ campaignId, occurrence }: Readonly<{ campaignId: strin
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           Revision {occurrence.revision_number}
           <Badge variant="secondary">{occurrence.status}</Badge>
+          <Badge variant="outline">Delivery: {occurrence.delivery_state.replaceAll("_", " ")}</Badge>
           {occurrence.due_at ? <span className="text-sm font-normal">Due {new Date(occurrence.due_at).toISOString()} (UTC)</span> : null}
         </CardTitle>
       </CardHeader>

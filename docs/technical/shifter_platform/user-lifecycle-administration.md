@@ -65,8 +65,12 @@ only an active, local, non-CTF account with a usable password and a valid email.
 `request_password_reset` consumes the shared `shared.credential_delivery` budget,
 builds the link domain from the validated public origin (`shared.site_url`,
 extracted so no domain copies the validator), records a strict, secret-free
-audit event, and schedules Django's `PasswordResetForm` email on transaction
-commit. The confirm and complete landing pages are wired at
+audit event, and sends Django's `PasswordResetForm` email on transaction
+commit. It refuses with `reset_delivery_unavailable` before the audit when
+`EMAIL_DELIVERY_AVAILABLE` is false. The form sends through one bounded
+`shared.email.attempt_email()` call (ADR-071). A non-accepted send raises
+`reset_delivery_failed`, which the API returns as 503; the request and its audit
+stay committed. The confirm and complete landing pages are wired at
 `config.password_reset_views` using Django's proven reset-confirm views; the
 confirm view records a strict audit event for the completed password change.
 
