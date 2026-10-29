@@ -417,6 +417,11 @@ the credential through the ordinary service. Other administrators gain no
 implicit eligibility, and ordinary delegation cannot bypass the self-grant or
 grantor-possession checks.
 
+The bootstrap facts name the issuer and subject of the first administrator's
+Identity Platform account. On an empty database, the cutover creates the user,
+principal, and provider binding for that account before it plans. On a
+database with users, the cutover facts bind them instead.
+
 1. Run the first deploy with `--first-install` and the reviewed identity facts:
 
    ```bash
