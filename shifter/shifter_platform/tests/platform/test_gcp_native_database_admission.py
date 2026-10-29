@@ -78,12 +78,11 @@ def _native_database_admission_job() -> tuple[dict[str, Any], dict[str, str]]:
     return job, parameters
 
 
-@pytest.mark.parametrize("loader", [_load_helm_documents])
-def test_native_database_admission_accepts_only_the_exact_host_selected_sidecar(loader):
-    policy = _policy(loader())
+@pytest.mark.parametrize("inline_params", [True, False])
+def test_native_database_admission_accepts_only_the_exact_host_selected_sidecar(inline_params):
     canonical, parameters = _native_database_admission_job()
-    image = parameters["ENGINE_TASK_IMAGE"]
-    assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical, image, parameter_data=parameters)
+    policy = _policy(_load_helm_documents(inline_params=inline_params, runtime_env=parameters))
+    assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical, parameter_data=parameters)
     for mutation in (
         lambda p: p.pop("initContainers"),
         lambda p: p["initContainers"].append(copy.deepcopy(p["initContainers"][0])),
@@ -110,8 +109,9 @@ def test_native_database_admission_accepts_only_the_exact_host_selected_sidecar(
     ):
         altered = copy.deepcopy(canonical)
         mutation(altered["spec"]["template"]["spec"])
-        assert not _semantic_policy_allows(
-            policy, PROVISIONER_LAUNCHER_USERNAME, altered, image, parameter_data=parameters
-        )
+        assert not _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, altered, parameter_data=parameters)
     disabled = {**parameters, "DB_AUTH_MODE": "password"}
-    assert not _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical, image, parameter_data=disabled)
+    disabled_policy = _policy(_load_helm_documents(inline_params=inline_params, runtime_env=disabled))
+    assert not _semantic_policy_allows(
+        disabled_policy, PROVISIONER_LAUNCHER_USERNAME, canonical, parameter_data=disabled
+    )

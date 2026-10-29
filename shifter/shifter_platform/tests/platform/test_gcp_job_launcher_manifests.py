@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,7 +25,9 @@ def _load_yaml_documents(source: str) -> list[dict[str, Any]]:
     return [document for document in yaml.safe_load_all(source) if isinstance(document, dict)]
 
 
-def _load_helm_documents() -> list[dict[str, Any]]:
+def _load_helm_documents(
+    *, inline_params: bool = True, runtime_env: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
     helm = shutil.which("helm")
     if helm is None:
         pytest.skip("helm is required to validate rendered chart manifests")
@@ -37,12 +40,20 @@ def _load_helm_documents() -> list[dict[str, Any]]:
             str(CHART_DIR),
             "-f",
             str(CHART_DIR / "values-gcp-dev.yaml"),
+            "--set-json",
+            f"runtimeEnv={json.dumps(_ADMISSION_RUNTIME_ENV if runtime_env is None else runtime_env)}",
+            "--set",
+            f"provisionerAdmission.inlineParams={str(inline_params).lower()}",
         ],
         check=True,
         capture_output=True,
         text=True,
     )
     return _load_yaml_documents(rendered.stdout)
+
+
+def _load_helm_documents_param_ref() -> list[dict[str, Any]]:
+    return _load_helm_documents(inline_params=False)
 
 
 def _deployments(documents: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -106,6 +117,17 @@ RUNTIME_PARAM_CONFIGMAP = "platform-runtime"
 PLATFORM_NAMESPACE = "shifter-platform"
 JOBS_NAMESPACE = "shifter-jobs"
 
+_ADMISSION_RUNTIME_ENV = {
+    PROVISIONER_IMAGE_PARAM: "registry.example/provisioner:sha",
+    "ENGINE_TASK_IMAGE_PULL_POLICY": "Always",
+    "CLOUD_PROVIDER": "gcp",
+    "ENVIRONMENT": "gcp-dev",
+    "DB_HOST": "10.40.0.10",
+    "DB_PORT": "5432",
+    "DB_NAME": "shifter",
+    "PROVISIONER_DB_USER": "provisioner_runtime",
+}
+
 
 def _documents_by_kind(documents: list[dict[str, Any]], kind: str) -> dict[str, dict[str, Any]]:
     return {document["metadata"]["name"]: document for document in documents if document.get("kind") == kind}
@@ -165,26 +187,15 @@ def _semantic_policy_allows(
     policy: dict[str, Any],
     username: str,
     job: dict[str, Any],
-    allowed_image: str,
     *,
     parameter_data: dict[str, str] | None = None,
 ) -> bool:
     """Evaluate the rendered policy's CEL, including its declared variables."""
     environment = Environment()
-    if parameter_data is None:
-        parameter_data = {
-            PROVISIONER_IMAGE_PARAM: allowed_image,
-            "ENGINE_TASK_IMAGE_PULL_POLICY": "Always",
-        }
-        for container in job.get("spec", {}).get("template", {}).get("spec", {}).get("containers", []):
-            for entry in container.get("env", []):
-                if "value" in entry:
-                    parameter_name = "PROVISIONER_DB_USER" if entry["name"] == "DB_USER" else entry["name"]
-                    parameter_data[parameter_name] = entry["value"]
     base_activation = {
         "object": json_to_cel(job),
         "request": json_to_cel({"userInfo": {"username": username}}),
-        "params": json_to_cel({"data": parameter_data}),
+        "params": json_to_cel({"data": _ADMISSION_RUNTIME_ENV if parameter_data is None else parameter_data}),
     }
     variables: dict[celtypes.StringType, Any] = {}
     try:
@@ -308,6 +319,8 @@ def _malformed_admission_job(canonical: dict[str, Any], mutation: str) -> dict[s
         "operation-id-flag": lambda: container["args"].__setitem__(4, "--other-id"),
         "operation-id-value": lambda: container["args"].__setitem__(5, "not-a-uuid"),
         "task-identity": lambda: job["metadata"]["annotations"].pop("shifter.dev/task-identity"),
+        "image": lambda: container.__setitem__("image", "registry.example/other:sha"),
+        "task-image": lambda: job["metadata"]["annotations"].__setitem__("shifter.dev/task-image", "other"),
         "image-pull-policy": lambda: container.__setitem__("imagePullPolicy", "IfNotPresent"),
         "literal-tamper": lambda: next(entry for entry in env if entry["name"] == "ENVIRONMENT").__setitem__(
             "value", "attacker"
@@ -342,7 +355,8 @@ def _malformed_admission_job(canonical: dict[str, Any], mutation: str) -> dict[s
 @pytest.mark.parametrize(
     ("source_name", "loader"),
     [
-        ("helm", _load_helm_documents),
+        ("helm-inline", _load_helm_documents),
+        ("helm-configmap", _load_helm_documents_param_ref),
     ],
 )
 def test_provisioner_job_admission_policy_present(source_name: str, loader: Any) -> None:
@@ -358,7 +372,8 @@ def test_provisioner_job_admission_policy_present(source_name: str, loader: Any)
 @pytest.mark.parametrize(
     ("source_name", "loader"),
     [
-        ("helm", _load_helm_documents),
+        ("helm-inline", _load_helm_documents),
+        ("helm-configmap", _load_helm_documents_param_ref),
     ],
 )
 def test_provisioner_job_admission_policy_invariants(source_name: str, loader: Any) -> None:
@@ -379,10 +394,15 @@ def test_provisioner_job_admission_policy_invariants(source_name: str, loader: A
     )
     assert job_create_rule, f"{source_name} policy must match batch/jobs CREATE"
 
-    # Image pin is parameterised off a ConfigMap (the live platform-runtime one).
-    assert policy["spec"]["paramKind"] == {"apiVersion": "v1", "kind": "ConfigMap"}, (
-        f"{source_name} policy must take its image pin from a ConfigMap param"
-    )
+    assert ("paramKind" in policy["spec"]) == (source_name == "helm-configmap")
+    runtime = _documents_by_kind(documents, "ConfigMap")[RUNTIME_PARAM_CONFIGMAP]["data"]
+    if "paramKind" in policy["spec"]:
+        assert policy["spec"]["paramKind"] == {"apiVersion": "v1", "kind": "ConfigMap"}
+        assert _policy_variable(policy, "paramData") == "has(params.data) ? params.data : {}"
+    else:
+        # Inline pins must equal the runtime ConfigMap emitted by this render.
+        assert ast.literal_eval(_policy_variable(policy, "paramData")) == runtime
+        assert runtime[PROVISIONER_IMAGE_PARAM] == _ADMISSION_RUNTIME_ENV[PROVISIONER_IMAGE_PARAM]
 
     # The CEL must mirror the full canonical GCPTaskRunner Job contract, not just
     # caller/image/identity. Pinning the image alone is insufficient: the caller
@@ -411,12 +431,15 @@ def test_provisioner_job_admission_policy_invariants(source_name: str, loader: A
     ):
         assert needle in expressions, f"{source_name} policy CEL must reference {needle!r}"
 
-    # Binding: hard deny, scoped to shifter-jobs, fail-closed on a missing param.
+    # Both modes deny unauthorized Jobs in the dedicated jobs namespace.
     assert binding["spec"]["validationActions"] == ["Deny"], f"{source_name} binding must Deny"
-    param_ref = binding["spec"]["paramRef"]
-    assert param_ref["name"] == RUNTIME_PARAM_CONFIGMAP
-    assert param_ref["namespace"] == PLATFORM_NAMESPACE
-    assert param_ref["parameterNotFoundAction"] == "Deny", f"{source_name} binding param must fail closed"
+    if "paramKind" in policy["spec"]:
+        param_ref = binding["spec"]["paramRef"]
+        assert param_ref["name"] == RUNTIME_PARAM_CONFIGMAP
+        assert param_ref["namespace"] == PLATFORM_NAMESPACE
+        assert param_ref["parameterNotFoundAction"] == "Deny", f"{source_name} binding param must fail closed"
+    else:
+        assert "paramRef" not in binding["spec"]
     namespace_selector = binding["spec"]["matchResources"]["namespaceSelector"]["matchLabels"]
     assert namespace_selector.get("kubernetes.io/metadata.name") == JOBS_NAMESPACE, (
         f"{source_name} binding must be scoped to the {JOBS_NAMESPACE} namespace"
@@ -481,7 +504,8 @@ def test_aws_launcher_does_not_enable_gcp_database_hydration() -> None:
     assert "SHIFTER_PROVISIONER_LAUNCHER" not in {entry["name"] for entry in container.get("env", [])}
 
 
-def test_helm_admission_principal_tracks_launcher_identity_values() -> None:
+@pytest.mark.parametrize("inline_params", [True, False])
+def test_helm_admission_principal_tracks_launcher_identity_values(inline_params: bool) -> None:
     helm = shutil.which("helm")
     if helm is None:
         pytest.skip("helm is required to validate rendered chart manifests")
@@ -507,6 +531,8 @@ def test_helm_admission_principal_tracks_launcher_identity_values() -> None:
             "runtimeEnv.ENGINE_TASK_NAMESPACE=wrong-jobs",
             "--set",
             "runtimeEnv.ENGINE_TASK_SERVICE_ACCOUNT_NAME=wrong-provisioner",
+            "--set",
+            f"provisionerAdmission.inlineParams={str(inline_params).lower()}",
         ],
         check=True,
         capture_output=True,
@@ -520,7 +546,11 @@ def test_helm_admission_principal_tracks_launcher_identity_values() -> None:
 
     assert "system:serviceaccount:custom-platform:custom-launcher" in expressions
     assert "custom-provisioner" in expressions
-    assert binding["spec"]["paramRef"]["namespace"] == "custom-platform"
+    if inline_params:
+        assert "paramRef" not in binding["spec"]
+        assert ast.literal_eval(_policy_variable(_policy(documents), "paramData")) == runtime_config["data"]
+    else:
+        assert binding["spec"]["paramRef"]["namespace"] == "custom-platform"
     assert (
         binding["spec"]["matchResources"]["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
         == "custom-jobs"
@@ -535,38 +565,23 @@ def test_helm_admission_principal_tracks_launcher_identity_values() -> None:
     assert api_egress["spec"]["egress"][0]["ports"] == [{"protocol": "TCP", "port": 443}]
 
 
-@pytest.mark.parametrize("loader", [_load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents, _load_helm_documents_param_ref])
 def test_admission_policy_semantically_denies_spoofed_and_malformed_launches(loader: Any) -> None:
     policy = _policy(loader())
     assert _SEMANTIC_VALIDATION_MESSAGES.issubset(
         {validation.get("message", "") for validation in policy["spec"]["validations"]}
     )
     canonical = _canonical_admission_job()
-    image = "registry.example/provisioner:sha"
-    parameters = {
-        PROVISIONER_IMAGE_PARAM: image,
-        "ENGINE_TASK_IMAGE_PULL_POLICY": "Always",
-        "CLOUD_PROVIDER": "gcp",
-        "ENVIRONMENT": "gcp-dev",
-        "DB_HOST": "10.40.0.10",
-        "DB_PORT": "5432",
-        "DB_NAME": "shifter",
-        "PROVISIONER_DB_USER": "provisioner_runtime",
-    }
 
-    assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical, image, parameter_data=parameters)
+    assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical)
     assert not _semantic_policy_allows(
         policy,
         "system:serviceaccount:shifter-platform:portal",
         canonical,
-        image,
-        parameter_data=parameters,
     )
     non_provisioner = copy.deepcopy(canonical)
     non_provisioner["spec"]["template"]["spec"]["serviceAccountName"] = "default"
-    assert not _semantic_policy_allows(
-        policy, PROVISIONER_LAUNCHER_USERNAME, non_provisioner, image, parameter_data=parameters
-    )
+    assert not _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, non_provisioner)
 
     malformed_jobs = []
     for mutation in (
@@ -575,6 +590,8 @@ def test_admission_policy_semantically_denies_spoofed_and_malformed_launches(loa
         "operation-id-flag",
         "operation-id-value",
         "task-identity",
+        "image",
+        "task-image",
         "image-pull-policy",
         "literal-tamper",
         "database-user",
@@ -603,18 +620,15 @@ def test_admission_policy_semantically_denies_spoofed_and_malformed_launches(loa
             policy,
             PROVISIONER_LAUNCHER_USERNAME,
             job,
-            image,
-            parameter_data=parameters,
         )
         for job in malformed_jobs
     )
 
 
-@pytest.mark.parametrize("loader", [_load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents, _load_helm_documents_param_ref])
 def test_admission_policy_accepts_compatible_operation_id_command_forms(loader: Any) -> None:
     policy = _policy(loader())
     canonical = _canonical_admission_job()
-    image = "registry.example/provisioner:sha"
     operation_id = "22222222-2222-2222-2222-222222222222"
     valid_args = (
         ["range", "provision", "--request-id", "11111111-1111-1111-1111-111111111111"],
@@ -642,10 +656,10 @@ def test_admission_policy_accepts_compatible_operation_id_command_forms(loader: 
     for args in valid_args:
         job = copy.deepcopy(canonical)
         job["spec"]["template"]["spec"]["containers"][0]["args"] = args
-        assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, job, image), args
+        assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, job), args
 
 
-@pytest.mark.parametrize("loader", [_load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents, _load_helm_documents_param_ref])
 def test_admission_policy_admits_exactly_the_launcher_operation_grammar(loader: Any) -> None:
     """Every operation the launcher may enqueue is admitted; nothing else is.
 
@@ -657,7 +671,6 @@ def test_admission_policy_admits_exactly_the_launcher_operation_grammar(loader: 
 
     policy = _policy(loader())
     canonical = _canonical_admission_job()
-    image = "registry.example/provisioner:sha"
     ids = [
         "--request-id",
         "11111111-1111-1111-1111-111111111111",
@@ -668,7 +681,7 @@ def test_admission_policy_admits_exactly_the_launcher_operation_grammar(loader: 
     def allows(resource: str, operation: str) -> bool:
         job = copy.deepcopy(canonical)
         job["spec"]["template"]["spec"]["containers"][0]["args"] = [resource, operation, *ids]
-        return _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, job, image)
+        return _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, job)
 
     for resource, operations in _OPERATIONS.items():
         for operation in operations:
