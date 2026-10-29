@@ -17,14 +17,11 @@ Two independent contributors produce one ordered answer:
 
 Boundaries:
 
-- **Detail seam, not the hot path.** ``list_all_scenarios`` stays DB-only; this
-  reads pack files and compiles SDL, so it is called for one entry (or a bounded
-  set), never fanned out across catalog list rendering. The registry read is one
-  bulk query for every demanded name, never one query per node.
-- **Derived data.** Nothing is persisted. Realizability is recomputed from
-  package identity, target identity, and the current registry, so there is no
-  truth column, JSON blob, or migration that could go stale and authorize a
-  publication it should not.
+- **Detail seam.** ``list_all_scenarios`` stays DB-only. File reads and SDL
+  compilation run for one entry or a bounded set, never across catalog lists.
+  One bulk registry query covers every demanded name.
+- **Derived data.** Nothing is persisted. Each assessment uses current package
+  identity, target identity, and registry state, preventing stale authorization.
 - **Fail closed, but honestly.** Inability to assess (untrusted pack, unreadable
   SDL, unsupported target) is ``indeterminate`` -- distinct from a proven
   ``not_realizable`` and never rendered as realizable. Legacy YAML/DB scenarios
@@ -493,6 +490,7 @@ def _gap_pack_unresolvable() -> RealizabilityGap:
 
 
 def _log_resolution_failure(scenario_id: str, exc: Exception) -> None:
+    """Log the failure class without private pack paths or provider details."""
     logger.warning(
         "raes realizability could not resolve pack scenario_id=%s exc_type=%s",
         safe_log_value(scenario_id),

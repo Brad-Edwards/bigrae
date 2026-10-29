@@ -143,7 +143,7 @@ def _delivery_is_current(webhook_pk: UUID, url: str, secret: str, event_type: st
 
 
 def _attempt_delivery(
-    webhook_pk: UUID, url: str, secret: str, body: bytes, event_type: str | None, headers: dict
+    webhook_pk: UUID, url: str, secret: str, body: bytes, event_type: str | None, headers: dict[str, str]
 ) -> str:
     """Return one current subscription's HTTP outcome, or refuse a revoked one."""
     if not _delivery_is_current(webhook_pk, url, secret, event_type):
