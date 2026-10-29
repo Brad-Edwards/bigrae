@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-07-02T01:00:00.023436Z
-updated_at: 2026-10-28T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-1404: Solve History Visibility
@@ -21,5 +21,5 @@ Aggregate competitive standing (rank, score, solves, last solve) is inherently p
 
 ## Traceability
 
-- IMPLEMENTS → ADR `docs/adr/index.yaml::ADR-028` (ADR-028: CTF participant solve history is semi-private (participant and organizer only))
-- IMPLEMENTS → GITHUB_ISSUE `521` (Issue #521 - Repair participant scoreboard wiring and add solve-history drill-down)
+- DOCUMENTS → ADR `docs/adr/index.yaml::ADR-028` (ADR-028: CTF participant solve history is semi-private (participant and organizer only))
+- DOCUMENTS → GITHUB_ISSUE `521` (Issue #521 - Repair participant scoreboard wiring and add solve-history drill-down)
