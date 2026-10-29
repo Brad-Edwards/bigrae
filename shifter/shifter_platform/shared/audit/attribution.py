@@ -11,12 +11,14 @@ neutral boundary.
 from __future__ import annotations
 
 import ipaddress
+import re
 import uuid
 from typing import TYPE_CHECKING, TypedDict
 from uuid import UUID
 
 from django.conf import settings
 
+from shared.audit.integrity import MAX_REQUEST_ID_LENGTH
 from shared.audit.vocabulary import AuditActorType
 
 if TYPE_CHECKING:
@@ -25,6 +27,19 @@ if TYPE_CHECKING:
     from shared.audit.events import RequestAudit
     from shared.credentials import CredentialContext
     from shared.identity_scope import PrincipalRef
+
+
+# Accepted shape of a client-supplied ``X-Request-ID``: a bounded correlation
+# token. The audit writer rejects a longer request id, so an unbounded header
+# would let a client suppress the audit row of its own request.
+_REQUEST_ID_PATTERN = re.compile(rf"[A-Za-z0-9._:-]{{1,{MAX_REQUEST_ID_LENGTH}}}")
+
+
+def accepted_request_id(value: object) -> str | None:
+    """Return ``value`` when it is an acceptable correlation id, else ``None``."""
+    if isinstance(value, str) and _REQUEST_ID_PATTERN.fullmatch(value):
+        return value
+    return None
 
 
 class PrincipalActorFields(TypedDict):
@@ -148,13 +163,14 @@ def get_request_id(request: HttpRequest) -> str:
     Returns:
         Request ID string
     """
-    # Check for existing request ID from header or middleware
-    request_id = getattr(request, "request_id", None)
+    # Check for existing request ID from middleware, then the X-Request-ID
+    # header. Both pass the same bound so a client-supplied value can never
+    # exceed what the audit writer accepts.
+    request_id = accepted_request_id(getattr(request, "request_id", None))
     if request_id:
         return request_id
 
-    # Check X-Request-ID header
-    request_id = request.META.get("HTTP_X_REQUEST_ID")
+    request_id = accepted_request_id(request.META.get("HTTP_X_REQUEST_ID"))
     if request_id:
         return request_id
 

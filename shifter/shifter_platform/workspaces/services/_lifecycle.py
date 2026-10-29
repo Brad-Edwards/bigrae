@@ -190,6 +190,11 @@ def create_workspace(
     """
     cleaned = _validate_name(name)
     organization, superuser_override = resolve_administrable_organization(actor, organization_uuid)
+    if Workspace.objects.filter(organization=organization, personal_for_user__isnull=False).exists():
+        # Every user administers their own personal organization (ADR-048
+        # bootstrap). Shared workspaces there would let any account become a
+        # workspace owner and probe other accounts by email (#2617).
+        raise _error("personal_organization", "Shared workspaces cannot be created in a personal organization")
     try:
         with transaction.atomic():
             workspace = Workspace.objects.create(organization=organization, name=cleaned)

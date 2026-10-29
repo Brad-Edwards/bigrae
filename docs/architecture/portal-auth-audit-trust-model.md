@@ -36,7 +36,10 @@ ALB appends is the real client as seen by the trusted proxy), and falls back to
 `REMOTE_ADDR` when the chain is absent, shorter than the trusted hop count, or
 the selected token is not a valid IP. The client-controlled leftmost value is
 never trusted. The number of trusted proxy hops is configured by
-`AUDIT_TRUSTED_PROXY_HOPS` (default 1, modelling the single ALB). The WebSocket
+`AUDIT_TRUSTED_PROXY_HOPS` (default 1, modelling the single AWS ALB). On GCP,
+`scripts/gcp/render_runtime_env.py` sets it to 2: the GCE ingress external
+Application Load Balancer appends `<client-ip>,<load-balancer-ip>`, so the
+client is the second hop from the right. The WebSocket
 terminal consumer (`mission_control/consumers.py`) reuses the same hop policy on
 the ASGI scope so terminal audit rows do not drift from HTTP rows.
 

@@ -6,10 +6,15 @@ the ``config.dev_auth`` gate: it is allowed only when ``DEBUG`` is true or
 
 It seeds only what ``dev_login`` cannot establish for a synthetic actor:
 ``is_staff`` elevation, the local ``Threat Research`` group, and an
-organization the staff actor administers. The organization + admin
-``OrganizationMembership`` are created through the real personal-workspace
-service. CTF organizer/participant sessions are established through
-``dev_login`` at test time and need no seeding here.
+organization the staff actor administers. That organization is the default
+organization of a synthetic team account, created through the real account
+service. A personal organization cannot hold shared workspaces (#2617), so the
+workspace-console journey needs this non-personal one. The admin
+``OrganizationMembership`` row and an owner membership of the organization's
+default workspace (the console renders only for a workspace member) are
+persisted here: outside the personal bootstrap, no service grants them. CTF
+organizer/participant sessions are established through ``dev_login`` at test
+time and need no seeding here.
 
 Home: this command lives in the ``workspaces`` layer because that is the layer
 permitted to compose ``workspaces.services`` and ``shared.auth`` (ADR-001
@@ -26,7 +31,9 @@ from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand, CommandError
 
 from shared.auth import THREAT_RESEARCH_GROUP
-from workspaces.services import resolve_personal_workspace
+from workspaces.models import Account, Organization, OrganizationMembership, Workspace, WorkspaceMembership
+from workspaces.roles import OrganizationRole, WorkspaceRole
+from workspaces.services import create_account
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User as DjangoUser
@@ -37,6 +44,9 @@ User = get_user_model()
 STAFF_EMAIL = "e2e-staff@example.com"
 THREAT_EMAIL = "e2e-threat@example.com"
 STANDARD_EMAIL = "e2e-standard@example.com"
+
+#: Synthetic team account whose default organization the staff actor administers.
+STAFF_ACCOUNT_NAME = "E2E synthetic team"
 
 #: Non-production environments in which seeding is permitted.
 _ALLOWED_ENVIRONMENTS = frozenset({"development", "test"})
@@ -58,10 +68,7 @@ class Command(BaseCommand):
             raise CommandError("seed_e2e is disabled outside development/test (refusing production posture).")
 
         staff = self._ensure_user(STAFF_EMAIL, is_staff=True)
-        # A personal organization the staff actor administers is created via the
-        # real personal-workspace service, which persists the admin
-        # OrganizationMembership the workspace-console lifecycle journey needs.
-        resolve_personal_workspace(staff)
+        self._ensure_staff_organization(staff)
 
         self._ensure_user(STANDARD_EMAIL)
 
@@ -76,6 +83,30 @@ class Command(BaseCommand):
                 f"{THREAT_EMAIL} (threat-research), "
                 f"{STANDARD_EMAIL} (standard)."
             )
+        )
+
+    @staticmethod
+    def _ensure_staff_organization(staff: DjangoUser) -> None:
+        """Make ``staff`` the admin of a synthetic team account's default organization.
+
+        Also make ``staff`` the owner of that organization's default workspace:
+        the organization console renders only for a workspace member.
+        """
+        account = Account.objects.filter(kind=Account.Kind.TEAM, name=STAFF_ACCOUNT_NAME).first()
+        if account is None:
+            account_uuid = create_account(kind=Account.Kind.TEAM, name=STAFF_ACCOUNT_NAME).uuid
+        else:
+            account_uuid = account.uuid
+        organization = Organization.objects.get(account__uuid=account_uuid, is_default=True)
+        OrganizationMembership.objects.get_or_create(
+            organization=organization,
+            user=staff,
+            defaults={"role": OrganizationRole.ADMIN.value},
+        )
+        WorkspaceMembership.objects.get_or_create(
+            workspace=Workspace.objects.get(organization=organization, is_default=True),
+            user=staff,
+            defaults={"role": WorkspaceRole.OWNER.value},
         )
 
     @staticmethod

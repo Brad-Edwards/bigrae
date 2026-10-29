@@ -133,6 +133,27 @@ class TestResetPasswordEndpoint:
         assert len(mail.outbox) == 1
         assert mail.outbox[0].to == [target.email]
 
+    @pytest.mark.parametrize(
+        "backend",
+        ["django.core.mail.backends.console.EmailBackend", "django.core.mail.backends.filebased.EmailBackend"],
+    )
+    def test_reset_refused_when_the_backend_records_mail(
+        self, admin, public_site, backend, django_capture_on_commit_callbacks
+    ):
+        """A backend that writes the message to logs or disk never receives a reset link (#2617)."""
+        public_site.EMAIL_BACKEND = backend
+        local = _make_user(f"logged-{backend.rsplit('.', 2)[-2]}", password="pw")
+
+        with django_capture_on_commit_callbacks(execute=True) as callbacks:
+            resp = _client(admin).post(f"{USERS_URL}{local.id}/reset-password/", format="json")
+
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "reset_delivery_unavailable"
+        assert callbacks == []
+        assert not AuditLog.objects.filter(
+            entity_type=AuditEntityType.USER, entity_id=local.id, action=AuditAction.UPDATE
+        ).exists()
+
     def test_provider_account_reset_rejected(self, admin):
         provider = _make_user("provideruser", password="pw")
         provider.profile.cognito_sub = "sub-123"

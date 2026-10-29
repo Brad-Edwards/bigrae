@@ -188,7 +188,11 @@ WebSocket notifications are projections and can be recovered by an authorized re
 | Cloud secret stores | Workload-scoped secret material and persisted references; application/runtime owners enforce audience and lifecycle, operators own rotation. Never use guest access as a management credential. |
 | Terraform state | Infrastructure ownership and recovery inputs; privileged operator data, separate from application operation truth. |
 
-Use request/operation/generation identifiers for correlation. Existing structured
+Use request/operation/generation identifiers for correlation. The portal keeps a
+client `X-Request-ID` only when it is a token of 64 or fewer safe characters, and
+replaces any other value. Audit attribution trusts only the load balancer's own
+`X-Forwarded-For` hops: one on the AWS ALB and two on the GCP external Application
+Load Balancer (`AUDIT_TRUSTED_PROXY_HOPS`, set by the GCP runtime renderer). Existing structured
 logging and sanitized error builders exclude raw provider responses, credentials,
 signed URLs and private scenario material. Audit evidence is not a work queue.
 Backup existence is not evidence of a successful restore rehearsal.

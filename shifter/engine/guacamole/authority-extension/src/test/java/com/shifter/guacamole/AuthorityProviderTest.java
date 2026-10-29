@@ -81,6 +81,19 @@ class AuthorityProviderTest {
         }
     }
 
+    @Test void everyModeRefusesPasswordLoginsFromTheDatabaseProvider() {
+        try (GatewayRenewals renewals = renewals()) {
+            for (boolean enabled : new boolean[] {false, true}) {
+                AuthorityProvider provider = new AuthorityProvider(enabled, renewals);
+                assertThrows(GuacamoleException.class,
+                    () -> provider.decorate(context("guacadmin", "postgresql"), user("guacadmin", "postgresql"), null));
+                assertThrows(GuacamoleException.class,
+                    () -> provider.redecorate(context("guacadmin", "postgresql"), context("guacadmin", "postgresql"),
+                                              user("guacadmin", "postgresql"), null));
+            }
+        }
+    }
+
     @Test void mutableDelegateCannotRebindTheRecordedSessionDuringRedecoration() throws Exception {
         try (GatewayRenewals renewals = renewals()) {
             AuthorityProvider provider = new AuthorityProvider(true, renewals);
