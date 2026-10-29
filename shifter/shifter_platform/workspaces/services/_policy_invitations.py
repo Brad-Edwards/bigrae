@@ -19,6 +19,7 @@ from workspaces.models import WorkspaceInvitation, WorkspaceMembership
 
 from ._account import AccountScopeError, hierarchy_target_scope
 from ._account_policy_admin import _fence_actor, _require_action, _valid_account_page
+from ._invitation_delivery import reset_delivery
 from ._invitations import (
     WORKSPACE_INVITATION_TOKEN_MAX_AGE_SECONDS,
     WorkspaceInvitationClaim,
@@ -31,7 +32,6 @@ from ._invitations import (
     _normalized_email,
     _projection,
     _require_workspace_eligible,
-    _reset_delivery,
     _schedule_delivery,
     _write_audit,
 )
@@ -170,7 +170,7 @@ def _manage(
             changed = ["revoked_at"]
         else:
             invitation.expires_at = timezone.now() + timedelta(seconds=WORKSPACE_INVITATION_TOKEN_MAX_AGE_SECONDS)
-            changed = ["expires_at", *_reset_delivery(invitation)]
+            changed = ["expires_at", *reset_delivery(invitation)]
         invitation.save(update_fields=["generation", *changed, "updated_at"])
         _write_audit(
             invitation,

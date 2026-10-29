@@ -21,12 +21,13 @@ from django.utils.translation import gettext as _
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.auth import is_temporary_ctf_account
 from shared.credential_delivery import credential_delivery_allowed
-from shared.email import INTERACTIVE_TIMEOUT_SECONDS, EmailOutcome, attempt_email, render_template
+from shared.email import render_template
 from shared.site_url import SiteUrlUnavailable, validated_site_url
 from shared.verified_identity import VerifiedIdentity
-from workspaces.models import InvitationDeliveryStatus, Workspace, WorkspaceInvitation, WorkspaceMembership
+from workspaces.models import Workspace, WorkspaceInvitation, WorkspaceMembership
 from workspaces.roles import WorkspaceOperation, WorkspaceRole
 
+from ._invitation_delivery import deliver_invitation, reset_delivery
 from ._memberships import (
     MembershipAuditContext,
     WorkspaceMembershipError,
@@ -49,12 +50,6 @@ WORKSPACE_INVITATION_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 WORKSPACE_INVITATION_TOKEN_MAX_LENGTH = 4096
 _TOKEN_VERSION = 1
 _INVALID_INVITATION_MESSAGE = "Invitation is invalid"
-_DELIVERY_STATUS = {
-    EmailOutcome.ACCEPTED: InvitationDeliveryStatus.ACCEPTED,
-    EmailOutcome.RETRIABLE: InvitationDeliveryStatus.FAILED,
-    EmailOutcome.TERMINAL: InvitationDeliveryStatus.FAILED,
-    EmailOutcome.UNAVAILABLE: InvitationDeliveryStatus.UNAVAILABLE,
-}
 
 
 class WorkspaceInvitationError(Exception):
@@ -212,39 +207,11 @@ def _render_delivery(invitation: WorkspaceInvitation) -> tuple[str, str, str]:
     return _("Invitation to %(workspace)s") % {"workspace": invitation.workspace.name}, html, text
 
 
-def _reset_delivery(invitation: WorkspaceInvitation) -> list[str]:
-    """Mark a rotated generation as not yet sent; return the changed field names."""
-    invitation.delivery_status = InvitationDeliveryStatus.PENDING
-    invitation.delivery_reason = ""
-    invitation.delivery_observed_at = None
-    return ["delivery_status", "delivery_reason", "delivery_observed_at"]
-
-
 def _schedule_delivery(invitation: WorkspaceInvitation) -> None:
     """Render now (an unsafe origin fails the command) and send once after commit."""
     subject, html, text = _render_delivery(invitation)
     transaction.on_commit(
-        partial(_deliver, invitation.pk, invitation.generation, invitation.email, subject, html, text)
-    )
-
-
-def _deliver(invitation_id: int, generation: uuid.UUID, recipient: str, subject: str, html: str, text: str) -> None:
-    """Make one bounded send for a still-current generation and record its outcome.
-
-    A later resend or revoke fences this send: a superseded, revoked, or accepted
-    invitation is not sent, and the outcome is written only while the generation
-    still matches (ADR-071).
-    """
-    current = WorkspaceInvitation.objects.filter(
-        pk=invitation_id, generation=generation, accepted_at__isnull=True, revoked_at__isnull=True
-    )
-    if not current.exists():
-        return
-    result = attempt_email(recipient, subject, html, text, timeout=INTERACTIVE_TIMEOUT_SECONDS)
-    WorkspaceInvitation.objects.filter(pk=invitation_id, generation=generation).update(
-        delivery_status=_DELIVERY_STATUS[result.outcome],
-        delivery_reason=result.reason,
-        delivery_observed_at=timezone.now(),
+        partial(deliver_invitation, invitation.pk, invitation.generation, invitation.email, subject, html, text)
     )
 
 
@@ -372,7 +339,7 @@ def resend_workspace_invitation(
         previous = _audit_state(invitation)
         invitation.generation = uuid.uuid4()
         invitation.expires_at = timezone.now() + timedelta(seconds=WORKSPACE_INVITATION_TOKEN_MAX_AGE_SECONDS)
-        invitation.save(update_fields=["generation", "expires_at", "updated_at", *_reset_delivery(invitation)])
+        invitation.save(update_fields=["generation", "expires_at", "updated_at", *reset_delivery(invitation)])
         _write_audit(invitation, AuditAction.UPDATE, audit, previous_state=previous, new_state=_audit_state(invitation))
         _schedule_delivery(invitation)
     return _committed_projection(invitation.pk)

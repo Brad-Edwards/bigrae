@@ -4616,11 +4616,14 @@
       "docs/architecture/email-delivery-design-1525.md",
       "docs/architecture/ctf-email-durable-delivery-preflight-1525.md",
       "shifter/shifter_platform/shared/email.py",
+      "shifter/shifter_platform/shared/email_classification.py",
+      "shifter/shifter_platform/shared/email_deadline.py",
       "shifter/shifter_platform/config/_email.py",
       "shifter/shifter_platform/ctf/services/communication/adapters/email.py",
       "shifter/shifter_platform/ctf/services/communication/delivery.py",
       "shifter/shifter_platform/ctf/services/communication/disposition.py",
       "shifter/shifter_platform/workspaces/services/_invitations.py",
+      "shifter/shifter_platform/workspaces/services/_invitation_delivery.py",
       "shifter/shifter_platform/management/password_reset.py"
     ]
   }

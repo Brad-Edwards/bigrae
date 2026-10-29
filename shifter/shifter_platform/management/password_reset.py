@@ -56,6 +56,7 @@ _TEXT_TEMPLATE = "registration/password_reset_email.txt"
 _HTML_TEMPLATE = "registration/password_reset_email.html"
 # Django backends that record the message body (log stream or disk) instead of
 # delivering it; a reset link written there is a live credential in the logs.
+_DELIVERY_UNAVAILABLE = "Password reset delivery is unavailable."
 _BODY_RECORDING_EMAIL_BACKENDS = frozenset(
     {
         "django.core.mail.backends.console.EmailBackend",
@@ -160,6 +161,22 @@ def reset_eligibility(user: User) -> tuple[bool, str]:
     return True, ""
 
 
+def _deliverable_site_url() -> str:
+    """Return the validated public origin, or refuse when the reset email cannot be delivered.
+
+    Body-recording backends write the full message, reset link included, to the
+    container log or local disk instead of delivering it, so no token is minted
+    for them (#2617). A non-delivering backend sends nothing (ADR-071).
+    """
+    try:
+        site_url = validated_site_url()
+    except SiteUrlUnavailable as exc:
+        raise PasswordResetError("reset_delivery_unavailable", _DELIVERY_UNAVAILABLE) from exc
+    if settings.EMAIL_BACKEND in _BODY_RECORDING_EMAIL_BACKENDS or not delivery_available():
+        raise PasswordResetError("reset_delivery_unavailable", _DELIVERY_UNAVAILABLE)
+    return site_url
+
+
 def request_password_reset(
     user: User,
     *,
@@ -184,19 +201,7 @@ def request_password_reset(
     if not eligible:
         raise PasswordResetError("reset_ineligible", f"This account is not eligible for a password reset ({reason}).")
 
-    if settings.EMAIL_BACKEND in _BODY_RECORDING_EMAIL_BACKENDS:
-        # These backends write the full message, reset link included, to the
-        # container log or local disk instead of delivering it. No token is
-        # minted until a real email provider is configured (#2617).
-        raise PasswordResetError("reset_delivery_unavailable", "Password reset delivery is unavailable.")
-
-    try:
-        site_url = validated_site_url()
-    except SiteUrlUnavailable as exc:
-        raise PasswordResetError("reset_delivery_unavailable", "Password reset delivery is unavailable.") from exc
-    if not delivery_available():
-        raise PasswordResetError("reset_delivery_unavailable", "Password reset delivery is unavailable.")
-
+    site_url = _deliverable_site_url()
     if not credential_delivery_allowed(user.id):
         raise PasswordResetError("reset_throttled", "Too many reset requests for this account; try again later.")
 

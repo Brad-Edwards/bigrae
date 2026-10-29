@@ -46,11 +46,13 @@ signed invitation and reset links, to process logs.
 | Component | Responsibility | Interface |
 | --- | --- | --- |
 | `config/_email.py` | Selects the backend. Derives `EMAIL_DELIVERY_AVAILABLE`. Disables django-ses automatic throttling. | Django settings |
-| `shared/email.py` | Builds the MIME message, applies one attempt deadline, sends once, and classifies the result. Holds no CTF or workspace knowledge. | `attempt_email()`, `delivery_available()`, `render_template()` |
+| `shared/email.py` | Builds the MIME message, sends once through a deadline-bound connection, and returns the result. Holds no CTF or workspace knowledge. | `attempt_email()`, `delivery_available()`, `render_template()` |
+| `shared/email_deadline.py` | Gives each socket operation of one attempt only the time left (SMTP, requests session, SES `before-send`). | `Deadline`, `deadline_smtp_backend()`, `deadline_session()` |
+| `shared/email_classification.py` | Maps a backend exception to a closed outcome and reason. | `classify()`, `EmailOutcome` |
 | `ctf/services/communication/adapters/email.py` | Reads the one captured coordinate and the pinned revision. Renders the trusted wrapper. Maps the transport result to `DeliveryOutcome`. | `ChannelAdapter.deliver()`, `available()` |
-| `ctf/services/communication/delivery.py` | Claims, fences, enforces the retry budget before I/O, settles, and releases unattempted claims on shutdown. | `run_once()` |
+| `ctf/services/communication/delivery.py` | Claims, fences, enforces the retry budget before I/O, settles, and releases unattempted claims on shutdown. Its bounded policy is in `worker_config.py`. | `run_once()`, `WorkerConfig` |
 | `ctf/services/communication/disposition.py` | Derives and persists the occurrence delivery state. | `refresh_delivery_state()`, `reconcile_delivery_states()` |
-| `workspaces/services/_invitations.py` | Sends after commit. Records the outcome for the current generation only. | Invitation projection `delivery_status` |
+| `workspaces/services/_invitations.py`, `_invitation_delivery.py` | Renders and registers the send after commit. Records the outcome for the current generation only. | Invitation projection `delivery_status` |
 | `management/password_reset.py` | Sends after commit. Raises `reset_delivery_failed` when the backend does not accept the message. | `request_password_reset()` |
 
 ### Transport seam

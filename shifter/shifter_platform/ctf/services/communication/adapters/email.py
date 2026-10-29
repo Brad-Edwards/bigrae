@@ -43,11 +43,13 @@ class EmailAdapter:
 
     channel = CommunicationChannel.EMAIL.value
 
-    def available(self) -> bool:
+    @staticmethod
+    def available() -> bool:
         """Email is available only with a delivering backend in this deployment."""
         return delivery_available()
 
-    def deliver(self, command: DeliveryCommand, *, timeout: float) -> DeliveryOutcome:
+    @staticmethod
+    def deliver(command: DeliveryCommand, *, timeout: float) -> DeliveryOutcome:
         """Send the pinned revision to the snapshot's captured coordinate."""
         coordinate, failure = _read_coordinate(command)
         if failure is not None:

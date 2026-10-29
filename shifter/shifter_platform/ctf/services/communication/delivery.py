@@ -30,7 +30,6 @@ from datetime import datetime, timedelta
 from secrets import SystemRandom, token_hex
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -46,6 +45,7 @@ from ctf.services.communication.adapters import (
     get_adapter,
     registered_channels,
 )
+from ctf.services.communication.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -57,56 +57,6 @@ _UNLEASED = ""
 # Jitter uses a CSPRNG-backed source purely to avoid a weak-PRNG lint finding; the
 # value is a scheduling nicety, not a security control.
 _JITTER = SystemRandom()
-
-# Bounded default policy. The typed, relationally-validated owner is
-# ``config._ctf_communication_settings``; these getattr defaults keep the worker
-# importable and unit-testable without a full settings surface.
-_DEFAULTS = {
-    "CTF_COMMUNICATION_WORKER_BATCH_SIZE": 100,
-    "CTF_COMMUNICATION_WORKER_PER_EVENT_CAP": 25,
-    "CTF_COMMUNICATION_WORKER_LEASE_SECONDS": 120,
-    "CTF_COMMUNICATION_TRANSPORT_TIMEOUT_SECONDS": 10,
-    "CTF_COMMUNICATION_MAX_ATTEMPTS": 6,
-    "CTF_COMMUNICATION_MAX_ELAPSED_SECONDS": 86400,
-    "CTF_COMMUNICATION_BACKOFF_BASE_SECONDS": 30,
-    "CTF_COMMUNICATION_BACKOFF_CAP_SECONDS": 3600,
-    "CTF_COMMUNICATION_BACKOFF_JITTER_FRACTION": 0.25,
-}
-
-
-def _setting(name: str) -> int | float:
-    """Return a bounded worker setting, defaulting when the settings owner is absent."""
-    return getattr(settings, name, _DEFAULTS[name])
-
-
-@dataclass(frozen=True)
-class WorkerConfig:
-    """Immutable snapshot of the worker's bounded operational policy for one run."""
-
-    batch_size: int
-    per_event_cap: int
-    lease_seconds: int
-    timeout_seconds: float
-    max_attempts: int
-    max_elapsed_seconds: int
-    backoff_base_seconds: int
-    backoff_cap_seconds: int
-    backoff_jitter_fraction: float
-
-    @classmethod
-    def from_settings(cls) -> WorkerConfig:
-        """Build the config from Django settings (typed owner) or bounded defaults."""
-        return cls(
-            batch_size=int(_setting("CTF_COMMUNICATION_WORKER_BATCH_SIZE")),
-            per_event_cap=int(_setting("CTF_COMMUNICATION_WORKER_PER_EVENT_CAP")),
-            lease_seconds=int(_setting("CTF_COMMUNICATION_WORKER_LEASE_SECONDS")),
-            timeout_seconds=float(_setting("CTF_COMMUNICATION_TRANSPORT_TIMEOUT_SECONDS")),
-            max_attempts=int(_setting("CTF_COMMUNICATION_MAX_ATTEMPTS")),
-            max_elapsed_seconds=int(_setting("CTF_COMMUNICATION_MAX_ELAPSED_SECONDS")),
-            backoff_base_seconds=int(_setting("CTF_COMMUNICATION_BACKOFF_BASE_SECONDS")),
-            backoff_cap_seconds=int(_setting("CTF_COMMUNICATION_BACKOFF_CAP_SECONDS")),
-            backoff_jitter_fraction=float(_setting("CTF_COMMUNICATION_BACKOFF_JITTER_FRACTION")),
-        )
 
 
 @dataclass
@@ -323,26 +273,29 @@ def _preflight(pk: UUID, token: str, cfg: WorkerConfig, now_func: NowFunc) -> De
         )
         if not _lease_held(row, token):
             return "not_ours"
-        reason = _fence_reason(row)
         now = now_func()
-        if reason:
-            row.status = DeliveryStatus.SUPPRESSED.value
-            row.result_reason = reason
+        stopped = _pre_io_stop(row, cfg, now)
+        if stopped is not None:
+            row.status, row.result_reason = stopped
             row.observed_at = now
             _clear_lease(row)
             row.save(update_fields=_LEASE_FIELDS)
-            return "suppressed"
-        if _budget_spent(row, cfg, now):
-            row.status = DeliveryStatus.EXPIRED.value
-            row.result_reason = "budget_exhausted"
-            row.observed_at = now
-            _clear_lease(row)
-            row.save(update_fields=_LEASE_FIELDS)
-            return "expired"
+            return "suppressed" if row.status == DeliveryStatus.SUPPRESSED.value else "expired"
         row.attempted_at = now
         row.lease_expires_at = now + timedelta(seconds=cfg.lease_seconds)
         row.save(update_fields=["attempted_at", "lease_expires_at", "updated_at"])
         return _command(row)
+
+
+def _pre_io_stop(row: DeliveryAttempt, cfg: WorkerConfig, now: datetime) -> tuple[str, str] | None:
+    """Return the (status, reason) that stops this command before I/O, or ``None``.
+
+    A visible lifecycle fence suppresses; a spent attempt or elapsed budget expires.
+    """
+    reason = _fence_reason(row)
+    if reason:
+        return DeliveryStatus.SUPPRESSED.value, reason
+    return (DeliveryStatus.EXPIRED.value, "budget_exhausted") if _budget_spent(row, cfg, now) else None
 
 
 def _settle(pk: UUID, token: str, outcome: DeliveryOutcome, cfg: WorkerConfig, now_func: NowFunc) -> str:
@@ -412,27 +365,34 @@ def process_attempt(attempt: DeliveryAttempt, cfg: WorkerConfig, now_func: NowFu
     """
     token = attempt.lease_token
     decision = _preflight(attempt.pk, token, cfg, now_func)
-    if decision == "not_ours":
-        return "stale"
     if isinstance(decision, str):
-        result = DeliveryStatus.SUPPRESSED.value if decision == "suppressed" else DeliveryStatus.EXPIRED.value
-        reason = "fenced" if decision == "suppressed" else "budget_exhausted"
-        return _after_settle(attempt, result, reason)
-    command = decision
+        return _stopped_before_io(attempt, decision)
+    outcome = _deliver(attempt.pk, decision, cfg)
+    result = _settle(attempt.pk, token, outcome, cfg, now_func)
+    return result if result == "stale" else _after_settle(attempt, result, outcome.reason)
+
+
+def _stopped_before_io(attempt: DeliveryAttempt, decision: str) -> str:
+    """Report a command that preflight stopped: a lost lease, a fence, or a spent budget."""
+    stopped = {
+        "suppressed": (DeliveryStatus.SUPPRESSED.value, "fenced"),
+        "expired": (DeliveryStatus.EXPIRED.value, "budget_exhausted"),
+    }.get(decision)
+    return "stale" if stopped is None else _after_settle(attempt, *stopped)
+
+
+def _deliver(pk: UUID, command: DeliveryCommand, cfg: WorkerConfig) -> DeliveryOutcome:
+    """Hand ``command`` to its channel adapter once, isolating any adapter failure."""
     adapter = get_adapter(command.channel)
-    # Defensive: the channel was de-registered mid-run.
     if adapter is None:
-        return "stale"
+        # The channel became unavailable after the claim: retry within the budget.
+        return DeliveryOutcome(OutcomeClass.RETRIABLE, reason="channel_unavailable")
     try:
-        outcome = adapter.deliver(command, timeout=cfg.timeout_seconds)
+        return adapter.deliver(command, timeout=cfg.timeout_seconds)
     # Never let one transport error abort the batch (partial-failure isolation).
     except Exception:
-        logger.warning("communication adapter raised for attempt %s channel %s", attempt.pk, command.channel)
-        outcome = DeliveryOutcome(OutcomeClass.RETRIABLE, reason="adapter_error")
-    result = _settle(attempt.pk, token, outcome, cfg, now_func)
-    if result == "stale":
-        return result
-    return _after_settle(attempt, result, outcome.reason)
+        logger.warning("communication adapter raised for attempt %s channel %s", pk, command.channel)
+        return DeliveryOutcome(OutcomeClass.RETRIABLE, reason="adapter_error")
 
 
 def _after_settle(attempt: DeliveryAttempt, status: str, reason: str) -> str:

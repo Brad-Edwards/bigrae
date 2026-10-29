@@ -27,7 +27,8 @@ class InAppAdapter:
 
     channel = CommunicationChannel.IN_APP.value
 
-    def available(self) -> bool:
+    @staticmethod
+    def available() -> bool:
         """The durable inbox is always available; the wake-up is only an accelerator."""
         return True
 
