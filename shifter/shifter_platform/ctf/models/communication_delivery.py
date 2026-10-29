@@ -85,11 +85,18 @@ class DeliveryAttempt(CTFBaseModel):
 
 
 class ParticipantReceipt(CTFBaseModel):
-    """Per-recipient in-app read and acknowledgement state."""
+    """Per-recipient in-app read, dismiss, and acknowledgement state.
+
+    Each timestamp is an independent first-write fact set only by its explicit
+    participant action (ADR-051-R13).
+    """
 
     snapshot = models.OneToOneField(RecipientSnapshot, on_delete=models.CASCADE, related_name="receipt")
     read_at = models.DateTimeField(null=True, blank=True)
     acknowledged_at = models.DateTimeField(null=True, blank=True)
+    dismissed_at = models.DateTimeField(
+        null=True, blank=True, help_text="Hidden from the default inbox view; never implies read or acknowledgement"
+    )
 
     class Meta:
         """Django model metadata for one receipt per recipient snapshot."""
