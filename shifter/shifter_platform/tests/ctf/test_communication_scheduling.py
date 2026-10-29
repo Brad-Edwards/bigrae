@@ -250,3 +250,21 @@ def test_event_time_change_keeps_an_independent_scheduled_communication(organize
     assert task.metadata["intent_id"] == str(intent.id)
     starts = CTFScheduledTask.objects.filter(task_type=ScheduledTaskType.EVENT_START.value)
     assert starts.filter(status=ScheduledTaskStatus.PENDING.value, scheduled_for=ctf_event.event_start).count() == 1
+
+
+def test_due_release_denies_an_author_demoted_from_organizer(organizer_user, ctf_event):
+    """A declaration made before demotion does not release on event ownership alone (#2617)."""
+    from django.contrib.auth.models import Group
+
+    from shared.auth import CTF_ORGANIZER_GROUP
+
+    due = timezone.now() - timezone.timedelta(minutes=1)
+    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
+    organizer_user.groups.remove(Group.objects.get(name=CTF_ORGANIZER_GROUP))  # still active, still owner
+
+    result = run_release_communication_task(task)
+
+    assert result["outcome"] == "denied"
+    assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.EXPIRED.value
+    assert not RecipientSnapshot.objects.filter(intent=intent).exists()

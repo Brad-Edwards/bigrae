@@ -16,6 +16,7 @@ is the platform's only provisioning authority.
 from __future__ import annotations
 
 import logging
+from typing import Protocol
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
@@ -33,6 +34,7 @@ from engine.services import (
     upsert_raes_image_mapping,
 )
 from shared.api.errors import api_error_response
+from shared.audit import AuditAction, AuditEntityType, AuditTarget, audit_log_from_request
 from shared.log_sanitize import safe_log_value
 
 logger = logging.getLogger(__name__)
@@ -136,6 +138,79 @@ def _domain_error(request: Request, exc: RaesImageMappingError) -> Response:
     )
 
 
+class _AuditedMapping(Protocol):
+    """The registry-row fields that the audit records (model row or read view)."""
+
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def provider(self) -> str: ...
+
+    @property
+    def source_name(self) -> str: ...
+
+    @property
+    def source_version(self) -> str: ...
+
+    @property
+    def image_ref(self) -> str: ...
+
+    @property
+    def image_kind(self) -> str: ...
+
+    @property
+    def enabled(self) -> bool: ...
+
+
+def _mapping_audit_state(mapping: _AuditedMapping) -> dict[str, object]:
+    """Return the audited projection of a registry row (which image boots for which source)."""
+    return {
+        "provider": mapping.provider,
+        "source_name": mapping.source_name,
+        "source_version": mapping.source_version,
+        "image_ref": mapping.image_ref,
+        "image_kind": mapping.image_kind,
+        "enabled": mapping.enabled,
+    }
+
+
+def _current_mapping_state(provider: str, source_name: str, source_version: str) -> dict[str, object] | None:
+    """Return the audited projection of the installation row at this natural key, if any."""
+    name = source_name.strip()
+    version = (source_version or "").strip()
+    for row in list_raes_image_mappings(provider=provider, include_disabled=True):
+        if row.source_name == name and row.source_version == version:
+            return _mapping_audit_state(row)
+    return None
+
+
+def _audit_mapping_change(
+    request: Request,
+    mapping: _AuditedMapping,
+    previous_state: dict[str, object] | None,
+    context: str,
+) -> None:
+    """Record who changed which installation-wide boot image (#2617).
+
+    Every range that names the source boots the mapped image, so each change is
+    an auditable configuration event. The write is best effort: the registry
+    operation itself is unchanged.
+    """
+    audit_log_from_request(
+        request,
+        AuditTarget(
+            AuditEntityType.CONFIG,
+            mapping.id,
+            entity_ref=f"raes-image-mapping:{mapping.provider}:{mapping.source_name}@{mapping.source_version or '*'}",
+        ),
+        AuditAction.UPDATE if previous_state is not None else AuditAction.CREATE,
+        previous_state=previous_state,
+        new_state=_mapping_audit_state(mapping),
+        context=context,
+    )
+
+
 class RaesImageMappingListCreateView(APIView):
     """List registry mappings, or register/upsert one, for CMS authoring actors."""
 
@@ -171,6 +246,7 @@ class RaesImageMappingListCreateView(APIView):
         body.is_valid(raise_exception=True)
         data = body.validated_data
         try:
+            previous_state = _current_mapping_state(data["provider"], data["source_name"], data["source_version"])
             mapping = upsert_raes_image_mapping(
                 provider=data["provider"],
                 source_name=data["source_name"],
@@ -200,6 +276,7 @@ class RaesImageMappingListCreateView(APIView):
             )
         except RaesImageMappingError as exc:
             return _domain_error(request, exc)
+        _audit_mapping_change(request, mapping, previous_state, "RAES image mapping registered")
         logger.info(
             "raes image mapping registered provider=%s source=%s enabled=%s",
             safe_log_value(mapping.provider),
@@ -221,6 +298,7 @@ class RaesImageMappingDisableView(APIView):
         body.is_valid(raise_exception=True)
         data = body.validated_data
         try:
+            previous_state = _current_mapping_state(data["provider"], data["source_name"], data["source_version"])
             view = disable_raes_image_mapping(
                 provider=data["provider"],
                 source_name=data["source_name"],
@@ -228,6 +306,7 @@ class RaesImageMappingDisableView(APIView):
             )
         except RaesImageMappingError as exc:
             return _domain_error(request, exc)
+        _audit_mapping_change(request, view, previous_state, "RAES image mapping disabled")
         logger.info(
             "raes image mapping disabled provider=%s source=%s",
             safe_log_value(view.provider),

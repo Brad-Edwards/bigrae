@@ -533,6 +533,15 @@ class TestRangeApi:
             resp = _json(authenticated_organizer_client, "post", route, kwargs={"participant_id": ctf_participant.id})
         assert resp.status_code == 200
 
+        # The range service acts as the participant; this row names the organizer (#2617).
+        from shared.models import AuditLog
+
+        row = AuditLog.objects.get(context="ctf_organizer_participant_range_action")
+        assert row.actor_id == ctf_participant.event.created_by_id
+        assert row.new_state["participant_id"] == str(ctf_participant.id)
+        assert row.new_state["operation"] == f"range.participant.{service_fn.split('_', 1)[0]}"
+        assert row.new_state["authority_source"] == "owner"
+
     def test_participant_range_action_not_found(self, authenticated_organizer_client: Client):
         resp = _json(
             authenticated_organizer_client,

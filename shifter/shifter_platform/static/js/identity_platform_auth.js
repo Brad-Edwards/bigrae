@@ -10,7 +10,7 @@ import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebase
 import {
     getAuth,
     setPersistence,
-    browserSessionPersistence,
+    inMemoryPersistence,
     onAuthStateChanged,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
@@ -169,7 +169,14 @@ if (configScript) {
             }
             throw new Error("session_exchange_failed");
         }
-        globalThis.location.assign(resolveRedirectDestination(body.redirect_url, config.dashboardUrl));
+        // The portal session now carries this sign-in. End the provider session
+        // so that this tab cannot mint a new portal session later (for example
+        // after the idle timeout) without a fresh password and TOTP sign-in.
+        try {
+            await signOut(auth);
+        } finally {
+            globalThis.location.assign(resolveRedirectDestination(body.redirect_url, config.dashboardUrl));
+        }
     }
 
     async function sendVerification(user) {
@@ -356,15 +363,17 @@ if (configScript) {
         }
     }
 
-    // Set session persistence BEFORE registering the auth-state observer so the
-    // first auth-state event already uses SESSION (not the default LOCAL)
-    // persistence -- a deliberate security choice. A named async setup function
+    // Set in-memory persistence BEFORE registering the auth-state observer so the
+    // first auth-state event already uses it (not the default LOCAL persistence)
+    // -- a deliberate security choice: no provider session survives a reload or
+    // navigation, so a stored session cannot silently start a new portal
+    // session after the portal session ends. A named async setup function
     // preserves that ordering without a module-level `await`: this
     // `<script type="module">` entry point is transpiled to CommonJS by the
     // jsdom test harness, which cannot represent top-level await, so S7785
     // (prefer top-level await) is unsatisfiable here without breaking the suite.
     async function initSessionPersistenceAndObserver() {
-        await setPersistence(auth, browserSessionPersistence);
+        await setPersistence(auth, inMemoryPersistence);
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 void handleAuthenticatedUser(user, false);
@@ -377,6 +386,9 @@ if (configScript) {
         event.preventDefault();
         void submitCredentials();
     });
+    // The template renders the button disabled so that the browser cannot
+    // submit the form natively before this handler exists.
+    submitButton.disabled = false;
     modeToggle.addEventListener("click", () => {
         authMode = authMode === "register" ? "signin" : "register";
         clearBanner();

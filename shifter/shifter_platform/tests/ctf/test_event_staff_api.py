@@ -69,7 +69,9 @@ class TestStaffAssignment:
         assert [s["role"] for s in listing.json()["staff"]] == ["judge"]
 
     def test_assign_rejects_unknown_email_and_bad_role(self, ctf_event, authenticated_organizer_client):
-        assert _assign(authenticated_organizer_client, ctf_event, "nobody@test.com", "moderator").status_code == 404
+        # An unknown email gets the same 400 as an account without the organizer
+        # role, so the lookup does not reveal which emails have accounts (#2617).
+        assert _assign(authenticated_organizer_client, ctf_event, "nobody@test.com", "moderator").status_code == 400
         assert _assign(authenticated_organizer_client, ctf_event, "organizer@test.com", "sheriff").status_code == 400
 
     def test_assign_rejects_owner_and_non_organizer(self, ctf_event, authenticated_organizer_client, participant_user):
