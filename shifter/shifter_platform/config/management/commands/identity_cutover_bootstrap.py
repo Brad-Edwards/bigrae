@@ -10,7 +10,11 @@ from django.db import transaction
 from config.identity_bootstrap import bootstrap_grants, ensure_bootstrap_grant
 from config.identity_cutover import load_identity_bootstrap_facts
 from config.openfga_authorization import configured_authorization_provider
-from management.services import bootstrap_principal_uuid
+from management.services import (
+    PrincipalConflictError,
+    bootstrap_principal_uuid,
+    prepare_empty_installation_bootstrap,
+)
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from workspaces.services import (
     IdentityCutoverConflict,
@@ -26,9 +30,15 @@ class Command(BaseCommand):
     help = "Grant the one-time first application administrator for identity cutover"
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Require the bootstrap facts and accepted plan digest."""
+        """Require the bootstrap facts and either the accepted plan digest or preparation."""
         parser.add_argument("--facts", required=True)
-        parser.add_argument("--plan-digest", required=True)
+        mode = parser.add_mutually_exclusive_group(required=True)
+        mode.add_argument("--plan-digest")
+        mode.add_argument(
+            "--prepare",
+            action="store_true",
+            help="Before the plan, create the bootstrap principal on an empty installation",
+        )
 
     def handle(self, *args: object, **options: object) -> None:
         """Grant and record the one-time administrator from verified bootstrap facts."""
@@ -36,6 +46,9 @@ class Command(BaseCommand):
             facts = load_identity_bootstrap_facts(cast(str, options["facts"]))
         except ValueError as exc:
             raise CommandError("bootstrap facts document is invalid") from exc
+        if options["prepare"]:
+            self._prepare(facts.issuer, facts.subject)
+            return
         state = get_identity_cutover_state(plan_digest=cast(str, options["plan_digest"]))
         if state is None:
             raise CommandError("cutover policy state is unavailable")
@@ -82,6 +95,16 @@ class Command(BaseCommand):
             except IdentityCutoverConflict as exc:
                 raise CommandError(str(exc)) from exc
         self.stdout.write('{"state":"bootstrap_verified"}')
+
+    def _prepare(self, issuer: str, subject: str) -> None:
+        """Bind the first administrator of an empty installation before the plan (#2671)."""
+        if get_identity_cutover_state() is not None:
+            raise CommandError("cutover has started; preparation runs only before the plan")
+        try:
+            principal_uuid = prepare_empty_installation_bootstrap(issuer, subject)
+        except PrincipalConflictError as exc:
+            raise CommandError("bootstrap provider identity is unavailable") from exc
+        self.stdout.write('{"prepared":%s}' % ("true" if principal_uuid is not None else "false"))
 
 
 def _assert_provider_binding(plan_digest: str, provider: object) -> None:
