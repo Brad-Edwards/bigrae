@@ -134,7 +134,7 @@ def test_storage_failures_are_safely_classified(monkeypatch, caplog, storage_err
     assert f"code={expected_code}" in message
     assert f"cause_type={type(storage_error).__name__}" in message
     assert str(storage_error) not in message
-    assert record.exc_info is None
+    assert not record.exc_info
 
 
 def test_declared_oversized_object_is_rejected_before_download(monkeypatch) -> None:
