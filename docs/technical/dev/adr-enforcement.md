@@ -107,11 +107,19 @@ MCP lint jobs reject security warnings, and the shared package has a test-matrix
 entry. The existing kube-linter job supplies blocking Kubernetes security policy.
 Checkov's separate Kubernetes checks are a blocking gate under ADR-004-R11 (#2558).
 Helm lint and rendered kube-linter checks run together, including when optional
-tests are skipped. BuildKit and Trivy validate container build inputs. A local guacd
-container proves non-root execution, drive permissions and listener readiness.
+tests are skipped. BuildKit and Trivy validate container build inputs. The hosted
+guacd job proves non-root execution, drive permissions and listener readiness.
 The unused root branding assets have been removed after a consumer search.
 The user also retired the two unused vendor CloudFormation installers.
 Their quality owner and identifier exception have been removed.
+
+The `provisioner-locks` hook and provisioner CI job check that the image's Python
+requirements match `uv.lock`. The default export must match the frozen uv export;
+GCP packages present in `uv.lock` must have the same versions. The image keeps
+its existing pip-based install from these hash-pinned exports. Use the documented
+[uv export command](https://docs.astral.sh/uv/concepts/projects/export/) when
+regenerating them. The Guacamole image job also tests direct and nested jar
+replacement, including rejection when an expected archive or dependency is absent.
 
 Bootstrap regression tests use process boundaries for the affected CLI and GDC
 flows. Their legacy mock allowance decreases from 256 to 175. No new allowance

@@ -328,6 +328,13 @@ so the in-memory token minted by `/api/tokens` is consumed by the same instance
 that issued it (issue #928); `guacd` scales independently. This is enforced by
 `tests/platform/test_guacamole_topology.py`.
 
+The client image starts from a pinned upstream digest. Its build replaces the
+bundled Guava, Jackson and PostgreSQL JDBC dependencies with versions and hashes
+recorded in `shifter/engine/guacamole/Dockerfile`. It removes unused authentication
+extensions and database drivers. The replacement step rejects an archive layout
+that lacks an expected dependency. The authority extension pins the same Guava
+version. Image build, scan and native session-closure checks run in CI.
+
 ### AWS
 
 - The shared chart deploys `guacd`, `guacamole-client` and the prune worker on EKS.
