@@ -161,6 +161,7 @@ def infrastructure_stage(
     from gcp_prereqs import ensure_identity_platform, ensure_state_bucket, release_disabled_broker_load_balancer
     from gcp_runtime import gdc_config
     from gcp_terraform import (
+        artifact_registry_kms_adoption,
         backend_prefix,
         state_bucket_name,
         terraform_apply,
@@ -205,7 +206,8 @@ def infrastructure_stage(
             cluster=cluster,
             kube_env=early_kube,
         )
-    terraform_apply(runner, ctx)
+    adopt_kms = artifact_registry_kms_adoption(runner, ctx, inputs)
+    terraform_apply(runner, ctx, variables={"adopt_artifact_registry_kms": "true"} if adopt_kms else None)
     outputs = terraform_outputs(runner, ctx)
     verify_range_telemetry(runner, inputs, outputs)
     kube = kube_env(
