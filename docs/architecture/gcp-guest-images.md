@@ -27,8 +27,10 @@ The protected `packer-gcp.yml` workflow (`publish_target=ghcr`) exports each
 built base image to a **GCE-native disk tarball** (`disk.raw` in a `.tar.gz`,
 the default `gcloud compute images export` output) and publishes it to GHCR as
 an OCI artifact. Every deployment imports from these public packages, or from
-a mirror of the same digests (#2659). The reusable minimum base set is Kali,
-Ubuntu, and DC:
+a mirror of the same digests (#2659). The workflow publishes under the
+lower-case repository owner. The current packages were published before the
+move to `OpenRAE` on 2026-10-29, so they are under `ghcr.io/brad-edwards`. The
+reusable minimum base set is Kali, Ubuntu, and DC:
 
 | Role | GHCR package |
 |---|---|

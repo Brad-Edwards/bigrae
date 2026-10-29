@@ -75,11 +75,14 @@ deployment, and a new deployment needs no change here.
    refs `refs/heads/main`, `refs/heads/dev`, and `refs/heads/deploy-test`.
    Protect each of these branches. The Environment holds no secrets or
    variables.
-2. Dispatch the release from a release ref. The `version` input is optional;
-   an empty value uses `version.txt`.
+2. Merge the Release Please release PR on `main`. The `release-gcp` job of
+   `release-please.yml` then builds the release for the tagged commit (#2660).
+   To build a test release from `dev` or `deploy-test`, or to publish a release
+   again, dispatch the workflow. The `version` input is optional; an empty value
+   uses `version.txt`.
 
    ```bash
-   gh workflow run release-gcp.yml --ref main
+   gh workflow run release-gcp.yml --ref dev
    ```
 
 3. Read the deployer image digest and the release manifest in the run summary.

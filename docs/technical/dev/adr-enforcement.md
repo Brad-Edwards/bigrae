@@ -126,8 +126,10 @@ flows. Their legacy mock allowance decreases from 256 to 175. No new allowance
 or exception renewal is part of this repair.
 
 The BigRAE rename (#2555) preserves the existing gates. After the same-owner
-repository cutover, the Sonar condition permits only `Brad-Edwards/bigrae` with
-the same immutable repository and owner IDs. Its expression-model tests deny the
+repository cutover, the Sonar condition permitted only `Brad-Edwards/bigrae` with
+the same immutable repository and owner IDs. The repository then moved to
+`OpenRAE/bigrae` (#2660). The repository ID stayed, and the condition now
+permits the `OpenRAE` owner ID. Its expression-model tests deny the
 old slug, a recreated slug, another owner and fork-origin PRs. Future GCP deployments use
 one exact configured repository identity with the same purpose, Environment,
 ref and workflow restrictions. Under the user's no-deployments decision,
@@ -616,7 +618,13 @@ The first slice intentionally stays small:
   Enforces ADR-070-R1 with ADR-004-R23, ADR-003-R5, and ADR-037-R1, R5, and R7
   on `.github/workflows/release-gcp.yml`. It reads the workflow as data and
   fails closed when the workflow is missing or cannot be parsed. Only
-  `workflow_dispatch` may start the workflow. Each job that publishes (it logs
+  `workflow_dispatch` and `workflow_call` may start the workflow (#2660). The
+  only caller is the `release-gcp` job of `release-please.yml`. That workflow
+  must start only on a push to `main`. The job must run only when a release tag
+  points at the pushed commit, and it must not inherit secrets. That fact, the
+  version, and the commit must come from an unconditional `release-commit` step
+  after the Release Please action. The caller rules are in
+  `scripts/adr_guard/_guard/checks/_release_workflow_caller.py`. Each job that publishes (it logs
   in to a registry, authenticates to a cloud, or pushes an image) must bind the
   `gcp-release` Environment and run on a GitHub-hosted runner. In that job, a
   step before the first publishing step must reject every ref except
@@ -1414,7 +1422,7 @@ and [recovery procedure](../../dev/deployment-configuration.md) describe retaine
 owners, callers and the evidence limit for undeployed environments.
 
 Canonical GitHub routing and the workflow expression model now use
-`Brad-Edwards/bigrae`, matching the operator-confirmed repository rename.
+`OpenRAE/bigrae`, after the transfer to the `OpenRAE` organization (#2660).
 
 ## GitHub-less GCP deployment guardrails (ADR-070)
 

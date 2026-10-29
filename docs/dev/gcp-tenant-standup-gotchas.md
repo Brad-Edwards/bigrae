@@ -25,9 +25,10 @@ Credentials.
 ## Release from dev or a deploy-test branch
 
 `release-gcp.yml` publishes from `refs/heads/main`, `refs/heads/dev`, and
-`refs/heads/deploy-test`. GitHub dispatches a `workflow_dispatch`-only workflow
-only after the file is on the default branch. After `release-gcp.yml` is on
-`main` once, dispatch it on another release ref:
+`refs/heads/deploy-test`. A Release Please release on `main` starts it
+automatically. GitHub dispatches a workflow only after the file is on the
+default branch. After `release-gcp.yml` is on `main` once, dispatch it on
+another release ref:
 
 ```bash
 gh workflow run release-gcp.yml --ref deploy-test

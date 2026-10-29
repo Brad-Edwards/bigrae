@@ -54,7 +54,8 @@ of a deployment. Do not provision infrastructure to manufacture rename evidence.
    URL redirect; no new hosting destination is authorized by this procedure.
 
 The old Pages path, `https://brad-edwards.github.io/shifter/`, retires at the
-2026-10-25 repository cutover. Use `https://brad-edwards.github.io/bigrae/`.
+2026-10-25 repository cutover. On 2026-10-29 the repository moved to the
+`OpenRAE` organization. Use `https://openrae.github.io/bigrae/`.
 Repository redirects continue to serve old source, issue and release links.
 Do not recreate the old repository to host a Pages redirect: that would remove
 the repository redirects.

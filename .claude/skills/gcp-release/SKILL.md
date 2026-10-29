@@ -30,7 +30,10 @@ deploy-test branch" section of the
 ## Steps
 
 1. Check that the release ref holds every fix that the cycle needs.
-2. Dispatch the release:
+2. Start the release. A Release Please release on `main` starts it
+   automatically for the tagged commit. When that call fails, or a
+   `release-superseded` job names a commit, re-run the Release Please run of
+   that commit. For `dev` or `deploy-test`, dispatch it:
 
    ```bash
    gh workflow run release-gcp.yml --ref <release ref>
