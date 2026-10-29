@@ -16,19 +16,20 @@ LABEL maintainer="Shifter maintainers" \
 # Install Terraform CLI (pinned version). The provisioner is Terraform-based;
 # it never imports Pulumi or shells out to the Pulumi CLI, so no Pulumi binary
 # is installed (removing it also drops the go-git CVE it embedded).
-ARG TERRAFORM_VERSION=1.16.3
+ARG TERRAFORM_VERSION=1.17.1
 
-# kubectl is always installed. The KubeVirt `virt` plugin (virtctl, installed as
-# `kubectl-virt`) drives GDC VM Runtime guest start/stop for range pause/resume
-# (issue #614, gdc_vmruntime_assets.run_power_operation). virtctl is installed
-# ONLY when INSTALL_KUBEVIRT=true (GDC deployments); the default GCE range backend
-# never invokes it (GCE pause/resume uses the Compute API), so the default image
-# omits it — no GDC tooling on the default path (ADR: GDC not selected by default).
+# kubectl and the KubeVirt `virt` plugin (virtctl, installed as `kubectl-virt`)
+# drive GDC VM Runtime guest start/stop for range pause/resume (issue #614,
+# gdc_vmruntime_assets.run_power_operation). Both are installed ONLY when
+# INSTALL_KUBEVIRT=true (GDC deployments). The default GCE range backend never
+# invokes them (GCE pause/resume uses the Compute API, and the provisioner uses
+# the Kubernetes Python client), so the default image omits both — no GDC tooling
+# and no unused kubectl CVE surface on the default path (#2610).
 # KubeVirt publishes no release checksums file, so virtctl integrity is verified
 # against the pinned VIRTCTL_SHA256 digest (of virtctl-${KUBEVIRT_VERSION}-linux-amd64)
 # rather than a non-existent upstream CHECKSUMS asset. KUBEVIRT_VERSION tracks the
 # deployed GDC VM Runtime version; bump VIRTCTL_SHA256 in lockstep.
-ARG KUBECTL_VERSION=v1.37.0
+ARG KUBECTL_VERSION=v1.37.2
 ARG KUBEVIRT_VERSION=v1.4.0
 ARG INSTALL_KUBEVIRT=false
 ARG VIRTCTL_SHA256=ebc167273e40a295721c61d04c4458fa8f037c5a00b347dbb4f5456a02ce4e7a
@@ -62,21 +63,21 @@ RUN apt-get update && \
     grep "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" terraform_SHA256SUMS | sha256sum -c - && \
     unzip "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" -d /usr/local/bin && \
     rm "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" terraform_SHA256SUMS && \
-    # Install kubectl, integrity-verified against dl.k8s.io's published hash.
-    curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
-      -o kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
-    curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
-      -o kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" && \
-    echo "$(cat kubectl.sha256)  kubectl" | sha256sum -c - && \
-    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
-    rm kubectl kubectl.sha256 && \
-    # Exercise kubectl offline (it resolves kubectl-* plugins from PATH).
-    kubectl version --client >/dev/null && \
-    # Install the KubeVirt virt plugin (virtctl) as kubectl-virt ONLY for GDC VM
-    # Runtime deployments (INSTALL_KUBEVIRT=true). KubeVirt publishes no release
-    # checksums file, so integrity is verified against the pinned VIRTCTL_SHA256
-    # digest. The default GCE backend skips this entirely.
+    # Install kubectl and the KubeVirt virt plugin (virtctl) as kubectl-virt ONLY
+    # for GDC VM Runtime deployments (INSTALL_KUBEVIRT=true). kubectl is verified
+    # against dl.k8s.io's published hash. KubeVirt publishes no release checksums
+    # file, so virtctl is verified against the pinned VIRTCTL_SHA256 digest. The
+    # default GCE backend skips this entirely.
     if [ "${INSTALL_KUBEVIRT}" = "true" ]; then \
+      curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
+        -o kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
+      curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
+        -o kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" && \
+      echo "$(cat kubectl.sha256)  kubectl" | sha256sum -c - && \
+      install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
+      rm kubectl kubectl.sha256 && \
+      # Exercise kubectl offline (it resolves kubectl-* plugins from PATH).
+      kubectl version --client >/dev/null && \
       curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
         -o "virtctl-${KUBEVIRT_VERSION}-linux-amd64" \
         "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-amd64" && \

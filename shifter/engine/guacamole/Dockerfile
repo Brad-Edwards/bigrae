@@ -39,28 +39,88 @@ RUN mvn --batch-mode --no-transfer-progress \
     -Dtest=AuthorityLeaseTest,AuthorityUserContextTest,GatewayRenewalsTest,AuthorityProviderTest,GatewayControlTest,GoogleGatewayIdentityTest verify
 
 # base image: guacamole 1.6.0 webapp on Tomcat 9.0.x / Ubuntu 24.04 (keep in sync with the digest below)
-FROM guacamole/guacamole@sha256:1880e60e0b768294537a7071bc023fffbc8f4917b4f7caf0b72d8938ee4f238f
+FROM guacamole/guacamole@sha256:1880e60e0b768294537a7071bc023fffbc8f4917b4f7caf0b72d8938ee4f238f AS guacamole-base
+
+# ---------------------------------------------------------------------------
+# Fixed bundled dependencies (#2610). Guacamole 1.6.0 bundles guava 32.1.3,
+# jackson 2.19.0, and PostgreSQL JDBC 42.7.2, which carry fixable HIGH findings,
+# and no Guacamole release ships the fixed versions. Each replacement jar is
+# checked against the SHA-256 of its Maven Central artifact. patch_bundled_jars.py
+# swaps the nested jars in the web application and the in-use extensions, and it
+# fails when the upstream layout no longer has a match.
+# ---------------------------------------------------------------------------
+# base image: python:3.12-slim-trixie
+FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS bundled-jars
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ARG MAVEN_CENTRAL=https://repo1.maven.org/maven2
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /patch
+RUN fetch() { curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL -o "$(basename "$1")" "${MAVEN_CENTRAL}/$1" && echo "$2  $(basename "$1")" | sha256sum -c -; } && \
+    fetch com/google/guava/guava/33.7.2-jre/guava-33.7.2-jre.jar b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c && \
+    fetch com/google/guava/failureaccess/1.0.3/failureaccess-1.0.3.jar cbfc3906b19b8f55dd7cfd6dfe0aa4532e834250d7f080bd8d211a3e246b59cb && \
+    fetch com/fasterxml/jackson/core/jackson-core/2.21.8/jackson-core-2.21.8.jar 604ef7765013daf5cde192e40bc4c8412c4ca93f4aaf7bf8e9a62fad1e1026bb && \
+    fetch com/fasterxml/jackson/core/jackson-databind/2.21.8/jackson-databind-2.21.8.jar ad77f2285717e2f34c319d988b7c85783a47d0b33f33a501d1fcbf196e61bbaa && \
+    fetch com/fasterxml/jackson/core/jackson-annotations/2.21/jackson-annotations-2.21.jar 53ca085f4a150f703f49e1aabd935bd03b43e1ea3d55d135438292af22cef56b && \
+    fetch com/fasterxml/jackson/module/jackson-module-jaxb-annotations/2.21.8/jackson-module-jaxb-annotations-2.21.8.jar 32a3b1ac114a3547c3ceb6e5a48091372de097e5fb6f87d660b18a2665405c36 && \
+    fetch org/postgresql/postgresql/42.7.14/postgresql-42.7.14.jar 73914527305a40cce504b0d3d90b23caf565136912d607ae8ae7c5895512332c
+COPY patch_bundled_jars.py /patch/patch_bundled_jars.py
+COPY --from=guacamole-base /opt/guacamole/webapp/guacamole.war /archives/webapp/guacamole.war
+COPY --from=guacamole-base /opt/guacamole/extensions/guacamole-auth-json/guacamole-auth-json.jar /archives/json/guacamole-auth-json.jar
+COPY --from=guacamole-base /opt/guacamole/extensions/guacamole-auth-jdbc/postgresql/guacamole-auth-jdbc-postgresql.jar /archives/postgresql/guacamole-auth-jdbc-postgresql.jar
+RUN python3 -I /patch/patch_bundled_jars.py \
+      --replace 'guava-[0-9.]+-jre\.jar=/patch/guava-33.7.2-jre.jar' \
+      --replace 'failureaccess-[0-9.]+\.jar=/patch/failureaccess-1.0.3.jar' \
+      --replace 'jackson-core-[0-9.]+\.jar=/patch/jackson-core-2.21.8.jar' \
+      --replace 'jackson-databind-[0-9.]+\.jar=/patch/jackson-databind-2.21.8.jar' \
+      --replace 'jackson-annotations-[0-9.]+\.jar=/patch/jackson-annotations-2.21.jar' \
+      --replace 'jackson-module-jaxb-annotations-[0-9.]+\.jar=/patch/jackson-module-jaxb-annotations-2.21.8.jar' \
+      /archives/webapp/guacamole.war /archives/json/guacamole-auth-json.jar \
+      /archives/postgresql/guacamole-auth-jdbc-postgresql.jar
+
+FROM guacamole-base
 
 # Install PostgreSQL client for schema initialization
 USER root
-# Shifter authenticates with JSON auth and stores sessions in PostgreSQL.
-# These unused upstream extensions bundle vulnerable providers: Bouncy Castle
-# (CVE-2026-8763, CVE-2026-13505, CVE-2026-13506, CVE-2026-8798) in the SSO/vault
-# extensions, and jackson (CVE-2026-68494/68497/89407/89425/91776/91777) in the
-# duo and ldap extensions. Remove the unused extensions and their activation
-# links instead of shipping dormant vulnerable providers. The jackson copies in
-# the core webapp and the in-use JSON-auth extension have no Guacamole-level fix
-# and are tracked, time-boxed, in .trivyignore.yaml (issue #2237).
-RUN rm -rf /opt/guacamole/extensions/guacamole-auth-sso/cas \
-    /opt/guacamole/extensions/guacamole-auth-sso/ssl \
-    /opt/guacamole/extensions/guacamole-vault/ksm \
+# Shifter authenticates with JSON auth and stores sessions in PostgreSQL. The
+# other upstream extensions and database drivers are unused, and they bundle
+# vulnerable dependencies: Bouncy Castle in the SSO and vault extensions, Apache
+# MINA in LDAP, jackson in duo and LDAP, guava in each extension, and the SQL
+# Server and MySQL drivers. Remove them and their activation links instead of
+# shipping dormant vulnerable code (#2237, #2610).
+RUN rm -rf /opt/guacamole/extensions/guacamole-auth-sso \
+    /opt/guacamole/extensions/guacamole-vault \
     /opt/guacamole/extensions/guacamole-auth-duo \
     /opt/guacamole/extensions/guacamole-auth-ldap \
+    /opt/guacamole/extensions/guacamole-auth-header \
+    /opt/guacamole/extensions/guacamole-auth-jdbc/mysql \
+    /opt/guacamole/extensions/guacamole-auth-jdbc/sqlserver \
+    /opt/guacamole/extensions/guacamole-auth-quickconnect \
+    /opt/guacamole/extensions/guacamole-auth-restrict \
+    /opt/guacamole/extensions/guacamole-auth-totp \
+    /opt/guacamole/drivers/mysql-jdbc.jar \
+    /opt/guacamole/drivers/mssql-jdbc.jar \
     /opt/guacamole/environment/CAS_ \
     /opt/guacamole/environment/SSL_AUTH_ \
     /opt/guacamole/environment/KSM_ \
     /opt/guacamole/environment/DUO_ \
-    /opt/guacamole/environment/LDAP_
+    /opt/guacamole/environment/LDAP_ \
+    /opt/guacamole/environment/HTTP_AUTH_ \
+    /opt/guacamole/environment/MYSQL_ \
+    /opt/guacamole/environment/SQLSERVER_ \
+    /opt/guacamole/environment/OPENID_ \
+    /opt/guacamole/environment/SAML_ \
+    /opt/guacamole/environment/QUICKCONNECT_ \
+    /opt/guacamole/environment/RESTRICT_ \
+    /opt/guacamole/environment/TOTP_
+
+# The web application, the in-use extensions, and the PostgreSQL driver with the
+# fixed bundled dependencies (#2610).
+COPY --from=bundled-jars /archives/webapp/guacamole.war /opt/guacamole/webapp/guacamole.war
+COPY --from=bundled-jars /archives/json/guacamole-auth-json.jar /opt/guacamole/extensions/guacamole-auth-json/guacamole-auth-json.jar
+COPY --from=bundled-jars /archives/postgresql/guacamole-auth-jdbc-postgresql.jar /opt/guacamole/extensions/guacamole-auth-jdbc/postgresql/guacamole-auth-jdbc-postgresql.jar
+COPY --from=bundled-jars /patch/postgresql-42.7.14.jar /opt/guacamole/drivers/postgresql-jdbc.jar
 
 # The base image is pinned by digest. The client package version floats so a
 # rebuild gets the current Ubuntu security fixes.

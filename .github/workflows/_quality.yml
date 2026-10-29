@@ -1904,6 +1904,12 @@ jobs:
         working-directory: shifter/engine/provisioner
         run: uv sync --group dev
 
+      # The image installs from the hash-pinned exports, not from uv.lock (#2610).
+      - name: Check the image locks match uv.lock
+        run: |
+          python3 -m unittest scripts.check_provisioner_locks.test_check_provisioner_locks
+          python3 scripts/check_provisioner_locks/check_provisioner_locks.py
+
       - name: Run tests
         working-directory: shifter/engine/provisioner
         env:
@@ -2395,6 +2401,10 @@ jobs:
 
       - name: Test database initialization failure
         run: bash shifter/engine/guacamole/test-entrypoint.sh
+
+      - name: Test the bundled jar replacement
+        working-directory: shifter/engine/guacamole
+        run: python3 -m unittest test_patch_bundled_jars -v
 
   adr-guard-tests:
     permissions:
