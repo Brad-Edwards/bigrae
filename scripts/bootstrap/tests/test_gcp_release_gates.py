@@ -20,6 +20,8 @@ from gcp_oci import (
     ImageReference,
     OciClient,
     OciError,
+    bearer_parameters,
+    is_artifact_registry_host,
 )
 from gcp_process import ProcessResult
 from gcp_provenance import (
@@ -134,6 +136,18 @@ class TestOciClient:
         assert len(tokens) == 1
         assert "service=ghcr.io" in tokens[0] and "scope=repository%3Aacme%2Fportal%3Apull" in tokens[0]
         assert all(headers.get("Authorization") == "Bearer anon" for _, headers in registry.requests)
+
+    def test_challenge_parsing_and_google_host_detection(self):
+        assert bearer_parameters('realm="https://r/t", scope="repository:a/b:pull,push"') == {
+            "realm": "https://r/t",
+            "scope": "repository:a/b:pull,push",
+        }
+        assert bearer_parameters('realm="https://r/t",broken') == {"realm": "https://r/t"}
+        assert bearer_parameters('realm="unterminated') == {}
+        assert bearer_parameters("") == {}
+        assert is_artifact_registry_host(HOST)
+        for host in ("ghcr.io", "-docker.pkg.dev", "x.evil-docker.pkg.dev", "us-docker.pkg.dev.evil.io"):
+            assert not is_artifact_registry_host(host)
 
     def test_public_registry_challenges_that_cannot_be_met_fail_closed(self):
         image = ImageReference.parse(f"ghcr.io/acme/portal@{DIGEST}")
