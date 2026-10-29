@@ -623,7 +623,8 @@ The first slice intentionally stays small:
   must start only on a push to `main`. The job must run only when a release tag
   points at the pushed commit, and it must not inherit secrets. That fact, the
   version, and the commit must come from an unconditional `release-commit` step
-  after the Release Please action. Each job that publishes (it logs
+  after the Release Please action. The caller rules are in
+  `scripts/adr_guard/_guard/checks/_release_workflow_caller.py`. Each job that publishes (it logs
   in to a registry, authenticates to a cloud, or pushes an image) must bind the
   `gcp-release` Environment and run on a GitHub-hosted runner. In that job, a
   step before the first publishing step must reject every ref except

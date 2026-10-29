@@ -173,7 +173,7 @@ class TestDockerfileNonRootUser:
 
     def test_tool_downloads_retry_transient_failures(self):
         content = _read_dockerfile()
-        helper = re.search(r"fetch\(\) \{ (curl [^}]*); \}", content)
+        helper = re.search(r"fetch\(\) \{(.*?)\n\s*\} &&", content, re.DOTALL)
         assert helper is not None
         assert "--proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20" in helper.group(1)
         # Every download goes through the helper, so each one retries.

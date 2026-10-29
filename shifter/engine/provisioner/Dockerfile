@@ -53,7 +53,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl openssh-client unzip && \
     # One HTTPS-only download helper with retries, as in the deployer and
     # guacamole-client Dockerfiles: fetch <output file> <URL>.
-    fetch() { curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL -o "$1" "$2"; } && \
+    fetch() { \
+      local out="$1" url="$2"; \
+      curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
+        -o "${out}" "${url}"; \
+    } && \
     # Install Terraform, integrity-verified against HashiCorp's published
     # SHA256SUMS before extraction (ADR-037-R3). The archive is saved under the
     # exact name the checksum manifest references so `sha256sum -c` matches.

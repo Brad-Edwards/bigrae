@@ -27,6 +27,7 @@ def _load_adr_guard():
 
 ADR_GUARD = _load_adr_guard()
 RELEASE = importlib.import_module("_guard.checks.release_workflow")
+COMMON = importlib.import_module("_guard.checks._release_workflow_common")
 CHECK = RELEASE.check_release_workflow
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -168,7 +169,7 @@ class ReleaseWorkflowProvenanceTests(unittest.TestCase):
     ) -> list[tuple[str, str]]:
         if text is not None:
             self.write(RELEASE.RELEASE_WORKFLOW_PATH, text)
-        self.write(RELEASE.RELEASE_PLEASE_WORKFLOW_PATH, caller if caller is not None else release_please())
+        self.write(COMMON.RELEASE_PLEASE_WORKFLOW_PATH, caller if caller is not None else release_please())
         return [(violation.rule_id, violation.message) for violation in CHECK(self.root, files)]
 
     def assert_one(self, text: str, rule_id: str, fragment: str, *, caller: str | None = None) -> None:
