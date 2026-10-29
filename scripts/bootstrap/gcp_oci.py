@@ -31,15 +31,30 @@ _IDENTITY_RE = re.compile(
     re.ASCII,
 )
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-_ARTIFACT_REGISTRY_HOST_RE = re.compile(r"^[a-z0-9-]+-docker\.pkg\.dev$", re.ASCII)
-_BEARER_PARAM_RE = re.compile(r'(\w+)="([^"]*)"')
+_ARTIFACT_REGISTRY_SUFFIX = "-docker.pkg.dev"
+_LOCATION_RE = re.compile(r"[a-z0-9-]+", re.ASCII)
 _MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 _TIMEOUT_SECONDS = 30
 
 
 def is_artifact_registry_host(host: str) -> bool:
     """True for an Artifact Registry Docker host, the only host that gets a Google token."""
-    return bool(_ARTIFACT_REGISTRY_HOST_RE.fullmatch(host))
+    location = host.removesuffix(_ARTIFACT_REGISTRY_SUFFIX)
+    return location != host and bool(_LOCATION_RE.fullmatch(location))
+
+
+def bearer_parameters(params: str) -> dict[str, str]:
+    """Parse the ``key="value"`` list of a ``WWW-Authenticate`` challenge."""
+    values: dict[str, str] = {}
+    rest = params.strip()
+    while rest:
+        key, sep, rest = rest.partition('="')
+        value, closed, rest = rest.partition('"')
+        if not sep or not closed or not key.strip().isidentifier():
+            break
+        values[key.strip()] = value
+        rest = rest.lstrip().removeprefix(",").lstrip()
+    return values
 
 
 class OciError(RuntimeError):
@@ -95,7 +110,7 @@ class OciClient:
     def _anonymous_token(self, challenge: str) -> str:
         """Fetch an anonymous pull token from the realm of a ``Bearer`` challenge."""
         scheme, _, params = challenge.partition(" ")
-        values = dict(_BEARER_PARAM_RE.findall(params))
+        values = bearer_parameters(params)
         realm = urllib_parse.urlparse(values.get("realm", ""))
         if scheme.lower() != "bearer" or realm.scheme != "https" or not realm.netloc:
             raise OciError("registry requires an unsupported authentication scheme")
