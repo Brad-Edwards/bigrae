@@ -20,7 +20,9 @@ from rest_framework.views import APIView
 
 from ctf.api._base import CTF_ORGANIZER_PERMISSIONS, _CtfApiError
 from ctf.api.organizer._audit import (
+    _audit_admin_from_request,
     _audit_admin_mutation,
+    admin_external_audit,
 )
 from ctf.api.organizer._base import (
     _EVENT_READ,
@@ -173,7 +175,9 @@ class TaskRunNowView(APIView):
             auth = getattr(request, "auth", None)
             actor_token_id = auth.pk if isinstance(auth, ApiToken) else None
             try:
-                task = run_task_now(event_id, task_id, actor_id=_actor(request).pk, actor_token_id=actor_token_id)
+                # A platform-admin override records intent before the task runs (ADR-052-R4).
+                with admin_external_audit(request, "event.task.run_now"):
+                    task = run_task_now(event_id, task_id, actor_id=_actor(request).pk, actor_token_id=actor_token_id)
             except CTFNotFoundError:
                 _raise_not_found("Scheduled task not found.")
             except CTFStateError:
@@ -192,6 +196,8 @@ class EventCleanupControlView(APIView):
     @extend_schema(request=CleanupControlRequestSerializer, responses=ScheduledTaskListResponseSerializer)
     def post(self, request: Request, event_id: UUID) -> Response:
         """Apply the control and return the refreshed task listing."""
+        from django.db import transaction
+
         from ctf.exceptions import CTFStateError, CTFValidationError
         from ctf.services.event.scheduling import (
             cancel_event_cleanup,
@@ -205,13 +211,17 @@ class EventCleanupControlView(APIView):
             action = serializer.validated_data["action"]
             actor_id = _actor(request).pk
             try:
-                if action == "defer":
-                    hours = serializer.validated_data.get("hours")
-                    if hours is None:
-                        _raise_bad_request("Deferral needs a number of hours")
-                    defer_event_cleanup(event_id, hours, actor_id=actor_id)
-                else:
-                    cancel_event_cleanup(event_id, actor_id=actor_id)
+                # Database-only change: the change and its platform-admin override
+                # audit share one transaction (ADR-052-R4).
+                with transaction.atomic():
+                    if action == "defer":
+                        hours = serializer.validated_data.get("hours")
+                        if hours is None:
+                            _raise_bad_request("Deferral needs a number of hours")
+                        defer_event_cleanup(event_id, hours, actor_id=actor_id)
+                    else:
+                        cancel_event_cleanup(event_id, actor_id=actor_id)
+                    _audit_admin_from_request(request, f"event.cleanup.{action}")
             except CTFValidationError:
                 _raise_bad_request("Deferral must be between 1 and 168 hours.")
             except CTFStateError:

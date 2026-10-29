@@ -94,6 +94,19 @@ def test_create_workspace_denies_a_non_admin_of_the_organization():
     assert not Workspace.objects.filter(name="Blue Team").exists()
 
 
+def test_create_workspace_refuses_a_personal_organization():
+    """A user cannot become a shared-workspace owner through their personal organization (#2617)."""
+    user = _user("personal")
+    personal_org = Workspace.objects.get(pk=services.resolve_personal_workspace(user).workspace_id).organization
+    audit = _audit(user)
+
+    with pytest.raises(services.WorkspaceLifecycleError) as raised:
+        services.create_workspace(user, personal_org.uuid, "Probe", audit=audit)
+
+    assert raised.value.code == "personal_organization"
+    assert not Workspace.objects.filter(name="Probe").exists()
+
+
 def test_create_workspace_allows_a_superuser_override():
     organization = _org()
     root = _user("root", is_superuser=True)

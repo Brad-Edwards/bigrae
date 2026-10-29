@@ -50,6 +50,12 @@ User = get_user_model()
 IDENTITY_PLATFORM_BASE_URL = "https://identitytoolkit.googleapis.com"
 IDENTITY_PLATFORM_ACCOUNT_LOOKUP_PATH = "/v1/accounts:lookup"
 
+# A new portal session needs a recent provider sign-in. The login page exchanges
+# the ID token right after the password and TOTP steps, so this window covers
+# that flow. An older sign-in, for example a stored provider session replayed
+# after the portal session ended, must sign in again.
+NEW_SESSION_MAX_AUTH_AGE_SECONDS = 900
+
 
 class IdentityPlatformAuthError(RuntimeError):
     """Base failure for Identity Platform authentication problems."""
@@ -400,7 +406,8 @@ def login_with_identity_token(request: HttpRequest | None, id_token: str) -> Dja
         raise IdentityPlatformMFAEnrollmentRequired("Sign in using an enrolled second factor.")
 
     auth_time = claims_payload.get("auth_time")
-    if type(auth_time) is not int or not 0 <= time.time() - auth_time < settings.IDENTITY_SESSION_ABSOLUTE_SECONDS:
+    max_auth_age = min(NEW_SESSION_MAX_AUTH_AGE_SECONDS, settings.IDENTITY_SESSION_ABSOLUTE_SECONDS)
+    if type(auth_time) is not int or not 0 <= time.time() - auth_time < max_auth_age:
         raise IdentityPlatformAuthError("Fresh provider authentication required")
 
     backend = IdentityPlatformBackend()

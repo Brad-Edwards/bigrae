@@ -9,7 +9,6 @@ import logging
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.backends import ModelBackend
 from django.test import Client, override_settings
 
 from shared.audit import (
@@ -23,20 +22,6 @@ pytestmark = pytest.mark.django_db
 User = get_user_model()
 
 LOGOUT_URL = "/logout/"
-
-
-class _FakeOIDCAuthenticationBackend(ModelBackend):
-    """Test auth backend whose dotted path contains ``OIDCAuthenticationBackend``.
-
-    ``logout_view`` selects the OIDC branch by that substring, and Django's
-    ``get_user`` only trusts a session backend that is in
-    ``AUTHENTICATION_BACKENDS``. Registering this real ``ModelBackend`` subclass
-    (via ``override_settings``) lets the OIDC logout path run without pulling in
-    mozilla-django-oidc's config-dependent backend ``__init__``.
-    """
-
-
-_FAKE_OIDC_BACKEND = "tests.config.test_logout._FakeOIDCAuthenticationBackend"
 
 
 @pytest.fixture
@@ -70,27 +55,22 @@ class TestLogoutView:
         assert response.url == "/"
         assert "_auth_user_id" not in client.session
 
-    @override_settings(
-        AUTHENTICATION_BACKENDS=[_FAKE_OIDC_BACKEND],
-        OIDC_OP_LOGOUT_URL_METHOD="config.oidc.provider_logout_url",
-    )
+    @override_settings(OIDC_OP_LOGOUT_URL_METHOD="config.oidc.provider_logout_url")
     def test_oidc_user_redirects_to_provider_logout_url(self, user, monkeypatch):
-        """With OIDC_OP_LOGOUT_URL_METHOD set, an OIDC user is redirected to the
-        identity provider's logout endpoint (not the local landing page).
+        """With OIDC_OP_LOGOUT_URL_METHOD set, a user signed in through the
+        deployed ``config.oidc.ShifterOIDCBackend`` is redirected to the identity
+        provider's logout endpoint (not the local landing page).
 
-        Exercises logout_view's ``import_string(logout_url_method)(request)``
-        path and the real ``config.oidc.provider_logout_url`` builder, so a
-        regression there (wrong path, swallowed result) leaves the IdP session
-        alive and fails this test.
+        Uses the real backend path: its dotted path does not contain the
+        ``OIDCAuthenticationBackend`` base-class name, and a substring-based
+        branch skipped the provider logout and left the IdP session alive.
+        Also exercises the real ``config.oidc.provider_logout_url`` builder.
         """
         monkeypatch.setenv("OIDC_AUTH_DOMAIN", "auth.example.com")
         monkeypatch.setenv("OIDC_RP_CLIENT_ID", "client123")
 
         client = Client()
-        # The session backend string contains "OIDCAuthenticationBackend", so
-        # logout_view takes the OIDC branch; it is registered above so Django's
-        # get_user trusts the session and the user stays authenticated.
-        client.force_login(user, backend=_FAKE_OIDC_BACKEND)
+        client.force_login(user, backend="config.oidc.ShifterOIDCBackend")
 
         response = client.post(LOGOUT_URL)
 

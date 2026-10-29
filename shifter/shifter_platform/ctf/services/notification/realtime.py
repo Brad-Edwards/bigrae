@@ -67,6 +67,7 @@ def _can_subscribe(user: AbstractBaseUser | AnonymousUser, topic: str) -> bool:
     Organizer role (#1922 review — no stale-row bypass).
     """
     from ctf.models import CTFEventStaff, CTFParticipant
+    from ctf.services.authorization import is_ctf_platform_admin
     from ctf.services.event.staff import actor_is_active_ctf_organizer
     from ctf.services.participant import viewing_participant_q
     from ctf.services.participant.accounts import live_participant_for_user
@@ -85,8 +86,12 @@ def _can_subscribe(user: AbstractBaseUser | AnonymousUser, topic: str) -> bool:
             participant and participant.event_id == event.pk and not is_ctf_password_change_required(live_user)
         )
     else:
+        # Ownership alone is not standing: a demoted owner keeps no event feed (#2617).
         allowed = (
-            event.created_by_id == user_id
+            (
+                event.created_by_id == user_id
+                and (actor_is_active_ctf_organizer(user_id) or is_ctf_platform_admin(live_user))
+            )
             or (
                 CTFEventStaff.objects.filter(event=event, user_id=user_id, deleted_at__isnull=True).exists()
                 and actor_is_active_ctf_organizer(user_id)

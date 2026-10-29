@@ -37,7 +37,7 @@ const DOM = `
         <form id="identity-auth-form">
             <input id="identity-email" type="email">
             <input id="identity-password" type="password">
-            <button id="identity-auth-submit" type="submit"></button>
+            <button id="identity-auth-submit" type="submit" disabled></button>
         </form>
         <button id="identity-auth-mode-toggle" type="button"></button>
     </section>
@@ -122,12 +122,16 @@ afterEach(() => {
 });
 
 describe("bootstrap", () => {
-    test("initializes Firebase, sets session persistence, and shows the sign-in form", async () => {
+    test("initializes Firebase, sets in-memory persistence, and shows the sign-in form", async () => {
         const { fbApp, fbAuth } = await bootstrap();
         expect(fbApp.initializeApp).toHaveBeenCalledWith(
             expect.objectContaining({ apiKey: "test-api-key", projectId: "test-project" })
         );
         expect(fbAuth.setPersistence).toHaveBeenCalledTimes(1);
+        // No provider session survives a reload to start a later portal session (#2617).
+        expect(fbAuth.setPersistence).toHaveBeenCalledWith(expect.anything(), fbAuth.inMemoryPersistence);
+        // The template renders the submit button disabled until the handler is attached.
+        expect(el("identity-auth-submit").disabled).toBe(false);
         expect(fbAuth.onAuthStateChanged).toHaveBeenCalledTimes(1);
         expect(visibleSections()).toEqual(["identity-auth-section"]);
         expect(el("identity-auth-title").textContent).toBe("Sign in");
@@ -318,6 +322,8 @@ describe("authenticated-user handling (onAuthStateChanged)", () => {
         const body = JSON.parse(global.fetch.mock.calls[0][1].body);
         expect(body.idToken).toBe("id-token");
         expect(bannerText()).toBe("");
+        // The provider session ends once the portal session carries the sign-in (#2617).
+        expect(fbAuth.signOut).toHaveBeenCalledTimes(1);
     });
 
     test("re-enters enrollment when the exchange demands MFA", async () => {

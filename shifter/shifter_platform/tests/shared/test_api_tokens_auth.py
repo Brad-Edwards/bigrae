@@ -10,6 +10,7 @@ row (seam path).
 from __future__ import annotations
 
 import pytest
+from django.utils import timezone
 from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
@@ -147,3 +148,93 @@ class TestAuditSeam:
         assert created.actor_id == 7
         assert revoked.actor_type == AuditActorType.USER
         assert revoked.actor_id == 7
+
+
+def _failed_token_rows():
+    return AuditLog.objects.filter(action=AuditAction.LOGIN_FAILED, actor_type=AuditActorType.APIKEY)
+
+
+class TestEveryRejectionIsAudited:
+    """Every bearer rejection writes one AUTH_FAILED row and no credential material (#2617)."""
+
+    @pytest.mark.parametrize("header", ["Bearer", "Bearer one two", "Bearer not.a.credential"])
+    def test_malformed_header_and_service_credential_rejections_are_audited(self, factory, header):
+        before = _failed_token_rows().count()
+
+        with pytest.raises(exceptions.AuthenticationFailed):
+            _auth(factory, header)
+
+        assert _failed_token_rows().count() == before + 1
+
+    def test_owner_and_policy_rejections_name_the_token_but_never_its_secret(self, factory, user, django_user_model):
+        from management.services import get_user_profile
+
+        no_grant, no_grant_raw = ApiToken.create_token(
+            name="no-grant", created_by=user, scopes=[scopes.MISSION_CONTROL_RANGE_READ]
+        )
+        deleted_owner = django_user_model.objects.create_user(username="deleted-owner", password="x")
+        deleted, deleted_raw = ApiToken.create_token(
+            name="deleted", created_by=deleted_owner, scopes=[scopes.MISSION_CONTROL_RANGE_READ]
+        )
+        deleted_profile = get_user_profile(deleted_owner)
+        deleted_profile.deleted_at = timezone.now()
+        deleted_profile.save()
+        ctf_owner = django_user_model.objects.create_user(username="ctf-owner", password="x")
+        profile = get_user_profile(ctf_owner)
+        profile.user_type = "ctf_participant"
+        profile.is_ctf_account = True
+        profile.save()
+        ctf_token, ctf_raw = ApiToken.create_token(
+            name="ctf", created_by=ctf_owner, scopes=[scopes.MISSION_CONTROL_RANGE_READ]
+        )
+
+        # No personal-token grant: the live token-use policy denies the owner.
+        for token, raw, reason in (
+            (no_grant, no_grant_raw, "Token use is not authorized"),
+            (deleted, deleted_raw, "Token owner is not eligible"),
+            (ctf_token, ctf_raw, "Token owner is a CTF account; token revoked"),
+        ):
+            with pytest.raises(exceptions.AuthenticationFailed):
+                _auth(factory, f"Bearer {raw}")
+            row = _failed_token_rows().latest("timestamp")
+            assert row.entity_id == token.pk
+            assert row.new_state == {"token_id": token.token_id}
+            assert row.context == reason
+            assert raw not in str(row.new_state) + row.context
+
+    def test_over_long_request_id_does_not_suppress_the_audit_row(self, factory):
+        request = factory.get("/api/v1/risks/", HTTP_AUTHORIZATION="Bearer shf_bogus.deadbeef")
+        request.META["HTTP_X_REQUEST_ID"] = "r" * 200
+        before = _failed_token_rows().count()
+
+        with pytest.raises(exceptions.AuthenticationFailed):
+            ApiTokenAuthentication().authenticate(request)
+
+        assert _failed_token_rows().count() == before + 1
+        assert _failed_token_rows().latest("timestamp").request_id != "r" * 200
+
+
+class TestRequestIdIngress:
+    """RequestIDMiddleware keeps a bounded client correlation id and replaces any other value (#2617)."""
+
+    @pytest.mark.parametrize(
+        ("header", "kept"),
+        [
+            ("req-0123456789abcdef0123456789abcdef", True),
+            ("trace:abc.def_1-2", True),
+            ("r" * 65, False),
+            ("bad id with spaces", False),
+            ("<script>", False),
+        ],
+    )
+    def test_client_request_id_is_bounded(self, rf, header, kept):
+        from django.http import HttpResponse
+
+        from config.middleware import RequestIDMiddleware
+
+        request = rf.get("/", HTTP_X_REQUEST_ID=header)
+        response = RequestIDMiddleware(lambda _request: HttpResponse())(request)
+
+        assert (request.request_id == header) is kept
+        assert len(request.request_id) <= 64
+        assert response["X-Request-ID"] == request.request_id

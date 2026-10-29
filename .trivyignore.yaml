@@ -50,8 +50,9 @@ vulnerabilities:
   # guacamole.war; NO released Guacamole version ships the patched versions, so a
   # base bump cannot clear them, and overlaying patched jars into the upstream
   # webapp risks breaking its auth/DB extensions. Accepted as tracked, expiring
-  # exposures pending an upstream Guacamole release. The webapp is reachable only
-  # by Shifter-portal-authenticated users on the internal cluster network; range
+  # exposures pending an upstream Guacamole release. The webapp is served on the
+  # public /guacamole route, and it accepts only Shifter-portal-issued, signed
+  # JSON-auth sessions: the gateway refuses password logins (#2617). Range
   # wire protocols (RDP/VNC/SSH) are handled by the separate guacd daemon, not
   # this webapp. Escalate upstream and re-evaluate at expiry. Tracking: #2237.
 
@@ -70,19 +71,19 @@ vulnerabilities:
   - id: GHSA-r7wm-3cxj-wff9 # jackson-core
     statement: >-
       jackson-core vendored in the Guacamole webapp; no Guacamole release ships
-      the patched jackson. Reachable only via the portal-authenticated internal
+      the patched jackson. Reachable only via the portal-authenticated
       webapp JSON API. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-54512 # jackson-databind
     statement: >-
       jackson-databind vendored in the Guacamole webapp; no Guacamole release
-      ships the fix. Reachable only via the portal-authenticated internal webapp
+      ships the fix. Reachable only via the portal-authenticated webapp
       API. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-54513 # jackson-databind
     statement: >-
       jackson-databind vendored in the Guacamole webapp; no Guacamole release
-      ships the fix. Reachable only via the portal-authenticated internal webapp
+      ships the fix. Reachable only via the portal-authenticated webapp
       API. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-68494 # jackson-core
@@ -90,72 +91,72 @@ vulnerabilities:
       jackson-core vendored in the Guacamole 1.6.0 webapp and in-use JSON-auth
       extension; no Guacamole release ships the patched jackson (upstream :latest
       bundles the same 2.19.0). Reachable only via the portal-authenticated
-      internal webapp; JSON-auth payloads are HMAC-signed, so arbitrary JSON
+      webapp; JSON-auth payloads are HMAC-signed, so arbitrary JSON
       cannot be submitted for deserialization. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-89407 # jackson-core
     statement: >-
       jackson-core vendored in the Guacamole 1.6.0 webapp and in-use JSON-auth
       extension; no Guacamole release ships the patched jackson. Reachable only
-      via the portal-authenticated internal webapp; JSON-auth payloads are
+      via the portal-authenticated webapp; JSON-auth payloads are
       HMAC-signed. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-89425 # jackson-core
     statement: >-
       jackson-core vendored in the Guacamole 1.6.0 webapp and in-use JSON-auth
       extension; no Guacamole release ships the patched jackson. Reachable only
-      via the portal-authenticated internal webapp; JSON-auth payloads are
+      via the portal-authenticated webapp; JSON-auth payloads are
       HMAC-signed. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-68497 # jackson-databind
     statement: >-
       jackson-databind vendored in the Guacamole 1.6.0 webapp and in-use
       JSON-auth extension; no Guacamole release ships the patched jackson.
-      Reachable only via the portal-authenticated internal webapp; JSON-auth
+      Reachable only via the portal-authenticated webapp; JSON-auth
       payloads are HMAC-signed. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-91776 # jackson-databind
     statement: >-
       jackson-databind vendored in the Guacamole 1.6.0 webapp and in-use
       JSON-auth extension; no Guacamole release ships the patched jackson.
-      Reachable only via the portal-authenticated internal webapp; JSON-auth
+      Reachable only via the portal-authenticated webapp; JSON-auth
       payloads are HMAC-signed. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-91777 # jackson-databind
     statement: >-
       jackson-databind vendored in the Guacamole 1.6.0 webapp and in-use
       JSON-auth extension; no Guacamole release ships the patched jackson.
-      Reachable only via the portal-authenticated internal webapp; JSON-auth
+      Reachable only via the portal-authenticated webapp; JSON-auth
       payloads are HMAC-signed. Pending upstream. #2237
     expired_at: 2026-12-16
   - id: CVE-2026-41409 # mina-core (CRITICAL)
     statement: >-
       Apache MINA vendored in the Guacamole webapp; no Guacamole release ships the
-      patched mina-core. Webapp reachable only by portal-authenticated internal
+      patched mina-core. Webapp reachable only by portal-authenticated
       users. CRITICAL — short expiry to force re-review; pending upstream. #2237
     expired_at: 2026-11-16
   - id: CVE-2026-41635 # mina-core (CRITICAL)
     statement: >-
       Apache MINA vendored in the Guacamole webapp; no Guacamole release ships the
-      patched mina-core. Reachable only by portal-authenticated internal users.
+      patched mina-core. Reachable only by portal-authenticated users.
       CRITICAL — short expiry; pending upstream. #2237
     expired_at: 2026-11-16
   - id: CVE-2026-42778 # mina-core (CRITICAL)
     statement: >-
       Apache MINA vendored in the Guacamole webapp; no Guacamole release ships the
-      patched mina-core. Reachable only by portal-authenticated internal users.
+      patched mina-core. Reachable only by portal-authenticated users.
       CRITICAL — short expiry; pending upstream. #2237
     expired_at: 2026-11-16
   - id: CVE-2026-42779 # mina-core (CRITICAL)
     statement: >-
       Apache MINA vendored in the Guacamole webapp; no Guacamole release ships the
-      patched mina-core. Reachable only by portal-authenticated internal users.
+      patched mina-core. Reachable only by portal-authenticated users.
       CRITICAL — short expiry; pending upstream. #2237
     expired_at: 2026-11-16
   - id: CVE-2026-47065 # mina-core (CRITICAL)
     statement: >-
       Apache MINA vendored in the Guacamole webapp; no Guacamole release ships the
-      patched mina-core. Reachable only by portal-authenticated internal users.
+      patched mina-core. Reachable only by portal-authenticated users.
       CRITICAL — short expiry; pending upstream. #2237
     expired_at: 2026-11-16
   - id: CVE-2025-14813 # bcprov-jdk15to18 (CRITICAL)
