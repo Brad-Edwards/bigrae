@@ -59,6 +59,7 @@ def _seed_allowed() -> bool:
 
 
 def _ensure_user(email: str) -> DjangoUser:
+    """Get or create one synthetic user by its email username."""
     user, _ = User.objects.get_or_create(username=email, defaults={"email": email, "is_active": True})
     return user
 

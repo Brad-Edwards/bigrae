@@ -81,15 +81,19 @@ export function InboxPage() {
           </Link>
         ))}
       </nav>
-      {event.isError ? (
-        <p className="text-sm text-muted-foreground">You are not taking part in an active event.</p>
-      ) : eventId ? (
-        <InboxList key={`${eventId}:${current.view}`} eventId={eventId} view={current.view} empty={current.empty} />
-      ) : (
-        <p className="text-sm text-muted-foreground">Loading messages…</p>
-      )}
+      <InboxBody eventError={event.isError} eventId={eventId} view={current} />
     </div>
   );
+}
+
+function InboxBody({
+  eventError,
+  eventId,
+  view,
+}: Readonly<{ eventError: boolean; eventId: string | undefined; view: (typeof VIEWS)[number] }>) {
+  if (eventError) return <p className="text-sm text-muted-foreground">You are not taking part in an active event.</p>;
+  if (!eventId) return <p className="text-sm text-muted-foreground">Loading messages…</p>;
+  return <InboxList key={`${eventId}:${view.view}`} eventId={eventId} view={view.view} empty={view.empty} />;
 }
 
 function InboxList({ eventId, view, empty }: Readonly<{ eventId: string; view: InboxView; empty: string }>) {

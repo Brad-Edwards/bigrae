@@ -24,25 +24,32 @@ def _load_yaml_documents(source: str) -> list[dict[str, Any]]:
     return [document for document in yaml.safe_load_all(source) if isinstance(document, dict)]
 
 
-def _load_helm_documents() -> list[dict[str, Any]]:
+def _render_helm(values_file: str, *helm_args: str) -> list[dict[str, Any]]:
     helm = shutil.which("helm")
     if helm is None:
         pytest.skip("helm is required to validate rendered chart manifests")
 
     rendered = subprocess.run(  # noqa: S603
-        [
-            helm,
-            "template",
-            "shifter",
-            str(CHART_DIR),
-            "-f",
-            str(CHART_DIR / "values-gcp-dev.yaml"),
-        ],
+        [helm, "template", "shifter", str(CHART_DIR), "-f", str(CHART_DIR / values_file), *helm_args],
         check=True,
         capture_output=True,
         text=True,
     )
     return _load_yaml_documents(rendered.stdout)
+
+
+def _load_helm_documents() -> list[dict[str, Any]]:
+    """The default GCP render: the policy inlines the platform-runtime map (#2633)."""
+    return _render_helm("values-gcp-dev.yaml")
+
+
+def _load_helm_documents_configmap_params() -> list[dict[str, Any]]:
+    """The opt-out render: the policy reads the platform-runtime ConfigMap as params.
+
+    The semantic CEL tests use it so that they can feed synthetic param data; every
+    validation expression is the same in both modes, only the paramData source differs.
+    """
+    return _render_helm("values-gcp-dev.yaml", "--set", "provisionerAdmission.inlineParams=false")
 
 
 def _deployments(documents: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -140,6 +147,13 @@ def _policy_variable(policy: dict[str, Any], name: str) -> str:
         if variable.get("name") == name:
             return variable["expression"]
     raise AssertionError(f"policy variable {name!r} not found")
+
+
+def _inline_param_data(policy: dict[str, Any]) -> dict[str, str]:
+    """Evaluate the policy's render-time inline paramData map."""
+    environment = Environment()
+    value = environment.program(environment.compile(_policy_variable(policy, "paramData"))).evaluate({})
+    return {str(key): str(item) for key, item in value.items()}
 
 
 _SEMANTIC_VALIDATION_MESSAGES = {
@@ -379,10 +393,12 @@ def test_provisioner_job_admission_policy_invariants(source_name: str, loader: A
     )
     assert job_create_rule, f"{source_name} policy must match batch/jobs CREATE"
 
-    # Image pin is parameterised off a ConfigMap (the live platform-runtime one).
-    assert policy["spec"]["paramKind"] == {"apiVersion": "v1", "kind": "ConfigMap"}, (
-        f"{source_name} policy must take its image pin from a ConfigMap param"
-    )
+    # Neither EKS nor GKE 1.36 resolves ConfigMap params (#2633): by default the image
+    # pin and env contract are the platform-runtime map, inlined at render time from the
+    # same template as the ConfigMap, so the two can not drift.
+    assert "paramKind" not in policy["spec"], f"{source_name} policy must inline its params by default"
+    runtime_config = _documents_by_kind(documents, "ConfigMap")[RUNTIME_PARAM_CONFIGMAP]
+    assert _inline_param_data(policy) == runtime_config["data"]
 
     # The CEL must mirror the full canonical GCPTaskRunner Job contract, not just
     # caller/image/identity. Pinning the image alone is insufficient: the caller
@@ -411,15 +427,59 @@ def test_provisioner_job_admission_policy_invariants(source_name: str, loader: A
     ):
         assert needle in expressions, f"{source_name} policy CEL must reference {needle!r}"
 
-    # Binding: hard deny, scoped to shifter-jobs, fail-closed on a missing param.
+    # Binding: hard deny, scoped to shifter-jobs; inline params need no paramRef.
     assert binding["spec"]["validationActions"] == ["Deny"], f"{source_name} binding must Deny"
-    param_ref = binding["spec"]["paramRef"]
-    assert param_ref["name"] == RUNTIME_PARAM_CONFIGMAP
-    assert param_ref["namespace"] == PLATFORM_NAMESPACE
-    assert param_ref["parameterNotFoundAction"] == "Deny", f"{source_name} binding param must fail closed"
+    assert "paramRef" not in binding["spec"]
     namespace_selector = binding["spec"]["matchResources"]["namespaceSelector"]["matchLabels"]
     assert namespace_selector.get("kubernetes.io/metadata.name") == JOBS_NAMESPACE, (
         f"{source_name} binding must be scoped to the {JOBS_NAMESPACE} namespace"
+    )
+
+
+def test_configmap_param_mode_reads_the_runtime_configmap_and_fails_closed() -> None:
+    documents = _render_helm(
+        "values-gcp-dev.yaml",
+        "--set",
+        "provisionerAdmission.inlineParams=false",
+        "--set",
+        "namespaces.platform=custom-platform",
+    )
+    policy = _policy(documents)
+    binding = _binding(documents)
+
+    assert policy["spec"]["paramKind"] == {"apiVersion": "v1", "kind": "ConfigMap"}
+    assert _policy_variable(policy, "paramData") == "has(params.data) ? params.data : {}"
+    assert binding["spec"]["paramRef"] == {
+        "name": RUNTIME_PARAM_CONFIGMAP,
+        "namespace": "custom-platform",
+        "parameterNotFoundAction": "Deny",
+    }
+
+
+def test_inline_params_admit_the_configured_job_and_deny_any_other_image() -> None:
+    canonical = _canonical_admission_job()
+    container = canonical["spec"]["template"]["spec"]["containers"][0]
+    image = container["image"]
+    runtime_env = {
+        PROVISIONER_IMAGE_PARAM: image,
+        "ENGINE_TASK_IMAGE_PULL_POLICY": container["imagePullPolicy"],
+        **{
+            ("PROVISIONER_DB_USER" if entry["name"] == "DB_USER" else entry["name"]): entry["value"]
+            for entry in container["env"]
+            if "value" in entry
+        },
+    }
+    overrides = [arg for key, value in runtime_env.items() for arg in ("--set-string", f"runtimeEnv.{key}={value}")]
+    policy = _policy(_render_helm("values-gcp-dev.yaml", *overrides))
+
+    assert runtime_env.items() <= _inline_param_data(policy).items()
+    # Synthetic params are ignored: only the inlined deployment values decide.
+    assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical, image, parameter_data={})
+    other = copy.deepcopy(canonical)
+    other["metadata"]["annotations"]["shifter.dev/task-image"] = "registry.example/other:sha"
+    other["spec"]["template"]["spec"]["containers"][0]["image"] = "registry.example/other:sha"
+    assert not _semantic_policy_allows(
+        policy, PROVISIONER_LAUNCHER_USERNAME, other, "registry.example/other:sha", parameter_data={}
     )
 
 
@@ -435,24 +495,7 @@ def test_admission_environment_allowlists_match_task_runner_forwarding_contract(
 
 
 def _load_helm_documents_aws() -> list[dict[str, Any]]:
-    helm = shutil.which("helm")
-    if helm is None:
-        pytest.skip("helm is required to validate rendered chart manifests")
-
-    rendered = subprocess.run(  # noqa: S603
-        [
-            helm,
-            "template",
-            "shifter",
-            str(CHART_DIR),
-            "-f",
-            str(CHART_DIR / "values-aws-dev.yaml"),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return _load_yaml_documents(rendered.stdout)
+    return _render_helm("values-aws-dev.yaml")
 
 
 def test_aws_admission_policy_binds_aws_task_runner_and_env_contract() -> None:
@@ -482,45 +525,34 @@ def test_aws_launcher_does_not_enable_gcp_database_hydration() -> None:
 
 
 def test_helm_admission_principal_tracks_launcher_identity_values() -> None:
-    helm = shutil.which("helm")
-    if helm is None:
-        pytest.skip("helm is required to validate rendered chart manifests")
-    rendered = subprocess.run(  # noqa: S603
-        [
-            helm,
-            "template",
-            "shifter",
-            str(CHART_DIR),
-            "-f",
-            str(CHART_DIR / "values-gcp-dev.yaml"),
-            "--set",
-            "namespaces.platform=custom-platform",
-            "--set",
-            "serviceAccounts.provisionerLauncher.name=custom-launcher",
-            "--set",
-            "namespaces.jobs=custom-jobs",
-            "--set",
-            "serviceAccounts.provisioner.name=custom-provisioner",
-            "--set",
-            "network.kubernetesApiCidrs[0]=10.48.0.0/20",
-            "--set",
-            "runtimeEnv.ENGINE_TASK_NAMESPACE=wrong-jobs",
-            "--set",
-            "runtimeEnv.ENGINE_TASK_SERVICE_ACCOUNT_NAME=wrong-provisioner",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+    documents = _render_helm(
+        "values-gcp-dev.yaml",
+        "--set",
+        "namespaces.platform=custom-platform",
+        "--set",
+        "serviceAccounts.provisionerLauncher.name=custom-launcher",
+        "--set",
+        "namespaces.jobs=custom-jobs",
+        "--set",
+        "serviceAccounts.provisioner.name=custom-provisioner",
+        "--set",
+        "network.kubernetesApiCidrs[0]=10.48.0.0/20",
+        "--set",
+        "runtimeEnv.ENGINE_TASK_NAMESPACE=wrong-jobs",
+        "--set",
+        "runtimeEnv.ENGINE_TASK_SERVICE_ACCOUNT_NAME=wrong-provisioner",
     )
-    documents = _load_yaml_documents(rendered.stdout)
-    expressions = _policy_expressions(_policy(documents))
+    policy = _policy(documents)
+    expressions = _policy_expressions(policy)
     binding = _binding(documents)
     runtime_config = _documents_by_kind(documents, "ConfigMap")[RUNTIME_PARAM_CONFIGMAP]
     api_egress = _documents_by_kind(documents, "NetworkPolicy")["allow-provisioner-launcher-kubernetes-api-egress"]
 
     assert "system:serviceaccount:custom-platform:custom-launcher" in expressions
     assert "custom-provisioner" in expressions
-    assert binding["spec"]["paramRef"]["namespace"] == "custom-platform"
+    inline_params = _inline_param_data(policy)
+    assert inline_params["ENGINE_TASK_NAMESPACE"] == "custom-jobs"
+    assert inline_params["ENGINE_TASK_SERVICE_ACCOUNT_NAME"] == "custom-provisioner"
     assert (
         binding["spec"]["matchResources"]["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
         == "custom-jobs"
@@ -535,7 +567,7 @@ def test_helm_admission_principal_tracks_launcher_identity_values() -> None:
     assert api_egress["spec"]["egress"][0]["ports"] == [{"protocol": "TCP", "port": 443}]
 
 
-@pytest.mark.parametrize("loader", [_load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents_configmap_params])
 def test_admission_policy_semantically_denies_spoofed_and_malformed_launches(loader: Any) -> None:
     policy = _policy(loader())
     assert _SEMANTIC_VALIDATION_MESSAGES.issubset(
@@ -610,7 +642,7 @@ def test_admission_policy_semantically_denies_spoofed_and_malformed_launches(loa
     )
 
 
-@pytest.mark.parametrize("loader", [_load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents_configmap_params])
 def test_admission_policy_accepts_compatible_operation_id_command_forms(loader: Any) -> None:
     policy = _policy(loader())
     canonical = _canonical_admission_job()
@@ -645,7 +677,7 @@ def test_admission_policy_accepts_compatible_operation_id_command_forms(loader: 
         assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, job, image), args
 
 
-@pytest.mark.parametrize("loader", [_load_helm_documents])
+@pytest.mark.parametrize("loader", [_load_helm_documents_configmap_params])
 def test_admission_policy_admits_exactly_the_launcher_operation_grammar(loader: Any) -> None:
     """Every operation the launcher may enqueue is admitted; nothing else is.
 

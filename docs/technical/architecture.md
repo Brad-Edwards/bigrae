@@ -125,8 +125,9 @@ preparation, and acquisition Jobs. The Cloud SQL proxy keeps its own 65532
 identity. The provisioner Job policy inlines the platform-runtime values as its
 parameters, because GKE 1.36 and EKS do not resolve ConfigMap parameters (#2633).
 The repository tests evaluate the admission policies with a Python
-CEL interpreter. They do not prove that a policy compiles on the Kubernetes API
-server. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
+CEL interpreter. For the provisioner Job policy, they evaluate the default inline
+parameters and the ConfigMap opt-out. They do not prove that a policy compiles on
+the Kubernetes API server. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
 each supported values file. A scoped waiver uses a chart template annotation
 with a matching `docs/adr/exceptions.yaml` entry (ADR-004-R11).
 

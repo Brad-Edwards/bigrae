@@ -79,12 +79,12 @@ function ActionRequiredNotice({ eventId }: Readonly<{ eventId: string | undefine
   const count = summary.isError ? 0 : (summary.data?.action_required_count ?? 0);
   if (count === 0 || pathname.startsWith(ctfInboxPath())) return null;
   return (
-    <div role="status" className="mx-auto mb-4 flex max-w-5xl flex-wrap items-center gap-3 rounded-md border px-4 py-2 text-sm">
+    <output className="mx-auto mb-4 flex max-w-5xl flex-wrap items-center gap-3 rounded-md border px-4 py-2 text-sm">
       <span>{count === 1 ? "1 message needs your action." : `${count} messages need your action.`}</span>
       <Link className="underline" to={`${ctfInboxPath()}?view=action_required`}>
         Review messages
       </Link>
-    </div>
+    </output>
   );
 }
 
