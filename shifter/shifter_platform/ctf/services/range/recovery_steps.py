@@ -103,7 +103,8 @@ def _rebuild_replacement(
         recovery.replacement_request_id = intent.pk
     try:
         return execute_launch(intent), intent.pk
-    except Exception as exc:  # range failures can carry private provider diagnostics
+    except Exception as exc:
+        # Range failures can carry private provider diagnostics.
         logger.error(
             "Replacement range provisioning failed participant_id=%s exc_type=%s",
             participant.pk,

@@ -155,11 +155,11 @@ def test_cancel_retains_reservation_until_url_expiry_and_cleanup(
     monkeypatch.setattr("cms.services._scoped_uploads.timezone.now", lambda: row.expires_at + timedelta(seconds=1))
     # A storage failure keeps the row pending for the next pass and is logged, not swallowed.
     storage_client.delete_object.side_effect = ClientError({"Error": {"Code": "500"}}, "DeleteObject")
-    with caplog.at_level("WARNING", logger="cms.services._scoped_uploads"):
+    with caplog.at_level("WARNING", logger="cms.services._upload_cleanup"):
         assert reconcile_upload_cleanup() == 0
     row.refresh_from_db()
     assert row.cleanup_pending
-    assert "reconcile_upload_cleanup: cleanup failed" in caplog.text
+    assert "Upload cleanup retained for retry" in caplog.text
     assert "exc_type=CloudStorageError" in caplog.text
     storage_client.delete_object.side_effect = None
     storage_client.delete_object.reset_mock()

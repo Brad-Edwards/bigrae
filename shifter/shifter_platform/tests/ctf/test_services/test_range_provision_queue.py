@@ -1,10 +1,4 @@
-"""Tests for CTF event range provisioning requests and progress.
-
-Covers ``request_event_provisioning`` (enqueue or coalesce one SPIN_UP_RANGES
-task) and ``get_provision_progress`` (participant counts plus the active task).
-"""
-
-from __future__ import annotations
+"""Native provisioning task scheduling and participant progress projections."""
 
 from datetime import timedelta
 from uuid import uuid4
@@ -28,10 +22,10 @@ class TestRequestEventProvisioning:
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
         ).count()
 
-    def test_creates_due_now_task_when_none_exists(self, ctf_event):
+    def test_creates_due_now_task_when_none_exists(self, ctf_event, organizer_credential):
         before = timezone.now()
 
-        task = range_service.request_event_provisioning(ctf_event.id, source="manual")
+        task = range_service.request_event_provisioning(ctf_event.id, source="manual", actor_id=organizer_credential)
 
         assert task.task_type == ScheduledTaskType.SPIN_UP_RANGES.value
         assert task.status == ScheduledTaskStatus.PENDING.value
@@ -39,14 +33,17 @@ class TestRequestEventProvisioning:
         assert task.metadata.get("source") == "manual"
         assert self._spin_up_count(ctf_event) == 1
 
-    def test_coalesces_future_pending_pulled_to_now(self, ctf_event):
+    def test_coalesces_future_pending_pulled_to_now(self, ctf_event, organizer_credential):
+        from shared.operation_authority import credential_reference_fields
+
         existing = CTFScheduledTask.objects.create(
             event=ctf_event,
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
             scheduled_for=timezone.now() + timedelta(hours=6),
+            **credential_reference_fields(organizer_credential),
         )
 
-        task = range_service.request_event_provisioning(ctf_event.id, source="manual")
+        task = range_service.request_event_provisioning(ctf_event.id, source="manual", actor_id=organizer_credential)
 
         assert task.pk == existing.pk
         task.refresh_from_db()
@@ -55,24 +52,27 @@ class TestRequestEventProvisioning:
         # No duplicate runnable task was created.
         assert self._spin_up_count(ctf_event) == 1
 
-    def test_reuses_running_task(self, ctf_event):
+    def test_reuses_running_task(self, ctf_event, organizer_credential):
+        from shared.operation_authority import credential_reference_fields
+
         existing = CTFScheduledTask.objects.create(
             event=ctf_event,
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
             scheduled_for=timezone.now() - timedelta(minutes=1),
             status=ScheduledTaskStatus.RUNNING.value,
+            **credential_reference_fields(organizer_credential),
         )
 
-        task = range_service.request_event_provisioning(ctf_event.id)
+        task = range_service.request_event_provisioning(ctf_event.id, actor_id=organizer_credential)
 
         assert task.pk == existing.pk
         assert task.status == ScheduledTaskStatus.RUNNING.value
         assert self._spin_up_count(ctf_event) == 1
 
-    def test_event_not_found_raises(self):
+    def test_event_not_found_raises(self, organizer_credential):
         uuid4_2 = uuid4()
         with pytest.raises(CTFNotFoundError):
-            range_service.request_event_provisioning(uuid4_2)
+            range_service.request_event_provisioning(uuid4_2, actor_id=organizer_credential)
 
 
 @pytest.mark.django_db

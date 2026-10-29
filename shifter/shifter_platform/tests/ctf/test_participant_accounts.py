@@ -611,11 +611,13 @@ def test_post_event_retention_purge_anonymizes_accounts(ctf_event_active, organi
     assert participant.user.is_active is False
 
 
-def test_scheduler_retention_maintenance_logs_purge_counts(ctf_event_active, monkeypatch, settings, caplog):
+def test_scheduler_retention_maintenance_logs_purge_counts(
+    ctf_event_active, organizer_credential, monkeypatch, settings, caplog
+):
     from ctf.management.commands.run_ctf_scheduler import _run_retention_maintenance
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    create_participant_accounts(ctf_event_active.id, count=1)
+    create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)
     ctf_event_active.event_start = timezone.now() - timedelta(hours=2)
     ctf_event_active.event_end = timezone.now() - timedelta(hours=1)
     ctf_event_active.save(update_fields=["event_start", "event_end", "updated_at"])

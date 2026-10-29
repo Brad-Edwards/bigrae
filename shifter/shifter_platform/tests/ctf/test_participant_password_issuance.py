@@ -344,10 +344,11 @@ def test_reset_api_rate_limit_fails_without_mutating_password(
 def test_reset_api_rate_limiter_outage_fails_closed_and_is_logged(
     authenticated_organizer_client,
     ctf_event,
+    organizer_credential,
     monkeypatch,
     caplog,
 ):
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
     participant.user.set_password(_SUPPLIED_PASSWORD)
     participant.user.save(update_fields=["password"])
 

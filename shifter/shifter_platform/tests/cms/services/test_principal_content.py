@@ -242,16 +242,18 @@ def test_human_credential_input_uses_the_same_closed_spec(content_actor, django_
     assert "SECRET_MARKER" not in caplog.text
 
 
-def test_human_duplicate_credential_name_is_refused_without_an_error_log(content_actor, django_user_model, caplog):
+def test_native_duplicate_credential_name_is_refused_without_an_error_log(content_actor, caplog):
     from django.core.exceptions import ValidationError
 
+    from cms.models import Credential
     from cms.services import create_credential
 
-    user = django_user_model.objects.create_user(username="human-credential-duplicate")
-    create_credential(user, "deployment_profile", name="Duplicate human credential", authcode="valid")
-    with caplog.at_level("INFO", logger="cms.services._credentials"), pytest.raises(ValidationError):
-        create_credential(user, "deployment_profile", name="Duplicate human credential", authcode="valid")
-    assert "model validation rejected input" in caplog.text
+    fixture = content_actor
+    values = {"scope": fixture.scope, "name": "Duplicate native credential", "authcode": "valid"}
+    create_credential(fixture.credential, "deployment_profile", **values)
+    with pytest.raises(ValidationError):
+        create_credential(fixture.credential, "deployment_profile", **values)
+    assert Credential.objects.filter(name=values["name"]).count() == 1
     assert not [record for record in caplog.records if record.levelname == "ERROR"]
 
 

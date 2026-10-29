@@ -22,6 +22,7 @@ from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, pr
 from shared.cloud import get_object_storage
 from shared.credentials import CredentialContext
 from shared.exceptions import ValidationError
+from shared.log_sanitize import safe_log_value
 from shared.model_access import PackModelNeedsDeclaration
 from shared.raes.object_source import stage_uploaded_pack
 from shared.raes.pack_conformance import validate_pack_contract
@@ -189,7 +190,7 @@ def upload_tenant_pack(
             # Pack validation errors embed archive paths and content, so log only the class.
             logger.warning(
                 "upload_tenant_pack: archive validation failed organization_uuid=%s exc_type=%s",
-                organization_uuid,
+                safe_log_value(organization_uuid),
                 type(exc).__name__,
             )
             raise ValidationError("The pack archive failed validation; check its name, content and size") from None
@@ -229,7 +230,7 @@ def upload_tenant_pack(
         except Exception as exc:  # noqa: BLE001  # untrusted pack content; its error text stays out of the chain
             logger.warning(
                 "upload_tenant_pack: installation failed organization_uuid=%s exc_type=%s",
-                organization_uuid,
+                safe_log_value(organization_uuid),
                 type(exc).__name__,
             )
             try:
