@@ -367,6 +367,13 @@ repos:
   # =============================================================================
   - repo: local
     hooks:
+      - id: provisioner-locks
+        name: provisioner image locks match uv.lock
+        entry: python3 scripts/check_provisioner_locks/check_provisioner_locks.py
+        language: system
+        files: ^(shifter/engine/provisioner/(uv\.lock|pyproject\.toml|requirements(-gcp)?\.lock)|scripts/check_provisioner_locks/.*)$
+        pass_filenames: false
+
       - id: adr-guard-fast
         name: architecture (adr guard fast)
         entry: python3 scripts/adr_guard/adr_guard.py --changed --level fast
