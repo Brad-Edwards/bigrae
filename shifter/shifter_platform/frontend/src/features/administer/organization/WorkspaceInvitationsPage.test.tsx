@@ -35,6 +35,7 @@ function invitation(overrides: Partial<WorkspaceInvitation> = {}): WorkspaceInvi
     email: "new.member@example.com",
     role: "member",
     status: "pending",
+    delivery_status: "accepted",
     expires_at: "2026-08-19T12:00:00Z",
     created_at: "2026-08-12T12:00:00Z",
     updated_at: "2026-08-12T12:00:00Z",
@@ -69,7 +70,16 @@ describe("WorkspaceInvitationsPage", () => {
     expect(await screen.findByRole("heading", { name: "Invitations" })).toBeInTheDocument();
     expect(screen.getByText("new.member@example.com")).toBeInTheDocument();
     expect(screen.getByText("pending")).toBeInTheDocument();
+    expect(screen.getByText("Email accepted")).toBeInTheDocument();
     expect(screen.queryByText(/token=/)).not.toBeInTheDocument();
+  });
+
+  it("shows a failed send so the operator can resend", async () => {
+    mockApi.mockResolvedValue([invitation({ delivery_status: "failed" })]);
+    renderPage();
+
+    expect(await screen.findByText("Email not delivered")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resend" })).toBeInTheDocument();
   });
 
   it("issues and resends through the named invitation endpoints", async () => {

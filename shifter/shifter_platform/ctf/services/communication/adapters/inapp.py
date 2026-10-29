@@ -27,6 +27,10 @@ class InAppAdapter:
 
     channel = CommunicationChannel.IN_APP.value
 
+    def available(self) -> bool:
+        """The durable inbox is always available; the wake-up is only an accelerator."""
+        return True
+
     def deliver(self, command: DeliveryCommand, *, timeout: float) -> DeliveryOutcome:
         """Publish a reference-only wake-up for one recipient snapshot.
 

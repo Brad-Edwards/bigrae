@@ -4651,6 +4651,7 @@ export interface components {
             /** Format: date-time */
             readonly released_at: string | null;
             readonly schedule_status: string | null;
+            readonly delivery_state: components["schemas"]["DeliveryStateEnum"];
             readonly events: components["schemas"]["CommunicationDeliveryEvent"][];
             readonly totals: components["schemas"]["CommunicationDeliveryTotals"];
         };
@@ -5109,6 +5110,26 @@ export interface components {
         DeleteSuccess: {
             readonly success: boolean;
         };
+        /**
+         * @description * `not_released` - Not Released
+         *     * `pending` - Pending
+         *     * `accepted` - Accepted
+         *     * `partial` - Partial
+         *     * `failed` - Failed
+         *     * `withdrawn` - Withdrawn
+         *     * `empty` - Empty
+         * @enum {string}
+         */
+        DeliveryStateEnum: "not_released" | "pending" | "accepted" | "partial" | "failed" | "withdrawn" | "empty";
+        /**
+         * @description * `pending` - Pending
+         *     * `accepted` - Accepted
+         *     * `failed` - Failed
+         *     * `unavailable` - Unavailable
+         *     * `unknown` - Unknown
+         * @enum {string}
+         */
+        DeliveryStatusEnum: "pending" | "accepted" | "failed" | "unavailable" | "unknown";
         /** @description Assign an action directly to a principal or group. */
         DirectActionAssignmentMutation: {
             subject_kind: components["schemas"]["AuthorizationAssignmentSubjectKindEnum"];
@@ -7824,6 +7845,16 @@ export interface components {
             readonly email: string;
             readonly role: components["schemas"]["WorkspaceRoleEnum"];
             readonly status: components["schemas"]["WorkspaceInvitationStatusEnum"];
+            /**
+             * @description Observed outcome of the latest send; accepted means the mail backend took it, not that it was read.
+             *
+             *     * `pending` - Pending
+             *     * `accepted` - Accepted
+             *     * `failed` - Failed
+             *     * `unavailable` - Unavailable
+             *     * `unknown` - Unknown
+             */
+            readonly delivery_status: components["schemas"]["DeliveryStatusEnum"];
             /** Format: date-time */
             readonly expires_at: string;
             /** Format: date-time */

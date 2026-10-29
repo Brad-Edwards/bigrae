@@ -119,7 +119,7 @@ it("shows delivery state, recipients, activity, and cancels through a confirmati
     results: [
       {
         intent_id: "i1", status: "scheduled", trigger_kind: "absolute_time", revision_number: 1,
-        due_at: "2099-01-01T00:00:00Z", released_at: null, schedule_status: "failed",
+        due_at: "2099-01-01T00:00:00Z", released_at: null, schedule_status: "failed", delivery_state: "not_released",
         events: [{ event_id: "e1", name: "Alpha", recipients: 2, inbox_available: 2, read: 1, acknowledged: 0,
           channels: [{ channel: "in_app", queued: 1, claimed: 0, retry_due: 0, accepted: 1, permanent_failure: 0, cancelled: 0, suppressed: 0, expired: 0 }] }],
         totals: { recipients: 2, inbox_available: 2, read: 1, acknowledged: 0,
@@ -145,6 +145,7 @@ it("shows delivery state, recipients, activity, and cancels through a confirmati
   });
 
   expect(await screen.findByText("Release task failed")).toBeInTheDocument();
+  expect(screen.getByText("Delivery: not released")).toBeInTheDocument();
   expect(screen.getByText(/2 recipients · 2 in inbox · 1 read · 0 acknowledged/)).toBeInTheDocument();
   const activity = screen.getByRole("region", { name: "Activity" });
   expect(await within(activity).findByRole("listitem")).toHaveTextContent("created by alice via session");
@@ -220,7 +221,7 @@ it("loads further pages of events and keeps the selection", async () => {
 it("loads older delivery occurrences", async () => {
   const occurrence = (id: string, revision: number) => ({
     intent_id: id, status: "released", trigger_kind: "manual", revision_number: revision, due_at: null,
-    released_at: "2026-10-01T00:00:00Z", schedule_status: null, events: [],
+    released_at: "2026-10-01T00:00:00Z", schedule_status: null, delivery_state: "accepted", events: [],
     totals: { recipients: 0, inbox_available: 0, read: 0, acknowledged: 0, channels: [] },
   });
   stubApi((url) => {

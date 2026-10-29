@@ -4,6 +4,7 @@ import { useParams } from "react-router";
 
 import { ApiError, describeMutationError } from "@/api/errors";
 import {
+  INVITATION_DELIVERY_LABELS,
   useIssueWorkspaceInvitation,
   useResendWorkspaceInvitation,
   useRevokeWorkspaceInvitation,
@@ -83,6 +84,7 @@ export function WorkspaceInvitationsPage() {
               <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Delivery</TableHead>
               <TableHead>Expires</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -115,6 +117,7 @@ function InvitationRow({ uuid, invitation, capabilities }: Readonly<{
       <TableCell className="font-medium">{invitation.email}</TableCell>
       <TableCell>{ROLE_OPTIONS.find((item) => item.value === invitation.role)?.label ?? invitation.role}</TableCell>
       <TableCell><Badge variant="outline">{invitation.status}</Badge></TableCell>
+      <TableCell className="text-sm">{INVITATION_DELIVERY_LABELS[invitation.delivery_status]}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{formatTimestamp(invitation.expires_at)}</TableCell>
       <TableCell className="text-right">
         {current && capabilities.includes("resend_invitation") ? (

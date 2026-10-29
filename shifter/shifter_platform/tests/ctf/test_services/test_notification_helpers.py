@@ -60,8 +60,8 @@ def ctf_participant():
 def blocking_smtp():
     """A blocking, eventually-raising stand-in for ``EmailMultiAlternatives``.
 
-    Drives the real ``shared.email.send_email_async`` background-thread pipeline
-    (ADR-019-R1: mock the external SMTP boundary, not internal seams).
+    Stands in at the external SMTP boundary (ADR-019-R1: mock the external
+    boundary, not internal seams).
     ``send()`` blocks on ``release`` then raises after signalling ``delivered``,
     so a test can assert the caller returned before ``release`` was set.
     """

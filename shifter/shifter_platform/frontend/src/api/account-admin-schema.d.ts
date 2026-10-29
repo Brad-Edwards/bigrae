@@ -1716,13 +1716,26 @@ export interface components {
             principal_uuid?: string | null;
         };
         /**
-         * @description * `authorization:account.create_event` - authorization:account.create_event
+         * @description * `authorization:account.access_devices` - authorization:account.access_devices
+         *     * `authorization:account.create_event` - authorization:account.create_event
          *     * `authorization:account.delegate_authorization` - authorization:account.delegate_authorization
          *     * `authorization:account.delete` - authorization:account.delete
+         *     * `authorization:account.launch_range` - authorization:account.launch_range
+         *     * `authorization:account.manage_adapters` - authorization:account.manage_adapters
          *     * `authorization:account.manage_authorization` - authorization:account.manage_authorization
+         *     * `authorization:account.manage_content` - authorization:account.manage_content
+         *     * `authorization:account.manage_credentials` - authorization:account.manage_credentials
+         *     * `authorization:account.manage_devices` - authorization:account.manage_devices
          *     * `authorization:account.manage_members` - authorization:account.manage_members
+         *     * `authorization:account.manage_model_sources` - authorization:account.manage_model_sources
          *     * `authorization:account.manage_organizations` - authorization:account.manage_organizations
+         *     * `authorization:account.manage_range_scope` - authorization:account.manage_range_scope
+         *     * `authorization:account.manage_sources` - authorization:account.manage_sources
+         *     * `authorization:account.prepare_content` - authorization:account.prepare_content
+         *     * `authorization:account.publish_content` - authorization:account.publish_content
          *     * `authorization:account.read` - authorization:account.read
+         *     * `authorization:account.read_content` - authorization:account.read_content
+         *     * `authorization:account.read_devices` - authorization:account.read_devices
          *     * `authorization:account.update` - authorization:account.update
          *     * `authorization:event.delegate_authorization` - authorization:event.delegate_authorization
          *     * `authorization:event.delete` - authorization:event.delete
@@ -1742,42 +1755,75 @@ export interface components {
          *     * `authorization:event.participate` - authorization:event.participate
          *     * `authorization:event.read` - authorization:event.read
          *     * `authorization:event.transfer_ownership` - authorization:event.transfer_ownership
+         *     * `authorization:installation.access_devices` - authorization:installation.access_devices
          *     * `authorization:installation.delegate_authorization` - authorization:installation.delegate_authorization
          *     * `authorization:installation.manage_accounts` - authorization:installation.manage_accounts
          *     * `authorization:installation.manage_adapters` - authorization:installation.manage_adapters
          *     * `authorization:installation.manage_authorization` - authorization:installation.manage_authorization
          *     * `authorization:installation.manage_cloud_authority` - authorization:installation.manage_cloud_authority
+         *     * `authorization:installation.manage_content` - authorization:installation.manage_content
+         *     * `authorization:installation.manage_credentials` - authorization:installation.manage_credentials
+         *     * `authorization:installation.manage_devices` - authorization:installation.manage_devices
          *     * `authorization:installation.manage_lease_policy` - authorization:installation.manage_lease_policy
          *     * `authorization:installation.manage_model_sources` - authorization:installation.manage_model_sources
          *     * `authorization:installation.manage_principals` - authorization:installation.manage_principals
          *     * `authorization:installation.manage_service_credentials` - authorization:installation.manage_service_credentials
+         *     * `authorization:installation.manage_sources` - authorization:installation.manage_sources
+         *     * `authorization:installation.prepare_content` - authorization:installation.prepare_content
+         *     * `authorization:installation.publish_content` - authorization:installation.publish_content
          *     * `authorization:installation.read_audit` - authorization:installation.read_audit
+         *     * `authorization:installation.read_content` - authorization:installation.read_content
+         *     * `authorization:installation.read_devices` - authorization:installation.read_devices
          *     * `authorization:installation.revoke_personal_tokens` - authorization:installation.revoke_personal_tokens
          *     * `authorization:installation.use_personal_tokens` - authorization:installation.use_personal_tokens
+         *     * `authorization:organization.access_devices` - authorization:organization.access_devices
          *     * `authorization:organization.create_event` - authorization:organization.create_event
          *     * `authorization:organization.delegate_authorization` - authorization:organization.delegate_authorization
+         *     * `authorization:organization.launch_range` - authorization:organization.launch_range
+         *     * `authorization:organization.manage_adapters` - authorization:organization.manage_adapters
          *     * `authorization:organization.manage_authorization` - authorization:organization.manage_authorization
+         *     * `authorization:organization.manage_content` - authorization:organization.manage_content
+         *     * `authorization:organization.manage_credentials` - authorization:organization.manage_credentials
+         *     * `authorization:organization.manage_devices` - authorization:organization.manage_devices
          *     * `authorization:organization.manage_members` - authorization:organization.manage_members
+         *     * `authorization:organization.manage_model_sources` - authorization:organization.manage_model_sources
+         *     * `authorization:organization.manage_range_scope` - authorization:organization.manage_range_scope
+         *     * `authorization:organization.manage_sources` - authorization:organization.manage_sources
          *     * `authorization:organization.manage_workspaces` - authorization:organization.manage_workspaces
+         *     * `authorization:organization.prepare_content` - authorization:organization.prepare_content
+         *     * `authorization:organization.publish_content` - authorization:organization.publish_content
          *     * `authorization:organization.read` - authorization:organization.read
+         *     * `authorization:organization.read_content` - authorization:organization.read_content
+         *     * `authorization:organization.read_devices` - authorization:organization.read_devices
          *     * `authorization:organization.update` - authorization:organization.update
          *     * `authorization:range.access` - authorization:range.access
          *     * `authorization:range.manage` - authorization:range.manage
          *     * `authorization:range.read` - authorization:range.read
          *     * `authorization:range.transfer_ownership` - authorization:range.transfer_ownership
+         *     * `authorization:workspace.access_devices` - authorization:workspace.access_devices
          *     * `authorization:workspace.archive` - authorization:workspace.archive
          *     * `authorization:workspace.create_event` - authorization:workspace.create_event
          *     * `authorization:workspace.delegate_authorization` - authorization:workspace.delegate_authorization
          *     * `authorization:workspace.launch_range` - authorization:workspace.launch_range
          *     * `authorization:workspace.leave` - authorization:workspace.leave
+         *     * `authorization:workspace.manage_adapters` - authorization:workspace.manage_adapters
          *     * `authorization:workspace.manage_authorization` - authorization:workspace.manage_authorization
+         *     * `authorization:workspace.manage_content` - authorization:workspace.manage_content
+         *     * `authorization:workspace.manage_credentials` - authorization:workspace.manage_credentials
+         *     * `authorization:workspace.manage_devices` - authorization:workspace.manage_devices
          *     * `authorization:workspace.manage_egress` - authorization:workspace.manage_egress
          *     * `authorization:workspace.manage_invitations` - authorization:workspace.manage_invitations
          *     * `authorization:workspace.manage_members` - authorization:workspace.manage_members
+         *     * `authorization:workspace.manage_model_sources` - authorization:workspace.manage_model_sources
          *     * `authorization:workspace.manage_quota` - authorization:workspace.manage_quota
          *     * `authorization:workspace.manage_range_scope` - authorization:workspace.manage_range_scope
+         *     * `authorization:workspace.manage_sources` - authorization:workspace.manage_sources
+         *     * `authorization:workspace.prepare_content` - authorization:workspace.prepare_content
+         *     * `authorization:workspace.publish_content` - authorization:workspace.publish_content
          *     * `authorization:workspace.publish_model_access` - authorization:workspace.publish_model_access
          *     * `authorization:workspace.read` - authorization:workspace.read
+         *     * `authorization:workspace.read_content` - authorization:workspace.read_content
+         *     * `authorization:workspace.read_devices` - authorization:workspace.read_devices
          *     * `authorization:workspace.restore` - authorization:workspace.restore
          *     * `authorization:workspace.transfer` - authorization:workspace.transfer
          *     * `authorization:workspace.update` - authorization:workspace.update
@@ -1815,7 +1861,16 @@ export interface components {
          *     * `workspaces:membership:write` - workspaces:membership:write
          * @enum {string}
          */
-        CreateServiceCredentialScopesEnum: "authorization:account.create_event" | "authorization:account.delegate_authorization" | "authorization:account.delete" | "authorization:account.manage_authorization" | "authorization:account.manage_members" | "authorization:account.manage_organizations" | "authorization:account.read" | "authorization:account.update" | "authorization:event.delegate_authorization" | "authorization:event.delete" | "authorization:event.manage" | "authorization:event.manage_awards" | "authorization:event.manage_challenges" | "authorization:event.manage_communications" | "authorization:event.manage_config" | "authorization:event.manage_content" | "authorization:event.manage_lifecycle" | "authorization:event.manage_participants" | "authorization:event.manage_ranges" | "authorization:event.manage_scoring" | "authorization:event.manage_staff" | "authorization:event.manage_submissions" | "authorization:event.manage_teams" | "authorization:event.participate" | "authorization:event.read" | "authorization:event.transfer_ownership" | "authorization:installation.delegate_authorization" | "authorization:installation.manage_accounts" | "authorization:installation.manage_adapters" | "authorization:installation.manage_authorization" | "authorization:installation.manage_cloud_authority" | "authorization:installation.manage_lease_policy" | "authorization:installation.manage_model_sources" | "authorization:installation.manage_principals" | "authorization:installation.manage_service_credentials" | "authorization:installation.read_audit" | "authorization:installation.revoke_personal_tokens" | "authorization:installation.use_personal_tokens" | "authorization:organization.create_event" | "authorization:organization.delegate_authorization" | "authorization:organization.manage_authorization" | "authorization:organization.manage_members" | "authorization:organization.manage_workspaces" | "authorization:organization.read" | "authorization:organization.update" | "authorization:range.access" | "authorization:range.manage" | "authorization:range.read" | "authorization:range.transfer_ownership" | "authorization:workspace.archive" | "authorization:workspace.create_event" | "authorization:workspace.delegate_authorization" | "authorization:workspace.launch_range" | "authorization:workspace.leave" | "authorization:workspace.manage_authorization" | "authorization:workspace.manage_egress" | "authorization:workspace.manage_invitations" | "authorization:workspace.manage_members" | "authorization:workspace.manage_quota" | "authorization:workspace.manage_range_scope" | "authorization:workspace.publish_model_access" | "authorization:workspace.read" | "authorization:workspace.restore" | "authorization:workspace.transfer" | "authorization:workspace.update" | "cms:authoring:read" | "cms:authoring:write" | "cms:preparation-adapters:read" | "cms:preparation-adapters:write" | "cms:preparation:read" | "cms:preparation:write" | "ctf:communication:read" | "ctf:communication:write" | "ctf:event:read" | "ctf:event:write" | "ctf:play:read" | "ctf:play:write" | "ctf:vpn-profile:read" | "mission_control:credentials:write" | "mission_control:guacamole:read" | "mission_control:ngfw:read" | "mission_control:ngfw:write" | "mission_control:range:read" | "mission_control:range:write" | "mission_control:upload:write" | "mission_control:vpn-profile:read" | "model-access:event:read" | "model-access:event:write" | "model-access:operator:read" | "model-access:operator:write" | "model-access:participant:read" | "model-access:range:read" | "model-access:range:write" | "model-access:sharing:read" | "model-access:sharing:write" | "workspaces:membership:read" | "workspaces:membership:write";
+        CreateServiceCredentialScopesEnum: "authorization:account.access_devices" | "authorization:account.create_event" | "authorization:account.delegate_authorization" | "authorization:account.delete" | "authorization:account.launch_range" | "authorization:account.manage_adapters" | "authorization:account.manage_authorization" | "authorization:account.manage_content" | "authorization:account.manage_credentials" | "authorization:account.manage_devices" | "authorization:account.manage_members" | "authorization:account.manage_model_sources" | "authorization:account.manage_organizations" | "authorization:account.manage_range_scope" | "authorization:account.manage_sources" | "authorization:account.prepare_content" | "authorization:account.publish_content" | "authorization:account.read" | "authorization:account.read_content" | "authorization:account.read_devices" | "authorization:account.update" | "authorization:event.delegate_authorization" | "authorization:event.delete" | "authorization:event.manage" | "authorization:event.manage_awards" | "authorization:event.manage_challenges" | "authorization:event.manage_communications" | "authorization:event.manage_config" | "authorization:event.manage_content" | "authorization:event.manage_lifecycle" | "authorization:event.manage_participants" | "authorization:event.manage_ranges" | "authorization:event.manage_scoring" | "authorization:event.manage_staff" | "authorization:event.manage_submissions" | "authorization:event.manage_teams" | "authorization:event.participate" | "authorization:event.read" | "authorization:event.transfer_ownership" | "authorization:installation.access_devices" | "authorization:installation.delegate_authorization" | "authorization:installation.manage_accounts" | "authorization:installation.manage_adapters" | "authorization:installation.manage_authorization" | "authorization:installation.manage_cloud_authority" | "authorization:installation.manage_content" | "authorization:installation.manage_credentials" | "authorization:installation.manage_devices" | "authorization:installation.manage_lease_policy" | "authorization:installation.manage_model_sources" | "authorization:installation.manage_principals" | "authorization:installation.manage_service_credentials" | "authorization:installation.manage_sources" | "authorization:installation.prepare_content" | "authorization:installation.publish_content" | "authorization:installation.read_audit" | "authorization:installation.read_content" | "authorization:installation.read_devices" | "authorization:installation.revoke_personal_tokens" | "authorization:installation.use_personal_tokens" | "authorization:organization.access_devices" | "authorization:organization.create_event" | "authorization:organization.delegate_authorization" | "authorization:organization.launch_range" | "authorization:organization.manage_adapters" | "authorization:organization.manage_authorization" | "authorization:organization.manage_content" | "authorization:organization.manage_credentials" | "authorization:organization.manage_devices" | "authorization:organization.manage_members" | "authorization:organization.manage_model_sources" | "authorization:organization.manage_range_scope" | "authorization:organization.manage_sources" | "authorization:organization.manage_workspaces" | "authorization:organization.prepare_content" | "authorization:organization.publish_content" | "authorization:organization.read" | "authorization:organization.read_content" | "authorization:organization.read_devices" | "authorization:organization.update" | "authorization:range.access" | "authorization:range.manage" | "authorization:range.read" | "authorization:range.transfer_ownership" | "authorization:workspace.access_devices" | "authorization:workspace.archive" | "authorization:workspace.create_event" | "authorization:workspace.delegate_authorization" | "authorization:workspace.launch_range" | "authorization:workspace.leave" | "authorization:workspace.manage_adapters" | "authorization:workspace.manage_authorization" | "authorization:workspace.manage_content" | "authorization:workspace.manage_credentials" | "authorization:workspace.manage_devices" | "authorization:workspace.manage_egress" | "authorization:workspace.manage_invitations" | "authorization:workspace.manage_members" | "authorization:workspace.manage_model_sources" | "authorization:workspace.manage_quota" | "authorization:workspace.manage_range_scope" | "authorization:workspace.manage_sources" | "authorization:workspace.prepare_content" | "authorization:workspace.publish_content" | "authorization:workspace.publish_model_access" | "authorization:workspace.read" | "authorization:workspace.read_content" | "authorization:workspace.read_devices" | "authorization:workspace.restore" | "authorization:workspace.transfer" | "authorization:workspace.update" | "cms:authoring:read" | "cms:authoring:write" | "cms:preparation-adapters:read" | "cms:preparation-adapters:write" | "cms:preparation:read" | "cms:preparation:write" | "ctf:communication:read" | "ctf:communication:write" | "ctf:event:read" | "ctf:event:write" | "ctf:play:read" | "ctf:play:write" | "ctf:vpn-profile:read" | "mission_control:credentials:write" | "mission_control:guacamole:read" | "mission_control:ngfw:read" | "mission_control:ngfw:write" | "mission_control:range:read" | "mission_control:range:write" | "mission_control:upload:write" | "mission_control:vpn-profile:read" | "model-access:event:read" | "model-access:event:write" | "model-access:operator:read" | "model-access:operator:write" | "model-access:participant:read" | "model-access:range:read" | "model-access:range:write" | "model-access:sharing:read" | "model-access:sharing:write" | "workspaces:membership:read" | "workspaces:membership:write";
+        /**
+         * @description * `pending` - Pending
+         *     * `accepted` - Accepted
+         *     * `failed` - Failed
+         *     * `unavailable` - Unavailable
+         *     * `unknown` - Unknown
+         * @enum {string}
+         */
+        DeliveryStatusEnum: "pending" | "accepted" | "failed" | "unavailable" | "unknown";
         /** @description Assign an action directly to a principal or group. */
         DirectActionAssignmentMutation: {
             subject_kind: components["schemas"]["AuthorizationAssignmentSubjectKindEnum"];
@@ -1854,13 +1909,26 @@ export interface components {
             target_uuid?: string | null;
         };
         /**
-         * @description * `authorization:account.create_event` - authorization:account.create_event
+         * @description * `authorization:account.access_devices` - authorization:account.access_devices
+         *     * `authorization:account.create_event` - authorization:account.create_event
          *     * `authorization:account.delegate_authorization` - authorization:account.delegate_authorization
          *     * `authorization:account.delete` - authorization:account.delete
+         *     * `authorization:account.launch_range` - authorization:account.launch_range
+         *     * `authorization:account.manage_adapters` - authorization:account.manage_adapters
          *     * `authorization:account.manage_authorization` - authorization:account.manage_authorization
+         *     * `authorization:account.manage_content` - authorization:account.manage_content
+         *     * `authorization:account.manage_credentials` - authorization:account.manage_credentials
+         *     * `authorization:account.manage_devices` - authorization:account.manage_devices
          *     * `authorization:account.manage_members` - authorization:account.manage_members
+         *     * `authorization:account.manage_model_sources` - authorization:account.manage_model_sources
          *     * `authorization:account.manage_organizations` - authorization:account.manage_organizations
+         *     * `authorization:account.manage_range_scope` - authorization:account.manage_range_scope
+         *     * `authorization:account.manage_sources` - authorization:account.manage_sources
+         *     * `authorization:account.prepare_content` - authorization:account.prepare_content
+         *     * `authorization:account.publish_content` - authorization:account.publish_content
          *     * `authorization:account.read` - authorization:account.read
+         *     * `authorization:account.read_content` - authorization:account.read_content
+         *     * `authorization:account.read_devices` - authorization:account.read_devices
          *     * `authorization:account.update` - authorization:account.update
          *     * `authorization:event.delegate_authorization` - authorization:event.delegate_authorization
          *     * `authorization:event.delete` - authorization:event.delete
@@ -1880,48 +1948,81 @@ export interface components {
          *     * `authorization:event.participate` - authorization:event.participate
          *     * `authorization:event.read` - authorization:event.read
          *     * `authorization:event.transfer_ownership` - authorization:event.transfer_ownership
+         *     * `authorization:installation.access_devices` - authorization:installation.access_devices
          *     * `authorization:installation.delegate_authorization` - authorization:installation.delegate_authorization
          *     * `authorization:installation.manage_accounts` - authorization:installation.manage_accounts
          *     * `authorization:installation.manage_adapters` - authorization:installation.manage_adapters
          *     * `authorization:installation.manage_authorization` - authorization:installation.manage_authorization
          *     * `authorization:installation.manage_cloud_authority` - authorization:installation.manage_cloud_authority
+         *     * `authorization:installation.manage_content` - authorization:installation.manage_content
+         *     * `authorization:installation.manage_credentials` - authorization:installation.manage_credentials
+         *     * `authorization:installation.manage_devices` - authorization:installation.manage_devices
          *     * `authorization:installation.manage_lease_policy` - authorization:installation.manage_lease_policy
          *     * `authorization:installation.manage_model_sources` - authorization:installation.manage_model_sources
          *     * `authorization:installation.manage_principals` - authorization:installation.manage_principals
          *     * `authorization:installation.manage_service_credentials` - authorization:installation.manage_service_credentials
+         *     * `authorization:installation.manage_sources` - authorization:installation.manage_sources
+         *     * `authorization:installation.prepare_content` - authorization:installation.prepare_content
+         *     * `authorization:installation.publish_content` - authorization:installation.publish_content
          *     * `authorization:installation.read_audit` - authorization:installation.read_audit
+         *     * `authorization:installation.read_content` - authorization:installation.read_content
+         *     * `authorization:installation.read_devices` - authorization:installation.read_devices
          *     * `authorization:installation.revoke_personal_tokens` - authorization:installation.revoke_personal_tokens
          *     * `authorization:installation.use_personal_tokens` - authorization:installation.use_personal_tokens
+         *     * `authorization:organization.access_devices` - authorization:organization.access_devices
          *     * `authorization:organization.create_event` - authorization:organization.create_event
          *     * `authorization:organization.delegate_authorization` - authorization:organization.delegate_authorization
+         *     * `authorization:organization.launch_range` - authorization:organization.launch_range
+         *     * `authorization:organization.manage_adapters` - authorization:organization.manage_adapters
          *     * `authorization:organization.manage_authorization` - authorization:organization.manage_authorization
+         *     * `authorization:organization.manage_content` - authorization:organization.manage_content
+         *     * `authorization:organization.manage_credentials` - authorization:organization.manage_credentials
+         *     * `authorization:organization.manage_devices` - authorization:organization.manage_devices
          *     * `authorization:organization.manage_members` - authorization:organization.manage_members
+         *     * `authorization:organization.manage_model_sources` - authorization:organization.manage_model_sources
+         *     * `authorization:organization.manage_range_scope` - authorization:organization.manage_range_scope
+         *     * `authorization:organization.manage_sources` - authorization:organization.manage_sources
          *     * `authorization:organization.manage_workspaces` - authorization:organization.manage_workspaces
+         *     * `authorization:organization.prepare_content` - authorization:organization.prepare_content
+         *     * `authorization:organization.publish_content` - authorization:organization.publish_content
          *     * `authorization:organization.read` - authorization:organization.read
+         *     * `authorization:organization.read_content` - authorization:organization.read_content
+         *     * `authorization:organization.read_devices` - authorization:organization.read_devices
          *     * `authorization:organization.update` - authorization:organization.update
          *     * `authorization:range.access` - authorization:range.access
          *     * `authorization:range.manage` - authorization:range.manage
          *     * `authorization:range.read` - authorization:range.read
          *     * `authorization:range.transfer_ownership` - authorization:range.transfer_ownership
+         *     * `authorization:workspace.access_devices` - authorization:workspace.access_devices
          *     * `authorization:workspace.archive` - authorization:workspace.archive
          *     * `authorization:workspace.create_event` - authorization:workspace.create_event
          *     * `authorization:workspace.delegate_authorization` - authorization:workspace.delegate_authorization
          *     * `authorization:workspace.launch_range` - authorization:workspace.launch_range
          *     * `authorization:workspace.leave` - authorization:workspace.leave
+         *     * `authorization:workspace.manage_adapters` - authorization:workspace.manage_adapters
          *     * `authorization:workspace.manage_authorization` - authorization:workspace.manage_authorization
+         *     * `authorization:workspace.manage_content` - authorization:workspace.manage_content
+         *     * `authorization:workspace.manage_credentials` - authorization:workspace.manage_credentials
+         *     * `authorization:workspace.manage_devices` - authorization:workspace.manage_devices
          *     * `authorization:workspace.manage_egress` - authorization:workspace.manage_egress
          *     * `authorization:workspace.manage_invitations` - authorization:workspace.manage_invitations
          *     * `authorization:workspace.manage_members` - authorization:workspace.manage_members
+         *     * `authorization:workspace.manage_model_sources` - authorization:workspace.manage_model_sources
          *     * `authorization:workspace.manage_quota` - authorization:workspace.manage_quota
          *     * `authorization:workspace.manage_range_scope` - authorization:workspace.manage_range_scope
+         *     * `authorization:workspace.manage_sources` - authorization:workspace.manage_sources
+         *     * `authorization:workspace.prepare_content` - authorization:workspace.prepare_content
+         *     * `authorization:workspace.publish_content` - authorization:workspace.publish_content
          *     * `authorization:workspace.publish_model_access` - authorization:workspace.publish_model_access
          *     * `authorization:workspace.read` - authorization:workspace.read
+         *     * `authorization:workspace.read_content` - authorization:workspace.read_content
+         *     * `authorization:workspace.read_devices` - authorization:workspace.read_devices
          *     * `authorization:workspace.restore` - authorization:workspace.restore
          *     * `authorization:workspace.transfer` - authorization:workspace.transfer
          *     * `authorization:workspace.update` - authorization:workspace.update
          * @enum {string}
          */
-        IssuePersonalCredentialScopesEnum: "authorization:account.create_event" | "authorization:account.delegate_authorization" | "authorization:account.delete" | "authorization:account.manage_authorization" | "authorization:account.manage_members" | "authorization:account.manage_organizations" | "authorization:account.read" | "authorization:account.update" | "authorization:event.delegate_authorization" | "authorization:event.delete" | "authorization:event.manage" | "authorization:event.manage_awards" | "authorization:event.manage_challenges" | "authorization:event.manage_communications" | "authorization:event.manage_config" | "authorization:event.manage_content" | "authorization:event.manage_lifecycle" | "authorization:event.manage_participants" | "authorization:event.manage_ranges" | "authorization:event.manage_scoring" | "authorization:event.manage_staff" | "authorization:event.manage_submissions" | "authorization:event.manage_teams" | "authorization:event.participate" | "authorization:event.read" | "authorization:event.transfer_ownership" | "authorization:installation.delegate_authorization" | "authorization:installation.manage_accounts" | "authorization:installation.manage_adapters" | "authorization:installation.manage_authorization" | "authorization:installation.manage_cloud_authority" | "authorization:installation.manage_lease_policy" | "authorization:installation.manage_model_sources" | "authorization:installation.manage_principals" | "authorization:installation.manage_service_credentials" | "authorization:installation.read_audit" | "authorization:installation.revoke_personal_tokens" | "authorization:installation.use_personal_tokens" | "authorization:organization.create_event" | "authorization:organization.delegate_authorization" | "authorization:organization.manage_authorization" | "authorization:organization.manage_members" | "authorization:organization.manage_workspaces" | "authorization:organization.read" | "authorization:organization.update" | "authorization:range.access" | "authorization:range.manage" | "authorization:range.read" | "authorization:range.transfer_ownership" | "authorization:workspace.archive" | "authorization:workspace.create_event" | "authorization:workspace.delegate_authorization" | "authorization:workspace.launch_range" | "authorization:workspace.leave" | "authorization:workspace.manage_authorization" | "authorization:workspace.manage_egress" | "authorization:workspace.manage_invitations" | "authorization:workspace.manage_members" | "authorization:workspace.manage_quota" | "authorization:workspace.manage_range_scope" | "authorization:workspace.publish_model_access" | "authorization:workspace.read" | "authorization:workspace.restore" | "authorization:workspace.transfer" | "authorization:workspace.update";
+        IssuePersonalCredentialScopesEnum: "authorization:account.access_devices" | "authorization:account.create_event" | "authorization:account.delegate_authorization" | "authorization:account.delete" | "authorization:account.launch_range" | "authorization:account.manage_adapters" | "authorization:account.manage_authorization" | "authorization:account.manage_content" | "authorization:account.manage_credentials" | "authorization:account.manage_devices" | "authorization:account.manage_members" | "authorization:account.manage_model_sources" | "authorization:account.manage_organizations" | "authorization:account.manage_range_scope" | "authorization:account.manage_sources" | "authorization:account.prepare_content" | "authorization:account.publish_content" | "authorization:account.read" | "authorization:account.read_content" | "authorization:account.read_devices" | "authorization:account.update" | "authorization:event.delegate_authorization" | "authorization:event.delete" | "authorization:event.manage" | "authorization:event.manage_awards" | "authorization:event.manage_challenges" | "authorization:event.manage_communications" | "authorization:event.manage_config" | "authorization:event.manage_content" | "authorization:event.manage_lifecycle" | "authorization:event.manage_participants" | "authorization:event.manage_ranges" | "authorization:event.manage_scoring" | "authorization:event.manage_staff" | "authorization:event.manage_submissions" | "authorization:event.manage_teams" | "authorization:event.participate" | "authorization:event.read" | "authorization:event.transfer_ownership" | "authorization:installation.access_devices" | "authorization:installation.delegate_authorization" | "authorization:installation.manage_accounts" | "authorization:installation.manage_adapters" | "authorization:installation.manage_authorization" | "authorization:installation.manage_cloud_authority" | "authorization:installation.manage_content" | "authorization:installation.manage_credentials" | "authorization:installation.manage_devices" | "authorization:installation.manage_lease_policy" | "authorization:installation.manage_model_sources" | "authorization:installation.manage_principals" | "authorization:installation.manage_service_credentials" | "authorization:installation.manage_sources" | "authorization:installation.prepare_content" | "authorization:installation.publish_content" | "authorization:installation.read_audit" | "authorization:installation.read_content" | "authorization:installation.read_devices" | "authorization:installation.revoke_personal_tokens" | "authorization:installation.use_personal_tokens" | "authorization:organization.access_devices" | "authorization:organization.create_event" | "authorization:organization.delegate_authorization" | "authorization:organization.launch_range" | "authorization:organization.manage_adapters" | "authorization:organization.manage_authorization" | "authorization:organization.manage_content" | "authorization:organization.manage_credentials" | "authorization:organization.manage_devices" | "authorization:organization.manage_members" | "authorization:organization.manage_model_sources" | "authorization:organization.manage_range_scope" | "authorization:organization.manage_sources" | "authorization:organization.manage_workspaces" | "authorization:organization.prepare_content" | "authorization:organization.publish_content" | "authorization:organization.read" | "authorization:organization.read_content" | "authorization:organization.read_devices" | "authorization:organization.update" | "authorization:range.access" | "authorization:range.manage" | "authorization:range.read" | "authorization:range.transfer_ownership" | "authorization:workspace.access_devices" | "authorization:workspace.archive" | "authorization:workspace.create_event" | "authorization:workspace.delegate_authorization" | "authorization:workspace.launch_range" | "authorization:workspace.leave" | "authorization:workspace.manage_adapters" | "authorization:workspace.manage_authorization" | "authorization:workspace.manage_content" | "authorization:workspace.manage_credentials" | "authorization:workspace.manage_devices" | "authorization:workspace.manage_egress" | "authorization:workspace.manage_invitations" | "authorization:workspace.manage_members" | "authorization:workspace.manage_model_sources" | "authorization:workspace.manage_quota" | "authorization:workspace.manage_range_scope" | "authorization:workspace.manage_sources" | "authorization:workspace.prepare_content" | "authorization:workspace.publish_content" | "authorization:workspace.publish_model_access" | "authorization:workspace.read" | "authorization:workspace.read_content" | "authorization:workspace.read_devices" | "authorization:workspace.restore" | "authorization:workspace.transfer" | "authorization:workspace.update";
         /**
          * @description * `installation` - installation
          *     * `account` - account
@@ -2218,6 +2319,16 @@ export interface components {
             /** Format: email */
             readonly email: string;
             readonly status: components["schemas"]["StatusEnum"];
+            /**
+             * @description Observed outcome of the latest send; accepted means the mail backend took it, not that it was read.
+             *
+             *     * `pending` - Pending
+             *     * `accepted` - Accepted
+             *     * `failed` - Failed
+             *     * `unavailable` - Unavailable
+             *     * `unknown` - Unknown
+             */
+            readonly delivery_status: components["schemas"]["DeliveryStatusEnum"];
             /** Format: date-time */
             readonly expires_at: string;
             /** Format: date-time */

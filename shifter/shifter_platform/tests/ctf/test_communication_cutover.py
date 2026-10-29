@@ -47,7 +47,8 @@ def test_service_sender_is_fenced(organizer_user, ctf_event):
     assert not CTFNotification.objects.exists()
 
 
-def test_conversion_preserves_history_and_transfers_pending_ownership(organizer_user, ctf_event):
+def test_conversion_preserves_history_and_transfers_pending_ownership(organizer_user, ctf_event, settings):
+    settings.EMAIL_DELIVERY_AVAILABLE = False
     from ctf.models import LegacyCommunication
     from ctf.services.communication.cutover import activate_cutover, migrate_legacy_batch, start_cutover
 
@@ -108,7 +109,8 @@ def test_invalid_row_rolls_back_batch_and_prevents_activation(organizer_user, ct
         activate_cutover()
 
 
-def test_lifecycle_notice_stages_email_once_without_dispatch(organizer_user, ctf_event):
+def test_lifecycle_notice_stages_email_once_without_dispatch(organizer_user, ctf_event, settings):
+    settings.EMAIL_DELIVERY_AVAILABLE = False
     from ctf.models import CommunicationCampaign
     from ctf.services.notification import send_event_results
 
@@ -150,7 +152,8 @@ def test_maintenance_batch_is_bounded_independently_of_interactive_rate(organize
     assert LegacyCommunication.objects.count() == 2
 
 
-def test_migrated_campaign_cannot_release_before_activation_or_email_readiness(organizer_user, ctf_event):
+def test_migrated_campaign_cannot_release_before_activation_or_email_readiness(organizer_user, ctf_event, settings):
+    settings.EMAIL_DELIVERY_AVAILABLE = False
     from ctf.models import LegacyCommunication
     from ctf.services.communication import release_campaign
     from ctf.services.communication.cutover import activate_cutover, migrate_legacy_batch, start_cutover
@@ -165,6 +168,38 @@ def test_migrated_campaign_cannot_release_before_activation_or_email_readiness(o
     with pytest.raises(CTFCommunicationError):
         release_campaign(campaign, occurrence_key="bypass", actor_user_id=organizer_user.pk)
     assert not CommunicationIntent.objects.exists()
+
+
+def test_unavailable_migrated_schedule_resumes_once_email_is_available(organizer_user, ctf_event, settings):
+    from ctf.enums_communication import IntentStatus
+    from ctf.models import LegacyCommunication
+    from ctf.services.communication.cutover import (
+        activate_cutover,
+        migrate_legacy_batch,
+        resume_migrated_schedule,
+        start_cutover,
+    )
+
+    settings.EMAIL_DELIVERY_AVAILABLE = False
+    due = timezone.now() + timezone.timedelta(hours=2)
+    pending = legacy(organizer_user, ctf_event, status="scheduled", scheduled_at=due)
+    CTFScheduledTask.objects.create(
+        event=ctf_event, task_type="send_notification", scheduled_for=due, metadata={"notification_id": str(pending.pk)}
+    )
+    start_cutover(legacy_producers_stopped=True)
+    migrate_legacy_batch()
+    activate_cutover()
+    mapping = LegacyCommunication.objects.get(legacy_id=pending.pk)
+    assert mapping.disposition == "channel_unavailable"
+    with pytest.raises(CTFCommunicationError):
+        resume_migrated_schedule(mapping.pk)
+
+    settings.EMAIL_DELIVERY_AVAILABLE = True
+    intent = resume_migrated_schedule(mapping.pk)
+
+    assert intent.status == IntentStatus.SCHEDULED.value
+    assert intent.occurrence_key == f"legacy:{mapping.pk}"
+    assert LegacyCommunication.objects.get(pk=mapping.pk).disposition == "transferred"
 
 
 @pytest.mark.parametrize("task_type", ["event_start", "event_end", "spin_up_ranges", "cleanup_ranges"])

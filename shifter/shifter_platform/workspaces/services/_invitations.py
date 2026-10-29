@@ -21,10 +21,10 @@ from django.utils.translation import gettext as _
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.auth import is_temporary_ctf_account
 from shared.credential_delivery import credential_delivery_allowed
-from shared.email import render_template, send_email_async
+from shared.email import INTERACTIVE_TIMEOUT_SECONDS, EmailOutcome, attempt_email, render_template
 from shared.site_url import SiteUrlUnavailable, validated_site_url
 from shared.verified_identity import VerifiedIdentity
-from workspaces.models import Workspace, WorkspaceInvitation, WorkspaceMembership
+from workspaces.models import InvitationDeliveryStatus, Workspace, WorkspaceInvitation, WorkspaceMembership
 from workspaces.roles import WorkspaceOperation, WorkspaceRole
 
 from ._memberships import (
@@ -49,6 +49,12 @@ WORKSPACE_INVITATION_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 WORKSPACE_INVITATION_TOKEN_MAX_LENGTH = 4096
 _TOKEN_VERSION = 1
 _INVALID_INVITATION_MESSAGE = "Invitation is invalid"
+_DELIVERY_STATUS = {
+    EmailOutcome.ACCEPTED: InvitationDeliveryStatus.ACCEPTED,
+    EmailOutcome.RETRIABLE: InvitationDeliveryStatus.FAILED,
+    EmailOutcome.TERMINAL: InvitationDeliveryStatus.FAILED,
+    EmailOutcome.UNAVAILABLE: InvitationDeliveryStatus.UNAVAILABLE,
+}
 
 
 class WorkspaceInvitationError(Exception):
@@ -77,6 +83,7 @@ class WorkspaceInvitationProjection:
     email: str
     role: str
     status: str
+    delivery_status: str
     expires_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -119,10 +126,16 @@ def _projection(invitation: WorkspaceInvitation, *, now: datetime | None = None)
         email=invitation.email,
         role=invitation.role,
         status=_status(invitation, now=now),
+        delivery_status=invitation.delivery_status,
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         updated_at=invitation.updated_at,
     )
+
+
+def _committed_projection(invitation_id: int) -> WorkspaceInvitationProjection:
+    """Project the committed row, including the outcome its post-commit send recorded."""
+    return _projection(WorkspaceInvitation.objects.select_related("workspace").get(pk=invitation_id))
 
 
 def _audit_state(invitation: WorkspaceInvitation) -> dict[str, int | str]:
@@ -199,10 +212,40 @@ def _render_delivery(invitation: WorkspaceInvitation) -> tuple[str, str, str]:
     return _("Invitation to %(workspace)s") % {"workspace": invitation.workspace.name}, html, text
 
 
+def _reset_delivery(invitation: WorkspaceInvitation) -> list[str]:
+    """Mark a rotated generation as not yet sent; return the changed field names."""
+    invitation.delivery_status = InvitationDeliveryStatus.PENDING
+    invitation.delivery_reason = ""
+    invitation.delivery_observed_at = None
+    return ["delivery_status", "delivery_reason", "delivery_observed_at"]
+
+
 def _schedule_delivery(invitation: WorkspaceInvitation) -> None:
-    """Schedule delivery only after the surrounding transaction commits."""
+    """Render now (an unsafe origin fails the command) and send once after commit."""
     subject, html, text = _render_delivery(invitation)
-    transaction.on_commit(partial(send_email_async, invitation.email, subject, html, text))
+    transaction.on_commit(
+        partial(_deliver, invitation.pk, invitation.generation, invitation.email, subject, html, text)
+    )
+
+
+def _deliver(invitation_id: int, generation: uuid.UUID, recipient: str, subject: str, html: str, text: str) -> None:
+    """Make one bounded send for a still-current generation and record its outcome.
+
+    A later resend or revoke fences this send: a superseded, revoked, or accepted
+    invitation is not sent, and the outcome is written only while the generation
+    still matches (ADR-071).
+    """
+    current = WorkspaceInvitation.objects.filter(
+        pk=invitation_id, generation=generation, accepted_at__isnull=True, revoked_at__isnull=True
+    )
+    if not current.exists():
+        return
+    result = attempt_email(recipient, subject, html, text, timeout=INTERACTIVE_TIMEOUT_SECONDS)
+    WorkspaceInvitation.objects.filter(pk=invitation_id, generation=generation).update(
+        delivery_status=_DELIVERY_STATUS[result.outcome],
+        delivery_reason=result.reason,
+        delivery_observed_at=timezone.now(),
+    )
 
 
 def _consume_delivery_budget(actor_id: int | uuid.UUID) -> None:
@@ -284,7 +327,7 @@ def issue_workspace_invitation(
         invitation = WorkspaceInvitation.objects.select_related("workspace__organization").get(pk=invitation.pk)
         _write_audit(invitation, AuditAction.CREATE, audit, new_state=_audit_state(invitation))
         _schedule_delivery(invitation)
-        return _projection(invitation)
+    return _committed_projection(invitation.pk)
 
 
 def _locked_managed_invitation(
@@ -329,10 +372,10 @@ def resend_workspace_invitation(
         previous = _audit_state(invitation)
         invitation.generation = uuid.uuid4()
         invitation.expires_at = timezone.now() + timedelta(seconds=WORKSPACE_INVITATION_TOKEN_MAX_AGE_SECONDS)
-        invitation.save(update_fields=["generation", "expires_at", "updated_at"])
+        invitation.save(update_fields=["generation", "expires_at", "updated_at", *_reset_delivery(invitation)])
         _write_audit(invitation, AuditAction.UPDATE, audit, previous_state=previous, new_state=_audit_state(invitation))
         _schedule_delivery(invitation)
-        return _projection(invitation)
+    return _committed_projection(invitation.pk)
 
 
 def revoke_workspace_invitation(

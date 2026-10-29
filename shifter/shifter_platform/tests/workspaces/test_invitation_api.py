@@ -70,11 +70,14 @@ def test_staff_owner_can_issue_list_resend_and_revoke(invitation_workspace, sett
         "email",
         "role",
         "status",
+        "delivery_status",
         "expires_at",
         "created_at",
         "updated_at",
     }
     assert issued.json()["email"] == "new.member@example.com"
+    # The send runs after the outer test transaction commits, so it has not reported.
+    assert issued.json()["delivery_status"] == "pending"
     assert listed.status_code == 200
     assert [row["invitation_uuid"] for row in listed.json()] == [invitation_uuid]
     assert resent.status_code == 200

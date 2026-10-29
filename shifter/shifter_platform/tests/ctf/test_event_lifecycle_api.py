@@ -182,7 +182,8 @@ class TestEventEndCleanupWindow:
 
 
 class TestCleanupWarning:
-    def test_warning_email_counts(self, ctf_event_active, monkeypatch):
+    def test_warning_email_counts(self, ctf_event_active, monkeypatch, settings):
+        settings.EMAIL_DELIVERY_AVAILABLE = False
         from ctf.services.notification import send_cleanup_warning
 
         CTFParticipant.objects.create(

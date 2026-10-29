@@ -12,7 +12,7 @@ from ._authorization import (
     AuthorizationOperation,
     AuthorizationPolicy,
 )
-from ._invitation import WorkspaceInvitation
+from ._invitation import InvitationDeliveryStatus, WorkspaceInvitation
 from ._membership import WorkspaceMembership
 from ._organization import Organization
 from ._organization_membership import OrganizationMembership
@@ -63,6 +63,7 @@ __all__ = [
     "AuthorizationMutationFence",
     "AuthorizationOperation",
     "AuthorizationPolicy",
+    "InvitationDeliveryStatus",
     "Organization",
     "OrganizationMembership",
     "Workspace",

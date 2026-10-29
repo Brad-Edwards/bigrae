@@ -268,6 +268,6 @@ class AdminUserResetPasswordView(APIView):
         try:
             password_reset.request_password_reset(user, audit=_audit_context(request), request=request._request)
         except password_reset.PasswordResetError as exc:
-            status_code = 409 if exc.code == "reset_throttled" else 400
+            status_code = password_reset.http_status(exc.code)
             return api_error_response(code=exc.code, message=exc.message, status_code=status_code, request=request)
         return _detail_response(user, request)

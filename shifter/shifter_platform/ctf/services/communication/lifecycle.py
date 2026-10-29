@@ -25,6 +25,7 @@ from ctf.models import (
     DeliveryAttempt,
     RecipientSnapshot,
 )
+from ctf.services.communication import disposition
 from ctf.services.communication.admission import AdmissionActor, lock_authorized_campaign
 
 logger = logging.getLogger(__name__)
@@ -36,10 +37,16 @@ _UNCLAIMED = (DeliveryStatus.QUEUED.value, DeliveryStatus.RETRY_DUE.value)
 
 
 def _cancel_unclaimed(attempts_q: Q, now: datetime) -> int:
-    """Cancel the not-yet-claimed delivery commands matching ``attempts_q``."""
-    return DeliveryAttempt.objects.filter(attempts_q, status__in=_UNCLAIMED).update(
-        status=DeliveryStatus.CANCELLED.value, updated_at=now
-    )
+    """Cancel the not-yet-claimed commands matching ``attempts_q``; refresh their occurrences.
+
+    Runs inside the caller's transaction, after its event/campaign locks, so the
+    occurrence delivery state commits with the cancellation (ADR-071).
+    """
+    unclaimed = DeliveryAttempt.objects.filter(attempts_q, status__in=_UNCLAIMED)
+    intent_ids = set(unclaimed.values_list("intent_id", flat=True))
+    cancelled = unclaimed.update(status=DeliveryStatus.CANCELLED.value, updated_at=now)
+    disposition.refresh_delivery_state(intent_ids)
+    return cancelled
 
 
 def cancel_campaign(campaign: CommunicationCampaign, *, actor: AdmissionActor) -> int:

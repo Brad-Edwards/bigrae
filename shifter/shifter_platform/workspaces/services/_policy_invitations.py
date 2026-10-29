@@ -25,11 +25,13 @@ from ._invitations import (
     WorkspaceInvitationError,
     WorkspaceInvitationProjection,
     _audit_state,
+    _committed_projection,
     _consume_delivery_budget,
     _eligible_verified_principal,
     _normalized_email,
     _projection,
     _require_workspace_eligible,
+    _reset_delivery,
     _schedule_delivery,
     _write_audit,
 )
@@ -124,7 +126,7 @@ def admin_issue_workspace_invitation(
         )
         _write_audit(invitation, AuditAction.CREATE, _attribution(actor, audit), new_state=_audit_state(invitation))
         _schedule_delivery(invitation)
-        return _projection(invitation)
+    return _committed_projection(invitation.pk)
 
 
 def _manage(
@@ -161,11 +163,11 @@ def _manage(
         invitation.generation = uuid.uuid4()
         if revoke:
             invitation.revoked_at = timezone.now()
-            changed = "revoked_at"
+            changed = ["revoked_at"]
         else:
             invitation.expires_at = timezone.now() + timedelta(seconds=WORKSPACE_INVITATION_TOKEN_MAX_AGE_SECONDS)
-            changed = "expires_at"
-        invitation.save(update_fields=["generation", changed, "updated_at"])
+            changed = ["expires_at", *_reset_delivery(invitation)]
+        invitation.save(update_fields=["generation", *changed, "updated_at"])
         _write_audit(
             invitation,
             AuditAction.CANCEL if revoke else AuditAction.UPDATE,
@@ -175,7 +177,7 @@ def _manage(
         )
         if not revoke:
             _schedule_delivery(invitation)
-        return _projection(invitation)
+    return _committed_projection(invitation.pk)
 
 
 def admin_resend_workspace_invitation(

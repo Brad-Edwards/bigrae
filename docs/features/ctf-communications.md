@@ -43,9 +43,16 @@ token or changing its owner prevents subsequent admission, including replay.
 
 HTTP 202 means the ledger accepted the declaration. It does not mean an email
 was delivered, a socket received a message, or a participant read it. The in-app
-channel is available. Email delivery is deferred to #1525; attempting to release
-an email campaign returns dependency-unavailable rather than creating queued
-work that cannot be delivered. Cancellation cannot recall an accepted message.
+channel is available. The email channel is available only when the deployment
+configures a mail provider. A console, file, or dummy backend makes email
+unavailable. A release that selects an unavailable channel returns
+dependency-unavailable and creates no queued work. Cancellation cannot recall an
+accepted message.
+
+The worker sends each email once per attempt and retries transient failures with
+backoff. It stops at the attempt and elapsed-time limits. **Accepted** means the
+mail provider took the message. It does not prove mailbox delivery. A worker
+crash after the provider accepts a message can send a duplicate.
 
 Collections default to 25 campaigns and are capped at 100 per request. Campaigns
 are visible only when the actor may access every target. Visibility is applied
@@ -86,6 +93,18 @@ read, and acknowledged counts for each event. It shows delivery-command counts
 for each channel. **Accepted** means a transport took the message. Read and
 acknowledged come only from participant actions. A failed release task shows an
 alert, because the message was not delivered.
+
+Each occurrence also shows one delivery state:
+
+| State | Meaning |
+| --- | --- |
+| `pending` | Some delivery work is queued, in progress, or waiting to retry. |
+| `accepted` | Every recipient channel accepted the message. |
+| `partial` | Some recipient channels accepted it, and some did not. |
+| `failed` | No recipient channel accepted it, and at least one failed. |
+| `withdrawn` | Cancellation or a lifecycle change stopped all delivery work. |
+| `empty` | The release found no recipients. |
+| `not_released` | The occurrence is not released yet. |
 
 The page refreshes every 15 seconds while delivery work or a scheduled release
 is pending. **Show recipients** lists the participant name, team, delivery status, and
@@ -148,7 +167,6 @@ Historical notification rows remain read-only; their dispatch counts are legacy
 aggregate evidence, never delivery or read receipts.
 
 Deployment uses the [maintenance cutover procedure](../technical/shifter_platform/ctf-communications.md#maintenance-cutover).
-Migrated email work remains visibly unavailable until #1525's adapter is installed;
-it is not silently changed to in-app. Organizer-only legacy email alerts are also
-unavailable. This slice does not claim the broader communications capability or
-email transport complete.
+Migrated email work stays visibly unavailable while email is unavailable. It is
+not silently changed to in-app. Organizer-only legacy email alerts are also
+unavailable, because the participant ledger has no organizer recipients.

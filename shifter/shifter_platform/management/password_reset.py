@@ -11,9 +11,11 @@ email is eligible for a Django reset:
 
 Delivery reuses the configured email backend, the validated public ``SITE_URL``
 origin, and the cross-worker credential-delivery budget. The administrator's
-accepted request is strict-audited (secret-free) before delivery is scheduled on
-transaction commit; no password, hash, token, URL, or email body is ever
-returned in JSON, logged, or written to audit state.
+accepted request is strict-audited (secret-free) before one bounded send runs on
+transaction commit (ADR-071). A send the backend does not accept is reported as
+``reset_delivery_failed``; the committed request and audit stay. No password,
+hash, token, URL, or email body is ever returned in JSON, logged, or written to
+audit state.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
+from django.template import loader
 
 from management import admin_services, services
 from management.policy import require_principal_administration
@@ -35,6 +38,7 @@ from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.authorization import AuthorizationProvider
 from shared.credential_delivery import credential_delivery_allowed
 from shared.credentials import CredentialContext
+from shared.email import INTERACTIVE_TIMEOUT_SECONDS, EmailAttempt, EmailOutcome, attempt_email, delivery_available
 from shared.site_url import SiteUrlUnavailable, validated_site_url
 
 if TYPE_CHECKING:
@@ -61,6 +65,14 @@ class PasswordResetError(Exception):
         self.message = message
 
 
+_ERROR_STATUS = {"reset_throttled": 409, "reset_delivery_failed": 503}
+
+
+def http_status(code: str) -> int:
+    """Return the HTTP status both administration APIs use for a reset error code."""
+    return _ERROR_STATUS.get(code, 400)
+
+
 class _SingleUserPasswordResetForm(PasswordResetForm):
     """PasswordResetForm that only ever emails the one resolved, authorized user.
 
@@ -75,6 +87,7 @@ class _SingleUserPasswordResetForm(PasswordResetForm):
 
     def __init__(self, target_user: User, *args: Any, **kwargs: Any) -> None:
         self._target_user = target_user
+        self.delivery: EmailAttempt | None = None
         super().__init__(*args, **kwargs)
 
     def get_users(self, email: str) -> Iterator[User]:
@@ -82,6 +95,27 @@ class _SingleUserPasswordResetForm(PasswordResetForm):
         user = self._target_user
         if user.has_usable_password() and user.is_active:
             yield user
+
+    def send_mail(
+        self,
+        subject_template_name: str,
+        email_template_name: str,
+        context: dict[str, Any],
+        from_email: str | None,
+        to_email: str,
+        html_email_template_name: str | None = None,
+    ) -> None:
+        """Render as Django does, then make one bounded, classified send.
+
+        Django's stock implementation logs and swallows a failed send. This keeps
+        the observed outcome so the command can report it.
+        """
+        subject = "".join(loader.render_to_string(subject_template_name, context).splitlines())
+        body = loader.render_to_string(email_template_name, context)
+        html = loader.render_to_string(html_email_template_name, context) if html_email_template_name else ""
+        self.delivery = attempt_email(
+            to_email, subject, html, body, timeout=INTERACTIVE_TIMEOUT_SECONDS, from_email=from_email
+        )
 
 
 def _has_valid_email(user: User) -> bool:
@@ -146,6 +180,8 @@ def request_password_reset(
         site_url = validated_site_url()
     except SiteUrlUnavailable as exc:
         raise PasswordResetError("reset_delivery_unavailable", "Password reset delivery is unavailable.") from exc
+    if not delivery_available():
+        raise PasswordResetError("reset_delivery_unavailable", "Password reset delivery is unavailable.")
 
     if not credential_delivery_allowed(user.id):
         raise PasswordResetError("reset_throttled", "Too many reset requests for this account; try again later.")
@@ -192,4 +228,20 @@ def request_password_reset(
         )
         transaction.on_commit(_deliver)
 
-    logger.info("Password reset email scheduled for user_id=%s", user.id)
+    _raise_unless_accepted(form.delivery, user.id)
+
+
+def _raise_unless_accepted(delivery: EmailAttempt | None, user_id: int) -> None:
+    """Report a send the backend did not accept.
+
+    ``None`` means the send is deferred to an outer transaction's commit, so no
+    outcome exists yet; the request stays accepted.
+    """
+    if delivery is None:
+        logger.info("Password reset email scheduled for user_id=%s", user_id)
+        return
+    logger.info("Password reset email outcome=%s reason=%s user_id=%s", delivery.outcome, delivery.reason, user_id)
+    if delivery.outcome != EmailOutcome.ACCEPTED:
+        raise PasswordResetError(
+            "reset_delivery_failed", "The password reset email could not be delivered. Try again later."
+        )

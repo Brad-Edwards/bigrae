@@ -71,7 +71,8 @@ class TestParticipantAnnouncementFeed:
 
 
 class TestMilestoneEmails:
-    def test_event_results_are_staged_without_delivery_claim(self, ctf_event_active):
+    def test_event_results_are_staged_without_delivery_claim(self, ctf_event_active, settings):
+        settings.EMAIL_DELIVERY_AVAILABLE = False
         from ctf.models import CommunicationCampaign, CommunicationIntent
         from ctf.services.notification import send_event_results
 
@@ -109,7 +110,21 @@ class TestMilestoneEmails:
 
         assert CommunicationCampaign.objects.filter(title="Your range is ready").count() == 1
 
-    def test_participant_provision_failure_email(self, ctf_event_active):
+    def test_event_results_release_email_work_when_email_is_available(self, ctf_event_active, mailoutbox):
+        from ctf.models import CommunicationIntent, DeliveryAttempt
+        from ctf.services.notification import send_event_results
+
+        _register(ctf_event_active, "results")
+        result = send_event_results(ctf_event_active.pk)
+
+        assert result["outcome"] == "accepted"
+        intent = CommunicationIntent.objects.get(pk=result["intent_id"])
+        assert intent.delivery_state == "pending"
+        assert DeliveryAttempt.objects.filter(intent=intent, channel="email").count() == 1
+        assert mailoutbox == []  # admission only; the worker sends
+
+    def test_participant_provision_failure_email(self, ctf_event_active, settings):
+        settings.EMAIL_DELIVERY_AVAILABLE = False
         from ctf.services.notification import notify_participant_provision_failure
 
         participant = _register(ctf_event_active, "unlucky")

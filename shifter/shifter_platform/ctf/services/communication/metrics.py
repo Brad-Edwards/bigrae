@@ -37,7 +37,9 @@ _ADMISSION_DENIED = "AdmissionDenied"
 
 # Closed dimension-value sets. A value outside the set is dropped, never emitted,
 # so a caller bug can never introduce an unbounded dimension value.
-_OUTCOMES = frozenset({"accepted", "retried", "expired", "failed", "suppressed", "stale", "reclaimed", "claimed"})
+_OUTCOMES = frozenset(
+    {"accepted", "retried", "expired", "failed", "suppressed", "stale", "reclaimed", "claimed", "released"}
+)
 _CHANNELS = frozenset(c.value for c in CommunicationChannel)
 _SCOPE_CLASSES = frozenset({"actor", "event", "workspace", "global"})
 
@@ -92,21 +94,17 @@ def _counter(name: str, dimensions: list[dict[str, str]], value: float) -> dict[
 
 
 def emit_worker_run(stats: DeliveryRunStats, *, now_func: NowFunc, client: MetricPublisher | None = None) -> bool:
-    """Emit per-run worker outcome counters plus a fresh backlog sample."""
+    """Emit per-run worker outcome counters by channel plus a fresh backlog sample.
+
+    ``WorkerOutcome`` carries ``Outcome`` and ``Channel`` dimensions, so queued
+    (backlog), delivered (accepted), retried, and terminal outcomes are visible
+    for each channel.
+    """
     data: list[dict[str, object]] = []
-    counts = {
-        "accepted": stats.accepted,
-        "retried": stats.retried,
-        "expired": stats.expired,
-        "failed": stats.failed,
-        "suppressed": stats.suppressed,
-        "stale": stats.stale,
-        "reclaimed": stats.reclaimed,
-        "claimed": stats.claimed,
-    }
-    for outcome, count in counts.items():
-        if count and outcome in _OUTCOMES:
-            data.append(_counter(_WORKER_OUTCOME, [{"Name": "Outcome", "Value": outcome}], count))
+    for (outcome, channel), count in sorted(stats.by_channel.items()):
+        if count and outcome in _OUTCOMES and channel in _CHANNELS:
+            dimensions = [{"Name": "Outcome", "Value": outcome}, {"Name": "Channel", "Value": channel}]
+            data.append(_counter(_WORKER_OUTCOME, dimensions, count))
     published = _publish(data, client=client)
     backlog = emit_backlog_gauges(now_func=now_func, client=client)
     return published and backlog
@@ -117,14 +115,16 @@ def emit_backlog_gauges(*, now_func: NowFunc, client: MetricPublisher | None = N
     from ctf.models import DeliveryAttempt
 
     now = now_func()
-    depth_rows = (
+    depth = dict.fromkeys(sorted(_CHANNELS), 0)
+    for row in (
         DeliveryAttempt.objects.filter(status__in=_BACKLOG_STATUSES).values("channel").annotate(depth=Count("id"))
-    )
-    data: list[dict[str, object]] = []
-    for row in depth_rows:
-        channel = row["channel"]
-        if channel in _CHANNELS:
-            data.append(_counter(_BACKLOG_DEPTH, [{"Name": "Channel", "Value": channel}], row["depth"]))
+    ):
+        if row["channel"] in depth:
+            depth[row["channel"]] = row["depth"]
+    # A drained channel reports zero, so dashboards can tell "empty" from "silent".
+    data: list[dict[str, object]] = [
+        _counter(_BACKLOG_DEPTH, [{"Name": "Channel", "Value": channel}], total) for channel, total in depth.items()
+    ]
     oldest = (
         DeliveryAttempt.objects.filter(
             status__in=(DeliveryStatus.QUEUED.value, DeliveryStatus.RETRY_DUE.value),

@@ -13,6 +13,35 @@ records the preview, reporting, timeline, and console architecture. The #2052
 [scheduling](../../architecture/ctf-multi-event-communications-preflight-2052.md)
 preflights record the boundaries.
 
+The [email delivery design (#1525)](../../architecture/email-delivery-design-1525.md),
+its [preflight](../../architecture/ctf-email-durable-delivery-preflight-1525.md),
+ADR-051-R13, and ADR-071 define the email channel on this same ledger and
+worker.
+
+## Email channel
+
+`adapters/email.py` registers `EmailAdapter` in the closed adapter mapping.
+`registered_channels()` returns `email` only when `EMAIL_DELIVERY_AVAILABLE` is
+true. That setting is false for console, file, and dummy backends outside
+development and test runtimes. Release, preview, cutover, and lifecycle notices
+read the same value in the web and worker processes.
+
+The adapter reads only the coordinate of its own snapshot. It renders the
+pinned subject and Markdown source through the trusted `ctf/email/communication`
+template, which escapes the source. It calls `shared.email.attempt_email()` with
+the worker transport timeout and the row `idempotency_key`. The key becomes a
+stable Message-ID. A missing snapshot or erased coordinate is terminal. An
+unreadable coordinate is retriable within the worker budget.
+
+The worker expires a claim before I/O when its attempt or elapsed ceiling is
+spent. On SIGTERM it finishes the attempt in flight and releases the other
+unattempted claims. When the last transport command of an occurrence settles,
+it refreshes `CommunicationIntent.delivery_state` through
+`disposition.refresh_after_settlement()`.
+Each cycle reconciles pending occurrences whose commands are all terminal.
+`WorkerOutcome` metrics carry `Outcome` and `Channel` dimensions, and each
+settlement writes one log line with the attempt, channel, status, and reason.
+
 ## Console read projections
 
 `ctf/services/communication/reporting.py` owns the console reads. It writes no
@@ -23,7 +52,7 @@ target set with the read scope.
 | --- | --- | --- |
 | Targets | `authorized_workspace_ids`, `authorize_bound_workspace`, `events_with_capability` | 100 events per page |
 | Preview | `recipient_queryset` grouped by event; no row load | Target count |
-| Delivery | `DeliveryAttempt` and `RecipientSnapshot` in separate grouped queries | 100 occurrences per page |
+| Delivery | `DeliveryAttempt` and `RecipientSnapshot` in separate grouped queries, plus the persisted `delivery_state` | 100 occurrences per page |
 | Recipients | Snapshots for one occurrence and one event; also needs `participants` capability | 100 rows per page |
 | Activity | Campaign, revision, and intent attribution columns | 100 revisions and 100 intents |
 
@@ -136,7 +165,7 @@ writer and retained fence. Do not reverse migrations, delete the marker, or
 restart an old sender. A database restore requires another full maintenance
 reconciliation before any workers are admitted.
 
-When the email adapter is installed, recover one mapped schedule through
+When email is available, recover one mapped schedule through
 `resume_migrated_schedule(legacy_id)`. It uses the original campaign, actor, due
 instant and stable `legacy:<id>` occurrence. Retries return the same declaration;
 a past-due declaration obeys the existing lateness policy rather than silently

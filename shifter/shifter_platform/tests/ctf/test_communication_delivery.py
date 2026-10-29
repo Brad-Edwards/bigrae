@@ -18,8 +18,8 @@ from django.utils import timezone
 
 import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
-from ctf.enums_communication import DeliveryStatus
-from ctf.models import CTFParticipant, DeliveryAttempt, ParticipantReceipt, RecipientSnapshot
+from ctf.enums_communication import DeliveryStatus, IntentDeliveryState
+from ctf.models import CommunicationIntent, CTFParticipant, DeliveryAttempt, ParticipantReceipt, RecipientSnapshot
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
 from ctf.services.communication import delivery as delivery_svc
 from ctf.services.communication.adapters import contract as adapter_contract
@@ -139,13 +139,14 @@ def test_worker_publishes_wakeup_on_a_stable_identity(organizer_user, ctf_event,
     assert str(notifications.get().event_id) == str(snapshot.id)
 
 
-def test_worker_does_not_claim_email_without_a_registered_adapter(organizer_user, ctf_event):
+def test_worker_does_not_claim_email_while_the_channel_is_unavailable(organizer_user, ctf_event, settings):
     _participant(ctf_event, "a@test.com")
     _release(organizer_user, ctf_event, channels=["email"])
+    settings.EMAIL_DELIVERY_AVAILABLE = False
 
     stats = delivery_svc.run_once()
 
-    # Email has no adapter until #1525; the command is never claimed, downgraded, or accepted.
+    # An unavailable channel is never claimed, downgraded, or accepted.
     assert stats.claimed == 0
     assert DeliveryAttempt.objects.get(channel="email").status == DeliveryStatus.QUEUED.value
 
@@ -284,24 +285,31 @@ def test_claim_recovers_a_stale_lease(organizer_user, ctf_event):
 
 @pytest.fixture
 def registered_email_adapter():
-    """Register a controllable fake adapter for the email channel; restore after.
+    """Replace the email adapter with a controllable fake; restore the real one after.
 
-    Email has no real adapter until #1525, so registering one here lets the worker
-    claim email commands and exercise the terminal/suppressed settle paths.
+    The fake returns a scripted outcome and counts calls, so tests exercise the
+    worker's settle paths without a transport.
     """
-    box = {"outcome": DeliveryOutcome(OutcomeClass.TERMINAL, reason="hard_bounce")}
+    box = {"outcome": DeliveryOutcome(OutcomeClass.TERMINAL, reason="hard_bounce"), "calls": 0}
 
     class _FakeEmailAdapter:
         channel = "email"
 
+        def available(self):
+            return True
+
         def deliver(self, command, *, timeout):
+            box["calls"] += 1
             return box["outcome"]
 
+    real = adapter_contract._ADAPTERS.get("email")
     register_adapter(_FakeEmailAdapter())
     try:
         yield box
     finally:
         adapter_contract._ADAPTERS.pop("email", None)
+        if real is not None:
+            register_adapter(real)
 
 
 def test_worker_records_a_terminal_channel_failure(organizer_user, ctf_event, registered_email_adapter):
@@ -334,6 +342,9 @@ def test_worker_retries_when_the_adapter_raises(organizer_user, ctf_event, regis
     class _Boom:
         channel = "email"
 
+        def available(self):
+            return True
+
         def deliver(self, command, *, timeout):
             raise RuntimeError("provider exploded")
 
@@ -356,3 +367,175 @@ def test_drain_command_processes_one_batch(organizer_user, ctf_event, capsys):
 
     assert DeliveryAttempt.objects.get(channel="in_app").status == DeliveryStatus.ACCEPTED.value
     assert "claimed=1" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Retry budget before I/O, graceful shutdown, and recovery counters (#1525).
+# ---------------------------------------------------------------------------
+
+
+def test_spent_attempt_budget_expires_before_transport_io(
+    organizer_user, ctf_event, registered_email_adapter, settings
+):
+    settings.CTF_COMMUNICATION_MAX_ATTEMPTS = 2
+    _participant(ctf_event, "a@test.com")
+    _release(organizer_user, ctf_event, channels=["email"])
+    # A crash loop already spent both attempts; the lease then expired.
+    DeliveryAttempt.objects.update(
+        status=DeliveryStatus.CLAIMED.value,
+        lease_token="dead-worker",
+        lease_expires_at=timezone.now() - timedelta(minutes=1),
+        attempt_number=2,
+        first_attempt_at=timezone.now() - timedelta(minutes=10),
+    )
+
+    stats = delivery_svc.run_once()
+
+    attempt = DeliveryAttempt.objects.get()
+    assert registered_email_adapter["calls"] == 0
+    assert (attempt.status, attempt.result_reason) == (DeliveryStatus.EXPIRED.value, "budget_exhausted")
+    assert (stats.expired, stats.reclaimed) == (1, 1)
+
+
+def test_spent_elapsed_budget_expires_a_due_retry_before_transport_io(
+    organizer_user, ctf_event, registered_email_adapter, settings
+):
+    settings.CTF_COMMUNICATION_MAX_ELAPSED_SECONDS = 60
+    _participant(ctf_event, "a@test.com")
+    _release(organizer_user, ctf_event, channels=["email"])
+    DeliveryAttempt.objects.update(
+        status=DeliveryStatus.RETRY_DUE.value,
+        attempt_number=1,
+        first_attempt_at=timezone.now() - timedelta(minutes=5),
+        due_at=timezone.now(),
+    )
+
+    delivery_svc.run_once()
+
+    assert registered_email_adapter["calls"] == 0
+    assert DeliveryAttempt.objects.get().status == DeliveryStatus.EXPIRED.value
+
+
+def test_shutdown_releases_unattempted_claims_with_their_budget_restored(
+    organizer_user, ctf_event, registered_email_adapter
+):
+    registered_email_adapter["outcome"] = DeliveryOutcome(OutcomeClass.ACCEPTED, reason="backend_accepted")
+    for index in range(3):
+        _participant(ctf_event, f"p{index}@test.com")
+    _release(organizer_user, ctf_event, channels=["email"])
+
+    stats = delivery_svc.run_once(should_stop=lambda: registered_email_adapter["calls"] >= 1)
+
+    assert registered_email_adapter["calls"] == 1
+    assert (stats.claimed, stats.accepted, stats.released) == (3, 1, 2)
+    released = DeliveryAttempt.objects.exclude(status=DeliveryStatus.ACCEPTED.value)
+    assert released.count() == 2
+    for attempt in released:
+        assert attempt.status == DeliveryStatus.QUEUED.value
+        assert attempt.attempt_number == 0
+        assert attempt.lease_token == ""
+        assert attempt.first_attempt_at is None
+
+
+def test_settlement_writes_one_bounded_log_line(organizer_user, ctf_event, registered_email_adapter, caplog):
+    import logging
+
+    _participant(ctf_event, "secret-recipient@test.com")
+    _release(organizer_user, ctf_event, channels=["email"])
+
+    # The "ctf" logger does not propagate to the root handler; attach caplog directly.
+    worker_logger = logging.getLogger("ctf.services.communication.delivery")
+    worker_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.INFO, logger="ctf.services.communication.delivery"):
+            delivery_svc.run_once()
+    finally:
+        worker_logger.removeHandler(caplog.handler)
+
+    lines = [record.getMessage() for record in caplog.records if "settled" in record.getMessage()]
+    assert len(lines) == 1
+    assert "channel=email" in lines[0] and "status=permanent_failure" in lines[0] and "reason=hard_bounce" in lines[0]
+    assert "secret-recipient" not in "\n".join(record.getMessage() for record in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Persisted occurrence delivery state (#1525).
+# ---------------------------------------------------------------------------
+
+
+def _state(intent) -> str:
+    return CommunicationIntent.objects.get(pk=intent.pk).delivery_state
+
+
+def test_in_app_only_release_is_accepted_even_when_the_wakeup_must_retry(organizer_user, ctf_event, settings):
+    settings.WEBSOCKET_NOTIFICATIONS_ENABLED = False
+    account = User.objects.create_user(username="w@test.com", email="w@test.com", password="x")  # nosec B106
+    _participant(ctf_event, "w@test.com", user=account)
+    intent = _release(organizer_user, ctf_event, channels=["in_app"])
+
+    assert _state(intent) == IntentDeliveryState.ACCEPTED.value
+    delivery_svc.run_once()
+
+    assert DeliveryAttempt.objects.get(channel="in_app").status == DeliveryStatus.RETRY_DUE.value
+    assert _state(intent) == IntentDeliveryState.ACCEPTED.value
+
+
+def test_email_settlement_moves_the_occurrence_from_pending_to_failed(
+    organizer_user, ctf_event, registered_email_adapter
+):
+    _participant(ctf_event, "a@test.com")
+    intent = _release(organizer_user, ctf_event, channels=["email"])
+    assert _state(intent) == IntentDeliveryState.PENDING.value
+
+    delivery_svc.run_once()
+
+    assert _state(intent) == IntentDeliveryState.FAILED.value
+
+
+def test_cancelling_unclaimed_work_withdraws_the_occurrence(organizer_user, ctf_event):
+    from ctf.services.communication import AdmissionActor, cancel_campaign
+
+    _participant(ctf_event, "a@test.com")
+    intent = _release(organizer_user, ctf_event, channels=["email"])
+
+    cancel_campaign(intent.campaign, actor=AdmissionActor(user_id=organizer_user.id))
+
+    assert _state(intent) == IntentDeliveryState.WITHDRAWN.value
+
+
+def test_release_without_recipients_is_empty(organizer_user, ctf_event):
+    intent = _release(organizer_user, ctf_event, channels=["email"])
+
+    assert _state(intent) == IntentDeliveryState.EMPTY.value
+
+
+def test_worker_reconciles_a_settlement_whose_state_refresh_was_lost(
+    organizer_user, ctf_event, registered_email_adapter
+):
+    _participant(ctf_event, "a@test.com")
+    intent = _release(organizer_user, ctf_event, channels=["email"])
+    # A crash between the settle commit and the refresh leaves the state behind.
+    DeliveryAttempt.objects.update(status=DeliveryStatus.ACCEPTED.value, result_reason="backend_accepted")
+    assert _state(intent) == IntentDeliveryState.PENDING.value
+
+    delivery_svc.run_once()
+
+    assert registered_email_adapter["calls"] == 0
+    assert _state(intent) == IntentDeliveryState.ACCEPTED.value
+
+
+def test_occurrence_stays_pending_until_its_last_email_command_settles(
+    organizer_user, ctf_event, registered_email_adapter
+):
+    registered_email_adapter["outcome"] = DeliveryOutcome(OutcomeClass.ACCEPTED, reason="backend_accepted")
+    _participant(ctf_event, "a@test.com")
+    _participant(ctf_event, "b@test.com")
+    intent = _release(organizer_user, ctf_event, channels=["email"])
+    cfg = delivery_svc.WorkerConfig.from_settings()
+    first, second = delivery_svc.claim_batch(cfg, now=timezone.now())
+
+    delivery_svc.process_attempt(first, cfg)
+    assert _state(intent) == IntentDeliveryState.PENDING.value
+
+    delivery_svc.process_attempt(second, cfg)
+    assert _state(intent) == IntentDeliveryState.ACCEPTED.value

@@ -39,9 +39,8 @@ def recorded_email():
     """Record messages at the external SMTP boundary (ADR-019-R1).
 
     Replaces ``EmailMultiAlternatives`` with a recording double whose ``send()``
-    signals ``delivered``, so a test can wait deterministically on the real
-    ``shared.email.send_email_async`` background dispatch and then assert on what
-    crossed the boundary. Mirrors the fixture in
+    signals ``delivered``, so a test can assert on what crossed the boundary
+    through the real ``shared.email`` transport seam. Mirrors the fixture in
     ``test_services/test_notification.py``: only the external SMTP boundary is
     patched, never a first-party ``ctf.services.*`` seam.
     """

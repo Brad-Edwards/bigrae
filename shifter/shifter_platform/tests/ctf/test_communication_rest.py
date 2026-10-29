@@ -164,7 +164,8 @@ def test_authoring_rate_limit_bounds_retained_drafts(organizer_user, ctf_event, 
     assert CommunicationCampaign.objects.count() == 1
 
 
-def test_unavailable_email_channel_is_not_accepted_for_delivery(organizer_user, ctf_event):
+def test_unavailable_email_channel_is_not_accepted_for_delivery(organizer_user, ctf_event, settings):
+    settings.EMAIL_DELIVERY_AVAILABLE = False
     client, _ = token_client(organizer_user, ["ctf:communication:write"])
     data = body(ctf_event, organizer_user)
     data["channels"] = ["email"]

@@ -29,3 +29,14 @@ and admin invitations; owner grants require owner authority. Issue/resend use
 the shared credential-delivery limiter and shared email adapter, and every
 lifecycle mutation writes strict invitation audit records without recipient PII
 or signed credentials.
+
+Delivery follows ADR-071. Issue and resend commit the invitation and audit
+first. An `on_commit` callback then makes one bounded `shared.email.attempt_email()`
+call. It sends only when the invitation is current and its generation is
+unchanged. It stores `delivery_status`, `delivery_reason`, and
+`delivery_observed_at` with a compare on that generation, so a later resend or
+revoke fences an earlier send. The status is `pending`, `accepted`, `failed`,
+`unavailable`, or `unknown` (rows created before #1525). `unavailable` means no
+delivering backend is configured, and nothing was sent. Resend is the retry.
+There is no outbox, retry loop, or thread pool. See the
+[email delivery design](../../architecture/email-delivery-design-1525.md).

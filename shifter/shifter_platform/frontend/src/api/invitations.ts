@@ -4,6 +4,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import type { IssueWorkspaceInvitationRequest, WorkspaceInvitation } from "./types";
 
+/** Operator text for the observed send outcome; "accepted" never means read. */
+export const INVITATION_DELIVERY_LABELS: Record<WorkspaceInvitation["delivery_status"], string> = {
+  pending: "Email pending",
+  accepted: "Email accepted",
+  failed: "Email not delivered",
+  unavailable: "Email unavailable",
+  unknown: "Email outcome unknown",
+};
+
 export const invitationKeys = {
   all: ["workspaces", "invitations"] as const,
   list: (uuid: string) => ["workspaces", "invitations", uuid] as const,

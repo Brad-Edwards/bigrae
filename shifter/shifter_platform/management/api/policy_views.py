@@ -96,7 +96,7 @@ class PolicyAdminView(APIView):
             status_code = 403 if exc.code == "authority_denied" else 409
         elif isinstance(exc, password_reset.PasswordResetError):
             code, message = exc.code, exc.message
-            status_code = 409 if exc.code == "reset_throttled" else 400
+            status_code = password_reset.http_status(exc.code)
         else:
             return super().handle_exception(exc)
         return api_error_response(code=code, message=message, status_code=status_code, request=self.request)
