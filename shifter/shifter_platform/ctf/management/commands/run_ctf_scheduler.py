@@ -55,6 +55,7 @@ from django.utils import timezone
 
 from ctf.enums import ScheduledTaskStatus, ScheduledTaskType
 from ctf.models import CTFScheduledTask
+from shared.log_sanitize import safe_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +73,14 @@ def _run_retention_maintenance() -> None:
     from ctf.services.participant.accounts import purge_expired_participant_accounts
     from ctf.services.public_registration import purge_expired_public_registration_requests
 
-    purge_expired_participant_accounts()
-    purge_expired_public_registration_requests()
+    accounts = purge_expired_participant_accounts()
+    registrations = purge_expired_public_registration_requests()
+    if accounts or registrations:
+        logger.info(
+            "CTF retention maintenance purged participant_accounts=%d public_registration_requests=%d",
+            accounts,
+            registrations,
+        )
 
 
 class Command(BaseCommand):
@@ -232,8 +239,8 @@ class Command(BaseCommand):
                 raise ValueError(f"No handler for task type: {task.task_type}")
             result = handler(task, shutdown_check=lambda: self.shutdown, heartbeat=self._touch_heartbeat)
             self._settle(task, token, result)
-        except Exception as exc:
-            logger.exception("Task %s failed: %s", task.pk, exc)
+        except Exception:
+            logger.exception("Task %s failed: type=%s event_id=%s", task.pk, task.task_type, task.event_id)
             task.retry_or_fail_if_claimed("Task execution failed; see server logs for details.", token)
 
     def _settle(self, task: CTFScheduledTask, token: UUID, result: object) -> None:
@@ -305,10 +312,17 @@ def _handle_spin_up_ranges(
         heartbeat=task_heartbeat,
         actor=credential,
     )
+    # Counts only: per-participant failures (and their exception text) are
+    # already logged by the provisioning service.
     logger.info(
-        "SPIN_UP_RANGES result for event %s: %s",
+        "SPIN_UP_RANGES result event_id=%s total=%s successful=%s failed=%s skipped=%s interrupted=%s refused=%s",
         event.pk,
-        result,
+        result.get("total"),
+        result.get("successful"),
+        result.get("failed"),
+        result.get("skipped"),
+        result.get("interrupted"),
+        result.get("refused", False),
     )
     return result
 
@@ -439,7 +453,7 @@ def _handle_release_challenge(
         "RELEASE_CHALLENGE for event %s: challenge %s (%s)",
         task.event_id,
         challenge_id,
-        result.name,
+        safe_log_value(result.name),
     )
 
 

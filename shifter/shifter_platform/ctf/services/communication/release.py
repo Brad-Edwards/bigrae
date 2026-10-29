@@ -418,7 +418,7 @@ def release_due_declaration(
                 CommunicationIntent.objects.filter(pk=locked_intent.pk).update(
                     status=IntentStatus.EXPIRED.value, updated_at=now
                 )
-                logger.info("Scheduled communication intent %s expired past its grace window", locked_intent.id)
+                logger.warning("Scheduled communication intent %s expired past its grace window", locked_intent.id)
             return disposition
 
         _assert_release_allowed(locked_campaign, target_events)

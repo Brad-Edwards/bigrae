@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -46,6 +47,8 @@ from shared.authorization import (
 )
 from shared.authorization.model import decision_relation_for_action
 from shared.identity_scope import ResourceScope
+
+logger = logging.getLogger(__name__)
 
 _INSTALLATION_ROOT = "installation:root"
 
@@ -273,7 +276,9 @@ class OpenFgaAuthorizationProvider:
                 return AuthorizationDecision(DecisionKind.DENIED, "invalid_request")
             response = self._client.check(_check_body(request), self._options)
             return _decision(response.allowed is True)
-        except Exception:
+        # fail closed; OpenFGA calls carry the API token, so log the type only
+        except Exception as exc:  # noqa: BLE001
+            logger.error("OpenFGA check failed closed: exc_type=%s", type(exc).__name__, exc_info=False)
             return AuthorizationDecision(DecisionKind.EVALUATOR_ERROR, "evaluator_unavailable")
 
     def batch_check(self, requests: Sequence[AuthorizationRequest]) -> tuple[AuthorizationDecision, ...]:
@@ -294,7 +299,14 @@ class OpenFgaAuthorizationProvider:
                 decisions = _batch_decisions(response.result, len(requests))
             else:
                 decisions = tuple(AuthorizationDecision(DecisionKind.DENIED, "invalid_request") for _ in requests)
-        except Exception:
+        # fail closed; OpenFGA calls carry the API token, so log the type only
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "OpenFGA batch check failed closed: exc_type=%s count=%s",
+                type(exc).__name__,
+                len(requests),
+                exc_info=False,
+            )
             decisions = tuple(
                 AuthorizationDecision(DecisionKind.EVALUATOR_ERROR, "evaluator_unavailable") for _ in requests
             )

@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
+
+from django.core.exceptions import ObjectDoesNotExist
 
 from shared.authorization import AuthorizationRequest
 from shared.authorization.policy import require_authorization, scope_parent
 from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.identity_scope import ResourceScope
+from shared.log_sanitize import safe_log_value
 from shared.operation_authority import credential_reference_fields, credential_reference_from_record
 from shared.operation_envelope import canonical_payload_digest
 
@@ -22,6 +26,7 @@ if TYPE_CHECKING:
     from shared.identity_scope import ResourceScope
     from shared.schemas import RequestSpec
 
+logger = logging.getLogger(__name__)
 
 _DEVICE_AUTHORITY_UNAVAILABLE = "Device authority unavailable"
 
@@ -206,7 +211,7 @@ def authorize_device_authority(intent: ProvisionerLaunchIntent, runtime: Instanc
             return
         current = resolve_current_credential(credential_reference_from_record(intent))
         require_device_scope(current, device_scope(runtime))
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
         raise PermissionError(_DEVICE_AUTHORITY_UNAVAILABLE) from None
 
 
@@ -319,7 +324,19 @@ def verified_device_status_projection(event: dict[str, Any]) -> tuple[UUID, UUID
         ):
             raise ValueError(_DEVICE_CALLBACK_UNAVAILABLE)
         return (runtime.request.request_id, runtime.uuid, runtime.request.owner_principal_uuid, device_scope(runtime))
+    except (KeyError, TypeError, ValueError, ObjectDoesNotExist) as exc:
+        # The callback does not match accepted native state: fail closed.
+        logger.warning(
+            "device status callback not verified event_id=%s exc_type=%s",
+            safe_log_value(event.get("event_id")),
+            type(exc).__name__,
+        )
+        return None
     except Exception:
+        # An unexpected failure still fails closed; keep its traceback.
+        logger.exception(
+            "device status callback verification failed event_id=%s", safe_log_value(event.get("event_id"))
+        )
         return None
 
 
@@ -343,7 +360,7 @@ def admit_native_device_access(credential: CredentialContext, identifier: UUID |
         if binding != device_binding_digest(latest):
             raise ValueError("Device access changed")
         return {**credential_reference_fields(current), **_device_remote_authority_fields(latest)}
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed device authority; only bounded denial escapes
         raise PermissionError("Device access unavailable") from None
 
 

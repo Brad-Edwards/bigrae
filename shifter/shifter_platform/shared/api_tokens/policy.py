@@ -86,7 +86,7 @@ def require_personal_token_grant(principal: PrincipalRef) -> None:
     )
     try:
         decision = configured_authorization_provider().check(request)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed credential boundary; private causes are suppressed
         raise CredentialUnavailable("Personal credential authority unavailable") from None
     if decision.kind == DecisionKind.EVALUATOR_ERROR:
         raise CredentialUnavailable("Personal credential authority unavailable")

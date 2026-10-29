@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from typing import TYPE_CHECKING
 
 from django.db import transaction
@@ -25,6 +26,8 @@ from shared.exceptions import ValidationError
 
 if TYPE_CHECKING:
     from engine.models import RuntimePluginInstallation
+
+logger = logging.getLogger(__name__)
 
 
 def _pull_secret(row: RuntimePluginInstallation, request: InspectionInput | RuntimeInput) -> str:
@@ -109,10 +112,16 @@ def _reconcile(row: RuntimePluginInstallation) -> None:
             interrupt_plugin(request)
         else:
             state, failure_code = _observe_probe(row, request)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001  # Kubernetes and image errors can carry registry detail; log the type only
         # Kubernetes/image errors can contain registry addresses and diagnostic
         # output. Persist and audit only a closed, tenant-actionable code.
         state, failure_code = "failed", failure_code or "installation-failed"
+        logger.warning(
+            "runtime plugin installation probe failed installation_id=%s failure_code=%s exc_type=%s",
+            row.pk,
+            failure_code,
+            type(exc).__name__,
+        )
     _record(row, state, failure_code)
 
 

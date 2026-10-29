@@ -59,7 +59,7 @@ line-length = 120
 exclude = [".venv", "__pycache__"]
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "S", "T20", "SIM", "RUF", "C901"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "S", "T20", "SIM", "RUF", "C901", "BLE", "G", "LOG", "TRY401"]
 ignore = ["S101"]
 
 # Per-function McCabe complexity limit (ADR-012). Existing offenders carry

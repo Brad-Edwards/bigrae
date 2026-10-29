@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 
+from config.logging import ECSFormatter
 from shared.range_escape import (
     BoundaryCode,
     CheckContext,
@@ -103,18 +105,28 @@ def test_logging_sink_emits_bounded_sanitized_summary(caplog) -> None:
     with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
         LoggingContainmentSink().record(report)
 
-    record = next(r for r in caplog.records if r.getMessage() == "range-escape containment signal")
-    assert record.range_escape_contract == report.contract
-    assert record.verdict == report.verdict.value == Verdict.FAILED.value
-    assert "metadata_server" in record.failed_boundaries
-    assert "internet_egress" not in record.failed_boundaries
-    assert record.boundary_status_counts.get(CheckStatus.FAIL.value) == 1
+    record = next(r for r in caplog.records if r.getMessage().startswith("range-escape containment signal "))
+    message = record.getMessage()
+    assert f"contract={report.contract} " in message
+    assert f"suite_id={report.suite_id} " in message
+    assert f"request_id={report.request_id} " in message
+    assert f"verdict={Verdict.FAILED.value} " in message
+    assert report.verdict.value == Verdict.FAILED.value
+    assert message.endswith("failed_boundaries=metadata_server")
+    assert f"{CheckStatus.FAIL.value}:1" in message
     assert record.range_id == 1
     # The bounded-payload contract: only codes and counts, never raw per-check
     # fields (diagnostics, the full checks list) that would widen what lands in
     # Cloud Logging.
     assert "diagnostic" not in record.__dict__
     assert "checks" not in record.__dict__
+    for check in report.checks:
+        assert check.source_context not in message
+    # The production ECS formatter emits only allowlisted extra keys, so the
+    # signal fields must reach the rendered message itself.
+    rendered = json.loads(ECSFormatter().format(record))
+    assert f"verdict={Verdict.FAILED.value} " in rendered["message"]
+    assert rendered["labels.range_id"] == 1
 
 
 def test_emit_does_not_block_on_a_slow_sink(caplog) -> None:
@@ -144,4 +156,4 @@ def test_default_sink_is_the_logging_baseline(caplog) -> None:
     with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
         emit_containment_signal(report)
 
-    assert any(r.getMessage() == "range-escape containment signal" for r in caplog.records)
+    assert any(r.getMessage().startswith("range-escape containment signal ") for r in caplog.records)

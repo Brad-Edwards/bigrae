@@ -133,8 +133,14 @@ def cleanup_failed_provision_openvpn(request_id: str, range_id: int, remote_acce
     """Delete a failed provision's profile without masking the provision's failure."""
     try:
         cleanup_raes_openvpn(request_id, range_id, remote_access)
-    except Exception:
-        logger.exception("RAES OpenVPN profile cleanup failed for request_id=%s", request_id)
+    # must not mask the provision failure; VPN secret-store text, class only
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "RAES OpenVPN profile cleanup failed for request_id=%s exc_type=%s",
+            request_id,
+            type(exc).__name__,
+            exc_info=False,
+        )
 
 
 def vpn_access_fragment(vpn_access: object) -> dict[str, object]:

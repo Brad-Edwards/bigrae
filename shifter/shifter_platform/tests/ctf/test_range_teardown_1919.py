@@ -46,7 +46,7 @@ def test_dispatch_retains_linkage_and_capacity_until_terminal(
 ):
     participant = _participant(ctf_event_active, participant_user)
     released: list = []
-    monkeypatch.setattr("ctf.services.range.capacity.release_range", lambda draw_key: released.append(draw_key))
+    monkeypatch.setattr("ctf.bridges.cms_release_range_capacity", lambda draw_key: released.append(draw_key))
     monkeypatch.setattr(
         "ctf.bridges.cms_destroy_recovery_range", lambda credential, event_uuid, range_instance_id: None
     )
@@ -65,7 +65,7 @@ def test_verified_terminal_releases_capacity_and_clears_linkage(
 ):
     participant = _participant(ctf_event_active, participant_user)
     released: list = []
-    monkeypatch.setattr("ctf.services.range.capacity.release_range", lambda draw_key: released.append(draw_key))
+    monkeypatch.setattr("ctf.bridges.cms_release_range_capacity", lambda draw_key: released.append(draw_key))
     monkeypatch.setattr(
         "ctf.bridges.cms_destroy_recovery_range", lambda credential, event_uuid, range_instance_id: None
     )
@@ -84,7 +84,7 @@ def test_unverified_terminal_retains_capacity_and_linkage(
 ):
     participant = _participant(ctf_event_active, participant_user)
     released: list = []
-    monkeypatch.setattr("ctf.services.range.capacity.release_range", lambda draw_key: released.append(draw_key))
+    monkeypatch.setattr("ctf.bridges.cms_release_range_capacity", lambda draw_key: released.append(draw_key))
     monkeypatch.setattr(
         "ctf.bridges.cms_destroy_recovery_range", lambda credential, event_uuid, range_instance_id: None
     )

@@ -140,7 +140,7 @@ async function _runHandlerAndPostGates(
     if (inFlight) {
       if (inFlight.fingerprint !== idem.fingerprint) {
         throw new PolicyError(
-          `${descriptor.name}: idempotency_key '${idem.key}' is in flight with different args; refuse to double-mutate`,
+          `${descriptor.name}: idempotency_key is in flight with different args; refuse to double-mutate`,
         );
       }
       const result = await inFlight.promise;

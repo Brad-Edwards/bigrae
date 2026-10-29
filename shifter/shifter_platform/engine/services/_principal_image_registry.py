@@ -35,7 +35,7 @@ def authorize_image_registry(credential: object) -> CredentialContext:
             )
         )
         return current
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise PermissionError(_IMAGE_REGISTRY_UNAVAILABLE) from None
 
 

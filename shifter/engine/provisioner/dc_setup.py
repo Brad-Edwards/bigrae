@@ -15,7 +15,7 @@ from typing import Any
 
 from executors.base import CommandExecutor
 from executors.factory import GuestExecutionContext, build_guest_execution_context
-from log_redact import safe_log_fingerprint
+from log_redact import safe_log_fingerprint, safe_log_value
 from orchestrators.setup_orchestrator import SetupError, SetupOrchestrator
 from plans.dc_setup import DCSetupPlan
 from plans.xdr_agent_install import XDRAgentInstallPlan
@@ -79,7 +79,7 @@ Write-Host "SSH key configured successfully"
         timeout_seconds=60,
     )
     if not ssh_result.success:
-        logger.warning("SSH key configuration failed: %s (continuing with setup)", ssh_result.stderr)
+        logger.warning("SSH key configuration failed: %s (continuing with setup)", safe_log_value(ssh_result.stderr))
         return
     logger.info("SSH key configured on DC instance_fp=%s", safe_log_fingerprint(instance_id))
 

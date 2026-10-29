@@ -49,7 +49,7 @@ from ._backend import (
     get_state_key,
     has_terraform_state,
 )
-from ._run import apply, cleanup_state, destroy, run_terraform
+from ._run import TerraformCommandError, apply, cleanup_state, destroy, run_terraform
 from ._workspace import (
     _CONTAINER_TERRAFORM_WORKSPACE_DIR,
     _DEFAULT_TERRAFORM_WORKSPACE_DIR,
@@ -68,6 +68,7 @@ __all__ = [
     "_CONTAINER_TERRAFORM_WORKSPACE_DIR",
     "_DEFAULT_TERRAFORM_WORKSPACE_DIR",
     "TerraformBackendConfig",
+    "TerraformCommandError",
     "_build_init_args",
     "_cleanup_workspace",
     "_finalize_workspace",

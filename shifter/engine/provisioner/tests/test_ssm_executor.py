@@ -147,6 +147,23 @@ class TestRunCommandEdgeCases:
         with pytest.raises(InstanceNotFoundError):
             executor.run_command("i-invalid", "script", 60)
 
+    def test_send_command_failure_keeps_provider_text_out_of_error(self):
+        """A rejected send keeps only the provider error code; the command can carry secrets."""
+        from botocore.exceptions import ClientError
+
+        mock_ssm = MagicMock()
+        mock_ssm.send_command.side_effect = ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "Value 'synthetic-script-secret' is invalid"}},
+            "SendCommand",
+        )
+        executor = SSMExecutor(ssm_client=mock_ssm, ec2_client=MagicMock())
+
+        with pytest.raises(SSMExecutorError) as exc_info:
+            executor.run_command("i-12345", "synthetic-script-secret", 60)
+
+        assert str(exc_info.value) == "Failed to send command (ValidationException)"
+        assert exc_info.value.__cause__ is None
+
     def test_run_command_instance_terminated_raises(self):
         """Instance terminated during command raises InstanceTerminatedError."""
         mock_ssm = MagicMock()

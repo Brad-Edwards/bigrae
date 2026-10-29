@@ -263,12 +263,9 @@ def allocate_model_access(
 def _admission_metric(outcome: str, started: float) -> None:
     """Use the existing structured logging transport; no network in the transaction."""
     logger.info(
-        "model-access allocation",
-        extra={
-            "model_access_namespace": "Shifter/ModelAccess",
-            "model_access_outcome": outcome,
-            "model_access_elapsed_ms": (perf_counter() - started) * 1000,
-        },
+        "model-access allocation namespace=Shifter/ModelAccess outcome=%s elapsed_ms=%.1f",
+        outcome,
+        (perf_counter() - started) * 1000,
     )
 
 

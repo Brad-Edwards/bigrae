@@ -28,7 +28,7 @@ _VPN_TERMINATION_UNAVAILABLE = "VPN termination unavailable"
 RETRY_SECONDS = 5
 MAX_HEARTBEAT_SECONDS = 15
 TERMINATION_BATCH_SECONDS = 10
-_LOGGER = logging.getLogger("shifter_openvpn")
+_LOGGER = logging.getLogger(__name__)
 
 
 class ManagementPort(Protocol):
@@ -92,7 +92,6 @@ class Controller:
         *,
         grace_seconds: int = 90,
         clock: Callable[[], float] = time.monotonic,
-        log: Callable[[str], None] | None = None,
         revocation: RevocationControl | None = None,
     ) -> None:
         self._management = management
@@ -100,7 +99,6 @@ class Controller:
         self._firewall = firewall
         self._grace = grace_seconds
         self._clock = clock
-        self._log = log or _LOGGER.info
         revocation = revocation or RevocationControl()
         self._crl, self._refresh_crl = revocation.store, revocation.refresh
         self._fatal = revocation.fatal or (lambda: None)
@@ -123,8 +121,14 @@ class Controller:
     def _connect_safely(self, event: ClientEvent) -> None:
         try:
             self._connect(event)
-        except Exception as error:
-            self._log(f"VPN authorization failed ({type(error).__name__}); stopping the server")
+        # fail closed; client and portal detail stay out of logs (class only)
+        except Exception as error:  # noqa: BLE001
+            _LOGGER.error(
+                "VPN authorization failed cid=%s exc_type=%s; stopping the server",
+                event.cid,
+                type(error).__name__,
+                exc_info=False,
+            )
             self._fatal()
 
     def _certificate_refusal(self, common_name: str) -> str:
@@ -152,16 +156,18 @@ class Controller:
                 certificate_fingerprint=event.env.get("tls_digest_sha256_0", ""),
             )
         except PortalRefused as refused:
-            self._log(f"deny cid={event.cid} reason={refused.code}")
+            _LOGGER.info("deny cid=%s reason=%s", event.cid, refused.code)
             self._management.deny(event.cid, kid, refused.code)
             return
         except PortalUnavailable as unavailable:
-            self._log(f"deny cid={event.cid} reason=portal-unavailable ({unavailable})")
+            _LOGGER.warning("deny cid=%s reason=portal-unavailable detail=%s", event.cid, unavailable)
             self._management.deny(event.cid, kid, "portal unavailable")
             return
         with self._lock:
             self._sessions[event.cid] = Session(grant.session, grant.target, grant.ports)
-        self._log(f"allow cid={event.cid} session={grant.session} target={grant.target} ports={list(grant.ports)}")
+        _LOGGER.info(
+            "allow cid=%s session=%s target=%s ports=%s", event.cid, grant.session, grant.target, list(grant.ports)
+        )
         self._management.allow(event.cid, kid, [f'push "route {grant.target} 255.255.255.255"'])
 
     def _reauth(self, event: ClientEvent) -> None:
@@ -194,8 +200,11 @@ class Controller:
                 return
             try:
                 self._firewall.allow(address, session.target, session.ports)
-            except Exception as error:
-                self._log(f"kill cid={event.cid} reason=firewall ({type(error).__name__})")
+            # the client is killed; firewall errors are logged by class only
+            except Exception as error:  # noqa: BLE001
+                _LOGGER.error(
+                    "kill cid=%s reason=firewall exc_type=%s", event.cid, type(error).__name__, exc_info=False
+                )
                 self._management.kill(event.cid)
                 return
             # Installation and address publication are fenced with retirement.
@@ -209,18 +218,21 @@ class Controller:
             if session.address:
                 try:
                     self._firewall.revoke(session.address, session.target, session.ports)
-                except Exception as error:
-                    self._log(f"revoke failed cid={event.cid} ({type(error).__name__})")
+                # fail closed with the authored termination error; class-only log
+                except Exception as error:  # noqa: BLE001
+                    _LOGGER.error("revoke failed cid=%s exc_type=%s", event.cid, type(error).__name__, exc_info=False)
                     # Stale allowances could authorize a later address occupant.
                     raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE) from None
         try:
             self._portal.end(session.session_id)
         except (PortalRefused, PortalUnavailable) as error:
-            self._log(f"end not recorded session={session.session_id} ({error}); the heartbeat reconciles it")
-        self._log(f"disconnect cid={event.cid} session={session.session_id}")
+            _LOGGER.warning(
+                "end not recorded session=%s detail=%s; the heartbeat reconciles it", session.session_id, error
+            )
+        _LOGGER.info("disconnect cid=%s session=%s", event.cid, session.session_id)
 
     def _kill(self, cid: int, reason: str) -> None:
-        self._log(f"kill cid={cid} reason={reason}")
+        _LOGGER.info("kill cid=%s reason=%s", cid, reason)
         with self._lock:
             session = self._sessions.pop(cid, None)
             if session is None:
@@ -232,12 +244,14 @@ class Controller:
                 try:
                     self._firewall.revoke(session.address, session.target, session.ports)
                     forwarding_removed = True
-                except Exception as error:
-                    self._log(f"revoke failed cid={cid} ({type(error).__name__})")
+                # checked below: a kept allowance raises; class-only log
+                except Exception as error:  # noqa: BLE001
+                    _LOGGER.error("revoke failed cid=%s exc_type=%s", cid, type(error).__name__, exc_info=False)
         try:
             self._management.kill(cid)
-        except Exception as error:
-            self._log(f"kill failed cid={cid} ({type(error).__name__})")
+        # fail closed with the authored termination error; class-only log
+        except Exception as error:  # noqa: BLE001
+            _LOGGER.error("kill failed cid=%s exc_type=%s", cid, type(error).__name__, exc_info=False)
             raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE) from None
         if not forwarding_removed:
             raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE)
@@ -253,7 +267,7 @@ class Controller:
             disconnect, interval = self._portal.heartbeat(sorted(live.values()))
         except (PortalRefused, PortalUnavailable) as error:
             silent = self._clock() - self._last_heartbeat
-            self._log(f"heartbeat failed ({error}); {silent:.0f}s since the last confirmation")
+            _LOGGER.warning("heartbeat failed detail=%s; %.0fs since the last confirmation", error, silent)
             if silent > self._grace:
                 self._kill_many(live, "revocation-unconfirmed")
             return RETRY_SECONDS
@@ -275,8 +289,8 @@ class Controller:
         if self._refresh_crl is not None:
             try:
                 self._crl.install(self._refresh_crl())
-            except (ValueError, PortalRefused, PortalUnavailable):
-                self._log("CRL refresh unavailable")
+            except (ValueError, PortalRefused, PortalUnavailable) as error:
+                _LOGGER.warning("CRL refresh unavailable exc_type=%s", type(error).__name__)
         return self._crl.valid()
 
     def session_count(self) -> int:

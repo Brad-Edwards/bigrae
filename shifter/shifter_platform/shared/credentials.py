@@ -190,7 +190,7 @@ def _resolve_credential(original: CredentialContext, resolver: CredentialReferen
         )
     except CredentialRevoked:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed credential boundary; private causes are suppressed
         raise CredentialUnavailable("Credential unavailable") from None
 
 

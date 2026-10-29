@@ -73,7 +73,7 @@ def derive_ssh_public_key(private_key_pem: str) -> str:
             .decode("utf-8")
         )
     except Exception as e:
-        logger.exception("Failed to derive public key: %s", e)
+        logger.exception("Failed to derive public key")
         raise KeyGenerationError(f"Failed to derive SSH public key: {e}") from e
 
     if not public_key_openssh.startswith("ssh-rsa "):
@@ -107,7 +107,7 @@ def generate_ssh_keypair() -> tuple[str, str]:
             key_size=4096,
         )
     except Exception as e:
-        logger.exception("Failed to generate RSA private key: %s", e)
+        logger.exception("Failed to generate RSA private key")
         raise KeyGenerationError(f"Failed to generate RSA private key: {e}") from e
 
     try:
@@ -117,13 +117,13 @@ def generate_ssh_keypair() -> tuple[str, str]:
             encryption_algorithm=serialization.NoEncryption(),
         ).decode("utf-8")
     except Exception as e:
-        logger.exception("Failed to serialize private key: %s", e)
+        logger.exception("Failed to serialize private key")
         raise KeyGenerationError(f"Failed to serialize private key: {e}") from e
 
     try:
         public_key_openssh = derive_ssh_public_key(private_key_pem)
     except Exception as e:
-        logger.exception("Failed to serialize public key: %s", e)
+        logger.exception("Failed to serialize public key")
         raise KeyGenerationError(f"Failed to serialize public key: {e}") from e
 
     # Validate generated keys have expected format
@@ -181,7 +181,7 @@ def generate_ssh_host_keypair() -> tuple[str, str]:
             .decode("utf-8")
         )
     except Exception as e:
-        logger.exception("Failed to generate Ed25519 host key pair: %s", e)
+        logger.exception("Failed to generate Ed25519 host key pair")
         raise KeyGenerationError(f"Failed to generate Ed25519 host key pair: {e}") from e
 
     if not private_key_openssh.startswith("-----BEGIN OPENSSH PRIVATE KEY-----"):

@@ -38,6 +38,31 @@ describe("EventWebhooksCard", () => {
     expect(mockApi).toHaveBeenCalledWith("/ctf/webhooks/w1/", expect.objectContaining({ method: "DELETE" }));
   });
 
+  it("reports a webhook that fails to remove", async () => {
+    const user = setupUser();
+    mockApi.mockImplementation((_path: string, options?: { method?: string }) =>
+      options?.method === "DELETE"
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : Promise.resolve({
+            webhooks: [
+              {
+                id: "w1",
+                url: "https://hooks.example.test/ctf",
+                subscribed_events: [],
+                active: true,
+                has_secret: false,
+                last_status: "",
+                last_delivery_at: null,
+              },
+            ],
+          }),
+    );
+    renderRoute(<EventWebhooksCard eventId="e1" />);
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Could not remove the webhook.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
+
   it("registers a webhook with a secret", async () => {
     const user = setupUser();
     mockApi.mockResolvedValue({ webhooks: [] });

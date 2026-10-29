@@ -173,8 +173,8 @@ def attempt_email(
     try:
         message = _message(recipient, subject, html_content, text_content, message_key, from_email)
         sent = _send_once(message, timeout, deadline)
-    # Every failure is classified into the closed vocabulary; nothing propagates.
-    except Exception as exc:
+    # Every failure maps to the closed vocabulary; only its class is logged (#2569).
+    except Exception as exc:  # noqa: BLE001  # any backend error is classified, never propagated
         # Libraries wrap a socket timeout in their own error types; the deadline
         # itself is the authority on whether the attempt ran out of time.
         outcome, reason = (EmailOutcome.RETRIABLE, "transport_timeout") if deadline.expired() else classify(exc)

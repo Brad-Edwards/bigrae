@@ -136,33 +136,36 @@ function MemberRow({ team, member }: Readonly<{ team: CtfTeam; member: CtfTeam["
   const transfer = useTransferCaptaincy();
   const remove = useRemoveTeamMember();
   return (
-    <li className="flex items-center justify-between gap-3 py-2 text-sm">
-      <span className="flex items-center gap-2">
-        {member.name}
-        {member.is_captain ? <Badge variant="secondary">Captain</Badge> : null}
-      </span>
-      {team.is_captain && !member.is_captain ? (
-        <span className="flex gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={transfer.isPending}
-            onClick={() => transfer.mutate({ participant_id: member.id })}
-          >
-            Make captain
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate({ participant_id: member.id })}
-          >
-            Remove
-          </Button>
+    <li className="py-2 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2">
+          {member.name}
+          {member.is_captain ? <Badge variant="secondary">Captain</Badge> : null}
         </span>
-      ) : null}
+        {team.is_captain && !member.is_captain ? (
+          <span className="flex gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={transfer.isPending}
+              onClick={() => transfer.mutate({ participant_id: member.id })}
+            >
+              Make captain
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ participant_id: member.id })}
+            >
+              Remove
+            </Button>
+          </span>
+        ) : null}
+      </div>
+      <MutationError error={transfer.error ?? remove.error} />
     </li>
   );
 }

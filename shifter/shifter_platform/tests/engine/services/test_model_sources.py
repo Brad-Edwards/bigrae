@@ -1,6 +1,7 @@
 """Tenant source registration and spending permission are separate authorities."""
 
 import json
+import logging
 from dataclasses import asdict
 from unittest.mock import Mock
 
@@ -132,7 +133,7 @@ def test_source_use_and_edit_recheck_tenant_and_revision(source_tenant):
     assert store.create_owned_secret.call_count == 1  # metadata edits retain the pinned credential
 
 
-def test_failed_credential_write_leaves_a_reconcilable_unavailable_revision(source_tenant):
+def test_failed_credential_write_leaves_a_reconcilable_unavailable_revision(source_tenant, caplog):
     from cms.services import list_usable_model_sources
     from engine.models import ModelSourceRevision
     from engine.services import create_model_source
@@ -140,7 +141,10 @@ def test_failed_credential_write_leaves_a_reconcilable_unavailable_revision(sour
 
     admin, member, org, store = source_tenant
     store.create_owned_secret.side_effect = CloudSecretsError("provider detail must not escape")
-    with pytest.raises(ContractError, match=r"source\.credential_unavailable"):
+    with (
+        caplog.at_level(logging.ERROR, logger="engine.services._model_sources"),
+        pytest.raises(ContractError, match=r"source\.credential_unavailable"),
+    ):
         create_model_source(
             model_source_credential(admin), org.uuid, configuration(), credential={"api_key": "synthetic-secret"}
         )
@@ -149,6 +153,8 @@ def test_failed_credential_write_leaves_a_reconcilable_unavailable_revision(sour
     assert revision.credential_version is not None
     with pytest.raises(OrganizationAuthorizationError):
         list_usable_model_sources(model_source_credential(member), org.uuid)
+    assert "provider detail must not escape" not in caplog.text
+    assert "synthetic-secret" not in caplog.text
 
 
 def test_source_revision_change_fences_existing_grants_without_erasing_liability(source_tenant):

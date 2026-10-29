@@ -301,6 +301,9 @@ class TestCompensationReusesCanonicalTeardown:
         compensation_fakes.realized.assert_called_once()
         # The destroy variables are built from the realized spec, not authored intent.
         assert compensation_fakes.build_vars.call_args.args[3] == compensation_fakes.realized_spec
+        # The range error text reaches the owner: the stage and the class only (ADR-043-R5).
+        persisted = compensation_fakes.update_status.call_args.kwargs["error_message"]
+        assert persisted == "Range provision failed (RuntimeError)"
 
     def test_compensation_retains_ownership_when_destroy_fails(self, compensation_fakes):
         """A failed compensation destroy must not release ownership (orphans still occupy it).

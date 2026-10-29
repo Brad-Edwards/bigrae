@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -37,6 +38,8 @@ if TYPE_CHECKING:
     from shared.identity_scope import ResourceScope
     from shared.schemas.cms_projections import UploadInitiation
 
+
+logger = logging.getLogger(__name__)
 
 _INVALID_UPLOAD_REFERENCE = "Invalid upload reference"
 _UPLOAD_UNAVAILABLE = "Upload unavailable"
@@ -170,7 +173,7 @@ def initiate_scoped_upload(
                 raise CMSError(_UPLOAD_UNAVAILABLE)
             token = generate_scoped_upload_token(row)
         return {"presigned_url": url, "s3_key": row.staging_key, "upload_token": token, "expected_os": row.os_slug}
-    except Exception:
+    except Exception:  # noqa: BLE001  # value-free upload boundary; storage and token errors stay out of the chain
         # A provider timeout can have issued a capability. Preserve custody and
         # cleanup evidence; cancellation cannot make that URL expire early.
         AgentUpload.objects.filter(pk=row.pk).update(state="cancelled")
@@ -209,7 +212,7 @@ def _authorized_upload(credential: CredentialContext, token: str) -> _UploadAdmi
         if row.storage_provider != str(settings.CLOUD_PROVIDER) or payload["s3_key"] != row.staging_key:
             raise ValueError("Invalid storage binding")
         return _UploadAdmission(row, scope, current, initiator)
-    except Exception:
+    except Exception:  # noqa: BLE001  # value-free upload boundary; private storage and token causes are suppressed
         raise CMSError(_UPLOAD_UNAVAILABLE) from None
 
 
@@ -347,7 +350,7 @@ def complete_scoped_upload(credential: CredentialContext, token: str) -> AgentCo
         copy_settled = True
         storage.tag_object(bucket=row.storage_bucket, key=row.install_key, tags={"status": "completed"})
         return _commit_installer(admission.current, token, row, scope)
-    except Exception:
+    except Exception:  # noqa: BLE001  # value-free upload boundary; private storage and token causes are suppressed
         # Keep the original generation and both storage keys for bounded cleanup.
         state = "finalizing" if copy_attempted and not copy_settled else "cancelled"
         AgentUpload.objects.filter(pk=row.pk).exclude(state="completed").update(
@@ -402,7 +405,7 @@ def cancel_scoped_upload(credential: CredentialContext, token: str) -> None:
             )
     except CMSError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001  # value-free upload boundary; storage and token errors stay out of the chain
         raise CMSError(_UPLOAD_UNAVAILABLE) from None
 
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 
+from django.core.exceptions import ImproperlyConfigured
 from django.template.loader import render_to_string
 
 from ctf.enums_communication import CommunicationChannel
@@ -73,8 +74,9 @@ def _read_coordinate(command: DeliveryCommand) -> tuple[str, DeliveryOutcome | N
     try:
         # The encrypted field decrypts while the row loads.
         coordinates = list(bound.values_list("delivery_coordinate", flat=True))
-    # Field decryption failed (key missing/rotated or corrupt token).
-    except Exception:
+    # Field decryption failed: no key (ImproperlyConfigured), or a rotated key or
+    # corrupt token (ValueError).
+    except (ValueError, ImproperlyConfigured):
         logger.warning("email coordinate unreadable for snapshot %s", command.snapshot_id)
         return "", DeliveryOutcome(OutcomeClass.RETRIABLE, reason="coordinate_unreadable")
     coordinate = coordinates[0] if coordinates else ""

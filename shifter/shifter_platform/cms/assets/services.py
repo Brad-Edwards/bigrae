@@ -89,19 +89,13 @@ def create_agent(user: User, spec: AgentUploadSpec) -> AgentConfig:
     upload_method = spec.upload_method
     agent_type = spec.agent_type
 
-    # Inline CR/LF stripping at the call site so CodeQL's ``py/log-injection``
-    # taint tracker recognises the sanitization (routing through a helper
-    # function loses the connection).
-    safe_name = name.replace("\r", " ").replace("\n", " ").replace("\t", " ")[:200]
-    safe_os_slug = os_slug.replace("\r", " ").replace("\n", " ").replace("\t", " ")[:200]
-    safe_agent_type = agent_type.replace("\r", " ").replace("\n", " ").replace("\t", " ")[:200]
     logger.debug(
         "create_agent: user_id=%s name=%s os_slug=%s file_size=%d agent_type=%s",
         user.id,
-        safe_name,
-        safe_os_slug,
+        safe_log_value(name),
+        safe_log_value(os_slug),
         file_size,
-        safe_agent_type,
+        safe_log_value(agent_type),
     )
 
     # Validate agent_type
@@ -172,8 +166,9 @@ def delete_agent(agent: AgentConfig) -> None:
     try:
         s3_delete(agent.s3_key)
     except S3Error as e:
-        logger.exception("delete_agent: S3 delete failed agent_id=%s error=%s", agent.id, e)
-        raise AssetError(f"Failed to delete agent from storage: {e}") from e
+        # cms.assets.s3 already logged the storage failure with its traceback.
+        logger.info("delete_agent: S3 delete failed agent_id=%s", agent.id)
+        raise AssetError("Failed to delete agent from storage") from e
 
     # Capture state before deletion
     previous_state = {

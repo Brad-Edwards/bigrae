@@ -25,6 +25,7 @@ from ngfw_runtime import update_instance_state
 from orchestrators.ops_orchestrator import OpsOrchestrator
 from plans.base import SetupPlan
 from provisioner_db_ngfw import get_ngfw_data_by_request_id
+from state_helpers import _authored_failure_message
 
 logger = logging.getLogger(__name__)
 
@@ -104,14 +105,15 @@ def _run_gcp_ngfw_operation(
     try:
         gdc_vmseries_ngfw.run_power_operation(operation, state)
     except Exception as e:
-        logger.exception("GDC VM-Series NGFW operation failed")
+        logger.exception("GDC VM-Series NGFW operation failed operation=%s request_id=%s", operation, request_id)
         update_instance_state(
             request_id,
             STATUS_FAILED,
             step=ResultStep.NGFW_TERMINAL_FAILED,
             operation_id=operation_id,
             operation=owning_operation or operation,
-            error_message=str(e),
+            # The diagnostic is durable: authored text only (ADR-043-R5).
+            error_message=_authored_failure_message(e, f"NGFW {operation}"),
         )
         raise
     _publish_ngfw_runtime_status(
@@ -164,22 +166,20 @@ def _run_aws_ngfw_operation(
         if not result.success:
             for step_result in result.step_results:
                 if not step_result.success:
-                    logger.error(
-                        "NGFW %s step %s failed: %s",
-                        operation,
-                        step_result.step_name,
-                        step_result.stderr,
-                    )
+                    # Provider stderr stays out of logs (see OpsOrchestrator); the
+                    # executor already logged the provider error code.
+                    logger.error("NGFW %s step %s failed", operation, step_result.step_name)
             raise RuntimeError(f"Operation {operation} failed")
     except Exception as e:
-        error_msg = str(e)[:1000]
+        # The diagnostic is durable: authored text only (ADR-043-R5). The log keeps the detail.
+        logger.exception("AWS NGFW operation failed operation=%s request_id=%s", operation, request_id)
         update_instance_state(
             request_id,
             STATUS_FAILED,
             step=ResultStep.NGFW_TERMINAL_FAILED,
             operation_id=operation_id,
             operation=owning_operation or operation,
-            error_message=error_msg,
+            error_message=_authored_failure_message(e, f"NGFW {operation}"),
         )
         raise
 

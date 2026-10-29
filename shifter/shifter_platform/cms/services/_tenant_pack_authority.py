@@ -29,7 +29,7 @@ def admit_tenant_pack(
         scope = hierarchy_target_scope("organization", organization_uuid)
         current = require_content_scope(credential, scope, operation)
         return TenantPackAdmission(current, organization_uuid, scope)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise OrganizationAuthorizationError("Organization access denied") from None
 
 
@@ -41,5 +41,5 @@ def fence_tenant_pack(admission: TenantPackAdmission) -> None:
         resolve_range_scope_binding(admission.scope, for_update=True)
         if hierarchy_target_scope("organization", admission.organization_uuid) != admission.scope:
             raise ValueError("Content ancestry changed")
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise OrganizationAuthorizationError("Organization access denied") from None

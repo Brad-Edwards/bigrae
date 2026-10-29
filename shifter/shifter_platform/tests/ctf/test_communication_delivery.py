@@ -444,14 +444,8 @@ def test_settlement_writes_one_bounded_log_line(organizer_user, ctf_event, regis
     _participant(ctf_event, "secret-recipient@test.com")
     _release(organizer_user, ctf_event, channels=["email"])
 
-    # The "ctf" logger does not propagate to the root handler; attach caplog directly.
-    worker_logger = logging.getLogger("ctf.services.communication.delivery")
-    worker_logger.addHandler(caplog.handler)
-    try:
-        with caplog.at_level(logging.INFO, logger="ctf.services.communication.delivery"):
-            delivery_svc.run_once()
-    finally:
-        worker_logger.removeHandler(caplog.handler)
+    with caplog.at_level(logging.INFO, logger="ctf.services.communication.delivery"):
+        delivery_svc.run_once()
 
     lines = [record.getMessage() for record in caplog.records if "settled" in record.getMessage()]
     assert len(lines) == 1

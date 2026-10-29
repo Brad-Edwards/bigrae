@@ -120,7 +120,11 @@ A GCP deployment runs from a published release. Operators and CI use the same
 `deploy.py gcp-deploy` command, which reads the deployment input bundle from the
 deployment config bucket or a local directory. Secret values stay in Secret
 Manager (ADR-070, [GitHub-less GCP deployment guide](handbook/gcp-github-less-deployment.md)). Keep platform
-hosting separate from the range guest backend.
+hosting separate from the range guest backend. `gcp-destroy` keeps the Artifact
+Registry key ring and key, which GCP can not delete. A later install adopts them
+with import blocks. The range network peers with the platform network after the
+Service Networking connection, because GCP runs one peering operation for each
+network at a time (#2643).
 
 | Boundary | GCP | AWS |
 | --- | --- | --- |
@@ -307,6 +311,10 @@ Pack content never authorizes executable installation. Private content, adapters
 image recipes, answers and acceptance evidence stay in their owner's repository.
 A compatibility probe, buildable SDK, or accepted manifest proves neither a
 published package release nor a qualified live range.
+
+The 2026-10-28 logging and exception-handling cleanup (#2569) changed only the
+Ruff lint rules in the SDK package manifest. It did not change the adapter ABI,
+the public contracts, or the installation boundary on this page.
 
 ## Install, exercise and maintain
 

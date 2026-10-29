@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from mission_control._guacamole_session_builders import (
+    _actor_log_ref,
     _build_ngfw_ssh_url,
     _build_range_ssh_url,
     _build_rdp_url,
@@ -75,7 +76,7 @@ def _bind_guacamole_client(service_name: str, *, require_signing_key: bool = Tru
 
     signing_secret = getattr(settings, "GUACAMOLE_JSON_AUTH_SECRET", "")
     if require_signing_key and not signing_secret:
-        logger.error(_GUAC_AUTH_NOT_CONFIGURED)
+        logger.error("Guacamole JSON auth is not configured")
         raise BootstrapFailure(f"{service_name} service not configured", status_code=503)
     config = GuacamoleClientConfig(
         base_url=getattr(settings, "GUACAMOLE_BASE_URL", _GUACAMOLE_BASE_PATH),
@@ -183,7 +184,7 @@ def launch_guacamole_session(
     if protocol == GuacamoleBootstrapRequest.Protocol.NGFW_SSH:
         logger.info(
             "Guacamole SSH bootstrap queued for NGFW: user=%s ngfw_uuid=%s",
-            _bootstrap_actor_fingerprint(user),
+            _actor_log_ref(user),
             safe_log_value(target_id),
         )
     authority_range = authority.get("authority_target_uuid")
@@ -212,7 +213,7 @@ def launch_guacamole_session(
         # to a 503 + Retry-After). Only non-secret kind/target/user identifiers.
         logger.warning(
             "Guacamole bootstrap worker capacity exhausted: user=%s protocol=%s target_id=%s",
-            _bootstrap_actor_fingerprint(user),
+            _actor_log_ref(user),
             safe_log_value(protocol),
             safe_log_value(target_id),
         )

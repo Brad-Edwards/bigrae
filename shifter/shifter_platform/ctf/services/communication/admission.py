@@ -198,7 +198,7 @@ def _authorize_token(actor: AdmissionActor, required_scope: str) -> CredentialCo
             from shared.api_tokens.policy import personal_credential_for_token
 
             credential = personal_credential_for_token(token)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
             from shared.credentials import CredentialUnavailable
 
             if isinstance(exc, CredentialUnavailable):

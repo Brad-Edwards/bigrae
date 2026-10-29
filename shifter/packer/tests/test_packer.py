@@ -1314,6 +1314,12 @@ class TestDcPrebaked:
         assert "169.254.169.253" in finalize
         assert "Set-DnsServerForwarder" in finalize
 
+    def test_finalize_fails_closed_when_the_content_seed_survives_cleanup(self):
+        finalize = (PACKER_DIR / "scripts" / "dc-prebaked" / "finalize.ps1").read_text()
+        cleanup = finalize.index("Cleaning up build artifacts")
+        check = finalize.index('if (Test-Path "C:\\shifter-build\\content-seed.ps1") {', cleanup)
+        assert "still present before capture" in finalize[check:]
+
 
 class TestClaudeBinaryNeverBaked:
     """No Linux image contains Claude Code; ranges receive it at realization (#2463, #2479)."""

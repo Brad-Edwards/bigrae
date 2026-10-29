@@ -28,9 +28,9 @@ class GCPEventBus:
             client = pubsub.PublisherClient()
             topic = build_topic_path(topic_id, client)
             client.publish(topic, message.encode("utf-8"), **(attributes or {})).result(timeout=30)
-            logger.info("publish: success topic_id=%s", topic_id)
+            logger.debug("publish: success topic_id=%s", topic_id)
         except ImportError as e:
             raise CloudEventBusError(_PUBSUB_IMPORT_ERROR) from e
         except Exception as e:
-            logger.exception("publish: failed topic_id=%s error=%s", topic_id, e)
+            logger.exception("publish: failed topic_id=%s", topic_id)
             raise CloudEventBusError(f"Failed to publish Pub/Sub event: {e}") from e

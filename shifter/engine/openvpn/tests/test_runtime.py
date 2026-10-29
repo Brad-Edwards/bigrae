@@ -133,3 +133,27 @@ def test_a_stop_signal_is_passed_to_openvpn_and_ends_cleanly(monkeypatch):
     entry._watch_openvpn(process, stopping)
     entry._watch_openvpn(process, threading.Event())
     assert exits == [0, 1]  # asked to stop vs. OpenVPN died on its own
+
+
+def test_logs_are_ecs_json_with_the_failure_traceback(monkeypatch, capsys):
+    import logging
+
+    from shifter_openvpn.logging_config import configure_logging
+
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    saved = (logging.root.handlers[:], logging.root.level)
+    try:
+        configure_logging()
+        try:
+            raise RuntimeError("firewall unavailable")
+        except RuntimeError:
+            logging.getLogger("shifter_openvpn.controller").exception("revoke failed cid=%s", 7)
+    finally:
+        logging.root.handlers, logging.root.level = saved
+
+    record = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert record["message"] == "revoke failed cid=7"
+    assert record["log.level"] == "ERROR"
+    assert record["service.name"] == "openvpn"
+    assert record["service.environment"] == "dev"
+    assert "RuntimeError: firewall unavailable" in record["error.stack_trace"]

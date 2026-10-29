@@ -70,7 +70,7 @@ def _actor_for_scheduled(intent: CommunicationIntent) -> AdmissionActor:
         return AdmissionActor(credential=resolve_current_credential(credential_reference_from_record(intent)))
     except CredentialRevoked:
         raise CTFCommunicationError("Communication credential revoked", code="CTF_COMMUNICATION_ACTOR_DENIED") from None
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise CTFCommunicationError(
             "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
         ) from None
@@ -203,9 +203,10 @@ def run_release_communication_task(task: CTFScheduledTask) -> dict[str, Any]:
 def _denied_result(intent: CommunicationIntent, exc: CTFCommunicationError) -> dict[str, Any]:
     """Map an admission denial at due time to a scheduler result.
 
-    Transient backpressure reschedules a bounded retry (the grace window still caps
-    total lateness); a permanent denial records a terminal no-work outcome instead
-    of leaving the intent SCHEDULED with a completed task.
+    Transient backpressure or an unavailable admission counter reschedules a bounded
+    retry (the grace window still caps total lateness); a permanent denial records a
+    terminal no-work outcome instead of leaving the intent SCHEDULED with a completed
+    task.
     """
     grace_end = (
         intent.due_at + timedelta(minutes=settings.CTF_COMMUNICATION_RELEASE_GRACE_MINUTES) if intent.due_at else None
@@ -213,7 +214,7 @@ def _denied_result(intent: CommunicationIntent, exc: CTFCommunicationError) -> d
     if exc.code in RETRYABLE_ADMISSION_CODES | {"CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"} and (
         grace_end is None or timezone.now() < grace_end
     ):
-        logger.info("Scheduled communication %s hit transient backpressure (%s); retrying", intent.id, exc.code)
+        logger.warning("Scheduled communication %s hit transient backpressure (%s); retrying", intent.id, exc.code)
         retry_at = timezone.now() + timedelta(seconds=_BACKPRESSURE_RETRY_SECONDS)
         return {
             "reschedule_for": min(retry_at, grace_end) if grace_end is not None else retry_at,
@@ -229,7 +230,9 @@ def _expire_unadmittable(intent: CommunicationIntent, code: str) -> None:
         status=IntentStatus.EXPIRED.value, updated_at=timezone.now()
     )
     if updated:
-        logger.info("Scheduled communication %s reached a terminal no-work outcome at due time (%s)", intent.id, code)
+        logger.warning(
+            "Scheduled communication %s reached a terminal no-work outcome at due time (%s)", intent.id, code
+        )
 
 
 def request_early_release(intent: CommunicationIntent, *, actor: AdmissionActor) -> str:

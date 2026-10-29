@@ -17,6 +17,10 @@ from itertools import pairwise
 from event_load_harness.metrics.base import MetricsResult, MetricValue
 
 
+class _MetricReadError(Exception):
+    """A CloudWatch read failed. The message is the failure class name only."""
+
+
 def _datapoint_series(points: list, stat: str, is_pct: bool) -> list[tuple[object, float]]:
     """Extract timestamped values from CloudWatch datapoints, sorted by time."""
     series: list[tuple[object, float]] = []
@@ -275,7 +279,11 @@ class AwsMetricsAdapter:
             if not dim_value:
                 gaps.append(f"{gap_label} (no {target_field} configured)")
                 continue
-            value = self._query(namespace, metric_name, stat, dim_key, dim_value, window_start, window_end)
+            try:
+                value = self._query(namespace, metric_name, stat, dim_key, dim_value, window_start, window_end)
+            except _MetricReadError as exc:
+                gaps.append(f"{gap_label} (read failed: {exc})")
+                continue
             if value is None:
                 gaps.append(f"{gap_label} (no datapoints in window)")
                 continue
@@ -305,14 +313,18 @@ class AwsMetricsAdapter:
         if not alb or not target_group:
             gaps.append("ALB RequestCountPerTarget (needs both alb and target_group configured)")
             return
-        value = self._query_dimensions(
-            "AWS/ApplicationELB",
-            "RequestCountPerTarget",
-            "Sum",
-            [{"Name": "LoadBalancer", "Value": alb}, {"Name": "TargetGroup", "Value": target_group}],
-            window_start,
-            window_end,
-        )
+        try:
+            value = self._query_dimensions(
+                "AWS/ApplicationELB",
+                "RequestCountPerTarget",
+                "Sum",
+                [{"Name": "LoadBalancer", "Value": alb}, {"Name": "TargetGroup", "Value": target_group}],
+                window_start,
+                window_end,
+            )
+        except _MetricReadError as exc:
+            gaps.append(f"ALB RequestCountPerTarget (read failed: {exc})")
+            return
         if value is None:
             gaps.append("ALB RequestCountPerTarget (no datapoints in window)")
             return
@@ -329,14 +341,18 @@ class AwsMetricsAdapter:
         dim_value = self.targets.get("rds_instance")
         if not dim_value:
             return
-        points = self._query_datapoints(
-            "AWS/RDS",
-            "DatabaseConnections",
-            "Average",
-            [{"Name": "DBInstanceIdentifier", "Value": dim_value}],
-            window_start,
-            window_end,
-        )
+        try:
+            points = self._query_datapoints(
+                "AWS/RDS",
+                "DatabaseConnections",
+                "Average",
+                [{"Name": "DBInstanceIdentifier", "Value": dim_value}],
+                window_start,
+                window_end,
+            )
+        except _MetricReadError as exc:
+            gaps.append(f"RDS connection churn proxy (read failed: {exc})")
+            return
         if not points:
             gaps.append("RDS connection churn proxy (no datapoints in window)")
             return
@@ -368,8 +384,6 @@ class AwsMetricsAdapter:
         """Aggregate a signal identified by a full dimension set (one or more dims)."""
         is_pct = stat in ("p95", "p99")
         points = self._query_datapoints(namespace, metric_name, stat, dimensions, start, end)
-        if points is None:
-            return None
         values = _datapoint_values(points, stat, is_pct)
         return _aggregate(stat, values)
 
@@ -390,6 +404,9 @@ class AwsMetricsAdapter:
             kwargs["Statistics"] = [stat]
         try:
             resp = client.get_metric_statistics(**kwargs)
-        except Exception:
-            return None
+        except Exception as exc:
+            # Best-effort evidence: the caller records a named read-failure gap with
+            # the class name only, because CloudWatch error text can carry account
+            # and resource detail.
+            raise _MetricReadError(type(exc).__name__) from exc
         return resp.get("Datapoints", [])

@@ -212,4 +212,8 @@ class Command(BaseCommand):
             )
 
         except Exception:
-            logger.exception("Error processing message: %s", message.get("message_id"))
+            logger.exception(
+                "Error processing message: queue=%s message_id=%s",
+                self.queue_name,
+                message.get("message_id"),
+            )

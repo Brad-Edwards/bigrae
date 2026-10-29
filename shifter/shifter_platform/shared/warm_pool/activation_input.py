@@ -174,7 +174,7 @@ def parse_activation_input(payload: object) -> ActivationInput:
         )
     except ActivationInputError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise ActivationInputError("activation input claimant or scope is invalid") from None
 
 

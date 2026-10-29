@@ -31,6 +31,18 @@ function reports errors. Legacy alerts may still call this a Lambda failure.
    the selected deployment; identity rotation functions are separate from
    range provisioning.
 
+CTF status deliveries use the existing `worker-reconciler`. A receiver failure
+leaves the CMS status committed and retains a `cms.RangeStatusDelivery` row.
+The row contains only the source id, status transition, verified-cleanup flag,
+attempt count, next attempt time, and exception class. Retry proceeds in status
+order for each range, with backoff capped at five minutes; a failing range does
+not block other ranges. Successful receiver writes and deletion of the pending
+row commit together. Pending rows survive terminal CMS states and source-row
+pruning. Correlate `CTF range status delivery retained for retry` records by
+delivery id and range-instance id; `ctf_delivered` in the reconciler summary
+shows recovery. Restore the failed dependency and let the reconciler retry;
+do not delete pending rows to clear an error.
+
 ## Resolution
 
 Restore the failed dependency first. Redeploy a worker or roll back its exact

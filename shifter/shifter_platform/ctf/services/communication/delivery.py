@@ -390,8 +390,13 @@ def _deliver(pk: UUID, command: DeliveryCommand, cfg: WorkerConfig) -> DeliveryO
     try:
         return adapter.deliver(command, timeout=cfg.timeout_seconds)
     # Never let one transport error abort the batch (partial-failure isolation).
-    except Exception:
-        logger.warning("communication adapter raised for attempt %s channel %s", pk, command.channel)
+    except Exception as exc:  # noqa: BLE001  # transport errors may carry provider payloads; the attempt is retried
+        logger.warning(
+            "communication adapter raised for attempt %s channel %s exc_type=%s",
+            pk,
+            command.channel,
+            type(exc).__name__,
+        )
         return DeliveryOutcome(OutcomeClass.RETRIABLE, reason="adapter_error")
 
 

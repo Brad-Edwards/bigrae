@@ -120,7 +120,7 @@ def _cleanup_sensitive_secret(core_api: object, secret_name: str | None, namespa
             namespace=namespace,
             _request_timeout=_KUBERNETES_REQUEST_TIMEOUT_SECONDS,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # best-effort cleanup on an error path; logged with traceback at WARNING
         logger.warning(
             "run_task: failed to clean up orphan secret_fp=%s namespace=%s",
             safe_log_fingerprint(secret_name),
@@ -223,7 +223,7 @@ def _unwind_run(
             namespace=namespace,
             _request_timeout=_KUBERNETES_REQUEST_TIMEOUT_SECONDS,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # best-effort unwind; logged with traceback at WARNING
         logger.warning(
             "run_task: failed to delete Job during unwind job=%s namespace=%s",
             job_name,
@@ -238,7 +238,7 @@ def _unwind_run(
             namespace=namespace,
             _request_timeout=_KUBERNETES_REQUEST_TIMEOUT_SECONDS,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # best-effort unwind; logged with traceback at WARNING
         logger.warning(
             "run_task: failed to delete Secret during unwind secret_fp=%s namespace=%s",
             safe_log_fingerprint(secret_name),

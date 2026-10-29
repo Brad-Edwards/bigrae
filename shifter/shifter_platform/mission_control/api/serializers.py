@@ -192,6 +192,9 @@ class LaunchRangeSerializer(ClosedSerializer):
     def validate_agent_id(self, value: int | None) -> int:
         if not value:
             raise serializers.ValidationError("agent_id is required")
+        if value < 1:
+            # The agent service rejects non-positive ids; answer 400, not 500.
+            raise serializers.ValidationError("Invalid value.", code="invalid")
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Literal, cast
 from uuid import UUID
@@ -69,6 +70,8 @@ from ._authorization_journal import (
     _reserve,
     _set_outcome,
 )
+
+logger = logging.getLogger(__name__)
 
 _AUTHORIZATION_EVALUATOR_UNAVAILABLE = "Authorization evaluator unavailable"
 
@@ -171,7 +174,7 @@ def _evaluate_delegation(checks: tuple[AuthorizationRequest, ...], provider: Aut
         return False
     try:
         decisions = provider.batch_check(checks)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise AuthorizationProviderError(_AUTHORIZATION_EVALUATOR_UNAVAILABLE) from None
     if len(decisions) != len(checks) or any(item.kind == DecisionKind.EVALUATOR_ERROR for item in decisions):
         raise AuthorizationProviderError(_AUTHORIZATION_EVALUATOR_UNAVAILABLE)

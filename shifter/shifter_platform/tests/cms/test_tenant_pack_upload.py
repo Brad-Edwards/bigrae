@@ -232,15 +232,18 @@ def test_archive_containment_applies_before_storage(upload, entry_kind):
     assert not storage.objects
 
 
-def test_failed_registration_cleans_only_its_new_upload(upload):
+def test_failed_registration_cleans_only_its_new_upload(upload, caplog):
     client, organization, root, storage = upload
     original = _post(client, organization, root)
     original_objects = dict(storage.objects)
-    stale = _post(client, organization, root, expected_digest="sha256:" + "f" * 64)
+    with caplog.at_level("WARNING", logger="cms.services._tenant_pack_upload"):
+        stale = _post(client, organization, root, expected_digest="sha256:" + "f" * 64)
     assert original.status_code == 201 and stale.status_code == 400
     assert storage.objects == original_objects
     assert len(storage.deleted) == 1
     assert RaesPackageSource.objects.count() == 1
+    assert "upload_tenant_pack: installation failed" in caplog.text
+    assert "exc_type=CMSError" in caplog.text
 
 
 def test_pack_cannot_be_launched_in_another_organization_workspace(upload, tenant):

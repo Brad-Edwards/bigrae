@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from workspaces.models import (
     Organization,
@@ -102,7 +102,7 @@ def resolve_personal_workspace(user: User) -> WorkspaceAuthorization:
                 user=user,
                 role=OrganizationRole.ADMIN.value,
             )
-    except Exception:
+    except IntegrityError:
         # A concurrent caller may have won the unique personal_for_user race.
         concurrent = Workspace.objects.filter(personal_for_user=user).first()
         if concurrent is None:

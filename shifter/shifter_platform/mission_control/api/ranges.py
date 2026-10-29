@@ -193,7 +193,7 @@ class RangeLifecycleView(MissionControlAPIView):
             if request_id:
                 getattr(cms_services_mod, self.by_request_attr)(credential, request_id)
                 logger.info(
-                    "Range %s: user=%s request_id=%s",
+                    "Range %s: user_id=%s request_id=%s",
                     self.log_verb,
                     safe_log_value(str(user.principal.uuid)),
                     safe_log_value(request_id),
@@ -201,14 +201,14 @@ class RangeLifecycleView(MissionControlAPIView):
             else:
                 getattr(cms_services_mod, self.by_id_attr)(credential, range_id)
                 logger.info(
-                    "Range %s: user=%s range_id=%s",
+                    "Range %s: user_id=%s range_id=%s",
                     self.log_verb,
                     safe_log_value(str(user.principal.uuid)),
                     safe_log_value(range_id),
                 )
         except CMSError as exc:
             logger.exception(
-                "Range %s failed: user=%s request_id=%s range_id=%s",
+                "Range %s failed: user_id=%s request_id=%s range_id=%s",
                 self.log_verb,
                 user.principal.uuid,
                 safe_log_value(request_id),

@@ -121,9 +121,9 @@ def test_command_emits_containment_signal(tmp_path, monkeypatch, caplog) -> None
             str(tmp_path / "report.json"),
         )
 
-    signal = next(r for r in caplog.records if r.getMessage() == "range-escape containment signal")
-    assert signal.verdict == "passed"
-    assert signal.range_escape_contract == "shifter.gcp-range-escape"
+    signal = next(r for r in caplog.records if r.getMessage().startswith("range-escape containment signal "))
+    assert "verdict=passed " in signal.getMessage()
+    assert "contract=shifter.gcp-range-escape " in signal.getMessage()
 
 
 def test_command_exits_nonzero_on_leak(tmp_path, monkeypatch, caplog) -> None:
@@ -141,9 +141,10 @@ def test_command_exits_nonzero_on_leak(tmp_path, monkeypatch, caplog) -> None:
     # The containment signal must still fire on the leak path before the gate
     # raises -- that failed verdict is exactly what #2087 monitoring exists to
     # catch, so a future edit that only emitted on success must fail here.
-    signal = next(r for r in caplog.records if r.getMessage() == "range-escape containment signal")
-    assert signal.verdict == "failed"
-    assert "platform_pod_cidr" in signal.failed_boundaries
+    signal = next(r for r in caplog.records if r.getMessage().startswith("range-escape containment signal "))
+    message = signal.getMessage()
+    assert "verdict=failed " in message
+    assert "platform_pod_cidr" in message.split("failed_boundaries=", 1)[1]
 
 
 def test_command_enters_multi_range_with_peer(tmp_path, monkeypatch) -> None:

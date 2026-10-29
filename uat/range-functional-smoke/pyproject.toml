@@ -44,7 +44,7 @@ line-length = 120
 exclude = [".venv", "__pycache__"]
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "S", "T20", "SIM", "RUF", "C901"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "S", "T20", "SIM", "RUF", "C901", "BLE", "G", "LOG", "TRY401"]
 # T201: print is the operator-facing CLI output channel.
 # S101: assert is the normal pytest idiom.
 ignore = ["S101", "T201"]

@@ -143,7 +143,7 @@ def authorize_subscription(credential: CredentialContext, topic: str) -> bool:
             if registration.can_subscribe(credential, topic):
                 authorized = True
                 break
-        except Exception:
+        except Exception:  # noqa: BLE001  # isolates registered authorizers; fails closed, traceback at WARNING
             logger.warning(
                 "notification authorizer failed: type=%s topic=%s principal_uuid=%s",
                 registration.name,

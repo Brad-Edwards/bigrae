@@ -27,7 +27,7 @@ get_instance_id() {
         --region "$REGION" \
         --filters "Name=tag:Name,Values=$INSTANCE_NAME" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
         --query 'Reservations[0].Instances[0].InstanceId' \
-        --output text 2>/dev/null
+        --output text
         return 0
 }
 
@@ -39,7 +39,7 @@ get_instance_state() {
         --region "$REGION" \
         --instance-ids "$instance_id" \
         --query 'Reservations[0].Instances[0].State.Name' \
-        --output text 2>/dev/null
+        --output text
         return 0
 }
 
@@ -51,7 +51,7 @@ get_public_ip() {
         --region "$REGION" \
         --instance-ids "$instance_id" \
         --query 'Reservations[0].Instances[0].PublicIpAddress' \
-        --output text 2>/dev/null
+        --output text
         return 0
 }
 

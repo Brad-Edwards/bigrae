@@ -8,8 +8,13 @@ ticks and restarts are idempotent. Each test drives the real services.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache.backends.base import BaseCache
+from django.test import override_settings
 from django.utils import timezone
 
 from ctf.enums import ParticipantStatus, ScheduledTaskStatus, ScheduledTaskType
@@ -38,6 +43,18 @@ from workspaces.models import Account
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
+
+
+class _UnreachableCache(BaseCache):
+    """Cache backend that fails every call, as an unreachable shared cache does."""
+
+    def __init__(self, _location, params):
+        super().__init__(params)
+
+    def _unreachable(self, *_args, **_kwargs):
+        raise ConnectionError("cache unreachable")
+
+    add = get = set = incr = delete = _unreachable
 
 
 def _account_uuid(user):
@@ -233,6 +250,30 @@ def test_transient_backpressure_reschedules_and_keeps_the_occurrence(organizer_u
     assert "reschedule_for" in result
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.SCHEDULED.value
     assert not RecipientSnapshot.objects.filter(intent=intent).exists()
+
+
+def test_admission_outage_at_due_time_reschedules_and_keeps_the_occurrence(organizer_user, ctf_event, caplog):
+    due = timezone.now() - timezone.timedelta(minutes=1)  # due, within grace
+    _campaign, intent, _credential_context = _scheduled(organizer_user, ctf_event, due_at=due)
+    task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
+    # The shared admission rate counter lives in the default cache; make it unreachable.
+    unreachable_caches = {**settings.CACHES, "default": {"BACKEND": f"{__name__}._UnreachableCache"}}
+    scheduling_logger = logging.getLogger("ctf.services.communication.scheduling")
+    with (
+        override_settings(CACHES=unreachable_caches),
+        caplog.at_level(logging.WARNING, logger=scheduling_logger.name),
+    ):
+        result = run_release_communication_task(task)
+
+    # A temporary admission outage is retried like backpressure; the occurrence is NOT discarded.
+    assert result["outcome"] == "backpressure_retry"
+    assert "reschedule_for" in result
+    assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.SCHEDULED.value
+    assert not RecipientSnapshot.objects.filter(intent=intent).exists()
+    assert any(
+        record.levelno == logging.WARNING and "CTF_COMMUNICATION_ADMISSION_UNAVAILABLE" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_permanent_denial_at_due_time_expires_the_declaration(organizer_user, ctf_event):

@@ -74,11 +74,11 @@ def grant_award(
         recompute_team_score(participant.team_id)
 
     logger.info(
-        "Award granted: %+d points to participant %s in event %s by %s — %s",
+        "Award granted: %+d points to participant %s in event %s by user_id=%s — %s",
         points,
         safe_log_value(participant_id),
         safe_log_value(event_id),
-        safe_log_value(granted_by),
+        granted_by.pk,
         safe_log_value(reason),
     )
 

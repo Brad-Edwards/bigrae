@@ -93,13 +93,6 @@ class TestNoLegacyFallback:
         )
         challenge.flags.all().delete()
 
-        # App loggers set propagate=False, so attach caplog's handler directly to
-        # the service logger to capture the loud error.
-        svc_logger = logging.getLogger("ctf.services.challenge")
-        svc_logger.addHandler(caplog.handler)
-        try:
-            with caplog.at_level(logging.ERROR, logger="ctf.services.challenge"):
-                assert verify_flag(challenge, "FLAG{gone}") is False
-        finally:
-            svc_logger.removeHandler(caplog.handler)
+        with caplog.at_level(logging.ERROR, logger="ctf.services.challenge"):
+            assert verify_flag(challenge, "FLAG{gone}") is False
         assert "every submission will be rejected" in caplog.text

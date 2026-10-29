@@ -250,7 +250,7 @@ function _idempotencyState(args, descriptor, policy) {
   if (cached && Date.now() - cached.ts < IDEMPOTENCY_TTL_MS) {
     if (cached.fingerprint !== fingerprint) {
       throw new PolicyError(
-        `${descriptor.name}: idempotency_key '${key}' was previously used with different args; refuse to double-mutate`,
+        `${descriptor.name}: idempotency_key was previously used with different args; refuse to double-mutate`,
       );
     }
     return {

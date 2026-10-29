@@ -210,12 +210,15 @@ class TestConnectTerminalLogging:
             connect_terminal(user, "instance-uuid-123")
         assert "instance-uuid-123" in caplog.text
 
-    def test_logs_error_when_no_active_range(self, user, caplog):
+    def test_logs_warning_when_no_active_range(self, user, caplog):
         from engine import connect_terminal
 
-        with caplog.at_level(logging.ERROR, logger="engine"), pytest.raises(ValueError):
+        with caplog.at_level(logging.WARNING, logger="engine"), pytest.raises(ValueError):
             connect_terminal(user, "missing-uuid")
-        assert "error" in caplog.text.lower() or "no active range" in caplog.text.lower()
+        assert any(
+            record.levelno == logging.WARNING and "no active range" in record.getMessage().lower()
+            for record in caplog.records
+        )
 
 
 class TestConnectTerminalUsernameMapping:

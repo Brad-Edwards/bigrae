@@ -17,7 +17,7 @@ from django.contrib.auth.models import User
 
 from cms.exceptions import CMSError
 from shared.credentials import CredentialContext
-from shared.log_sanitize import safe_log_fingerprint
+from shared.log_sanitize import safe_log_fingerprint, safe_log_value
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -80,7 +80,15 @@ def dispatch_repo_raes_package(
     try:
         pack_root = resolve_pack_root(source.package_ref, package_root=Path(settings.RAES_PACKAGE_ROOT))
     except RaesPackageError as exc:
-        raise CMSError(f"RAES package could not be resolved: {exc}") from exc
+        # RAES package errors embed server paths: log the class only and keep the text out of the chain.
+        logger.error(
+            "create_raes_native_range: repo package could not be resolved request_id=%s scenario_id=%s exc_type=%s",
+            request_id,
+            safe_log_value(source.scenario_id),
+            type(exc).__name__,
+            exc_info=False,
+        )
+        raise CMSError("RAES package could not be resolved") from None
     try:
         digest_matches = verify_pack_digest(pack_root, source.package_digest)
     except PackDigestError as exc:
@@ -187,7 +195,15 @@ def dispatch_object_raes_package(
                 source=source if options.principal_scope is not None else None,
             )
     except RaesPackageError as exc:
-        raise CMSError(f"RAES object package could not be resolved: {exc}") from exc
+        # Staging errors embed server paths and storage provider payloads: log the class only.
+        logger.error(
+            "create_raes_native_range: object package could not be resolved request_id=%s scenario_id=%s exc_type=%s",
+            request_id,
+            safe_log_value(source.scenario_id),
+            type(exc).__name__,
+            exc_info=False,
+        )
+        raise CMSError("RAES object package could not be resolved") from None
 
 
 def _object_package_key(package_ref: str) -> str:
@@ -213,7 +229,14 @@ def _launch_pack(
     try:
         scenario_path = resolve_pack_scenario_path(pack_root)
     except RaesPackageError as exc:
-        raise CMSError(f"RAES package could not be resolved: {exc}") from exc
+        # RAES package errors embed server paths: log the class only and keep the text out of the chain.
+        logger.error(
+            "create_raes_native_range: package scenario could not be resolved request_id=%s exc_type=%s",
+            request_id,
+            type(exc).__name__,
+            exc_info=False,
+        )
+        raise CMSError("RAES package could not be resolved") from None
 
     credential = user if isinstance(user, CredentialContext) else None
     scope = options.principal_scope
@@ -237,7 +260,14 @@ def _launch_pack(
             scenario_path=scenario_path, port=port, artifact_supply_provider=port.artifact_supply
         )
     except RaesPackageError as exc:
-        raise CMSError(f"RAES package could not be launched: {exc}") from exc
+        # Launch errors embed scenario, storage provider and server path text: log the class only.
+        logger.error(
+            "create_raes_native_range: package could not be launched request_id=%s exc_type=%s",
+            request_id,
+            type(exc).__name__,
+            exc_info=False,
+        )
+        raise CMSError("RAES package could not be launched") from None
     if not result.accepted:
         logger.warning(
             "create_raes_native_range: dispatch not accepted request_id=%s status=%s diagnostic_fingerprints=%s",

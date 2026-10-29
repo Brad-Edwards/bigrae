@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -28,6 +29,8 @@ if TYPE_CHECKING:
     from shared.credentials import CredentialContext
 
 
+logger = logging.getLogger(__name__)
+
 _VPN_PROFILE_FILENAME = "bigrae-range.ovpn"
 
 
@@ -35,11 +38,12 @@ def _credential_delivery_error(view: MissionControlAPIView, actor: User | Creden
     """Return a fail-closed delivery response, or None when delivery may proceed."""
     from shared.credential_delivery import credential_delivery_allowed
 
+    actor_key = actor.principal.uuid if isinstance(actor, CredentialContext) else actor.pk
     try:
-        allowed = credential_delivery_allowed(
-            actor.principal.uuid if isinstance(actor, CredentialContext) else actor.pk
-        )
+        allowed = credential_delivery_allowed(actor_key)
     except Exception:
+        # Fail closed: an unavailable delivery-budget backend blocks profile delivery.
+        logger.exception("VPN profile delivery budget check failed: actor=%s", actor_key)
         response = view.error_response(
             code="vpn_profile_unavailable",
             message="VPN profile is unavailable.",

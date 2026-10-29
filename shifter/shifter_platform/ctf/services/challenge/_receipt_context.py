@@ -87,7 +87,7 @@ def resolve_registered_receipt_context(
     selection: object,
 ) -> ReceiptValidationContext | None:
     """Resolve a closed receipt selection for an explicitly capable callback."""
-    from ctf.validators import normalize_http_validator_config
+    from ctf.validators import HTTPValidatorConfigError, normalize_http_validator_config
 
     receipt_context = None
     if server_context is not None:
@@ -99,8 +99,10 @@ def resolve_registered_receipt_context(
                     profile_id=canonical["profile_id"],
                     objective_id=canonical["objective_id"],
                 )
+        except (CTFValidationError, HTTPValidatorConfigError) as exc:
+            logger.warning("Receipt context resolution failed closed exc_type=%s", type(exc).__name__)
         except Exception:
-            logger.warning("Receipt context resolution failed closed")
+            logger.exception("Receipt context resolution failed closed")
     return receipt_context
 
 

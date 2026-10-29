@@ -2584,6 +2584,24 @@ class McpNoShellExecTests(unittest.TestCase):
 
             self.assertEqual(violations, [])
 
+    def test_no_plaintext_secrets_fails_closed_on_undecodable_file(self) -> None:
+        # A non-UTF-8 byte must not let a committed literal bypass the scan.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            tfvars_dir = repo_root / "platform" / "terraform" / "environments" / "dev" / "portal"
+            tfvars_dir.mkdir(parents=True)
+            (tfvars_dir / "terraform.tfvars").write_bytes(
+                b'# caf\xe9\ndc_domain_password = "Synthetic-Literal-1"\n'  # pragma: allowlist secret
+            )
+
+            violations = ADR_GUARD.check_no_plaintext_secrets_in_tfvars(repo_root, None)
+
+            self.assertEqual(len(violations), 1)
+            self.assertEqual(violations[0].rule_id, "ADR-004-R7")
+            self.assertEqual(violations[0].path, "platform/terraform/environments/dev/portal/terraform.tfvars")
+            self.assertIn("UnicodeDecodeError", violations[0].message)
+            self.assertNotIn("Synthetic-Literal-1", violations[0].message)
+
     def test_no_plaintext_secrets_ignores_non_secret_vars(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)

@@ -183,7 +183,7 @@ def observe_operating_systems(
         for instance_key, node in expected.items():
             identity = _observe(outputs[instance_key], node.os_family or "linux", execution_builder)
             observations.append({"instance_key": instance_key, **identity})
-    except Exception:
+    except Exception:  # noqa: BLE001  # value-free boundary: probe output and transport text stay out of the result
         raise _fail() from None
     return observations
 

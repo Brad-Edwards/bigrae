@@ -74,7 +74,11 @@ def _build_kube_api_client(kubeconfig_yaml: str) -> ApiClient:
     """Build a kubernetes ``ApiClient`` from a kubeconfig YAML payload."""
     _, client, config, _ = _import_kubernetes_modules()
 
-    kubeconfig_dict = yaml.safe_load(kubeconfig_yaml)
+    try:
+        kubeconfig_dict = yaml.safe_load(kubeconfig_yaml)
+    except yaml.YAMLError:
+        # PyYAML errors quote the offending kubeconfig line, which can hold credential data.
+        raise RuntimeError("GDC kubeconfig secret is not valid YAML") from None
     if not isinstance(kubeconfig_dict, dict):
         raise RuntimeError("GDC kubeconfig secret did not decode into a kubeconfig document")
 

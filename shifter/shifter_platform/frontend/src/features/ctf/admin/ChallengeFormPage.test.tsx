@@ -102,4 +102,29 @@ describe("ChallengeFormPage (edit)", () => {
     expect(body.target_instance_name).toBe("web-target");
     expect(body.target_port).toBe(8080);
   });
+
+  it("shows authored copy when the save fails without an API error", async () => {
+    mockApi.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === "/ctf/challenges/c1/" && options?.method === "PUT") {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (path === "/ctf/challenges/c1/") return Promise.resolve(CHALLENGE);
+      if (path === "/ctf/challenges/c1/hints/") return Promise.resolve({ hints: [] });
+      if (path === "/ctf/challenges/c1/files/") return Promise.resolve({ files: [] });
+      if (path === "/ctf/challenges/c1/prerequisites/") return Promise.resolve({ prerequisites: [] });
+      return Promise.resolve({});
+    });
+    const user = userEvent.setup();
+    renderRoute(<ChallengeFormPage mode="edit" />, {
+      path: "/ctf/admin/challenges/:challengeId/edit",
+      initialEntries: ["/ctf/admin/challenges/c1/edit"],
+    });
+
+    await screen.findByDisplayValue("SQL Injection");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText("Could not save")).toBeInTheDocument();
+    expect(screen.getByText("The challenge could not be saved.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
 });

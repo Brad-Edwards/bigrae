@@ -45,7 +45,7 @@ def ensure_bootstrap_grant(provider: AuthorizationProvider, change: Authorizatio
     if not before.grant_present:
         try:
             provider.write_relationships(change)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # recover uncertain writes by reading the exact grant
             write_error = exc
     try:
         after = provider.read_relationships(change)

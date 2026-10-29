@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 
 import { renderRoute } from "@/test/utils";
 
@@ -58,5 +58,21 @@ describe("MonitoringPage", () => {
     // The organizer monitoring board must use the full-visibility organizer read,
     // not the public `/ctf/events/<id>/scoreboard/` hook (which honors freeze/hide).
     expect(mockApi).toHaveBeenCalledWith("/ctf/events/e1/organizer-scoreboard/", expect.anything());
+  });
+
+  it("reports a results export that fails", async () => {
+    mockApi.mockImplementation((path: string) => {
+      if (path.endsWith("/results/export/")) return Promise.reject(new TypeError("Failed to fetch"));
+      // No analytics yet: the analytics card renders nothing for a null body.
+      if (path.endsWith("/analytics/")) return Promise.resolve(null);
+      return Promise.resolve({});
+    });
+    renderRoute(<MonitoringPage defaultTab="analytics" />, {
+      path: "/ctf/admin/events/:eventId/monitoring",
+      initialEntries: ["/ctf/admin/events/e1/monitoring"],
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Export results" }));
+    expect(await screen.findByText("Could not export the results.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
   });
 });

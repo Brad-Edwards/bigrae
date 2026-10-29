@@ -131,7 +131,7 @@ def _authorized_target_events(
             raise _TARGET_DENIED
         try:
             require_event_action(credential, event.pk, "event.manage_communications")
-        except Exception:
+        except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
             raise _TARGET_DENIED from None
         resolved.append(event)
     return resolved

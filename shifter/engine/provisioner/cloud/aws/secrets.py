@@ -29,5 +29,14 @@ class AWSSecretsStore(BaseAWSAdapter):
             # Binary secret — base64-decode to string
             return base64.b64decode(response["SecretBinary"]).decode("utf-8")
         except (ClientError, BotoCoreError) as e:
-            logger.exception("get_secret: failed secret_id_fp=%s", safe_log_fingerprint(secret_id))
-            raise CloudSecretsError(f"Failed to retrieve secret: {e}") from e
+            # Provider error text names the secret ARN. This adapter logs that ARN
+            # only as a fingerprint, so log the class and the error code only.
+            code = e.response.get("Error", {}).get("Code") if isinstance(e, ClientError) else None
+            logger.error(
+                "get_secret: failed secret_id_fp=%s exc_type=%s code=%s",
+                safe_log_fingerprint(secret_id),
+                type(e).__name__,
+                code,
+                exc_info=False,
+            )
+            raise CloudSecretsError("Failed to retrieve secret") from None
