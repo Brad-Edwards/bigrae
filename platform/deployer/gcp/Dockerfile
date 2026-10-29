@@ -151,27 +151,6 @@ RUN git init -q . && \
 # ---------------------------------------------------------------------------
 # Runtime image.
 # ---------------------------------------------------------------------------
-# gke-gcloud-auth-plugin, built from source (#2618). The newest Google build
-# (gcloud 591.0.0, plugin 0.5.20) uses Go 1.27.1, which has the CRITICAL
-# CVE-2026-56857. The source is the exact commit of kubernetes/cloud-provider-gcp
-# below, and go.sum verifies each module. Bump the commit and the Go image
-# together, and move back to the Google build when it uses a fixed Go.
-# ---------------------------------------------------------------------------
-# base image: golang:1.27.3-trixie
-FROM golang@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS gke-auth-plugin
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-# The commit that tag v37.1.13 points to.
-ARG CLOUD_PROVIDER_GCP_COMMIT=8ee7ffa8eec98eb6e9a560a5276131516da1e359
-WORKDIR /src
-RUN git init -q . && \
-    git fetch -q --depth 1 https://github.com/kubernetes/cloud-provider-gcp.git "${CLOUD_PROVIDER_GCP_COMMIT}" && \
-    git checkout -q FETCH_HEAD && \
-    test "$(git rev-parse HEAD)" = "${CLOUD_PROVIDER_GCP_COMMIT}" && \
-    CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags "-s -w" \
-      -o /out/gke-gcloud-auth-plugin ./cmd/gke-gcloud-auth-plugin && \
-    /out/gke-gcloud-auth-plugin --help >/dev/null
-
-# ---------------------------------------------------------------------------
 # base image: python:3.12-slim-trixie
 FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS deployer
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
