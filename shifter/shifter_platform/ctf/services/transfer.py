@@ -393,6 +393,22 @@ def export_event_results(event_id: UUID) -> dict[str, Any]:
     }
 
 
+# Leading characters that make a spreadsheet evaluate a cell as a formula.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(value: object) -> object:
+    """Neutralize a text cell that a spreadsheet would evaluate as a formula.
+
+    Participants choose their display names, and organizers open this export in
+    spreadsheet tools. A leading apostrophe makes such a cell literal text
+    (OWASP CSV injection guidance). Numbers and other values pass unchanged.
+    """
+    if isinstance(value, str) and value.startswith(_CSV_FORMULA_PREFIXES):
+        return f"'{value}"
+    return value
+
+
 def results_csv(results: dict[str, Any]) -> str:
     """Render the rankings section of a results export as CSV (CTF-1103)."""
     import csv
@@ -402,9 +418,9 @@ def results_csv(results: dict[str, Any]) -> str:
     writer = csv.writer(buffer)
     writer.writerow(["rank", "name", "score", "solve_count"])
     for row in results["rankings"]:
-        writer.writerow([row["rank"], row["name"], row["score"], row["solve_count"]])
+        writer.writerow([_csv_cell(row[key]) for key in ("rank", "name", "score", "solve_count")])
     writer.writerow([])
     writer.writerow(["participant", "challenge", "submitted_at", "points"])
     for solve in results["solves"]:
-        writer.writerow([solve["participant_name"], solve["challenge"], solve["submitted_at"], solve["points"]])
+        writer.writerow([_csv_cell(solve[key]) for key in ("participant_name", "challenge", "submitted_at", "points")])
     return buffer.getvalue()

@@ -24,6 +24,33 @@ afterEach(() => {
 });
 
 describe("apiFetch", () => {
+  it.each([
+    "/ctf/events/../participants/7/ban/",
+    "/ctf/events/%2e%2e/participants/7/ban/",
+    "/ctf/events/.%2E/challenges/",
+    "/ctf/events/x/./challenges/",
+    "/ctf/events/..?/challenges/",
+    "/ctf/events/x\\..\\participants/",
+    "/ctf/events/x#/challenges/",
+  ])("refuses a path a route param could redirect: %s", async (path) => {
+    const fetchMock = mockFetch(201, {});
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiFetch(path, { method: "POST", body: {} })).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still allows a query string and dotted names inside a segment", async () => {
+    const fetchMock = mockFetch(200, {});
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/ctf/events/e1/challenges/export/?fmt=shifter");
+    await apiFetch("/model-sources/v1.2..beta/");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ctf/events/e1/challenges/export/?fmt=shifter");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/model-sources/v1.2..beta/");
+  });
+
   it("sends X-CSRFToken and same-origin credentials on unsafe methods", async () => {
     const fetchMock = mockFetch(201, { id: 1 });
     vi.stubGlobal("fetch", fetchMock);

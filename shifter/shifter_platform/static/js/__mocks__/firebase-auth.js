@@ -1,7 +1,7 @@
 // Test double for the Firebase modular auth SDK. Each export is a jest mock so
 // tests can drive sign-in, registration, email-verification, and TOTP MFA flows
 // and assert how the auth module reacts.
-export const browserSessionPersistence = { type: "SESSION" };
+export const inMemoryPersistence = { type: "NONE" };
 
 // onAuthStateChanged stores the most recent observer so a test can simulate the
 // SDK firing an auth-state change.

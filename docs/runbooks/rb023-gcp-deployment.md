@@ -28,7 +28,7 @@ messages identify the stage:
 | Inputs | `required tools are missing from PATH`; `deployment inputs must include bigrae.yaml`; `deployment inputs must include terraform.tfvars or terraform.tfvars.json`; `range-images.json role ... must be projects/<project>/global/images/[family/]<name>`; `the deploy tooling revision does not match the release revision`; `the deploy tooling has local changes`; `a release manifest is required`; `settings.release_trust is required to verify release provenance`; `derived ... identity ... is not a valid service account` |
 | Lock | `the deployment lock is held by <command> run <run id> (started <time>)` |
 | Infrastructure | `settings.operator_bootstrap is required`; `settings.operator_bootstrap.admin_password_secret_ref is required`; `the operator password secret has an empty latest version`; `cannot read the operator password from Secret Manager`; `GCP operator email must use the ... domain`; `terraform apply failed with exit status <n>` |
-| Preconditions | `Required GCE range-cell input ... is not set`; `Range guest image not imported` |
+| Preconditions | `Required GCE range-cell input ... is not set`; `Range guest image not imported`; `Range guest image check failed` |
 | Images | `cannot import release image ...`; `imported image ... resolved to a different digest` |
 | Scan | `exact-release scan failed; the rollout is blocked`; `failed to store the redacted release verdict` |
 | Verify | `no attestation is stored with ...`; `no attestation of ... satisfies the release trust policy` |
@@ -112,7 +112,18 @@ the guide describes, or from a clean checkout of the release revision.
    kubectl -n shifter-platform get events --sort-by=.lastTimestamp
    ```
 
-7. For a running-image failure, list the image of each container. Compare each
+7. For a Helm failure that rolled back, read the container logs from Cloud
+   Logging. The atomic rollback deletes the failed pods, so `kubectl logs` has
+   nothing to show.
+
+   Read-only command:
+
+   ```bash
+   gcloud logging read 'resource.type="k8s_container" AND resource.labels.namespace_name="shifter-platform" AND resource.labels.container_name="<container>"' \
+     --project <project> --freshness=1h --limit 100 --format='value(timestamp,textPayload)'
+   ```
+
+8. For a running-image failure, list the image of each container. Compare each
    image with the release manifest.
 
    Read-only command:
@@ -122,7 +133,7 @@ the guide describes, or from a clean checkout of the release revision.
      -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.containerStatuses[*].imageID}{"\n"}{end}'
    ```
 
-8. For an ingress or certificate failure, compare the ingress address, the
+9. For an ingress or certificate failure, compare the ingress address, the
    certificate status, and the DNS answer.
 
    Read-only command:
@@ -155,9 +166,17 @@ release. Use the guide for each step that changes the deployment.
   A failed Terraform apply does not roll back. Fix the cause in the Terraform
   values, publish them, and deploy again
   ([Update and roll back](../technical/handbook/gcp-github-less-deployment.md#update-and-roll-back)).
-  Do not remove a Terraform state lock while an apply can still run.
+  Do not remove a Terraform state lock while an apply can still run. When you
+  know that the apply stopped, run `terraform force-unlock` with the generation
+  number of the lock object as the lock ID, not the ID in the lock info:
+  `gcloud storage objects describe gs://<project>-terraform-state/shifter/<environment>/platform-core/default.tflock --format='value(generation)'`.
+  A node pool that stays `RUNNING_WITH_ERROR` after a zone stockout fails the
+  apply; follow the stockout entry in
+  [the GCP tenant standup gotchas](../dev/gcp-tenant-standup-gotchas.md).
 - **Preconditions:** Set `settings.range_cells.zone` and import the range
-  images with `gcp-images`. For a deliberate platform-first bring-up, deploy
+  images with `gcp-images`. For `Range guest image check failed`, the deploy
+  identity could not read an image; the message names the reason, for example
+  a missing `compute.images.get` permission. For a deliberate platform-first bring-up, deploy
   with `--allow-missing-range-images`.
 - **Images:** Add the deploy identity to `reader_members` of the release
   registry

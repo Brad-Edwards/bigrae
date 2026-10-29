@@ -50,6 +50,14 @@ logger = logging.getLogger(__name__)
 _SUBJECT_TEMPLATE = "registration/password_reset_subject.txt"
 _TEXT_TEMPLATE = "registration/password_reset_email.txt"
 _HTML_TEMPLATE = "registration/password_reset_email.html"
+# Django backends that record the message body (log stream or disk) instead of
+# delivering it; a reset link written there is a live credential in the logs.
+_BODY_RECORDING_EMAIL_BACKENDS = frozenset(
+    {
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.filebased.EmailBackend",
+    }
+)
 
 
 class PasswordResetError(Exception):
@@ -141,6 +149,12 @@ def request_password_reset(
     eligible, reason = reset_eligibility(user)
     if not eligible:
         raise PasswordResetError("reset_ineligible", f"This account is not eligible for a password reset ({reason}).")
+
+    if settings.EMAIL_BACKEND in _BODY_RECORDING_EMAIL_BACKENDS:
+        # These backends write the full message, reset link included, to the
+        # container log or local disk instead of delivering it. No token is
+        # minted until a real email provider is configured (#2617).
+        raise PasswordResetError("reset_delivery_unavailable", "Password reset delivery is unavailable.")
 
     try:
         site_url = validated_site_url()

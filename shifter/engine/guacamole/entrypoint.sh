@@ -41,6 +41,20 @@ if [[ -n "${POSTGRESQL_HOSTNAME:-}" ]] && [[ -n "${POSTGRESQL_DATABASE:-}" ]]; t
         fi
     fi
 
+    # Remove the upstream default administrator. initdb.sh seeds the account
+    # "guacadmin" with the published password "guacadmin", and the PostgreSQL
+    # extension accepts it on the public /guacamole login. The portal signs every
+    # Guacamole session with JSON auth and never uses a password account, so the
+    # seed must not exist. This runs on every start, so it also cleans up an
+    # existing database. Deleting the entity cascades to the user and its
+    # permissions.
+    if psql -v ON_ERROR_STOP=1 -c "DELETE FROM guacamole_entity WHERE type = 'USER' AND name = 'guacadmin'"; then
+        echo "Default Guacamole administrator account is absent"
+    else
+        echo "ERROR: Failed to remove the default Guacamole administrator account" >&2
+        exit 1
+    fi
+
     # Clean up
     unset PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD
 else
