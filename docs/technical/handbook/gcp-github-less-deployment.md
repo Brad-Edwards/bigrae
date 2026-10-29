@@ -1,7 +1,7 @@
 # GitHub-less GCP deployment
 
 Applicability: GCP deployments that use the GitHub-less deploy path (ADR-070).
-Operator: platform owner. Verified against the repository: 2026-10-28.
+Operator: platform owner. Verified against the repository: 2026-10-29.
 
 This guide stands up, updates, and tears down a GCP deployment from a
 published release. The deployment needs no GitHub access, no GitHub
@@ -18,7 +18,8 @@ When a command fails, use [RB023](../../runbooks/rb023-gcp-deployment.md).
 | Term | Meaning |
 | --- | --- |
 | Release | One source revision: five control-plane images, one deployer image, and their attestations in the release registry. |
-| Release registry | The Artifact Registry repository that `release-gcp.yml` writes and deployments read. |
+| Release registry | The public registry `ghcr.io/<owner>/<repository>` that `release-gcp.yml` writes and every deployment reads. |
+| Mirror | A registry that an operator fills with the release images by digest, for a deployment that cannot reach the release registry. |
 | Release manifest | `bigrae.gcp-release.v1` JSON with the source revision, the chart version, and the exact image digests. The deployer image holds it at `/opt/bigrae/release.json`. |
 | Deployer image | The container that holds the commands, the Terraform roots, the Helm chart, and the pinned tools of one release. |
 | Deployment input bundle | The objects that one deployment reads: `bigrae.yaml`, the Terraform values, and the range image references. |
@@ -34,8 +35,9 @@ When a command fails, use [RB023](../../runbooks/rb023-gcp-deployment.md).
    foundation for each purpose: `deploy`, `release_scan`, and `destroy`. The
    foundation gives each listed principal
    `roles/iam.serviceAccountTokenCreator` on that purpose identity only.
-4. Make sure that your identity is in `reader_members` of the release registry.
-   You need read access to pull the deployer image and the base guest images.
+4. Make sure that you can pull from the release registry. It is public. A
+   deployment that cannot reach it uses a mirror
+   ([Deploy from a mirror](#deploy-from-a-mirror)).
 5. Sign in to Google Cloud. The commands use your credentials only to
    impersonate the purpose identities.
 
@@ -66,64 +68,27 @@ in the project.
 ## Publish a release
 
 The repository maintainer does this procedure once for each release. A
-deployment operator only consumes the result.
+deployment operator only consumes the result. One release serves every
+deployment, and a new deployment needs no change here.
 
-1. In the project that holds the release registry, apply the foundation in
-   GitHub mode with one `release` purpose context for each release ref. The
-   release refs are `refs/heads/main`, `refs/heads/dev`, and
-   `refs/heads/deploy-test`. This example shows `main`:
-
-   ```json
-   "release": [
-     {
-       "environment": "gcp-release",
-       "ref": "refs/heads/main",
-       "workflow_ref": "<owner>/<repo>/.github/workflows/release-gcp.yml@refs/heads/main",
-       "reusable_workflow_ref": ""
-     }
-   ]
-   ```
-
-   The `cicd-oidc` root rejects a `release` context on any other ref or
-   workflow. Read the identity with
-   `terraform output -raw release_service_account_email`.
-2. Apply `platform/terraform/gcp/global/release-registry` in the same project:
-
-   ```bash
-   cd platform/terraform/gcp/global/release-registry
-   terraform init \
-     -backend-config="bucket=<project>-terraform-state" \
-     -backend-config="prefix=release-registry"
-   terraform apply \
-     -var="project_id=<project>" -var="project_number=<project-number>" \
-     -var='writer_members=["serviceAccount:<release-service-account>"]' \
-     -var='reader_members=["serviceAccount:<deploy-identity>","serviceAccount:<destroy-identity>","user:<operator>"]'
-   terraform output -raw release_registry
-   ```
-
-   - `writer_members` accepts service accounts only. Add each image build
-     identity that copies base guest images into the registry.
-   - `reader_members` must include the deploy and destroy identities of each
-     deployment. The deploy identity copies the images. The destroy identity
-     verifies the release before a teardown.
-3. Create the `gcp-release` GitHub Environment. Limit it to the release refs
-   that have a `release` context. Each of these branches must be protected.
-4. Set these values in that Environment:
-
-   | Name | Kind | Value |
-   | --- | --- | --- |
-   | `GCP_WORKLOAD_IDENTITY_PROVIDER` | secret | The `workload_identity_provider` output of the `cicd-oidc` root. |
-   | `GCP_RELEASE_SERVICE_ACCOUNT` | secret | The `release_service_account_email` output. |
-   | `GCP_RELEASE_REGISTRY` | variable | The `release_registry` output, `<location>-docker.pkg.dev/<project>/<repository>`. |
-
-5. Dispatch the release from a release ref. The `version` input is optional;
+1. Create the `gcp-release` GitHub Environment once. Limit it to the release
+   refs `refs/heads/main`, `refs/heads/dev`, and `refs/heads/deploy-test`.
+   Protect each of these branches. The Environment holds no secrets or
+   variables.
+2. Dispatch the release from a release ref. The `version` input is optional;
    an empty value uses `version.txt`.
 
    ```bash
    gh workflow run release-gcp.yml --ref main
    ```
 
-6. Read the deployer image digest and the release manifest in the run summary.
+3. Read the deployer image digest and the release manifest in the run summary.
+4. After the first release only, make each package public in the GitHub
+   package settings: `portal`, `provisioner`, `guacd`, `guacamole-client`,
+   `openvpn`, and `deployer`. GHCR makes a new package private.
+
+The workflow publishes to `ghcr.io/<owner>/<repository>`, in lower case, with
+the workflow `GITHUB_TOKEN`. It uses no cloud identity.
 
 The workflow scans the deployer image digest before it attests the image. The
 scan is a blocking Trivy gate: `trivy image --scanners vuln --severity
@@ -136,33 +101,25 @@ Each entry is a HIGH finding in a vendor binary that no vendor build fixes yet.
 Each entry expires on 2026-11-30. After that date, the gate blocks each release
 until a maintainer updates the tools.
 
-To publish base guest images to the release registry, set the
-`GCP_RELEASE_REGISTRY` variable in the image build Environment.
-`packer-gcp.yml` then copies each published base image to
-`<release registry>/shifter-gce-<role>` and checks that the digest is equal.
+`packer-gcp.yml` publishes the base guest images to the public GHCR packages
+`ghcr.io/<owner>/shifter-gce-<role>`.
 
 ## Get and verify the deployer image
 
 1. Set the release registry and the release revision:
 
    ```bash
-   REG=<location>-docker.pkg.dev/<project>/<repository>
+   REG=ghcr.io/<owner>/<repository>
    REV=<40-hex revision>
    ```
 
-2. Let Docker and ORAS use your Google credentials for the registry host:
-
-   ```bash
-   gcloud auth configure-docker "${REG%%/*}"
-   ```
-
-3. Resolve the deployer image digest:
+2. Resolve the deployer image digest:
 
    ```bash
    DIGEST=$(oras resolve "$REG/deployer:$REV")
    ```
 
-4. Verify the build provenance of the deployer image. This command is not yet
+3. Verify the build provenance of the deployer image. This command is not yet
    confirmed against a real release; confirm it on the first release.
 
    ```bash
@@ -172,13 +129,13 @@ To publish base guest images to the release registry, set the
      --certificate-github-workflow-sha "$REV" "$REG/deployer@$DIGEST"
    ```
 
-5. Read the release manifest:
+4. Read the release manifest:
 
    ```bash
    docker run --rm --entrypoint cat "$REG/deployer@$DIGEST" /opt/bigrae/release.json
    ```
 
-6. Run each command in this guide through the deployer image. Always use the
+5. Run each command in this guide through the deployer image. Always use the
    digest, not the tag:
 
    ```bash
@@ -196,7 +153,35 @@ clean checkout of that revision; otherwise the command stops.
 
 `gcp-deploy` verifies the provenance of the five control-plane images before
 the rollout. That check binds each image to the repository ID, the owner ID,
-and the revision in `settings.release_trust` and the manifest.
+and the revision in `settings.release_trust` and the manifest. It then copies
+each image by digest into the deployment's own Artifact Registry. The commands
+send your Google credentials only to Artifact Registry, never to the release
+registry.
+
+## Deploy from a mirror
+
+Use a mirror when the deployment cannot reach the release registry.
+
+1. On a host that can reach both registries, copy each release image of the
+   manifest to the mirror. Keep the digest and the referrers:
+
+   ```bash
+   for name in portal provisioner guacd guacamole-client openvpn; do
+     SRC=$(jq -r --arg n "$name" '.images[$n]' release.json)
+     oras cp --recursive "$SRC" "<mirror>/$name:release-${REV:0:12}"
+   done
+   ```
+
+2. Copy the deployer image the same way to `<mirror>/deployer`.
+3. Pass the mirror prefix to each command:
+
+   ```bash
+   gcp-deploy --store gs://<bucket> --release-source <mirror>
+   ```
+
+`gcp-deploy`, `gcp-destroy`, and `gcp-release-scan` accept `--release-source`.
+They read each image at `<mirror>/<name>@<release digest>`. The provenance
+check verifies the same digests, so a mirror cannot change the release.
 
 ## Apply the foundation without GitHub
 
@@ -382,7 +367,7 @@ Other inputs that refer to secrets:
 
    ```bash
    ./scripts/bootstrap/deploy.py gcp-images --project-id <project> \
-     --source <release registry> --store gs://<bucket> --region <region>
+     --source ghcr.io/<owner> --store gs://<bucket> --region <region>
    ```
 
    The command imports the `kali`, `ubuntu`, and `dc` packages as native GCE

@@ -32,6 +32,7 @@ from gcp_deploy import (
     new_run_id,
     release_deploy_lock,
     release_trust,
+    source_images,
 )
 from gcp_deploy_stages import require_tools
 from gcp_identity import PurposeIdentities
@@ -48,6 +49,7 @@ class DestroyOptions:
     confirm: str
     environment: str = ""
     release_manifest: str = ""
+    release_source: str = ""
     identity_mode: str = "impersonate"
     name_prefix: str = ""
     destroy_service_account: str = ""
@@ -73,7 +75,8 @@ def _verify_release_tooling(runner: ProcessRunner, options: DestroyOptions, inpu
         ),
         manifest.source_revision,
     )
-    verify_release_provenance(dict(manifest.images), trust, token_provider=lambda: access_token(runner, {}))
+    images = source_images(manifest, options.release_source)
+    verify_release_provenance(images, trust, token_provider=lambda: access_token(runner, {}))
 
 
 def remove_platform_release(runner: ProcessRunner, inputs: DeploymentInputs) -> None:

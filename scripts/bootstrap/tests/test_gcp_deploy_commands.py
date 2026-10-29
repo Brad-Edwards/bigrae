@@ -84,7 +84,11 @@ def stages(monkeypatch):
     monkeypatch.setattr(
         gcp_deploy_stages, "check_range_preconditions", lambda *a, **k: seen.append(("preconditions", None))
     )
-    monkeypatch.setattr(gcp_deploy, "_import_images", lambda runner, inputs, infra, manifest: dict(manifest.images))
+    monkeypatch.setattr(
+        gcp_deploy,
+        "_import_images",
+        lambda runner, inputs, infra, manifest, source: gcp_deploy.source_images(manifest, source),
+    )
     monkeypatch.setattr(
         gcp_deploy,
         "_scan",
@@ -214,6 +218,36 @@ class TestRunDeploy:
         with pytest.raises(GcpDeployError, match="release manifest is required"):
             run_deploy(DeployOptions(source=str(bundle), stage="infrastructure", lock="external"), runner=FakeRunner())
 
+    def test_release_source_mirror_is_verified_and_imported(self, bundle, manifest, stages, monkeypatch):
+        """#2659: with a mirror, the gates verify and import the mirror copy of each release digest."""
+        verified: list[dict[str, str]] = []
+        monkeypatch.setattr(gcp_deploy, "_verify", lambda runner, images, trust: verified.append(dict(images)))
+        options = DeployOptions(
+            source=str(bundle),
+            stage="rollout",
+            lock="external",
+            release_manifest=str(manifest),
+            release_source="mirror.example/team/bigrae",
+        )
+        assert run_deploy(options, runner=FakeRunner()) == 0
+        assert len(verified) == 2
+        for images in verified:
+            assert images
+            assert all(
+                identity.startswith(f"mirror.example/team/bigrae/{name}@sha256:") for name, identity in images.items()
+            )
+        with pytest.raises(RuntimeError, match="registry prefix"):
+            run_deploy(
+                DeployOptions(
+                    source=str(bundle),
+                    stage="rollout",
+                    lock="external",
+                    release_manifest=str(manifest),
+                    release_source="https://mirror.example",
+                ),
+                runner=FakeRunner(),
+            )
+
     def test_rejects_bad_stage_local_lock_and_mismatched_tooling(self, bundle, manifest, stages, monkeypatch):
         with pytest.raises(GcpDeployError, match="--stage"):
             run_deploy(DeployOptions(source=str(bundle), stage="partial"), runner=FakeRunner())
@@ -340,6 +374,13 @@ class TestOtherCommands:
         options = ScanOptions(release_manifest=str(manifest), project_id=PROJECT, environment="acme")
         assert run_release_scan_command(options, runner=FakeRunner()) == 0
         assert seen == [(f"shifteracme-scan@{PROJECT}.iam.gserviceaccount.com", f"{PROJECT}-release-evidence")]
+        scanned = []
+        monkeypatch.setattr(gcp_deploy, "_scan", lambda runner, images, evidence, workdir: scanned.append(images))
+        mirror = ScanOptions(
+            release_manifest=str(manifest), project_id=PROJECT, environment="acme", release_source="m.example/x"
+        )
+        assert run_release_scan_command(mirror, runner=FakeRunner()) == 0
+        assert all(identity.startswith(f"m.example/x/{name}@") for name, identity in scanned[0].items())
 
     def test_smoke_command(self, bundle, monkeypatch):
         monkeypatch.setattr(gcp_deploy, "require_tools", lambda *n: None)
@@ -429,6 +470,11 @@ class TestOtherCommands:
         )
         images, trust = verified[0]
         assert images == release_images() and trust.source_revision == REVISION
+        mirror = DestroyOptions(
+            source=str(bundle), confirm="acme", release_manifest=str(manifest), release_source="mirror.example/bigrae"
+        )
+        gcp_destroy._verify_release_tooling(FakeRunner(), mirror, inputs)
+        assert all(identity.startswith(f"mirror.example/bigrae/{name}@") for name, identity in verified[1][0].items())
 
 
 class TestCli:
@@ -446,6 +492,8 @@ class TestCli:
                 "ambient",
                 "--no-smoke",
                 "--first-install",
+                "--release-source",
+                "mirror.example/bigrae",
             ]
         )
         options = gcp_cli._deploy_options(args)
@@ -456,6 +504,12 @@ class TestCli:
             False,
             True,
         )
+        assert options.release_source == "mirror.example/bigrae"
+        for command in (
+            ["gcp-destroy", "--store", "gs://b", "--confirm", "acme"],
+            ["gcp-release-scan", "--release-manifest", "m", "--project-id", "p", "--environment", "e"],
+        ):
+            assert parser.parse_args([*command, "--release-source", "m.example/x"]).release_source == "m.example/x"
 
         def failing(args):
             raise GcpDeployError("bad input")

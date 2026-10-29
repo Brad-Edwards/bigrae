@@ -475,7 +475,7 @@ def _add_gcp_images_subparser(subparsers: argparse._SubParsersAction) -> None:
     images_parser.add_argument(
         "--source",
         required=True,
-        help="Registry prefix of the shifter-gce-<role> packages, for example the release Artifact Registry repository",
+        help="Registry prefix of the shifter-gce-<role> packages, for example ghcr.io/<owner> or a mirror",
     )
     images_parser.add_argument(
         "--store",

@@ -33,10 +33,10 @@ only after the file is on the default branch. After `release-gcp.yml` is on
 gh workflow run release-gcp.yml --ref deploy-test
 ```
 
-The run uses the workflow file of that ref. Each release ref needs a `release`
-purpose context in the foundation and a deployment branch policy in the
-`gcp-release` Environment. Protect `deploy-test` against force pushes and
-deletion.
+The run uses the workflow file of that ref. Each release ref needs a deployment
+branch policy in the `gcp-release` Environment. Protect `deploy-test` against
+force pushes and deletion. The release goes to the public registry
+`ghcr.io/<owner>/<repository>`, so every deployment can use it.
 
 `gcp-deploy` requires that its own revision equals the release revision. A deploy
 fix therefore needs a new release. Put the fixes on `deploy-test` and release
@@ -58,19 +58,17 @@ The release images and their provenance stay those of the release. Use this
 only for a fix that is already in a pull request, and release again after it
 merges to `deploy-test`.
 
-## Release registry in the deployment project
+## Make new release packages public
 
-One project can hold the release registry and the deployment. Apply the
-foundation in GitHub mode with the `release` purpose contexts and also set
-`impersonation_principals` and `deployment_config_bucket_name`. The root then
-creates the release WIF trust, the purpose identities, and the config bucket in
-one state.
+GHCR makes a new package private. After the first release from a repository,
+make the `portal`, `provisioner`, `guacd`, `guacamole-client`, `openvpn`, and
+`deployer` packages public in the GitHub package settings. Until then, a
+deploy cannot pull the release images.
 
 ## Manual Terraform runs and a stale ADC quota project
 
-`gcp-foundation` sets the quota project of its child processes. A manual run,
-for example the `release-registry` apply, uses the quota project in your ADC
-file. If that project is deleted, each call fails with the error `The requested
+`gcp-foundation` sets the quota project of its child processes. A manual
+Terraform run uses the quota project in your ADC file. If that project is deleted, each call fails with the error `The requested
 project was not found`. Set the quota project and a private data directory for the run:
 
 ```bash
@@ -91,7 +89,8 @@ for layer in $(oras manifest fetch "${REF%@*}@$IMAGE" | jq -r '.layers[] | selec
 done
 ```
 
-ORAS uses the Docker credential helper for Artifact Registry, so
+The release registry is public, so ORAS needs no credentials for it. For an
+Artifact Registry mirror, ORAS uses the Docker credential helper, so
 `docker-credential-gcloud` must be on `PATH`.
 
 ## Range images that are already in the project

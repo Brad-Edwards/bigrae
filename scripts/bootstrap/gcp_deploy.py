@@ -65,6 +65,7 @@ class DeployOptions:
     source: str
     environment: str = ""
     release_manifest: str = ""
+    release_source: str = ""
     stage: str = "all"
     identity_mode: str = "impersonate"
     name_prefix: str = ""
@@ -247,8 +248,19 @@ def release_deploy_lock(runner: ProcessRunner, lock: DeployLock | None, env: Map
         release_lock(runner, lock, {})
 
 
+def source_images(manifest: GcpReleaseManifest, release_source: str) -> dict[str, str]:
+    """Return the release image identities in the release registry or in the operator's mirror."""
+    from gcp_release_images import release_identities
+
+    return release_identities(manifest.images, release_source)
+
+
 def _import_images(
-    runner: ProcessRunner, inputs: DeploymentInputs, infrastructure: InfrastructureResult, manifest: GcpReleaseManifest
+    runner: ProcessRunner,
+    inputs: DeploymentInputs,
+    infrastructure: InfrastructureResult,
+    manifest: GcpReleaseManifest,
+    release_source: str,
 ) -> dict[str, str]:
     """Import the release images into the deployment registry and return their identities."""
     from gcp_release_images import deployment_image_roots, import_release_images
@@ -256,7 +268,7 @@ def _import_images(
     return import_release_images(
         runner,
         {},
-        release_images=manifest.images,
+        release_images=source_images(manifest, release_source),
         roots=deployment_image_roots(infrastructure.outputs),
         source_revision=manifest.source_revision,
         workdir=inputs.workdir,
@@ -307,12 +319,16 @@ def _required_release(
 
 
 def _operator_gates(
-    runner: ProcessRunner, manifest: GcpReleaseManifest, trust: ReleaseTrust, env: Mapping[str, str | None]
+    runner: ProcessRunner,
+    manifest: GcpReleaseManifest,
+    trust: ReleaseTrust,
+    env: Mapping[str, str | None],
+    release_source: str,
 ) -> None:
     """Prove that the tooling is the release revision and that the release images verify (ADR-070-R6)."""
     check_tooling_revision(manifest.source_revision)
     with scoped_environment(env):
-        _verify(runner, dict(manifest.images), trust)
+        _verify(runner, source_images(manifest, release_source), trust)
 
 
 def _infrastructure(
@@ -387,7 +403,7 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
             # Before any change, every operator stage proves that its tooling is
             # the release revision and that the release images verify against the
             # deployment trust anchor (ADR-070-R6).
-            _operator_gates(runner, *_required_release(manifest, trust), deploy_env)
+            _operator_gates(runner, *_required_release(manifest, trust), deploy_env, options.release_source)
         lock = acquire_deploy_lock(runner, options, inputs, deploy_env, "gcp-deploy", run_id)
         with scoped_environment(deploy_env):
             inputs, infrastructure = _infrastructure(runner, options, inputs)
@@ -397,7 +413,7 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
             from gcp_deploy_stages import check_range_preconditions
 
             check_range_preconditions(inputs, infrastructure.outputs, allow_missing=options.allow_missing_range_images)
-            images = _import_images(runner, inputs, infrastructure, manifest)
+            images = _import_images(runner, inputs, infrastructure, manifest, options.release_source)
         evidence = EvidenceRun(
             bucket=evidence_bucket(options, inputs.project_id),
             source_revision=manifest.source_revision,
@@ -441,6 +457,7 @@ class ScanOptions:
     evidence_bucket: str = ""
     run_id: str = ""
     attempt: int = 1
+    release_source: str = ""
 
 
 def run_release_scan_command(options: ScanOptions, *, runner: ProcessRunner | None = None) -> int:
@@ -464,7 +481,7 @@ def run_release_scan_command(options: ScanOptions, *, runner: ProcessRunner | No
                 run_id=options.run_id or new_run_id(),
                 attempt=options.attempt,
             )
-            _scan(runner, dict(manifest.images), evidence, workdir)
+            _scan(runner, source_images(manifest, options.release_source), evidence, workdir)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return 0

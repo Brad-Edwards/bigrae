@@ -188,14 +188,6 @@ class GenericSourceTests(unittest.TestCase):
             "release-scan identity must have no project-wide IAM role",
         )
 
-    def test_release_publisher_cannot_have_a_project_wide_role(self):
-        resource = (MODULE / "main.tf").read_text()
-        addition = '\nresource "google_project_iam_member" "invalid_release_role" {\n  project = var.project_id\n  role = "roles/viewer"\n  member = "serviceAccount:${local.service_account_emails.release}"\n}\n'
-        self.assert_violation(
-            self.check_changed(resource, resource + addition),
-            "release publisher identity must have no project-wide IAM role",
-        )
-
     def test_impersonation_grant_cannot_be_widened(self):
         for before, after in [
             ("member             = each.value.member", 'member             = "allUsers"'),
@@ -287,7 +279,6 @@ class GenericSourceTests(unittest.TestCase):
             "release_scan_service_account_email",
             "deploy_service_account_email",
             "destroy_service_account_email",
-            "release_service_account_email",
         ):
             with self.subTest(name=name):
                 self.assert_violation(
