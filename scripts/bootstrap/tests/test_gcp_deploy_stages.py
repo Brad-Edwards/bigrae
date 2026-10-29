@@ -75,6 +75,7 @@ def recorder(monkeypatch, chart):
             monkeypatch.setattr(f"{module}.{name}", record(name))
     monkeypatch.setattr("gcp_terraform.terraform_context", record("terraform_context", lambda *a, **k: object()))
     monkeypatch.setattr("gcp_terraform.terraform_outputs", record("terraform_outputs", lambda *a, **k: outputs))
+    monkeypatch.setattr("gcp_terraform.artifact_registry_kms_adoption", lambda *a, **k: ())
     monkeypatch.setattr("gcp_helm.render_chart", record("render_chart", lambda *a, **k: chart))
     monkeypatch.setattr(
         "gcp_helm.build_values", record("build_values", lambda *a, **k: {"modelBroker": {"enabled": False}})
