@@ -6,18 +6,18 @@ type: NON_FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:24.378268Z
-updated_at: 2026-10-28T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-1402: Theming
 
 ## Statement
 
-CTF events could support configurable branding including event logo, color scheme, and description. Branding configuration shall be per-event. Visual customization shall be implemented via Django's template system (template context variables and CSS overrides), not a standalone theming engine.
+CTF events could support configurable branding including event logo, color scheme, and description. Branding configuration shall be per-event. Visual customization shall use per-event branding data that the platform user interface applies, not a standalone theming engine.
 
 ## Rationale
 
-Event branding enables differentiated event experiences, important for events co-hosted with external organizations or customers. Django's template system already supports the template inheritance and context variable patterns needed for per-event visual customization without building a separate theming infrastructure.
+Event branding enables differentiated event experiences, important for events co-hosted with external organizations or customers. The React SPA (ADR-029) applies the per-event branding fields, so no separate theming infrastructure is needed.
 
 ## Traceability
 
