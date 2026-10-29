@@ -1,12 +1,12 @@
 ---
 id: CTF-908
 title: "Event Capacity Declaration"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-04-16T22:48:07.172236Z
-updated_at: 2026-04-16T22:49:36.711007Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-908: Event Capacity Declaration
@@ -22,3 +22,8 @@ Event pacing alone cannot establish whether shared capacity can support an event
 ## Traceability
 
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#668` (CTF-908: Event Capacity Declaration)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent.capacity_hints and model_demand declaration fields)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/capacity.py` (declare_event_capacity derives the counts and declares them before spin-up)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/models/_capacity.py` (CapacityDeclaration engine record)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_capacity_signaling.py` (Declared counts and hints, idempotent redeclaration and failure handling)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_capacity_spare_declaration.py` (Spare-pool capacity declaration)

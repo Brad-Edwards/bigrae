@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:21.446320Z
-updated_at: 2026-10-28T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-102: Challenge Categories
@@ -21,5 +21,6 @@ Categories are the primary organizational axis for CTF challenges. Participants 
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (ChallengeCategory enum - defines 9 named categories (web, forensics, crypto, reverse, pwn, misc, osint, hardware, network))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge model - category CharField with ChallengeCategory.choices(), indexed, ordered by category)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/challenge.py` (CTFChallenge.category: organizer-authored free text for each challenge, indexed and used for ordering)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/ctf/ChallengesPage.tsx` (The participant challenge list groups challenges by category)
+- TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/ChallengesPage.test.tsx` (Category grouping in the participant challenge list)
