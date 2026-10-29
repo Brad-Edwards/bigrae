@@ -119,6 +119,7 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_me_events_communications_retrieve": OperationPolicy((_PARTICIPATE,), "event", "event"),
     "ctf_me_events_communications_acknowledge_create": OperationPolicy((_PARTICIPATE,), "event", "event"),
     "ctf_me_events_communications_read_create": OperationPolicy((_PARTICIPATE,), "event", "event"),
+    "ctf_me_events_communications_dismiss_create": OperationPolicy((_PARTICIPATE,), "event", "event"),
     "ctf_me_events_participant_retrieve": OperationPolicy((_PARTICIPATE,), "event", "event"),
     "ctf_me_model_access_retrieve": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
     "ctf_me_pages_retrieve": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
@@ -185,6 +186,7 @@ NON_API_ROUTE_POLICY: dict[str, str] = {
             "participant_team",
             "team_join",
             "ctf_help",
+            "participant_inbox",
             "admin_dashboard",
             "admin_event_list",
             "admin_event_create",
@@ -232,6 +234,7 @@ CTF_COMMAND_POLICY: dict[str, str] = {
     "ctf_recompute_leaderboard": "system_event",
     "cutover_ctf_communications": "system_maintenance",
     "prune_ctf_communications": "system_maintenance",
+    "seed_e2e_ctf": "system_maintenance",
 }
 
 

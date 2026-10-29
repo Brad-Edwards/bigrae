@@ -52,6 +52,7 @@ export type NavIconKey =
   | "trophy"
   | "users"
   | "help-circle"
+  | "inbox"
   | "boxes"
   | "bot"
   | "shield"
@@ -176,6 +177,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { surface: "Range", routeName: "ctf:range", purpose: "Access range status and participant resources.", routePath: "/ctf/range/", iconKey: "server", activeContext: "range" },
       { surface: "Scoreboard", routeName: "ctf:scoreboard", purpose: "Compare event scoring and rank.", routePath: "/ctf/scoreboard/", iconKey: "trophy" },
       { surface: "Team", routeName: "ctf:team", purpose: "Inspect team membership and status.", routePath: "/ctf/team/", iconKey: "users" },
+      { surface: "Inbox", routeName: "ctf:participant_inbox", purpose: "Read and acknowledge event messages.", routePath: "/ctf/inbox/", iconKey: "inbox", activeContext: "event" },
       { surface: "Help", routeName: "ctf:help", purpose: "Get CTF-specific help.", routePath: "/ctf/help/", iconKey: "help-circle" },
     ],
   ),

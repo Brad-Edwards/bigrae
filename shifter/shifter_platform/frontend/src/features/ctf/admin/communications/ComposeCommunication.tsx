@@ -79,7 +79,11 @@ function PreviewPanel({ preview }: Readonly<{ preview: ReturnType<typeof useComm
       <div className="rounded-md border p-4">
         <p className="text-sm text-muted-foreground">Revision {data.revision.revision_number}</p>
         <h3 className="text-base font-semibold">{data.revision.subject}</h3>
-        <MarkdownContent text={data.revision.body} profile="ctf-communication-markdown/v1" />
+        <MarkdownContent
+          text={data.revision.body}
+          profile="ctf-communication-markdown/v1"
+          allowedLinkHosts={data.allowed_link_hosts}
+        />
       </div>
       <Table>
         <TableHeader>

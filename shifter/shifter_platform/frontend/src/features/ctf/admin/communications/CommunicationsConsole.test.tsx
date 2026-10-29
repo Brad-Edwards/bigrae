@@ -25,7 +25,7 @@ const CAMPAIGN = {
 };
 const PREVIEW = {
   campaign_id: "c1",
-  revision: { id: "r1", revision_number: 1, subject: "Welcome", body: "Read the **rules**", content_profile: "p", content_digest: "sha256:x" },
+  revision: { id: "r1", revision_number: 1, subject: "Welcome", body: "Read the **rules** and [docs](https://docs.example.test/a) or [other](https://other.example.test/b)", content_profile: "p", content_digest: "sha256:x" },
   channels: [{ channel: "in_app", available: true }], acknowledgement_policy: "none",
   trigger: { kind: "manual", due_at: null },
   events: [
@@ -33,6 +33,7 @@ const PREVIEW = {
     { event_id: "e2", name: "Bravo", event_timezone: "America/New_York", recipient_count: 1, local_due_at: null },
   ],
   recipient_total: 3, audience_cap: 5000, exceeds_audience_cap: false, observed_at: "2026-10-01T00:00:00Z",
+  allowed_link_hosts: ["docs.example.test"],
 };
 
 function stubApi(route: (url: string, method: string) => Reply | undefined) {
@@ -78,6 +79,9 @@ it("composes with the keyboard, previews, and retries the same reviewed release"
 
   const preview = await screen.findByRole("region", { name: "Preview" });
   expect(within(preview).getByText("Welcome")).toBeInTheDocument();
+  // The preview renders under the participant's deployment link policy.
+  expect(within(preview).getByRole("link", { name: "docs" })).toHaveAttribute("href", "https://docs.example.test/a");
+  expect(within(preview).queryByRole("link", { name: "other" })).not.toBeInTheDocument();
   expect(within(preview).getByText(/Preview sends nothing/)).toBeInTheDocument();
   const draft = JSON.parse(posts(fetch, "/communications/")[0][1].body);
   expect(draft.target_event_ids).toEqual(["e1", "e2"]);

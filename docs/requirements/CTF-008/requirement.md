@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:21.159679Z
-updated_at: 2026-10-28T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-008: Notifications & Communications
@@ -45,3 +45,20 @@ Communication keeps participants informed and engaged before, during, and after 
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_attribution_migration.py` (Revision-author backfill on the historical schema (#2052))
 - TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/admin/communications/CommunicationsConsole.test.tsx` (Console keyboard flow, preview, release retry, delivery state, cancel confirmation (#2052))
 - IMPLEMENTS → GITHUB_ISSUE `2052` (Issue #2052 - multi-event admin and organizer communications API and console)
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/services/communication/inbox.py` (Participant inbox policy: retention cut-off, closed views and counts, independent read/dismiss/acknowledge receipt actions (#2053))
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/api/communication_inbox.py` (Session-only inbox API: view filter, counts, link-host projection, dismiss route, no-store responses, opaque validation errors (#2053))
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/migrations/0068_participant_receipt_dismissed_at.py` (Participant dismiss timestamp (#2053))
+- IMPLEMENTS → CODE `shifter/shifter_platform/ctf/communication_contracts.py` (Token-based content admission: media, HTML, link targets, www autolinks, rendered-byte bound (#2053))
+- IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/features/ctf/inbox/` (Participant inbox page: views, explicit read on open, dismiss, accessible acknowledgement, fail-closed profile, offline state (#2053))
+- IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/api/ctfInbox.ts` (Principal- and event-qualified inbox client with focus, reconnect, poll and cross-tab reconciliation (#2053))
+- IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/features/ctf/CtfWorkspaceLayout.tsx` (Reference-only socket hints and non-modal action notice (#2053))
+- IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/features/ctf/MarkdownContent.tsx` (Closed communication Markdown profile; neutralized links render as text (#2053))
+- IMPLEMENTS → DOCUMENTATION `docs/architecture/ctf-participant-inbox-design-2053.md` (Participant inbox design: receipt states, security controls and data flow (#2053))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_inbox.py` (Receipt independence, views and counts, event isolation, occurrences versus retries, retention cut-off, no-store and non-reflection (#2053))
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_contracts.py` (Media and non-HTTPS link rejection, rendered-byte bound, inert code and template text (#2053))
+- TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/inbox/InboxPage.test.tsx` (Explicit read, acknowledge, dismiss, unknown profile, authorization loss, closed views, paging, offline (#2053))
+- TESTS → TEST `shifter/shifter_platform/frontend/src/api/ctfInbox.test.tsx` (Cache qualification, cross-tab reconciliation, offline receipt action (#2053))
+- TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/CtfWorkspaceLayout.test.tsx` (Socket hints never read; non-modal action notice (#2053))
+- TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/MarkdownContent.test.tsx` (Communication profile adversarial fixtures (#2053))
+- TESTS → TEST `shifter/shifter_platform/frontend/e2e/journeys/ctf-inbox.spec.ts` (Stored and reflected XSS probes under the enforced CSP (#2053))
+- IMPLEMENTS → GITHUB_ISSUE `2053` (Issue #2053 - participant inbox and safe rich-content presentation)

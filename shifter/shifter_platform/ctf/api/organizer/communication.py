@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 from drf_spectacular.utils import extend_schema
@@ -287,6 +288,7 @@ class CommunicationPreviewView(CommunicationView):
     def get(self, request: Request, campaign_id: UUID) -> Response:
         query = validate_query(request, CommunicationPreviewQuerySerializer)
         data = reporting.preview(self.campaign(request, campaign_id), query["revision_id"])
+        data["allowed_link_hosts"] = sorted(settings.CTF_COMMUNICATION_ALLOWED_LINK_HOSTS)
         return Response(CommunicationPreviewSerializer(data).data)
 
 

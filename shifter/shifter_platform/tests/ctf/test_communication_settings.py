@@ -48,6 +48,12 @@ def test_allowed_link_hosts_empty_is_no_external_hosts():
         "docs.example.com/path",  # path
         "bad host.com",  # space
         "user@docs.example.com",  # credentials
+        # Hosts the content policy never admits must not reach the policy the
+        # browser receives either (#2053).
+        "localhost",
+        "LocalHost",
+        "127.0.0.1",
+        "10.0.0.7",
     ],
 )
 def test_allowed_link_hosts_rejects_malformed_entries(raw):

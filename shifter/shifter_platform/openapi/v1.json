@@ -10203,6 +10203,21 @@
               "minimum": 0,
               "default": 0
             }
+          },
+          {
+            "in": "query",
+            "name": "view",
+            "schema": {
+              "enum": [
+                "inbox",
+                "action_required",
+                "dismissed"
+              ],
+              "type": "string",
+              "default": "inbox",
+              "minLength": 1
+            },
+            "description": "* `inbox` - inbox\n* `action_required` - action_required\n* `dismissed` - dismissed"
           }
         ],
         "tags": [
@@ -10417,6 +10432,131 @@
       "post": {
         "operationId": "ctf_me_events_communications_acknowledge_create",
         "description": "Record acknowledgement under the pinned message policy.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommunicationEmpty"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationInboxItem"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ctf/me/events/{event_id}/communications/{snapshot_id}/dismiss/": {
+      "post": {
+        "operationId": "ctf_me_events_communications_dismiss_create",
+        "description": "Hide a message from the default view without reading or acknowledging it.",
         "parameters": [
           {
             "in": "path",
@@ -21156,6 +21296,17 @@
             "readOnly": true,
             "nullable": true
           },
+          "dismissed_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true
+          },
+          "action_required": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "True while the pinned policy still needs a read or an explicit acknowledgement"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -21166,9 +21317,11 @@
         "required": [
           "acknowledged_at",
           "acknowledgement_policy",
+          "action_required",
           "body",
           "content_profile",
           "created_at",
+          "dismissed_at",
           "message_id",
           "origin",
           "read_at",
@@ -21267,10 +21420,19 @@
             "type": "string",
             "format": "date-time",
             "readOnly": true
+          },
+          "allowed_link_hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "readOnly": true,
+            "description": "Deployment HTTPS link hosts the renderer may link to, as in the participant inbox"
           }
         },
         "required": [
           "acknowledgement_policy",
+          "allowed_link_hosts",
           "audience_cap",
           "campaign_id",
           "channels",
@@ -23451,7 +23613,7 @@
       },
       "InboxPage": {
         "type": "object",
-        "description": "Project one inbox page and its continuation offset.",
+        "description": "Project one inbox page, its continuation offset, and inbox-wide counts.",
         "properties": {
           "results": {
             "type": "array",
@@ -23462,11 +23624,29 @@
           "next_offset": {
             "type": "integer",
             "nullable": true
+          },
+          "unread_count": {
+            "type": "integer",
+            "description": "Unread messages in the default view"
+          },
+          "action_required_count": {
+            "type": "integer",
+            "description": "Messages whose pinned policy needs an action"
+          },
+          "allowed_link_hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Deployment HTTPS link hosts the renderer may link to"
           }
         },
         "required": [
+          "action_required_count",
+          "allowed_link_hosts",
           "next_offset",
-          "results"
+          "results",
+          "unread_count"
         ]
       },
       "InstancePresentation": {

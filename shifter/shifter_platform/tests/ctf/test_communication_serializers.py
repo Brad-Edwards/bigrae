@@ -64,6 +64,8 @@ def test_inbox_item_exposes_only_bounded_fields(organizer_user, ctf_event):
         "acknowledgement_policy",
         "read_at",
         "acknowledged_at",
+        "dismissed_at",
+        "action_required",
         "created_at",
     }
     # The recipient's address (and any other coordinate) must never surface.

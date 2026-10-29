@@ -457,6 +457,7 @@ jobs:
           uv run python manage.py collectstatic --noinput
           uv run python manage.py migrate --noinput
           uv run python manage.py seed_e2e
+          uv run python manage.py seed_e2e_ctf
       - name: Install Playwright browser
         working-directory: shifter/shifter_platform/frontend
         run: npx playwright install --with-deps chromium

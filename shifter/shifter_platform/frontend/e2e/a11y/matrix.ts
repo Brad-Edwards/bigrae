@@ -67,6 +67,13 @@ export const SURFACES: readonly A11ySurface[] = [
     remediation: "src/features/administer/AuditPage.tsx",
   },
   {
+    id: "ctf-participant-inbox",
+    route: "/ctf/inbox",
+    actor: "inbox",
+    ready: "Inbox",
+    remediation: "src/features/ctf/inbox/InboxPage.tsx",
+  },
+  {
     id: "ctf-admin-dashboard",
     route: "/ctf/admin",
     actor: "organizer",

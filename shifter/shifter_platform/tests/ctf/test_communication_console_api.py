@@ -123,7 +123,8 @@ def _ledger_counts():
     )
 
 
-def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf_event, second_event, roster):
+def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf_event, second_event, roster, settings):
+    settings.CTF_COMMUNICATION_ALLOWED_LINK_HOSTS = frozenset({"docs.example.com"})
     client = _client(organizer_user)
     campaign = _draft(client, workspace, [ctf_event, second_event])
     assert {t["id"] for t in campaign["target_events"]} == {str(ctf_event.pk), str(second_event.pk)}
@@ -143,6 +144,8 @@ def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf
     assert body["recipient_total"] == 3
     assert body["exceeds_audience_cap"] is False
     assert body["channels"] == [{"channel": "in_app", "available": True}]
+    # The preview renders under the same deployment link policy as the inbox.
+    assert body["allowed_link_hosts"] == ["docs.example.com"]
     assert "ada@example.test" not in preview.content.decode()
 
     # Another tab revises the draft; the reviewed revision is still what is sent.

@@ -120,6 +120,11 @@ class CommunicationPreviewSerializer(serializers.Serializer):
     audience_cap = serializers.IntegerField(read_only=True)
     exceeds_audience_cap = serializers.BooleanField(read_only=True)
     observed_at = serializers.DateTimeField(read_only=True)
+    allowed_link_hosts = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Deployment HTTPS link hosts the renderer may link to, as in the participant inbox",
+    )
 
 
 class CommunicationChannelCountsSerializer(serializers.Serializer):

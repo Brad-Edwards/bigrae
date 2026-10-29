@@ -255,6 +255,8 @@ PostgreSQL service and feeds the `PR Gate`; the make target uses SQLite locally.
 Synthetic actors are established by the dev/test-only `seed_e2e` management
 command (staff, threat-research, and standard actors, plus the staff actor's
 administrable organization) and by `dev_login` (CTF organizer/participant). The
+dev/test-only `seed_e2e_ctf` command adds one CTF event with inbox messages for
+the inbox participant actor. The
 Playwright config's `auth.setup.ts` logs each actor in once and reuses its
 `storageState`. No cloud, provisioner, IdP, or live-range dependency is used:
 `LOCAL_PROVISIONER`/`ENGINE_TASK_*` stay unset, so a range launch enqueues
@@ -262,8 +264,9 @@ nothing and contacts no cloud.
 
 Hermetic scope: login/auth-revocation, workspace lifecycle
 (create/rename/archive/restore), shared-audit history, authorization denial
-(client advisory **and** the authoritative API 403), and CTF
-organizer/participant/threat-research role landings. Journeys that require a live
+(client advisory **and** the authoritative API 403), CTF
+organizer/participant/threat-research role landings, and the participant inbox
+with stored and reflected XSS probes under the enforced CSP. Journeys that require a live
 provisioner (range readiness/terminal/cleanup, CTF range, Guacamole) are the
 deployed tier and are tracked separately, not run in the PR lane.
 

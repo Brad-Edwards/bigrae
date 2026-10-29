@@ -20,11 +20,14 @@ import hashlib
 import ipaddress
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID
+
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 
 from ctf.enums import EventStatus
 from ctf.enums_communication import AcknowledgementPolicy, AudienceKind, CommunicationChannel, TriggerKind
@@ -63,6 +66,13 @@ _MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(\s*([^)\s]+)(?:\s[^)]*)?\)")
 _MARKDOWN_REF_DEF_RE = re.compile(r"(?m)^[ \t]{0,3}\[[^\]]+\]:[ \t]*(\S+)")
 # Bare scheme-prefixed URL anywhere (GFM autolinks these when rendered).
 _BARE_URL_RE = re.compile(r"(?i)\bhttps?://[^\s<>()\[\]\"'`\\]+")
+# GFM ``www.`` autolink literal: the renderer links it with an ``http`` scheme.
+_WWW_AUTOLINK_RE = re.compile(r"(?i)(?:^|(?<=[\s*_~(]))www\.\S")
+# CommonMark plus the GFM table and strikethrough rules the browser renderer also
+# enables. HTML parsing stays on, so raw HTML surfaces as a token and is rejected.
+# The regex scans above stay as a cheap first pass; the token scan decides what
+# the Markdown actually means (#2053).
+_PARSER = MarkdownIt("commonmark").enable(["table", "strikethrough"])
 
 
 def _reject(message: str, *, code: str = "CTF_COMMUNICATION_CONTENT_INVALID") -> CTFCommunicationError:
@@ -188,7 +198,33 @@ def _validate_body(body: object, allowed_link_hosts: frozenset[str]) -> str:
     # Bare scheme-prefixed URLs (autolinked at render): every host must be allowed.
     for match in _BARE_URL_RE.finditer(body):
         _validate_absolute_url(match.group(0), allowed_link_hosts)
+    _validate_tokens(body, allowed_link_hosts)
     return body
+
+
+def _walk(tokens: Iterable[Token]) -> Iterator[Token]:
+    """Yield every block token and every inline child token in document order."""
+    for token in tokens:
+        yield token
+        if token.children:
+            yield from _walk(token.children)
+
+
+def _validate_tokens(body: str, allowed_link_hosts: frozenset[str]) -> None:
+    """Reject media, HTML, and unsafe links as parsed, then bound the rendered size."""
+    tokens = _PARSER.parse(body)
+    for token in _walk(tokens):
+        if token.type == "image":
+            raise _reject("images are not allowed")
+        if token.type in {"html_block", "html_inline"}:
+            raise _reject("raw HTML is not allowed")
+        if token.type == "link_open":
+            _validate_link_target(str(token.attrGet("href") or ""), allowed_link_hosts)
+        if token.type == "text" and _WWW_AUTOLINK_RE.search(token.content):
+            raise _reject("external links must use https")
+    rendered = _PARSER.renderer.render(tokens, _PARSER.options, {})
+    if len(rendered.encode("utf-8")) > MAX_RENDERED_BYTES:
+        raise _reject(f"rendered body exceeds {MAX_RENDERED_BYTES} bytes")
 
 
 def validate_message_content(content: object, *, allowed_link_hosts: frozenset[str]) -> dict[str, Any]:
