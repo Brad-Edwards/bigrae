@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.request import Request
@@ -324,6 +325,7 @@ class CommunicationPreviewView(CommunicationView):
         """Preview the reviewed revision and current audience without creating delivery work."""
         query = validate_query(request, CommunicationPreviewQuerySerializer)
         data = reporting.preview(campaign_id, query["revision_id"], actor=request_actor(request))
+        data["allowed_link_hosts"] = sorted(settings.CTF_COMMUNICATION_ALLOWED_LINK_HOSTS)
         return Response(CommunicationPreviewSerializer(data).data)
 
 

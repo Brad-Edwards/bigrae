@@ -31,6 +31,7 @@ urlpatterns = [
     path("team/", platform_spa_host, name="participant_team"),
     path("team/join/", platform_spa_host, name="team_join"),
     path("help/", platform_spa_host, name="ctf_help"),
+    path("inbox/", platform_spa_host, name="participant_inbox"),
     path("admin/", platform_spa_host, name="admin_dashboard"),
     path("admin/events/", platform_spa_host, name="admin_event_list"),
     path("admin/events/create/", platform_spa_host, name="admin_event_create"),

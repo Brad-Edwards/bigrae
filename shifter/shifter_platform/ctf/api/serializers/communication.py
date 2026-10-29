@@ -31,7 +31,8 @@ from ctf.communication_contracts import (
 )
 from ctf.enums_communication import AcknowledgementPolicy, AudienceKind, CommunicationChannel, TriggerKind
 from ctf.exceptions import CTFCommunicationError
-from ctf.models import CommunicationCampaign, MessageRevision
+from ctf.models import CommunicationCampaign, MessageRevision, RecipientSnapshot
+from ctf.services.communication.inbox import has_open_obligation
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api.strict_json import ClosedJSONParser
 
@@ -54,7 +55,15 @@ class CommunicationInboxItemSerializer(serializers.Serializer):
     acknowledgement_policy = serializers.CharField(source="intent.acknowledgement_policy", read_only=True)
     read_at = serializers.DateTimeField(source="receipt.read_at", read_only=True, allow_null=True)
     acknowledged_at = serializers.DateTimeField(source="receipt.acknowledged_at", read_only=True, allow_null=True)
+    dismissed_at = serializers.DateTimeField(source="receipt.dismissed_at", read_only=True, allow_null=True)
+    action_required = serializers.SerializerMethodField(
+        help_text="True while the pinned policy still needs a read or an explicit acknowledgement"
+    )
     created_at = serializers.DateTimeField(source="intent.released_at", read_only=True, allow_null=True)
+
+    def get_action_required(self, snapshot: RecipientSnapshot) -> bool:
+        """Return whether the pinned policy still needs a participant action."""
+        return has_open_obligation(snapshot)
 
 
 def with_latest_revision(queryset: QuerySet[CommunicationCampaign]) -> QuerySet[CommunicationCampaign]:
