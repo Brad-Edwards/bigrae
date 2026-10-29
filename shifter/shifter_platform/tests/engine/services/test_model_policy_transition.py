@@ -22,7 +22,9 @@ def test_policy_transition_revokes_old_grant_and_compares_revision(django_user_m
     range_obj.save(update_fields=["status"])
     before = old.snapshot
     revision = begin_range_model_policy_change(
-        request_id=old.request_id, expected_revision=0, actor_id=range_obj.user_id
+        request_id=old.request_id,
+        expected_revision=0,
+        actor_principal_uuid=range_obj.owner_principal_uuid,
     )
     old.refresh_from_db()
     range_obj.refresh_from_db()
@@ -31,7 +33,11 @@ def test_policy_transition_revokes_old_grant_and_compares_revision(django_user_m
     assert old.snapshot == before
     assert range_obj.provisioner_operation_id == old.operation_id
     with pytest.raises(ContractError, match=r"source\.revision_conflict"):
-        begin_range_model_policy_change(request_id=old.request_id, expected_revision=0, actor_id=range_obj.user_id)
+        begin_range_model_policy_change(
+            request_id=old.request_id,
+            expected_revision=0,
+            actor_principal_uuid=range_obj.owner_principal_uuid,
+        )
 
 
 def test_guest_refresh_moves_to_explicit_successor_once_without_extending_deadline(enrolled_allocation):
@@ -41,12 +47,18 @@ def test_guest_refresh_moves_to_explicit_successor_once_without_extending_deadli
 
     old = enrolled_allocation
     row = Range.objects.get(uuid=old.range_id)
-    old.snapshot["request"] = {"owner_ref": {"owner": "management", "reference": f"user:{row.user_id}"}}
+    old.snapshot["request"] = {
+        "owner_ref": {"owner": "management", "reference": f"principal:{row.owner_principal_uuid}"}
+    }
     old.save(update_fields=["snapshot"])
     pair = exchange(issue(old))
     row.status = Range.Status.READY
     row.save(update_fields=["status"])
-    begin_range_model_policy_change(request_id=old.request_id, expected_revision=0, actor_id=row.user_id)
+    begin_range_model_policy_change(
+        request_id=old.request_id,
+        expected_revision=0,
+        actor_principal_uuid=row.owner_principal_uuid,
+    )
     fields = {
         field.name: getattr(old, field.name)
         for field in ModelAllocation._meta.fields

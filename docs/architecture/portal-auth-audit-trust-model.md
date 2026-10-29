@@ -1,14 +1,13 @@
 # Portal Auth & Audit Trust Model
 
-Status: implemented (issues #937, #1516)
+Status: implemented on the #2321 branch; includes the #2617 portal security controls.
 
-Documents the trust boundaries hardened in #937 for the Shifter portal:
-dev-auth reachability, audit source-IP attribution, and the self-service
-`user_type` claim. These four concepts are kept deliberately separate:
-dev-auth reachability, request attribution, identity-provider claims, and
-platform elevation. Issue #1516 tightened the identity-provider boundary
-further: organizer authority is no longer derivable from self-service identity
-data (see "Self-service `user_type`" and "Organizer authority" below).
+This document separates login reachability, identity evidence, authorization,
+and audit attribution. The native principal and policy boundary in
+[ADR-066](../adr/066-account-principal-resource-scope.md) is authoritative.
+Legacy Django groups, staff flags, email matches and profile claims cannot grant
+native authority. The [lifecycle contracts](../technical/shifter_platform/identity-lifecycle-contracts.md)
+define command ownership, proof checks, transactions and recovery.
 
 ## Dev-auth reachability
 
@@ -43,89 +42,60 @@ client is the second hop from the right. The WebSocket
 terminal consumer (`mission_control/consumers.py`) reuses the same hop policy on
 the ASGI scope so terminal audit rows do not drift from HTTP rows.
 
-## Self-service `user_type` and the CTF-only invariant
+## Identity evidence and self-service claims
 
-`custom:user_type` is self-mutable by design (accepted maintainer decision,
-2026-06-10). The safety control is a durable, reviewable audit trail plus a
-structural invariant, not attribute locking.
+Provider login binds a verified issuer and subject to a native human principal.
+Email and display names are profile data. A self-service `user_type` claim may
+update compatibility profile/group projections through `config.user_type_sync`.
+It cannot grant native organizer, content-authoring or installation authority.
+The participant projection also cannot substitute for current event standing.
 
-`config.user_type_sync.sync_user_type()` is the single helper that turns a
-claimed `user_type` into CTF group membership, shared by Cognito OIDC, GCP
-Identity Platform, and dev-login. The mapping (`USER_TYPE_TO_GROUP`) is the only
-path from a self-service claim to a group, and since #1516 it reaches only the
-participant group:
+Provider groups and legacy bootstrap-email settings do not confer native
+permissions. Installation bootstrap uses the explicit native operator path and
+exact configured issuer/subject binding. Administrators manage subsequent
+relationships through the native policy commands. Retained compatibility
+modules and historical migrations are not instructions for current grants.
 
-| `user_type`       | Reachable Django group |
-| ----------------- | ---------------------- |
-| `standard`        | (none)                 |
-| `ctf_participant` | `CTF Participant`      |
-| `ctf_organizer`   | (none; unrecognized on this path since #1516) |
+## Organizer and administrative authority
 
-**Invariant (tightened by #1516):** a self-assigned `user_type` can reach only
-the `CTF Participant` group. It can never grant `CTF Organizer`, `is_staff`,
-`is_superuser`, the `Threat Research` group, or CMS authoring
-(`shared.auth.can_edit_cms_authoring`, which requires staff or Threat Research).
-A `ctf_organizer` claim is treated as unrecognized here and grants nothing; the
-self-service sync also never *removes* an admin-granted `CTF Organizer` group (a
-`standard` claim clears participant membership only). Platform elevation stays
-env-email driven via `config.bootstrap_admin.apply_bootstrap_admin_flags()`
-(`PLATFORM_BOOTSTRAP_STAFF_EMAILS` / `PLATFORM_BOOTSTRAP_SUPERUSER_EMAILS`). The
-invariant is enforced by
-`tests/config/test_user_type_sync.py::TestClaimDerivedGroupInvariant` and
-`::TestSelfServiceCannotAcquireOrganizer`.
+Each HTTP, socket and service boundary retains the caller's original native
+credential. The owning service resolves current proof and evaluates the exact
+action, target and scope. An event owner field or legacy `CTF Organizer` group
+cannot bypass that decision. Revoking policy denies later campaign reads,
+scheduled release, notification delivery and socket admission even when the
+same session is still valid. Participant access also checks current event
+standing, including suspension and the event window.
 
-Participant-only surface enforcement remains server-side and event-scoped
-(coordinated with #944); UI hiding is not enforcement.
+Staff assignment names a native principal UUID. Email-only requests are rejected
+without a directory lookup; known and unknown email addresses have the same
+response. Event staff changes use the retained native policy transition and
+audit protocol.
 
-## Organizer authority (administrator-controlled)
+`/admin/login/` redirects safe requests to the configured provider login.
+Password submissions to that route are refused. The mounted `PolicyAdminSite`
+permits only policy-authorized inspection. It provides no identity, password,
+group or privilege writes, including for a legacy Django superuser. Native APIs
+and their owning services are the mutation boundary. Password-reset delivery
+rejects console and file mail backends before minting a reset link.
 
-`CTF Organizer` gates the CTF admin surface (`/ctf/admin/*`, participant/bracket/
-notification management via `ctf.views._access.ctf_organizer_required` and
-`ctf.api._base`) and participant range provisioning through `ctf.services`, so it
-is privileged authority, not merely participant scope. Since #1516 it is granted
-only from administrator-controlled sources, never from self-service identity data.
-`config.organizer_authority` is the single seam:
+## Audit identity and mutation records
 
-- **Verified provider group evidence.** The admin-managed `cognito:groups` claim
-  (captured from the already-verified OIDC / Identity Platform payload by
-  `config.cognito_groups`) is mapped to `CTF Organizer` through one exact,
-  settings-driven allowlist, `CTF_ORGANIZER_PROVIDER_GROUPS`. It is audited and
-  **fail-closed**: an empty/unset allowlist disables the provider path entirely,
-  and only `CTF Organizer` is ever reachable (never staff/superuser or arbitrary
-  groups). Unknown provider groups are ignored.
-- **Explicit local assignment.** A superuser adds a user to `CTF Organizer` in
-  the Django admin; dev-login grants it through the same audited helper on the
-  dev-only, peer-restricted path.
+Native audit records retain the principal UUID for both human and service
+callers. HTTP audit context uses `shared.audit.request_audit`; integer user IDs
+may supplement that context but cannot replace the native principal.
+Client-supplied request IDs are length- and character-bounded before persistence.
+Malformed or rejected token requests are recorded without token secrets.
+The source-IP rules above apply to both HTTP and socket attribution.
 
-The provider group is authoritative for provider-derived authority, so login
-reconciliation both grants **and revokes**: a verified login with an allowlisted
-provider group grants organizer, and a later verified login *without* it revokes
-the membership when (and only when) it was provider-derived. Provenance is
-tracked on `UserProfile.organizer_grant_source` (`provider` / `local`): explicit
-local assignments and unknown-provenance memberships are never auto-revoked, and
-a missing/empty allowlist neither grants nor revokes (config absence cannot strip
-authority). Grant and revoke are each written as fail-closed `ROLE_SYNC` audit
-rows.
+Organizer range commands retain the initiating credential and record intent and
+outcome. Cleanup admits policy before entering the mutation/audit transaction;
+provider calls do not run under that transaction's SQL locks. Public failures
+use the bounded error envelope, without internal exception details.
 
-**Migration / re-grant runbook.** Because pre-#1516 organizer memberships were
-reachable from self-service claims, migration
-`management/migrations/0008_revoke_self_service_organizers` revokes `CTF
-Organizer` from every existing member (each removal audited) when it applies.
-After deploying #1516, re-grant legitimate organizers either by adding them to an
-allowlisted `CTF_ORGANIZER_PROVIDER_GROUPS` provider group (they regain organizer
-on next login) or by adding the `CTF Organizer` group directly in the Django
-admin. This is enforced by `tests/config/test_organizer_authority.py` and
-`tests/management/test_revoke_organizers_migration.py`.
-
-## Audit trail for role changes
-
-Every change a `user_type` sync produces is recorded by
-`shared.audit.audit_role_sync()` as an `AuditLog` row with
-`entity_type=USER` and `action=ROLE_SYNC`, capturing the actor, subject user id,
-old/new `user_type`, old/new CTF groups, source provider, and request context
-(source IP / user agent / request id where request-bound). The write is
-**fail-closed**: it runs inside the same transaction as the group/profile
-mutation, so if the audit row cannot be persisted the mutation is rolled back.
-Rows are queryable through the existing audit API (`AuditLogViewSet`) and admin
-(`AuditLogAdmin`, filterable by `action`). No tokens, cookies, full headers, or
-provider payloads are written to audit state.
+The Engine image-registry service records the principal and the exact previous
+and new boot-image selection in the same transaction as the mutation. Its audit
+is strict: a failed audit rolls back the change. The API does not add a duplicate
+best-effort record or read an unscoped registry to obtain the previous state.
+Legacy role-sync projections retain their strict transactional audit, but an
+audited projection is still not an authorization grant. Audit records exclude
+tokens, cookies, full headers and provider payloads.

@@ -328,6 +328,7 @@ class CTFParticipant(CTFBaseModel):
         default="",
         help_text="Optional organization or region shown on the event profile (CTF-610)",
     )
+    range_request_id = models.UUIDField(null=True, blank=True, editable=False)
     range_instance_id = models.PositiveIntegerField(
         null=True,
         blank=True,

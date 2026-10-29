@@ -71,6 +71,9 @@ quality_units:
       # consume every pack in the collection.
       - shifter/environment-packs/**
       - .importlinter
+      # Generated S8 authority-surface inventory is contract-tested by the
+      # platform suite and participates in the same lint/SAST boundary.
+      - scripts/generate_identity_surface_inventory.py
     packages:
       - engine
       - cms

@@ -181,12 +181,12 @@ no DB backstop, so concurrent requests bypass the invariant.
 
 | Check | Trigger | Pass criterion | Issue |
 | --- | --- | --- | --- |
-| Double-score | N concurrent `POST /ctf/api/challenge/<id>/submit` with the **correct** flag | exactly 1 `is_correct` row; `cached_score` == single challenge points | [#1135](https://github.com/Brad-Edwards/shifter/issues/1135) |
-| Attempt brute-force | N concurrent submits with distinct wrong guesses on a `max_attempts`-capped challenge | total attempt rows ≤ `max_attempts` | [#1137](https://github.com/Brad-Edwards/shifter/issues/1137) |
-| Team overflow | `team_size_limit+3` concurrent `POST /ctf/team/join/` with one invite code | `team.members.count() <= team_size_limit` | [#1140](https://github.com/Brad-Edwards/shifter/issues/1140) |
-| Prereq cycle | concurrent `add_prerequisite(A→B)` and `(B→A)` | no A↔B cycle; duplicate insert raises `IntegrityError` | [#1144](https://github.com/Brad-Edwards/shifter/issues/1144) |
-| Participant cap | concurrent invites for distinct emails at `max_participants-1` | `event.participants.count() <= max_participants` | [#1145](https://github.com/Brad-Edwards/shifter/issues/1145) |
-| File cap | concurrent uploads at `MAX_FILES_PER_CHALLENGE-1` | file count ≤ cap; `order` values unique | [#1147](https://github.com/Brad-Edwards/shifter/issues/1147) |
+| Double-score | N concurrent `POST /ctf/api/challenge/<id>/submit` with the **correct** flag | exactly 1 `is_correct` row; `cached_score` == single challenge points | [#1135](https://github.com/Brad-Edwards/bigrae/issues/1135) |
+| Attempt brute-force | N concurrent submits with distinct wrong guesses on a `max_attempts`-capped challenge | total attempt rows ≤ `max_attempts` | [#1137](https://github.com/Brad-Edwards/bigrae/issues/1137) |
+| Team overflow | `team_size_limit+3` concurrent `POST /ctf/team/join/` with one invite code | `team.members.count() <= team_size_limit` | [#1140](https://github.com/Brad-Edwards/bigrae/issues/1140) |
+| Prereq cycle | concurrent `add_prerequisite(A→B)` and `(B→A)` | no A↔B cycle; duplicate insert raises `IntegrityError` | [#1144](https://github.com/Brad-Edwards/bigrae/issues/1144) |
+| Participant cap | concurrent invites for distinct emails at `max_participants-1` | `event.participants.count() <= max_participants` | [#1145](https://github.com/Brad-Edwards/bigrae/issues/1145) |
+| File cap | concurrent uploads at `MAX_FILES_PER_CHALLENGE-1` | file count ≤ cap; `order` values unique | [#1147](https://github.com/Brad-Edwards/bigrae/issues/1147) |
 
 ```bash
 # Example: double-score guard. Capture A's session cookie, then:
@@ -211,7 +211,7 @@ c.execute(\"select conname from pg_constraint where conname like 'ctf_%uniq%'\")
 Two participants on one team both solve challenge X.
 
 - **Pass:** `team.cached_score == points(X)` (not `2×`); the freeze recompute
-  (`_recompute_team_scoreboard`) yields the same value. Issue [#1138](https://github.com/Brad-Edwards/shifter/issues/1138).
+  (`_recompute_team_scoreboard`) yields the same value. Issue [#1138](https://github.com/Brad-Edwards/bigrae/issues/1138).
 
 ### G-C. Range lifecycle pk vs range_id
 
@@ -226,7 +226,7 @@ r.range_id = (r.range_id or 0) + 1000; r.save(update_fields=['range_id']); print
 Drive **stop / start / destroy** from the participant UI.
 
 - **Pass:** each operates on the correct range—no `CMSError "Range not found"`,
-  no orphaned running range after destroy. Issue [#1139](https://github.com/Brad-Edwards/shifter/issues/1139).
+  no orphaned running range after destroy. Issue [#1139](https://github.com/Brad-Edwards/bigrae/issues/1139).
   (Unit tests mock the bridges and miss this; it must be exercised live.)
 
 ### G-D. Cross-event authz isolation
@@ -235,7 +235,7 @@ Register A in two events (one active, one not). Disqualify A from one.
 
 - **Pass:** A stays in the CTF Participant group, `get_user_role(A).active_ctf_event`
   is non-None and points at an eligible event, `is_ctf_participant(A)` is True, and
-  a participant page for the other event loads `200`. Issue [#1142](https://github.com/Brad-Edwards/shifter/issues/1142).
+  a participant page for the other event loads `200`. Issue [#1142](https://github.com/Brad-Edwards/bigrae/issues/1142).
 
 ### G-E. Scoreboard freeze under pause
 
@@ -243,14 +243,14 @@ Register A in two events (one active, one not). Disqualify A from one.
 Pause the event.
 
 - **Pass:** `GET /ctf/scoreboard/` and `/api/.../scoreboard` do **not** show the
-  post-freeze solve while PAUSED. Issue [#1143](https://github.com/Brad-Edwards/shifter/issues/1143).
+  post-freeze solve while PAUSED. Issue [#1143](https://github.com/Brad-Edwards/bigrae/issues/1143).
 
 ### G-F. Event-task reschedule on window edit
 
 Open registration (schedules `EVENT_END` at T). Activate. Edit `event_end` to T+1 h.
 
 - **Pass:** the pending `EVENT_END` `CTFScheduledTask.scheduled_for` now equals T+1 h
-  and no stale PENDING task remains at T. Issue [#1141](https://github.com/Brad-Edwards/shifter/issues/1141).
+  and no stale PENDING task remains at T. Issue [#1141](https://github.com/Brad-Edwards/bigrae/issues/1141).
 
 ```bash
 manage shell -c "from ctf.models import CTFScheduledTask; \
@@ -261,9 +261,9 @@ print(list(CTFScheduledTask.objects.filter(task_type='EVENT_END', status='PENDIN
 
 | Check | Trigger | Pass criterion | Issue |
 | --- | --- | --- | --- |
-| Import bad input | `POST /ctf/api/events/<id>/participants/import/` with `{"participants": ["x"]}` | HTTP `400` per-item envelope, never `500` | [#1149](https://github.com/Brad-Edwards/shifter/issues/1149) |
-| Range status participant | user in two events; poll `api_range_status` | returns the **active** event's range (same as the range page); excludes ineligible rows | [#1148](https://github.com/Brad-Edwards/shifter/issues/1148) |
-| Multi-flag emptied | remove all flags of a multi-flag challenge, submit the old flag | fails **loudly**, not a silent always-False | [#1146](https://github.com/Brad-Edwards/shifter/issues/1146) |
+| Import bad input | `POST /ctf/api/events/<id>/participants/import/` with `{"participants": ["x"]}` | HTTP `400` per-item envelope, never `500` | [#1149](https://github.com/Brad-Edwards/bigrae/issues/1149) |
+| Range status participant | user in two events; poll `api_range_status` | returns the **active** event's range (same as the range page); excludes ineligible rows | [#1148](https://github.com/Brad-Edwards/bigrae/issues/1148) |
+| Multi-flag emptied | remove all flags of a multi-flag challenge, submit the old flag | fails **loudly**, not a silent always-False | [#1146](https://github.com/Brad-Edwards/bigrae/issues/1146) |
 
 ---
 
@@ -291,17 +291,17 @@ guard as expected for a listed issue, and as a regression for anything else.
 
 | Severity | Issue | Summary |
 | --- | --- | --- |
-| High | [#1135](https://github.com/Brad-Edwards/shifter/issues/1135) | Concurrent correct submissions double-score |
-| High | [#1137](https://github.com/Brad-Edwards/shifter/issues/1137) | Attempt-limit / cooldown bypass (flag brute-force) |
-| High | [#1138](https://github.com/Brad-Edwards/shifter/issues/1138) | Team score double-counts (non-distinct Sum) |
-| High | [#1139](https://github.com/Brad-Edwards/shifter/issues/1139) | Lifecycle bridges use `pk` where engine wants `range_id` |
-| High | [#1140](https://github.com/Brad-Edwards/shifter/issues/1140) | Team-join capacity TOCTOU |
-| High | [#1141](https://github.com/Brad-Edwards/shifter/issues/1141) | Event window edit doesn't reschedule EVENT_END (ranges destroyed early) |
-| Medium | [#1142](https://github.com/Brad-Edwards/shifter/issues/1142) | Disqualify strips platform-wide group (locks user out of other events) |
-| Medium | [#1143](https://github.com/Brad-Edwards/shifter/issues/1143) | Pause lifts scoreboard freeze |
-| Medium | [#1144](https://github.com/Brad-Edwards/shifter/issues/1144) | Prerequisite-cycle TOCTOU |
-| Medium | [#1145](https://github.com/Brad-Edwards/shifter/issues/1145) | Participant-cap TOCTOU |
-| Low | [#1146](https://github.com/Brad-Edwards/shifter/issues/1146) | `verify_flag` sentinel fallback (silently unsolvable) |
-| Low | [#1147](https://github.com/Brad-Edwards/shifter/issues/1147) | File-cap TOCTOU |
-| Low | [#1148](https://github.com/Brad-Edwards/shifter/issues/1148) | `api_range_status` resolves wrong participant |
-| Low | [#1149](https://github.com/Brad-Edwards/shifter/issues/1149) | Participant import 500 on non-object input |
+| High | [#1135](https://github.com/Brad-Edwards/bigrae/issues/1135) | Concurrent correct submissions double-score |
+| High | [#1137](https://github.com/Brad-Edwards/bigrae/issues/1137) | Attempt-limit / cooldown bypass (flag brute-force) |
+| High | [#1138](https://github.com/Brad-Edwards/bigrae/issues/1138) | Team score double-counts (non-distinct Sum) |
+| High | [#1139](https://github.com/Brad-Edwards/bigrae/issues/1139) | Lifecycle bridges use `pk` where engine wants `range_id` |
+| High | [#1140](https://github.com/Brad-Edwards/bigrae/issues/1140) | Team-join capacity TOCTOU |
+| High | [#1141](https://github.com/Brad-Edwards/bigrae/issues/1141) | Event window edit doesn't reschedule EVENT_END (ranges destroyed early) |
+| Medium | [#1142](https://github.com/Brad-Edwards/bigrae/issues/1142) | Disqualify strips platform-wide group (locks user out of other events) |
+| Medium | [#1143](https://github.com/Brad-Edwards/bigrae/issues/1143) | Pause lifts scoreboard freeze |
+| Medium | [#1144](https://github.com/Brad-Edwards/bigrae/issues/1144) | Prerequisite-cycle TOCTOU |
+| Medium | [#1145](https://github.com/Brad-Edwards/bigrae/issues/1145) | Participant-cap TOCTOU |
+| Low | [#1146](https://github.com/Brad-Edwards/bigrae/issues/1146) | `verify_flag` sentinel fallback (silently unsolvable) |
+| Low | [#1147](https://github.com/Brad-Edwards/bigrae/issues/1147) | File-cap TOCTOU |
+| Low | [#1148](https://github.com/Brad-Edwards/bigrae/issues/1148) | `api_range_status` resolves wrong participant |
+| Low | [#1149](https://github.com/Brad-Edwards/bigrae/issues/1149) | Participant import 500 on non-object input |

@@ -4,7 +4,7 @@ Status: design
 
 Date: 2026-07-18
 
-Issue: GitHub [#983](https://github.com/Brad-Edwards/shifter/issues/983),
+Issue: GitHub [#983](https://github.com/Brad-Edwards/bigrae/issues/983),
 "Design a smoke-test / QA (QAT) system for common range infra and a basic
 scenario".
 

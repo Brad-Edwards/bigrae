@@ -6,8 +6,6 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from django.contrib.auth.models import User
-from django.db import transaction
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.request import Request
@@ -35,6 +33,8 @@ from ctf.api.serializers.communication_console import (
     CommunicationPreviewSerializer,
     CommunicationRecipientPageSerializer,
     CommunicationRecipientQuerySerializer,
+    CommunicationTargetOptionsQuerySerializer,
+    CommunicationTargetOptionsSerializer,
     CommunicationTargetQuerySerializer,
     CommunicationTargetsSerializer,
 )
@@ -50,12 +50,10 @@ from ctf.services.communication import (
     revise_message,
     schedule_declaration,
 )
-from ctf.services.communication.admission import reauthorize
-from ctf.services.communication.selection import visible_campaigns
+from ctf.services.communication.read_admission import authorized_campaign
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
-from shared.api.principals import active_actor_user
-from shared.api_tokens.models import ApiToken
+from shared.api.principals import authenticated_credential
 from shared.api_tokens.permissions import require_scope
 from shared.api_tokens.scopes import CTF_COMMUNICATION_READ, CTF_COMMUNICATION_WRITE
 
@@ -63,10 +61,18 @@ from shared.api_tokens.scopes import CTF_COMMUNICATION_READ, CTF_COMMUNICATION_W
 class CampaignQuerySerializer(ClosedSerializer):
     """Finite, deterministic workspace collections."""
 
-    workspace_id = serializers.UUIDField()
+    account = serializers.UUIDField(required=False)
+    organization = serializers.UUIDField(required=False)
+    workspace = serializers.UUIDField(required=False)
     event_id = serializers.UUIDField(required=False)
     limit = serializers.IntegerField(min_value=1, max_value=100, default=25)
     offset = serializers.IntegerField(min_value=0, max_value=100000, default=0)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Require exactly one account, organization or workspace parent selector."""
+        if sum(name in attrs for name in ("account", "organization", "workspace")) != 1:
+            raise serializers.ValidationError("Invalid value.")
+        return attrs
 
 
 class CampaignListSerializer(serializers.Serializer):
@@ -76,21 +82,11 @@ class CampaignListSerializer(serializers.Serializer):
     next_offset = serializers.IntegerField(allow_null=True)
 
 
-def _request_user(request: Request) -> User:
-    """Resolve the effective principal or fail before using account authority."""
-    user = active_actor_user(request)
-    if user is None:
-        raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
-    return user
-
-
 def request_actor(request: Request) -> AdmissionActor:
-    """Use the authenticated token principal independently of request.user."""
-    user = _request_user(request)
-    token = request.auth if isinstance(request.auth, ApiToken) else None
+    """Use the canonical principal credential independently of request.user."""
     from shared.audit import get_request_id
 
-    return AdmissionActor(user_id=user.pk, token_id=token.pk if token else None, request_id=get_request_id(request))
+    return AdmissionActor(credential=authenticated_credential(request), request_id=get_request_id(request))
 
 
 def validate_query(request: Request, serializer_class: type[ClosedSerializer]) -> dict[str, Any]:
@@ -107,9 +103,8 @@ class CommunicationView(APIView):
     """Bearer-first auth, closed JSON and canonical domain error translation."""
 
     schema = CommunicationSchema()
-    # HasCTFEventAdminAccess re-checks the organizer (or platform-admin) role on
-    # every request, as on every other organizer view. Event ownership alone is
-    # not standing: a demoted owner must not keep communications (#2617).
+    # Admit current non-temporary credentials. Owning services recheck exact
+    # native policy on every command/read; event ownership alone grants no access.
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
         HasActiveCTFActor,
@@ -119,6 +114,7 @@ class CommunicationView(APIView):
     parser_classes = [CommunicationJSONParser]
 
     def handle_exception(self, exc: Exception) -> Response:
+        """Map known communication failures to bounded public error responses."""
         if isinstance(exc, CTFError):
             return ctf_error_response(self.request, exc)
         if isinstance(exc, serializers.ValidationError):
@@ -128,20 +124,13 @@ class CommunicationView(APIView):
         return super().handle_exception(exc)
 
     def campaign(self, request: Request, campaign_id: UUID) -> CommunicationCampaign:
-        campaign = CommunicationCampaign.objects.prefetch_related("target_events").filter(pk=campaign_id).first()
-        if campaign is None:
-            raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_NOT_FOUND")
-        with transaction.atomic():
-            reauthorize(
-                campaign,
-                list(campaign.target_events.all()),
-                request_actor(request),
-                required_scope=CTF_COMMUNICATION_READ if request.method == "GET" else CTF_COMMUNICATION_WRITE,
-                audit_authority=False,
-            )
-        return campaign
+        """Resolve the exact campaign under current read or write admission."""
+        required_scope = CTF_COMMUNICATION_READ if request.method == "GET" else CTF_COMMUNICATION_WRITE
+        with authorized_campaign(campaign_id, request_actor(request), required_scope=required_scope) as campaign:
+            return campaign
 
     def input(self, request: Request, serializer_class: type[ClosedSerializer]) -> dict[str, Any]:
+        """Reject extra query fields and validate the closed command body."""
         validate_query(request, CommunicationEmptySerializer)
         serializer = serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -149,55 +138,71 @@ class CommunicationView(APIView):
 
 
 class CommunicationListView(CommunicationView):
-    """Create or list campaigns within one authorized workspace."""
+    """Create or list campaigns within one explicit native parent."""
 
     @extend_schema(
         operation_id="ctf_communications_list", parameters=[CampaignQuerySerializer], responses=CampaignListSerializer
     )
     def get(self, request: Request) -> Response:
+        """Page authorized campaigns beneath one explicit native parent."""
         query = validate_query(request, CampaignQuerySerializer)
+        parent_type = next(name for name in ("account", "organization", "workspace") if name in query)
         try:
-            binding = ws.authorize_workspace(
-                _request_user(request), query["workspace_id"], ws.WorkspaceOperation.USE_CTF_COMMUNICATIONS
-            )
-        except ws.WorkspaceAuthorizationError:
+            scope = ws.event_placement_scope(parent_type, query[parent_type])
+            binding = ws.resolve_resource_scope(scope)
+        except ws.AccountScopeError:
             raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED") from None
+        from ctf.services.communication.admission import prepare_collection_actor
+
+        collection_actor = prepare_collection_actor(request_actor(request), required_scope=CTF_COMMUNICATION_READ)
         start, limit = query["offset"], query["limit"]
-        queryset = visible_campaigns(_request_user(request), workspace_id=binding.workspace_id)
+        queryset = CommunicationCampaign.objects.filter(
+            scope_kind=scope.kind,
+            account_id=binding.account_id,
+            organization_id=binding.organization_id,
+            workspace_id=binding.workspace_id,
+        )
         if "event_id" in query:
             queryset = queryset.filter(target_events__pk=query["event_id"])
         candidates = list(
-            with_latest_revision(queryset)
-            .prefetch_related("target_events")
-            .order_by("created_at", "pk")[start : start + limit + 1]
+            with_latest_revision(queryset).prefetch_related("target_events").order_by("created_at", "pk")[:10001]
         )
+        if len(candidates) > 10000:
+            raise CTFCommunicationError(
+                "Communication collection is too large", code="CTF_COMMUNICATION_COLLECTION_BOUNDED"
+            )
         visible = []
-        with transaction.atomic():
-            for campaign in candidates[:limit]:
-                reauthorize(
-                    campaign,
-                    list(campaign.target_events.all()),
-                    request_actor(request),
-                    required_scope=CTF_COMMUNICATION_READ,
-                )
-                visible.append(campaign)
+        for campaign in candidates:
+            try:
+                with authorized_campaign(campaign.pk, collection_actor):
+                    # Keep the collection's bounded, body-free revision annotation.
+                    # The owning read admission independently fences fresh target rows.
+                    visible.append(campaign)
+            except CTFCommunicationError as exc:
+                if exc.code in {"CTF_COMMUNICATION_EVENT_DENIED", "CTF_COMMUNICATION_TARGET_DENIED"}:
+                    continue
+                raise
+        page = visible[start : start + limit]
         return Response(
             {
-                "results": CommunicationCampaignSummarySerializer(visible, many=True).data,
-                "next_offset": start + limit if len(candidates) > limit else None,
+                "results": CommunicationCampaignSummarySerializer(page, many=True).data,
+                "next_offset": start + limit if len(visible) > start + limit else None,
             }
         )
 
     @extend_schema(request=CommunicationCreateSerializer, responses={201: CommunicationCampaignSummarySerializer})
     def post(self, request: Request) -> Response:
+        """Create an immutable draft under the selected parent and live request proof."""
         data = self.input(request, CommunicationCreateSerializer)
-        workspace_id = data.pop("workspace_id")
+        parent_type = next(name for name in ("account", "organization", "workspace") if name in data)
+        parent_uuid = data.pop(parent_type)
         actor = request_actor(request)
         campaign = create_campaign(
-            _request_user(request),
-            workspace_id,
+            authenticated_credential(request),
+            parent_uuid,
             CampaignDraft(**data, origin="organizer_staff", actor_token_id=actor.token_id),
             actor=actor,
+            parent_type=parent_type,
         )
         return Response(CommunicationCampaignSummarySerializer(campaign).data, status=201)
 
@@ -207,6 +212,7 @@ class CommunicationDetailView(CommunicationView):
 
     @extend_schema(responses=CommunicationCampaignSummarySerializer)
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Read the campaign projection after complete current target admission."""
         validate_query(request, CommunicationEmptySerializer)
         return Response(CommunicationCampaignSummarySerializer(self.campaign(request, campaign_id)).data)
 
@@ -216,6 +222,7 @@ class CommunicationRevisionView(CommunicationView):
 
     @extend_schema(request=CommunicationRevisionSerializer, responses={201: CommunicationCampaignSummarySerializer})
     def post(self, request: Request, campaign_id: UUID) -> Response:
+        """Append a validated message revision to the admitted campaign."""
         data = self.input(request, CommunicationRevisionSerializer)
         campaign = self.campaign(request, campaign_id)
         revise_message(campaign, actor=request_actor(request), **data)
@@ -227,6 +234,7 @@ class CommunicationReleaseView(CommunicationView):
 
     @extend_schema(request=CommunicationReleaseSerializer, responses={202: CommunicationIntentSerializer})
     def post(self, request: Request, campaign_id: UUID) -> Response:
+        """Release a reviewed revision now or retain its scheduled declaration."""
         data = self.input(request, CommunicationReleaseSerializer)
         campaign = self.campaign(request, campaign_id)
         revision = None
@@ -254,6 +262,7 @@ class CommunicationCancelView(CommunicationView):
 
     @extend_schema(request=CommunicationEmptySerializer, responses=CommunicationCampaignSummarySerializer)
     def post(self, request: Request, campaign_id: UUID) -> Response:
+        """Cancel unclaimed campaign work under current communication authority."""
         self.input(request, CommunicationEmptySerializer)
         campaign = self.campaign(request, campaign_id)
         cancel_campaign(campaign, actor=request_actor(request))
@@ -270,14 +279,37 @@ class CommunicationTargetsView(CommunicationView):
         responses=CommunicationTargetsSerializer,
     )
     def get(self, request: Request) -> Response:
+        """Project authorized workspace targets through the shared discovery helper."""
         query = validate_query(request, CommunicationTargetQuerySerializer)
         data = reporting.list_targets(
-            _request_user(request),
+            request_actor(request),
             workspace_uuid=query.get("workspace_id"),
             limit=query["limit"],
             offset=query["offset"],
         )
         return Response(CommunicationTargetsSerializer(data).data)
+
+
+class CommunicationTargetOptionsView(CommunicationView):
+    """Discover native direct campaign parents through exact event authority."""
+
+    @extend_schema(
+        operation_id="ctf_communications_target_options_list",
+        parameters=[CommunicationTargetOptionsQuerySerializer],
+        responses=CommunicationTargetOptionsSerializer,
+    )
+    def get(self, request: Request) -> Response:
+        """List current communication parents and events under the request credential."""
+        query = validate_query(request, CommunicationTargetOptionsQuerySerializer)
+        parent_type = next((name for name in ("account", "organization", "workspace") if name in query), None)
+        data = reporting.list_target_options(
+            request_actor(request),
+            parent_type=parent_type,
+            parent_uuid=query[parent_type] if parent_type is not None else None,
+            limit=query["limit"],
+            offset=query["offset"],
+        )
+        return Response(CommunicationTargetOptionsSerializer(data).data)
 
 
 class CommunicationPreviewView(CommunicationView):
@@ -289,8 +321,9 @@ class CommunicationPreviewView(CommunicationView):
         responses=CommunicationPreviewSerializer,
     )
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Preview the reviewed revision and current audience without creating delivery work."""
         query = validate_query(request, CommunicationPreviewQuerySerializer)
-        data = reporting.preview(self.campaign(request, campaign_id), query["revision_id"])
+        data = reporting.preview(campaign_id, query["revision_id"], actor=request_actor(request))
         return Response(CommunicationPreviewSerializer(data).data)
 
 
@@ -303,9 +336,10 @@ class CommunicationDeliveryView(CommunicationView):
         responses=CommunicationDeliveryReportSerializer,
     )
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Page admitted delivery state grouped by occurrence, event and channel."""
         query = validate_query(request, CommunicationPageQuerySerializer)
         data = reporting.delivery_report(
-            self.campaign(request, campaign_id), limit=query["limit"], offset=query["offset"]
+            campaign_id, actor=request_actor(request), limit=query["limit"], offset=query["offset"]
         )
         return Response(CommunicationDeliveryReportSerializer(data).data)
 
@@ -319,10 +353,11 @@ class CommunicationRecipientsView(CommunicationView):
         responses=CommunicationRecipientPageSerializer,
     )
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Page minimal recipient state for one admitted occurrence and target event."""
         query = validate_query(request, CommunicationRecipientQuerySerializer)
         data = reporting.recipient_rows(
-            _request_user(request),
-            self.campaign(request, campaign_id),
+            campaign_id,
+            actor=request_actor(request),
             intent_id=query["intent_id"],
             event_id=query["event_id"],
             limit=query["limit"],
@@ -336,6 +371,7 @@ class CommunicationActivityView(CommunicationView):
 
     @extend_schema(operation_id="ctf_communications_activity_retrieve", responses=CommunicationActivitySerializer)
     def get(self, request: Request, campaign_id: UUID) -> Response:
+        """Return the body-free campaign timeline under current target authority."""
         validate_query(request, CommunicationEmptySerializer)
-        data = reporting.activity_timeline(self.campaign(request, campaign_id))
+        data = reporting.activity_timeline(campaign_id, actor=request_actor(request))
         return Response(CommunicationActivitySerializer(data).data)

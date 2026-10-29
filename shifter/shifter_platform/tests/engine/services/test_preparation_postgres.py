@@ -5,13 +5,13 @@ from queue import Queue
 from time import monotonic, sleep
 
 import pytest
-from django.contrib.auth.models import User
 from django.db import connection, connections, transaction
 
 from engine.models import PreparationAttempt, PreparationGrant, PreparationOperation, PreparationScopeLock
-from engine.services import install_preparation_adapter, request_artifact_preparation
+from engine.services import install_preparation_adapter
 from shared.exceptions import ValidationError
 from shared.preparation_grant import PreparationGrantConfiguration
+from tests.engine.services._preparation_fixtures import request_artifact_preparation
 from tests.engine.services.test_preparation_adapters import administrator, grant
 from tests.engine.services.test_preparation_operations import operator, package_input
 from tests.shared.raes.test_preparation_contract import manifest_payload
@@ -41,7 +41,7 @@ def _single_slot_adapters(administrator, grant):
 
 def _request(user_id, adapter_id, pids):
     try:
-        actor = User.objects.get(pk=user_id)
+        actor = user_id
         with connection.cursor() as cursor:
             cursor.execute("SET lock_timeout = '10s'")
             cursor.execute("SELECT pg_backend_pid()")
@@ -80,7 +80,7 @@ def test_concurrent_requests_serialize_deduplication_and_cross_grant_capacity(
     with ThreadPoolExecutor(max_workers=2) as pool:
         with transaction.atomic():
             PreparationScopeLock.objects.select_for_update().get(pk=first.scope_digest)
-            futures = [pool.submit(_request, operator.pk, adapter.id, pids) for adapter in selected]
+            futures = [pool.submit(_request, operator, adapter.id, pids) for adapter in selected]
             _wait_for_database_lock_waiters([pids.get(timeout=5) for _ in futures], futures)
             assert not PreparationOperation.objects.exists()
         results = [future.result(timeout=15) for future in futures]

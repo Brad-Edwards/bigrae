@@ -7,6 +7,7 @@ import logging
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import timedelta
 from threading import BoundedSemaphore
 from typing import TYPE_CHECKING
@@ -19,7 +20,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from mission_control.models import GuacamoleBootstrapRequest
-from shared.credentials import CredentialContext
+from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.errors import classify_user_message
 from shared.log_sanitize import safe_log_fingerprint, safe_log_value
 
@@ -248,12 +249,10 @@ def _prune_batch_size() -> int:
     return max(1, int(getattr(settings, "GUACAMOLE_BOOTSTRAP_PRUNE_BATCH_SIZE", _DEFAULT_PRUNE_BATCH_SIZE)))
 
 
-def consume_ready_url(
-    *, request_id: UUID, user_id: int | None = None, credential: CredentialContext | None = None
-) -> str | None:
+def consume_ready_url(*, request_id: UUID, credential: CredentialContext | None = None) -> str | None:
     """Atomically deliver and clear the ready Guacamole URL exactly once.
 
-    The status endpoint is the delivery boundary: the first owner-scoped poll
+    The status endpoint is the delivery boundary: the first original-proof poll
     that finds a ready URL consumes it and clears the token material from the
     row in the same transaction, so a repeated poll (a second tab, the opener
     plus the JS client, a retry) can never replay the same token. Returns the
@@ -261,14 +260,10 @@ def consume_ready_url(
     deliverable for this caller — not found, not succeeded, expired, or already
     delivered — clearing any token still parked on an expired success.
     """
-    admitted, user_id = _delivery_actor(request_id, credential, user_id)
-    if not admitted:
+    admitted = _delivery_actor(request_id, credential)
+    if admitted is None:
         return None
-    with transaction.atomic():
-        row = GuacamoleBootstrapRequest.objects.select_for_update().filter(pk=request_id, user_id=user_id).first()
-        if row is None or row.status != GuacamoleBootstrapRequest.Status.SUCCEEDED:
-            return None
-        return _consume_locked_url(row, credential)
+    return _consume_admitted_url(request_id, admitted)
 
 
 def prune_expired_bootstrap_requests(*, batch_size: int | None = None) -> int:
@@ -374,22 +369,47 @@ def _retain_native_bootstrap(
     return True
 
 
-def _delivery_actor(
-    request_id: UUID, credential: CredentialContext | None, user_id: int | None
-) -> tuple[bool, int | None]:
-    """Reauthorize the original principal proof before entering the browser handoff transaction."""
-    if credential is not None:
-        from .guacamole_authority import authorize_bootstrap
+@dataclass(frozen=True, slots=True)
+class _DeliveryAdmission:
+    """Carry current and original native proof with the exact server-owned handoff binding."""
 
+    credential: CredentialContext
+    original: CredentialContext
+    binding: tuple[tuple[str, object], ...]
+
+
+def _delivery_binding(row: GuacamoleBootstrapRequest) -> tuple[tuple[str, object], ...]:
+    """Capture the exact server-owned proof, target and resource generation."""
+    names: tuple[str, ...] = ("id", "user_id", "protocol", "target_id")
+    names += tuple(
+        field.name
+        for field in row._meta.concrete_fields
+        if field.name.startswith(("authority_", "credential_", "initiating_principal_"))
+    )
+    return tuple((name, getattr(row, name)) for name in names)
+
+
+def _delivery_actor(request_id: UUID, credential: CredentialContext | None) -> _DeliveryAdmission | None:
+    """Reauthorize the original principal proof before entering the browser handoff transaction."""
+    from shared.operation_authority import credential_reference_from_record
+
+    from .guacamole_authority import authorize_bootstrap
+
+    if not isinstance(credential, CredentialContext):
+        return None
+    admitted: _DeliveryAdmission | None
+    try:
+        current = resolve_current_credential(credential)
         snapshot = (
             GuacamoleBootstrapRequest.objects.defer("result_url", "native_session_token").filter(pk=request_id).first()
         )
-        if snapshot is None or not authorize_bootstrap(snapshot, credential):
-            return False, None
-        user_id = snapshot.user_id
-    elif user_id is None:
-        return False, None
-    return True, user_id
+        if snapshot is None or snapshot.authority_kind != "principal" or not authorize_bootstrap(snapshot, current):
+            return None
+        original = resolve_current_credential(credential_reference_from_record(snapshot))
+        admitted = _DeliveryAdmission(current, original, _delivery_binding(snapshot))
+    except ValueError:
+        admitted = None
+    return admitted
 
 
 def _consume_locked_url(row: GuacamoleBootstrapRequest, credential: CredentialContext | None) -> str | None:
@@ -408,3 +428,37 @@ def _consume_locked_url(row: GuacamoleBootstrapRequest, credential: CredentialCo
     row.delivered_at = timezone.now()
     row.save(update_fields=("result_url", "delivered_at", "updated_at"))
     return url
+
+
+def _consume_admitted_url(request_id: UUID, admitted: _DeliveryAdmission) -> str | None:
+    """Fence CMS then native custody before locking and consuming the exact Guacamole receipt."""
+    with transaction.atomic():
+        from cms.services import assert_remote_authority_binding
+
+        fields = dict(admitted.binding)
+        try:
+            assert_remote_authority_binding(fields, str(fields["protocol"]), str(fields["target_id"]))
+        except Exception:
+            return None
+        row = GuacamoleBootstrapRequest.objects.select_for_update().filter(pk=request_id).first()
+        if (
+            row is None
+            or row.status != GuacamoleBootstrapRequest.Status.SUCCEEDED
+            or not _delivery_proof_matches(row, admitted)
+        ):
+            return None
+        return _consume_locked_url(row, admitted.credential)
+
+
+def _delivery_proof_matches(row: GuacamoleBootstrapRequest, admitted: _DeliveryAdmission) -> bool:
+    """Require the same immutable target binding and both live narrowed proofs under the handoff lock."""
+    try:
+        if (
+            _delivery_binding(row) != admitted.binding
+            or resolve_local_credential(admitted.credential) != admitted.credential
+            or resolve_local_credential(admitted.original) != admitted.original
+        ):
+            return False
+    except ValueError:
+        return False
+    return True

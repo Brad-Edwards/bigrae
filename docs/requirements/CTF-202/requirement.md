@@ -22,4 +22,4 @@ Dynamic scoring automatically balances challenge values based on difficulty, eas
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (dynamic_challenge_value and apply_dynamic_decay decay scoring)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#641` (CTF-202: Dynamic/Decay Scoring)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#641` (CTF-202: Dynamic/Decay Scoring)

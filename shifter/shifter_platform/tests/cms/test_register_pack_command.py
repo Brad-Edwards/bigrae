@@ -15,17 +15,14 @@ from django.core.management import CommandError, call_command
 
 from cms.models import RaesPackageSource
 from cms.scenarios.pack_validation import PackDigestError, pack_digest
+from tests.cms._native_catalog import native_catalog as native_catalog
 
 pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
-def admin_actor(django_user_model):
-    return django_user_model.objects.create_user(
-        username="cli-actor@example.com",
-        email="cli-actor@example.com",
-        is_staff=True,
-    )
+def admin_actor(native_catalog):
+    return native_catalog
 
 
 # A repo pack's catalog id is bound to its validated identity.
@@ -49,7 +46,8 @@ def _args(package_ref: str, actor: str, **overrides) -> list[str]:
         "--package-ref": package_ref,
         "--package-version": "0.1.0",
         "--package-digest": "sha256:" + "a" * 64,
-        "--actor": actor,
+        "--credential-file": str(actor),
+        "--scope-kind": "installation",
     }
     values.update(overrides)
     if "--package-digest" not in overrides and values["--source-kind"] == "repo":
@@ -64,7 +62,7 @@ def _args(package_ref: str, actor: str, **overrides) -> list[str]:
 
 
 def test_command_registers_pack(admin_actor, repo_pack):
-    call_command("register_pack", *_args(repo_pack, admin_actor.username))
+    call_command("register_pack", *_args(repo_pack, admin_actor.path))
     assert RaesPackageSource.objects.filter(scenario_id=CLI_FIXTURE_NAME).exists()
 
 
@@ -77,6 +75,6 @@ def test_command_errors_on_unknown_actor(repo_pack):
 def test_command_errors_on_domain_failure(admin_actor, repo_pack):
     # A caller-supplied identity that differs from the validated pack identity
     # is surfaced as a bounded CommandError, not a traceback.
-    args = _args(repo_pack, admin_actor.username, **{"--scenario-id": "basic"})
+    args = _args(repo_pack, admin_actor.path, **{"--scenario-id": "basic"})
     with pytest.raises(CommandError, match="validated identity"):
         call_command("register_pack", *args)

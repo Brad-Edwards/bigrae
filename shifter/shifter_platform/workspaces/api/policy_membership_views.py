@@ -88,7 +88,11 @@ class PrincipalOwnershipCommandSerializer(ClosedSerializer):
 class PolicyWorkspaceOwnershipView(_AccountAPIView):
     """Transfer a resource fact without changing membership or policy."""
 
-    @extend_schema(request=PrincipalOwnershipCommandSerializer, responses={204: None})
+    @extend_schema(
+        request=PrincipalOwnershipCommandSerializer,
+        responses={204: None},
+        operation_id="api_v1_workspace_transfer_ownership",
+    )
     def post(self, request: Request, workspace_uuid: UUID) -> Response:
         command = PrincipalOwnershipCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -159,7 +163,11 @@ class PolicyInvitationPageSerializer(serializers.Serializer):
 class PolicyInvitationCollectionView(_AccountAPIView):
     """List/issue through the existing signed-token and delivery seam."""
 
-    @extend_schema(parameters=[AccountPageQuerySerializer], responses=PolicyInvitationPageSerializer)
+    @extend_schema(
+        parameters=[AccountPageQuerySerializer],
+        responses=PolicyInvitationPageSerializer,
+        operation_id="api_v1_workspace_invitations_list",
+    )
     def get(self, request: Request, workspace_uuid: UUID) -> Response:
         query = AccountPageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -171,7 +179,11 @@ class PolicyInvitationCollectionView(_AccountAPIView):
         )
         return Response(PolicyInvitationPageSerializer({"count": count, "results": results}).data)
 
-    @extend_schema(request=PolicyInvitationCommandSerializer, responses={201: PolicyWorkspaceInvitationSerializer})
+    @extend_schema(
+        request=PolicyInvitationCommandSerializer,
+        responses={201: PolicyWorkspaceInvitationSerializer},
+        operation_id="api_v1_workspace_invitations_issue",
+    )
     def post(self, request: Request, workspace_uuid: UUID) -> Response:
         command = PolicyInvitationCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -189,7 +201,6 @@ class PolicyInvitationCollectionView(_AccountAPIView):
 class PolicyInvitationMutationView(_AccountAPIView):
     """Revoke/resend retain generation and strict-audit invariants."""
 
-    @extend_schema(request=EmptyAccountCommandSerializer, responses=PolicyWorkspaceInvitationSerializer)
     def post(self, request: Request, workspace_uuid: UUID, invitation_uuid: UUID, operation: str) -> Response:
         command = EmptyAccountCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -209,10 +220,36 @@ class PolicyInvitationMutationView(_AccountAPIView):
         return Response(PolicyWorkspaceInvitationSerializer(result).data)
 
 
+class PolicyInvitationResendView(PolicyInvitationMutationView):
+    """Preserve the published resend operation identity."""
+
+    @extend_schema(
+        request=EmptyAccountCommandSerializer,
+        responses=PolicyWorkspaceInvitationSerializer,
+        operation_id="api_v1_workspace_invitations_resend",
+    )
+    def post(self, request: Request, workspace_uuid: UUID, invitation_uuid: UUID, operation: str) -> Response:
+        """Resend the exact invitation through the current native authority boundary."""
+        return super().post(request, workspace_uuid, invitation_uuid, operation)
+
+
+class PolicyInvitationRevokeView(PolicyInvitationMutationView):
+    """Preserve the published revoke operation identity."""
+
+    @extend_schema(
+        request=EmptyAccountCommandSerializer,
+        responses=PolicyWorkspaceInvitationSerializer,
+        operation_id="api_v1_workspace_invitations_revoke",
+    )
+    def post(self, request: Request, workspace_uuid: UUID, invitation_uuid: UUID, operation: str) -> Response:
+        """Revoke the exact invitation through the current native authority boundary."""
+        return super().post(request, workspace_uuid, invitation_uuid, operation)
+
+
 class PolicySelfWorkspaceMembershipView(_AccountAPIView):
     """Only the admitted principal's own membership fact."""
 
-    @extend_schema(responses=AccountMemberViewSerializer)
+    @extend_schema(responses=AccountMemberViewSerializer, operation_id="api_v1_workspace_membership_self")
     def get(self, request: Request, workspace_uuid: UUID) -> Response:
         result = services.policy_self_workspace_membership(
             authenticated_credential(request), configured_authorization_provider(), workspace_uuid
@@ -223,7 +260,11 @@ class PolicySelfWorkspaceMembershipView(_AccountAPIView):
 class PolicyLeaveWorkspaceView(_AccountAPIView):
     """Self leave retains the last-owner invariant and never changes policy tuples."""
 
-    @extend_schema(request=EmptyAccountCommandSerializer, responses={204: None})
+    @extend_schema(
+        request=EmptyAccountCommandSerializer,
+        responses={204: None},
+        operation_id="api_v1_workspace_memberships_leave",
+    )
     def post(self, request: Request, workspace_uuid: UUID) -> Response:
         command = EmptyAccountCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)

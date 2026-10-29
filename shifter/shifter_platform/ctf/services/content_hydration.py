@@ -12,7 +12,7 @@ from ctf.content_bundle import BundleChallenge, BundleFlag, CtfContentBundle
 from ctf.enums import EventCapability
 from ctf.exceptions import CTFStateError, CTFValidationError
 from ctf.models import CTFChallenge, CTFContentHydrationReceipt, CTFEvent
-from ctf.services.authorization import assert_event_capability
+from ctf.services.authorization import admit_event_actions, assert_event_capability
 from ctf.services.content_resolution import HydrationSourceEvidence, ResolvedCtfContent
 
 
@@ -148,7 +148,7 @@ def _assert_empty_event(event: CTFEvent) -> None:
         )
 
 
-def _create_graph(event: CTFEvent, bundle: CtfContentBundle, *, actor_id: int) -> None:
+def _create_graph(event: CTFEvent, bundle: CtfContentBundle, *, actor_id: object) -> None:
     """Create the complete native challenge graph for one event."""
     from ctf.services.challenge import add_prerequisite, create_challenge
     from ctf.services.hint import add_hint
@@ -182,10 +182,13 @@ def _create_receipt(
     bundle: CtfContentBundle,
     evidence: HydrationSourceEvidence,
     *,
-    actor_id: int,
+    actor_id: object,
 ) -> CTFContentHydrationReceipt:
     """Persist immutable source evidence and expected graph counts."""
     challenge_count, flag_count, hint_count, prerequisite_count = _expected_counts(bundle)
+    from ctf.services.actors import event_actor_credential, event_actor_user_id
+
+    credential = event_actor_credential(actor_id)
     return CTFContentHydrationReceipt.objects.create(
         event=event,
         scenario_id=bundle.scenario_id,
@@ -199,7 +202,8 @@ def _create_receipt(
         flag_count=flag_count,
         hint_count=hint_count,
         prerequisite_count=prerequisite_count,
-        hydrated_by_id=actor_id,
+        hydrated_by_id=event_actor_user_id(actor_id),
+        hydrated_by_principal_uuid=credential.principal.uuid,
     )
 
 
@@ -207,9 +211,14 @@ def hydrate_event_ctf_content(
     event_id: UUID,
     resolved: ResolvedCtfContent,
     *,
-    actor_id: int,
+    actor_id: object,
 ) -> ContentHydrationResult:
     """Create a complete native challenge graph or return an exact no-op."""
+    try:
+        candidate = CTFEvent.objects.get(pk=event_id)
+    except CTFEvent.DoesNotExist:
+        raise CTFValidationError("Event not found.", code="CTF_EVENT_NOT_FOUND") from None
+    actor_id = admit_event_actions(actor_id, candidate, "event.manage_content", "event.manage_challenges")
     with transaction.atomic():
         try:
             event = CTFEvent.objects.select_for_update().get(pk=event_id)
@@ -253,7 +262,7 @@ def hydrate_event_ctf_content(
 def mark_content_hydration_drift(
     event_id: UUID,
     *,
-    actor_id: int | None,
+    actor_id: object | None,
     reason: str,
     allow_live_repair: bool = False,
 ) -> bool:

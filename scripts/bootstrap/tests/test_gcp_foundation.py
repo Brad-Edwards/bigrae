@@ -34,7 +34,7 @@ def _write_inputs(path, purpose_contexts):
                 "environment": "example",
                 "name_prefix": "shifter-example",
                 "github_org": "example",
-                "github_repo": "shifter",
+                "github_repo": "bigrae",
                 "github_repository_id": "456",
                 "github_owner_id": "789",
                 "purpose_contexts": purpose_contexts,

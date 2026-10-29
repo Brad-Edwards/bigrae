@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-13
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1472>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1472>
 
 > **Decision (2026-07-13).** #1472 ships as a runbook-only fix: an active
 > post-destroy leftover sweep folded into `docs/dev/aws-teardown-runbook.md`,

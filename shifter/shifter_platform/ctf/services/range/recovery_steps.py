@@ -15,15 +15,18 @@ from django.db import transaction
 from django.utils import timezone
 
 from ctf.enums import RecoveryFailureCategory, RecoveryPhase, SpareRangeStatus
-from ctf.exceptions import CTFRangeError, CTFValidationError
+from ctf.exceptions import CTFRangeError
 from ctf.models import CTFParticipant, CTFRangeRecovery, CTFSpareRange
 from ctf.services.audit import audit_range_recovery
 from shared.enums import ResourceStatus
 
 if TYPE_CHECKING:
-    from uuid import UUID
+    from ctf.models import CTFEvent, CTFRangeLaunch
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
 
-    from django.contrib.auth.models import User
+if TYPE_CHECKING:
+    from uuid import UUID
 
     from shared.model_access import OwnedReference
 
@@ -39,75 +42,79 @@ def _range_error(message: str, *, category: RecoveryFailureCategory, **details: 
     return CTFRangeError(message, details=details)
 
 
-def _participant_user(participant: CTFParticipant) -> User:
-    """Return the participant's user (guaranteed set by :func:`_claim_recovery`).
-
-    ``CTFParticipant.user`` is nullable at the model level, but the recovery
-    workflow only proceeds past :func:`_claim_recovery` for a registered
-    participant. This re-narrows that invariant for the type checker (and
-    fails loudly rather than passing ``None`` to a downstream boundary).
-    """
-    user = participant.user
-    if user is None:
-        raise CTFValidationError(
-            "Participant must be registered before range recovery",
-            details={
-                "participant_id": str(participant.pk),
-                "failure_category": RecoveryFailureCategory.VALIDATION_FAILED.value,
-            },
-        )
-    return user
+def _participant_principal_uuid(participant: CTFParticipant) -> UUID:
+    """Require the participant identity that owns the replacement range."""
+    principal_uuid = participant.principal_uuid
+    if principal_uuid is None:
+        raise _range_error("Participant principal unavailable", category=RecoveryFailureCategory.VALIDATION_FAILED)
+    return principal_uuid
 
 
-def _rebuild_replacement(participant: CTFParticipant, model_subject: OwnedReference) -> tuple[int, UUID]:
-    """Provision a fresh replacement range via the normal CTF/CMS bridge.
+def _rebuild_replacement(
+    recovery: CTFRangeRecovery,
+    participant: CTFParticipant,
+    model_subject: OwnedReference,
+    credential: CredentialContext,
+) -> tuple[int, UUID]:
+    """Reserve and resume exactly one replacement UUID before invoking CMS."""
+    from ctf.models import CTFEvent, CTFRangeLaunch
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import admit_event_actions, assert_event_action
+    from ctf.services.range.launch_intents import (
+        assert_launch_replay,
+        execute_launch,
+        launch_parameters,
+        reserve_launch,
+    )
+    from ctf.services.range.model_allocation import project_event_model_scope
+    from management.services import resolve_principal_uuid
 
-    ``model_subject`` is the participant's authoritative sharing-membership subject
-    captured *before* the old range was blocked (PLAT-202): resolving it here would
-    fall back to the draw because the old range is already DESTROYING, dropping a
-    published range-scoped restriction.
-    """
-    from ctf.bridges import CTFRangeLaunchOptions, cms_create_range, cms_find_range_instance_id
-
-    user = _participant_user(participant)
     event = participant.event
-    agents_by_os = event.range_config.get("agents_by_os", {}) if event.range_config else {}
-    ngfw_enabled = event.range_config.get("ngfw_enabled", False) if event.range_config else False
-
-    try:
-        from ctf.services.range.model_allocation import project_event_model_scope
-
-        result = cms_create_range(
-            user=user,
-            scenario=event.scenario_id,
-            agents_by_os=agents_by_os,
-            ngfw_enabled=ngfw_enabled,
-            remote_access_teardown_at=event.get_cleanup_time(),
-            launch_options=CTFRangeLaunchOptions(
-                model_admission_subject=model_subject,
-                model_launch_scope=project_event_model_scope(event, participant.pk, model_subject),
-                content_authorizer=event.created_by,
-                event_policy_workspace_id=event.workspace_id,
-            ),
+    event_admission = admit_event_actions(credential, event, "event.manage_ranges")
+    credential = event_actor_credential(event_admission)
+    owner = resolve_principal_uuid(_participant_principal_uuid(participant))
+    existing = (
+        CTFRangeLaunch.objects.filter(pk=recovery.replacement_request_id).first()
+        if recovery.replacement_request_id is not None
+        else None
+    )
+    parameters = (
+        existing.parameters
+        if existing
+        else launch_parameters(
+            event, owner, model_subject, project_event_model_scope(event, participant.pk, model_subject)
         )
-    except Exception as e:
-        # Authored message only: this log line and the chained cause carry the detail.
-        logger.exception("Replacement range provisioning failed for participant %s", participant.pk)
+    )
+    with transaction.atomic():
+        locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk)
+        assert_event_action(event_admission, locked_event, "event.manage_ranges")
+        locked = CTFRangeRecovery.objects.select_for_update().get(pk=recovery.pk)
+        intent = (
+            CTFRangeLaunch.objects.filter(pk=locked.replacement_request_id).first()
+            if locked.replacement_request_id is not None
+            else None
+        )
+        if intent is None:
+            intent = reserve_launch(locked_event, "rebuild", locked.pk, event_admission, parameters)
+            locked.replacement_request_id = intent.pk
+            locked.save(update_fields=["replacement_request_id", "updated_at"])
+        else:
+            assert_launch_replay(intent, credential, parameters)
+        recovery.replacement_request_id = intent.pk
+    try:
+        return execute_launch(intent), intent.pk
+    except Exception as exc:  # range failures can carry private provider diagnostics
+        logger.error(
+            "Replacement range provisioning failed participant_id=%s exc_type=%s",
+            participant.pk,
+            type(exc).__name__,
+            exc_info=False,
+        )
         raise _range_error(
             "Replacement range provisioning failed",
             category=RecoveryFailureCategory.PROVISIONING_FAILED,
             participant_id=str(participant.pk),
-        ) from e
-
-    replacement_id = cms_find_range_instance_id(result.request_id)
-    if replacement_id is None:
-        raise _range_error(
-            "Replacement range was created but its instance id could not be resolved",
-            category=RecoveryFailureCategory.PROVISIONING_FAILED,
-            participant_id=str(participant.pk),
-            request_id=str(result.request_id),
-        )
-    return replacement_id, result.request_id
+        ) from exc
 
 
 def _claim_spare(participant: CTFParticipant, spare_range_instance_id: int | None) -> CTFSpareRange | None:
@@ -124,13 +131,19 @@ def _claim_spare(participant: CTFParticipant, spare_range_instance_id: int | Non
     MUST run inside the caller's transaction (``select_for_update``);
     :func:`_ensure_spare_reserved` wraps this claim and the pointer write atomically.
     """
-    from ctf.bridges import (
-        cms_get_range_status,
-        cms_range_egress_compatible_with_event,
-        cms_range_owner_reassignment_available,
-    )
+    from ctf.models import CTFEvent
 
-    event = participant.event
+    event = CTFEvent.objects.select_for_update().get(pk=participant.event_id)
+    if event.status == "cancelled":
+        return None
+    from workspaces.services import resource_scope_from_ids
+
+    event_scope = resource_scope_from_ids(
+        kind=event.scope_kind,
+        account_id=event.account_id,
+        organization_id=event.organization_id,
+        workspace_id=event.workspace_id,
+    )
     candidates = (
         CTFSpareRange.objects.select_for_update()
         .filter(event=event, consumed_by__isnull=True)
@@ -140,18 +153,7 @@ def _claim_spare(participant: CTFParticipant, spare_range_instance_id: int | Non
         candidates = candidates.filter(range_instance_id=spare_range_instance_id)
 
     for candidate in candidates.order_by("-created_at"):
-        if candidate.range_instance_id is None:
-            continue
-        live_ready = candidate.status == SpareRangeStatus.READY.value or (
-            cms_get_range_status(candidate.range_instance_id) == ResourceStatus.READY.value
-        )
-        if not live_ready:
-            continue
-        if not cms_range_owner_reassignment_available(candidate.range_instance_id):
-            continue
-        if not cms_range_egress_compatible_with_event(
-            candidate.range_instance_id, event.created_by, event.workspace_id
-        ):
+        if not _spare_generation_eligible(candidate, event, event_scope):
             continue
         candidate.consumed_by = participant
         candidate.consumed_at = timezone.now()
@@ -169,23 +171,60 @@ def _ensure_spare_reserved(
     Records the claimed spare id (a resume reuses it). Raising (no spare) happens
     BEFORE teardown, so a missing spare never strands the participant (#1018).
     """
-    if recovery.replacement_range_instance_id is not None:
-        from ctf.bridges import cms_range_egress_compatible_with_event
+    from ctf.models import CTFEvent, CTFRangeLaunch
 
-        event = participant.event
-        if not cms_range_egress_compatible_with_event(
-            recovery.replacement_range_instance_id, event.created_by, event.workspace_id
-        ):
-            raise _range_error(
-                "No compatible spare range available for reassignment",
-                category=RecoveryFailureCategory.NO_COMPATIBLE_SPARE,
-                participant_id=str(participant.pk),
-                event_id=str(event.pk),
-            )
-        return
     # Claim + record the pointer in ONE transaction: a crash between them rolls
     # both back, so a spare is never CONSUMED without a durable recovery pointer.
+    # Event cancellation and a second recovery attempt take the same mutexes.
     with transaction.atomic():
+        event = CTFEvent.objects.select_for_update().get(pk=participant.event_id)
+        if event.status == "cancelled":
+            raise _range_error("Event is cancelled", category=RecoveryFailureCategory.NO_COMPATIBLE_SPARE)
+        locked = CTFRangeRecovery.objects.select_for_update().get(pk=recovery.pk)
+        recovery.replacement_range_instance_id = locked.replacement_range_instance_id
+        recovery.replacement_request_id = locked.replacement_request_id
+        if locked.replacement_range_instance_id is not None:
+            from ctf.bridges import cms_range_egress_compatible_with_event
+            from workspaces.services import resource_scope_from_ids
+
+            spare = (
+                CTFSpareRange.objects.select_for_update()
+                .filter(
+                    event=event,
+                    consumed_by=participant,
+                    range_instance_id=locked.replacement_range_instance_id,
+                    request_id=locked.replacement_request_id,
+                    status=SpareRangeStatus.CONSUMED.value,
+                )
+                .first()
+            )
+            live = (
+                spare is not None
+                and spare.request_id is not None
+                and CTFRangeLaunch.objects.filter(
+                    pk=spare.request_id,
+                    event=event,
+                    subject_kind="spare",
+                    subject_uuid=spare.pk,
+                    range_instance_id=spare.range_instance_id,
+                ).exists()
+            )
+            event_scope = resource_scope_from_ids(
+                kind=event.scope_kind,
+                account_id=event.account_id,
+                organization_id=event.organization_id,
+                workspace_id=event.workspace_id,
+            )
+            if not live or not cms_range_egress_compatible_with_event(
+                locked.replacement_range_instance_id, event_scope
+            ):
+                raise _range_error(
+                    "No compatible spare range available for reassignment",
+                    category=RecoveryFailureCategory.NO_COMPATIBLE_SPARE,
+                    participant_id=str(participant.pk),
+                    event_id=str(event.pk),
+                )
+            return
         spare = _claim_spare(participant, spare_range_instance_id)
         if spare is None:
             raise _range_error(
@@ -194,18 +233,20 @@ def _ensure_spare_reserved(
                 participant_id=str(participant.pk),
                 event_id=str(participant.event_id),
             )
-        recovery.replacement_range_instance_id = spare.range_instance_id
-        recovery.save(update_fields=["replacement_range_instance_id", "updated_at"])
+        locked.replacement_range_instance_id = recovery.replacement_range_instance_id = spare.range_instance_id
+        locked.replacement_request_id = recovery.replacement_request_id = spare.request_id
+        locked.save(update_fields=["replacement_range_instance_id", "replacement_request_id", "updated_at"])
 
 
-def _ensure_spare_attached(recovery: CTFRangeRecovery, participant: CTFParticipant) -> None:
+def _ensure_spare_attached(
+    recovery: CTFRangeRecovery, participant: CTFParticipant, credential: CredentialContext
+) -> None:
     """Attach the reserved spare after the old range is blocked (idempotent, #307).
 
-    ``cms_reassign_range_owner`` is a no-op when already owned (resume safe);
-    the freed managed spare user is deleted once.
+    ``cms_reassign_range_owner`` is a no-op when already owned (resume safe).
     """
     from ctf.bridges import cms_reassign_range_owner
-    from ctf.services.range.spares import delete_managed_spare_user
+    from management.services import resolve_principal_uuid
 
     replacement_id = recovery.replacement_range_instance_id
     if replacement_id is None:
@@ -215,38 +256,38 @@ def _ensure_spare_attached(recovery: CTFRangeRecovery, participant: CTFParticipa
             recovery_id=str(recovery.pk),
         )
 
-    cms_reassign_range_owner(replacement_id, _participant_user(participant))
-
-    spare = CTFSpareRange.objects.filter(range_instance_id=replacement_id).first()
-    if spare is not None and spare.owner_user_id is not None:
-        freed_owner = spare.owner_user
-        spare.owner_user = None
-        spare.save(update_fields=["owner_user", "updated_at"])
-        delete_managed_spare_user(freed_owner)
+    cms_reassign_range_owner(
+        credential,
+        replacement_id,
+        resolve_principal_uuid(_participant_principal_uuid(participant)),
+        participant.event_id,
+    )
 
     recovery.phase = RecoveryPhase.REPLACEMENT_READY.value
     recovery.save(update_fields=["phase", "updated_at"])
 
 
 def _ensure_rebuild_replacement_ready(
-    recovery: CTFRangeRecovery, participant: CTFParticipant, model_subject: OwnedReference
+    recovery: CTFRangeRecovery,
+    participant: CTFParticipant,
+    model_subject: OwnedReference,
+    credential: CredentialContext,
 ) -> None:
     """Provision a fresh rebuild replacement range (idempotent; rebuild-only).
 
     reassign_spare reserves via :func:`_ensure_spare_reserved` before teardown.
     ``model_subject`` is the pre-teardown authoritative membership subject (PLAT-202).
     """
-    if recovery.replacement_range_instance_id is not None:
-        return
-    replacement_id, replacement_request_id = _rebuild_replacement(participant, model_subject)
-
+    replacement_id, request_id = _rebuild_replacement(recovery, participant, model_subject, credential)
     recovery.replacement_range_instance_id = replacement_id
-    recovery.replacement_request_id = replacement_request_id
+    recovery.replacement_request_id = request_id
     recovery.phase = RecoveryPhase.REPLACEMENT_READY.value
     recovery.save(update_fields=["replacement_range_instance_id", "replacement_request_id", "phase", "updated_at"])
 
 
-def _ensure_old_range_blocked(recovery: CTFRangeRecovery, old_range_instance_id: int, user: User) -> None:
+def _ensure_old_range_blocked(
+    recovery: CTFRangeRecovery, old_range_instance_id: int, credential: CredentialContext
+) -> None:
     """Tear down the old range unless it is already in a terminal state.
 
     Idempotent against retries: ``cms.services.destroy_range`` is not itself
@@ -254,12 +295,12 @@ def _ensure_old_range_blocked(recovery: CTFRangeRecovery, old_range_instance_id:
     found"), so the live status is checked first via
     ``ctf.bridges.cms_get_range_status`` before dispatching teardown.
     """
-    from ctf.bridges import cms_destroy_range, cms_get_range_status
+    from ctf.bridges import cms_destroy_recovery_range, cms_get_range_status
 
     current_status = cms_get_range_status(old_range_instance_id)
     if current_status not in _OLD_RANGE_TERMINAL_STATUSES:
         try:
-            cms_destroy_range(user, old_range_instance_id)
+            cms_destroy_recovery_range(credential, recovery.event_id, old_range_instance_id)
         except Exception as e:
             # Authored message only: this log line and the chained cause carry the detail.
             logger.exception("Failed to block old range %s", old_range_instance_id)
@@ -274,11 +315,13 @@ def _ensure_old_range_blocked(recovery: CTFRangeRecovery, old_range_instance_id:
 
 
 def _ensure_participant_repointed(participant: CTFParticipant, recovery: CTFRangeRecovery) -> None:
-    """Idempotency is data-driven: skip the write once already pointed at the replacement."""
+    """Bind the exact live replacement while cancellation holds the same event mutex."""
     from ctf.bridges import cms_get_range_status
+    from ctf.models import CTFEvent, CTFRangeLaunch
 
     replacement_id = recovery.replacement_range_instance_id
-    if replacement_id is None:
+    replacement_request = recovery.replacement_request_id
+    if replacement_id is None or replacement_request is None:
         # The replacement id is recorded first (reserve / rebuild-ready step).
         raise _range_error(
             "Replacement range id missing during repoint",
@@ -286,28 +329,119 @@ def _ensure_participant_repointed(participant: CTFParticipant, recovery: CTFRang
             recovery_id=str(recovery.pk),
         )
 
-    participant.refresh_from_db()
-    if participant.range_instance_id != replacement_id:
-        replacement_status = cms_get_range_status(replacement_id)
-        participant.range_instance_id = replacement_id
-        participant.range_status = replacement_status
-        participant.save(update_fields=["range_instance_id", "range_status", "updated_at"])
+    expected_old = (recovery.old_range_instance_id, participant.range_request_id)
+    from ctf.bridges import cms_is_event_range_cleanup_verified_absent
 
-    recovery.phase = RecoveryPhase.PARTICIPANT_REPOINTED.value
-    recovery.save(update_fields=["phase", "updated_at"])
+    cleared_old = participant.range_request_id is not None and cms_is_event_range_cleanup_verified_absent(
+        participant.event_id, recovery.old_range_instance_id, participant.range_request_id
+    )
+    replacement = (replacement_id, replacement_request)
+    replacement_status = cms_get_range_status(replacement_id)
+    with transaction.atomic():
+        event = CTFEvent.objects.select_for_update().get(pk=participant.event_id)
+        locked = CTFRangeRecovery.objects.select_for_update().get(pk=recovery.pk, event=event, participant=participant)
+        current = CTFParticipant.objects.select_for_update().get(pk=participant.pk, event=event)
+        intent = CTFRangeLaunch.objects.filter(
+            pk=replacement_request, event=event, range_instance_id=replacement_id
+        ).first()
+        live_subject = _live_replacement_subject(intent, locked, current, replacement)
+        if (
+            event.status == "cancelled"
+            or not live_subject
+            or (locked.replacement_range_instance_id, locked.replacement_request_id) != replacement
+            or not _recovery_pointer_matches(current, expected_old, replacement, cleared_old)
+        ):
+            raise _range_error(
+                "Replacement generation changed or was cancelled", category=RecoveryFailureCategory.INTERNAL_ERROR
+            )
+        if (current.range_instance_id, current.range_request_id) != replacement:
+            current.range_instance_id = replacement_id
+            current.range_request_id = replacement_request
+            current.range_status = replacement_status
+            current.save(update_fields=["range_instance_id", "range_request_id", "range_status", "updated_at"])
+        participant.range_instance_id = current.range_instance_id
+        participant.range_request_id = current.range_request_id
+        participant.range_status = current.range_status
+        locked.phase = recovery.phase = RecoveryPhase.PARTICIPANT_REPOINTED.value
+        locked.save(update_fields=["phase", "updated_at"])
 
 
 def _complete_recovery(
     recovery: CTFRangeRecovery,
     participant: CTFParticipant,
-    operator: User | None,
+    operator: object | None,
 ) -> None:
     """Write the completion audit row and mark `recovery` as `COMPLETED`."""
     audit_range_recovery(
-        actor_id=operator.id if operator is not None else None,
+        actor_id=operator,
         recovery=recovery,
         participant=participant,
         previous_status=ResourceStatus.DESTROYING.value,
     )
     recovery.phase = RecoveryPhase.COMPLETED.value
     recovery.save(update_fields=["phase", "updated_at"])
+
+
+def _spare_generation_eligible(candidate: CTFSpareRange, event: CTFEvent, scope: ResourceScope) -> bool:
+    """Require live journal identity, ready runtime, transferable owner and exact event egress."""
+    from ctf.bridges import (
+        cms_get_range_status,
+        cms_range_egress_compatible_with_event,
+        cms_range_owner_reassignment_available,
+    )
+    from ctf.models import CTFRangeLaunch
+
+    if candidate.range_instance_id is None or candidate.request_id is None:
+        return False
+    if not CTFRangeLaunch.objects.filter(
+        pk=candidate.request_id,
+        event=event,
+        subject_kind="spare",
+        subject_uuid=candidate.pk,
+        range_instance_id=candidate.range_instance_id,
+    ).exists():
+        return False
+    ready = candidate.status == SpareRangeStatus.READY.value or (
+        cms_get_range_status(candidate.range_instance_id) == ResourceStatus.READY.value
+    )
+    return (
+        ready
+        and cms_range_owner_reassignment_available(candidate.range_instance_id)
+        and cms_range_egress_compatible_with_event(candidate.range_instance_id, scope)
+    )
+
+
+def _live_replacement_subject(
+    intent: CTFRangeLaunch | None,
+    recovery: CTFRangeRecovery,
+    participant: CTFParticipant,
+    replacement: tuple[int, UUID],
+) -> bool:
+    """The exact native replacement must still belong to this recovery or its consumed spare."""
+    if intent is None:
+        return False
+    if intent.subject_kind == "rebuild":
+        return intent.subject_uuid == recovery.pk
+    return (
+        intent.subject_kind == "spare"
+        and CTFSpareRange.objects.filter(
+            pk=intent.subject_uuid,
+            event_id=recovery.event_id,
+            consumed_by=participant,
+            status=SpareRangeStatus.CONSUMED.value,
+            request_id=replacement[1],
+            range_instance_id=replacement[0],
+        ).exists()
+    )
+
+
+def _recovery_pointer_matches(
+    current: CTFParticipant, expected_old: tuple[int, UUID | None], replacement: tuple[int, UUID], cleared_old: bool
+) -> bool:
+    """Accept only the exact old/replacement pointer or verified cleanup of that old generation."""
+    return (current.range_instance_id, current.range_request_id) in {expected_old, replacement} or (
+        cleared_old
+        and current.range_instance_id is None
+        and current.range_request_id == expected_old[1]
+        and current.range_status == ""
+    )

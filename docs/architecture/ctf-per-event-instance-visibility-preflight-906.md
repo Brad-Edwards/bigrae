@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: `CTF-906` - Per-Event Instance Visibility
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/539>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/539>
 
 This note is intentionally not an implementation plan. The upcoming work should
 close the CTF-906 evidence gap with meaningful automated coverage and Ground

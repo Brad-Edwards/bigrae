@@ -20,6 +20,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -31,8 +32,10 @@ from ctf.services.communication.admission import (
     AdmissionActor,
     assert_occurrence_ready,
     assert_source_realizable,
+    prepare_campaign_admission,
     reauthorize,
 )
+from ctf.services.communication.attribution import actor_attribution
 from ctf.services.communication.backpressure import RETRYABLE_ADMISSION_CODES
 from ctf.services.communication.release import (
     RELEASE_OUTCOME_NOT_DUE,
@@ -52,18 +55,25 @@ _BACKPRESSURE_RETRY_SECONDS = 60
 
 
 def _actor_for_scheduled(intent: CommunicationIntent) -> AdmissionActor:
-    """Reconstruct the admitting actor recorded on a scheduled declaration.
+    """Resolve the recorded non-secret credential reference at dispatch time."""
+    if intent.initiating_principal_uuid is None:
+        # Trusted lifecycle declarations are the only actor-free declarations.
+        if intent.actor_user_id is None and intent.actor_token_id is None:
+            return AdmissionActor(system=True)
+        raise CTFCommunicationError(
+            "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        )
+    try:
+        from shared.credentials import CredentialRevoked, resolve_current_credential
+        from shared.operation_authority import credential_reference_from_record
 
-    The stored non-secret actor/token identity drives the due-time re-check: a
-    human declaration revalidates that user's live authority, a token declaration
-    revalidates the original user/token pair, and a declaration authored by trusted automation (no user,
-    no token) re-enters as system authority.
-    """
-    if intent.actor_token_id is not None:
-        return AdmissionActor(user_id=intent.actor_user_id, token_id=intent.actor_token_id)
-    if intent.actor_user_id is not None:
-        return AdmissionActor(user_id=intent.actor_user_id)
-    return AdmissionActor(system=True)
+        return AdmissionActor(credential=resolve_current_credential(credential_reference_from_record(intent)))
+    except CredentialRevoked:
+        raise CTFCommunicationError("Communication credential revoked", code="CTF_COMMUNICATION_ACTOR_DENIED") from None
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
+        raise CTFCommunicationError(
+            "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        ) from None
 
 
 def schedule_declaration(
@@ -87,12 +97,17 @@ def schedule_declaration(
     requested_revision = revision
     key = _idempotency_key(campaign.id, occurrence_key, range_generation_ref)
     now = timezone.now()
-    target_event_ids = list(campaign.target_events.values_list("id", flat=True))
+    actor = prepare_campaign_admission(campaign, actor)
+    target_event_ids = (
+        [admission.event_uuid for admission in actor.event_admissions]
+        if actor.credential is not None
+        else list(campaign.target_events.values_list("id", flat=True))
+    )
 
     with transaction.atomic():
         target_events = list(CTFEvent.objects.select_for_update().filter(id__in=target_event_ids).order_by("pk"))
-        reauthorize(campaign, target_events, actor)
         locked_campaign = CommunicationCampaign.objects.select_for_update().get(pk=campaign.pk)
+        actor = reauthorize(locked_campaign, target_events, actor)
 
         existing = CommunicationIntent.objects.filter(idempotency_key=key).first()
         if existing is not None:
@@ -118,20 +133,25 @@ def schedule_declaration(
         _assert_release_allowed(locked_campaign, target_events)
         revision = _resolve_revision(locked_campaign, revision)
 
+        from shared.operation_authority import credential_reference_fields
+
+        authority_fields = credential_reference_fields(actor.credential) if actor.credential is not None else {}
+        attribution = actor_attribution(actor)
         intent = CommunicationIntent.objects.create(
             campaign=locked_campaign,
             revision=revision,
             status=IntentStatus.SCHEDULED.value,
             trigger_kind=locked_campaign.trigger_spec["kind"],
             origin=locked_campaign.origin,
-            actor_user_id=actor.user_id,
-            actor_token_id=actor.token_id,
+            actor_user_id=attribution.user_id,
+            actor_token_id=attribution.token_id,
             channels=list(locked_campaign.channels),
             acknowledgement_policy=locked_campaign.acknowledgement_policy,
             occurrence_key=occurrence_key,
             idempotency_key=key,
             range_generation_ref=range_generation_ref,
             due_at=due_at,
+            **authority_fields,
         )
         CommunicationCampaign.objects.filter(pk=locked_campaign.pk).update(
             status=CampaignStatus.SCHEDULED.value, updated_at=now
@@ -168,9 +188,8 @@ def run_release_communication_task(task: CTFScheduledTask) -> dict[str, Any]:
         logger.warning("RELEASE_COMMUNICATION task %s references missing intent %s", task.pk, intent_id)
         return {"outcome": "missing_intent"}
 
-    actor = _actor_for_scheduled(intent)
     try:
-        _require_author_event_admin_standing(actor)
+        actor = _actor_for_scheduled(intent)
         outcome = release_due_declaration(intent, actor=actor)
     except CTFCommunicationError as exc:
         return _denied_result(intent, exc)
@@ -181,26 +200,6 @@ def run_release_communication_task(task: CTFScheduledTask) -> dict[str, Any]:
     return result
 
 
-def _require_author_event_admin_standing(actor: AdmissionActor) -> None:
-    """Deny a due-time release whose human author lost event-administration standing.
-
-    The REST surface admits communications only for an active CTF organizer or a
-    platform administrator (``HasCTFEventAdminAccess``). A declaration made before
-    the author was demoted must not release later on event ownership alone.
-    Trusted automation (no user) keeps its own authority.
-    """
-    if actor.user_id is None:
-        return
-    from django.contrib.auth import get_user_model
-
-    from ctf.services.authorization import is_ctf_platform_admin
-    from ctf.services.event.staff import actor_is_active_ctf_organizer
-
-    user = get_user_model().objects.filter(pk=actor.user_id, is_active=True).first()
-    if user is None or not (actor_is_active_ctf_organizer(user.pk) or is_ctf_platform_admin(user)):
-        raise CTFCommunicationError("Communication actor is not active", code="CTF_COMMUNICATION_ACTOR_DENIED")
-
-
 def _denied_result(intent: CommunicationIntent, exc: CTFCommunicationError) -> dict[str, Any]:
     """Map an admission denial at due time to a scheduler result.
 
@@ -209,10 +208,16 @@ def _denied_result(intent: CommunicationIntent, exc: CTFCommunicationError) -> d
     terminal no-work outcome instead of leaving the intent SCHEDULED with a completed
     task.
     """
-    if exc.code in RETRYABLE_ADMISSION_CODES:
-        logger.warning("Scheduled communication %s hit transient admission denial (%s); retrying", intent.id, exc.code)
+    grace_end = (
+        intent.due_at + timedelta(minutes=settings.CTF_COMMUNICATION_RELEASE_GRACE_MINUTES) if intent.due_at else None
+    )
+    if exc.code in RETRYABLE_ADMISSION_CODES | {"CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"} and (
+        grace_end is None or timezone.now() < grace_end
+    ):
+        logger.warning("Scheduled communication %s hit transient backpressure (%s); retrying", intent.id, exc.code)
+        retry_at = timezone.now() + timedelta(seconds=_BACKPRESSURE_RETRY_SECONDS)
         return {
-            "reschedule_for": timezone.now() + timedelta(seconds=_BACKPRESSURE_RETRY_SECONDS),
+            "reschedule_for": min(retry_at, grace_end) if grace_end is not None else retry_at,
             "outcome": "backpressure_retry",
         }
     _expire_unadmittable(intent, exc.code)
@@ -238,9 +243,6 @@ def request_early_release(intent: CommunicationIntent, *, actor: AdmissionActor)
     admission re-check (workspace mutex + per-event notification authority) still
     runs inside ``release_due_declaration``.
     """
-    if actor.user_id is None or actor.token_id is not None or actor.system or not actor.allow_early_release:
-        raise CTFCommunicationError(
-            "Early release of a scheduled communication is not authorized",
-            code="CTF_COMMUNICATION_EARLY_RELEASE_DENIED",
-        )
-    return release_due_declaration(intent, actor=actor, allow_early=True)
+    from ctf.services.communication.admission import admit_session_early_release
+
+    return release_due_declaration(intent, actor=admit_session_early_release(actor), allow_early=True)

@@ -18,7 +18,7 @@ pytestmark = [pytest.mark.postgres, pytest.mark.django_db(transaction=True)]
 User = get_user_model()
 
 
-def test_concurrent_create_commands_have_one_revision_checked_winner():
+def test_concurrent_create_commands_have_one_revision_checked_winner(monkeypatch):
     from cms.models import MissionControlTenantLeasePolicy
     from cms.services import (
         LeasePolicyAuditContext,
@@ -27,6 +27,14 @@ def test_concurrent_create_commands_have_one_revision_checked_winner():
     )
 
     admin = User.objects.create_superuser(username="concurrent-lease-admin", password="pw")
+    from types import SimpleNamespace
+
+    from shared.authorization import AuthorizationDecision, DecisionKind
+
+    monkeypatch.setattr(
+        "cms.services._range_lease_policy_support.configured_authorization_provider",
+        lambda: SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")),
+    )
     barrier = threading.Barrier(2)
 
     def replace(initial_days: int) -> str:

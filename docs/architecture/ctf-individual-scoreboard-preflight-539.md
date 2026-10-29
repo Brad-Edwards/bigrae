@@ -9,9 +9,9 @@ Date: 2026-07-01
 
 Requirement: CTF-401, "Individual Scoreboard"
 
-Primary repair issue: <https://github.com/Brad-Edwards/shifter/issues/521>
+Primary repair issue: <https://github.com/Brad-Edwards/bigrae/issues/521>
 
-Test-traceability issue: <https://github.com/Brad-Edwards/shifter/issues/539>
+Test-traceability issue: <https://github.com/Brad-Edwards/bigrae/issues/539>
 
 This note narrows the CTF-401 repair and test-traceability work to the existing
 native CTF architecture. It is intentionally not an implementation plan.

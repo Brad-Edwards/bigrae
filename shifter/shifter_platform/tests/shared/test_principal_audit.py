@@ -17,7 +17,7 @@ from shared.identity_scope import PrincipalRef
 from shared.management.commands.audit_archive import Command
 from shared.models import AuditLog
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("allow_all_policy")]
 
 
 def _event(**overrides):

@@ -40,7 +40,12 @@ const EVENT = {
 
 function routeApi(handlers: (path: string, options?: { method?: string }) => unknown) {
   mockApi.mockImplementation((path: string, options?: { method?: string }) => Promise.resolve(
-    path === "/cms/model-source-options/"
+    path === "/cms/content-scopes/"
+      ? { count: 2, results: [
+          { kind: "installation", name: "Shared catalog", scope_kind: "installation", account: null, organization: null, workspace: null },
+          { kind: "account", name: "Synthetic tenant", scope_kind: "account", account: "11111111-1111-4111-8111-111111111111", organization: null, workspace: null },
+        ] }
+      : path === "/cms/model-source-options/"
       ? { available: false, workspace: null, workspaces: [], aliases: [] }
       : handlers(path, options),
   ));
@@ -51,9 +56,23 @@ beforeEach(() => {
 });
 
 describe("EventFormPage (create)", () => {
+  it("loads scenarios from the selected explicit catalog", async () => {
+    routeApi((path) => path === "/ctf/scenario-options/" ? { scenarios: [] } : {});
+    const user = userEvent.setup();
+    renderRoute(<EventFormPage mode="create" />, { path: "/*", initialEntries: ["/ctf/admin/events/create"] });
+    const catalog = await screen.findByRole("combobox", { name: "Scenario catalog" });
+    await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/ctf/scenario-options/", expect.objectContaining({
+      query: { scope_kind: "installation", account: null, organization: null, workspace: null },
+    })));
+    await user.selectOptions(catalog, JSON.stringify(["account", "11111111-1111-4111-8111-111111111111", null, null]));
+    await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/ctf/scenario-options/", expect.objectContaining({
+      query: { scope_kind: "account", account: "11111111-1111-4111-8111-111111111111", organization: null, workspace: null },
+    })));
+  });
+
   it("submits a create request via POST /ctf/events/", async () => {
     routeApi((path) => {
-      if (path === "/ctf/scenarios/") return { scenarios: [{ id: "s1", name: "Basic" }] };
+      if (path === "/ctf/scenario-options/") return { scenarios: [{ id: "s1", name: "Basic" }] };
       if (path === "/ctf/events/") return { id: "e9", name: "New", status: "draft" };
       return {};
     });
@@ -94,7 +113,7 @@ describe("EventFormPage (create)", () => {
 describe("EventFormPage (edit)", () => {
   it("loads the existing event into the form", async () => {
     routeApi((path) => {
-      if (path === "/ctf/scenarios/") return { scenarios: [] };
+      if (path === "/ctf/scenario-options/") return { scenarios: [] };
       if (path === "/ctf/events/e1/") return EVENT;
       return {};
     });

@@ -42,6 +42,11 @@ urlpatterns = [
     ),
     path("communications/", communication.CommunicationListView.as_view(), name="api_communications"),
     path(
+        "communications/target-options/",
+        communication.CommunicationTargetOptionsView.as_view(),
+        name="api_communication_target_options",
+    ),
+    path(
         "communications/targets/",
         communication.CommunicationTargetsView.as_view(),
         name="api_communication_targets",
@@ -137,7 +142,7 @@ urlpatterns = [
         organizer.EventContentRefreshView.as_view(),
         name="api_event_content_refresh",
     ),
-    path("scenarios/", organizer.ScenarioListView.as_view(), name="api_scenarios"),
+    path("scenario-options/", organizer.ScenarioListView.as_view(), name="api_scenarios"),
     path(
         "events/<uuid:event_id>/challenges/",
         organizer.ChallengeListView.as_view(),
@@ -303,17 +308,17 @@ urlpatterns = [
         name="api_event_cleanup",
     ),
     path(
-        "events/<uuid:event_id>/staff/",
+        "events/<uuid:event_id>/staff-members/",
         organizer.EventStaffView.as_view(),
         name="api_event_staff",
     ),
     path(
-        "events/<uuid:event_id>/staff/<int:user_id>/",
+        "events/<uuid:event_id>/staff-members/<uuid:principal_uuid>/",
         organizer.EventStaffMemberView.as_view(),
         name="api_event_staff_member",
     ),
     path(
-        "events/<uuid:event_id>/transfer-ownership/",
+        "events/<uuid:event_id>/ownership/transfer/",
         organizer.EventOwnershipTransferView.as_view(),
         name="api_event_transfer_ownership",
     ),

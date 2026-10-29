@@ -232,10 +232,16 @@ async def test_temporary_participant_replay_is_body_free_and_live(
 
     def arrange():
         owner = get_user_model().objects.create_user(username="notice-owner")
+        from management.services import principal_for_user
+
+        principal = principal_for_user(owner)
+        account = ws.create_account(kind="individual", name="Notice account", owner=principal)
         event = CTFEvent.objects.create(
             name="Notice event",
             created_by=owner,
-            workspace_id=ws.resolve_personal_workspace(owner).workspace_id,
+            owner_principal_uuid=principal.uuid,
+            scope_kind="account",
+            account_id=account.id,
             status="active",
             event_start=timezone.now() - timedelta(hours=1),
             event_end=timezone.now() + timedelta(hours=1),

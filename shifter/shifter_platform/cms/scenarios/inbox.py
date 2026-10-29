@@ -18,28 +18,31 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_slug
 from django.db import transaction
 
 from cms.exceptions import CMSError
 from cms.models import RaesPackageSource
-from cms.services import PackRegistrationRequest, RegisteredPack, register_pack
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, audit_log
-from shared.raes.pack_conformance import validate_pack_contract
-from shared.raes.package_loader import resolve_pack_scenario_path
+from cms.services import (
+    PackRegistrationRequest,
+    RegisteredPack,
+    register_pack,
+    set_catalog_publication,
+    validate_registered_pack_conformance,
+)
+from cms.services._content_authority import require_content_scope, require_native_content_credential
+from cms.services._content_ingestion import prepare_pack_registration
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 from shared.schemas.raes_package_source import (
     PackageSourceRecord,
     RaesPackageSourceError,
     validate_package_source,
 )
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
 
 # The declared in-box pack manifest that ships with Shifter.
 SHIPPED_INBOX_MANIFEST = Path(__file__).parent / "inbox_packs" / "manifest.yaml"
@@ -102,87 +105,59 @@ def load_inbox_manifest(manifest_path: Path | None = None) -> list[PackRegistrat
 
 
 def register_inbox_packs(
-    *, actor: User, manifest_path: Path | None = None, request_id: str = ""
+    *, actor: CredentialContext, manifest_path: Path | None = None, request_id: str = ""
 ) -> list[RegisteredPack]:
-    """Register every declared in-box pack through the uniform ingestion service.
+    """Atomically register one native manifest, then qualify and publish exact identities.
 
-    Args:
-        actor: The registering user (must pass the CMS authoring gate).
-        manifest_path: Optional manifest override (defaults to the shipped one).
-        request_id: Optional audit correlation id.
-
-    Returns:
-        The packs newly registered by this call (already-registered ids skipped).
+    All native admission happens before the registration transaction. Qualification
+    or publication failure preserves pending or unpublished rows for an exact retry.
+    No manifest origin receives a separate validation or authorization path.
     """
-    selected_manifest = Path(manifest_path) if manifest_path is not None else SHIPPED_INBOX_MANIFEST
-    requests = load_inbox_manifest(selected_manifest)
-    trusted_release = selected_manifest.resolve() == SHIPPED_INBOX_MANIFEST.resolve()
+    if transaction.get_connection().in_atomic_block:
+        raise InboxManifestError("Catalog initialization requires its own transaction boundary")
+    actor = require_native_content_credential(actor)
+    scope = ResourceScope("installation")
+    actor = require_content_scope(actor, scope, "read_content")
+    actor = require_content_scope(actor, scope, "publish_content")
+    requests = load_inbox_manifest(manifest_path)
+    admitted = []
+    for request in requests:
+        if (
+            request.expected_package_digest
+            and not RaesPackageSource.objects.filter(scenario_id=request.scenario_id).exists()
+        ):
+            request = replace(request, expected_package_digest="")
+        admitted.append((request, prepare_pack_registration(actor, request, scope)))
     registered: list[RegisteredPack] = []
-    # The declaration is one deploy input. A failure in any entry rolls back
-    # earlier registrations and their strict audit rows instead of installing a
-    # silently partial in-box registration.
     with transaction.atomic():
-        for request in requests:
-            # A release's previous digest fences upgrades only. A first install
-            # has no prior row to replace; the uniform service still owns admission.
-            if (
-                request.expected_package_digest
-                and not RaesPackageSource.objects.filter(scenario_id=request.scenario_id).exists()
-            ):
-                request = replace(request, expected_package_digest="")
+        for request, admission in admitted:
             result = register_pack(
-                user=actor,
+                user=admission.credential,
                 request=request,
                 request_id=request_id,
                 idempotent=True,
+                scope=scope,
+                _prepared_admission=admission,
             )
             if result.created:
                 registered.append(result)
-            if trusted_release:
-                _promote_release_conformance(request=request, actor=actor, request_id=request_id)
+    for request, _ in admitted:
+        source = RaesPackageSource.objects.get(scenario_id=request.scenario_id)
+        if source.package_digest != request.package_digest:
+            raise InboxManifestError("in-box pack identity changed before qualification")
+        if source.conformance_status != RaesPackageSource.ConformanceStatus.PASSED:
+            validate_registered_pack_conformance(
+                user=actor,
+                scenario_id=request.scenario_id,
+                expected_package_digest=request.package_digest,
+            )
+        set_catalog_publication(
+            actor,
+            request.scenario_id,
+            published=True,
+            expected_package_digest=request.package_digest,
+        )
     return registered
-
-
-def _promote_release_conformance(*, request: PackRegistrationRequest, actor: User, request_id: str) -> None:
-    """Compile and promote one immutable, checked-in release-manifest pack.
-
-    This release-manifest entrypoint is used only by shipped-pack bootstrap;
-    operators use the shared registered-pack conformance service. Registration has already run the
-    upstream environment-pack validator and bound the canonical digest; this
-    gate additionally exercises the real RAES load, plan, Shifter target, and
-    apply-contract path before storing the release-owned conformance fact.
-    """
-    if request.source_kind != "repo":
-        raise InboxManifestError("shipped in-box packs must be repository-backed")
-    pack_root = (Path(settings.RAES_PACKAGE_ROOT).resolve() / request.package_ref).resolve()
-    scenario_path = resolve_pack_scenario_path(pack_root)
-    try:
-        validate_pack_contract(scenario_path, request_id or "inbox-release-conformance")
-    except Exception as exc:
-        raise InboxManifestError("shipped in-box pack failed release conformance") from exc
-
-    source = RaesPackageSource.objects.get(scenario_id=request.scenario_id)
-    source.conformance_status = RaesPackageSource.ConformanceStatus.PASSED
-    source.conformance_report_ref = f"release://{request.package_ref}@{request.package_version}"
-    source.save(update_fields=["conformance_status", "conformance_report_ref", "updated_at"])
-    audit_log(
-        AuditEvent(
-            entity_type=AuditEntityType.SCENARIO,
-            entity_id=0,
-            entity_ref=source.scenario_id,
-            action=AuditAction.UPDATE,
-            actor_type=AuditActorType.USER,
-            actor_id=actor.id,
-            new_state={
-                "scenario_id": source.scenario_id,
-                "package_digest": source.package_digest,
-                "conformance_status": source.conformance_status,
-                "conformance_report_ref": source.conformance_report_ref,
-            },
-            request_id=request_id,
-        ),
-        strict=True,
-    )
 
 
 def _entry_to_request(entry: dict[str, Any], *, index: int) -> PackRegistrationRequest:

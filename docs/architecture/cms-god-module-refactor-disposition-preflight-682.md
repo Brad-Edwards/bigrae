@@ -7,7 +7,7 @@ Status: current-tree architecture disposition
 
 Date: 2026-07-20
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/682>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/682>
 
 This is a requirement-free run. The issue is the original contract. This note
 records how later accepted work changed that contract's implementation surface;

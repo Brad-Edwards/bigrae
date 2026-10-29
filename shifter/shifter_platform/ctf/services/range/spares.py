@@ -1,12 +1,8 @@
-"""Event spare-range pool (issue #1018 revised plan).
+"""Principal-native event spare-range pool (issue #1018, #2321).
 
-Formalizes the previously hand-made "fake user owns a spare range" process:
-each spare range in an event's recovery pool is owned by a dedicated,
-auto-created **managed system user** -- never a
-:class:`~ctf.models.CTFParticipant` -- until it is consumed during recovery,
-at which point ownership transfers to the recovering participant (via the
-existing :func:`ctf.bridges.cms_reassign_range_owner`) and the freed managed
-user is deleted.
+Each spare is held by the event owner's principal in the event's account scope
+until recovery transfers ownership to a participant principal. No placeholder
+or inactive Django user is created for pooled infrastructure.
 
 A spare's ``status`` starts at ``provisioning`` and is flipped to ``ready``/
 ``failed`` by :func:`ctf.signals.sync_ctf_spare_range_status` when CMS
@@ -20,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from ctf.enums import SpareRangeStatus
 from ctf.exceptions import CTFNotFoundError
@@ -29,14 +25,13 @@ from ctf.services.audit import audit_spare_provisioning
 from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+    from ctf.models import CTFRangeLaunch
+    from ctf.services.actors import EventActionAdmission
+    from shared.credentials import CredentialContext
+
+_EVENT_MANAGE_RANGES = "event.manage_ranges"
 
 logger = logging.getLogger(__name__)
-
-# Marks a managed spare user unambiguously so it can never be mistaken for a
-# real participant/organizer account, and so deletion helpers refuse to touch
-# anything else.
-_SPARE_USER_EMAIL_DOMAIN = "ctf-spare.invalid"
 
 # A spare counts against the pool while it is still usable or on its way to
 # being usable; failed/consumed spares are excluded from "existing" counts so
@@ -44,62 +39,8 @@ _SPARE_USER_EMAIL_DOMAIN = "ctf-spare.invalid"
 _ACTIVE_SPARE_STATUSES = (SpareRangeStatus.PROVISIONING.value, SpareRangeStatus.READY.value)
 
 # Fixed namespace so a spare's capacity draw key is derived deterministically
-# from its managed user and never collides with a participant id.
+# from its own UUID and never collides with a participant id.
 _SPARE_DRAW_NAMESPACE = UUID("6f9d1f5e-0f3a-4d33-9a2f-2f1c9c4a7b10")
-
-
-def create_managed_spare_user() -> User:
-    """Create a dedicated, inactive system user to own one pooled spare range.
-
-    Never a :class:`~ctf.models.CTFParticipant` and never active -- the
-    ``@ctf-spare.invalid`` email domain is the machine-checkable marker used
-    by :func:`delete_managed_spare_user` and by any surface that must exclude
-    these accounts (participant lists, scoreboards, invites).
-    """
-    from django.contrib.auth.models import User
-
-    token = uuid4().hex
-    user = User.objects.create_user(
-        username=f"ctf-spare-{token}",
-        email=f"{token}@{_SPARE_USER_EMAIL_DOMAIN}",
-        is_active=False,
-    )
-    user.set_unusable_password()
-    user.save(update_fields=["password"])
-    logger.info("Created managed spare user id=%s", safe_log_value(user.pk))
-    return user
-
-
-def delete_managed_spare_user(user: User | None) -> bool:
-    """Best-effort hard-delete of a freed managed spare user.
-
-    Refuses to delete anything that is not marked as a managed spare user
-    (belt-and-braces against ever deleting a real account). Failures are
-    logged and swallowed -- called after ownership has already moved off the
-    user, so a cleanup failure here must never fail the surrounding recovery
-    or provisioning operation.
-    """
-    if user is None:
-        return False
-    if not user.email.endswith(f"@{_SPARE_USER_EMAIL_DOMAIN}"):
-        logger.warning(
-            "delete_managed_spare_user: refusing to delete non-spare user id=%s",
-            safe_log_value(user.pk),
-        )
-        return False
-
-    result = True
-    try:
-        from management.services import delete_managed_pool_user
-
-        delete_managed_pool_user(user, domain=_SPARE_USER_EMAIL_DOMAIN)
-    except Exception:
-        logger.exception(
-            "delete_managed_spare_user: failed to delete spare user id=%s",
-            safe_log_value(user.pk),
-        )
-        result = False
-    return result
 
 
 def _get_event(event_id: UUID) -> CTFEvent:
@@ -113,99 +54,62 @@ def _get_event(event_id: UUID) -> CTFEvent:
         ) from None
 
 
-def _spare_draw_key(spare_user: User) -> UUID:
+def _spare_draw_key(spare_id: UUID) -> UUID:
     """Return the stable capacity draw key for one spare.
 
-    The managed spare user is created once per spare and never reused, so its
-    id is a stable identity for the draw. It is hashed into a UUID because the
-    ledger key is a UUID column shared with participant-scoped draws.
+    The spare row is created once and never reused, so its UUID is a stable
+    identity for the draw. It is hashed into a separate UUID namespace because
+    the ledger key is shared with participant-scoped draws.
     """
     from uuid import uuid5
 
-    return uuid5(_SPARE_DRAW_NAMESPACE, str(spare_user.pk))
+    return uuid5(_SPARE_DRAW_NAMESPACE, str(spare_id))
 
 
-def _provision_one_spare(event: CTFEvent) -> CTFSpareRange:
-    """Create one managed spare user + CMS range, recording a CTFSpareRange row.
+def _reserve_spare_launch(
+    event: CTFEvent, event_admission: EventActionAdmission, spare: CTFSpareRange
+) -> CTFRangeLaunch | None:
+    """Record a cancellable generation while the event and spare are locked."""
+    from ctf.models import CTFRangeLaunch
 
-    Mirrors ``ctf.services.range.provision.provision_participant_range``'s
-    range_config extraction. Provisioning failures are recorded as a
-    ``failed`` spare rather than raised, so one bad attempt does not abort
-    the rest of a top-up.
-    """
-    from ctf.bridges import CTFRangeLaunchOptions, cms_create_range, cms_find_range_instance_id
+    if spare.status != SpareRangeStatus.PROVISIONING.value or spare.consumed_by_id is not None:
+        return None
+    intent = CTFRangeLaunch.all_objects.filter(pk=spare.request_id).first() if spare.request_id else None
+    if intent is not None:
+        return _replay_spare_launch(intent, event_admission)
+    return _reserve_new_spare_launch(event, event_admission, spare)
 
-    spare_user = create_managed_spare_user()
-    agents_by_os = event.range_config.get("agents_by_os", {}) if event.range_config else {}
-    ngfw_enabled = event.range_config.get("ngfw_enabled", False) if event.range_config else False
 
-    # PLAT-201: a spare occupies a range slot like any other, so it draws from
-    # the same event budget. Keyed on the managed spare user, which is stable
-    # for this spare and known before the range exists.
-    from ctf.services.range.capacity import admit_range, release_range
+def _provision_one_spare(event: CTFEvent, credential: CredentialContext, spare: CTFSpareRange) -> CTFSpareRange:
+    """Resume the spare's one reserved generation, retaining failures for retry."""
+    from django.db import transaction
 
-    draw_key = _spare_draw_key(spare_user)
-    admission = admit_range(event.pk, draw_key)
-    if admission is not None and admission["blocking"]:
-        logger.warning(
-            "provision_event_spares: capacity refused a spare for event=%s codes=%s",
-            safe_log_value(event.pk),
-            admission["reason_codes"],
-        )
-        return CTFSpareRange.objects.create(
-            event=event,
-            owner_user=spare_user,
-            status=SpareRangeStatus.FAILED.value,
-        )
+    from ctf.services.authorization import admit_event_actions, assert_event_action
+    from ctf.services.range.launch_intents import execute_launch
 
-    spare = CTFSpareRange.objects.create(event=event, owner_user=spare_user, status=SpareRangeStatus.PROVISIONING.value)
-    try:
-        from ctf.services.range.model_allocation import project_event_model_scope
-        from shared.model_access import OwnedReference
-
-        subject = OwnedReference(owner="ctf", reference=f"draw:{spare.pk}")
-        result = cms_create_range(
-            user=spare_user,
-            scenario=event.scenario_id,
-            agents_by_os=agents_by_os,
-            ngfw_enabled=ngfw_enabled,
-            remote_access_teardown_at=event.get_cleanup_time(),
-            launch_options=CTFRangeLaunchOptions(
-                model_admission_subject=subject,
-                model_launch_scope=project_event_model_scope(
-                    event,
-                    draw_key,
-                    subject,
-                    spare_id=spare.pk,
-                ),
-                content_authorizer=event.created_by,
-                event_policy_workspace_id=event.workspace_id,
-            ),
-        )
-    except Exception:
-        logger.exception(
-            "provision_event_spares: range provisioning failed for event=%s",
-            safe_log_value(event.pk),
-        )
-        # No range came up, so the draw must go back.
-        release_range(draw_key)
-        spare.status = SpareRangeStatus.FAILED.value
-        spare.save(update_fields=["status", "updated_at"])
+    event_admission = admit_event_actions(credential, event, _EVENT_MANAGE_RANGES)
+    with transaction.atomic():
+        locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk)
+        assert_event_action(event_admission, locked_event, _EVENT_MANAGE_RANGES)
+        spare = CTFSpareRange.objects.select_for_update().get(pk=spare.pk, event=locked_event)
+        intent = _reserve_spare_launch(locked_event, event_admission, spare)
+    if intent is None:
         return spare
-
-    range_instance_id = cms_find_range_instance_id(result.request_id)
-    spare.range_instance_id = range_instance_id
-    spare.request_id = result.request_id
-    spare.save(update_fields=["range_instance_id", "request_id", "updated_at"])
+    try:
+        execute_launch(intent)
+    except Exception:
+        # Keep the generation and its draw: CMS may already have committed it.
+        logger.exception("Spare launch pending for event=%s", safe_log_value(event.pk))
+    spare.refresh_from_db()
     return spare
 
 
-def provision_event_spares(event_id: UUID, target_count: int, *, operator: User | None = None) -> dict[str, Any]:
+def provision_event_spares(event_id: UUID, target_count: int, *, operator: object | None = None) -> dict[str, Any]:
     """Top up an event's spare-range pool to ``target_count``.
 
     Sets ``event.spare_range_count = target_count`` and creates
-    ``max(0, target_count - existing)`` new spares, each under a fresh
-    managed spare user. ``existing`` counts only non-consumed, non-failed
+    ``max(0, target_count - existing)`` new event-owned spares. ``existing``
+    counts only non-consumed, non-failed
     spares, so a prior failed attempt is replaced rather than counted toward
     the target. Writes one audit row for the top-up action as a whole (not
     one per range -- CMS already audits each individual range creation).
@@ -224,15 +128,25 @@ def provision_event_spares(event_id: UUID, target_count: int, *, operator: User 
     from ctf.services.range.capacity import assess_declared_capacity, declare_event_capacity
 
     event = _get_event(event_id)
-    if operator is not None:
-        # Interactive top-up: assert the ranges capability at the service
-        # boundary as well as the view (defense in depth, #1922).
-        from ctf.enums import EventCapability
-        from ctf.services.authorization import assert_event_capability
+    if operator is None:
+        raise ValueError("Spare provisioning authority unavailable")
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import admit_event_actions, assert_event_action
 
-        assert_event_capability(operator.pk, event, EventCapability.RANGES)
-    event.spare_range_count = target_count
-    event.save(update_fields=["spare_range_count", "updated_at"])
+    credential = event_actor_credential(operator)
+    event_admission = admit_event_actions(credential, event, _EVENT_MANAGE_RANGES)
+    credential = event_actor_credential(event_admission)
+    from django.db import transaction
+
+    with transaction.atomic():
+        event = CTFEvent.objects.select_for_update().get(pk=event.pk)
+        assert_event_action(event_admission, event, _EVENT_MANAGE_RANGES)
+        if event.status == "cancelled":
+            from ctf.exceptions import CTFStateError
+
+            raise CTFStateError("Cancelled events cannot provision spares")
+        event.spare_range_count = target_count
+        event.save(update_fields=["spare_range_count", "updated_at"])
     # Declare AFTER persisting the new target: the declaration's
     # expected_concurrent_ranges is roster + spare pool, so declaring first
     # published the previous pool size and understated the peak by exactly the
@@ -259,25 +173,43 @@ def provision_event_spares(event_id: UUID, target_count: int, *, operator: User 
             "refused": True,
         }
 
-    existing = CTFSpareRange.objects.filter(event=event, status__in=_ACTIVE_SPARE_STATUSES).count()
-    to_create = max(0, target_count - existing)
+    from django.db import transaction
+    from django.db.models import Q
 
-    logger.info(
-        "provision_event_spares: event=%s target=%s existing=%d creating=%d",
-        safe_log_value(event_id),
-        safe_log_value(target_count),
-        existing,
-        to_create,
+    from ctf.models import CTFRangeLaunch
+
+    with transaction.atomic():
+        locked_event = CTFEvent.objects.select_for_update().get(pk=event.pk)
+        assert_event_action(event_admission, locked_event, _EVENT_MANAGE_RANGES)
+        if locked_event.status == "cancelled" or locked_event.spare_range_count != target_count:
+            raise ValueError("Spare target changed during admission")
+        existing = CTFSpareRange.objects.filter(event=event, status__in=_ACTIVE_SPARE_STATUSES).count()
+        new_spares = [
+            CTFSpareRange.objects.create(event=event, status=SpareRangeStatus.PROVISIONING.value)
+            for _ in range(max(0, target_count - existing))
+        ]
+        pending_requests = CTFRangeLaunch.objects.filter(event=event, dispatched_at=None).values_list("pk", flat=True)
+        pending = list(
+            CTFSpareRange.objects.select_for_update().filter(
+                Q(request_id__isnull=True) | Q(request_id__in=pending_requests),
+                event=event,
+                status=SpareRangeStatus.PROVISIONING.value,
+            )
+        )
+        # No pending spare becomes visible without an intent that event cleanup
+        # can cancel. The outer event lock also fences concurrent top-ups.
+        for spare in pending:
+            _reserve_spare_launch(locked_event, event_admission, spare)
+    for spare in pending:
+        _provision_one_spare(event, credential, spare)
+    created = (
+        CTFSpareRange.objects.filter(pk__in=[spare.pk for spare in new_spares])
+        .exclude(status=SpareRangeStatus.FAILED.value)
+        .count()
     )
 
-    created = 0
-    for _ in range(to_create):
-        spare = _provision_one_spare(event)
-        if spare.status != SpareRangeStatus.FAILED.value:
-            created += 1
-
     audit_spare_provisioning(
-        actor_id=operator.id if operator is not None else None,
+        actor_id=operator,
         event_id=event.pk,
         target_count=target_count,
         existing=existing,
@@ -318,8 +250,8 @@ def get_event_spare_summary(event_id: UUID) -> dict[str, Any]:
     }
 
 
-def cleanup_event_spares(event_id: UUID) -> dict[str, Any]:
-    """Tear down every unconsumed spare range for an event and free its managed user.
+def cleanup_event_spares(event_id: UUID, *, actor: object) -> dict[str, Any]:
+    """Tear down every unconsumed spare range using the initiating credential.
 
     Consumed spares are left alone -- their range now belongs to a
     participant and is torn down (if at all) through the normal
@@ -329,7 +261,7 @@ def cleanup_event_spares(event_id: UUID) -> dict[str, Any]:
         event_id: UUID of the event.
 
     Returns:
-        Dict with counts of destroyed ranges, users deleted, and failures.
+        Dict with counts of destroy dispatches and failures.
 
     Raises:
         CTFNotFoundError: If the event does not exist.
@@ -337,29 +269,35 @@ def cleanup_event_spares(event_id: UUID) -> dict[str, Any]:
     from ctf.bridges import cms_destroy_range, cms_find_range_instance_id
 
     event = _get_event(event_id)
-    unconsumed = CTFSpareRange.objects.filter(event=event, consumed_by__isnull=True).exclude(
-        status=SpareRangeStatus.FAILED.value
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import assert_event_action
+    from ctf.services.range.launch_cleanup import cleanup_cancelled_launches
+    from ctf.services.range.launch_intents import cancel_event_launches
+
+    credential = event_actor_credential(actor)
+    assert_event_action(credential, event, _EVENT_MANAGE_RANGES)
+    intents = cancel_event_launches(event_id, actor, spares_only=True)
+    destroyed, failed, _ = cleanup_cancelled_launches(event_id, credential, intents)
+    unconsumed = (
+        CTFSpareRange.objects.filter(event=event, consumed_by__isnull=True)
+        .exclude(status=SpareRangeStatus.FAILED.value)
+        .exclude(pk__in=[intent.subject_uuid for intent in intents])
     )
 
-    destroyed = 0
-    users_deleted = 0
-    failed = 0
-
     for spare in unconsumed:
-        owner = spare.owner_user
         try:
             if spare.range_instance_id is None and spare.request_id is not None:
                 spare.range_instance_id = cms_find_range_instance_id(spare.request_id)
                 if spare.range_instance_id is not None:
                     spare.save(update_fields=["range_instance_id", "updated_at"])
-            if spare.range_instance_id is None or owner is None:
+            if spare.range_instance_id is None:
                 failed += 1
                 logger.warning(
-                    "cleanup_event_spares: cannot destroy spare with missing range or owner (event=%s)",
+                    "cleanup_event_spares: cannot destroy spare with missing range (event=%s)",
                     safe_log_value(event_id),
                 )
                 continue
-            cms_destroy_range(owner, spare.range_instance_id)
+            cms_destroy_range(credential, event.pk, spare.range_instance_id)
             destroyed += 1
         except Exception:
             failed += 1
@@ -368,26 +306,58 @@ def cleanup_event_spares(event_id: UUID) -> dict[str, Any]:
                 spare.range_instance_id,
                 safe_log_value(event_id),
             )
-            # Preserve the owner and nonterminal status so a later cleanup
-            # attempt can retry. A failed dispatch is not a destroyed range.
+            # Preserve nonterminal status so a later cleanup attempt can retry.
             continue
-        if delete_managed_spare_user(owner):
-            users_deleted += 1
-        spare.status = SpareRangeStatus.FAILED.value
-        spare.owner_user = None
-        spare.save(update_fields=["status", "owner_user", "updated_at"])
+        # A queued destroy is not verified absence. Preserve the draw and
+        # cleanup retry until the terminal provider projection arrives.
 
     logger.info(
-        "cleanup_event_spares: event=%s destroyed=%d users_deleted=%d failed=%d",
+        "cleanup_event_spares: event=%s destroyed=%d failed=%d",
         safe_log_value(event_id),
         destroyed,
-        users_deleted,
         failed,
     )
 
     return {
         "event_id": str(event.pk),
         "destroyed": destroyed,
-        "users_deleted": users_deleted,
         "failed": failed,
     }
+
+
+def _replay_spare_launch(intent: CTFRangeLaunch, admission: EventActionAdmission) -> CTFRangeLaunch | None:
+    """A cancelled spare cannot replay; an admitted live generation keeps its original credential."""
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.range.launch_intents import assert_launch_replay
+
+    if intent.deleted_at is not None:
+        return None
+    assert_launch_replay(intent, event_actor_credential(admission), intent.parameters)
+    return intent
+
+
+def _reserve_new_spare_launch(
+    event: CTFEvent, event_admission: EventActionAdmission, spare: CTFSpareRange
+) -> CTFRangeLaunch | None:
+    """Commit one exact spare draw and generation while the caller holds event and spare locks."""
+    from ctf.services.range.capacity import admit_range
+    from ctf.services.range.launch_intents import launch_parameters, reserve_launch
+    from ctf.services.range.model_allocation import project_event_model_scope
+    from management.services import resolve_principal_uuid
+    from shared.model_access import OwnedReference
+
+    owner = resolve_principal_uuid(event.owner_principal_uuid)
+    subject = OwnedReference(owner="ctf", reference=f"draw:{spare.pk}")
+    draw_key = _spare_draw_key(spare.pk)
+    parameters = launch_parameters(
+        event, owner, subject, project_event_model_scope(event, draw_key, subject, spare_id=spare.pk)
+    )
+    admission = admit_range(event.pk, draw_key)
+    if admission is not None and admission["blocking"]:
+        spare.status = SpareRangeStatus.FAILED.value
+        spare.save(update_fields=["status", "updated_at"])
+        return None
+    intent = reserve_launch(event, "spare", spare.pk, event_admission, parameters)
+    spare.request_id = intent.pk
+    spare.save(update_fields=["request_id", "updated_at"])
+    return intent

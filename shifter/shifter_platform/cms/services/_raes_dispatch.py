@@ -25,8 +25,9 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from cms.models import RaesPackageSource
+    from shared.authorization import TargetRef
     from shared.credentials import CredentialContext
-    from shared.identity_scope import ResourceScope
+    from shared.identity_scope import PrincipalRef, ResourceScope
     from shared.range_instantiation_policy import BackendAdmission
     from shared.runtime_plugin_binding import RuntimePluginScope
 
@@ -48,6 +49,9 @@ class RaesDispatchOptions:
     egress_mode: str
     content_authorizer: User | None = None
     principal_scope: ResourceScope | None = None
+    owner_principal: PrincipalRef | None = None
+    authority_action: str | None = None
+    authority_target: TargetRef | None = None
 
 
 def dispatch_repo_raes_package(
@@ -64,7 +68,13 @@ def dispatch_repo_raes_package(
 
         if not isinstance(user, CredentialContext):
             raise CMSError(_RANGE_AUTHORITY_UNAVAILABLE)
-        revalidate_scoped_launch(user, options.principal_scope, source)
+        revalidate_scoped_launch(
+            user,
+            options.principal_scope,
+            source,
+            authority_action=options.authority_action,
+            authority_target=options.authority_target,
+        )
     from shared.raes.package_loader import RaesPackageError, resolve_pack_root
 
     try:
@@ -90,7 +100,15 @@ def dispatch_repo_raes_package(
         user,
         pack_root,
         options,
-        _runtime_plugin_scope(user, options.workspace_id, source, options.content_authorizer, options.principal_scope),
+        _runtime_plugin_scope(
+            user,
+            options.workspace_id,
+            source,
+            options.content_authorizer,
+            options.principal_scope,
+            authority_action=options.authority_action,
+            authority_target=options.authority_target,
+        ),
         source=source if options.principal_scope is not None else None,
     )
 
@@ -127,7 +145,13 @@ def dispatch_object_raes_package(
 
         if not isinstance(user, CredentialContext):
             raise CMSError(_RANGE_AUTHORITY_UNAVAILABLE)
-        revalidate_scoped_launch(user, options.principal_scope, source)
+        revalidate_scoped_launch(
+            user,
+            options.principal_scope,
+            source,
+            authority_action=options.authority_action,
+            authority_target=options.authority_target,
+        )
     bucket = str(getattr(settings, "RAES_PACKAGE_BUCKET", "") or "").strip()
     if not bucket:
         raise CMSError("Object-backed RAES packages are not available: no package bucket is configured")
@@ -160,7 +184,13 @@ def dispatch_object_raes_package(
                 pack_root,
                 options,
                 _runtime_plugin_scope(
-                    user, options.workspace_id, source, options.content_authorizer, options.principal_scope
+                    user,
+                    options.workspace_id,
+                    source,
+                    options.content_authorizer,
+                    options.principal_scope,
+                    authority_action=options.authority_action,
+                    authority_target=options.authority_target,
                 ),
                 source=source if options.principal_scope is not None else None,
             )
@@ -221,6 +251,9 @@ def _launch_pack(
         credential=credential,
         scope=scope,
         source=source,
+        owner_principal=options.owner_principal,
+        authority_action=options.authority_action,
+        authority_target=options.authority_target,
     )
     try:
         result = launch_raes_package(
@@ -251,6 +284,9 @@ def _runtime_plugin_scope(
     source: RaesPackageSource,
     content_authorizer: User | None,
     principal_scope: ResourceScope | None = None,
+    *,
+    authority_action: str | None = None,
+    authority_target: TargetRef | None = None,
 ) -> RuntimePluginScope | None:
     """Authorize the workspace and bind the pack's tenant adapter scope."""
     from cms.scenarios.registry import check_scenario_access
@@ -262,7 +298,13 @@ def _runtime_plugin_scope(
 
         if not isinstance(user, CredentialContext):
             raise CMSError(_RANGE_AUTHORITY_UNAVAILABLE)
-        revalidate_scoped_launch(user, principal_scope, source)
+        revalidate_scoped_launch(
+            user,
+            principal_scope,
+            source,
+            authority_action=authority_action,
+            authority_target=authority_target,
+        )
         organization_uuid = principal_scope.organization_uuid
         if organization_uuid is None:
             return None

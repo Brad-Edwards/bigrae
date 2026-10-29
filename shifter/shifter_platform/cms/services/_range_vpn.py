@@ -104,14 +104,18 @@ def _resolve_profile(user: User | CredentialContext, instance: RangeInstance) ->
         raise OpenVpnProfileUnavailable("Range VPN profile is unavailable") from exc
 
 
-def _has_profile(user: User, instance: RangeInstance) -> bool:
+def _has_profile(user: User | CredentialContext, instance: RangeInstance) -> bool:
     """Return whether Engine has a profile for the owned range generation."""
     from cms import services as cms_services
 
     request = instance.request
     if request is None:
         return False
-    return cms_services.engine_has_openvpn_profile(user, request.request_id)
+    return cms_services.engine_has_openvpn_profile(
+        user,
+        request.request_id,
+        participation=isinstance(user, CredentialContext) and instance.range_source == RangeSource.CTF.value,
+    )
 
 
 def get_ctf_openvpn_profile(user: User | CredentialContext, range_instance_pk: int) -> OpenVpnProfile:
@@ -119,7 +123,7 @@ def get_ctf_openvpn_profile(user: User | CredentialContext, range_instance_pk: i
     return _resolve_profile(user, _load_owned_range(user, RangeSource.CTF, range_instance_pk))
 
 
-def has_ctf_openvpn_profile(user: User, range_instance_pk: int) -> bool:
+def has_ctf_openvpn_profile(user: User | CredentialContext, range_instance_pk: int) -> bool:
     """Return whether one caller-owned CTF range has a ready profile."""
     try:
         instance = _load_owned_range(user, RangeSource.CTF, range_instance_pk)
@@ -136,10 +140,10 @@ def get_mission_control_openvpn_profile(
     return _resolve_profile(user, instance), instance.pk
 
 
-def has_mission_control_openvpn_profile(user: User) -> bool:
+def has_mission_control_openvpn_profile(user: User | CredentialContext, *, request_id: UUID | None = None) -> bool:
     """Return whether the caller's active Mission Control range has a profile."""
     try:
-        instance = _load_owned_range(user, RangeSource.MISSION_CONTROL)
+        instance = _load_owned_range(user, RangeSource.MISSION_CONTROL, request_id=request_id)
     except CMSError:
         return False
     return _has_profile(user, instance)

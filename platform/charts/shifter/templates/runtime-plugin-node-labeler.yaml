@@ -146,7 +146,9 @@ spec:
           image: {{ include "shifter.portalImage" . }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
-          {{- include "shifter.tmpVolumeMount" . | nindent 10 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           command: ["python", "-m", "shared.cloud.eks_node_pool_labeler"]
           env:
             - name: RUNTIME_PLUGIN_NODE_GROUP_ASG
@@ -160,5 +162,8 @@ spec:
             periodSeconds: 30
           resources:
             {{- toYaml $labeler.resources | nindent 12 }}
-      {{- include "shifter.tmpVolume" . | nindent 6 }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit | quote }}
 {{- end }}

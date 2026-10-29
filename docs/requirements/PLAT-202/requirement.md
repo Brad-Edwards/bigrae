@@ -23,10 +23,10 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#681` (PLAT-202: Per-Range LLM Access Management)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2118` (Policy catalog and shared access contracts)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2139` (Persist sharing bindings and resolve overlapping policies)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2140` (Project sharing membership and fence authority changes)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#681` (PLAT-202: Per-Range LLM Access Management)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2118` (Policy catalog and shared access contracts)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2139` (Persist sharing bindings and resolve overlapping policies)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2140` (Project sharing membership and fence authority changes)
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/model-access/architecture.md`
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/model-access/canonical-json-v1-vector.json`
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/model_access/models.py`
@@ -75,7 +75,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - TESTS → TEST `shifter/installation/tests/test_model_access.py`
 - TESTS → TEST `scripts/gcp/tests/test_render_runtime_env.py`
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2123` (M06 disabled GCP broker deployment package)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2123` (M06 disabled GCP broker deployment package)
 - IMPLEMENTS → CODE `shifter/installation/gcp_model_broker.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/model_access/runtime.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/model_access/network.py`
@@ -107,7 +107,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - IMPLEMENTS → CODE `shifter/engine/provisioner/raes_gcp_apply.py`
 - IMPLEMENTS → CODE `shifter/engine/provisioner/gcp_range_cell_model_broker.py`
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2119` (M02: enforcing scenario/event model admission)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2119` (M02: enforcing scenario/event model admission)
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/model_access/admission.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/cms/models/scenarios.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/cms/scenarios/model_needs.py`
@@ -126,7 +126,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - TESTS → TEST `shifter/shifter_platform/tests/engine/services/test_model_admission.py`
 - TESTS → TEST `shifter/shifter_platform/tests/cms/test_launch_model_admission.py`
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2120` (M03: durable quota allocations and non-usable pending grants)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2120` (M03: durable quota allocations and non-usable pending grants)
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/model-access/allocations.md`
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/model_access/catalog_v2.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/model_access/reservation.py`
@@ -156,7 +156,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - TESTS → TEST `shifter/shifter_platform/tests/engine/ecs/test_local_model_dispatch.py`
 - TESTS → TEST `shifter/shifter_platform/tests/shared/model_access/test_provider_pools.py`
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2121` (M04: atomic request budgets and dispatch leases)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2121` (M04: atomic request budgets and dispatch leases)
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/model_access/catalog_v3.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/model_access/account_policy.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/engine/models/_model_budget.py`
@@ -175,7 +175,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - TESTS → TEST `shifter/shifter_platform/tests/engine/services/test_model_request_lifecycle.py`
 - TESTS → TEST `shifter/shifter_platform/tests/engine/services/test_model_request_accounting_postgres.py`
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2243` (Tenant model sources across scenario, range and event flows)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2243` (Tenant model sources across scenario, range and event flows)
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/model-access/source-management.md`
 - IMPLEMENTS → CONFIG `platform/charts/shifter/templates/model-provider-egress.yaml`
 - IMPLEMENTS → CONFIG `platform/terraform/modules/portal/eks/model_sources.tf`
@@ -205,7 +205,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/features/administer/ModelSourcesPage.tsx`
 - TESTS → TEST `shifter/shifter_platform/frontend/src/features/administer/RangeModelSources.test.tsx`
 - IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/features/administer/RangeModelSources.tsx`
-- IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/features/administer/SourceUserPicker.tsx`
+- IMPLEMENTS → CODE `shifter/shifter_platform/frontend/src/features/administer/ModelSourceForm.tsx` (Policy-native source authoring without legacy user authority)
 - IMPLEMENTS → CODE `shifter/shifter_platform/model_broker/egress.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/model_broker/egress_proxy.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/model_broker/openai_messages.py`
@@ -277,7 +277,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - IMPLEMENTS → CODE `shifter/shifter_platform/workspaces/services/__init__.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/workspaces/services/_organization.py`
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2122` (M05: bounded private broker and authenticated control API)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2122` (M05: bounded private broker and authenticated control API)
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/model-access/broker-runtime.md`
 - DOCUMENTS → DOCUMENTATION `docs/architecture/model-access/broker-preflight-2122.md`
 - IMPLEMENTS → CODE `shifter/shifter_platform/model_broker/__main__.py`
@@ -307,7 +307,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - TESTS → TEST `shifter/shifter_platform/tests/engine/services/test_model_credentials_postgres.py`
 - TESTS → TEST `shifter/installation/tests/test_model_broker_runtime.py`
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2126` (M09: scoped operator and organizer model-access management)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2126` (M09: scoped operator and organizer model-access management)
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/model-access/management-preflight-2126.md`
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/api_tokens/scopes.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/shared/api/model_access.py`
@@ -326,7 +326,7 @@ Scenario authors need a provider-neutral way to request model access. The platfo
 - TESTS → TEST `shifter/shifter_platform/frontend/src/features/administer/ModelAccessSharing.test.tsx`
 - TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/ParticipantModelAccessCard.test.tsx`
 - TESTS → TEST `shifter/shifter_platform/frontend/src/features/ctf/admin/EventModelAccessCard.test.tsx`
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2124` (M07: Vertex invocation and usage adapter)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2124` (M07: Vertex invocation and usage adapter)
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/model-access/vertex-adapter-preflight-2124.md`
 - TESTS → TEST `shifter/shifter_platform/tests/shared/model_access/test_broker_count_reservation.py`
 - TESTS → TEST `shifter/shifter_platform/tests/shared/model_access/test_vertex_token_cache.py`

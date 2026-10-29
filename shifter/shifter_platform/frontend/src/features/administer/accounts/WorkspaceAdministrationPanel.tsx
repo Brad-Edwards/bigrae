@@ -52,7 +52,7 @@ function WorkspaceOwnership({ workspace }: Readonly<{ workspace: Workspace }>) {
   const source = owners.includes(selectedSource) ? selectedSource : owners[0] ?? null;
   const [confirming, setConfirming] = useState(false);
   const members = useAdministrationQuery<MembershipPage>(`/workspaces/${workspace.uuid}/memberships/`, { offset: 0, limit: 100 });
-  const transfer = useAdministrationMutation<unknown, AdministrationSchemas["PrincipalOwnershipCommand"]>(`/workspaces/${workspace.uuid}/transfer/`);
+  const transfer = useAdministrationMutation<unknown, AdministrationSchemas["PrincipalOwnershipCommand"]>(`/account-workspaces/${workspace.uuid}/ownership/transfer/`);
   const addOwner = useAdministrationMutation(`/workspaces/${workspace.uuid}/owners/`);
   return <AdministrationSection title="Workspace ownership">
     <p>Current owners: {owners.join(", ") || "Unassigned"}. Ownership does not grant application permissions.</p>

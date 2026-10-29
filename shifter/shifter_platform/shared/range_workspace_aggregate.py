@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     import uuid
@@ -40,7 +40,38 @@ RangeAggregateGuard = Callable[[Sequence[tuple["uuid.UUID", int]]], "Iterable[in
 _guards: list[RangeAggregateGuard] = []
 RangeEventResolver = Callable[["uuid.UUID", int], "uuid.UUID | None"]
 _event_resolver: RangeEventResolver | None = None
+
+
+class RangeAssociationValidator(Protocol):
+    """Owner callback that can fence the association within an existing transaction."""
+
+    def __call__(self, request_id: UUID, event_uuid: UUID, *, for_update: bool = False) -> None:
+        """Validate the exact range/event association with optional transaction locking."""
+        ...
+
+
+_event_association_validator: RangeAssociationValidator | None = None
+_event_launch_validator: Callable[[UUID, UUID], None] | None = None
 _vpn_participation = None
+RangeRemoteParticipation = Callable[["CredentialContext", "UUID", "UUID", "UUID"], None]
+_remote_participation: RangeRemoteParticipation | None = None
+
+
+def register_range_remote_participation(resolver: RangeRemoteParticipation) -> None:
+    """Bind the aggregate owner's standing check for participant-owned remote access."""
+    global _remote_participation
+    if not callable(resolver) or (_remote_participation is not None and _remote_participation is not resolver):
+        raise ValueError("Range remote participation resolver already bound")
+    _remote_participation = resolver
+
+
+def require_range_remote_participation(
+    credential: CredentialContext, request_id: UUID, event_uuid: UUID, owner_uuid: UUID
+) -> None:
+    """Recheck event-local standing without granting access or importing its owner."""
+    if _remote_participation is None:
+        raise ValueError("Range remote participation unavailable")
+    _remote_participation(credential, request_id, event_uuid, owner_uuid)
 
 
 def register_range_vpn_participation(resolver: Callable[[CredentialContext, UUID, UUID | None], None]) -> None:
@@ -71,6 +102,45 @@ def range_event_parent(request_id: uuid.UUID, range_instance_id: int) -> uuid.UU
     if _event_resolver is None:
         raise ValueError("Range event binding unavailable")
     return _event_resolver(request_id, range_instance_id)
+
+
+def register_range_event_association_validator(validator: RangeAssociationValidator) -> None:
+    """The aggregate owner separates reserved intent from dispatch readiness."""
+    global _event_association_validator
+    if not callable(validator) or (
+        _event_association_validator is not None and _event_association_validator is not validator
+    ):
+        raise ValueError("Range event association validator already bound")
+    _event_association_validator = validator
+
+
+def require_range_event_association(request_id: UUID, event_uuid: UUID) -> None:
+    """A reserved request alone cannot authorize runnable event work."""
+    if _event_association_validator is None:
+        raise ValueError("Range event association unavailable")
+    _event_association_validator(request_id, event_uuid)
+
+
+def fence_range_event_association(request_id: UUID, event_uuid: UUID) -> None:
+    """Fence association changes against cancellation before other row locks."""
+    if _event_association_validator is None:
+        raise ValueError("Range event association unavailable")
+    _event_association_validator(request_id, event_uuid, for_update=True)
+
+
+def register_range_event_launch_validator(validator: Callable[[UUID, UUID], None]) -> None:
+    """The event owner serializes cancellation with creation across layers."""
+    global _event_launch_validator
+    if not callable(validator) or (_event_launch_validator is not None and _event_launch_validator is not validator):
+        raise ValueError("Range event launch validator already bound")
+    _event_launch_validator = validator
+
+
+def fence_range_event_launch(request_id: UUID, event_uuid: UUID) -> None:
+    """Caller holds a transaction; the event lock precedes CMS/native locks."""
+    if _event_launch_validator is None:
+        raise ValueError("Range event launch unavailable")
+    _event_launch_validator(request_id, event_uuid)
 
 
 def register_range_aggregate_guard(guard: RangeAggregateGuard) -> None:

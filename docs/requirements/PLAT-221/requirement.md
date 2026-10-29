@@ -21,4 +21,4 @@ Scenarios have legitimate, scenario-specific egress needs, a phishing scenario n
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#776` (PLAT-221: Scenario-Level Egress Allowlist Overrides)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#776` (PLAT-221: Scenario-Level Egress Allowlist Overrides)

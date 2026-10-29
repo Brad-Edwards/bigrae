@@ -8,7 +8,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useCreateCtfEvent, useCtfEvent, useCtfScenarios, useUpdateCtfEvent } from "@/api/ctfAdmin";
 import type { ModelSourceSelection } from "@/api/model-sources";
 import { ApiError, describeMutationError } from "@/api/errors";
-import type { CtfEventDetail, CtfEventWrite } from "@/api/types";
+import type { ContentScopeOption, CtfEventDetail, CtfEventWrite } from "@/api/types";
+import { contentScopeKey, useContentScopes } from "@/api/scenarios";
 
 import { fromDateTimeLocalValue, toDateTimeLocalValue } from "../format";
 import { ctfAdminEventPath, ctfAdminEventsPath } from "../routes";
@@ -239,7 +240,14 @@ export function useEventFormState(mode: "create" | "edit") {
   const eventId = mode === "edit" ? (params.eventId ?? "") : "";
 
   const existing = useCtfEvent(eventId, mode === "edit");
-  const scenarios = useCtfScenarios();
+  const [catalogOffset, setCatalogOffset] = useState(0);
+  const [selectedCatalog, setSelectedCatalog] = useState<ContentScopeOption | null>(null);
+  const catalogs = useContentScopes(catalogOffset);
+  const catalog = selectedCatalog ?? catalogs.data?.results[0] ?? null;
+  const listedCatalogs = catalogs.data?.results ?? [];
+  const catalogChoices = catalog && !listedCatalogs.some((row) => contentScopeKey(row) === contentScopeKey(catalog))
+    ? [catalog, ...listedCatalogs] : listedCatalogs;
+  const scenarios = useCtfScenarios(catalog);
   const create = useCreateCtfEvent();
   const update = useUpdateCtfEvent(eventId);
   const mutation = mode === "create" ? create : update;
@@ -275,6 +283,16 @@ export function useEventFormState(mode: "create" | "edit") {
     setState((prev) => ({ ...prev, [key]: value }));
   }
 
+  function selectCatalog(value: string) {
+    setSelectedCatalog(catalogChoices.find((row) => contentScopeKey(row) === value) ?? null);
+    setState((previous) => ({ ...previous, scenario_id: "", model_sources: { aliases: [] } }));
+  }
+
+  function browseCatalogs(offset: number) {
+    setSelectedCatalog(catalog);
+    setCatalogOffset(offset);
+  }
+
   function firstError(field: string): string | undefined {
     return fieldErrors[field]?.[0];
   }
@@ -283,5 +301,8 @@ export function useEventFormState(mode: "create" | "edit") {
     submitEventForm(event, { state, mode, eventId, create, update, navigate });
   }
 
-  return { eventId, existing, scenarios, mutation, state, formRef, nonFieldError, set, firstError, onSubmit, navigate };
+  return {
+    eventId, existing, scenarios, mutation, state, formRef, nonFieldError, set, firstError, onSubmit, navigate,
+    catalog, catalogs, catalogChoices, catalogOffset, selectCatalog, browseCatalogs,
+  };
 }

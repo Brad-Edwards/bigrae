@@ -34,11 +34,12 @@ def test_admission_denied_drops_an_unknown_scope_class():
     assert client.calls == []  # dropped entirely, never published under a bogus label
 
 
-def test_admission_denied_emits_a_closed_scope():
+@pytest.mark.parametrize("scope", ["workspace", "account"])
+def test_admission_denied_emits_a_closed_scope(scope):
     client = _CapturingClient()
-    assert metrics.emit_admission_denied(scope_class="workspace", client=client) is True
+    assert metrics.emit_admission_denied(scope_class=scope, client=client) is True
     dims = client.calls[0]["MetricData"][0]["Dimensions"]
-    assert {"Name": "ScopeClass", "Value": "workspace"} in dims
+    assert {"Name": "ScopeClass", "Value": scope} in dims
 
 
 def test_worker_metrics_are_fail_soft(db):
@@ -57,10 +58,10 @@ def test_backlog_gauges_emit_oldest_due_age(db):
 def test_backlog_gauges_report_per_channel_depth(organizer_user, ctf_event):
     # A real QUEUED command exercises the per-channel BacklogDepth loop (not just
     # the always-emitted oldest-due gauge on an empty table).
-    import workspaces.services as workspace_services
     from ctf.enums import ParticipantStatus
     from ctf.models import CTFParticipant
     from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
+    from tests.ctf._account_scope import individual_account_uuid
 
     CTFParticipant.objects.create(
         event=ctf_event,
@@ -69,7 +70,6 @@ def test_backlog_gauges_report_per_channel_depth(organizer_user, ctf_event):
         status=ParticipantStatus.ACTIVE.value,
         registered_at=timezone.now(),
     )
-    workspace_uuid = str(workspace_services.resolve_personal_workspace(organizer_user).workspace_uuid)
     draft = CampaignDraft(
         title="Kickoff",
         origin="organizer_staff",
@@ -80,7 +80,7 @@ def test_backlog_gauges_report_per_channel_depth(organizer_user, ctf_event):
         subject="Welcome",
         body="See the [rules](/rules).",
     )
-    campaign = create_campaign(organizer_user, workspace_uuid, draft)
+    campaign = create_campaign(organizer_user, individual_account_uuid(organizer_user), draft, parent_type="account")
     release_campaign(campaign, occurrence_key="occ", actor_user_id=organizer_user.id)
 
     client = _CapturingClient()

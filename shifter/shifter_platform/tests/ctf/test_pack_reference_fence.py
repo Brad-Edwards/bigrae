@@ -38,7 +38,7 @@ def _event_data(scenario_id):
     }
 
 
-def test_event_and_schedule_writers_refuse_a_removed_pack(organizer_user, ctf_event_draft):
+def test_event_and_schedule_writers_refuse_a_removed_pack(organizer_user, organizer_credential, ctf_event_draft):
     _removed("removed-pack", organizer_user)
 
     with pytest.raises(CTFValidationError):
@@ -50,7 +50,7 @@ def test_event_and_schedule_writers_refuse_a_removed_pack(organizer_user, ctf_ev
     ended = CTFEvent.objects.filter(pk=ctf_event_draft.pk)
     ended.update(scenario_id="removed-pack", status=EventStatus.ENDED.value)
     with pytest.raises(CTFValidationError):
-        request_event_provisioning(ctf_event_draft.pk)
+        request_event_provisioning(ctf_event_draft.pk, actor_id=organizer_credential)
     assert not CTFScheduledTask.objects.filter(task_type=ScheduledTaskType.SPIN_UP_RANGES.value).exists()
 
     # A scenario that was never registered keeps the existing permissive behavior.
@@ -61,7 +61,7 @@ def test_scenario_change_applies_create_time_scenario_authorization(
     organizer_user, ctf_event_draft, settings, monkeypatch
 ):
     settings.CTF_CONTENT_REFERENCES = {"private-content": object()}
-    monkeypatch.setattr("ctf.bridges.cms_list_scenarios", lambda user: [("basic", "Basic")])
+    monkeypatch.setattr("ctf.bridges.cms_list_scenarios", lambda user, **_kwargs: [("basic", "Basic")])
 
     with pytest.raises(CTFValidationError):
         update_event(ctf_event_draft.pk, {"scenario_id": "private-content"}, actor_id=organizer_user.pk)

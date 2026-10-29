@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
 
-from ctf.exceptions import CTFNotFoundError, CTFValidationError
+from ctf.exceptions import CTFNotFoundError, CTFPermissionError, CTFValidationError
 from ctf.models import CTFEvent, CTFParticipant, CTFTeam
 from shared.log_sanitize import safe_log_value
 
@@ -24,6 +25,8 @@ def add_participant(
     name: str,
     team_id: UUID | None = None,
     username: str | None = None,
+    *,
+    actor: object,
 ) -> CTFParticipant:
     """Add a participant to a CTF event by provisioning a fresh isolated account.
 
@@ -71,6 +74,11 @@ def add_participant(
             ) from None
 
     with transaction.atomic():
+        from ctf.services.range import request_event_provisioning
+
+        with suppress(CTFPermissionError):
+            request_event_provisioning(event.pk, source="participant_accounts", actor_id=actor, defer_if_busy=True)
+            # A participant manager is not implicitly a range manager.
         # Lock the event so the capacity check and the insert cannot race past
         # max_participants under concurrent invites (#1145).
         CTFEvent.objects.select_for_update().get(pk=event.pk)
@@ -105,7 +113,6 @@ def add_participant(
                 )
 
         from ctf.services.participant.accounts import provision_participant_seat
-        from ctf.services.range import request_event_provisioning
 
         # Organizer add is immediate seat provisioning: the participation is
         # registered with a fresh isolated account in one step (no transient
@@ -113,8 +120,6 @@ def add_participant(
         participant = provision_participant_seat(
             event, email=normalized_email, name=name.strip(), team=team, username=username
         )
-        transaction.on_commit(lambda: request_event_provisioning(event.pk, source="participant_accounts"))
-
         logger.info(
             "Provisioned participant account for event %s (id: %s)",
             safe_log_value(event_id),

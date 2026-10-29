@@ -25,7 +25,8 @@ from ctf.models import (
     DeliveryAttempt,
     RecipientSnapshot,
 )
-from ctf.services.communication.admission import AdmissionActor, lock_authorized_campaign
+from ctf.services.communication.admission import AdmissionActor, lock_authorized_campaign, prepare_campaign_admission
+from ctf.services.communication.attribution import actor_attribution
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +49,12 @@ def cancel_campaign(campaign: CommunicationCampaign, *, actor: AdmissionActor) -
     Returns the number of delivery commands cancelled.
     """
     now = timezone.now()
+    actor = prepare_campaign_admission(campaign, actor)
     with transaction.atomic():
         # Lock the campaign so a concurrent release (which also locks it) cannot
         # materialize new work between this cancellation and its commit.
         campaign = lock_authorized_campaign(campaign, actor, operation="cancel")
+        actor_evidence = actor_attribution(actor)
         cancelled = _cancel_unclaimed(Q(intent__campaign=campaign), now)
         CommunicationIntent.objects.filter(campaign=campaign).exclude(
             status__in=(IntentStatus.CANCELLED.value, IntentStatus.FENCED.value)
@@ -61,8 +64,9 @@ def cancel_campaign(campaign: CommunicationCampaign, *, actor: AdmissionActor) -
             # Record the first cancellation only; a repeated cancel keeps the original actor.
             attribution = {
                 "cancelled_at": now,
-                "cancelled_by_user_id": actor.user_id,
-                "cancelled_by_token_id": actor.token_id,
+                "cancelled_by_user_id": actor_evidence.user_id,
+                "cancelled_by_token_id": actor_evidence.token_id,
+                "cancelled_by_principal_uuid": actor_evidence.principal_uuid,
             }
         CommunicationCampaign.objects.filter(pk=campaign.pk).update(
             status=CampaignStatus.CANCELLED.value, updated_at=now, **attribution

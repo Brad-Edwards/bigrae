@@ -6,8 +6,11 @@ from typing import Any
 
 from rest_framework import serializers
 
+from cms.api.content_scope import ContentScopeSerializer
+from shared.api.closed_serializer import ClosedSerializer
 
-class PackRegistrationSerializer(serializers.Serializer):
+
+class PackRegistrationSerializer(ContentScopeSerializer):
     """Validate the shape of a uniform pack-registration request body (#1578).
 
     This is a thin boundary check: it rejects missing/oversized/wrong-typed
@@ -99,7 +102,7 @@ class ScenarioDetailSerializer(serializers.Serializer):
     raes = RaesCatalogFieldsSerializer(read_only=True, allow_null=True)
 
 
-class ScenarioMetadataUpdateSerializer(serializers.Serializer):
+class ScenarioMetadataUpdateSerializer(ClosedSerializer):
     """Metadata (availability/audience) update; both fields optional for PATCH."""
 
     enabled = serializers.BooleanField(required=False)

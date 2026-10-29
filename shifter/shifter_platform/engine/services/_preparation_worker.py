@@ -15,7 +15,7 @@ from shared.artifact_preparation import PreparationWorkerResult
 from shared.exceptions import ValidationError
 from shared.operation_envelope import canonical_payload_digest
 
-from ._preparation_adapters import _validate_grant, require_preparation_permission, validate_pinned_adapter
+from ._preparation_adapters import _validate_grant, validate_pinned_adapter
 
 if TYPE_CHECKING:
     from engine.models import PreparationAttempt, PreparationOperation
@@ -108,10 +108,17 @@ def _validate_active_authority(operation: PreparationOperation, *, authorize: bo
 
         if authorize:
             reauthorize_preparation_initiator(operation)
+        else:
+            from shared.credentials import resolve_local_credential
+            from shared.operation_authority import credential_reference_from_record
+
+            original = credential_reference_from_record(operation)
+            if resolve_local_credential(original) != original:
+                raise ValidationError(_DENIED)
     else:
-        if operation.requested_by is None:
-            raise ValidationError(_DENIED)
-        require_preparation_permission(operation.requested_by, "prepare_artifacts")
+        # Retained legacy receipts and generation-bound cleanup remain readable;
+        # no authority-free operation may start or advance executable work.
+        raise ValidationError(_DENIED)
     adapter = operation.adapter
     manifest = validate_pinned_adapter(adapter)
     configuration = _validate_grant(adapter.grant, manifest)

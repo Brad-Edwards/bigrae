@@ -1,6 +1,6 @@
 # In-tenant artifact preparation: implementation design
 
-Issue: [#1583](https://github.com/Brad-Edwards/shifter/issues/1583).
+Issue: [#1583](https://github.com/Brad-Edwards/bigrae/issues/1583).
 Status: the issue owner directed implementation on 2026-09-13 after adding
 post-setup private pack and adapter installation as essential acceptance criteria.
 This document describes the agreed direction and its implementation boundaries.

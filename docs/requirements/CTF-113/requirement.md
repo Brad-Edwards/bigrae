@@ -23,4 +23,4 @@ Tags provide a secondary organizational axis orthogonal to categories. A forensi
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallengeTag model and tags M2M field on CTFChallenge)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (Tag resolution in create_challenge() and update_challenge())
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#550` (CTF-113: Challenge Tags)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#550` (CTF-113: Challenge Tags)

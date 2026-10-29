@@ -217,22 +217,26 @@ class TestRoleAndHidden:
 
 
 class TestOrganizerRename:
-    def test_rename_via_canonical_api(self, ctf_event_active, authenticated_organizer_client, monkeypatch):
+    def test_rename_via_canonical_api(
+        self, ctf_event_active, authenticated_organizer_client, organizer_credential, monkeypatch
+    ):
         monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
         from ctf.services.participant import create_participant_accounts
 
-        participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+        participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
         resp = _action(
             authenticated_organizer_client, "api_participant_username", participant, {"username": "range-blue-team"}
         )
         assert resp.status_code == 200
         assert resp.json()["username"] == "range-blue-team"
 
-    def test_rename_rejects_invalid_handle(self, ctf_event_active, authenticated_organizer_client, monkeypatch):
+    def test_rename_rejects_invalid_handle(
+        self, ctf_event_active, authenticated_organizer_client, organizer_credential, monkeypatch
+    ):
         monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
         from ctf.services.participant import create_participant_accounts
 
-        participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+        participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
         resp = _action(
             authenticated_organizer_client, "api_participant_username", participant, {"username": "has a space"}
         )
@@ -259,14 +263,15 @@ class TestInviteEmailUniqueness:
         )
         assert second.status_code == 400
 
-    def test_bulk_import_partial_success(self, ctf_event, monkeypatch):
+    def test_bulk_import_partial_success(self, ctf_event, organizer_credential, monkeypatch):
         monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
         from ctf.services import add_participant, bulk_import_participants
 
-        add_participant(ctf_event.id, "taken@test.com", "Existing")
+        add_participant(ctf_event.id, "taken@test.com", "Existing", actor=organizer_credential)
         result = bulk_import_participants(
             ctf_event.id,
             "Alice,alice@test.com\nBob,taken@test.com\nCara,alice@test.com\nbad-row\nDee,dee@test.com",
+            actor=organizer_credential,
         )
         assert [p.name for p in result["created"]] == ["Alice", "Dee"]
         assert len(result["errors"]) == 3

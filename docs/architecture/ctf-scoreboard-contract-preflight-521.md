@@ -11,7 +11,7 @@ Requirement: `CTF-406` - Tie-Breaking Rules
 
 Related requirement: `CTF-401` - Participant Scoreboard
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/521>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/521>
 
 This note is intentionally not an implementation plan. The existing
 tie-breaking rule is already owned by `ctf.services.scoring`; issue #521 should

@@ -41,13 +41,17 @@ def _fire(new_status, *, cleanup_verified):
     )
 
 
-def test_dispatch_retains_linkage_and_capacity_until_terminal(ctf_event_active, participant_user, monkeypatch):
+def test_dispatch_retains_linkage_and_capacity_until_terminal(
+    ctf_event_active, participant_user, organizer_credential, monkeypatch
+):
     participant = _participant(ctf_event_active, participant_user)
     released: list = []
     monkeypatch.setattr("ctf.bridges.cms_release_range_capacity", lambda draw_key: released.append(draw_key))
-    monkeypatch.setattr("ctf.bridges.cms_destroy_range", lambda user, range_instance_id: None)
+    monkeypatch.setattr(
+        "ctf.bridges.cms_destroy_recovery_range", lambda credential, event_uuid, range_instance_id: None
+    )
 
-    result = lifecycle.destroy_participant_range(participant.pk)
+    result = lifecycle.destroy_participant_range(participant.pk, actor=organizer_credential)
 
     participant.refresh_from_db()
     assert participant.range_instance_id == 42
@@ -56,12 +60,16 @@ def test_dispatch_retains_linkage_and_capacity_until_terminal(ctf_event_active, 
     assert result["status"] == "destroying"
 
 
-def test_verified_terminal_releases_capacity_and_clears_linkage(ctf_event_active, participant_user, monkeypatch):
+def test_verified_terminal_releases_capacity_and_clears_linkage(
+    ctf_event_active, participant_user, organizer_credential, monkeypatch
+):
     participant = _participant(ctf_event_active, participant_user)
     released: list = []
     monkeypatch.setattr("ctf.bridges.cms_release_range_capacity", lambda draw_key: released.append(draw_key))
-    monkeypatch.setattr("ctf.bridges.cms_destroy_range", lambda user, range_instance_id: None)
-    lifecycle.destroy_participant_range(participant.pk)
+    monkeypatch.setattr(
+        "ctf.bridges.cms_destroy_recovery_range", lambda credential, event_uuid, range_instance_id: None
+    )
+    lifecycle.destroy_participant_range(participant.pk, actor=organizer_credential)
 
     _fire(ResourceStatus.DESTROYED.value, cleanup_verified=True)
 
@@ -71,12 +79,16 @@ def test_verified_terminal_releases_capacity_and_clears_linkage(ctf_event_active
     assert released == [participant.pk]
 
 
-def test_unverified_terminal_retains_capacity_and_linkage(ctf_event_active, participant_user, monkeypatch):
+def test_unverified_terminal_retains_capacity_and_linkage(
+    ctf_event_active, participant_user, organizer_credential, monkeypatch
+):
     participant = _participant(ctf_event_active, participant_user)
     released: list = []
     monkeypatch.setattr("ctf.bridges.cms_release_range_capacity", lambda draw_key: released.append(draw_key))
-    monkeypatch.setattr("ctf.bridges.cms_destroy_range", lambda user, range_instance_id: None)
-    lifecycle.destroy_participant_range(participant.pk)
+    monkeypatch.setattr(
+        "ctf.bridges.cms_destroy_recovery_range", lambda credential, event_uuid, range_instance_id: None
+    )
+    lifecycle.destroy_participant_range(participant.pk, actor=organizer_credential)
 
     # Logical DESTROYED without inventory evidence must not release a reusable slot.
     _fire(ResourceStatus.DESTROYED.value, cleanup_verified=False)
@@ -88,11 +100,14 @@ def test_unverified_terminal_retains_capacity_and_linkage(ctf_event_active, part
     assert released == []
 
 
-def test_destroy_single_range_skips_when_no_range_instance(ctf_event_active, participant_user, monkeypatch):
+def test_destroy_single_range_skips_when_no_range_instance(
+    ctf_event_active, participant_user, organizer_credential, monkeypatch
+):
     """No range assigned -> dispatch is skipped and reported not-dispatched (lifecycle.py:205)."""
     dispatched: list = []
     monkeypatch.setattr(
-        "ctf.bridges.cms_destroy_range", lambda user, range_instance_id: dispatched.append(range_instance_id)
+        "ctf.bridges.cms_destroy_recovery_range",
+        lambda credential, event_uuid, range_instance_id: dispatched.append(range_instance_id),
     )
     participant = CTFParticipant.objects.create(
         event=ctf_event_active,
@@ -104,17 +119,22 @@ def test_destroy_single_range_skips_when_no_range_instance(ctf_event_active, par
         range_status="",
     )
 
-    assert lifecycle._destroy_single_range(participant, participant_user) is False
+    assert lifecycle._destroy_single_range(participant, organizer_credential) is False
     assert dispatched == []
 
 
-def test_destroy_single_range_skips_when_no_owner(ctf_event_active, participant_user, monkeypatch):
-    """A range with no owning user cannot be dispatched (lifecycle.py:208)."""
+def test_destroy_single_range_forwards_event_authority(
+    ctf_event_active, participant_user, organizer_credential, monkeypatch
+):
+    """The private dispatch helper carries the exact event with the credential."""
     dispatched: list = []
     monkeypatch.setattr(
-        "ctf.bridges.cms_destroy_range", lambda user, range_instance_id: dispatched.append(range_instance_id)
+        "ctf.bridges.cms_destroy_recovery_range",
+        lambda credential, event_uuid, range_instance_id: dispatched.append(
+            (credential, event_uuid, range_instance_id)
+        ),
     )
     participant = _participant(ctf_event_active, participant_user)  # range_instance_id=42
 
-    assert lifecycle._destroy_single_range(participant, None) is False
-    assert dispatched == []
+    assert lifecycle._destroy_single_range(participant, organizer_credential) is True
+    assert dispatched == [(organizer_credential, ctf_event_active.pk, 42)]

@@ -42,5 +42,7 @@ class RangeAuthorityChange(RecordedAuthorityFields):
             models.CheckConstraint(
                 condition=models.Q(resource__in=["range", "raes-range"]), name="range_change_resource"
             ),
-            models.CheckConstraint(condition=models.Q(operation__in=["owner", "scope"]), name="range_change_operation"),
+            models.CheckConstraint(
+                condition=models.Q(operation__in=["create", "owner", "scope"]), name="range_change_operation"
+            ),
         ]

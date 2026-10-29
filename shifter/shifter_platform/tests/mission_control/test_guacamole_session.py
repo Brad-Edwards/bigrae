@@ -30,10 +30,12 @@ _PROTOCOL = GuacamoleBootstrapRequest.Protocol
 
 
 @pytest.fixture
-def user(db):
+def user(db, live_session_credential):
     from django.contrib.auth import get_user_model
 
-    return get_user_model().objects.create_user(username="guac-svc@example.com", email="guac-svc@example.com")
+    user = get_user_model().objects.create_user(username="guac-svc@example.com", email="guac-svc@example.com")
+    user.credential = live_session_credential(user)
+    return user
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +52,7 @@ def guac_configured(settings):
 
 
 def _consume(launch, user):
-    return consume_ready_url(request_id=launch.bootstrap_id, user_id=user.pk)
+    return consume_ready_url(request_id=launch.bootstrap_id, credential=user.credential)
 
 
 class TestLaunchSucceeds:
@@ -60,7 +62,7 @@ class TestLaunchSucceeds:
         _rng, instance = range_rdp_instance(user, os_type="kali")
 
         with secrets_boundary(), guac_exchange():
-            launch = launch_guacamole_session(user=user, protocol=_PROTOCOL.RDP, target_id=instance["uuid"])
+            launch = launch_guacamole_session(user=user.credential, protocol=_PROTOCOL.RDP, target_id=instance["uuid"])
 
         assert launch.status == GuacamoleBootstrapRequest.Status.SUCCEEDED
         assert _consume(launch, user).startswith("https://guac.example.com/#/client/")
@@ -71,7 +73,9 @@ class TestLaunchSucceeds:
         _rng, instance = range_ssh_instance(user)
 
         with secrets_boundary(), guac_exchange():
-            launch = launch_guacamole_session(user=user, protocol=_PROTOCOL.RANGE_SSH, target_id=instance["uuid"])
+            launch = launch_guacamole_session(
+                user=user.credential, protocol=_PROTOCOL.RANGE_SSH, target_id=instance["uuid"]
+            )
 
         assert launch.status == GuacamoleBootstrapRequest.Status.SUCCEEDED
         assert _consume(launch, user).startswith("https://guac.example.com/#/client/")
@@ -82,7 +86,9 @@ class TestLaunchSucceeds:
         ngfw = make_ngfw(user)
 
         with secrets_boundary(), guac_exchange():
-            launch = launch_guacamole_session(user=user, protocol=_PROTOCOL.NGFW_SSH, target_id=str(ngfw.uuid))
+            launch = launch_guacamole_session(
+                user=user.credential, protocol=_PROTOCOL.NGFW_SSH, target_id=str(ngfw.test_app_uuid)
+            )
 
         assert launch.status == GuacamoleBootstrapRequest.Status.SUCCEEDED
         assert _consume(launch, user).startswith("https://guac.example.com/#/client/")
@@ -115,7 +121,7 @@ class TestLaunchWithInjectedClient:
 
         with secrets_boundary():
             launch = launch_guacamole_session(
-                user=user,
+                user=user.credential,
                 protocol=_PROTOCOL.RANGE_SSH,
                 target_id=instance["uuid"],
                 guacamole_client=fake,
@@ -127,7 +133,7 @@ class TestLaunchWithInjectedClient:
         req = fake.ssh_requests[0]
         assert req.hostname == "10.50.1.10"
         assert req.ssh_username == "ubuntu"
-        assert req.username == "guac-svc@example.com"
+        assert req.username == "access-" + str(launch.bootstrap_id)
 
 
 class TestLaunchSynchronousFailures:
@@ -136,7 +142,7 @@ class TestLaunchSynchronousFailures:
         target_id = str(uuid4())
 
         with pytest.raises(BootstrapFailure) as exc:
-            launch_guacamole_session(user=user, protocol=_PROTOCOL.RDP, target_id=target_id)
+            launch_guacamole_session(user=user.credential, protocol=_PROTOCOL.RDP, target_id=target_id)
 
         assert exc.value.status_code == 503
         assert "not configured" in str(exc.value)
@@ -146,11 +152,13 @@ class TestLaunchSynchronousFailures:
         target_id = str(uuid4())
 
         with pytest.raises(ValueError, match="Unsupported Guacamole access kind"):
-            launch_guacamole_session(user=user, protocol="vnc", target_id=target_id)
+            launch_guacamole_session(user=user.credential, protocol="vnc", target_id=target_id)
 
 
 class TestLaunchSaturation:
-    def test_queue_full_emits_saturation_warning_and_propagates(self, user, guac_configured, settings, caplog):
+    def test_queue_full_emits_saturation_warning_and_propagates(
+        self, user, guac_configured, settings, caplog, make_ngfw
+    ):
         """A saturated bootstrap pool logs the operational signal and re-raises.
 
         The adapter maps BootstrapQueueFull to a 503; the service must still emit
@@ -160,7 +168,8 @@ class TestLaunchSaturation:
         from mission_control import guacamole_bootstrap
 
         settings.GUACAMOLE_BOOTSTRAP_WORKERS = 1
-        target_id = str(uuid4())
+        runtime = make_ngfw(user)
+        target_id = str(runtime.test_app_uuid)
         slots = guacamole_bootstrap._get_slots()
         acquired = slots.acquire(blocking=False)
         try:
@@ -168,7 +177,7 @@ class TestLaunchSaturation:
                 caplog.at_level(logging.WARNING, logger="mission_control.guacamole_session"),
                 pytest.raises(BootstrapQueueFull),
             ):
-                launch_guacamole_session(user=user, protocol=_PROTOCOL.RANGE_SSH, target_id=target_id)
+                launch_guacamole_session(user=user.credential, protocol=_PROTOCOL.NGFW_SSH, target_id=target_id)
         finally:
             if acquired:
                 slots.release()
@@ -176,13 +185,9 @@ class TestLaunchSaturation:
         assert any("worker capacity exhausted" in record.getMessage() for record in caplog.records)
 
 
-class TestLaunchPersistsWorkerFailure:
-    def test_missing_range_is_persisted_as_a_polled_400(self, user, guac_configured):
-        # No active range: the worker-side Engine resolution raises ValueError,
-        # which the bootstrap records as a FAILED row with a 400 status for the
-        # status endpoint to surface (never raised to the launch caller).
-        launch = launch_guacamole_session(user=user, protocol=_PROTOCOL.RANGE_SSH, target_id=str(uuid4()))
-
-        assert launch.status == GuacamoleBootstrapRequest.Status.FAILED
-        bootstrap = GuacamoleBootstrapRequest.objects.get(pk=launch.bootstrap_id)
-        assert bootstrap.error_status_code == 400
+class TestLaunchMissingTarget:
+    def test_missing_range_is_denied_before_queueing(self, user, guac_configured):
+        with pytest.raises(BootstrapFailure) as error:
+            launch_guacamole_session(user=user.credential, protocol=_PROTOCOL.RANGE_SSH, target_id=str(uuid4()))
+        assert error.value.status_code == 403
+        assert not GuacamoleBootstrapRequest.objects.exists()

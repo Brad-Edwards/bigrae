@@ -26,7 +26,7 @@ Private scenario playtests proved native Shifter challenges and signed-receipt s
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_content_hydration_concurrency.py` (PostgreSQL hydration transaction tests)
 - DOCUMENTS → DOCUMENTATION `docs/dev/ctf-scenario-content.md` (Scenario CTF content operations)
 - VERIFIES → PROOF `issue-1907-live-gcp-proof` (Live GCP automatic hydration proof)
-- IMPLEMENTS → PULL_REQUEST `Brad-Edwards/shifter#1908` (Digest-pinned scenario CTF content hydration)
+- IMPLEMENTS → PULL_REQUEST `Brad-Edwards/bigrae#1908` (Digest-pinned scenario CTF content hydration)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/content_hydration.py` (Atomic native CTF content hydration service)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/content_resolution.py` (Digest-pinned private content resolver)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_content_bundle.py` (Closed CTF content bundle contract tests)

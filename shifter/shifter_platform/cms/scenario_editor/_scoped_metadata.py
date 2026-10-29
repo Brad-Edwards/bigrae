@@ -5,7 +5,7 @@ from django.db import transaction
 from cms.models import RaesPackageSource, ScenarioMetadata
 from cms.services._content_authority import content_scope, require_content_scope
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
-from shared.credentials import CredentialContext
+from shared.credentials import CredentialContext, resolve_local_credential
 
 from ._common import ScenarioEditorError
 
@@ -36,7 +36,7 @@ def update_scoped_metadata(
                 )
                 .first()
             )
-            if row is None or content_scope(row) != scope:
+            if row is None or content_scope(row) != scope or resolve_local_credential(current) != current:
                 raise ValueError("Content changed")
             metadata, created = ScenarioMetadata.objects.get_or_create(
                 scenario_id=scenario_id,

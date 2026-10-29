@@ -24,6 +24,7 @@ class ManagementConfig(AppConfig):
 
     def ready(self) -> None:
         """Register user-profile signal handlers on app startup."""
+        from shared.credentials import bind_credential_principal_resolver
         from shared.principal_port import bind_principal_directory
 
         from . import services
@@ -34,7 +35,9 @@ class ManagementConfig(AppConfig):
             services.resolve_principal_uuid,
             services.resolve_verified_principal,
             services.principal_identity_for_user,
+            services.principal_identity_for_uuid,
         )
+        bind_credential_principal_resolver(services.resolve_principal)
 
         def on_user_saved(
             sender: type[User],

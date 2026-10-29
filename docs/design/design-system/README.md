@@ -1,7 +1,7 @@
 # Shifter Design System: Foundation Artifacts
 
 Framework-neutral foundation for the SPA cutover, produced by issue
-[#1299](https://github.com/Brad-Edwards/shifter/issues/1299). The full
+[#1299](https://github.com/Brad-Edwards/bigrae/issues/1299). The full
 contract (token inventory, component inventory, state matrix, accessibility
 baseline, Django-coexistence guidance, and the migration map) lives in
 [`../spa-design-system-foundation-1299.md`](../spa-design-system-foundation-1299.md).
@@ -59,7 +59,7 @@ claiming AA.
 ## Status
 
 Stack-neutral foundation. It does not choose the SPA framework (that is issue
-[#1300](https://github.com/Brad-Edwards/shifter/issues/1300)) and does not
+[#1300](https://github.com/Brad-Edwards/bigrae/issues/1300)) and does not
 modify the shipping portal templates or CSS (per-surface migration is later
 work). See the foundation doc's migration map for how today's portal CSS maps
 onto these tokens.

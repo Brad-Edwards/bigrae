@@ -6,7 +6,7 @@ driven to a client-level connection. Run it on demand—before an event, or
 after a change that touches terminal or Guacamole wiring.
 
 Implementation: `uat/range-functional-smoke/` (issue
-[#987](https://github.com/Brad-Edwards/shifter/issues/987)).
+[#987](https://github.com/Brad-Edwards/bigrae/issues/987)).
 
 ## What it closes
 

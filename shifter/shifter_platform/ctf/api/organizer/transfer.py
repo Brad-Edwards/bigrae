@@ -19,7 +19,7 @@ from ctf.api.organizer._audit import (
 from ctf.api.organizer._base import (
     _EVENT_READ,
     _EVENT_WRITE,
-    _actor,
+    _credential,
     _raise_bad_request,
     _raise_forbidden,
     _raise_not_found,
@@ -83,7 +83,9 @@ class ChallengeImportView(APIView):
             serializer = ChallengeImportRequestSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             try:
-                result = import_challenges(event_id, serializer.validated_data["payload"], actor_id=_actor(request).pk)
+                result = import_challenges(
+                    event_id, serializer.validated_data["payload"], actor_id=_credential(request)
+                )
             except CTFValidationError:
                 _raise_bad_request("Import payload has no challenges list.")
             return Response(result)
@@ -140,13 +142,13 @@ class EventWebhooksView(APIView):
         from ctf.models import CTFWebhook
 
         try:
-            _resolve_owned_event(request, event_id, capability=EventCapability.CONFIG)
+            _resolve_owned_event(request, event_id, action="event.manage_communications")
         except _CtfApiError as exc:
             return exc.to_response(request)
         hooks = CTFWebhook.objects.filter(event_id=event_id, deleted_at__isnull=True).order_by("created_at")
         return Response({"webhooks": [_webhook_payload(h) for h in hooks]})
 
-    @extend_schema(request=WebhookWriteSerializer, responses=WebhookSerializer)
+    @extend_schema(request=WebhookWriteSerializer, responses={200: WebhookSerializer})
     @audit_admin_event_mutation("webhook.create", action=AuditAction.CREATE)
     def post(self, request: Request, event_id: UUID) -> Response:
         """Register a webhook endpoint."""
@@ -154,7 +156,7 @@ class EventWebhooksView(APIView):
         from ctf.services.webhook import WEBHOOK_EVENT_TYPES, create_event_webhook
 
         try:
-            event = _resolve_owned_event(request, event_id, capability=EventCapability.CONFIG)
+            event = _resolve_owned_event(request, event_id, action="event.manage_communications")
             serializer = WebhookWriteSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             subscribed = serializer.validated_data.get("subscribed_events", [])
@@ -167,11 +169,11 @@ class EventWebhooksView(APIView):
                     url=serializer.validated_data["url"],
                     secret=serializer.validated_data.get("secret", ""),
                     subscribed_events=subscribed,
-                    actor_id=_actor(request).pk,
+                    actor_id=_credential(request),
                 )
             except CTFValidationError:
                 _raise_bad_request("Webhook destination is unavailable.")
-            return Response(_webhook_payload(webhook), status=status.HTTP_201_CREATED)
+            return Response(_webhook_payload(webhook), status=status.HTTP_200_OK)
         except _CtfApiError as exc:
             return exc.to_response(request)
 
@@ -191,11 +193,11 @@ class WebhookDetailView(APIView):
 
         try:
             try:
-                delete_event_webhook(webhook_id, actor_id=_actor(request).pk)
+                delete_event_webhook(webhook_id, actor_id=_credential(request))
             except CTFNotFoundError:
                 _raise_not_found("Webhook not found")
             except CTFPermissionError:
                 _raise_forbidden()
-            return Response({"deleted": True, "id": str(webhook_id)})
+            return Response(status=204)
         except _CtfApiError as exc:
             return exc.to_response(request)

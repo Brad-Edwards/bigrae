@@ -26,4 +26,4 @@ Challenges are the core content unit of CTF events and the primary thing CTF add
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms/` (CTF Forms - CTFChallengeForm)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (CTF Enums - ChallengeCategory, ChallengeDifficulty, EventStatus)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (CTF Model Tests)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#511` (CTF-001: Challenge Management)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#511` (CTF-001: Challenge Management)

@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from engine.models import Range
+    from engine.models import ProvisionerLaunchIntent, Range, RangeAuthorityChange
 from uuid import UUID
 
 from django.db import transaction
 
 from shared.audit import AuditActorType, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
+from shared.authorization import TargetRef
 from shared.credentials import CredentialContext
 from shared.raes.runtime_target import is_raes_provisioning_plan
 
@@ -30,7 +32,14 @@ class PreparedRangeLifecycle:
     credential: CredentialContext
 
 
-def prepare_range_lifecycle(credential: CredentialContext, request_id: UUID, operation: str) -> PreparedRangeLifecycle:
+def prepare_range_lifecycle(
+    credential: CredentialContext,
+    request_id: UUID,
+    operation: str,
+    *,
+    authority_action: str | None = None,
+    authority_target: TargetRef | None = None,
+) -> PreparedRangeLifecycle:
     """Resolve the actual range and common action without holding row locks."""
     from engine.ecs._config import _get_engine_task_config
     from engine.models import Range
@@ -48,7 +57,12 @@ def prepare_range_lifecycle(credential: CredentialContext, request_id: UUID, ope
             raise ValueError("Provision generation cannot be safely interrupted")
         operation = "cancel"
     payload = {"version": 1, "resource": resource, "operation": operation, "request_id": str(request_id)}
-    authority = admit_launch_authority(payload, credential)
+    authority = admit_launch_authority(
+        payload,
+        credential,
+        authority_action=authority_action,
+        authority_target=authority_target,
+    )
     return PreparedRangeLifecycle(request_id, operation, row.pk, row.status, tuple(authority.items()), credential)
 
 
@@ -71,7 +85,7 @@ def commit_prepared_range_lifecycle(prepared: PreparedRangeLifecycle) -> bool:
     return _commit_pause_resume(prepared)
 
 
-def _commit_destroy(prepared: PreparedRangeLifecycle) -> bool:
+def _commit_destroy(prepared: PreparedRangeLifecycle, *, _verification_retry: bool = False) -> bool:
     """Commit only the admitted native destruction generation and its durable queue."""
     from engine.launch_intents import _enqueue_admitted_provisioner_launch
     from engine.models import Range
@@ -83,11 +97,12 @@ def _commit_destroy(prepared: PreparedRangeLifecycle) -> bool:
     with transaction.atomic():
         row = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=prepared.native_id)
         assert_admitted_launch_binding(fields, row)
-        if row.request is None or row.request.request_id != prepared.request_id or row.status != prepared.status:
-            raise ValueError("Range operation changed")
-        if row.status == "destroyed":
+        _require_prepared_lifecycle_row(row, prepared)
+        if row.status == "destroyed" and not _reset_unverified_destroy(row, fields, _verification_retry):
             return False
-        if row.status in {"pending", "provisioning"}:
+        if row.status in {"pending", "provisioning"} and not (
+            _is_undispatched_cleanup(row, fields) or _is_quiescent_warm_claim_cleanup(row, fields)
+        ):
             raise ValueError("Provision generation requires native interruption")
         if row.status == "destroying" and _destroy_already_queued(row, fields):
             return True
@@ -122,10 +137,28 @@ def _commit_destroy(prepared: PreparedRangeLifecycle) -> bool:
         return True
 
 
+def _require_prepared_lifecycle_row(row: Range, prepared: PreparedRangeLifecycle) -> None:
+    """Require the exact admitted request and state under the runtime row lock."""
+    if row.request is None or row.request.request_id != prepared.request_id or row.status != prepared.status:
+        raise ValueError("Range operation changed")
+
+
+def _reset_unverified_destroy(row: Range, fields: Mapping[str, object], verification_retry: bool) -> bool:
+    """Reserve fresh cleanup only after its owner proves terminal but unverified absence."""
+    if not verification_retry or fields.get("authority_kind") != "cleanup":
+        return False
+    # The retry owner retains target/intent locks and exact resource custody.
+    # A fresh operation preserves the immutable prior input and observation.
+    row.provisioner_operation = ""
+    row.provisioner_operation_id = None
+    row.save(update_fields=["provisioner_operation", "provisioner_operation_id"])
+    return True
+
+
 def prepare_system_range_cleanup(request_id: UUID) -> PreparedRangeLifecycle:
     """Derive bounded teardown from an existing admitted generation, never an absent actor."""
     from engine.ecs._config import _get_engine_task_config
-    from engine.models import InterruptState, Range
+    from engine.models import Range
     from shared.operation_authority import credential_reference_from_record
 
     from ._launch_cleanup_authority import prepare_cleanup_authority
@@ -141,16 +174,101 @@ def prepare_system_range_cleanup(request_id: UUID) -> PreparedRangeLifecycle:
     payload = {"version": 1, "resource": resource, "operation": "destroy", "request_id": str(request_id)}
     fields = prepare_cleanup_authority(payload, origin.operation_id)
     operation = "destroy"
-    if row.status in {"pending", "provisioning"} or (
-        row.status == "destroying"
-        and origin.payload.get("operation") == "provision"
-        and getattr(origin, "interrupt_state", InterruptState.NONE) != InterruptState.NONE
-    ):
+    if _cleanup_needs_cancellation(row, fields, origin):
         if resource != "raes-range":
             raise ValueError("Provision generation cannot be safely interrupted")
         operation = "cancel"
     return PreparedRangeLifecycle(
         request_id, operation, row.pk, row.status, tuple(fields.items()), credential_reference_from_record(origin)
+    )
+
+
+def _cleanup_needs_cancellation(
+    row: Range, fields: Mapping[str, object], origin: ProvisionerLaunchIntent | RangeAuthorityChange
+) -> bool:
+    """Distinguish a live provisioner from a safely quiescent retained generation."""
+    from engine.models import InterruptState
+
+    if row.status in {"pending", "provisioning"}:
+        return not (_is_undispatched_cleanup(row, fields) or _is_quiescent_warm_claim_cleanup(row, fields))
+    return (
+        row.status == "destroying"
+        and row.provisioner_operation_id == origin.operation_id
+        and origin.payload.get("operation") == "provision"
+        and getattr(origin, "interrupt_state", InterruptState.NONE) != InterruptState.NONE
+    )
+
+
+def _cleanup_origin_for_fields(
+    fields: Mapping[str, object],
+) -> ProvisionerLaunchIntent | RangeAuthorityChange | None:
+    """Resolve only a native UUID retained in server-created cleanup fields."""
+    from ._range_authority_history import cleanup_origin_record
+
+    identifier = fields.get("cleanup_origin_operation_uuid")
+    return cleanup_origin_record(identifier if isinstance(identifier, UUID) else None)
+
+
+def _is_quiescent_warm_claim_cleanup(row: Range, fields: Mapping[str, object]) -> bool:
+    """A claim crash before activation has only a completed quarantine producer."""
+    from engine.models import (
+        OperationResultDisposition,
+        OperationResultInbox,
+        ProvisionerLaunchIntent,
+        RangeAuthorityChange,
+        WarmRangeGeneration,
+    )
+    from shared.operation_results import ResultStep
+
+    origin = _cleanup_origin_for_fields(fields)
+    if (
+        fields.get("authority_kind") != "cleanup"
+        or row.request is None
+        or row.provisioner_operation_id is None
+        or not isinstance(origin, RangeAuthorityChange)
+        or origin.operation != "scope"
+        or origin.range_id != row.pk
+        or origin.resource_generation != row.resource_generation
+        or not WarmRangeGeneration.objects.filter(
+            range=row,
+            request_id=row.request.request_id,
+            state="retiring",
+            claimed_by_request_id__isnull=False,
+            ready_at__isnull=False,
+            operation_id=row.provisioner_operation_id,
+        ).exists()
+    ):
+        return False
+    previous = ProvisionerLaunchIntent.objects.filter(
+        operation_id=row.provisioner_operation_id,
+        authority_kind="warm_pool",
+        payload__operation="provision",
+        payload__request_id=str(row.request.request_id),
+        authority_binding_digest=origin.previous_binding_digest,
+    ).first()
+    return (
+        previous is not None
+        and OperationResultInbox.objects.filter(
+            operation_id=previous.operation_id,
+            request_id=row.request.request_id,
+            result_step=ResultStep.RAES_TERMINAL_READY,
+            disposition=OperationResultDisposition.APPLIED,
+        ).exists()
+    )
+
+
+def _is_undispatched_cleanup(row: Range, fields: Mapping[str, object]) -> bool:
+    """Only a retained creation receipt can clean a generation never queued."""
+    from engine.models import RangeAuthorityChange
+
+    origin = _cleanup_origin_for_fields(fields)
+    return bool(
+        fields.get("authority_kind") == "cleanup"
+        and row.provisioner_operation_id is None
+        and isinstance(origin, RangeAuthorityChange)
+        and origin.operation == "create"
+        and origin.range_id == row.pk
+        and origin.resource_generation == row.resource_generation
     )
 
 
@@ -175,8 +293,7 @@ def _commit_pause_resume(prepared: PreparedRangeLifecycle) -> bool:
     with transaction.atomic():
         row = Range.objects.select_for_update(of=("self",)).select_related("request").get(pk=prepared.native_id)
         assert_admitted_launch_binding(fields, row)
-        if row.request is None or row.request.request_id != prepared.request_id or row.status != prepared.status:
-            raise ValueError("Range operation changed")
+        _require_prepared_lifecycle_row(row, prepared)
         if row.status in {target, settled}:
             return True
         if row.status != required:

@@ -36,6 +36,7 @@ from shared.authorization import (
     AuthorizationProviderError,
     AuthorizationRelationshipChange,
     AuthorizationRequest,
+    CutoverRelationshipChange,
     DecisionKind,
     PolicyEffect,
     RelationshipChangePage,
@@ -48,6 +49,8 @@ from shared.authorization.model import decision_relation_for_action
 from shared.identity_scope import ResourceScope
 
 logger = logging.getLogger(__name__)
+
+_INSTALLATION_ROOT = "installation:root"
 
 _CONSISTENCY_OPTIONS = {"consistency": "HIGHER_CONSISTENCY"}
 _MAX_SECRET_BYTES = 16_384
@@ -112,7 +115,7 @@ def _sdk_client(settings: OpenFgaRuntimeSettings) -> OpenFgaClient:
 def _read_secret_file(path_value: str) -> str:
     """Load a bounded mounted runtime token, exposing only sanitized configuration errors."""
     if not path_value:
-        raise ImproperlyConfigured("OPENFGA_API_TOKEN_FILE is required when OpenFGA is enabled")
+        raise ImproperlyConfigured("OPENFGA_API_TOKEN_FILE is required")
     path = Path(path_value)
     try:
         size = path.stat().st_size
@@ -128,8 +131,6 @@ def _read_secret_file(path_value: str) -> str:
 
 def runtime_settings_from_django() -> OpenFgaRuntimeSettings:
     """Build a validated runtime binding from non-secret settings and a secret file."""
-    if not django_settings.OPENFGA_ENABLED:
-        raise ImproperlyConfigured("OpenFGA authorization is not enabled")
     try:
         return OpenFgaRuntimeSettings(
             api_url=django_settings.OPENFGA_API_URL,
@@ -144,14 +145,14 @@ def runtime_settings_from_django() -> OpenFgaRuntimeSettings:
 
 
 def configured_authorization_provider() -> OpenFgaAuthorizationProvider:
-    """Composition-root provider factory; intentionally unavailable while S2 is disabled."""
+    """Build the mandatory composition-root authorization provider."""
     return OpenFgaAuthorizationProvider(runtime_settings_from_django())
 
 
 def _provider_object(request: AuthorizationRequest) -> str:
     """Encode the validated application target as an OpenFGA object."""
     if request.target.type == "installation":
-        return "installation:root"
+        return _INSTALLATION_ROOT
     return f"{request.target.type}:{request.target.uuid}"
 
 
@@ -204,7 +205,7 @@ def _scope_parents(request: AuthorizationRequest) -> tuple[tuple[str, str, str],
     scope = request.scope
     if scope.kind == "installation":
         return ()
-    edges = [(f"account:{scope.account_uuid}", "installation", "installation:root")]
+    edges = [(f"account:{scope.account_uuid}", "installation", _INSTALLATION_ROOT)]
     if scope.organization_uuid is not None:
         edges.append((f"organization:{scope.organization_uuid}", "account", f"account:{scope.account_uuid}"))
     if scope.workspace_uuid is not None:
@@ -354,6 +355,8 @@ class OpenFgaAuthorizationProvider:
         self,
         change: AuthorizationRelationshipChange | VersionedRelationshipChange,
     ) -> RelationshipState:
+        if isinstance(change, CutoverRelationshipChange):
+            return RelationshipState(grant_present=self._relationship_present(change.grant_tuple), deny_present=False)
         if isinstance(change, VersionedRelationshipChange):
             complete = all(self._relationship_present(item) for item in change.writes)
             return RelationshipState(
@@ -399,3 +402,17 @@ class OpenFgaAuthorizationProvider:
             change_count=len(response.changes or ()),
             continuation_token=response.continuation_token or "",
         )
+
+    def read_relationship_subjects(self, relation: str, object_value: str, *, limit: int = 2) -> tuple[str, ...]:
+        """Read a bounded bootstrap relation without exposing a generic tuple query."""
+        if relation != "direct_administrator" or object_value != _INSTALLATION_ROOT or not 1 <= limit <= 2:
+            raise AuthorizationProviderError("Invalid OpenFGA bootstrap relationship query")
+        body = ReadRequestTupleKey(relation=relation, object=object_value)
+        try:
+            response = self._client.read(body, {**self._options, "page_size": limit})
+            subjects = tuple(str(item.key.user) for item in (response.tuples or ()))
+        except Exception as exc:
+            raise AuthorizationProviderError("OpenFGA relationship read failed") from exc
+        if len(subjects) > limit or any(not re.fullmatch(r"principal:[0-9a-f-]{36}", item) for item in subjects):
+            raise AuthorizationProviderError("OpenFGA bootstrap relationship query is invalid")
+        return subjects

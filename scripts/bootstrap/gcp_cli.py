@@ -81,6 +81,15 @@ def add_lifecycle_subparsers(subparsers: argparse._SubParsersAction) -> None:
     deploy.add_argument("--release-scan-service-account", default="", help="Release-scan identity (default: derived)")
     deploy.add_argument("--first-install", action="store_true", help="Accept an inactive certificate before DNS exists")
     deploy.add_argument(
+        "--identity-cutover-facts", default="", help="Private 0600 cutover JSON file (legacy conversion)"
+    )
+    deploy.add_argument("--identity-bootstrap-facts", default="", help="Paired private 0600 native bootstrap JSON file")
+    deploy.add_argument(
+        "--catalog-credential-file",
+        default="",
+        help="Private 0600 native bearer file for post-activation catalog setup",
+    )
+    deploy.add_argument(
         "--allow-missing-range-images", action="store_true", help="Deploy the platform before range images exist"
     )
     deploy.add_argument(
@@ -143,6 +152,9 @@ def _deploy_options(args: argparse.Namespace) -> DeployOptions:
         lock=getattr(args, "lock", "external"),
         break_lock=getattr(args, "break_lock", False),
         first_install=getattr(args, "first_install", False),
+        identity_cutover_facts=getattr(args, "identity_cutover_facts", ""),
+        identity_bootstrap_facts=getattr(args, "identity_bootstrap_facts", ""),
+        catalog_credential_file=getattr(args, "catalog_credential_file", ""),
         allow_missing_range_images=getattr(args, "allow_missing_range_images", False),
         reconcile_foundation_image_network=getattr(args, "reconcile_foundation_image_network", False),
         smoke=not getattr(args, "no_smoke", False),

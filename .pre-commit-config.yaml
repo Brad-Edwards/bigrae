@@ -142,8 +142,9 @@ repos:
   # SonarCloud quality gate most often, with the thresholds of the SonarCloud
   # quality profile. diff-quality applies them only to lines that changed
   # against origin/dev, like the SonarCloud new-code gate, so the backlog in
-  # untouched code does not block a commit. The --include and --exclude globs
-  # mirror sonar.sources and sonar.exclusions in sonar-project.properties.
+  # untouched code does not block a commit. The wrapper's fixed policy mirrors
+  # sonar.sources and sonar.exclusions in sonar-project.properties and accepts
+  # no external arguments that could alter the reference, rules or threshold.
   #   C901 = FunctionComplexity, PLR0911 = S1142, PLR0913 = S107,
   #   D101-D103 = S1720, ANN001-ANN003 = S6540, ANN201-ANN204 = S6538,
   #   ANN401 = S6542, E501 = LineLength.
@@ -153,32 +154,7 @@ repos:
         name: sonar rules (changed Python lines)
         language: python
         additional_dependencies: [diff-cover==11.0.0, ruff==0.15.18]
-        entry: diff-quality
-        args:
-          - --violations=ruff.check
-          - --compare-branch=origin/dev
-          - --fail-under=100
-          - --include
-          - shifter/shifter_platform/**
-          - shifter/engine/provisioner/**
-          - shifter/engine/openvpn/**
-          - shifter/packer/**
-          - shifter/installation/**
-          - scripts/bootstrap/**
-          - scripts/check_layer_imports/**
-          - scripts/adr_guard/**
-          - --exclude
-          - '**/tests/**'
-          - '**/test_*.py'
-          - '**/conftest.py'
-          - '**/migrations/**'
-          - '**/documentation/**'
-          - >-
-            --options=--isolated --line-length 120
-            --select C901,PLR0911,PLR0913,D101,D102,D103,ANN001,ANN002,ANN003,ANN201,ANN202,ANN204,ANN401,E501
-            --config lint.mccabe.max-complexity=10
-            --config lint.pylint.max-returns=3
-            --config lint.pylint.max-args=7
+        entry: python scripts/adr_guard/changed_python_quality.py
         files: \.py$
         pass_filenames: false
 

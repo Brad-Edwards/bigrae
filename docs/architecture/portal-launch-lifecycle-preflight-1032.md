@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-05
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1032>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1032>
 
 This is a requirement-free preflight. GitHub issue #1032 is the shipping
 contract. This note is intentionally not an implementation plan.

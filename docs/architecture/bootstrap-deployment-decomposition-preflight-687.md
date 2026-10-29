@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-30
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/687>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/687>
 
 This issue is requirement-free. The GitHub issue title, body, and acceptance
 criteria are the shipping contract. This note records repo-wide guardrails for
@@ -209,7 +209,7 @@ Comparison and contract surfaces that should usually remain unchanged:
 - Do not reintroduce DynamoDB Terraform locking in the bootstrap path; the
   current backend contract uses S3 native `use_lockfile = true`.
 - Do not hardcode the migrated repository path or use `PaloAltoNetworks/shifter`
-  as the active target. The canonical repository is `Brad-Edwards/shifter`.
+  as the active target. The canonical repository is `Brad-Edwards/bigrae`.
 
 ## Non-Goals
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 
@@ -10,22 +12,22 @@ from shared.model_access import AuthorityInvalidation, AuthorityState, OwnedRefe
 from shared.model_access.authority_port import invalidate_authority
 
 _PREVIOUS = "_model_access_range_authority_before"
-_FIELDS = ("user_id", "workspace_id", "status", "destroyed_at")
+_FIELDS = ("owner_principal_uuid", "workspace_id", "status", "destroyed_at")
 
 
 def _references(range_obj: Range, previous: dict[str, object] | None = None) -> tuple[OwnedReference, ...]:
-    """Build every authority reference affected by a range mutation."""
-    previous = previous or {}
+    """Build only the authority references whose underlying facts changed."""
     refs = {
         ("engine", "all-ranges"),
         ("engine", f"range:{range_obj.uuid}"),
-        ("management", f"user:{range_obj.user_id}"),
-        ("workspaces", f"workspace-id:{range_obj.workspace_id}"),
     }
-    if previous.get("user_id") is not None:
-        refs.add(("management", f"user:{previous['user_id']}"))
-    if previous.get("workspace_id") is not None:
-        refs.add(("workspaces", f"workspace-id:{previous['workspace_id']}"))
+    if previous is None or previous.get("owner_principal_uuid") != range_obj.owner_principal_uuid:
+        refs.update(_owner_references(range_obj, previous))
+    if previous is None or previous.get("workspace_id") != range_obj.workspace_id:
+        if range_obj.workspace_id is not None:
+            refs.add(("workspaces", f"workspace-id:{range_obj.workspace_id}"))
+        if previous is not None and previous.get("workspace_id") is not None:
+            refs.add(("workspaces", f"workspace-id:{previous['workspace_id']}"))
     return tuple(OwnedReference(owner=owner, reference=reference) for owner, reference in sorted(refs))
 
 
@@ -70,7 +72,8 @@ def invalidate_range_authority(sender: type[Range], instance: Range, **kwargs: o
     if previous is None or any(previous[field] != getattr(instance, field) for field in _FIELDS):
         _invalidate_selectors(instance, previous)
     if previous is not None and any(
-        previous[field] != getattr(instance, field) for field in ("user_id", "workspace_id", "destroyed_at")
+        previous[field] != getattr(instance, field)
+        for field in ("owner_principal_uuid", "workspace_id", "destroyed_at")
     ):
         _invalidate_launch(instance)
 
@@ -125,3 +128,22 @@ def invalidate_deleted_warm_authority(
     from engine.services._model_warm_authority import invalidate_warm_preparation
 
     invalidate_warm_preparation(instance)
+
+
+def _owner_references(range_obj: Range, previous: dict[str, object] | None) -> set[tuple[str, str]]:
+    """Retain exact current and previous principals and their compatibility selector references."""
+    refs: set[tuple[str, str]] = set()
+    from management.services import model_access_user_references_for_principals
+
+    owners = []
+    if range_obj.owner_principal_uuid is not None:
+        refs.add(("management", f"principal:{range_obj.owner_principal_uuid}"))
+        owners.append(range_obj.owner_principal_uuid)
+    previous_owner = previous.get("owner_principal_uuid") if previous is not None else None
+    if previous_owner is not None:
+        if not isinstance(previous_owner, UUID):
+            raise ValueError("Previous range owner identity unavailable")
+        refs.add(("management", f"principal:{previous_owner}"))
+        owners.append(previous_owner)
+    refs.update((ref.owner, ref.reference) for ref in model_access_user_references_for_principals(tuple(owners)))
+    return refs

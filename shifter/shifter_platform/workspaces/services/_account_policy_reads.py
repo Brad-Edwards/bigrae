@@ -10,11 +10,17 @@ from uuid import UUID
 
 from django.db.models import Model, QuerySet
 
-from shared.authorization import AuthorizationProvider, AuthorizationRequest, TargetRef
+from shared.authorization import (
+    AuthorizationProvider,
+    AuthorizationProviderBindingError,
+    AuthorizationRequest,
+    TargetRef,
+)
 from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 from workspaces.models import Account, Organization, Workspace
 
-from ._account import AccountScopeError, hierarchy_target_scope
+from ._account import AccountScopeError, WorkspaceOptionView, hierarchy_target_scope
 from ._account_policy_admin import AccountAdminView, _active_actor, _require_action
 from ._account_policy_lifecycle import _scope_for_lifecycle
 
@@ -22,6 +28,7 @@ _DENIED = "Scope unavailable"
 _BATCH_SIZE = 100
 _READ_ORGANIZATION = "organization.read"
 _READ_WORKSPACE = "workspace.read"
+_LAUNCH_RANGE = "workspace.launch_range"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +81,14 @@ class WorkspaceAdminPage:
 
 
 @dataclass(frozen=True, slots=True)
+class LaunchWorkspacePage:
+    """Authorized active workspaces offered by the range-launch selector."""
+
+    count: int
+    results: tuple[WorkspaceOptionView, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class WorkspaceAdminFilters:
     """Closed workspace discovery filters, applied before authorization paging."""
 
@@ -98,7 +113,7 @@ def admin_get_account(
 ) -> AccountAdminView:
     """Read one exact account after current policy and SQL identity checks."""
     scope = hierarchy_target_scope("account", account_uuid)
-    _require_action(actor, provider, "account.read", TargetRef("account", account_uuid), scope)
+    actor = _require_action(actor, provider, "account.read", TargetRef("account", account_uuid), scope)
     account = Account.objects.filter(uuid=account_uuid).first()
     if account is None:
         raise AccountScopeError(_DENIED)
@@ -112,7 +127,7 @@ def admin_get_organization(
     scope = hierarchy_target_scope("organization", organization_uuid)
     if scope.account_uuid != account_uuid:
         raise AccountScopeError(_DENIED)
-    _require_action(actor, provider, _READ_ORGANIZATION, TargetRef("organization", organization_uuid), scope)
+    actor = _require_action(actor, provider, _READ_ORGANIZATION, TargetRef("organization", organization_uuid), scope)
     organization = Organization.objects.filter(uuid=organization_uuid).first()
     if organization is None:
         raise AccountScopeError(_DENIED)
@@ -132,7 +147,7 @@ def admin_get_workspace(
     scope = _scope_for_lifecycle(workspace_uuid, restore=include_archived)
     if scope.account_uuid != account_uuid or scope.organization_uuid != organization_uuid:
         raise AccountScopeError(_DENIED)
-    _require_action(actor, provider, _READ_WORKSPACE, TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(actor, provider, _READ_WORKSPACE, TargetRef("workspace", workspace_uuid), scope)
     query = Workspace.objects.filter(uuid=workspace_uuid)
     if not include_archived:
         query = query.filter(archived_at__isnull=True)
@@ -159,7 +174,7 @@ def _allowed_batch(
     actor: CredentialContext,
     provider: AuthorizationProvider,
     action: str,
-    target_type: Literal["organization", "workspace"],
+    target_type: Literal["account", "organization", "workspace"],
     uuids: tuple[UUID, ...],
 ) -> tuple[bool, ...]:
     """Require complete policy results for SQL-owned targets before exposing them."""
@@ -185,7 +200,7 @@ def _allowed_batch(
 
 
 def _collection_ceiling(
-    actor: CredentialContext, action: str, target_type: Literal["organization", "workspace"]
+    actor: CredentialContext, action: str, target_type: Literal["account", "organization", "workspace"]
 ) -> tuple[bool, UUID | None]:
     """Identify the exact credential target without widening an invalid proof."""
     if action not in actor.ceiling.actions:
@@ -202,7 +217,7 @@ def _visible_page[T: Model](
     actor: CredentialContext,
     provider: AuthorizationProvider,
     action: str,
-    target_type: Literal["organization", "workspace"],
+    target_type: Literal["account", "organization", "workspace"],
     uuid_of: Callable[[T], UUID],
     *,
     window: tuple[int, int],
@@ -235,7 +250,7 @@ def admin_list_organizations(
     limit: int = 50,
 ) -> OrganizationAdminPage:
     """Page only organizations readable beneath the exact persisted account."""
-    _active_actor(actor)
+    actor = _active_actor(actor)
     _valid_page(offset, limit)
     hierarchy_target_scope("account", account_uuid)
     account = Account.objects.filter(uuid=account_uuid).first()
@@ -255,6 +270,52 @@ def admin_list_organizations(
     )
 
 
+def admin_list_integration_organizations(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    *,
+    integration: Literal["adapters", "model_sources"],
+    offset: int = 0,
+    limit: int = 50,
+) -> OrganizationAdminPage:
+    """Discover an integration's exact organization grants without parent-read authority."""
+    actor = _active_actor(actor)
+    _valid_page(offset, limit)
+    if integration not in {"adapters", "model_sources"}:
+        raise AccountScopeError(_DENIED)
+    query = Organization.objects.filter(account__kind__in=(Account.Kind.TEAM, Account.Kind.ENTERPRISE))
+    installation_action = f"installation.manage_{integration}"
+    installation = TargetRef("installation")
+    if actor.ceiling.permits(installation_action, installation):
+        decision = provider.check(
+            AuthorizationRequest(
+                actor.principal, installation_action, installation, ResourceScope("installation"), actor.ceiling
+            )
+        )
+        if decision.kind == "evaluator_error":
+            raise AuthorizationProviderBindingError(_DENIED)
+        if decision.allowed:
+            return OrganizationAdminPage(
+                query.count(),
+                tuple(
+                    OrganizationAdminView(row.uuid, row.name, row.is_default)
+                    for row in query.order_by("pk")[offset : offset + limit]
+                ),
+            )
+    action = f"organization.manage_{integration}"
+    permitted, exact_uuid = _collection_ceiling(actor, action, "organization")
+    if not permitted:
+        return OrganizationAdminPage(0, ())
+    if exact_uuid is not None:
+        query = query.filter(uuid=exact_uuid)
+    count, rows = _visible_page(
+        query, actor, provider, action, "organization", lambda row: row.uuid, window=(offset, limit)
+    )
+    return OrganizationAdminPage(
+        count, tuple(OrganizationAdminView(row.uuid, row.name, row.is_default) for row in rows)
+    )
+
+
 def admin_list_workspaces(
     actor: CredentialContext,
     provider: AuthorizationProvider,
@@ -266,7 +327,7 @@ def admin_list_workspaces(
     filters: WorkspaceAdminFilters = _DEFAULT_WORKSPACE_FILTERS,
 ) -> WorkspaceAdminPage:
     """Page authorized workspaces beneath the exact parent organization."""
-    _active_actor(actor)
+    actor = _active_actor(actor)
     _valid_page(offset, limit)
     include_archived, search = _workspace_filters(filters)
     scope = hierarchy_target_scope("organization", organization_uuid)
@@ -287,3 +348,111 @@ def admin_list_workspaces(
         query, actor, provider, _READ_WORKSPACE, "workspace", lambda row: row.uuid, window=(offset, limit)
     )
     return WorkspaceAdminPage(count, tuple(_workspace_view(row) for row in rows))
+
+
+def list_launch_workspace_options(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    *,
+    offset: int = 0,
+    limit: int = 100,
+) -> LaunchWorkspacePage:
+    """Page active workspaces where the credential may launch a range.
+
+    SQL supplies only candidate identities and display labels. The policy
+    provider decides every result, including inherited account/organization
+    grants, so membership rows never become authorization.
+    """
+    actor = _active_actor(actor)
+    _valid_page(offset, limit)
+    permitted, exact_uuid = _collection_ceiling(actor, _LAUNCH_RANGE, "workspace")
+    if not permitted:
+        return LaunchWorkspacePage(0, ())
+    query = Workspace.objects.filter(
+        archived_at__isnull=True,
+        organization__account__isnull=False,
+    ).select_related("organization")
+    if exact_uuid is not None:
+        query = query.filter(uuid=exact_uuid)
+    count, rows = _visible_page(
+        query,
+        actor,
+        provider,
+        _LAUNCH_RANGE,
+        "workspace",
+        lambda row: row.uuid,
+        window=(offset, limit),
+    )
+    return LaunchWorkspacePage(
+        count,
+        tuple(
+            WorkspaceOptionView(
+                row.pk,
+                row.uuid,
+                row.name,
+                row.organization_id,
+                row.organization.uuid,
+                row.organization.name,
+            )
+            for row in rows
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AdministrationScopeView:
+    """One independently readable descendant and its routing ancestry."""
+
+    kind: str
+    uuid: UUID
+    name: str
+    account_uuid: UUID
+    organization_uuid: UUID
+    is_default: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AdministrationScopePage:
+    """A bounded page counted after descendant authorization."""
+
+    count: int
+    results: tuple[AdministrationScopeView, ...]
+
+
+def admin_list_descendant_scopes(
+    actor: CredentialContext,
+    provider: AuthorizationProvider,
+    *,
+    kind: Literal["organization", "workspace"],
+    offset: int = 0,
+    limit: int = 50,
+) -> AdministrationScopePage:
+    """Discover exact descendant grants without requiring a parent read grant."""
+    actor = _active_actor(actor)
+    _valid_page(offset, limit)
+    if kind not in {"organization", "workspace"}:
+        raise AccountScopeError(_DENIED)
+    action = f"{kind}.read"
+    permitted, exact_uuid = _collection_ceiling(actor, action, kind)
+    if not permitted:
+        return AdministrationScopePage(0, ())
+    query: QuerySet[Organization | Workspace] = (
+        Organization.objects.filter(account__isnull=False).select_related("account")
+        if kind == "organization"
+        else Workspace.objects.filter(archived_at__isnull=True, organization__account__isnull=False).select_related(
+            "organization__account"
+        )
+    )
+    if exact_uuid is not None:
+        query = query.filter(uuid=exact_uuid)
+    count, rows = _visible_page(query, actor, provider, action, kind, lambda row: row.uuid, window=(offset, limit))
+    results = []
+    for row in rows:
+        organization = row if isinstance(row, Organization) else row.organization
+        account = organization.account
+        if account is None:
+            raise AccountScopeError(_DENIED)
+        results.append(
+            AdministrationScopeView(kind, row.uuid, row.name, account.uuid, organization.uuid, row.is_default)
+        )
+    return AdministrationScopePage(count, tuple(results))

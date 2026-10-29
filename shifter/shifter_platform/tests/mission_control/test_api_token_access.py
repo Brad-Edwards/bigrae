@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import pytest
 from rest_framework.test import APIClient
 
-from cms.assets.upload_token import generate_upload_token
-from mission_control.models import GuacamoleBootstrapRequest
 from shared.api_tokens import scopes
 from shared.api_tokens.models import ApiToken
+from tests._mission_control_fixtures import native_scopes
+from tests.cms.services.test_principal_uploads import storage_client as storage_client
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
 
@@ -39,19 +37,11 @@ def _bearer(client: APIClient, raw: str) -> APIClient:
 
 
 def _token(user, *granted_scopes: str) -> str:
-    _, raw = ApiToken.create_token(name="mission-control", created_by=user, scopes=list(granted_scopes))
+    from tests._mission_control_fixtures import individual_account
+
+    individual_account(user)
+    _, raw = ApiToken.create_token(name="mission-control", created_by=user, scopes=native_scopes(list(granted_scopes)))
     return raw
-
-
-def _upload_token(user) -> str:
-    return generate_upload_token(
-        user_id=user.id,
-        s3_key=f"agents/{user.id}/agent.msi",
-        name="Agent",
-        filename="agent.msi",
-        os_slug="windows",
-        file_size=100,
-    )
 
 
 class TestRangeTokenAccess:
@@ -103,17 +93,16 @@ class TestUploadTokenAccess:
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "invalid"
 
-    def test_upload_write_token_can_cancel_without_csrf(self, client, settings, user):
-        settings.AWS_S3_BUCKET_NAME = "test-bucket"
-        settings.AGENT_UPLOAD_URL_EXPIRES = 900
+    def test_upload_write_token_can_cancel_without_csrf(self, client, storage_client, user):
         raw = _token(user, scopes.MISSION_CONTROL_UPLOAD_WRITE)
-
-        with patch("boto3.client", return_value=MagicMock()):
-            response = _bearer(client, raw).post(
-                UPLOAD_CANCEL_URL,
-                {"upload_token": _upload_token(user)},
-                format="json",
-            )
+        _bearer(client, raw)
+        initiated = client.post(
+            UPLOAD_INITIATE_URL,
+            {"name": "Synthetic installer", "filename": "agent.msi", "file_size": 100},
+            format="json",
+        )
+        assert initiated.status_code == 200, initiated.data
+        response = client.post(UPLOAD_CANCEL_URL, {"upload_token": initiated.data["upload_token"]}, format="json")
 
         assert response.status_code == 200
         assert response.json() == {"success": True}
@@ -135,22 +124,19 @@ class TestSubsurfaceTokenAccess:
 
         assert response.status_code == 403
 
-    def test_guacamole_bootstrap_response_uses_canonical_urls(self, client, monkeypatch, user, settings):
-        request_id = UUID("00000000-0000-0000-0000-000000000001")
-        # Config binding now lives in the service; set the signing secret so the
-        # synchronous readiness check passes without patching a first-party seam.
+    @pytest.mark.postgres
+    @pytest.mark.django_db(transaction=True)
+    def test_guacamole_bootstrap_response_uses_canonical_urls(
+        self, client, user, settings, range_rdp_instance, secrets_boundary, guac_exchange
+    ):
         settings.GUACAMOLE_JSON_AUTH_SECRET = "0123456789abcdef0123456789abcdef"  # nosec B105
-        # Fake only the bounded async enqueue boundary so the launch adapter's URL
-        # reversal is what these assertions exercise.
-        monkeypatch.setattr(
-            "mission_control.guacamole_session.enqueue_guacamole_bootstrap",
-            lambda **kwargs: SimpleNamespace(id=request_id, status=GuacamoleBootstrapRequest.Status.PENDING),
-        )
+        settings.GUACAMOLE_BOOTSTRAP_INLINE = True
+        _, member = range_rdp_instance(user)
         raw = _token(user, scopes.MISSION_CONTROL_GUACAMOLE_READ)
-
-        response = _bearer(client, raw).post(GUACAMOLE_RDP_URL, {"instance_uuid": "instance-1"}, format="json")
-
+        with secrets_boundary(), guac_exchange():
+            response = _bearer(client, raw).post(GUACAMOLE_RDP_URL, {"instance_uuid": member["uuid"]}, format="json")
         assert response.status_code == 202
+        request_id = UUID(response.json()["request_id"])
         assert response["Location"] == f"/api/v1/mission-control/guacamole/bootstrap/{request_id}/"
         assert response.json()["status_url"] == f"/api/v1/mission-control/guacamole/bootstrap/{request_id}/"
         assert response.json()["url"] == f"/api/v1/mission-control/guacamole/bootstrap/{request_id}/open/"

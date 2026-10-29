@@ -31,7 +31,7 @@ spec:
           {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
           {{- include "shifter.tmpVolumeMount" . | nindent 10 }}
           args: ["python", "manage.py", "run_ctf_scheduler"]
-          {{- if .Values.cloudSqlProxy.enabled }}
+          {{- if or .Values.cloudSqlProxy.enabled .Values.openfga.enabled }}
           env:
             {{- include "shifter.databaseUserEnv" (dict "root" . "role" "ctf-scheduler") | nindent 12 }}
           {{- end }}

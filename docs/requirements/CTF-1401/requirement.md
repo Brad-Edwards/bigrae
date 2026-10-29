@@ -22,4 +22,4 @@ Extensibility allows the platform to support custom challenge types (for example
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/extensions.py` (Extension points: register_flag_validator and register_scoring_strategy for external Django apps)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#638` (CTF-1401: Plugin System)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#638` (CTF-1401: Plugin System)

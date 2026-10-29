@@ -23,4 +23,4 @@ The purchase confirmation step prevents accidental hint consumption, which is ir
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (Submission service - hint_used tracking but no negative-score warning)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_hint.py` (TestHintPurchaseContext - view-level tests for hint cost/purchase context variables)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#567` (CTF-304: Hint Cost/Purchase)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#567` (CTF-304: Hint Cost/Purchase)

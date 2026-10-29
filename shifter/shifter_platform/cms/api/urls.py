@@ -6,6 +6,7 @@ from django.urls import path
 
 from cms.api import (
     artifact_preparation,
+    content_scopes,
     model_source_options,
     model_sources,
     preparation_adapters,
@@ -24,22 +25,17 @@ app_name = "cms"
 
 urlpatterns = [
     path(
-        "organizations/<uuid:organization_uuid>/model-source-users/",
-        model_sources.ModelSourceUsersView.as_view(),
-        name="model-source-users",
-    ),
-    path(
         "organizations/<uuid:organization_uuid>/model-ranges/",
         range_model_sources.OrganizationModelRangesView.as_view(),
         name="organization-model-ranges",
     ),
     path(
-        "ranges/<uuid:request_id>/model-sources/",
+        "ranges/<uuid:request_id>/model-access/",
         range_model_sources.RangeModelSourcesView.as_view(),
         name="range-model-sources",
     ),
     path(
-        "ranges/<uuid:request_id>/model-sources/revoke/",
+        "ranges/<uuid:request_id>/model-access/revoke/",
         range_model_sources.RangeModelSourcesRevokeView.as_view(),
         name="range-model-sources-revoke",
     ),
@@ -135,6 +131,7 @@ urlpatterns = [
         name="preparation-adapter-state",
     ),
     path("catalog/", views.CatalogListView.as_view(), name="catalog-list"),
+    path("content-scopes/", content_scopes.ContentScopeOptionsView.as_view(), name="content-scopes"),
     # Range-to-workspace scope administration (PLAT-237, #1944): list ranges
     # scoped to a workspace, and reassign a range's workspace scope. Staff-session
     # + workspace owner/admin authority; public UUIDs only.
@@ -142,11 +139,6 @@ urlpatterns = [
         "workspaces/<uuid:workspace_uuid>/range-scoping/",
         range_scope.WorkspaceRangeScopeListView.as_view(),
         name="workspace-range-scope-list",
-    ),
-    path(
-        "ranges/<uuid:request_id>/workspace/",
-        range_scope.RangeWorkspaceRebindView.as_view(),
-        name="range-workspace-rebind",
     ),
     # Must precede the ``catalog/<slug:scenario_id>/`` detail route: "packs" is a
     # valid slug and the detail route would otherwise shadow this collection.

@@ -24,20 +24,164 @@ from django.test import Client  # noqa: E402
 TESTS_DIR = Path(__file__).parent
 
 
+@pytest.fixture(autouse=True)
+def _reference_drf_force_authenticated_users(monkeypatch):
+    """Make DRF's test-only user shortcut carry the same live session proof as production."""
+    from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
+    from django.contrib.auth.models import User
+    from rest_framework.test import APIClient
+
+    from config.session_credentials import session_credential
+    from management.session_backend import SessionStore
+
+    original = APIClient.force_authenticate
+
+    def force_authenticate(client, user=None, token=None):
+        if isinstance(user, User) and token is None:
+            session = SessionStore()
+            session[SESSION_KEY] = str(user.pk)
+            session[BACKEND_SESSION_KEY] = "config.auth.PlatformModelBackend"
+            session[HASH_SESSION_KEY] = user.get_session_auth_hash()
+            session.save()
+            token = session_credential(user, session, provider_check=False)
+        return original(client, user=user, token=token)
+
+    monkeypatch.setattr(APIClient, "force_authenticate", force_authenticate)
+
+
 @pytest.fixture
 def personal_token_use_grant(monkeypatch):
-    """Explicit external-policy fixture for incumbent bearer-using surface tests."""
+    """Add the personal-token grant without replacing the active test policy."""
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+    existing_factory = port._provider_factory
+
+    class PersonalTokenGrantProvider:
+        def __init__(self, delegate_factory):
+            self._delegate_factory = delegate_factory
+
+        def _delegate(self):
+            if self._delegate_factory is None:
+                raise RuntimeError("No authorization provider is bound")
+            return self._delegate_factory()
+
+        def check(self, request):
+            if request.action == "installation.use_personal_tokens":
+                return AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")
+            return self._delegate().check(request)
+
+        def __getattr__(self, name):
+            return getattr(self._delegate(), name)
+
+    monkeypatch.setattr(
+        port,
+        "_provider_factory",
+        lambda: PersonalTokenGrantProvider(existing_factory),
+    )
+
+
+@pytest.fixture
+def personal_vpn_policy_grant(monkeypatch):
+    """Grant the exact post-cutover policy decisions used by VPN API fixtures."""
     from types import SimpleNamespace
 
     from shared.authorization import AuthorizationDecision, DecisionKind, port
 
     def check(request):
-        allowed = request.action == "installation.use_personal_tokens"
         return AuthorizationDecision(
-            DecisionKind.ALLOWED if allowed else DecisionKind.DENIED, "policy_allowed" if allowed else "policy_denied"
+            DecisionKind.ALLOWED,
+            "policy_allowed",
         )
 
     monkeypatch.setattr(port, "_provider_factory", lambda: SimpleNamespace(check=check))
+
+
+@pytest.fixture
+def allow_all_policy(monkeypatch):
+    """Bind a complete allow decision provider for tests below an HTTP boundary."""
+    from types import SimpleNamespace
+
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+    def check(_request):
+        return AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")
+
+    provider = SimpleNamespace(
+        store_id="test-store",
+        model_id="test-model",
+        check=check,
+        batch_check=lambda requests: tuple(check(request) for request in requests),
+    )
+    monkeypatch.setattr(port, "_provider_factory", lambda: provider)
+    return provider
+
+
+@pytest.fixture
+def principal_owner_policy(monkeypatch):
+    """Allow range reads only to the range's current durable principal owner."""
+    from types import SimpleNamespace
+
+    from cms.models import RangeInstance
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+    def check(request):
+        allowed = (
+            request.target.type != "range"
+            or RangeInstance.all_objects.filter(
+                uuid=request.target.uuid, owner_principal_uuid=request.principal.uuid
+            ).exists()
+        )
+        return AuthorizationDecision(
+            DecisionKind.ALLOWED if allowed else DecisionKind.DENIED,
+            "policy_allowed" if allowed else "policy_denied",
+        )
+
+    provider = SimpleNamespace(
+        store_id="test-store",
+        model_id="test-model",
+        check=check,
+        batch_check=lambda requests: tuple(check(request) for request in requests),
+    )
+    monkeypatch.setattr(port, "_provider_factory", lambda: provider)
+    return provider
+
+
+@pytest.fixture
+def live_session_credential(settings):
+    """Issue a resolvable non-secret session reference for a test user."""
+    from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
+
+    from config.session_credentials import session_credential
+    from management.session_backend import SessionStore
+
+    settings.SESSION_ENGINE = "management.session_backend"
+
+    def issue(user):
+        session = SessionStore()
+        session[SESSION_KEY] = str(user.pk)
+        session[BACKEND_SESSION_KEY] = "config.auth.PlatformModelBackend"
+        session[HASH_SESSION_KEY] = user.get_session_auth_hash()
+        session.save()
+        return session_credential(user, session, provider_check=False)
+
+    return issue
+
+
+@pytest.fixture(autouse=True)
+def _native_service_credential_audience(settings):
+    """Use one explicit synthetic audience for native credential reference tests."""
+    if not settings.GCP_SERVICE_TOKEN_AUDIENCE:
+        settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+
+
+@pytest.fixture
+def provisioner_workload_config(settings):
+    """Install the non-secret native workload identity used by launch tests."""
+    settings.CLOUD_PROVIDER = "gcp"
+    settings.ENGINE_TASK_CLUSTER = "synthetic-jobs"
+    settings.ENGINE_TASK_DEFINITION = "example.test/synthetic-provisioner@sha256:" + "1" * 64
+    settings.ENGINE_TASK_SERVICE_ACCOUNT_NAME = "synthetic-provisioner"
+    return settings
 
 
 # -----------------------------------------------------------------------------
@@ -148,8 +292,16 @@ def authenticated_client(db):
         if user is None:
             user, _ = User.objects.get_or_create(username=email, defaults={"email": email})
 
+        from shared.principal_port import principal_for_user
+        from workspaces.models import Account
+        from workspaces.services import create_account
+
+        principal = principal_for_user(user)
+        if not Account.objects.filter(kind=Account.Kind.INDIVIDUAL, individual_principal_uuid=principal.uuid).exists():
+            create_account(kind=Account.Kind.INDIVIDUAL, name="Individual account", owner=principal)
+
         client = Client()
-        client.force_login(user)
+        client.force_login(user, backend="config.auth.PlatformModelBackend")
 
         # Set OIDC session data to prevent SessionRefresh from redirecting
         session = client.session

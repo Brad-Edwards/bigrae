@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-09-17
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1816>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1816>
 
 Issue #1816 is requirement-free. The GitHub issue is the shipping contract.
 This note fixes the repository-wide boundaries before implementation; it does

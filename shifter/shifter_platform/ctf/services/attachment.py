@@ -41,7 +41,7 @@ def _run_text_stream_validation(
     file_obj: File,
     ext: str,
     challenge_id: UUID,
-    actor_id: int,
+    actor_id: object,
     filename: str,
 ) -> None:
     """Full-body text validation for TEXT-category extensions.
@@ -87,7 +87,7 @@ def add_challenge_file(
     display_name: str = "",
     content_type: str = "application/octet-stream",
     *,
-    actor_id: int,
+    actor_id: object,
 ) -> CTFChallengeFile:
     """Add a file attachment to a challenge.
 
@@ -235,7 +235,7 @@ def add_challenge_file(
     return challenge_file
 
 
-def remove_challenge_file(file_id: UUID, *, actor_id: int) -> None:
+def remove_challenge_file(file_id: UUID, *, actor_id: object) -> None:
     """Remove a file attachment from a challenge.
 
     Deletes from S3 and soft-deletes the database record.

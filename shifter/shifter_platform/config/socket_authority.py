@@ -65,16 +65,21 @@ def _authorize_terminal_scope(scope: dict[str, object], path: str, credential: C
 
 def _authorize_status_scope(credential: CredentialContext, path: str) -> bool:
     """Authorize exact status resources while refusing unregistered authenticated routes."""
+    if path == "/ws/notifications/":
+        # This admits transport only. The consumer rechecks the actual proof and
+        # owning event policy on every subscription, replay and delivery.
+        return credential.principal.kind == "human"
     status = _RANGE_STATUS.fullmatch(path)
     if status:
         from cms.services import get_range_by_request_id
 
         get_range_by_request_id(credential, status.group("request_id"), include_terminal=True)
-        return True
-    ngfw = _NGFW_STATUS.fullmatch(path)
-    if ngfw:
+        allowed = True
+    elif ngfw := _NGFW_STATUS.fullmatch(path):
         from cms.services import get_ngfw
 
         get_ngfw(credential, ngfw.group("app_id"))
-        return True
-    return False
+        allowed = True
+    else:
+        allowed = False
+    return allowed

@@ -8,8 +8,12 @@ from unittest.mock import Mock
 import pytest
 from django.contrib.auth.models import User
 
+from shared.api_tokens.models import ApiToken
+from shared.api_tokens.policy import personal_credential_for_token
+from shared.api_tokens.scopes import AUTHORIZATION_ACTION_SCOPES
 from shared.model_access import ContractError
-from workspaces.models import Organization, OrganizationMembership, Workspace, WorkspaceMembership
+from shared.principal_port import principal_for_user
+from workspaces.models import Account, Organization, OrganizationMembership, Workspace, WorkspaceMembership
 from workspaces.services import OrganizationAuthorizationError
 
 pytestmark = pytest.mark.django_db
@@ -19,14 +23,51 @@ pytestmark = pytest.mark.django_db
 def source_tenant(monkeypatch):
     admin = User.objects.create_user(username="source-admin")
     member = User.objects.create_user(username="source-user")
-    organization = Organization.objects.create(name="Source tenant")
+    account = Account.objects.create(kind=Account.Kind.TEAM, name="Source account")
+    organization = Organization.objects.create(name="Source tenant", account=account, is_default=True)
     OrganizationMembership.objects.create(user=admin, organization=organization, role="admin")
     workspace = Workspace.objects.create(organization=organization, name="Workshop")
     WorkspaceMembership.objects.create(user=member, workspace=workspace, role="member")
     store = Mock()
     store.create_owned_secret.return_value = "projects/platform-example/secrets/server-owned/versions/1"
     monkeypatch.setattr("shared.cloud.get_secrets_store", lambda: store)
+    granted = {(principal_for_user(admin).uuid, organization.uuid)}
+
+    from types import SimpleNamespace
+
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+    def check(request):
+        allowed = request.action == "installation.use_personal_tokens" or (
+            request.action == "organization.manage_model_sources"
+            and (request.principal.uuid, request.target.uuid) in granted
+        )
+        return AuthorizationDecision(
+            DecisionKind.ALLOWED if allowed else DecisionKind.DENIED,
+            "policy_allowed" if allowed else "policy_denied",
+        )
+
+    provider = SimpleNamespace(check=check, batch_check=lambda requests: tuple(check(item) for item in requests))
+    monkeypatch.setattr(port, "_provider_factory", lambda: provider)
+    admin.grant_model_sources = lambda target=organization.uuid: granted.add((principal_for_user(admin).uuid, target))
+    member.grant_model_sources = lambda target=organization.uuid: granted.add((principal_for_user(member).uuid, target))
+    admin.revoke_model_sources = lambda target=organization.uuid: granted.discard(
+        (principal_for_user(admin).uuid, target)
+    )
+    member.revoke_model_sources = lambda target=organization.uuid: granted.discard(
+        (principal_for_user(member).uuid, target)
+    )
     return admin, member, organization, store
+
+
+def model_source_credential(user):
+    """Issue an exact revocable test credential for model-source administration."""
+    token, _ = ApiToken.create_token(
+        name="model source test",
+        created_by=user,
+        scopes=[AUTHORIZATION_ACTION_SCOPES["organization.manage_model_sources"]],
+    )
+    return personal_credential_for_token(token)
 
 
 def configuration(**overrides):
@@ -51,13 +92,16 @@ def test_admin_registration_is_metadata_only_and_does_not_grant_spending(source_
     from engine.services import create_model_source
 
     admin, member, org, store = source_tenant
-    source = create_model_source(admin, org.uuid, configuration(), credential={"api_key": "synthetic-secret"})
+    source = create_model_source(
+        model_source_credential(admin), org.uuid, configuration(), credential={"api_key": "synthetic-secret"}
+    )
     assert source.revision == 1
     assert source.state == "ready"
     rendered = json.dumps(asdict(source), default=str)
     assert "synthetic-secret" not in rendered and "server-owned" not in rendered
-    assert list_usable_model_sources(member, org.uuid) == ()
-    assert list_usable_model_sources(admin, org.uuid) == ()
+    with pytest.raises(OrganizationAuthorizationError):
+        list_usable_model_sources(model_source_credential(member), org.uuid)
+    assert [item.id for item in list_usable_model_sources(model_source_credential(admin), org.uuid)] == [source.id]
     assert store.create_owned_secret.call_count == 1
 
 
@@ -67,18 +111,25 @@ def test_source_use_and_edit_recheck_tenant_and_revision(source_tenant):
 
     admin, member, org, store = source_tenant
     source = create_model_source(
-        admin, org.uuid, configuration(allow_organization_members=True), credential={"api_key": "synthetic-secret"}
+        model_source_credential(admin), org.uuid, configuration(), credential={"api_key": "synthetic-secret"}
     )
-    assert [item.id for item in list_usable_model_sources(member, org.uuid)] == [source.id]
+    member.grant_model_sources()
+    assert [item.id for item in list_usable_model_sources(model_source_credential(member), org.uuid)] == [source.id]
     outsider = User.objects.create_user(username="foreign-admin", is_staff=True)
     with pytest.raises(OrganizationAuthorizationError):
-        update_model_source(outsider, org.uuid, source.id, expected_revision=1, configuration=configuration())
+        update_model_source(
+            model_source_credential(outsider), org.uuid, source.id, expected_revision=1, configuration=configuration()
+        )
     with pytest.raises(ContractError, match=r"source\.revision_conflict"):
-        update_model_source(admin, org.uuid, source.id, expected_revision=0, configuration=configuration())
+        update_model_source(
+            model_source_credential(admin), org.uuid, source.id, expected_revision=0, configuration=configuration()
+        )
     assert store.create_owned_secret.call_count == 1
-    updated = update_model_source(admin, org.uuid, source.id, expected_revision=1, configuration=configuration())
+    updated = update_model_source(
+        model_source_credential(admin), org.uuid, source.id, expected_revision=1, configuration=configuration()
+    )
     assert updated.revision == 2
-    assert list_usable_model_sources(member, org.uuid) == ()
+    assert [item.id for item in list_usable_model_sources(model_source_credential(member), org.uuid)] == [source.id]
     assert store.create_owned_secret.call_count == 1  # metadata edits retain the pinned credential
 
 
@@ -95,14 +146,13 @@ def test_failed_credential_write_leaves_a_reconcilable_unavailable_revision(sour
         pytest.raises(ContractError, match=r"source\.credential_unavailable"),
     ):
         create_model_source(
-            admin, org.uuid, configuration(allow_organization_members=True), credential={"api_key": "synthetic-secret"}
+            model_source_credential(admin), org.uuid, configuration(), credential={"api_key": "synthetic-secret"}
         )
     revision = ModelSourceRevision.objects.get()
     assert revision.state == "failed"
     assert revision.credential_version is not None
-    assert list_usable_model_sources(member, org.uuid) == ()
-    # The provider failure is visible to operators by type only.
-    assert "exc_type=CloudSecretsError" in caplog.text
+    with pytest.raises(OrganizationAuthorizationError):
+        list_usable_model_sources(model_source_credential(member), org.uuid)
     assert "provider detail must not escape" not in caplog.text
     assert "synthetic-secret" not in caplog.text
 
@@ -114,7 +164,9 @@ def test_source_revision_change_fences_existing_grants_without_erasing_liability
     from .test_model_request_accounting import make_reservable_allocation
 
     admin, _, org, _ = source_tenant
-    source = create_model_source(admin, org.uuid, configuration(), credential={"api_key": "synthetic-secret"})
+    source = create_model_source(
+        model_source_credential(admin), org.uuid, configuration(), credential={"api_key": "synthetic-secret"}
+    )
     allocation = make_reservable_allocation()
     fence = SharingAuthorityFence.objects.create(
         deployment_id=allocation.deployment_id,
@@ -126,7 +178,14 @@ def test_source_revision_change_fences_existing_grants_without_erasing_liability
     ModelAllocationAuthority.objects.create(allocation=allocation, fence=fence, revision=1)
     allocation.unresolved_liabilities = 1
     allocation.save(update_fields=["unresolved_liabilities"])
-    update_model_source(admin, org.uuid, source.id, expected_revision=1, configuration=configuration(), enabled=False)
+    update_model_source(
+        model_source_credential(admin),
+        org.uuid,
+        source.id,
+        expected_revision=1,
+        configuration=configuration(),
+        enabled=False,
+    )
     allocation.grant.refresh_from_db()
     assert allocation.grant.state == "revoked"
     allocation.refresh_from_db()
@@ -143,24 +202,31 @@ def test_launch_selection_requires_current_source_use_permission(source_tenant):
     admin, member, org, _ = source_tenant
     base = direct_source_catalog(uuid4())
     source = create_model_source(
-        admin,
+        model_source_credential(admin),
         org.uuid,
-        configuration(region="provider-managed", allow_organization_members=True),
+        configuration(region="provider-managed"),
         credential={"api_key": "synthetic-secret"},
     )
     selection = ModelSourceSelection.model_validate(
         {"aliases": [{"logical_alias": "coding-main", "sources": [{"source_id": str(source.id), "revision": 1}]}]}
     )
-    compiled, revisions = resolve_model_source_selection(member, org.uuid, selection, catalog=base)
+    member.grant_model_sources()
+    compiled, revisions = resolve_model_source_selection(
+        model_source_credential(member), org.uuid, selection, catalog=base
+    )
     assert compiled.digest != base.digest
     assert any(item.authority_ref.reference == f"model-source:{source.id}" for item in revisions)
     stale = selection.model_dump(mode="json")
     stale["aliases"][0]["sources"][0]["revision"] = 2
     with pytest.raises(ContractError):
-        resolve_model_source_selection(member, org.uuid, ModelSourceSelection.model_validate(stale), catalog=base)
-    WorkspaceMembership.objects.filter(user=member).delete()
+        resolve_model_source_selection(
+            model_source_credential(member), org.uuid, ModelSourceSelection.model_validate(stale), catalog=base
+        )
+    member_credential = model_source_credential(member)
+    member.is_active = False
+    member.save(update_fields=["is_active"])
     with pytest.raises(OrganizationAuthorizationError):
-        resolve_model_source_selection(member, org.uuid, selection, catalog=base)
+        resolve_model_source_selection(member_credential, org.uuid, selection, catalog=base)
 
 
 def direct_source_catalog(deployment_id):
@@ -185,11 +251,12 @@ def test_obsolete_owned_credentials_retire_without_removing_current_version(sour
     from shared.cloud.exceptions import CloudSecretsError
 
     admin, _, org, store = source_tenant
-    source = create_model_source(admin, org.uuid, configuration(), credential={"api_key": "synthetic-old"})
+    admin_credential = model_source_credential(admin)
+    source = create_model_source(admin_credential, org.uuid, configuration(), credential={"api_key": "synthetic-old"})
     old = ModelSourceRevision.objects.get(source_id=source.id)
     ModelSourceRevision.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(minutes=20))
     update_model_source(
-        admin,
+        admin_credential,
         org.uuid,
         source.id,
         expected_revision=1,
@@ -198,13 +265,13 @@ def test_obsolete_owned_credentials_retire_without_removing_current_version(sour
     )
     store.retire_owned_secret.side_effect = CloudSecretsError("bounded failure")
     with pytest.raises(ContractError, match="credential_cleanup_pending"):
-        retire_unused_model_source_credentials(admin, org.uuid, source.id)
+        retire_unused_model_source_credentials(admin_credential, org.uuid, source.id)
     old.refresh_from_db()
     assert old.state == "retired" and old.retired_at is None
     store.retire_owned_secret.side_effect = None
-    assert retire_unused_model_source_credentials(admin, org.uuid, source.id) == 1
+    assert retire_unused_model_source_credentials(admin_credential, org.uuid, source.id) == 1
     store.retire_owned_secret.assert_called_with(source.id, old.credential_version)
-    assert retire_unused_model_source_credentials(admin, org.uuid, source.id) == 0
+    assert retire_unused_model_source_credentials(admin_credential, org.uuid, source.id) == 0
     assert ModelSourceRevision.objects.get(source_id=source.id, revision=2).state == "ready"
 
 
@@ -219,12 +286,14 @@ def test_credential_publication_failure_keeps_durable_retirement_reference(sourc
         if interruption == "revision":
             ModelSource.objects.filter(pk=source_id).update(revision=2)
         else:
-            OrganizationMembership.objects.filter(user=admin, organization=org).delete()
+            admin.revoke_model_sources()
         return "synthetic-owned-reference"
 
     store.create_owned_secret.side_effect = interrupted_write
     with pytest.raises((ContractError, OrganizationAuthorizationError)):
-        create_model_source(admin, org.uuid, configuration(), credential={"api_key": "synthetic-secret"})
+        create_model_source(
+            model_source_credential(admin), org.uuid, configuration(), credential={"api_key": "synthetic-secret"}
+        )
     revision = ModelSourceRevision.objects.get()
     assert revision.state == "failed"
     assert revision.credential_reference == "synthetic-owned-reference"
@@ -283,7 +352,7 @@ def test_source_application_cap_bootstraps_matching_incumbent_pool_without_legac
     admin, member, org, _ = source_tenant
     base = direct_source_catalog(uuid4())
     source = create_model_source(
-        admin,
+        model_source_credential(admin),
         org.uuid,
         configuration(
             name="Tenant Vertex source",
@@ -297,7 +366,6 @@ def test_source_application_cap_bootstraps_matching_incumbent_pool_without_legac
             quota_identity="cloud-account-region",
             context_window_tokens=200_000,
             tokens_per_minute=750_000,
-            allow_organization_members=True,
         ),
     )
     selection = ModelSourceSelection.model_validate(
@@ -310,7 +378,8 @@ def test_source_application_cap_bootstraps_matching_incumbent_pool_without_legac
             ]
         }
     )
-    compiled, _ = resolve_model_source_selection(member, org.uuid, selection, catalog=base)
+    member.grant_model_sources()
+    compiled, _ = resolve_model_source_selection(model_source_credential(member), org.uuid, selection, catalog=base)
 
     observations = tuple(ModelQuotaObservation.model_validate(value) for value in launch_model_observations(compiled))
 

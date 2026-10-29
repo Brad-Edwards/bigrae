@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -18,6 +19,7 @@ from shared.notifications import (
     authorize_subscription,
     authorized_notification_payload,
     mark_notification_delivered,
+    notification_user_id,
     notifications_enabled,
     pending_notifications_for,
     validate_topic,
@@ -49,7 +51,10 @@ class SharedNotificationConsumer(AsyncWebsocketConsumer):
             await self.close(code=WebSocketCloseCode.NOT_AUTHENTICATED)
             return
 
-        self._user_id = int(user.id)
+        self._user_id = await database_sync_to_async(notification_user_id)(self.scope.get("credential_context"), user)
+        if self._user_id is None:
+            await self.close(code=WebSocketCloseCode.NOT_AUTHENTICATED)
+            return
         self.subscriptions = set()
         await self.accept()
 
@@ -99,7 +104,7 @@ class SharedNotificationConsumer(AsyncWebsocketConsumer):
         except ValueError:
             await self.close(code=WebSocketCloseCode.INVALID_REQUEST)
             return
-        if not await database_sync_to_async(authorize_subscription)(self.scope["user"], topic):
+        if not await database_sync_to_async(authorize_subscription)(self.scope.get("credential_context"), topic):
             await self.close(code=WebSocketCloseCode.PERMISSION_DENIED)
             return
 
@@ -151,7 +156,9 @@ class SharedNotificationConsumer(AsyncWebsocketConsumer):
         """Send a notification payload and mark it delivered after success."""
         if self._user_id is None:
             return
-        payload = await database_sync_to_async(authorized_notification_payload)(self.scope.get("user"), notification)
+        payload = await database_sync_to_async(authorized_notification_payload)(
+            self.scope.get("credential_context"), notification
+        )
         if payload is None:
             return
         await self.send(
@@ -168,6 +175,11 @@ class SharedNotificationConsumer(AsyncWebsocketConsumer):
                 default=str,
             )
         )
+        revoked = self.scope.get("_authority_revoked")
+        if isinstance(revoked, asyncio.Event) and revoked.is_set():
+            # The outer native boundary may suppress a send after the topic
+            # decision. Keep the receipt pending if no bytes were delivered.
+            return
         await database_sync_to_async(mark_notification_delivered)(notification.id, self._user_id)
 
     @database_sync_to_async

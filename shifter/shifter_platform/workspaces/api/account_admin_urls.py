@@ -28,13 +28,21 @@ def _authorization_routes(prefix: str, target_type: str) -> list[URLPattern]:
 
 
 urlpatterns = [
+    path("administer/scopes/", profiles.AdministrationScopeCollectionView.as_view()),
+    path("administer/organizations/", accounts.IntegrationOrganizationCollectionView.as_view()),
     path(
         "organizations/<uuid:target_uuid>/authorization/operations/<uuid:operation_uuid>/",
         authorization.ScopedAuthorizationOperationView.as_view(),
         {"target_type": "organization"},
     ),
-    path("workspaces/<uuid:workspace_uuid>/membership/", members.PolicySelfWorkspaceMembershipView.as_view()),
-    path("workspaces/<uuid:workspace_uuid>/memberships/leave/", members.PolicyLeaveWorkspaceView.as_view()),
+    path(
+        "account-workspaces/<uuid:workspace_uuid>/membership/",
+        members.PolicySelfWorkspaceMembershipView.as_view(),
+    ),
+    path(
+        "account-workspaces/<uuid:workspace_uuid>/memberships/leave/",
+        members.PolicyLeaveWorkspaceView.as_view(),
+    ),
     path("accounts/", accounts.AccountCollectionView.as_view()),
     path("accounts/current/", accounts.AccountCurrentView.as_view()),
     path("accounts/context/", profiles.AccountPrincipalContextView.as_view()),
@@ -77,7 +85,10 @@ urlpatterns = [
     path("workspaces/<uuid:workspace_uuid>/rename/", accounts.AccountWorkspaceRenameView.as_view()),
     path("workspaces/<uuid:workspace_uuid>/archive/", accounts.AccountWorkspaceArchiveView.as_view()),
     path("workspaces/<uuid:workspace_uuid>/restore/", accounts.AccountWorkspaceRestoreView.as_view()),
-    path("workspaces/<uuid:workspace_uuid>/transfer/", members.PolicyWorkspaceOwnershipView.as_view()),
+    path(
+        "account-workspaces/<uuid:workspace_uuid>/ownership/transfer/",
+        members.PolicyWorkspaceOwnershipView.as_view(),
+    ),
     path("workspaces/<uuid:workspace_uuid>/owners/", members.PolicyWorkspaceOwnerCollectionView.as_view()),
     path(
         "workspaces/<uuid:workspace_uuid>/owners/<uuid:principal_uuid>/",
@@ -86,15 +97,18 @@ urlpatterns = [
     path("workspaces/<uuid:workspace_uuid>/quota/", profiles.PolicyWorkspaceQuotaView.as_view()),
     path("workspaces/<uuid:workspace_uuid>/quota-policy/", accounts.AccountWorkspaceQuotaPolicyView.as_view()),
     path("workspaces/<uuid:workspace_uuid>/egress-policy/", accounts.AccountWorkspaceEgressPolicyView.as_view()),
-    path("workspaces/<uuid:workspace_uuid>/invitations/", members.PolicyInvitationCollectionView.as_view()),
     path(
-        "workspaces/<uuid:workspace_uuid>/invitations/<uuid:invitation_uuid>/resend/",
-        members.PolicyInvitationMutationView.as_view(),
+        "account-workspaces/<uuid:workspace_uuid>/invitations/",
+        members.PolicyInvitationCollectionView.as_view(),
+    ),
+    path(
+        "account-workspaces/<uuid:workspace_uuid>/invitations/<uuid:invitation_uuid>/resend/",
+        members.PolicyInvitationResendView.as_view(),
         {"operation": "resend"},
     ),
     path(
-        "workspaces/<uuid:workspace_uuid>/invitations/<uuid:invitation_uuid>/revoke/",
-        members.PolicyInvitationMutationView.as_view(),
+        "account-workspaces/<uuid:workspace_uuid>/invitations/<uuid:invitation_uuid>/revoke/",
+        members.PolicyInvitationRevokeView.as_view(),
         {"operation": "revoke"},
     ),
     path("workspaces/authorization/catalog/", AuthorizationCatalogView.as_view()),

@@ -375,16 +375,7 @@ def sync_ctf_spare_range_status(
     for spare in spares:
         if spare.status != mapped_status:
             spare.status = mapped_status
-            terminal = new_status in {ResourceStatus.FAILED.value, ResourceStatus.DESTROYED.value}
-            owner = spare.owner_user if terminal else None
-            if terminal:
-                spare.owner_user = None
-                spare.save(update_fields=["status", "owner_user", "updated_at"])
-                from ctf.services.range.spares import delete_managed_spare_user
-
-                delete_managed_spare_user(owner)
-            else:
-                spare.save(update_fields=["status", "updated_at"])
+            spare.save(update_fields=["status", "updated_at"])
             updated += 1
 
     if updated:

@@ -17,6 +17,8 @@ from shared.identity_scope import ResourceScope
 
 from ._common import EngineError
 
+_RANGE_UNAVAILABLE = "Range unavailable"
+
 
 @dataclass(frozen=True, slots=True)
 class RangeAuthorityProjection:
@@ -30,6 +32,16 @@ class RangeAuthorityProjection:
     scope: ResourceScope
     parent: TargetRef
     resource_generation: UUID | None
+
+
+def native_range_id_by_request(request_uuid: UUID) -> int:
+    """Return the private runtime identifier for an already-created range."""
+    from engine.models import Range
+
+    try:
+        return int(Range.objects.values_list("pk", flat=True).get(request__request_id=request_uuid))
+    except (Range.DoesNotExist, Range.MultipleObjectsReturned):
+        raise EngineError(_RANGE_UNAVAILABLE) from None
 
 
 def has_range_runtime(request_uuid: UUID, public_uuid: UUID) -> bool:
@@ -79,8 +91,26 @@ def project_range_authority(request_uuid: UUID) -> RangeAuthorityProjection:
             parent,
             row.resource_generation,
         )
-    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
-        raise EngineError("Range unavailable") from None
+    except Exception:  # noqa: BLE001  # fail-closed range authority; only bounded denial escapes
+        raise EngineError(_RANGE_UNAVAILABLE) from None
+
+
+def lock_range_remote_authority(range_uuid: UUID, member: str) -> RangeAuthorityProjection:
+    """Lock ready native custody and exact guest membership before handoff."""
+    from django.db import transaction
+
+    from engine.models import Range, Request
+
+    if not transaction.get_connection().in_atomic_block:
+        raise ValueError("Range binding requires a transaction")
+    runtime = Range.objects.select_for_update().get(cms_range_uuid=range_uuid, status=Range.Status.READY)
+    if runtime.request_id is None or not isinstance(runtime.provisioned_instances, list):
+        raise ValueError("Range guest unavailable")
+    runtime.request = Request.objects.select_for_update().get(pk=runtime.request_id)
+    matches = [item for item in runtime.provisioned_instances if isinstance(item, dict) and item.get("uuid") == member]
+    if len(matches) != 1:
+        raise ValueError("Range guest changed")
+    return project_range_authority(runtime.request.request_id)
 
 
 def require_native_range_action(credential: CredentialContext, request_uuid: UUID, action: str) -> Range:
@@ -112,8 +142,8 @@ def require_native_range_action(credential: CredentialContext, request_uuid: UUI
         if row is None or project_range_authority(request_uuid) != projection:
             raise ValueError("Range projection changed")
         return row
-    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
-        raise PermissionError("Range unavailable") from None
+    except Exception:  # noqa: BLE001  # fail-closed range authority; only bounded denial escapes
+        raise PermissionError(_RANGE_UNAVAILABLE) from None
 
 
 def authorized_instance_range(

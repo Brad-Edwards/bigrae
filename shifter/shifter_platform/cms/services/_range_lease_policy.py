@@ -34,6 +34,7 @@ from ._range_lease_policy_support import (
     _eligible_group_for_update,
     _error,
     _expected_revision,
+    _fence_lease_actor,
     _group_revision_row,
     _lock_policy_namespace,
     _matching_group_rows,
@@ -93,7 +94,7 @@ def resolve_mission_control_lease_policy(
 
 def get_mission_control_lease_settings(actor: User | CredentialContext) -> MissionControlLeasePolicySettings:
     """Return the bounded settings projection for an active platform superuser."""
-    _assert_active_superuser(actor)
+    actor = _assert_active_superuser(actor)
     baseline = _deployment_policy()
     tenant_row = _tenant_row(for_update=False)
     tenant_revision_row = _tenant_revision_row(for_update=False)
@@ -140,13 +141,14 @@ def replace_tenant_lease_policy(
     audit: LeasePolicyAuditContext,
 ) -> LeasePolicyOverride:
     """Create or replace the complete tenant override under revision CAS."""
-    _assert_active_superuser(actor)
+    actor = _assert_active_superuser(actor)
     canonical = _canonical_policy(policy)
     expected = _expected_revision(expected_revision)
     with transaction.atomic():
         _lock_policy_namespace()
         revision_row = _tenant_revision_row(for_update=True)
         row = _tenant_row(for_update=True)
+        _fence_lease_actor(actor)
         actual = _current_revision(revision_row, row)
         if expected != actual:
             raise _error(
@@ -195,12 +197,13 @@ def reset_tenant_lease_policy(
     audit: LeasePolicyAuditContext,
 ) -> None:
     """Remove the tenant override after validating children against the live fallback."""
-    _assert_active_superuser(actor)
+    actor = _assert_active_superuser(actor)
     expected = _expected_revision(expected_revision)
     with transaction.atomic():
         _lock_policy_namespace()
         revision_row = _tenant_revision_row(for_update=True)
         row = _tenant_row(for_update=True)
+        _fence_lease_actor(actor)
         actual = _current_revision(revision_row, row)
         if expected != actual:
             raise _error(
@@ -233,7 +236,7 @@ def replace_group_lease_policy(
     audit: LeasePolicyAuditContext,
 ) -> LeasePolicyOverride:
     """Create or replace one complete eligible-group policy under revision CAS."""
-    _assert_active_superuser(actor)
+    actor = _assert_active_superuser(actor)
     canonical = _canonical_policy(policy)
     expected = _expected_revision(expected_revision)
     with transaction.atomic():
@@ -247,6 +250,7 @@ def replace_group_lease_policy(
             )
         revision_row = _group_revision_row(group, for_update=True)
         row = MissionControlGroupLeasePolicy.objects.select_for_update().filter(group=group).first()
+        _fence_lease_actor(actor)
         actual = _current_revision(revision_row, row)
         if expected != actual:
             raise _error(
@@ -295,7 +299,7 @@ def reset_group_lease_policy(
     audit: LeasePolicyAuditContext,
 ) -> None:
     """Remove one eligible-group override under revision CAS."""
-    _assert_active_superuser(actor)
+    actor = _assert_active_superuser(actor)
     expected = _expected_revision(expected_revision)
     with transaction.atomic():
         _lock_policy_namespace()
@@ -303,6 +307,7 @@ def reset_group_lease_policy(
         group = _eligible_group_for_update(group_id)
         revision_row = _group_revision_row(group, for_update=True)
         row = MissionControlGroupLeasePolicy.objects.select_for_update().filter(group=group).first()
+        _fence_lease_actor(actor)
         actual = _current_revision(revision_row, row)
         if expected != actual:
             raise _error(

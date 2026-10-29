@@ -9,16 +9,18 @@ const COMMUNICATION_QUERY_KEY = "ctf-communications";
 export type Campaign = components["schemas"]["CommunicationCampaignSummary"];
 type Intent = components["schemas"]["CommunicationIntent"];
 type CampaignList = components["schemas"]["CampaignList"];
-export type CommunicationTargets = components["schemas"]["CommunicationTargets"];
+export type CommunicationTargets = components["schemas"]["CommunicationTargetOptions"];
 export type CommunicationPreview = components["schemas"]["CommunicationPreview"];
 export type DeliveryReport = components["schemas"]["CommunicationDeliveryReport"];
 export type RecipientPage = components["schemas"]["CommunicationRecipientPage"];
 export type CommunicationActivity = components["schemas"]["CommunicationActivity"];
 export type AcknowledgementPolicy = "none" | "read" | "explicit";
 
-/** One draft for one or more events in one workspace; the single-event dialog is a one-target draft. */
+export type CommunicationParent = { kind: "account" | "organization" | "workspace"; id: string };
+
+/** One draft for events with the same explicit parent. */
 export type DraftInput = {
-  workspaceId: string;
+  parent: CommunicationParent;
   eventIds: string[];
   title: string;
   subject: string;
@@ -35,8 +37,8 @@ type Pending = { current: { fingerprint: string; campaignId: string; revisionId?
 const keys = {
   all: [COMMUNICATION_QUERY_KEY] as const,
   event: (eventId: string) => [COMMUNICATION_QUERY_KEY, eventId] as const,
-  targets: (workspaceId: string) => [COMMUNICATION_QUERY_KEY, "targets", workspaceId] as const,
-  workspace: (workspaceId: string) => [COMMUNICATION_QUERY_KEY, "workspace", workspaceId] as const,
+  targets: (parent?: CommunicationParent) => [COMMUNICATION_QUERY_KEY, "targets", parent?.kind, parent?.id] as const,
+  parent: (parent: CommunicationParent) => [COMMUNICATION_QUERY_KEY, "parent", parent.kind, parent.id] as const,
   campaign: (campaignId: string) => [COMMUNICATION_QUERY_KEY, "campaign", campaignId] as const,
   preview: (campaignId: string, revisionId: string) =>
     [COMMUNICATION_QUERY_KEY, "campaign", campaignId, "preview", revisionId] as const,
@@ -45,7 +47,7 @@ const keys = {
 export function draftBody(input: DraftInput) {
   const [first] = input.eventIds;
   return {
-    workspace_id: input.workspaceId,
+    [input.parent.kind]: input.parent.id,
     title: input.title,
     subject: input.subject,
     body: input.body,
@@ -76,22 +78,20 @@ export function releaseCommunication(campaignId: string, revisionId?: string, oc
   });
 }
 
-async function workspaceForEvent(eventId: string) {
+async function parentForEvent(eventId: string): Promise<CommunicationParent> {
   const event = await apiFetch<components["schemas"]["EventDetail"]>(`/ctf/events/${eventId}/`);
-  if (!event.workspace) throw new Error("Communication access to this workspace is unavailable.");
-  return event.workspace;
+  if (event.workspace) return { kind: "workspace", id: event.workspace };
+  if (event.organization) return { kind: "organization", id: event.organization };
+  if (event.account) return { kind: "account", id: event.account };
+  throw new Error("Communication access to this event scope is unavailable.");
 }
 
 export async function submitCommunication(eventId: string, input: Input, pending: Pending) {
   const fingerprint = JSON.stringify([eventId, input]);
   if (pending.current?.fingerprint !== fingerprint) {
     const campaign = await createDraft({
-      workspaceId: await workspaceForEvent(eventId),
-      eventIds: [eventId],
-      title: input.subject,
-      subject: input.subject,
-      body: input.body,
-      dueAt: input.scheduled_at,
+      parent: await parentForEvent(eventId), eventIds: [eventId],
+      title: input.subject, subject: input.subject, body: input.body, dueAt: input.scheduled_at,
     });
     pending.current = { fingerprint, campaignId: campaign.id, revisionId: campaign.latest_revision?.id };
   }
@@ -114,9 +114,10 @@ export function useCtfCommunications(eventId: string) {
     initialPageParam: 0,
     getNextPageParam: (page: CampaignList) => page.next_offset ?? undefined,
     queryFn: async ({ pageParam }) => {
-    const workspace = await workspaceForEvent(eventId);
-    return apiFetch<CampaignList>(
-      `/ctf/communications/?workspace_id=${encodeURIComponent(workspace)}&event_id=${encodeURIComponent(eventId)}&limit=25&offset=${pageParam}`,
+    const parent = await parentForEvent(eventId);
+    const query = new URLSearchParams({ [parent.kind]: parent.id, event_id: eventId, limit: "25", offset: String(pageParam) });
+    return apiFetch<components["schemas"]["CampaignList"]>(
+      `/ctf/communications/?${query.toString()}`,
     );
   } });
 }
@@ -130,29 +131,29 @@ export function useCancelCtfCommunication(eventId?: string) {
 
 // --- Multi-event console (#2052) -----------------------------------------------
 
-export function useCommunicationTargets(workspaceId = "") {
+export function useCommunicationTargets(parent?: CommunicationParent) {
   return useInfiniteQuery({
-    queryKey: keys.targets(workspaceId),
+    queryKey: keys.targets(parent),
     initialPageParam: 0,
     getNextPageParam: (page: CommunicationTargets) => page.next_offset ?? undefined,
     queryFn: ({ pageParam, signal }) =>
-      apiFetch<CommunicationTargets>("/ctf/communications/targets/", {
+      apiFetch<CommunicationTargets>("/ctf/communications/target-options/", {
         signal,
-        query: { workspace_id: workspaceId || undefined, limit: 100, offset: pageParam },
+        query: { ...(parent ? { [parent.kind]: parent.id } : {}), limit: 100, offset: pageParam },
       }),
   });
 }
 
-export function useWorkspaceCommunications(workspaceId: string) {
+export function useParentCommunications(parent: CommunicationParent) {
   return useInfiniteQuery({
-    queryKey: keys.workspace(workspaceId),
-    enabled: Boolean(workspaceId),
+    queryKey: keys.parent(parent),
+    enabled: Boolean(parent.id),
     initialPageParam: 0,
     getNextPageParam: (page: CampaignList) => page.next_offset ?? undefined,
     queryFn: ({ pageParam, signal }) =>
       apiFetch<CampaignList>("/ctf/communications/", {
         signal,
-        query: { workspace_id: workspaceId, limit: 25, offset: pageParam },
+        query: { [parent.kind]: parent.id, limit: 25, offset: pageParam },
       }),
   });
 }

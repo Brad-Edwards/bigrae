@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-23
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/505>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/505>
 
 Issue title: PLAT-001.10: CI/CD + Packer for GCP
 

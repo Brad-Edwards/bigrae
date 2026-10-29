@@ -135,7 +135,7 @@ def export_challenges(
     }
 
 
-def import_challenges(event_id: UUID, payload: dict[str, Any], *, actor_id: int) -> dict[str, Any]:
+def import_challenges(event_id: UUID, payload: dict[str, Any], *, actor_id: object) -> dict[str, Any]:
     """Import challenges from a shifter or CTFd document (partial-success)."""
     event = _get_event(event_id)
     raw_challenges = payload.get("challenges")
@@ -187,7 +187,7 @@ def _import_entry(
     existing_names: set[str],
     *,
     is_ctfd: bool,
-    actor_id: int,
+    actor_id: object,
 ) -> tuple[str, dict[str, Any] | None]:
     """Import one entry; return ``(name, None)`` on success or ``(name, error)``."""
     name, error = _entry_precheck(entry, index, existing_names)
@@ -207,7 +207,7 @@ def _import_entry(
     return name, error
 
 
-def _create_from_ctfd(event: CTFEvent, entry: dict[str, Any], *, actor_id: int) -> CTFChallenge:
+def _create_from_ctfd(event: CTFEvent, entry: dict[str, Any], *, actor_id: object) -> CTFChallenge:
     """Create one challenge from a CTFd-shaped entry (plaintext flags)."""
     from ctf.services.challenge import create_challenge
 
@@ -277,7 +277,7 @@ def _create_ctfd_hints(challenge: CTFChallenge, hints: list[Any]) -> None:
             )
 
 
-def _create_from_shifter(event: CTFEvent, entry: dict[str, Any], *, actor_id: int) -> CTFChallenge:
+def _create_from_shifter(event: CTFEvent, entry: dict[str, Any], *, actor_id: object) -> CTFChallenge:
     """Create one challenge from a shifter-format entry.
 
     CTFFlag rows are the sole source of flag truth (#532): a valid shifter entry

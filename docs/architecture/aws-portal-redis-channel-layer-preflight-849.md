@@ -8,7 +8,7 @@ in [`portal-channel-layer-backend.md`](portal-channel-layer-backend.md).
 
 Date: 2026-06-03
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/849>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/849>
 
 ## Scope Boundary
 

@@ -2,7 +2,7 @@
 
 Date: 2026-07-04
 
-Issue: [#1300](https://github.com/Brad-Edwards/shifter/issues/1300) (SPA
+Issue: [#1300](https://github.com/Brad-Edwards/bigrae/issues/1300) (SPA
 cutover: high-level frontend architecture and guardrails)
 
 Milestone: SPA Cutover

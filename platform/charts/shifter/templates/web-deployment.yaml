@@ -75,20 +75,6 @@ spec:
           {{- if or $policyBound .Values.cloudSqlProxy.enabled }}
           env:
             {{- include "shifter.databaseUserEnv" (dict "root" . "role" "portal") | nindent 12 }}
-            {{- if $policyBound }}
-            - name: OPENFGA_ENABLED
-              value: "true"
-            - name: OPENFGA_API_URL
-              value: {{ printf "https://%s" .Values.openfga.hostname | quote }}
-            - name: OPENFGA_STORE_ID
-              value: {{ .Values.openfga.storeId | quote }}
-            - name: OPENFGA_MODEL_ID
-              value: {{ .Values.openfga.modelId | quote }}
-            - name: OPENFGA_API_TOKEN_FILE
-              value: /run/secrets/openfga/token
-            - name: OPENFGA_CA_CERT_PATH
-              value: /run/secrets/openfga-ca/ca.crt
-            {{- end }}
           {{- end }}
           ports:
             - name: http

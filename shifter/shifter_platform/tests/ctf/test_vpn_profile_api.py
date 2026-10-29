@@ -1,15 +1,17 @@
 """DRF security and response-contract tests for participant VPN delivery."""
 
 import logging
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
 from django.core.cache import caches
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from cms.models import RangeInstance
 from cms.models import Request as CmsRequest
-from engine.models import Instance, Range
+from engine.models import Range
 from engine.models import Request as EngineRequest
 from management.services import set_active_ctf_event
 from shared.api_tokens import scopes
@@ -19,7 +21,7 @@ from shared.enums import RangeSource, RequestType, ResourceStatus
 from shared.models import AuditLog
 from tests.engine.services.conftest import boto3_secrets, make_secrets_client
 
-pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_vpn_policy_grant")]
 
 URL = "/api/v1/ctf/range/vpn-profile/"
 STATUS_URL = "/api/v1/ctf/range/status/"
@@ -55,19 +57,38 @@ def _token(user, *granted_scopes: str) -> str:
 
 
 def _active_range_participant(participant_user, ctf_participant):
-    from workspaces.services import resolve_personal_workspace
+    from shared.principal_port import principal_for_user
+    from shared.remote_access import build_openvpn_capability
+    from workspaces.services import create_account
 
-    workspace_id = resolve_personal_workspace(participant_user).workspace_id
+    principal = principal_for_user(participant_user)
+    account = create_account(kind="individual", name="Synthetic CTF VPN account", owner=principal)
+    type(ctf_participant.event).objects.filter(pk=ctf_participant.event_id).update(
+        workspace_id=None,
+        scope_kind="account",
+        account_id=account.id,
+        organization_id=None,
+        status="active",
+        event_start=timezone.now() - timedelta(minutes=5),
+        event_end=timezone.now() + timedelta(hours=1),
+    )
+    ctf_participant.principal_uuid = principal.uuid
+    ctf_participant.save(update_fields=["principal_uuid", "updated_at"])
     set_active_ctf_event(participant_user, ctf_participant.event_id)
     request_id = uuid4()
     cms_request = CmsRequest.objects.create(
-        workspace_id=workspace_id,
+        owner_principal_uuid=principal.uuid,
+        scope_kind="account",
+        account_id=account.id,
         request_id=request_id,
         request_type=RequestType.RANGE.value,
         user=participant_user,
     )
     cms_range = RangeInstance.objects.create(
-        workspace_id=workspace_id,
+        owner_principal_uuid=principal.uuid,
+        event_uuid=ctf_participant.event_id,
+        scope_kind="account",
+        account_id=account.id,
         request=cms_request,
         scenario_id="basic",
         user_id=participant_user.id,
@@ -78,64 +99,69 @@ def _active_range_participant(participant_user, ctf_participant):
         request_id=request_id,
         request_type=RequestType.RANGE.value,
         user=participant_user,
+        owner_principal_uuid=principal.uuid,
+        scope_kind="account",
+        account_id=account.id,
     )
-    target_ref = uuid4()
-    Instance.objects.create(
-        uuid=target_ref,
-        request=engine_request,
-        role=Instance.Role.ATTACKER,
-        os_type=Instance.OSType.KALI,
-        status=Range.Status.READY,
-    )
-    Range.objects.create(
-        workspace_id=workspace_id,
+    target_ref = "provision.node.kali#0"
+    engine_range = Range.objects.create(
+        owner_principal_uuid=principal.uuid,
+        cms_range_uuid=cms_range.uuid,
+        event_uuid=ctf_participant.event_id,
+        scope_kind="account",
+        account_id=account.id,
         request=engine_request,
         user=participant_user,
         status=Range.Status.READY,
+        resource_generation=uuid4(),
+        remote_access_capability=build_openvpn_capability(target_ref, timezone.now() + timedelta(hours=1)),
+        provisioned_instances=[
+            {
+                "uuid": target_ref,
+                "role": "raes-node",
+                "private_ip": "10.1.2.56",
+                "participant_access_channels": ["ssh"],
+            }
+        ],
         vpn_access_binding={
-            "version": "openvpn-binding-v1",
-            "channel": "openvpn",
-            "generation": str(request_id),
-            "owner_user_id": participant_user.id,
-            "target_ref": str(target_ref),
             "endpoint": "vpn.example.test",
             "port": 1194,
-            "profile_version": "openvpn-profile-v1",
             "secret_ref": f"arn:aws:secretsmanager:eu-central-1:123:secret:range-vpn-{request_id}",
-            "ready": True,
         },
     )
+    cms_range.range_id = engine_range.pk
+    cms_range.save(update_fields=["range_id"])
     ctf_participant.range_instance_id = cms_range.pk
+    ctf_participant.range_request_id = request_id
     ctf_participant.range_status = "ready"
-    ctf_participant.save(update_fields=["range_instance_id", "range_status", "updated_at"])
+    ctf_participant.save(update_fields=["range_instance_id", "range_request_id", "range_status", "updated_at"])
     return cms_range
 
 
-def test_exact_scope_token_downloads_a_no_store_profile(settings, participant_user, ctf_participant):
+def test_exact_scope_token_queues_an_individual_profile(settings, participant_user, ctf_participant):
     settings.CLOUD_PROVIDER = "aws"
+    settings.ENGINE_TASK_CLUSTER = "synthetic-namespace"
+    settings.ENGINE_TASK_DEFINITION = "synthetic-provisioner:1"
     cms_range = _active_range_participant(participant_user, ctf_participant)
     raw = _token(participant_user, scopes.CTF_VPN_PROFILE_READ)
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
 
-    with boto3_secrets(make_secrets_client(PROFILE)):
-        response = client.post(URL)
+    response = client.post(URL)
 
-    assert response.status_code == 200
-    assert response.content == PROFILE.encode()
-    assert response["Content-Type"] == "application/x-openvpn-profile"
-    assert response["Content-Disposition"] == 'attachment; filename="shifter-ctf-range.ovpn"'
-    assert response["Cache-Control"] == "private, no-store"
-    assert "ETag" not in response
-    assert "Cookie" in response["Vary"]
-    audit = AuditLog.objects.get(
+    assert response.status_code == 202
+    assert response.json()["error"]["code"] == "vpn_preparing"
+    assert response["Retry-After"] == "5"
+    from engine.models import VpnAccessProfile
+
+    profile = VpnAccessProfile.objects.get(range__cms_range_uuid=cms_range.uuid)
+    assert profile.state == "pending"
+    assert profile.initiating_principal_uuid == participant_user.identity_principal.uuid
+    assert not AuditLog.objects.filter(
         entity_type=AuditEntityType.CREDENTIAL,
         entity_id=cms_range.pk,
         action=AuditAction.DOWNLOAD,
-    )
-    assert audit.actor_id == participant_user.id
-    assert audit.new_state["participant_id"] == str(ctf_participant.pk)
-    assert audit.new_state["channel"] == "openvpn"
+    ).exists()
 
 
 def test_existing_play_scope_does_not_grant_private_key_delivery(participant_user, ctf_participant):
@@ -168,7 +194,7 @@ def test_non_ctf_user_is_rejected(standard_user):
 
     response = client.post(URL)
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 def test_session_post_requires_csrf(participant_user, ctf_participant):
@@ -198,7 +224,7 @@ def test_rate_limit_failure_returns_retry_after_without_resolving_profile(settin
     raw = _token(participant_user, scopes.CTF_VPN_PROFILE_READ)
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
-    caches["launch_rate_limit"].set(f"credential-delivery:{participant_user.pk}", 50, 3600)
+    caches["launch_rate_limit"].set(f"credential-delivery:{participant_user.identity_principal.uuid}", 50, 3600)
     secrets_client = make_secrets_client(PROFILE)
 
     with boto3_secrets(secrets_client):

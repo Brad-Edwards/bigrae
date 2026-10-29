@@ -352,7 +352,7 @@ class TestChallengeSolutions:
         )
         assert "Updated solution" in updated.solution
 
-    def test_solution_visibility_by_event_status(self, ctf_event_draft, participant_user):
+    def test_solution_visibility_by_event_status(self, ctf_event_draft, participant_user, organizer_credential):
         """Participant SPA projection shows solutions only after the event."""
         from ctf.api.projections import participant_challenge_detail
 
@@ -386,7 +386,7 @@ class TestChallengeSolutions:
             ctf_event_draft.status = status
             ctf_event_draft.save(update_fields=["status", "updated_at"])
 
-            payload = participant_challenge_detail(participant, challenge)
+            payload = participant_challenge_detail(participant, challenge, credential=organizer_credential)
             assert payload["show_solution"] is expected
             assert payload["solution"] == ("The answer is 42." if expected else None)
 

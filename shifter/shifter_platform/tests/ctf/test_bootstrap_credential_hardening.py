@@ -42,6 +42,7 @@ def _provisioning_calls(monkeypatch):
 
 def test_creation_generates_unique_credentials_without_event_policy(
     ctf_event,
+    organizer_credential,
     settings,
     _provisioning_calls,
     monkeypatch,
@@ -56,7 +57,7 @@ def test_creation_generates_unique_credentials_without_event_policy(
         lambda *, user=None: next(generated_passwords),
     )
 
-    participants = create_participant_accounts(ctf_event.id, count=2)
+    participants = create_participant_accounts(ctf_event.id, count=2, actor=organizer_credential)
 
     assert len(participants) == 2
     assert not participants[0].user.check_password("1234")
@@ -66,21 +67,21 @@ def test_creation_generates_unique_credentials_without_event_policy(
     assert not participants[1].user.check_password("Generated-Alpha-Password-42")
 
 
-def test_creation_uses_validated_event_shared_credential(ctf_event, _provisioning_calls):
+def test_creation_uses_validated_event_shared_credential(ctf_event, organizer_credential, _provisioning_calls):
     ctf_event.participant_password_override = _EVENT_OVERRIDE
     ctf_event.save(update_fields=["participant_password_override", "updated_at"])
 
-    participant = create_participant_accounts(ctf_event.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event.id, count=1, actor=organizer_credential)[0]
 
     assert participant.user.check_password(_EVENT_OVERRIDE)
 
 
-def test_invalid_event_shared_credential_fails_atomically(ctf_event, _provisioning_calls):
+def test_invalid_event_shared_credential_fails_atomically(ctf_event, organizer_credential, _provisioning_calls):
     ctf_event.participant_password_override = "1234"
     ctf_event.save(update_fields=["participant_password_override", "updated_at"])
 
     with pytest.raises(CTFValidationError) as exc:
-        create_participant_accounts(ctf_event.id, count=3)
+        create_participant_accounts(ctf_event.id, count=3, actor=organizer_credential)
 
     assert exc.value.code == _INVALID
     assert CTFParticipant.objects.filter(event=ctf_event).count() == 0
@@ -89,6 +90,7 @@ def test_invalid_event_shared_credential_fails_atomically(ctf_event, _provisioni
 
 def test_bulk_import_generates_accounts_without_shared_credential(
     ctf_event,
+    organizer_credential,
     _provisioning_calls,
     monkeypatch,
 ):
@@ -103,6 +105,7 @@ def test_bulk_import_generates_accounts_without_shared_credential(
     result = bulk_import_participants(
         ctf_event.id,
         "Alpha,alpha@example.test\nBravo,bravo@example.test\n",
+        actor=organizer_credential,
     )
 
     created = result["created"]
@@ -117,9 +120,10 @@ def test_bulk_import_generates_accounts_without_shared_credential(
 def test_detail_view_never_retrieves_existing_credential(
     authenticated_organizer_client,
     ctf_event,
+    organizer_credential,
     _provisioning_calls,
 ):
-    participant = create_participant_accounts(ctf_event.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event.id, count=1, actor=organizer_credential)[0]
 
     response = authenticated_organizer_client.get(
         reverse("ctf:admin_participant_detail", kwargs={"participant_id": participant.id})
@@ -135,6 +139,7 @@ def test_detail_view_never_retrieves_existing_credential(
 def test_resend_invite_does_not_mutate_password(
     authenticated_organizer_client,
     ctf_event,
+    organizer_credential,
     _provisioning_calls,
     monkeypatch,
 ):
@@ -144,6 +149,7 @@ def test_resend_invite_does_not_mutate_password(
         ctf_event.id,
         count=1,
         email="delivery@example.test",
+        actor=organizer_credential,
     )[0]
     participant.user.set_password("PrivateChangedPassword-42")
     participant.user.save(update_fields=["password"])
@@ -165,9 +171,10 @@ def test_resend_invite_does_not_mutate_password(
 def test_first_password_change_rejects_current_issued_password(
     client,
     ctf_event_active,
+    organizer_credential,
     _provisioning_calls,
 ):
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     client.post(
         reverse("ctf:ctf_login"),
         {"username": participant.user.username, "password": TEST_CTF_BOOTSTRAP_PASSWORD},

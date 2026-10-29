@@ -16,9 +16,10 @@ profile to those released libraries. A broken, malformed, or non-conformant pack
 is rejected.
 
 All entrypoints use the same source-agnostic, entitlement-blind registration
-service. Tenant installation requires organization-admin authority; deployment-wide
-registration requires active staff or Threat Research membership (or the
-corresponding `cms:authoring:write` token scope).
+service. Registration requires current native content authority for the explicit
+resource scope and a matching credential ceiling. Django staff flags, group
+names and an actor username do not grant that authority. Installation content
+publication requires its separate permission.
 
 ## Tenant installation
 
@@ -37,8 +38,8 @@ inputs. Assign the adapter to the new pack digest before launching again.
 The session API is `POST /api/v1/cms/organizations/<uuid>/packs/`, with multipart
 fields `name`, `archive`, and optional `expected_digest` for an update. The server
 selects the storage object and catalog identity. Ownership stays outside the
-portable pack contract. Organization membership gates reads and workspace binding
-gates launch; staff status alone does not disclose tenant-owned packs.
+portable pack contract. Current native policy gates reads and launch within the
+exact scope; staff status alone does not disclose tenant-owned packs.
 
 The tenant assets bucket is the default upload destination. An explicit
 `SHIFTER_RAES_PACKAGE_BUCKET` overrides it. Standard deployment permissions include
@@ -134,21 +135,38 @@ python manage.py register_pack \
   --package-ref shifter/environment-packs/example-pack \
   --package-version 0.1.0 \
   --package-digest "sha256:<64 hex>" \
-  --actor <username>
+  --scope-kind installation \
+  --credential-file /run/operator/catalog-token
 ```
+
+The file must contain an actual native bearer credential, with mode `0600`.
+Use an ordinary issued personal token or a verified service proof with the
+required binding, admission, scope and permissions. A username or credential
+UUID is not authentication. Keep the value out of command arguments and logs.
 
 ## In-box bootstrap seed
 
 The packs BigRAE registers into the tenant by default (an in-box bootstrap
 seed, not a shipped distribution catalog) are declared in
 `cms/scenarios/inbox_packs/manifest.yaml` and registered through the same service
-by `python manage.py bootstrap_inbox_catalog --actor <username>`. There is no
-privileged load path for the seed: it is registered exactly the way an
-operator registers their own content. The bootstrap is idempotent, so it is safe
-to run after each deploy. It validates the complete declaration before writing
-and registers the batch atomically: a missing/malformed manifest or any invalid
-or drifted entry fails visibly and leaves no partially installed batch. The
-manifest declares the in-box bootstrap seed.
+by `python manage.py bootstrap_inbox_catalog --credential-file /run/operator/catalog-token`.
+The seed uses explicit installation scope and the same native registration,
+conformance and publication services as other content. Its credential needs
+current installation content-management, read and publication authority.
+
+Bootstrap validates and admits the complete declaration before its atomic
+registration batch. A missing or malformed manifest, denied registration or
+conflicting immutable identity leaves no partial registration batch.
+Conformance and publication follow commit, outside the registration transaction.
+A qualification or publication failure leaves native pending or unpublished
+content for an exact retry. Bootstrap does not create an actor or grant permission.
+
+Run it after native activation. On a fresh installation, authenticate as the
+explicitly granted administrator and obtain a current credential first. Existing
+personal proofs are revoked by cutover. GCP deployment reports catalog setup
+incomplete until a current proof is supplied through `--catalog-credential-file`;
+the active application remains available for login. See
+[GCP native identity operations](gcp-native-identity.md).
 
 The pack sources live in the canonical
 [`shifter/environment-packs/`](../../shifter/environment-packs/README.md)
@@ -214,7 +232,7 @@ continues to be decided by the registry.
 Run conformance for a newly registered or replaced pack with the trusted command:
 
 ```sh
-python manage.py validate_pack_conformance --actor OPERATOR_USERNAME \
+python manage.py validate_pack_conformance --credential-file /run/operator/catalog-token \
   --scenario-id example-pack --expected-package-digest 'sha256:<64 hex>'
 ```
 

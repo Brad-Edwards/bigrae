@@ -17,24 +17,26 @@ import yaml
 from django.contrib.auth import get_user_model
 
 from cms.exceptions import CMSError
-from cms.management.commands.bootstrap_inbox_catalog import SYSTEM_ACTOR_USERNAME
 from cms.models import RaesPackageSource
 from cms.scenarios.inbox import SHIPPED_INBOX_MANIFEST, load_inbox_manifest, register_inbox_packs
 from cms.scenarios.pack_validation import PackDigestError, pack_digest
 from cms.scenarios.registry import get_catalog_entry
+from shared.identity_scope import ResourceScope
+from tests.cms._native_catalog import native_catalog as native_catalog
 
 User = get_user_model()
 
-pytestmark = pytest.mark.django_db
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
 @pytest.fixture
-def admin_actor(db):
-    return User.objects.create_user(
-        username="inbox-bootstrap@example.com",
-        email="inbox-bootstrap@example.com",
-        is_staff=True,
-    )
+def admin_actor(native_catalog):
+    return native_catalog.credential
+
+
+@pytest.fixture
+def credential_file(native_catalog):
+    return str(native_catalog.path)
 
 
 def _write_manifest(path: Path, entries: list[object]) -> Path:
@@ -73,7 +75,7 @@ class TestShippedManifest:
         # portable-addressing variant for the AWS EC2 range backend (#1826).
         assert [pack.scenario_id for pack in packs] == ["smoke-linux", "smoke-linux-aws"]
 
-    def test_shipped_packs_register_and_pass_release_conformance(self, admin_actor, shipped_pack_root):
+    def test_shipped_packs_register_and_pass_release_conformance(self, admin_actor, shipped_pack_root, credential_file):
         """Every shipped in-box pack has a valid byte-bound digest and conforms.
 
         Registering the real shipped manifest under an image-shaped package root
@@ -100,7 +102,7 @@ class TestRegisterInboxPacks:
 
         assert [r.scenario_id for r in registered] == ["inbox-fixture"]
         assert RaesPackageSource.objects.filter(scenario_id="inbox-fixture").exists()
-        assert get_catalog_entry("inbox-fixture") is not None
+        assert get_catalog_entry("inbox-fixture", user=admin_actor, scope=ResourceScope("installation")) is not None
 
     def test_is_idempotent(self, admin_actor, make_pack, tmp_path, monkeypatch):
         from django.conf import settings
@@ -187,28 +189,27 @@ class TestRegisterInboxPacks:
 
 
 class TestBootstrapCommand:
-    def test_command_uses_bounded_non_login_system_actor_when_omitted(self, shipped_pack_root):
-        from django.core.management import call_command
-
-        call_command("bootstrap_inbox_catalog")
-
-        actor = User.objects.get(username=SYSTEM_ACTOR_USERNAME)
-        assert actor.email == ""
-        assert actor.is_active is True
-        assert actor.is_staff is True
-        assert actor.is_superuser is False
-        assert actor.has_usable_password() is False
-        assert RaesPackageSource.objects.filter(scenario_id="smoke-linux", registered_by=actor).exists()
-
-    def test_command_rejects_a_conflicting_system_actor(self):
+    def test_command_requires_proof_without_creating_a_user(self):
         from django.core.management import CommandError, call_command
 
-        User.objects.create_user(username=SYSTEM_ACTOR_USERNAME, password="usable", is_staff=True)
-
-        with pytest.raises(CommandError, match="system actor conflicts"):
+        before = User.objects.count()
+        with pytest.raises(CommandError):
             call_command("bootstrap_inbox_catalog")
+        assert User.objects.count() == before
 
-    def test_shipped_upgrade_replaces_only_the_declared_previous_digest(self, admin_actor, shipped_pack_root):
+    def test_command_rejects_invalid_proof(self, tmp_path):
+        from django.core.management import CommandError, call_command
+
+        proof = tmp_path / "invalid-proof"
+        proof.write_text("not-a-proof")
+        proof.chmod(0o600)
+        with pytest.raises(CommandError, match="initialization incomplete"):
+            call_command("bootstrap_inbox_catalog", "--credential-file", str(proof))
+        assert not RaesPackageSource.objects.exists()
+
+    def test_shipped_upgrade_replaces_only_the_declared_previous_digest(
+        self, admin_actor, shipped_pack_root, credential_file
+    ):
         from django.core.management import CommandError, call_command
 
         request = load_inbox_manifest()[0]
@@ -223,10 +224,11 @@ class TestBootstrapCommand:
             provenance=request.provenance,
             conformance_status="passed",
             conformance_report_ref="release://previous-version",
-            registered_by=admin_actor,
+            scope_kind="installation",
+            owner_principal_uuid=admin_actor.principal.uuid,
         )
         original_id = source.id
-        call_command("bootstrap_inbox_catalog", "--actor", admin_actor.username)
+        call_command("bootstrap_inbox_catalog", "--credential-file", credential_file)
         source.refresh_from_db()
         assert source.id == original_id
         assert source.package_digest == request.package_digest
@@ -235,10 +237,12 @@ class TestBootstrapCommand:
         # A later customized tenant revision must not be overwritten by deploy.
         source.package_digest = "sha256:" + "f" * 64
         source.save()
-        with pytest.raises(CommandError, match="conflicts"):
-            call_command("bootstrap_inbox_catalog", "--actor", admin_actor.username)
+        with pytest.raises(CommandError, match="initialization incomplete"):
+            call_command("bootstrap_inbox_catalog", "--credential-file", credential_file)
 
-    def test_source_relocation_keeps_existing_release_registrations(self, admin_actor, shipped_pack_root):
+    def test_source_relocation_keeps_existing_release_registrations(
+        self, admin_actor, shipped_pack_root, credential_file
+    ):
         """Rows persisted before the #2550 source move stay valid on the next deploy.
 
         The prior release stored image-relative refs under
@@ -262,39 +266,42 @@ class TestBootstrapCommand:
                 conformance_status="passed",
                 conformance_report_ref=f"release://cms/scenarios/inbox_packs/{request.scenario_id}@"
                 f"{request.package_version}",
-                registered_by=admin_actor,
+                scope_kind="installation",
+                owner_principal_uuid=admin_actor.principal.uuid,
             )
             seeded[row.scenario_id] = (row.id, row.package_ref, row.package_digest)
 
-        assert call_command("bootstrap_inbox_catalog", "--actor", admin_actor.username) is None
+        assert call_command("bootstrap_inbox_catalog", "--credential-file", credential_file) is None
         assert {
             row.scenario_id: (row.id, row.package_ref, row.package_digest) for row in RaesPackageSource.objects.all()
         } == seeded
 
-    def test_command_registers_and_promotes_the_shipped_smoke_linux_pack(self, admin_actor, shipped_pack_root):
+    def test_command_registers_and_promotes_the_shipped_smoke_linux_pack(
+        self, admin_actor, shipped_pack_root, credential_file
+    ):
         from django.core.management import call_command
 
         # The portal image copies each shipped pack from shifter/environment-packs/
         # to its manifest package_ref under /app, where RAES_PACKAGE_ROOT
         # defaults. The fixture stages that same image layout (#2550).
-        call_command("bootstrap_inbox_catalog", "--actor", admin_actor.username)
+        call_command("bootstrap_inbox_catalog", "--credential-file", credential_file)
         source = RaesPackageSource.objects.get(scenario_id="smoke-linux")
-        shipped = next(r for r in load_inbox_manifest(SHIPPED_INBOX_MANIFEST) if r.scenario_id == "smoke-linux")
         assert source.conformance_status == RaesPackageSource.ConformanceStatus.PASSED
-        assert source.conformance_report_ref == (
-            f"release://cms/scenarios/inbox_packs/smoke-linux@{shipped.package_version}"
+        assert source.conformance_report_ref.startswith("urn:shifter:pack-conformance:")
+        assert (
+            get_catalog_entry("smoke-linux", user=admin_actor, scope=ResourceScope("installation"))["launchable"]
+            is True
         )
-        assert get_catalog_entry("smoke-linux")["launchable"] is True
 
     def test_command_errors_on_unknown_actor(self, db):
         from django.core.management import CommandError, call_command
 
         with pytest.raises(CommandError):
-            call_command("bootstrap_inbox_catalog", "--actor", "nobody@example.com")
+            call_command("bootstrap_inbox_catalog", "--credential-file", "/missing-proof")
 
-    def test_command_surfaces_missing_shipped_manifest(self, admin_actor, tmp_path, monkeypatch):
+    def test_command_surfaces_missing_shipped_manifest(self, admin_actor, tmp_path, monkeypatch, credential_file):
         from django.core.management import CommandError, call_command
 
         monkeypatch.setattr("cms.scenarios.inbox.SHIPPED_INBOX_MANIFEST", tmp_path / "missing.yaml")
-        with pytest.raises(CommandError, match="manifest is missing"):
-            call_command("bootstrap_inbox_catalog", "--actor", admin_actor.username)
+        with pytest.raises(CommandError, match="initialization incomplete"):
+            call_command("bootstrap_inbox_catalog", "--credential-file", credential_file)

@@ -23,4 +23,4 @@ Team size limits ensure competitive balance, a team of 20 has an unfair advantag
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFEvent.team_size_limit field and CTFTeam.is_full property)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (TestCTFTeamModel.test_team_is_full - verifies is_full at capacity)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#648` (CTF-505: Team Size Limits)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#648` (CTF-505: Team Size Limits)

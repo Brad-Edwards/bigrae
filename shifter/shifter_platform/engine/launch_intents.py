@@ -21,6 +21,7 @@ from engine.launch_intents_failure import (
 # here so existing ``from engine.launch_intents import ...`` importers are unaffected.
 from engine.launch_interrupt import request_provision_interrupt
 from engine.launch_payload_authority import authorize_provisioner_payload as authorize_provisioner_payload
+from engine.launch_target import lock_provisioner_target
 from engine.models import (
     Instance,
     OperationInput,
@@ -304,12 +305,10 @@ def validate_provisioner_generation(
 
 def _lock_operation_target(payload: dict[str, object]) -> Range | Instance:
     """Lock and return the domain row that owns an operation generation."""
-    if "request_id" not in payload:
-        return Range.objects.select_for_update().get(pk=int(str(payload["range_id"])))
-    request = Request.objects.get(request_id=UUID(str(payload["request_id"])))
-    if payload["resource"] in {"range", "raes-range"}:
-        return Range.objects.select_for_update().get(request=request)
-    return Instance.objects.select_for_update().get(request=request, role=Instance.Role.NGFW)
+    target = lock_provisioner_target(payload)
+    if not isinstance(target, (Range, Instance)):
+        raise ValueError("launch intent has no operation target")
+    return target
 
 
 def _should_rotate_generation(row: Range | Instance, operation: str) -> bool:
@@ -340,7 +339,7 @@ def _operation_identity(payload: dict[str, object], authority: dict[str, object]
         cleanup_transition = (
             authority.get("authority_kind") == "cleanup"
             and current is not None
-            and current.authority_kind == "principal"
+            and current.authority_kind in {"principal", "warm_pool"}
             and authority.get("cleanup_origin_operation_uuid") == current.operation_id
         )
         if _should_rotate_generation(row, operation) or cleanup_transition:

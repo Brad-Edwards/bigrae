@@ -13,7 +13,7 @@ from shared.credentials import CredentialContext
 from workspaces.models import Account
 
 from ._account import AccountScopeError, hierarchy_target_scope
-from ._account_policy_admin import AccountAdminView, _require_action
+from ._account_policy_admin import AccountAdminView, _fence_actor, _require_action
 from ._organization import OrganizationAuditContext, OrganizationProfile, _profile_from, _validate_changes, _write_audit
 from ._policy_memberships import _locked_scope
 from ._quota_admin import WorkspaceQuotaProjection, _workspace_quota_projection
@@ -38,10 +38,11 @@ def admin_update_account(
     ):
         raise AccountScopeError(_SCOPE_UNAVAILABLE)
     scope = hierarchy_target_scope("account", account_uuid)
-    _require_action(actor, provider, "account.update", TargetRef("account", account_uuid), scope)
+    actor = _require_action(actor, provider, "account.update", TargetRef("account", account_uuid), scope)
     request = audit or RequestAudit()
     with transaction.atomic():
         account = Account.objects.select_for_update().get(uuid=account_uuid)
+        _fence_actor(actor)
         name = changes["name"].strip()
         if account.name != name:
             account.name = name
@@ -74,7 +75,7 @@ def admin_get_organization_profile(
     scope = hierarchy_target_scope("organization", organization_uuid)
     if scope.account_uuid != account_uuid:
         raise AccountScopeError(_SCOPE_UNAVAILABLE)
-    _require_action(actor, provider, "organization.read", TargetRef("organization", organization_uuid), scope)
+    actor = _require_action(actor, provider, "organization.read", TargetRef("organization", organization_uuid), scope)
     from workspaces.models import Organization
 
     return _profile_from(Organization.objects.get(uuid=organization_uuid, account__uuid=account_uuid))
@@ -93,11 +94,12 @@ def admin_update_organization_profile(
     scope = hierarchy_target_scope("organization", organization_uuid)
     if scope.account_uuid != account_uuid:
         raise AccountScopeError(_SCOPE_UNAVAILABLE)
-    _require_action(actor, provider, "organization.update", TargetRef("organization", organization_uuid), scope)
+    actor = _require_action(actor, provider, "organization.update", TargetRef("organization", organization_uuid), scope)
     _validate_changes(changes)
     request = audit or RequestAudit()
     with transaction.atomic():
         organization = _locked_scope("organization", scope)
+        _fence_actor(actor)
         fields = [key for key, value in changes.items() if getattr(organization, key) != value]
         if fields:
             for key in fields:
@@ -126,7 +128,7 @@ def admin_workspace_quota_usage(
 ) -> WorkspaceQuotaProjection:
     """Read exactly one workspace's quota under its registered read action."""
     scope = hierarchy_target_scope("workspace", workspace_uuid)
-    _require_action(actor, provider, "workspace.read", TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(actor, provider, "workspace.read", TargetRef("workspace", workspace_uuid), scope)
     from workspaces.models import Workspace
 
     workspace = Workspace.objects.get(uuid=workspace_uuid)

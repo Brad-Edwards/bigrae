@@ -23,14 +23,32 @@ _PEER = "10.80.2.17"
 
 @pytest.fixture
 def enrolled_allocation(django_user_model):
+    from shared.identity_scope import PrincipalRef
+    from workspaces.services import create_account
+
     allocation = make_reservable_allocation()
     user = django_user_model.objects.create_user(username=f"guest-{uuid4()}")
-    request = Request.objects.create(request_id=allocation.request_id, request_type="range", user=user)
+    principal_uuid = user.identity_principal.uuid
+    account = create_account(
+        kind="individual",
+        name="Synthetic model credential account",
+        owner=PrincipalRef(principal_uuid, "human"),
+    )
+    request = Request.objects.create(
+        request_id=allocation.request_id,
+        request_type="range",
+        user=user,
+        owner_principal_uuid=principal_uuid,
+        scope_kind="account",
+        account_id=account.id,
+    )
     range_obj = Range.objects.create(
         uuid=allocation.range_id,
         user=user,
         request=request,
-        workspace_id=1,
+        owner_principal_uuid=principal_uuid,
+        scope_kind="account",
+        account_id=account.id,
         provisioner_operation_id=allocation.operation_id,
         status=Range.Status.PROVISIONING,
     )

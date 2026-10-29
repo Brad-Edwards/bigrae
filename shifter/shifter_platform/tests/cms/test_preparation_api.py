@@ -6,12 +6,18 @@ from rest_framework.test import APIClient
 
 from engine.models import PreparationAdapter
 from shared.api_tokens.models import ApiToken
+from tests.engine.services._preparation_fixtures import native_credential, preparation_policy
 from tests.engine.services.test_preparation_adapters import administrator, grant
 from tests.shared.raes.test_preparation_contract import manifest_payload
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
 __all__ = ["administrator", "grant"]
 URL = "/api/v1/cms/preparation-adapters/"
+
+
+@pytest.fixture(autouse=True)
+def native_preparation_policy(monkeypatch):
+    preparation_policy(monkeypatch)
 
 
 def body(grant):
@@ -30,7 +36,7 @@ def test_grant_picker_requires_executable_authority_and_omits_configuration(admi
     client = APIClient()
     client.force_authenticate(user=User.objects.create_user(username="grant-picker-staff", is_staff=True))
     assert client.get("/api/v1/cms/preparation-adapter-grants/").status_code == 403
-    client.force_authenticate(user=administrator)
+    client.force_authenticate(user=administrator, token=native_credential(administrator))
     response = client.get("/api/v1/cms/preparation-adapter-grants/")
     assert response.status_code == 200
     rows = response.json()
@@ -41,7 +47,7 @@ def test_grant_picker_requires_executable_authority_and_omits_configuration(admi
 
 def test_explicit_administrator_installs_and_retires_without_platform_release(administrator, grant):
     client = APIClient()
-    client.force_authenticate(user=administrator)
+    client.force_authenticate(user=administrator, token=native_credential(administrator))
     installed = client.post(URL, body(grant), format="json")
     assert installed.status_code == 201
     identity = installed.json()["id"]
@@ -61,7 +67,9 @@ def test_content_authoring_token_does_not_authorize_adapter_installation(adminis
 
 def test_dedicated_token_scope_and_actor_permission_are_both_required(administrator, grant):
     _, raw = ApiToken.create_token(
-        name="adapter-installer", created_by=administrator, scopes=["cms:preparation-adapters:write"]
+        name="adapter-installer",
+        created_by=administrator,
+        scopes=["cms:preparation-adapters:write", "authorization:installation.manage_adapters"],
     )
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
@@ -79,7 +87,7 @@ def test_session_mutation_requires_csrf(administrator, grant):
 
 def test_installer_cannot_supply_a_job_command_or_service_account(administrator, grant):
     client = APIClient()
-    client.force_authenticate(user=administrator)
+    client.force_authenticate(user=administrator, token=native_credential(administrator))
     request = body(grant)
     request["service_account"] = "platform-controller"
     assert client.post(URL, request, format="json").status_code == 400
@@ -89,15 +97,17 @@ def test_installer_cannot_supply_a_job_command_or_service_account(administrator,
 def test_install_audit_uses_canonical_vocabulary_and_token_attribution(administrator, grant):
     from shared.models import AuditLog
 
-    token, raw = ApiToken.create_token(
-        name="attributed-installer", created_by=administrator, scopes=["cms:preparation-adapters:write"]
+    _token, raw = ApiToken.create_token(
+        name="attributed-installer",
+        created_by=administrator,
+        scopes=["cms:preparation-adapters:write", "authorization:installation.manage_adapters"],
     )
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
     assert client.post(URL, body(grant), format="json").status_code == 201
     event = AuditLog.objects.get(entity_type="preparation_adapter")
     assert event.entity_ref == str(PreparationAdapter.objects.get().id)
-    assert event.actor_type == "apikey"
-    assert event.actor_id == token.id
+    assert event.actor_principal_uuid == administrator.identity_principal.uuid
+    assert event.actor_id is None
     assert event.request_id
     event.full_clean()

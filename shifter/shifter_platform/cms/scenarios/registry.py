@@ -73,9 +73,13 @@ def _get_raes_sources() -> list[RaesPackageSource]:
     Returns:
         List of RaesPackageSource instances.
     """
+    from django.db.models import Q
+
     from cms.models import RaesPackageSource
 
-    return list(RaesPackageSource.objects.filter(scope_kind=""))
+    return list(
+        RaesPackageSource.objects.filter(Q(scope_kind="") | Q(scope_kind="installation", is_operator_published=True))
+    )
 
 
 def _raes_source_refs_valid(source: RaesPackageSource) -> bool:

@@ -30,9 +30,11 @@ def clear_notification_registry():
 
 
 @pytest.fixture
-def user(db):
+def user(db, live_session_credential):
     """Create a test user."""
-    return get_user_model().objects.create_user(username="owner@example.com", email="owner@example.com")
+    account = get_user_model().objects.create_user(username="owner@example.com", email="owner@example.com")
+    account.notification_credential = live_session_credential(account)
+    return account
 
 
 @pytest.fixture
@@ -98,11 +100,11 @@ def test_register_notification_type_validates_contract() -> None:
         )
 
 
-def test_authorize_subscription_handles_invalid_and_failing_authorizers(caplog) -> None:
+def test_authorize_subscription_handles_invalid_and_failing_authorizers(caplog, user) -> None:
     """Authorization failures deny access without breaking the socket path."""
     from shared.notifications import authorize_subscription, register_notification_type
 
-    authenticated = MagicMock(is_authenticated=True, id=7)
+    authenticated = user.notification_credential
     unauthenticated = MagicMock(is_authenticated=False, id=8)
 
     def failing_authorizer(_user, _topic):
@@ -118,6 +120,18 @@ def test_authorize_subscription_handles_invalid_and_failing_authorizers(caplog) 
     assert authorize_subscription(authenticated, "not valid") is False
     assert authorize_subscription(authenticated, "experiment:100") is False
     assert "notification authorizer failed" in caplog.text
+
+
+def test_service_contact_cannot_become_a_browser_notification_identity(user):
+    from management.services import set_service_contact
+    from shared.notifications import authorize_subscription, notification_user_id
+    from tests.workspaces.test_account_policy_admin import _actor
+
+    service = _actor("service", actions=frozenset({"event.read"}))
+    set_service_contact(service.principal, user)
+    _register_experiment_type()
+    assert authorize_subscription(service, "experiment:100") is False
+    assert notification_user_id(service, user) is None
 
 
 def test_publish_notification_validates_registration_and_event_id(user, enabled_notifications) -> None:

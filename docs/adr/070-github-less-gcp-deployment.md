@@ -47,12 +47,22 @@ tracks the AWS path.
    Trivy gate. The only accepted exposures are time-boxed vendor-binary entries
    in `platform/deployer/gcp/trivyignore.yaml`. Each entry stops applying on its
    expiry date.
+   The deployer builds `gke-gcloud-auth-plugin` from a pinned upstream commit
+   with a digest-pinned Go toolchain. Go verifies the module checksums. The
+   plugin has no scan exceptions. Return to the Google binary when it passes
+   the blocking deployer scan without plugin-specific exceptions.
 2. **One deploy implementation serves every deploy.** `deploy.py gcp-deploy` is
    the deploy for the first install and for each update. An operator runs it from
    the deployer image or from a clean checkout of the release revision. The GCP
    CI workflows call the same commands: `gcp-deploy`, `gcp-release-scan`,
    `gcp-smoke`, and `gcp-destroy`. They hold no inline deploy logic. The Helm
    chart is the only GCP Kubernetes renderer.
+   The S8 identity cutover (#2321) uses this same command. A conclusive identity
+   probe precedes workload changes. The command drains old application
+   processes before migration, runs policy schema/publication and immutable
+   administrator bootstrap before activation, and restores application
+   workloads only after verification. Reviewed mapping and bootstrap facts
+   enter through paired owner-only file paths, never through bundle content.
 3. **Deployment inputs stay outside this repository and outside GitHub.** A
    deployment keeps its deployment input bundle in its deployment config bucket
    or in a local directory. The bundle holds `bigrae.yaml`, `terraform.tfvars`
@@ -98,6 +108,15 @@ tracks the AWS path.
    and the OCI contract checks, and it writes the exact image references to
    `range-images.json`. When `GCP_RELEASE_REGISTRY` is set, `packer-gcp.yml`
    copies each published base-image artifact by digest into the release registry.
+
+Catalog initialization is an application operation after verified native
+activation and readiness. It uses the existing content services with an actual
+native bearer proof supplied through `--catalog-credential-file`; cloud IAM and
+deployment control do not grant application permission. The schema Job must not
+create a legacy catalog actor or unscoped content. Missing proof leaves catalog
+setup explicitly incomplete while the active application remains available for
+administrator login. Private credential files and transient Secret mounts stay
+outside the deployment input bundle and logs.
 
 ## Consequences
 

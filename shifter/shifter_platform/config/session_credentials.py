@@ -291,7 +291,6 @@ def _bind_socket_credential(
         from shared.remote_access import TERMINAL_TARGET_PATH_RE
 
         if (
-            TERMINAL_TARGET_PATH_RE.fullmatch(str(scope.get("path", "")))
-            and getattr(session, "credential_uuid", None) is not None
-        ):
+            TERMINAL_TARGET_PATH_RE.fullmatch(str(scope.get("path", ""))) or scope.get("path") == "/ws/notifications/"
+        ) and getattr(session, "credential_uuid", None) is not None:
             scope["credential_context"] = session_credential(user, session)

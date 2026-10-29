@@ -21,6 +21,7 @@ from shared.authorization import (
     AuthorizationContractError,
     AuthorizationProvider,
     AuthorizationProviderBindingError,
+    AuthorizationProviderError,
     CredentialCeiling,
     GroupMembershipChange,
     PolicyEffect,
@@ -29,6 +30,7 @@ from shared.authorization import (
     TargetRef,
     configured_authorization_provider,
 )
+from shared.credentials import resolve_current_credential
 from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.principal_port import PrincipalResolutionError
 from workspaces import services
@@ -67,7 +69,7 @@ def _context(
 ) -> tuple[PrincipalRef, CredentialCeiling, ResourceScope, AuthorizationProvider]:
     """Resolve the active actor, trusted workspace scope, and configured evaluator."""
     try:
-        credential = authenticated_credential(request)
+        credential = resolve_current_credential(authenticated_credential(request))
         scope = services.workspace_authorization_scope(workspace_uuid)
         provider = configured_authorization_provider()
     except (ValueError, PrincipalResolutionError, services.AuthorizationAdminError):
@@ -98,6 +100,7 @@ class _AuthorizationAPIView(APIView):
                 request=self.request,
             )
         error_contracts = (
+            (AuthorizationProviderError, "authorization_unavailable", "Authorization service is unavailable", 503),
             (
                 services.AuthorizationMutationConflict,
                 "authorization_conflict",

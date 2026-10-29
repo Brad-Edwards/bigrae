@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from django.contrib.auth.models import User
 
+    from engine.services import RangeAuthorityProjection
     from shared.credentials import CredentialContext
     from shared.remote_access import TerminalConnectionFactory
 
@@ -49,6 +50,19 @@ def admit_range_remote_authority(
     projection = project_range_authority(row.request.request_id)
     if projection.resource_generation is None:
         raise ValueError(_INSTANCE_NOT_FOUND)
+    if projection.parent.type == "event":
+        from shared.range_workspace_aggregate import require_range_remote_participation
+
+        if projection.parent.uuid is None:
+            raise ValueError(_INSTANCE_NOT_FOUND)
+        require_range_remote_participation(
+            current, projection.request_uuid, projection.parent.uuid, projection.owner_principal_uuid
+        )
+    return {**credential_reference_fields(current), **_range_remote_authority_fields(projection, instance_uuid)}
+
+
+def _range_remote_authority_fields(projection: RangeAuthorityProjection, instance_uuid: str) -> dict[str, object]:
+    """Build the same immutable remote binding for admission and locked readback."""
     scope, parent = projection.scope, projection.parent
     binding = canonical_payload_digest(
         {
@@ -66,7 +80,6 @@ def admit_range_remote_authority(
         }
     )
     return {
-        **credential_reference_fields(current),
         "authority_kind": "principal",
         "authority_action": _RANGE_ACCESS,
         "authority_target_type": "range",
@@ -81,6 +94,25 @@ def admit_range_remote_authority(
         "authority_resource_uuid": projection.native_uuid,
         "authority_binding_digest": binding,
     }
+
+
+def assert_range_remote_authority_binding(authority: dict[str, object], member: str) -> None:
+    """Fence CMS and Engine custody for one previously admitted remote handoff."""
+    from engine.services import lock_range_remote_authority
+
+    from ._unified_authorization import _intent_scope_binding, _require_realized_binding
+
+    instance = RangeInstance.objects.select_for_update(of=("self",)).get(
+        uuid=authority["authority_target_uuid"], status="ready"
+    )
+    instance.request = Request.objects.select_for_update().get(pk=instance.request_id)
+    projection = lock_range_remote_authority(instance.uuid, member)
+    scope, parent = _intent_scope_binding(instance)
+    _require_realized_binding(instance, scope, parent, read_only_intent=False)
+    if projection.resource_generation is None or any(
+        authority.get(name) != value for name, value in _range_remote_authority_fields(projection, member).items()
+    ):
+        raise ValueError("Range remote binding changed")
 
 
 def _owned_request_id(

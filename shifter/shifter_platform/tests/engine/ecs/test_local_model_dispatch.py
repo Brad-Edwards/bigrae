@@ -9,16 +9,26 @@ from django.db import connections, transaction
 from engine.ecs import start_raes_range_provisioning
 from engine.models import ModelAllocation, OperationInput, ProvisionerLaunchIntent
 
-from ..services.test_model_allocation_launch import prepared_launch
+from ..services.test_model_allocation_launch import launch_credential, prepared_launch
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = [
+    pytest.mark.django_db(transaction=True),
+    pytest.mark.usefixtures("provisioner_workload_config"),
+]
 
 
 @pytest.mark.parametrize("rollback", [False, True])
 def test_local_model_launch_starts_only_after_outer_commit(
-    django_user_model, settings, tmp_path, monkeypatch, rollback
+    django_user_model,
+    settings,
+    tmp_path,
+    monkeypatch,
+    rollback,
+    live_session_credential,
+    allow_all_policy,
 ):
     request = prepared_launch(django_user_model)
+    credential = launch_credential(request, live_session_credential)
     (tmp_path / "main.py").write_text("# first-party process boundary fixture\n")
     settings.PROVISIONER_PATH = str(tmp_path)
     settings.LOCAL_PROVISIONER = "subprocess"
@@ -43,7 +53,7 @@ def test_local_model_launch_starts_only_after_outer_commit(
 
     monkeypatch.setattr("subprocess.Popen", spawn)
     with transaction.atomic():
-        assert start_raes_range_provisioning(request.request_id)
+        assert start_raes_range_provisioning(request.request_id, credential=credential)
         assert not calls
         if rollback:
             transaction.set_rollback(True)

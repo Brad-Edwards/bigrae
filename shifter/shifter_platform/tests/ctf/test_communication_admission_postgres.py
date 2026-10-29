@@ -19,7 +19,6 @@ from django.contrib.auth import get_user_model
 from django.db import connection
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus, ScheduledTaskStatus, ScheduledTaskType
 from ctf.enums_communication import DeliveryStatus, IntentStatus
 from ctf.exceptions import CTFCommunicationError
@@ -39,13 +38,10 @@ from ctf.services.communication import (
     release_due_declaration,
     schedule_declaration,
 )
+from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = [pytest.mark.postgres, pytest.mark.django_db(transaction=True)]
 User = get_user_model()
-
-
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
 
 
 def _participants(event, count):
@@ -70,7 +66,7 @@ def _campaign(owner, event, *, trigger_spec, channels=("in_app",)):
         subject="Welcome",
         body="Hello",
     )
-    return create_campaign(owner, _workspace_uuid(owner), draft)
+    return create_campaign(owner, individual_account_uuid(owner), draft, parent_type="account")
 
 
 def test_concurrent_due_release_materializes_exactly_once(organizer_user, ctf_event):

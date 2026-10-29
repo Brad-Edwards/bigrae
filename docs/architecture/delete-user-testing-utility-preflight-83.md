@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-01
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/83>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/83>
 
 This is a requirement-free preflight. GitHub issue #83 is the shipping
 contract: provide an operator testing utility that removes one test user from

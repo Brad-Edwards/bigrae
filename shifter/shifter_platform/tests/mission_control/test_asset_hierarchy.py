@@ -63,17 +63,17 @@ class TestAssetAbstractBase:
         agent.deleted_at = timezone.now()
         assert agent.is_deleted is True
 
-    def test_active_for_user_excludes_deleted_and_other_users(self, db, make_agent, django_user_model):
+    def test_legacy_user_lookup_excludes_principal_scoped_assets(self, db, make_agent, django_user_model):
         owner = django_user_model.objects.create_user(username="ah-owner@example.com", email="ah-owner@example.com")
         other = django_user_model.objects.create_user(username="ah-other@example.com", email="ah-other@example.com")
-        active = make_agent(owner, name="Active")
+        make_agent(owner, name="Active")
         deleted = make_agent(owner, name="Deleted")
         deleted.deleted_at = timezone.now()
         deleted.save(update_fields=["deleted_at"])
         make_agent(other, name="Other")
 
         result = list(AgentConfig.active_for_user(owner))
-        assert result == [active]
+        assert result == []
 
 
 class TestFileAssetAbstractBase:

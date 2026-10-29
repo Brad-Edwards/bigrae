@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-29
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/450>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/450>
 
 > **Later contract note (2026-07-13):** issue #307 was resolved to **preserve**
 > this note's per-source admission policy (a user may hold one Mission Control

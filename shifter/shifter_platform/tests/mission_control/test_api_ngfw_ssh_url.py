@@ -15,6 +15,7 @@ failure by a real invalid signing secret.
 
 import json
 import logging
+import sys
 
 import pytest
 from botocore.exceptions import ClientError
@@ -46,6 +47,22 @@ def user(db):
 @pytest.fixture
 def other_user(db):
     return User.objects.create_user(username="ngfw-other@example.com", email="ngfw-other@example.com")
+
+
+@pytest.fixture(autouse=True)
+def referenced_session_authentication(monkeypatch, live_session_credential):
+    """Make direct DRF view requests carry the same session proof as production."""
+    original = force_authenticate
+    sessions = {}
+
+    def authenticate(request, user=None, token=None):
+        if isinstance(user, User) and token is None:
+            if user.pk not in sessions:
+                sessions[user.pk] = live_session_credential(user)
+            token = sessions[user.pk]
+        return original(request, user=user, token=token)
+
+    monkeypatch.setattr(sys.modules[__name__], "force_authenticate", authenticate)
 
 
 @pytest.fixture(autouse=True)
@@ -89,13 +106,13 @@ class TestApiNGFWSSHURL:
         self, rf, user, guac_configured, make_ngfw, secrets_boundary, guac_exchange
     ):
         ngfw = make_ngfw(user)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
 
         with secrets_boundary(), guac_exchange():
             response = api_ngfw_ssh_url(request, app_id)
 
-        assert response.status_code == 202
+        assert response.status_code == 202, getattr(response, "data", None)
         status = _status_response(rf, user, _json(response)["request_id"])
         assert status.status_code == 200
         url = _json(status)["url"]
@@ -106,7 +123,7 @@ class TestApiNGFWSSHURL:
         self, rf, user, guac_configured, make_ngfw, secrets_boundary, guac_exchange, secret_key_128, ssh_key_pem
     ):
         ngfw = make_ngfw(user)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
 
         with secrets_boundary(), guac_exchange() as exchange:
@@ -131,20 +148,25 @@ class TestApiNGFWSSHURL:
 
         assert response.status_code == 401
 
-    def test_returns_400_for_non_owner(self, rf, user, other_user, guac_secret, make_ngfw):
-        # Ownership resolution moved into the bootstrap worker (#929), so the
-        # permission failure surfaces as a polled FAILED bootstrap, not a
-        # synchronous 400.
+    def test_explicit_policy_denial_blocks_foreign_device_before_queue(
+        self, rf, user, other_user, guac_secret, make_ngfw, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
+
         ngfw = make_ngfw(user, owner=other_user)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
+        monkeypatch.setattr(
+            port,
+            "_provider_factory",
+            lambda: SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied")),
+        )
 
         response = api_ngfw_ssh_url(request, app_id)
 
-        assert response.status_code == 202
-        status = _status_response(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
-        assert "permission" in _json(status)["error"].lower()
+        assert response.status_code == 403
 
     # ---- validation -------------------------------------------------------
 
@@ -156,28 +178,23 @@ class TestApiNGFWSSHURL:
 
         response = api_ngfw_ssh_url(request, app_id)
 
-        assert response.status_code == 202
-        status = _status_response(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
-        assert "not found" in _json(status)["error"].lower()
+        assert response.status_code == 403
 
     def test_returns_400_when_ngfw_not_accessible(self, rf, user, guac_secret, make_ngfw):
         from shared.enums import ResourceStatus
 
         ngfw = make_ngfw(user, status=ResourceStatus.PROVISIONING.value)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
 
         response = api_ngfw_ssh_url(request, app_id)
 
-        assert response.status_code == 202
-        status = _status_response(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
-        assert "error" in _json(status)
+        assert response.status_code == 403
 
     def test_requires_post_method(self, rf, user, guac_secret):
         request = rf.get("/mc/ngfw/some-uuid/ssh-url/")
         request.user = user
+        force_authenticate(request, user=user)
 
         response = api_ngfw_ssh_url(request, "some-uuid")
 
@@ -189,7 +206,7 @@ class TestApiNGFWSSHURL:
         self, rf, user, guac_secret, make_ngfw, secrets_boundary, secrets_client_factory
     ):
         ngfw = make_ngfw(user)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
 
         failing = secrets_client_factory()
@@ -211,7 +228,7 @@ class TestApiNGFWSSHURL:
         # A non-AES-length secret makes the real sign_and_encrypt step raise.
         settings.GUACAMOLE_JSON_AUTH_SECRET = "abcd"  # nosec B105
         ngfw = make_ngfw(user)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
 
         with secrets_boundary():
@@ -225,7 +242,7 @@ class TestApiNGFWSSHURL:
     def test_returns_503_when_guacamole_not_configured(self, rf, user, settings, make_ngfw, secrets_boundary):
         settings.GUACAMOLE_JSON_AUTH_SECRET = ""
         ngfw = make_ngfw(user)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
 
         with secrets_boundary():
@@ -240,7 +257,7 @@ class TestApiNGFWSSHURL:
         self, rf, user, guac_configured, make_ngfw, secrets_boundary, guac_exchange, caplog
     ):
         ngfw = make_ngfw(user)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
 
         with secrets_boundary(), guac_exchange() as exchange, caplog.at_level(logging.INFO, logger="mission_control"):
@@ -249,13 +266,24 @@ class TestApiNGFWSSHURL:
         assert len(exchange.requests) == 1
         assert app_id in caplog.text
 
-    def test_logs_permission_denied_as_warning(self, rf, user, other_user, guac_secret, make_ngfw, caplog):
+    def test_denied_access_never_loads_transport_credentials(
+        self, rf, user, other_user, guac_secret, make_ngfw, caplog, monkeypatch, secrets_boundary
+    ):
+        from types import SimpleNamespace
+
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
+
         ngfw = make_ngfw(user, owner=other_user)
-        app_id = str(ngfw.uuid)
+        app_id = str(ngfw.test_app_uuid)
         request = _post_request(rf, user, app_id)
+        monkeypatch.setattr(
+            port,
+            "_provider_factory",
+            lambda: SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied")),
+        )
 
-        with caplog.at_level(logging.WARNING, logger="engine.services._terminal"):
-            api_ngfw_ssh_url(request, app_id)
+        with secrets_boundary() as client, caplog.at_level(logging.ERROR, logger="mission_control"):
+            response = api_ngfw_ssh_url(request, app_id)
 
-        denials = [record for record in caplog.records if "permission denied" in record.getMessage().lower()]
-        assert [record.levelno for record in denials] == [logging.WARNING]
+        assert response.status_code == 403
+        client.get_secret_value.assert_not_called()

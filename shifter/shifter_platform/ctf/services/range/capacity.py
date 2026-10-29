@@ -190,11 +190,13 @@ def admit_range(event_id: UUID, draw_key: UUID) -> dict[str, Any] | None:
     }
 
 
-def release_range(draw_key: UUID) -> None:
-    """Return a range's capacity draw on teardown; never raises."""
+def release_range(draw_key: UUID, *, strict: bool = False) -> None:
+    """Return a draw; strict settlement retains claim linkage on failure."""
     from ctf.bridges import cms_release_range_capacity
 
     try:
         cms_release_range_capacity(draw_key)
     except Exception:
         logger.exception("Failed to release range capacity draw draw_key=%s", draw_key)
+        if strict:
+            raise

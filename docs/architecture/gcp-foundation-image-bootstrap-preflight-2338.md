@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-09-20
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/2338>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/2338>
 
 This note fixes the ownership and handoff boundaries for importing the public
 GCE base set after foundation bootstrap and before platform Terraform. It is

@@ -12,6 +12,8 @@ from ._authorization import (
     AuthorizationOperation,
     AuthorizationPolicy,
 )
+from ._hierarchy_publication import HierarchyPublication
+from ._identity_cutover import IdentityCutoverState
 from ._invitation import WorkspaceInvitation
 from ._membership import WorkspaceMembership
 from ._organization import Organization
@@ -63,6 +65,8 @@ __all__ = [
     "AuthorizationMutationFence",
     "AuthorizationOperation",
     "AuthorizationPolicy",
+    "HierarchyPublication",
+    "IdentityCutoverState",
     "Organization",
     "OrganizationMembership",
     "Workspace",

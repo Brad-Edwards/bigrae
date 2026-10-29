@@ -223,6 +223,6 @@ class EventEmailTemplateView(APIView):
             if template is None:
                 _raise_not_found("No custom template to delete")
             template.delete(soft=True)
-            return Response({"status": "reverted_to_default"})
+            return Response(status=204)
         except _CtfApiError as exc:
             return exc.to_response(request)

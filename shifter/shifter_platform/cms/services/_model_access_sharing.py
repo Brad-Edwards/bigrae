@@ -58,6 +58,7 @@ def resolve_model_access_range_views(
     *,
     range_uuids: tuple[UUID, ...] | None = None,
     user_ids: tuple[int, ...] | None = None,
+    user_principal_uuids: tuple[UUID, ...] | None = None,
     workspace_ids: tuple[int, ...] | None = None,
     all_ranges: bool = False,
 ) -> tuple[ModelAccessRangeView, ...]:
@@ -68,6 +69,7 @@ def resolve_model_access_range_views(
         return cms_services.engine_resolve_model_access_range_views(
             range_uuids=range_uuids,
             user_ids=user_ids,
+            user_principal_uuids=user_principal_uuids,
             workspace_ids=workspace_ids,
             all_ranges=all_ranges,
         )
@@ -242,14 +244,37 @@ def _operator_ref(actor: object) -> OwnedReference:
     return OwnedReference(owner="management", reference=f"operator:{getattr(actor, 'pk', 0)}")
 
 
+def _required_selector_id(value: int | None) -> int:
+    """Reject missing identifiers in the parked sharing implementation."""
+    if value is None:
+        raise ModelAccessSelectorError()
+    return value
+
+
 def _resolve_selected(actor: object, selector: SharingSelector) -> SelectorResolution:
     """Resolve explicit ordinary ranges under owner or operator authority."""
+    from django.contrib.auth.models import User
+
     from management.services import is_platform_operator
+    from shared.credentials import CredentialContext
+    from shared.principal_port import principal_for_user
 
     ranges = resolve_model_access_range_views(range_uuids=_uuid_ids(selector.ids))
     is_operator = is_platform_operator(actor)
     actor_id = getattr(actor, "pk", None)
-    if not is_operator and any(item.owner_user_id != actor_id for item in ranges):
+    actor_principal_uuid = None
+    if isinstance(actor, CredentialContext):
+        actor_principal_uuid = actor.principal.uuid
+    elif isinstance(actor, User):
+        actor_principal_uuid = principal_for_user(actor).uuid
+    if not is_operator and any(
+        (
+            item.owner_principal_uuid != actor_principal_uuid
+            if item.owner_principal_uuid is not None
+            else item.owner_user_id != actor_id
+        )
+        for item in ranges
+    ):
         raise ModelAccessSelectorError()
     digest = compute_digest(selector)
     publisher_refs = (_operator_ref(actor),) if is_operator else tuple(item.authority_ref for item in ranges)
@@ -264,33 +289,50 @@ def _resolve_selected(actor: object, selector: SharingSelector) -> SelectorResol
 
 def _resolve_users(actor: object, selector: SharingSelector) -> SelectorResolution:
     """Resolve a user selector through identity and range owner services."""
-    from management.services import is_platform_operator, resolve_model_access_users
+    from management.services import (
+        is_platform_operator,
+        model_access_principals_for_users,
+        resolve_model_access_users,
+    )
 
     user_ids = resolve_model_access_users(actor, _integer_ids(selector.ids))
-    ranges = resolve_model_access_range_views(user_ids=user_ids)
+    principal_rows = model_access_principals_for_users(user_ids)
+    principal_uuids = tuple(principal_uuid for _, principal_uuid in principal_rows)
+    ranges = resolve_model_access_range_views(user_ids=user_ids, user_principal_uuids=principal_uuids)
     digest = compute_digest(selector)
     refs = tuple(OwnedReference(owner="management", reference=f"user:{user_id}") for user_id in user_ids)
     ref_by_user = dict(zip(user_ids, refs, strict=True))
+    ref_by_principal = {principal_uuid: ref_by_user[user_id] for user_id, principal_uuid in principal_rows}
     publisher_ref = _operator_ref(actor) if is_platform_operator(actor) else refs[0]
     return _resolution(
         selector,
         ranges,
         selector_refs=refs,
-        subject_authority_by_range={item.range_uuid: ref_by_user[item.owner_user_id] for item in ranges},
+        subject_authority_by_range={
+            item.range_uuid: (
+                ref_by_principal[item.owner_principal_uuid]
+                if item.owner_principal_uuid is not None
+                else ref_by_user[_required_selector_id(item.owner_user_id)]
+            )
+            for item in ranges
+        },
         publisher_requirements=(_publisher_requirement(digest, publisher_ref),),
     )
 
 
 def _resolve_groups(actor: object, selector: SharingSelector) -> SelectorResolution:
     """Resolve auth-group membership with explicit funded eligibility."""
-    from management.services import resolve_model_access_group
+    from management.services import model_access_principals_for_users, resolve_model_access_group
 
     scopes = tuple(resolve_model_access_group(actor, group_id) for group_id in _integer_ids(selector.ids))
     user_ids = tuple(sorted({user_id for scope in scopes for user_id in scope.user_ids}))
-    ranges = resolve_model_access_range_views(user_ids=user_ids)
+    principal_rows = model_access_principals_for_users(user_ids)
+    principal_uuids = tuple(principal_uuid for _, principal_uuid in principal_rows)
+    ranges = resolve_model_access_range_views(user_ids=user_ids, user_principal_uuids=principal_uuids)
     group_refs = tuple(OwnedReference(owner="management", reference=f"auth-group:{scope.group_id}") for scope in scopes)
     user_refs = tuple(OwnedReference(owner="management", reference=f"user:{user_id}") for user_id in user_ids)
     user_authorities = dict(zip(user_ids, user_refs, strict=True))
+    principal_authorities = {principal_uuid: user_authorities[user_id] for user_id, principal_uuid in principal_rows}
     spending = tuple(
         ResolvedSpendingEligibility(
             authority_ref=group_refs[index],
@@ -303,7 +345,14 @@ def _resolve_groups(actor: object, selector: SharingSelector) -> SelectorResolut
         selector,
         ranges,
         selector_refs=group_refs + user_refs,
-        subject_authority_by_range={item.range_uuid: user_authorities[item.owner_user_id] for item in ranges},
+        subject_authority_by_range={
+            item.range_uuid: (
+                principal_authorities[item.owner_principal_uuid]
+                if item.owner_principal_uuid is not None
+                else user_authorities[_required_selector_id(item.owner_user_id)]
+            )
+            for item in ranges
+        },
         publisher_requirements=(_publisher_requirement(compute_digest(selector), _operator_ref(actor)),),
         spending=spending,
     )
@@ -326,7 +375,9 @@ def _resolve_workspaces(actor: object, selector: SharingSelector) -> SelectorRes
         selector,
         ranges,
         selector_refs=publisher_refs + containment_refs,
-        subject_authority_by_range={item.range_uuid: refs_by_workspace[item.workspace_id] for item in ranges},
+        subject_authority_by_range={
+            item.range_uuid: refs_by_workspace[_required_selector_id(item.workspace_id)] for item in ranges
+        },
         publisher_requirements=tuple(_publisher_requirement(digest, item) for item in publisher_refs),
     )
 
@@ -356,7 +407,9 @@ def _resolve_organizations(actor: object, selector: SharingSelector) -> Selector
         selector,
         ranges,
         selector_refs=organization_refs + workspace_refs,
-        subject_authority_by_range={item.range_uuid: refs_by_workspace[item.workspace_id] for item in ranges},
+        subject_authority_by_range={
+            item.range_uuid: refs_by_workspace[_required_selector_id(item.workspace_id)] for item in ranges
+        },
         publisher_requirements=tuple(_publisher_requirement(digest, item) for item in organization_refs),
     )
 
@@ -396,6 +449,9 @@ _RESOLVERS = {
 
 def resolve_model_access_selector(actor: object, selector: SharingSelector | dict[str, object]) -> SelectorResolution:
     """Resolve one non-CTF atomic selector through its owning service boundaries."""
+    from shared.model_access.availability import require_model_access_available
+
+    require_model_access_available()
     from management.services import ModelAccessIdentityAuthorityError
     from workspaces.services import OrganizationAuthorizationError, WorkspaceAuthorizationError
 

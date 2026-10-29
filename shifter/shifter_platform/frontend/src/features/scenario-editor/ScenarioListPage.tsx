@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
-import { useScenarioCatalog } from "@/api/scenarios";
-import type { ScenarioCatalogEntry } from "@/api/types";
+import { contentScopeKey, useContentScopes, useScenarioCatalog } from "@/api/scenarios";
+import type { ContentScopeOption, ScenarioCatalogEntry } from "@/api/types";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +21,19 @@ const ALL = "all";
 const SOURCES = ["raes"] as const;
 
 export function ScenarioListPage() {
-  const query = useScenarioCatalog();
+  const [scopeOffset, setScopeOffset] = useState(0);
+  const [selectedScope, setSelectedScope] = useState<ContentScopeOption | null>(null);
+  const scopeOptions = useContentScopes(scopeOffset);
+  const scope = selectedScope ?? scopeOptions.data?.results[0] ?? null;
+  const query = useScenarioCatalog(scope);
+  const currentOptions = scopeOptions.data?.results ?? [];
+  const choices = scope && !currentOptions.some((row) => contentScopeKey(row) === contentScopeKey(scope))
+    ? [scope, ...currentOptions] : currentOptions;
+
+  function browseScopes(offset: number) {
+    setSelectedScope(scope);
+    setScopeOffset(offset);
+  }
 
   const [search, setSearch] = useState("");
   const [source, setSource] = useState<string>(ALL);
@@ -50,6 +64,28 @@ export function ScenarioListPage() {
   return (
     <>
       <PageHeader title="Scenarios" description={description} />
+
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <div className="grid gap-2">
+          <Label htmlFor="scenario-content-scope">Catalog</Label>
+          <select id="scenario-content-scope" value={scope ? contentScopeKey(scope) : ""}
+            onChange={(event) => setSelectedScope(choices.find((row) => contentScopeKey(row) === event.target.value) ?? null)}
+            disabled={!choices.length} className="h-9 rounded-md border bg-background px-3 text-sm">
+            {choices.length === 0 ? <option value="">Select a catalog</option> : null}
+            {choices.map((row) => <option key={contentScopeKey(row)} value={contentScopeKey(row)}>
+              {row.kind === "installation" ? row.name : `${titleCase(row.kind)}: ${row.name}`}
+            </option>)}
+          </select>
+        </div>
+        {scopeOffset > 0 || (scopeOptions.data?.count ?? 0) > 50 ? <nav aria-label="Catalog pages" className="flex gap-2">
+          <Button variant="outline" disabled={scopeOffset === 0 || scopeOptions.isFetching} onClick={() => browseScopes(Math.max(0, scopeOffset - 50))}>Previous catalogs</Button>
+          <Button variant="outline" disabled={scopeOptions.isFetching || scopeOffset + 50 >= (scopeOptions.data?.count ?? 0)} onClick={() => browseScopes(scopeOffset + 50)}>Next catalogs</Button>
+        </nav> : null}
+      </div>
+
+      {scopeOptions.isError ? <Alert variant="destructive" className="mb-4">
+        <AlertTitle>Could not load catalogs</AlertTitle><AlertDescription>Please retry.</AlertDescription>
+      </Alert> : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input
@@ -84,8 +120,9 @@ export function ScenarioListPage() {
         </Select>
       </div>
 
-      <Card className="overflow-hidden py-0" aria-busy={query.isFetching}>
-        <ScenarioListBody query={query} entries={entries} filtersActive={filtersActive} />
+      <Card className="overflow-hidden py-0" aria-busy={query.isFetching || scopeOptions.isFetching}>
+        {scope ? <ScenarioListBody query={query} entries={entries} filtersActive={filtersActive} />
+          : <div className="p-6 text-sm">{scopeOptions.isLoading ? "Loading catalogs…" : "No scenario catalogs are available."}</div>}
       </Card>
     </>
   );

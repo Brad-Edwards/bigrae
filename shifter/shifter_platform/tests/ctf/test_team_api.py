@@ -195,7 +195,7 @@ class TestTeamConfigGuards:
         updated = update_event(ctf_event_active.pk, {"team_mode": ctf_event_active.team_mode})
         assert updated.team_mode == ctf_event_active.team_mode
 
-    def test_organizer_invite_assignment_honors_capacity(self, ctf_event_team, django_user_model):
+    def test_organizer_invite_assignment_honors_capacity(self, ctf_event_team, django_user_model, organizer_credential):
         """CTF-505 (#648): assigning a team at invite time cannot exceed the cap."""
         from ctf.exceptions import CTFValidationError
         from ctf.services.participant import add_participant
@@ -218,4 +218,5 @@ class TestTeamConfigGuards:
                 email="overflow@test.com",
                 name="Overflow",
                 team_id=team.pk,
+                actor=organizer_credential,
             )

@@ -11,7 +11,6 @@ from shifter_adapter_sdk.runtime import PluginManifest, canonical_digest
 
 from shared.audit import (
     AuditAction,
-    AuditActorType,
     AuditEntityType,
     AuditEvent,
     RequestAudit,
@@ -22,17 +21,16 @@ from shared.authorization import TargetRef
 from shared.credentials import (
     CredentialContext,
     resolve_credential_scope,
-    resolve_current_credential,
     resolve_local_credential,
 )
 from shared.exceptions import ValidationError
+from shared.identity_scope import ResourceScope
 from shared.runtime_plugin_binding import PluginTargetBindings, RuntimePluginPin, RuntimePluginScope
 
+from ._runtime_plugin_authority import admit_plugin_authority, current_plugin_credential, fence_plugin_authority
 from ._runtime_plugins import _authorize
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
     from engine.models import Range, RuntimePluginInstallation, RuntimePluginPackBinding
 
 
@@ -50,8 +48,80 @@ class RuntimePluginPackView:
     installation_state: str
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimePluginBindingAdmission:
+    """Invocation-local authority for an exact pack binding committed under CMS locks."""
+
+    credential: CredentialContext
+    scope: RuntimePluginScope
+    installation_id: UUID
+    bindings: dict[str, Any]
+    enabled: bool
+    authority: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePluginBindingRemovalAdmission:
+    """Exact content-authorized binding cleanup; no executable-installation grant."""
+
+    credential: CredentialContext
+    scope: RuntimePluginScope
+    resource_scope: ResourceScope
+    binding_uuid: UUID | None
+    binding_digest: str | None
+
+
+def prepare_runtime_plugin_binding(
+    credential: CredentialContext,
+    scope: RuntimePluginScope,
+    installation_id: UUID,
+    bindings: object,
+    *,
+    enabled: bool = True,
+) -> RuntimePluginBindingAdmission:
+    """Complete native admission before the source/installation transaction opens."""
+    credential = current_plugin_credential(credential)
+    _authorize(credential, scope.organization_uuid)
+    authority = admit_plugin_authority(credential, scope.organization_uuid)
+    try:
+        parsed = PluginTargetBindings.model_validate(bindings)
+        if type(enabled) is not bool:
+            raise ValueError("Invalid binding state")
+    except ValueError:
+        raise ValidationError("The pack digest or plugin bindings are invalid") from None
+    return RuntimePluginBindingAdmission(
+        credential, scope, installation_id, parsed.model_dump(mode="json"), enabled, authority
+    )
+
+
+def prepare_runtime_plugin_pack_binding_removal(
+    credential: CredentialContext, scope: RuntimePluginScope
+) -> RuntimePluginBindingRemovalAdmission:
+    """Authorize the exact pack cleanup using its organization's content action."""
+    from engine.models import RuntimePluginPackBinding
+    from shared.authorization import AuthorizationRequest
+    from shared.authorization.policy import require_authorization
+
+    credential = current_plugin_credential(credential)
+    target = TargetRef("organization", scope.organization_uuid)
+    resource_scope = resolve_credential_scope(target)
+    require_authorization(
+        AuthorizationRequest(
+            credential.principal, "organization.manage_content", target, resource_scope, credential.ceiling
+        )
+    )
+    row = (
+        RuntimePluginPackBinding.objects.filter(organization_uuid=scope.organization_uuid, pack_id=scope.pack_id)
+        .values("pk", "pack_digest")
+        .first()
+    )
+    return RuntimePluginBindingRemovalAdmission(
+        credential, scope, resource_scope, row["pk"] if row else None, row["pack_digest"] if row else None
+    )
+
+
 def bind_runtime_plugin(
-    user: User | CredentialContext,
+    user: CredentialContext | RuntimePluginBindingAdmission,
     scope: RuntimePluginScope,
     installation_id: UUID,
     bindings: object,
@@ -62,15 +132,20 @@ def bind_runtime_plugin(
     """Authorize and update a pack's selection, without changing any range pin."""
     from engine.models import RuntimePluginInstallation, RuntimePluginPackBinding
 
-    authority = None
-    if isinstance(user, CredentialContext):
-        from ._runtime_plugin_authority import admit_plugin_authority
-
-        user = resolve_current_credential(user)
-        authority = admit_plugin_authority(user, scope.organization_uuid)
-        organization_uuid = _authorize(user, scope.organization_uuid)
-    else:
-        organization_uuid = _authorize(user, scope.organization_uuid)
+    admission = (
+        user
+        if isinstance(user, RuntimePluginBindingAdmission)
+        else prepare_runtime_plugin_binding(user, scope, installation_id, bindings, enabled=enabled)
+    )
+    if (admission.scope, admission.installation_id, admission.bindings, admission.enabled) != (
+        scope,
+        installation_id,
+        PluginTargetBindings.model_validate(bindings).model_dump(mode="json"),
+        enabled,
+    ):
+        raise ValidationError("Plugin binding admission changed")
+    user, authority = admission.credential, admission.authority
+    organization_uuid = scope.organization_uuid
     pack_id, pack_digest = scope.pack_id, scope.pack_digest
     try:
         RuntimePluginScope(organization_uuid=organization_uuid, pack_id=pack_id, pack_digest=pack_digest)
@@ -90,7 +165,7 @@ def bind_runtime_plugin(
         )
         if installation is None:
             raise ValidationError("The plugin is unavailable")
-        _validate_binding_authority(user, installation, authority, organization_uuid)
+        _validate_binding_authority(user, installation, authority)
         if enabled and installation.state != "ready":
             raise ValidationError("The plugin must pass compatibility checks before binding")
         _validate_pack_pin(installation, parsed, organization_uuid, pack_id, pack_digest)
@@ -105,13 +180,7 @@ def bind_runtime_plugin(
             },
         )
         attribution = audit or RequestAudit()
-        if isinstance(user, CredentialContext):
-            actor: dict[str, Any] = dict(principal_actor_fields(user.principal))
-        else:
-            actor = {
-                "actor_type": attribution.actor_type or AuditActorType.USER,
-                "actor_id": attribution.actor_id if attribution.actor_type else user.id,
-            }
+        actor: dict[str, Any] = dict(principal_actor_fields(user.principal))
         audit_log(
             AuditEvent(
                 entity_type=AuditEntityType.RUNTIME_PLUGIN,
@@ -134,9 +203,7 @@ def bind_runtime_plugin(
         return _view(row)
 
 
-def list_runtime_plugin_bindings(
-    user: User | CredentialContext, organization_uuid: UUID
-) -> list[RuntimePluginPackView]:
+def list_runtime_plugin_bindings(user: CredentialContext, organization_uuid: UUID) -> list[RuntimePluginPackView]:
     """List explicit selections owned by the authorized organization."""
     from engine.models import RuntimePluginPackBinding
 
@@ -152,7 +219,11 @@ def list_runtime_plugin_bindings(
 
 
 def remove_runtime_plugin_pack_binding(
-    user: User, organization_uuid: UUID, pack_id: str, *, audit: RequestAudit | None = None
+    user: RuntimePluginBindingRemovalAdmission,
+    organization_uuid: UUID,
+    pack_id: str,
+    *,
+    audit: RequestAudit | None = None,
 ) -> bool:
     """Delete a pack's current selection; range pins and installations are retained.
 
@@ -161,7 +232,11 @@ def remove_runtime_plugin_pack_binding(
     """
     from engine.models import RuntimePluginInstallation, RuntimePluginPackBinding
 
-    organization_uuid = _authorize(user, organization_uuid)
+    if not isinstance(user, RuntimePluginBindingRemovalAdmission) or (
+        user.scope.organization_uuid,
+        user.scope.pack_id,
+    ) != (organization_uuid, pack_id):
+        raise ValidationError("Plugin binding cleanup admission changed")
     with transaction.atomic():
         candidate = (
             RuntimePluginPackBinding.objects.filter(organization_uuid=organization_uuid, pack_id=pack_id)
@@ -169,9 +244,17 @@ def remove_runtime_plugin_pack_binding(
             .first()
         )
         if candidate is None:
+            _fence_binding_removal(user)
+            if user.binding_uuid is not None:
+                raise ValidationError("Plugin binding cleanup changed")
             return False
+        if candidate[0] != user.binding_uuid:
+            raise ValidationError("Plugin binding cleanup changed")
         RuntimePluginInstallation.objects.select_for_update().get(pk=candidate[1])
         row = RuntimePluginPackBinding.objects.select_for_update().get(pk=candidate[0])
+        _fence_binding_removal(user)
+        if row.pack_digest != user.binding_digest:
+            raise ValidationError("Plugin binding cleanup revision changed")
         previous = {
             "organization_uuid": str(organization_uuid),
             "pack_digest": row.pack_digest,
@@ -187,8 +270,7 @@ def remove_runtime_plugin_pack_binding(
                 entity_id=0,
                 entity_ref=reference,
                 action=AuditAction.DELETE,
-                actor_type=attribution.actor_type or AuditActorType.USER,
-                actor_id=attribution.actor_id if attribution.actor_type else user.id,
+                **principal_actor_fields(user.credential.principal),
                 request_id=attribution.request_id,
                 source_ip=attribution.source_ip,
                 user_agent=attribution.user_agent,
@@ -197,6 +279,19 @@ def remove_runtime_plugin_pack_binding(
             strict=True,
         )
         return True
+
+
+def _fence_binding_removal(admission: RuntimePluginBindingRemovalAdmission) -> None:
+    """Consume only the exact content admission while binding rows are locked."""
+    try:
+        if (
+            resolve_local_credential(admission.credential) != admission.credential
+            or resolve_credential_scope(TargetRef("organization", admission.scope.organization_uuid))
+            != admission.resource_scope
+        ):
+            raise ValueError("Plugin cleanup authority changed")
+    except ValueError:
+        raise ValidationError("Plugin binding cleanup authority changed") from None
 
 
 def has_runtime_plugin_binding(organization_uuid: UUID, pack_id: str) -> bool:
@@ -311,24 +406,15 @@ def _view(row: RuntimePluginPackBinding) -> RuntimePluginPackView:
 
 
 def _validate_binding_authority(
-    user: User | CredentialContext,
+    user: CredentialContext,
     installation: RuntimePluginInstallation,
-    authority: dict[str, object] | None,
-    organization_uuid: UUID,
+    authority: dict[str, object],
 ) -> None:
     """Fence the admitted plugin installation and local credential while its binding is locked."""
-    if authority and isinstance(user, CredentialContext):
-        from shared.operation_authority import authority_resource_scope
+    from ._runtime_plugin_authority import validate_plugin_scope
 
-        from ._runtime_plugin_authority import validate_plugin_scope
-
-        validate_plugin_scope(installation, authority)
-        admitted_scope = authority_resource_scope(authority)
-        if (
-            resolve_local_credential(user) != user
-            or resolve_credential_scope(TargetRef("organization", organization_uuid)) != admitted_scope
-        ):
-            raise ValidationError("Plugin authority unavailable")
+    validate_plugin_scope(installation, authority)
+    fence_plugin_authority(user, authority)
 
 
 def _validate_pack_pin(

@@ -11,11 +11,11 @@ import pytest
 from django.core.cache import cache
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import CTFParticipant, DeliveryAttempt
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
+from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = pytest.mark.django_db
 
@@ -41,10 +41,6 @@ def _clear_rate_cache():
     cache.clear()
 
 
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
-
-
 def _participant(event, email):
     return CTFParticipant.objects.create(
         event=event,
@@ -67,7 +63,12 @@ def _campaign(organizer_user, ctf_event, **overrides):
         "body": "Read the rules at [rules](/events/rules).",
     }
     data.update(overrides)
-    return create_campaign(organizer_user, _workspace_uuid(organizer_user), CampaignDraft(**data))
+    return create_campaign(
+        organizer_user,
+        individual_account_uuid(organizer_user),
+        CampaignDraft(**data),
+        parent_type="account",
+    )
 
 
 def test_oversized_audience_is_rejected_before_any_work(organizer_user, ctf_event, settings):

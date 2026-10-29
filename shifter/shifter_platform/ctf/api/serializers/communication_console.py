@@ -7,6 +7,8 @@ roster. Split from ``communication.py`` for the python:S104 file-size budget.
 
 from __future__ import annotations
 
+from typing import Any
+
 from rest_framework import serializers
 
 from ctf.enums_communication import DeliveryStatus
@@ -22,6 +24,22 @@ class CommunicationTargetQuerySerializer(ClosedSerializer):
     workspace_id = serializers.UUIDField(required=False)
     limit = serializers.IntegerField(min_value=1, max_value=_MAX_PAGE, default=_MAX_PAGE)
     offset = serializers.IntegerField(min_value=0, max_value=_MAX_OFFSET, default=0)
+
+
+class CommunicationTargetOptionsQuerySerializer(ClosedSerializer):
+    """An optional exact campaign parent and a finite authorized event page."""
+
+    account = serializers.UUIDField(required=False)
+    organization = serializers.UUIDField(required=False)
+    workspace = serializers.UUIDField(required=False)
+    limit = serializers.IntegerField(min_value=1, max_value=_MAX_PAGE, default=_MAX_PAGE)
+    offset = serializers.IntegerField(min_value=0, max_value=_MAX_OFFSET, default=0)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject ambiguous parent filters while allowing unfiltered discovery."""
+        if sum(name in attrs for name in ("account", "organization", "workspace")) > 1:
+            raise serializers.ValidationError("Invalid value.")
+        return attrs
 
 
 class CommunicationPreviewQuerySerializer(ClosedSerializer):
@@ -68,6 +86,39 @@ class CommunicationTargetsSerializer(serializers.Serializer):
 
     workspaces = CommunicationWorkspaceSerializer(many=True, read_only=True)
     events = CommunicationTargetEventSerializer(many=True, read_only=True)
+    next_offset = serializers.IntegerField(read_only=True, allow_null=True)
+
+
+class CommunicationParentSerializer(serializers.Serializer):
+    """The exact direct placement of an authorized event."""
+
+    kind = serializers.ChoiceField(choices=["account", "organization", "workspace"], read_only=True)
+    id = serializers.UUIDField(read_only=True)
+
+
+class CommunicationParentOptionSerializer(CommunicationParentSerializer):
+    """One authorized event's parent display label, without directory authority."""
+
+    name = serializers.CharField(read_only=True)
+
+
+class CommunicationNativeTargetEventSerializer(serializers.Serializer):
+    """A native target with explicit placement and display time zone."""
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    event_timezone = serializers.CharField(read_only=True)
+    event_start = serializers.DateTimeField(read_only=True)
+    event_end = serializers.DateTimeField(read_only=True)
+    parent = CommunicationParentSerializer(read_only=True)
+
+
+class CommunicationTargetOptionsSerializer(serializers.Serializer):
+    """All currently authorized parents and a bounded page of their events."""
+
+    parents = CommunicationParentOptionSerializer(many=True, read_only=True)
+    events = CommunicationNativeTargetEventSerializer(many=True, read_only=True)
     next_offset = serializers.IntegerField(read_only=True, allow_null=True)
 
 
@@ -209,7 +260,8 @@ class CommunicationActorSerializer(serializers.Serializer):
     """Display actor for a timeline entry."""
 
     label = serializers.CharField(read_only=True)
-    via = serializers.CharField(read_only=True, help_text="session | api_token | scheduler")
+    via = serializers.CharField(read_only=True, help_text="session | api_token | credential | scheduler")
+    principal_uuid = serializers.UUIDField(read_only=True, allow_null=True)
 
 
 class CommunicationActivityEntrySerializer(serializers.Serializer):

@@ -11,7 +11,8 @@ from rest_framework.views import APIView
 
 from engine.services import change_runtime_plugin, install_runtime_plugin, list_runtime_plugins
 from shared.api.errors import api_error_response
-from shared.api.permissions import IsAuthenticatedSession
+from shared.api.permissions import IsAuthenticatedSessionOrApiToken
+from shared.api.principals import authenticated_credential
 from shared.exceptions import ValidationError
 from workspaces.services import OrganizationAuthorizationError
 
@@ -73,7 +74,7 @@ def _error(request: Request, exc: OrganizationAuthorizationError | ValidationErr
 class RuntimePluginListCreateView(APIView):
     """Organization administrators install their own plugins without staff status."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = [IsAuthenticatedSessionOrApiToken]
 
     @extend_schema(
         parameters=[OpenApiParameter("cursor", type=UUID)],
@@ -84,7 +85,7 @@ class RuntimePluginListCreateView(APIView):
             return Response(
                 asdict(
                     list_runtime_plugins(
-                        request.user,
+                        authenticated_credential(request),
                         organization_uuid,
                         cursor=request.query_params.get("cursor"),
                     )
@@ -99,7 +100,7 @@ class RuntimePluginListCreateView(APIView):
         body.is_valid(raise_exception=True)
         try:
             row = install_runtime_plugin(
-                request.user,
+                authenticated_credential(request),
                 organization_uuid,
                 body.validated_data["manifest"],
                 registry_credentials=body.validated_data.get("registry_credentials"),
@@ -113,7 +114,7 @@ class RuntimePluginListCreateView(APIView):
 class RuntimePluginActionView(APIView):
     """Apply authorized lifecycle actions to an organization's adapter."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = [IsAuthenticatedSessionOrApiToken]
 
     @extend_schema(request=RuntimePluginActionSerializer, responses=RuntimePluginViewSerializer)
     def post(self, request: Request, organization_uuid: UUID, plugin_id: UUID) -> Response:
@@ -121,7 +122,7 @@ class RuntimePluginActionView(APIView):
         body.is_valid(raise_exception=True)
         try:
             row = change_runtime_plugin(
-                request.user,
+                authenticated_credential(request),
                 organization_uuid,
                 plugin_id,
                 body.validated_data["action"],

@@ -5,7 +5,7 @@
 
 Status: pre-implementation design constraint for issue #729
 
-Issue: <https://github.com/Brad-Edwards/shifter/issues/729>
+Issue: <https://github.com/Brad-Edwards/bigrae/issues/729>
 
 This note applies the existing backend-bundle architecture to the GCP control
 plane. It introduces no new platform abstraction. ADR-007, ADR-008, ADR-009,

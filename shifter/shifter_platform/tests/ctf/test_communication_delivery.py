@@ -16,7 +16,6 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
 from ctf.enums_communication import DeliveryStatus
 from ctf.models import CTFParticipant, DeliveryAttempt, ParticipantReceipt, RecipientSnapshot
@@ -27,6 +26,7 @@ from ctf.services.communication.adapters import register_adapter
 from ctf.services.communication.adapters.contract import DeliveryOutcome, OutcomeClass
 from ctf.services.notification.realtime import publish_communication_wakeup
 from shared.models import WebSocketNotification
+from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = pytest.mark.django_db
 
@@ -44,10 +44,6 @@ class _NullPublisher:
 def _hermetic_metrics(monkeypatch):
     """Keep the worker's metrics emission off the real cloud (ADR-019: mock the transport)."""
     monkeypatch.setattr("ctf.services.communication.metrics._resolve_client", lambda: _NullPublisher())
-
-
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
 
 
 def _participant(event, email, *, user=None, status=ParticipantStatus.ACTIVE.value):
@@ -77,7 +73,12 @@ def _draft(ctf_event, *, channels=("in_app", "email"), **overrides) -> CampaignD
 
 
 def _release(organizer_user, ctf_event, *, channels=("in_app", "email"), occurrence="occ-1"):
-    campaign = create_campaign(organizer_user, _workspace_uuid(organizer_user), _draft(ctf_event, channels=channels))
+    campaign = create_campaign(
+        organizer_user,
+        individual_account_uuid(organizer_user),
+        _draft(ctf_event, channels=channels),
+        parent_type="account",
+    )
     return release_campaign(campaign, occurrence_key=occurrence, actor_user_id=organizer_user.id)
 
 

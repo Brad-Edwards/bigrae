@@ -29,8 +29,10 @@ def user():
 
 
 def _session(user) -> APIClient:
+    from shared.api.principals import human_session_credential
+
     client = APIClient()
-    client.force_authenticate(user=user)
+    client.force_authenticate(user=user, token=human_session_credential(user))
     return client
 
 

@@ -21,7 +21,7 @@ Capacity planning must cover resources shared across ranges, including model thr
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#680` (PLAT-201: Capacity-Aware Provisioning)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#680` (PLAT-201: Capacity-Aware Provisioning)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/capacity/contract.py` (Closed capacity-admission policy contract)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/capacity/catalog.py` (Deployment-owned partition and metric catalog)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/capacity/demand.py` (Demand derivation including per-AMI pre-bake counts)

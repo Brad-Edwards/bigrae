@@ -15,7 +15,7 @@ from ctf.api.organizer._audit import _audit_admin_from_request, admin_external_a
 from ctf.api.organizer._base import (
     _EVENT_READ,
     _EVENT_WRITE,
-    _actor,
+    _credential,
     _pagination_window,
     _raise_bad_request,
     _raise_conflict,
@@ -51,7 +51,7 @@ class PublicRegistrationRequestListView(APIView):
 
         try:
             _resolve_owned_event(request, event_id, capability="participants")
-            requests = list_pending_public_registration_requests(event_id, actor_id=_actor(request).pk)
+            requests = list_pending_public_registration_requests(event_id, actor_id=_credential(request))
             total = requests.count()
             offset, limit = _pagination_window(request)
             limit = limit or 100
@@ -112,13 +112,13 @@ class PublicRegistrationDispositionView(APIView):
                     ):
                         result = approve_public_registration_request(
                             request_id,
-                            actor_id=_actor(request).pk,
+                            actor_id=_credential(request),
                         )
                 else:
                     with transaction.atomic():
                         result = reject_public_registration_request(
                             request_id,
-                            actor_id=_actor(request).pk,
+                            actor_id=_credential(request),
                         )
                         _audit_admin_from_request(
                             request,

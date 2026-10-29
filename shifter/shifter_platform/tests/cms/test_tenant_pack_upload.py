@@ -15,7 +15,7 @@ from cms.models import RaesPackageSource, ScenarioModelNeeds
 from cms.scenarios.registry import check_scenario_access, list_all_scenarios
 from engine.models import Range, RuntimePluginInstallation, RuntimePluginInvocation
 from tests.cms.test_runtime_plugins import tenant as tenant
-from workspaces.models import Organization, OrganizationMembership
+from workspaces.models import Organization
 
 pytestmark = pytest.mark.django_db
 
@@ -57,11 +57,11 @@ def _archive(root):
 def upload(tenant, make_pack, tmp_path, settings, monkeypatch):
     actor, organization = tenant
     root = make_pack(tmp_path / "example")
+    settings.CLOUD_PROVIDER = "aws"
     settings.RAES_PACKAGE_BUCKET = "test-private-pack-storage"
     settings.RAES_PACKAGE_PREFIX = "packs"
     storage = PackStorage()
-    monkeypatch.setattr("cms.services._tenant_pack_upload.get_object_storage", lambda: storage)
-    monkeypatch.setattr("shared.cloud.get_object_storage", lambda: storage)
+    monkeypatch.setattr("shared.cloud.aws.storage.AWSObjectStorage", lambda: storage)
     client = APIClient()
     client.force_authenticate(user=actor)
     return client, organization, root, storage
@@ -139,21 +139,45 @@ def test_pack_model_need_is_digest_bound_during_tenant_install(upload):
     assert overlay.needs["participant"]["scenario_digest"] == source.package_digest
 
 
-def test_identical_pack_names_have_independent_tenant_catalog_identities(upload, tenant):
+def test_identical_pack_names_have_independent_tenant_catalog_identities(
+    upload, tenant, live_session_credential, monkeypatch
+):
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+    from workspaces.services import create_account, hierarchy_target_scope
+
     client, organization, root, storage = upload
     first = _post(client, organization, root)
-    other = Organization.objects.create(name="Other")
+    account = create_account(kind="team", name="Other")
+    other = Organization.objects.get(account_id=account.id, is_default=True)
     second_actor = User.objects.create_user(username="other-pack-admin")
-    OrganizationMembership.objects.create(user=second_actor, organization=other, role="admin")
+    second_credential = live_session_credential(second_actor)
+    grants = {
+        tenant[0].identity_principal.uuid: organization.account.uuid,
+        second_actor.identity_principal.uuid: account.uuid,
+    }
+
+    def check(request):
+        allowed = grants.get(request.principal.uuid) == request.scope.account_uuid
+        return AuthorizationDecision(
+            DecisionKind.ALLOWED if allowed else DecisionKind.DENIED, "policy_allowed" if allowed else "policy_denied"
+        )
+
+    monkeypatch.setattr(port, "_provider_factory", lambda: SimpleNamespace(check=check))
     client.force_authenticate(user=second_actor)
     second = _post(client, other, root)
     assert first.status_code == second.status_code == 201
     assert first.data["scenario_id"] != second.data["scenario_id"]
     assert len(storage.objects) == 2
-    assert [row["id"] for row in list_all_scenarios(user=tenant[0])] == [first.data["scenario_id"]]
-    assert [row["id"] for row in list_all_scenarios(user=second_actor)] == [second.data["scenario_id"]]
-    with pytest.raises(ValueError, match="not available"):
-        check_scenario_access(first.data["scenario_id"], second_actor)
+    scope = hierarchy_target_scope("organization", organization.uuid)
+    other_scope = hierarchy_target_scope("organization", other.uuid)
+    assert [row["id"] for row in list_all_scenarios(user=tenant[0].credential, scope=scope)] == [
+        first.data["scenario_id"]
+    ]
+    assert [row["id"] for row in list_all_scenarios(user=second_credential, scope=other_scope)] == [
+        second.data["scenario_id"]
+    ]
+    with pytest.raises(ValueError):
+        check_scenario_access(first.data["scenario_id"], second_credential, scope=other_scope)
 
 
 def test_foreign_staff_cannot_upload_or_inspect_tenant_content(upload):
@@ -237,8 +261,8 @@ def test_pack_cannot_be_launched_in_another_organization_workspace(upload, tenan
     assert not Range.objects.exists()
 
 
-def test_ctf_event_owner_binds_tenant_adapter_for_participant_workspace(upload, tenant, monkeypatch):
-    from cms.services._raes_dispatch import RaesDispatchOptions, _launch_pack, _runtime_plugin_scope
+def test_legacy_event_owner_cannot_lend_tenant_content_to_personal_workspace(upload, tenant):
+    from cms.services._raes_dispatch import _runtime_plugin_scope
     from workspaces.services import resolve_personal_workspace
 
     client, organization, root, _ = upload
@@ -247,20 +271,10 @@ def test_ctf_event_owner_binds_tenant_adapter_for_participant_workspace(upload, 
     source = RaesPackageSource.objects.get()
     participant = User.objects.create_user(username="ctf-participant")
     workspace = resolve_personal_workspace(participant)
-    captured = {}
-
-    def launch(**kwargs):
-        captured["scope"] = kwargs["port"].runtime_plugin_scope
-        return SimpleNamespace(accepted=True)
-
-    monkeypatch.setattr("shared.raes.package_loader.launch_raes_package", launch)
-    plugin_scope = _runtime_plugin_scope(participant, workspace.workspace_id, source, owner)
-    _launch_pack(
-        uuid4(), participant, root, RaesDispatchOptions(None, workspace.workspace_id, "status-quo"), plugin_scope
-    )
-
-    assert captured["scope"].organization_uuid == organization.uuid
-    assert captured["scope"].pack_id == source.scenario_id
+    with pytest.raises(ValueError, match="Scenario is not available"):
+        _runtime_plugin_scope(participant, workspace.workspace_id, source, owner)
+    assert source.organization_uuid == organization.uuid
+    assert not Range.objects.exists()
 
 
 def test_rejected_launch_logs_bounded_diagnostics(upload, tenant, monkeypatch, caplog):
@@ -352,7 +366,7 @@ def test_authority_and_audit_failure_roll_back_registration_and_upload(upload, t
 
         def revoke(*args, **kwargs):
             original_upload(*args, **kwargs)
-            OrganizationMembership.objects.filter(user=tenant[0], organization=organization).delete()
+            tenant[0].policy_principals.clear()
 
         monkeypatch.setattr(storage, "upload_file", revoke)
     else:
@@ -371,32 +385,49 @@ def test_foreign_author_cannot_read_tenant_pack_through_catalog_api(upload):
     client, organization, root, _ = upload
     identifier = _post(client, organization, root).data["scenario_id"]
     client.force_authenticate(user=User.objects.create_user(username="outside-author", is_staff=True))
-    assert client.get("/api/v1/cms/catalog/").data == []
+    assert client.get("/api/v1/cms/catalog/").status_code == 403
     for path in (f"/api/v1/cms/catalog/{identifier}/", f"/api/v1/cms/scenarios/{identifier}/"):
         assert client.get(path).status_code == 404
 
 
-def test_workspace_membership_allows_read_but_not_metadata_changes(upload, tenant):
+def test_workspace_membership_needs_explicit_read_grant_and_cannot_edit_metadata(
+    upload, tenant, live_session_credential
+):
+    from cms.exceptions import CMSError
     from cms.scenario_editor._metadata import update_metadata
+    from shared.authorization import CredentialCeiling
+    from shared.credentials import CredentialContext
     from workspaces.models import Workspace, WorkspaceMembership
-    from workspaces.services import OrganizationAuthorizationError
+    from workspaces.services import hierarchy_target_scope
 
     client, organization, root, _ = upload
     identifier = _post(client, organization, root).data["scenario_id"]
     staff = User.objects.create_user(username="tenant-staff-seat", is_staff=True)
     workspace = Workspace.objects.create(organization=organization, name="Content viewers")
     WorkspaceMembership.objects.create(workspace=workspace, user=staff, role="member")
-    assert check_scenario_access(identifier, staff)["id"] == identifier
-    with pytest.raises(OrganizationAuthorizationError):
-        update_metadata(staff, identifier, enabled=False)
-    update_metadata(tenant[0], identifier, enabled=False)
-    assert list_all_scenarios(user=tenant[0]) == []
+    credential = live_session_credential(staff)
+    scope = hierarchy_target_scope("organization", organization.uuid)
+    with pytest.raises(CMSError):
+        check_scenario_access(identifier, credential, scope=scope)
+    tenant[0].policy_principals.add(credential.principal.uuid)
+    read = CredentialContext(
+        credential.principal,
+        credential.kind,
+        credential.credential_uuid,
+        CredentialCeiling(frozenset({"organization.read_content"})),
+        credential.scopes,
+    )
+    assert check_scenario_access(identifier, read, scope=scope)["id"] == identifier
+    with pytest.raises(CMSError):
+        update_metadata(read, identifier, enabled=False)
+    update_metadata(tenant[0].credential, identifier, enabled=False)
+    assert list_all_scenarios(user=tenant[0].credential, scope=scope) == []
 
 
-def test_tenant_conformance_mutation_requires_admin_even_for_staff_members(upload, tenant):
+def test_tenant_conformance_mutation_requires_admin_even_for_staff_members(upload, tenant, live_session_credential):
+    from cms.exceptions import CMSError
     from cms.services._pack_conformance import validate_registered_pack_conformance
     from workspaces.models import Workspace, WorkspaceMembership
-    from workspaces.services import OrganizationAuthorizationError
 
     client, organization, root, _ = upload
     installed = _post(client, organization, root).data
@@ -404,6 +435,6 @@ def test_tenant_conformance_mutation_requires_admin_even_for_staff_members(uploa
     workspace = Workspace.objects.create(organization=organization, name="Conformance viewers")
     WorkspaceMembership.objects.create(workspace=workspace, user=staff, role="member")
     arguments = {"scenario_id": installed["scenario_id"], "expected_package_digest": installed["package_digest"]}
-    with pytest.raises(OrganizationAuthorizationError):
-        validate_registered_pack_conformance(user=staff, **arguments)
-    assert validate_registered_pack_conformance(user=tenant[0], **arguments) == "passed"
+    with pytest.raises(CMSError):
+        validate_registered_pack_conformance(user=live_session_credential(staff), **arguments)
+    assert validate_registered_pack_conformance(user=tenant[0].credential, **arguments) == "passed"
