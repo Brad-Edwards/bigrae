@@ -36,8 +36,11 @@ tracks the AWS path.
 ## Decision
 
 1. **A release is built once.** `.github/workflows/release-gcp.yml` runs only
-   through `workflow_dispatch` from protected `refs/heads/main`, `refs/heads/dev`,
-   or `refs/heads/deploy-test`. It runs on
+   from protected `refs/heads/main`, `refs/heads/dev`, or
+   `refs/heads/deploy-test`. Two events start it. The `release-gcp` job of
+   `release-please.yml` calls it (`workflow_call`) when a release tag points at
+   the pushed `main` commit (#2660). The maintainer dispatches it
+   (`workflow_dispatch`) for test builds or to publish a release again. It runs on
    GitHub-hosted runners in the `gcp-release` Environment. It builds the five
    control-plane images (portal, provisioner, guacd, guacamole-client, and
    openvpn) and the deployer image. It pushes each image by digest to the

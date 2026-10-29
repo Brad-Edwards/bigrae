@@ -27,14 +27,16 @@ The protected `packer-gcp.yml` workflow (`publish_target=ghcr`) exports each
 built base image to a **GCE-native disk tarball** (`disk.raw` in a `.tar.gz`,
 the default `gcloud compute images export` output) and publishes it to GHCR as
 an OCI artifact. Every deployment imports from these public packages, or from
-a mirror of the same digests (#2659). The reusable minimum base set is Kali,
-Ubuntu, and DC:
+a mirror of the same digests (#2659). The workflow publishes under the
+lower-case repository owner. Packages from before the move to `OpenRAE` on
+2026-10-29 stay under `ghcr.io/brad-edwards`. The reusable minimum base set is
+Kali, Ubuntu, and DC:
 
 | Role | GHCR package |
 |---|---|
-| Kali | `ghcr.io/brad-edwards/shifter-gce-kali` |
-| Ubuntu | `ghcr.io/brad-edwards/shifter-gce-ubuntu` |
-| DC | `ghcr.io/brad-edwards/shifter-gce-dc` |
+| Kali | `ghcr.io/openrae/shifter-gce-kali` |
+| Ubuntu | `ghcr.io/openrae/shifter-gce-ubuntu` |
+| DC | `ghcr.io/openrae/shifter-gce-dc` |
 
 Each artifact uses artifact type `application/vnd.shifter.gce-image.v1`, a
 single layer of media type `application/vnd.shifter.gce-image.tar.gz`, a
@@ -77,7 +79,7 @@ native image in the target project's family with no registry copy.
 ```
 packer-gcp.yml ─┬─ build   → GCE image  shifter-<type>-<timestamp>  (family shifter-<type>)
                 └─ export  → gs://<bucket>/<type>-<id>.tar.gz  (disk.raw)
-                   publish → ghcr.io/brad-edwards/shifter-gce-<type>@sha256:<digest>
+                   publish → ghcr.io/openrae/shifter-gce-<type>@sha256:<digest>
                                    │
 deploy.py gcp-images --source <registry prefix> --store gs://<config bucket>
                                 → discover + validate + import into the tenant project
@@ -279,7 +281,7 @@ deployment config bucket:
 
 ```bash
 ./scripts/bootstrap/deploy.py gcp-images --project-id <project> \
-  --source ghcr.io/brad-edwards --region <region> \
+  --source ghcr.io/openrae --region <region> \
   --store gs://<deployment-config-bucket>
 ```
 

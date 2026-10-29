@@ -51,14 +51,15 @@ RUN apt-get update && \
     # /var/lib/apt/lists) still runs at the end of this RUN.
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends ca-certificates curl openssh-client unzip && \
+    # One HTTPS-only download helper with retries, as in the deployer and
+    # guacamole-client Dockerfiles: fetch <output file> <URL>.
+    fetch() { curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL -o "$1" "$2"; } && \
     # Install Terraform, integrity-verified against HashiCorp's published
     # SHA256SUMS before extraction (ADR-037-R3). The archive is saved under the
     # exact name the checksum manifest references so `sha256sum -c` matches.
-    curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
-      -o "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+    fetch "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
       "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" && \
-    curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
-      -o terraform_SHA256SUMS \
+    fetch terraform_SHA256SUMS \
       "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_SHA256SUMS" && \
     grep "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" terraform_SHA256SUMS | sha256sum -c - && \
     unzip "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" -d /usr/local/bin && \
@@ -69,17 +70,14 @@ RUN apt-get update && \
     # file, so virtctl is verified against the pinned VIRTCTL_SHA256 digest. The
     # default GCE backend skips this entirely.
     if [ "${INSTALL_KUBEVIRT}" = "true" ]; then \
-      curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
-        -o kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
-      curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
-        -o kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" && \
+      fetch kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
+      fetch kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" && \
       echo "$(cat kubectl.sha256)  kubectl" | sha256sum -c - && \
       install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
       rm kubectl kubectl.sha256 && \
       # Exercise kubectl offline (it resolves kubectl-* plugins from PATH).
       kubectl version --client >/dev/null && \
-      curl --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -fsSL \
-        -o "virtctl-${KUBEVIRT_VERSION}-linux-amd64" \
+      fetch "virtctl-${KUBEVIRT_VERSION}-linux-amd64" \
         "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-amd64" && \
       echo "${VIRTCTL_SHA256}  virtctl-${KUBEVIRT_VERSION}-linux-amd64" | sha256sum -c - && \
       install -o root -g root -m 0755 "virtctl-${KUBEVIRT_VERSION}-linux-amd64" /usr/local/bin/kubectl-virt && \
