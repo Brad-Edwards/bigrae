@@ -390,3 +390,27 @@ def test_registry_validation_response_uses_public_message(api_client, staff_user
     assert response.status_code == 400
     assert response.json()["error"]["message"] == "Unsupported image provider"
     assert "internal-storage-diagnostic" not in response.content.decode()
+
+
+def test_registry_changes_are_audited_with_actor_and_previous_image(api_client, threat_research_user):
+    """Each boot-image change names the actor and the old and new image (#2617)."""
+    from shared.audit import AuditAction, AuditEntityType
+    from shared.models import AuditLog
+
+    api_client.force_authenticate(user=threat_research_user)
+    payload = {"provider": "gce", "source_name": "kali", "image_ref": "img-a"}
+
+    assert api_client.post(LIST_CREATE_URL, payload, format="json").status_code == 200
+    assert api_client.post(LIST_CREATE_URL, {**payload, "image_ref": "img-b"}, format="json").status_code == 200
+    assert api_client.post(DISABLE_URL, {"provider": "gce", "source_name": "kali"}, format="json").status_code == 200
+
+    rows = list(AuditLog.objects.filter(entity_type=AuditEntityType.CONFIG).order_by("sequence"))
+    assert [row.action for row in rows] == [AuditAction.CREATE, AuditAction.UPDATE, AuditAction.UPDATE]
+    assert {row.actor_id for row in rows} == {threat_research_user.pk}
+    assert rows[0].previous_state is None
+    assert rows[0].new_state["image_ref"] == "img-a"
+    assert rows[1].previous_state["image_ref"] == "img-a"
+    assert rows[1].new_state["image_ref"] == "img-b"
+    assert rows[2].previous_state["enabled"] is True
+    assert rows[2].new_state["enabled"] is False
+    assert rows[0].entity_ref == "raes-image-mapping:gce:kali@*"

@@ -11,8 +11,10 @@ from django.contrib.auth.models import User
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils.module_loading import import_string
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods, require_POST
+from mozilla_django_oidc.auth import OIDCAuthenticationBackend
 
 from config import identity_platform as identity_platform_auth
 from shared.audit import (
@@ -196,7 +198,11 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     if not request.user.is_authenticated:
         return HttpResponseRedirect(settings.LOGOUT_REDIRECT_URL)
 
-    backend = request.session.get(BACKEND_SESSION_KEY, "")
+    backend_class = _session_backend_class(request.session.get(BACKEND_SESSION_KEY, ""))
+    is_oidc = backend_class is not None and issubclass(backend_class, OIDCAuthenticationBackend)
+    is_identity_platform = backend_class is not None and issubclass(
+        backend_class, identity_platform_auth.IdentityPlatformBackend
+    )
     email = request.user.email
     redirect_url = settings.LOGOUT_REDIRECT_URL
 
@@ -210,21 +216,36 @@ def logout_view(request: HttpRequest) -> HttpResponse:
         context="Portal logout",
     )
 
-    if "OIDCAuthenticationBackend" in backend:
+    if is_oidc:
         # Build the Cognito logout URL before clearing the session,
         # since provider_logout_url needs the request for the redirect URI.
         logout_url_method = getattr(settings, "OIDC_OP_LOGOUT_URL_METHOD", "")
         if logout_url_method:
-            from django.utils.module_loading import import_string
-
             redirect_url = import_string(logout_url_method)(request)
         logger.debug("OIDC logout for user=%s", safe_log_fingerprint(email))
-    elif "IdentityPlatformBackend" in backend:
+    elif is_identity_platform:
         logger.debug("Identity Platform logout for user=%s", safe_log_fingerprint(email))
     else:
         logger.debug("Session logout for user=%s", safe_log_fingerprint(email))
 
     logout(request)
-    if "IdentityPlatformBackend" in backend:
+    if is_identity_platform:
         return _render_identity_platform_logout(request)
     return HttpResponseRedirect(redirect_url)
+
+
+def _session_backend_class(backend_path: str) -> type | None:
+    """Resolve the session's authentication backend path to its class.
+
+    The logout branch is chosen by class, not by a substring of the dotted path:
+    the deployed OIDC backend is ``config.oidc.ShifterOIDCBackend``, whose path
+    does not contain its base class name, so a substring test silently skipped
+    the identity-provider logout and left the provider session alive.
+    """
+    if not backend_path:
+        return None
+    try:
+        backend_class = import_string(backend_path)
+    except ImportError:
+        return None
+    return backend_class if isinstance(backend_class, type) else None

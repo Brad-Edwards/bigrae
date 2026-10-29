@@ -24,7 +24,7 @@
                 <h2 id="identity-auth-title" class="form-title">
                     {% trans "Sign in" %}
                 </h2>
-                <form id="identity-auth-form" novalidate>
+                <form id="identity-auth-form" method="post" novalidate>
                     <div class="field">
                         <label for="identity-email">
                             {% trans "Email" %}
@@ -46,7 +46,7 @@
                                name="password"
                                autocomplete="current-password">
                     </div>
-                    <button id="identity-auth-submit" type="submit">
+                    <button id="identity-auth-submit" type="submit" disabled>
                         {% trans "Sign in" %}
                     </button>
                 </form>

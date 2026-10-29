@@ -206,3 +206,20 @@ def test_collection_authority_query_matches_live_staff_resolver(ctf_event, secon
     CTFEventStaff.all_objects.filter(pk=staff.pk).update(deleted_at=timezone.now())
     assert not visible()
     assert resolve_event_authority(second_organizer_user, ctf_event, capability="notifications") is None
+
+
+def test_demoted_event_owner_loses_communications(organizer_user, ctf_event):
+    """Event ownership alone does not keep communications after the organizer role is removed (#2617)."""
+    from django.contrib.auth.models import Group
+
+    from shared.auth import CTF_ORGANIZER_GROUP
+
+    client, _ = token_client(organizer_user, ["ctf:communication:write", "ctf:communication:read"])
+    workspace_id = body(ctf_event, organizer_user)["workspace_id"]
+    assert client.get(f"{URL}targets/", {"workspace_id": workspace_id}).status_code == 200
+
+    organizer_user.groups.remove(Group.objects.get(name=CTF_ORGANIZER_GROUP))
+
+    assert client.get(f"{URL}targets/", {"workspace_id": workspace_id}).status_code == 403
+    assert client.post(URL, body(ctf_event, organizer_user), format="json").status_code == 403
+    assert not CommunicationCampaign.objects.exists()

@@ -233,6 +233,9 @@ def test_render_env_emits_production_security_profile():
     assert "PROVISIONER_DB_SECRET_ID=projects/shifter-gcp-dev/secrets/shifter-gcp-dev-db-provisioner\n" in rendered
     assert "DB_MIGRATION_SECRET_ID=projects/shifter-gcp-dev/secrets/shifter-gcp-dev-db-migration\n" in rendered
     assert "AUDIT_DEPLOYMENT_SCOPE=gcp:shifter-gcp-dev\n" in rendered
+    # The GCE external Application Load Balancer appends "<client>,<lb>" to
+    # X-Forwarded-For, so the trusted client IP is the second hop from the right.
+    assert "AUDIT_TRUSTED_PROXY_HOPS=2\n" in rendered
     assert "SKIP_MIGRATIONS=1\n" in rendered
     assert "CLOUD_PROJECT_ID=shifter-gcp-dev\n" in rendered
     assert "IDENTITY_PLATFORM_PROJECT_ID=shifter-gcp-dev\n" in rendered

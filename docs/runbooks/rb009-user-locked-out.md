@@ -26,7 +26,10 @@ fails, or an incident requires credential revocation.
 ## Resolution
 
 Use provider-native recovery for provider accounts. Use the application
-administrator password-reset service only for eligible local accounts. Use
+administrator password-reset service only for eligible local accounts. The
+service needs a configured email provider. With the console or file email
+backend, it refuses the request (`reset_delivery_unavailable`), because those
+backends write the reset link to the logs. Use
 `management.lifecycle` and the credential service for application suspension,
 deactivation, or revocation; do not edit authentication rows or MFA material.
 After revocation, verify new sessions fail, existing access is invalidated as
