@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from drf_spectacular.utils import extend_schema
@@ -196,32 +196,14 @@ class EventCleanupControlView(APIView):
     @extend_schema(request=CleanupControlRequestSerializer, responses=ScheduledTaskListResponseSerializer)
     def post(self, request: Request, event_id: UUID) -> Response:
         """Apply the control and return the refreshed task listing."""
-        from django.db import transaction
-
         from ctf.exceptions import CTFStateError, CTFValidationError
-        from ctf.services.event.scheduling import (
-            cancel_event_cleanup,
-            defer_event_cleanup,
-        )
 
         try:
             _resolve_owned_event(request, event_id, capability=EventCapability.LIFECYCLE)
             serializer = CleanupControlRequestSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            action = serializer.validated_data["action"]
-            actor_id = _actor(request).pk
             try:
-                # Database-only change: the change and its platform-admin override
-                # audit share one transaction (ADR-052-R4).
-                with transaction.atomic():
-                    if action == "defer":
-                        hours = serializer.validated_data.get("hours")
-                        if hours is None:
-                            _raise_bad_request("Deferral needs a number of hours")
-                        defer_event_cleanup(event_id, hours, actor_id=actor_id)
-                    else:
-                        cancel_event_cleanup(event_id, actor_id=actor_id)
-                    _audit_admin_from_request(request, f"event.cleanup.{action}")
+                self._apply(request, event_id, serializer.validated_data)
             except CTFValidationError:
                 _raise_bad_request("Deferral must be between 1 and 168 hours.")
             except CTFStateError:
@@ -229,3 +211,26 @@ class EventCleanupControlView(APIView):
             return Response({"tasks": list(_visible_tasks(request, event_id))})
         except _CtfApiError as exc:
             return exc.to_response(request)
+
+    @staticmethod
+    def _apply(request: Request, event_id: UUID, data: dict[str, Any]) -> None:
+        """Defer or cancel the cleanup and audit a platform-admin override in one transaction.
+
+        Database-only change: the change and its override audit share one
+        transaction (ADR-052-R4).
+        """
+        from django.db import transaction
+
+        from ctf.services.event.scheduling import cancel_event_cleanup, defer_event_cleanup
+
+        action = data["action"]
+        actor_id = _actor(request).pk
+        with transaction.atomic():
+            if action == "defer":
+                hours = data.get("hours")
+                if hours is None:
+                    _raise_bad_request("Deferral needs a number of hours")
+                defer_event_cleanup(event_id, hours, actor_id=actor_id)
+            else:
+                cancel_event_cleanup(event_id, actor_id=actor_id)
+            _audit_admin_from_request(request, f"event.cleanup.{action}")

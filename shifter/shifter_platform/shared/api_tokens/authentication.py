@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
 
 _DEFAULT_COALESCE_SECONDS = 300
+# Audit reason for a bearer header that cannot carry a credential.
+_MALFORMED_BEARER_HEADER = "Malformed bearer header"
 
 
 def _invalid_token_message() -> str:
@@ -76,12 +78,12 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
             return None
 
         if len(header) == 1:
-            raise _rejected(request, "Invalid token header. No credentials provided.", reason="Malformed bearer header")
+            raise _rejected(request, "Invalid token header. No credentials provided.", reason=_MALFORMED_BEARER_HEADER)
         if len(header) > 2:
             raise _rejected(
                 request,
                 "Invalid token header. Token string should not contain spaces.",
-                reason="Malformed bearer header",
+                reason=_MALFORMED_BEARER_HEADER,
             )
 
         try:
@@ -90,7 +92,7 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
             raise _rejected(
                 request,
                 "Invalid token header. Token string is malformed.",
-                reason="Malformed bearer header",
+                reason=_MALFORMED_BEARER_HEADER,
             ) from exc
 
     def _reject_ineligible_owner(self, request: Request, token: ApiToken) -> None:

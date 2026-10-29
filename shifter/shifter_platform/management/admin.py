@@ -15,7 +15,7 @@ def _is_active_superuser(request: HttpRequest) -> bool:
     return bool(request.user.is_active and request.user.is_superuser)
 
 
-class _SuperuserWritesMixin:
+class _SuperuserWritesAdmin(admin.ModelAdmin):
     """Allow add, change, and delete only to an active superuser.
 
     Django admin lets any staff user who holds the model's change permission
@@ -45,17 +45,17 @@ for _model in (_user_model, Group):
 
 
 @admin.register(_user_model)
-class PlatformUserAdmin(_SuperuserWritesMixin, UserAdmin):
+class PlatformUserAdmin(_SuperuserWritesAdmin, UserAdmin):
     """Stock user admin whose writes, including password changes, need a superuser."""
 
 
 @admin.register(Group)
-class PlatformGroupAdmin(_SuperuserWritesMixin, GroupAdmin):
+class PlatformGroupAdmin(_SuperuserWritesAdmin, GroupAdmin):
     """Stock group admin whose writes need a superuser (group permissions grant privilege)."""
 
 
 @admin.register(UserProfile)
-class UserProfileAdmin(_SuperuserWritesMixin, admin.ModelAdmin):
+class UserProfileAdmin(_SuperuserWritesAdmin):
     """Admin for extended user profiles (soft-delete and anonymization state).
 
     The profile holds the provider identity binding (``cognito_sub``,

@@ -111,7 +111,7 @@ def _run_participant_range_action(
     gets the intent/outcome audit (ADR-052-R4, #2617).
     """
     from ctf.exceptions import CTFNotFoundError, CTFRangeError
-    from ctf.services.audit import audit_organizer_participant_range_action
+    from ctf.services.organizer_range_audit import audit_organizer_participant_range_action
 
     try:
         participant = _resolve_owned_participant(request, participant_id, capability=EventCapability.RANGES)
