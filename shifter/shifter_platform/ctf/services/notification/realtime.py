@@ -70,10 +70,8 @@ def _can_subscribe(user: AbstractBaseUser | AnonymousUser, topic: str) -> bool:
     from management.services import is_ctf_password_change_required, is_temporary_ctf_account
 
     live_user = _live_notification_user(user)
-    if live_user is None:
-        return False
-    event = _topic_event(topic)
-    if event is None:
+    event = _topic_event(topic) if live_user is not None else None
+    if live_user is None or event is None:
         return False
     if is_temporary_ctf_account(live_user):
         participant = live_participant_for_user(live_user)
