@@ -59,7 +59,7 @@ Use the `gcp-release` skill to publish the release that you deploy.
 | First install | `gcp-deploy --store gs://<bucket> --first-install` | Report the printed ingress address. The user points the DNS A record at it, unproxied. |
 | Certificate and smoke | `gcp-deploy --store gs://<bucket>` | The certificate becomes `ACTIVE` and the post-deploy smoke passes. The smoke creates and destroys a range. |
 | Update | `gcp-deploy` with the manifest of the newer release | `Running workload images match the approved release` and the smoke pass. |
-| Teardown | `gcp-destroy --store gs://<bucket> --confirm <name>` | Only the foundation, the release registry, the KMS key rings, the operator secret, and range images stay. |
+| Teardown | `gcp-destroy --store gs://<bucket> --confirm <name>` | Only the foundation, the KMS key rings, the operator secret, and range images stay. |
 | Reinstall | `gcp-deploy --first-install` | The ingress address is new; the DNS record must change. |
 
 ## Diagnose by stage

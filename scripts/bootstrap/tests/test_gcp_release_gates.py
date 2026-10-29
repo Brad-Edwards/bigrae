@@ -38,6 +38,7 @@ from gcp_release_images import (
     docker_config,
     import_release_images,
     registry_hosts,
+    release_identities,
     release_tag,
 )
 from gcp_release_scan import ReleaseScanError, enforce_scan, run_release_scan, scan_release, trivy_argv
@@ -108,6 +109,47 @@ class TestOciClient:
         authorization = registry.requests[0][1]["Authorization"]
         assert base64.b64decode(authorization.split()[1]).decode() == "oauth2accesstoken:token"
         assert all(url.startswith(f"https://{HOST}/v2/{NAME}/") for url, _ in registry.requests)
+
+    def test_public_registry_gets_an_anonymous_token_and_never_the_google_token(self):
+        registry = FakeRegistry()
+        tokens: list[str] = []
+
+        def public(request, timeout):
+            url = request.full_url
+            if url.startswith("https://ghcr.io/token?"):
+                tokens.append(url)
+                assert "Authorization" not in request.headers
+                return _Response(b'{"token": "anon"}')
+            if request.headers.get("Authorization") != "Bearer anon":
+                challenge = 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:acme/portal:pull"'
+                raise urllib_error.HTTPError(url, 401, "auth", {"WWW-Authenticate": challenge}, None)
+            return registry(request, timeout)
+
+        def google_token():
+            raise AssertionError("the Google token must not go to a public registry")
+
+        client = OciClient(google_token, opener=public)
+        image = ImageReference.parse(f"ghcr.io/acme/portal@{DIGEST}")
+        assert client.referrer_payloads(image, SIGSTORE_BUNDLE_ARTIFACT_TYPE) == [registry.bundle]
+        assert len(tokens) == 1
+        assert "service=ghcr.io" in tokens[0] and "scope=repository%3Aacme%2Fportal%3Apull" in tokens[0]
+        assert all(headers.get("Authorization") == "Bearer anon" for _, headers in registry.requests)
+
+    def test_public_registry_challenges_that_cannot_be_met_fail_closed(self):
+        image = ImageReference.parse(f"ghcr.io/acme/portal@{DIGEST}")
+        for challenge, token_body in (
+            ('Basic realm="x"', b""),
+            ('Bearer realm="http://ghcr.io/token"', b""),
+            ('Bearer realm="https://ghcr.io/token"', b"{}"),
+        ):
+
+            def opener(request, timeout, challenge=challenge, token_body=token_body):
+                if request.full_url.startswith("https://ghcr.io/token"):
+                    return _Response(token_body)
+                raise urllib_error.HTTPError(request.full_url, 401, "auth", {"WWW-Authenticate": challenge}, None)
+
+            with pytest.raises(OciError):
+                OciClient(lambda: "t", opener=opener).referrers(image, SIGSTORE_BUNDLE_ARTIFACT_TYPE)
 
     def test_rejects_bad_references_digests_and_unreachable_registries(self):
         with pytest.raises(OciError):
@@ -272,6 +314,31 @@ class TestReleaseScan:
         assert any(url.endswith("/verdict.json") for url in uploads)
         assert all(f"/release-scans/{REVISION}/r/1/" in url for url in uploads)
 
+    def test_public_images_scan_without_the_google_token(self, tmp_path: Path):
+        runner = self._runner(set())
+        identities = {**release_images(), "portal": f"ghcr.io/acme/bigrae/portal@{DIGEST}"}
+        run_release_scan(
+            runner,
+            {},
+            identities=identities,
+            evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 1),
+            workdir=tmp_path,
+            ignore_file=tmp_path / ".trivyignore.yaml",
+        )
+        by_image = {call.argv[-1]: call.env for call in runner.find("trivy")}
+        assert "TRIVY_PASSWORD" not in by_image[identities["portal"]]
+        assert by_image[identities["guacd"]]["TRIVY_PASSWORD"] == "tok"
+        public = self._runner(set())
+        run_release_scan(
+            public,
+            {},
+            identities={"portal": identities["portal"]},
+            evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 2),
+            workdir=tmp_path / "public",
+            ignore_file=tmp_path / ".trivyignore.yaml",
+        )
+        assert not public.find("gcloud", "auth")
+
     def test_a_finding_blocks_the_rollout_after_storing_evidence(self, tmp_path: Path):
         runner = self._runner({"guacd"})
         with pytest.raises(ReleaseScanError, match="blocked"):
@@ -316,8 +383,8 @@ class TestReleaseImageImport:
         assert roots["provisioner"].endswith("/pulumi-provisioner")
         assert registry_hosts("a.dev/x/y@sha256:1", "b.dev/z") == ["a.dev", "b.dev"]
         assert release_tag(REVISION) == "release-0123456789ab"
-        config = json.loads((docker_config(tmp_path, ["a.dev"]) / "config.json").read_text())
-        assert config == {"credHelpers": {"a.dev": "gcloud"}}
+        config = json.loads((docker_config(tmp_path, [HOST, "ghcr.io"]) / "config.json").read_text())
+        assert config == {"credHelpers": {HOST: "gcloud"}}
         for broken in (
             {},
             {"artifact_registry_image_roots": {"value": []}},
@@ -346,6 +413,18 @@ class TestReleaseImageImport:
         copies = runner.find("oras", "cp")
         assert len(copies) == 4
         assert all(call.argv[2] == "--recursive" and "DOCKER_CONFIG" in call.env for call in copies)
+
+    def test_release_identities_map_a_mirror_by_name_and_digest(self):
+        images = {"portal": "ghcr.io/acme/bigrae/portal@" + DIGEST}
+        assert release_identities(images) == images
+        assert release_identities(images, "mirror.example:5000/team/bigrae") == {
+            "portal": "mirror.example:5000/team/bigrae/portal@" + DIGEST
+        }
+        for source in ("https://mirror.example/x", "mirror.example", "Mirror.example/x"):
+            with pytest.raises(ReleaseImageError, match="registry prefix"):
+                release_identities(images, source)
+        with pytest.raises(ReleaseImageError, match="exact digest"):
+            release_identities({"portal": "ghcr.io/acme/portal:latest"}, "mirror.example/x")
 
     def test_digest_mismatch_or_copy_failure_stops_the_import(self, tmp_path: Path):
         roots = deployment_image_roots(sample_gcp_outputs("acme-shifter"))

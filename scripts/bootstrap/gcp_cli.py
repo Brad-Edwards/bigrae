@@ -31,6 +31,7 @@ from gcp_inputs import RANGE_IMAGE_ROLES
 LIFECYCLE_COMMANDS = frozenset({"gcp-deploy", "gcp-release-scan", "gcp-smoke", "gcp-destroy", "gcp-config"})
 _IDENTITY_HELP = "impersonate (operator, default) or ambient (the caller already is the purpose identity, CI)"
 _STORE_HELP = "Deployment config bucket prefix"
+_RELEASE_SOURCE_HELP = "Mirror registry prefix that holds the release images by digest (default: the manifest's)"
 
 
 def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
@@ -56,6 +57,7 @@ def _add_lock_arguments(parser: argparse.ArgumentParser) -> None:
 def _add_trust_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the release manifest and provenance trust arguments."""
     parser.add_argument("--release-manifest", default="", help="Release manifest (default: the deployer image's)")
+    parser.add_argument("--release-source", default="", help=_RELEASE_SOURCE_HELP)
     parser.add_argument("--trusted-repository-id", default="", help="CI only: the running repository ID")
     parser.add_argument("--trusted-owner-id", default="", help="CI only: the running repository owner ID")
 
@@ -103,6 +105,7 @@ def add_lifecycle_subparsers(subparsers: argparse._SubParsersAction) -> None:
 
     scan = subparsers.add_parser("gcp-release-scan", help="Scan the exact images of a release manifest")
     scan.add_argument("--release-manifest", required=True, help="Release manifest to scan")
+    scan.add_argument("--release-source", default="", help=_RELEASE_SOURCE_HELP)
     scan.add_argument("--project-id", required=True, help="Deployment project")
     scan.add_argument("--environment", required=True, help="Deployment name")
     scan.add_argument("--identity", choices=("impersonate", "ambient"), default="impersonate", help=_IDENTITY_HELP)
@@ -144,6 +147,7 @@ def _deploy_options(args: argparse.Namespace) -> DeployOptions:
         source=args.store or args.inputs,
         environment=args.environment,
         release_manifest=getattr(args, "release_manifest", ""),
+        release_source=getattr(args, "release_source", ""),
         stage=getattr(args, "stage", "all"),
         identity_mode=args.identity,
         name_prefix=args.name_prefix,
@@ -194,6 +198,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
             evidence_bucket=args.evidence_bucket,
             run_id=args.run_id,
             attempt=args.attempt,
+            release_source=args.release_source,
         )
     ),
     "gcp-smoke": lambda args: run_smoke_command(_deploy_options(args)),
@@ -203,6 +208,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
             confirm=args.confirm,
             environment=args.environment,
             release_manifest=args.release_manifest,
+            release_source=args.release_source,
             identity_mode=args.identity,
             name_prefix=args.name_prefix,
             destroy_service_account=args.destroy_service_account,

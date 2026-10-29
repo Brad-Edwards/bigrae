@@ -12,7 +12,6 @@ locals {
   release_scan_enabled = contains(keys(var.purpose_contexts), "release_scan") || contains(keys(var.impersonation_principals), "release_scan")
   deploy_enabled       = contains(keys(var.purpose_contexts), "deploy") || contains(keys(var.impersonation_principals), "deploy")
   destroy_enabled      = contains(keys(var.purpose_contexts), "destroy") || contains(keys(var.impersonation_principals), "destroy")
-  release_enabled      = contains(keys(var.purpose_contexts), "release")
 
   service_account_ids = {
     build        = "${replace(var.name_prefix, "-", "")}-packer"
@@ -21,7 +20,6 @@ locals {
     release_scan = "${replace(var.name_prefix, "-", "")}-scan"
     deploy       = "${replace(var.name_prefix, "-", "")}-deploy"
     destroy      = "${replace(var.name_prefix, "-", "")}-destroy"
-    release      = "${replace(var.name_prefix, "-", "")}-release"
   }
   service_account_emails = {
     for purpose, account_id in local.service_account_ids : purpose => "${account_id}@${var.project_id}.iam.gserviceaccount.com"
@@ -31,7 +29,7 @@ locals {
   }
   subject_prefix = var.github_subject_format == "immutable" ? "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" : "repo:${var.github_org}/${var.github_repo}"
   purpose_subjects = {
-    for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy", "release"] :
+    for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy"] :
     purpose => distinct([for context in lookup(var.purpose_contexts, purpose, []) : "${local.subject_prefix}:environment:${context.environment}"])
   }
   federated_subjects = toset(flatten(values(local.purpose_subjects)))
@@ -167,15 +165,6 @@ resource "google_service_account" "destroy" {
   display_name = "Shifter ${var.environment} platform destroyer"
 }
 
-# The release publisher pushes release images and their attestations. The
-# release-registry root grants it write access to the release repository only.
-resource "google_service_account" "release" {
-  count        = local.release_enabled ? 1 : 0
-  project      = var.project_id
-  account_id   = "${replace(var.name_prefix, "-", "")}-release"
-  display_name = "Shifter release publisher"
-}
-
 resource "google_service_account_iam_member" "packer_build_wif" {
   depends_on         = [google_service_account.packer_build, google_iam_workload_identity_pool_provider.github]
   for_each           = local.purpose_subject_principals.build
@@ -220,14 +209,6 @@ resource "google_service_account_iam_member" "destroy_wif" {
   depends_on         = [google_service_account.destroy, google_iam_workload_identity_pool_provider.github]
   for_each           = local.purpose_subject_principals.destroy
   service_account_id = local.service_account_names.destroy
-  role               = "roles/iam.workloadIdentityUser"
-  member             = each.value
-}
-
-resource "google_service_account_iam_member" "release_wif" {
-  depends_on         = [google_service_account.release, google_iam_workload_identity_pool_provider.github]
-  for_each           = local.purpose_subject_principals.release
-  service_account_id = local.service_account_names.release
   role               = "roles/iam.workloadIdentityUser"
   member             = each.value
 }

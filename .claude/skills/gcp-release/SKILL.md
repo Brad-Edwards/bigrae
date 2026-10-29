@@ -14,6 +14,9 @@ deploy-test branch" section of the
 
 ## Rules
 
+- One release serves every deployment. The workflow publishes it to the
+  public registry `ghcr.io/<owner>/<repository>`. A new deployment needs no
+  workflow or Environment change.
 - A deploy-code fix needs a new release, because `gcp-deploy` requires that
   its own revision equals the release revision.
 - Release from a ref that the workflow admits: `main`, `dev`, or
@@ -40,6 +43,8 @@ deploy-test branch" section of the
 5. Read the release manifest from the deployer image (gotchas: "Read the
    release manifest without Docker"). Check that `source_revision` equals the
    commit that you released.
+6. After the first release of a repository, ask the user to make the six
+   packages public (gotchas: "Make new release packages public").
 
 ## When the build fails
 

@@ -579,8 +579,7 @@ The first slice intentionally stays small:
   annotations) gated on `publish_target=ghcr` and a protected dispatch ref, with
   the staging object keyed on `BUILT_IMAGE_ID` (not the build-step-local
   `IMAGE_ID`). The retired GDC qcow2 `shifter-vm-*` publish contract is gone.
-  When `GCP_RELEASE_REGISTRY` is set, the job also copies each artifact by
-  digest into the release registry (ADR-070). `deploy.py gcp-images` imports
+  `deploy.py gcp-images` imports
   each artifact as a native GCE image from an explicit `--source` prefix
   (`scripts/bootstrap/gcp_base_images.py`, issues #2309 and #2571).
 
@@ -617,10 +616,11 @@ The first slice intentionally stays small:
   Enforces ADR-070-R1 with ADR-004-R23, ADR-003-R5, and ADR-037-R1, R5, and R7
   on `.github/workflows/release-gcp.yml`. It reads the workflow as data and
   fails closed when the workflow is missing or cannot be parsed. Only
-  `workflow_dispatch` may start the workflow. Each job that authenticates to
-  GCP must bind the `gcp-release` Environment and run on a GitHub-hosted
-  runner. In that job, a step before the authentication step must reject every
-  ref except `refs/heads/main`. Every non-local action must pin a full commit
+  `workflow_dispatch` may start the workflow. Each job that publishes (it logs
+  in to a registry, authenticates to a cloud, or pushes an image) must bind the
+  `gcp-release` Environment and run on a GitHub-hosted runner. In that job, a
+  step before the first publishing step must reject every ref except
+  `refs/heads/main`, `refs/heads/dev`, and `refs/heads/deploy-test`. Every non-local action must pin a full commit
   SHA. Every pushed image build must produce an SBOM and maximum provenance.
   An `actions/attest-build-provenance` step in the same job must sign that
   exact digest with `push-to-registry: true`. A deployment verifies this registry
@@ -1424,9 +1424,9 @@ These guardrails changed with it:
 
 - `release-workflow-provenance` (described above) guards the release
   workflow that builds the images and the deployer image.
-- `scripts/check_tf_gcp_wif_trust` runs in the Terraform lint job. It now
-  covers the `release` purpose: the release identity binds only its own
-  subjects and holds no project-wide role. Each token-creator or act-as grant
+- `scripts/check_tf_gcp_wif_trust` runs in the Terraform lint job. No `release`
+  purpose exists, because the release workflow publishes to the public
+  registry with the workflow token (#2659). Each token-creator or act-as grant
   outside the build self-grants must use the single `impersonation`
   resource. That resource grants each named principal access only to the
   identity of its own purpose. `impersonation_principals` must admit only `release_scan`,

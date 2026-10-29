@@ -179,9 +179,9 @@ release. Use the guide for each step that changes the deployment.
   identity could not read an image; the message names the reason, for example
   a missing `compute.images.get` permission. For a deliberate platform-first bring-up, deploy
   with `--allow-missing-range-images`.
-- **Images:** Add the deploy identity to `reader_members` of the release
-  registry
-  ([Publish a release](../technical/handbook/gcp-github-less-deployment.md#publish-a-release)).
+- **Images:** Make the release packages public
+  ([Publish a release](../technical/handbook/gcp-github-less-deployment.md#publish-a-release)),
+  or deploy from a mirror with `--release-source`.
 - **Scan:** Deploy a release whose images have no HIGH or CRITICAL finding with
   a fix. Read the raw report under `release-scans/`. There is no bypass.
 - **Verify:** Check `settings.release_trust` against the repository that

@@ -305,8 +305,7 @@ The CI path:
    inspection without pulling disk payloads or mutating GCP.
 
    Publishing the base set is the protected `packer-gcp.yml` workflow's job
-   (`publish_target=ghcr`). When `GCP_RELEASE_REGISTRY` is set, the workflow
-   also copies each base image to the release registry. Separate candidate
+   (`publish_target=ghcr`). Separate candidate
    qualification (`packer-gcp-validate.yml`) remains optional and off by
    default. See `docs/dev/gcp-range-cell-deploy.md` and
    `docs/architecture/gcp-guest-images.md`.

@@ -8,8 +8,7 @@ This tree provisions the GCP control plane for Shifter.
 | --- | --- |
 | `environments/platform` | Shared platform root of every GCP deployment. `scripts/bootstrap/deploy.py gcp-deploy` and `gcp-destroy` run it with the state prefix `shifter/<environment>/platform-core`. |
 | `environments/<deployment>` | Committed Terraform values of the deployments that GitHub CI deploys. A deployment without GitHub keeps its values in its deployment input bundle. |
-| `global/cicd-oidc` | Purpose identities that outlive the platform. GitHub federation is optional: an empty `purpose_contexts` creates no pool or provider. `impersonation_principals` names the principals that may impersonate the deploy, release-scan, and destroy identities. `deployment_config_bucket_name` creates the deployment config bucket. A `release` purpose creates the release publisher identity. |
-| `global/release-registry` | Artifact Registry repository for published releases. `writer_members` push releases; `reader_members` read them. |
+| `global/cicd-oidc` | Purpose identities that outlive the platform. GitHub federation is optional: an empty `purpose_contexts` creates no pool or provider. `impersonation_principals` names the principals that may impersonate the deploy, release-scan, and destroy identities. `deployment_config_bucket_name` creates the deployment config bucket. |
 | `global/github-runner` | Self-hosted runner of a deployment that GitHub CI deploys. |
 
 `scripts/bootstrap/deploy.py gcp-foundation` applies `global/cicd-oidc`. See
