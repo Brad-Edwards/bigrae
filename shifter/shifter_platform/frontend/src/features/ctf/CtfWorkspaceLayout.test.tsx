@@ -107,10 +107,6 @@ describe("CtfWorkspaceLayout", () => {
     expect(screen.queryByText("New message")).not.toBeInTheDocument();
 
     act(() => socket.onmessage?.({ data: "not-json" }));
-    // Well-formed JSON that is not a notification object is ignored, not thrown.
-    act(() => socket.onmessage?.({ data: "null" }));
-    act(() => socket.onmessage?.({ data: "5" }));
-    expect(screen.queryByText("First blood!")).not.toBeInTheDocument();
     act(() => socket.onmessage?.(frame({ kind: "communication", snapshot_id: "x" })));
     act(() => socket.onmessage?.(frame({ kind: "refresh" }, "ctf:event:other")));
     // A legacy content-bearing frame is never rendered as content.
@@ -119,6 +115,19 @@ describe("CtfWorkspaceLayout", () => {
     expect(screen.queryByText(/Bob/)).not.toBeInTheDocument();
     expect(inboxCalls()).toHaveLength(2);
   });
+
+  it.each(["null", "5", "true", '"notification"', "[]"])(
+    "ignores JSON value %s without refetching or rendering content",
+    async (data) => {
+      const socket = await openSocket();
+
+      await act(async () => socket.onmessage?.({ data }));
+
+      expect(inboxCalls()).toHaveLength(1);
+      expect(screen.queryByText("New message")).not.toBeInTheDocument();
+      expect(screen.queryByText("First blood!")).not.toBeInTheDocument();
+    },
+  );
 
   it("announces open obligations without moving focus or blocking navigation", async () => {
     actionRequired = 2;
