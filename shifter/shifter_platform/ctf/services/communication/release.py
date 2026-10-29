@@ -53,6 +53,7 @@ from ctf.services.communication.admission import (
 from ctf.services.communication.attribution import actor_attribution
 from ctf.services.communication.audience import resolve_recipients
 from ctf.services.communication.backpressure import AdmissionRequest, enforce_admission
+from ctf.services.communication.disposition import refresh_delivery_state
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +316,7 @@ def release_campaign(
 
         _materialize(intent, recipients, channels, now)
         CommunicationCampaign.objects.filter(pk=locked.pk).update(status=CampaignStatus.RELEASED.value, updated_at=now)
+        refresh_delivery_state([intent.pk])
         audit_communication_release(
             actor_id=actor.credential or intent.actor_user_id,
             campaign_id=locked.id,
@@ -441,6 +443,7 @@ def release_due_declaration(
         CommunicationIntent.objects.filter(pk=locked_intent.pk).update(
             status=IntentStatus.RELEASED.value, released_at=now, updated_at=now
         )
+        refresh_delivery_state([locked_intent.pk])
         CommunicationCampaign.objects.filter(pk=locked_campaign.pk).update(
             status=CampaignStatus.RELEASED.value, updated_at=now
         )

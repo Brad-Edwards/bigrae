@@ -3074,7 +3074,7 @@ jobs:
         # no pull_request payload and always scan.
         if: >-
           ${{ github.repository_id == '1241599684'
-          && github.repository_owner_id == '56809295'
+          && github.repository_owner_id == '308592074'
           && (github.event_name != 'pull_request'
           || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0

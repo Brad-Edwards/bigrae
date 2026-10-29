@@ -1,12 +1,12 @@
 ---
 id: CTF-705
 title: "Registration Deadline"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:23.224185Z
-updated_at: 2026-03-19T03:08:12.174024Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-705: Registration Deadline
@@ -22,3 +22,7 @@ Organizers often need to know participant counts before an event starts to provi
 ## Traceability
 
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#661` (CTF-705: Registration Deadline)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent.registration_deadline and effective_registration_deadline, which defaults to event_start)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/public_registration.py` (Public registration shows the effective deadline and closes after it)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_public_registration.py` (Deadline-aware public projection and locked deadline recheck)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_participant.py` (Organizer import is still allowed after the deadline)

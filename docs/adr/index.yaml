@@ -139,7 +139,7 @@
       },
       {
         "id": "ADR-003-R7",
-        "description": "SonarCloud scanner identity is repository deployment configuration, not shared source-analysis configuration. The SonarQube Cloud scan step in `.github/workflows/_quality.yml` consumes the project key and organization from the non-secret `SONAR_PROJECT_KEY` and `SONAR_ORGANIZATION` repository variables; `sonar-project.properties` retains shared sources, exclusions, report paths, suppressions, encoding, version, and file-header policy but no `sonar.projectKey`, `sonar.organization`, or `sonar.projectName`. The scan attempt is gated on the immutable `github.repository_id` and `github.repository_owner_id` of the upstream repository, which equal `docs/adr/repository-identity.json` (ADR-069), never on either variable being present, so missing or renamed variables fail the scanner loudly in the upstream repository. Runs in any other repository skip: SonarCloud is this project's tooling choice and is not imposed on anyone who cloned the repository. Fork-origin pull requests also skip, because they execute in the base repository's context (passing the identity test) but receive no secrets, and a scan that cannot be given `SONAR_TOKEN` would hand an outside contributor an unfixable red check; their code is analyzed on the `dev` run after merge. The existing `SONAR_TOKEN` reusable-workflow secret boundary, path/coverage routing, and action SHA pinning remain unchanged. Every canonical analysis that runs MUST set `sonar.qualitygate.wait=true`; scanner upload success without the terminal quality-gate verdict is not an accepted release result. Repository-variable activation and readback are part of the same delivery as the workflow change. The `.ground-control.yaml` `sonarcloud` block remains Ground Control integration metadata and is not a scanner runtime input or an alternative source for workflow arguments. Generated OpenAPI declarations follow the established generated-schema source-analysis exclusion, with any additional exact artifact recorded as an owned, time-bounded exception. Their DRF drift verification and TypeScript consumer checks remain mandatory; handwritten administration code retains all analysis gates. Rename amendment (#2555): after the observed same-owner rename, canonical analysis admits only Brad-Edwards/bigrae with immutable repository ID 1241599684 and owner ID 56809295. The old slug, recreated slugs, other owners and fork-origin pull requests are denied. Current repository tooling, source labels, attestation checks and future-deployment examples use the new slug; historical links, published provenance and pinned pack records retain original coordinates. New public SDK/client coordinates ship legacy import aliases and deprecation distributions; Dependabot owns each package root, including both compatibility distributions.",
+        "description": "SonarCloud scanner identity is repository deployment configuration, not shared source-analysis configuration. The SonarQube Cloud scan step in `.github/workflows/_quality.yml` consumes the project key and organization from the non-secret `SONAR_PROJECT_KEY` and `SONAR_ORGANIZATION` repository variables; `sonar-project.properties` retains shared sources, exclusions, report paths, suppressions, encoding, version, and file-header policy but no `sonar.projectKey`, `sonar.organization`, or `sonar.projectName`. The scan attempt is gated on the immutable `github.repository_id` and `github.repository_owner_id` of the upstream repository, which equal `docs/adr/repository-identity.json` (ADR-069), never on either variable being present, so missing or renamed variables fail the scanner loudly in the upstream repository. Runs in any other repository skip: SonarCloud is this project's tooling choice and is not imposed on anyone who cloned the repository. Fork-origin pull requests also skip, because they execute in the base repository's context (passing the identity test) but receive no secrets, and a scan that cannot be given `SONAR_TOKEN` would hand an outside contributor an unfixable red check; their code is analyzed on the `dev` run after merge. The existing `SONAR_TOKEN` reusable-workflow secret boundary, path/coverage routing, and action SHA pinning remain unchanged. Every canonical analysis that runs MUST set `sonar.qualitygate.wait=true`; scanner upload success without the terminal quality-gate verdict is not an accepted release result. Repository-variable activation and readback are part of the same delivery as the workflow change. The `.ground-control.yaml` `sonarcloud` block remains Ground Control integration metadata and is not a scanner runtime input or an alternative source for workflow arguments. Generated OpenAPI declarations follow the established generated-schema source-analysis exclusion, with any additional exact artifact recorded as an owned, time-bounded exception. Their DRF drift verification and TypeScript consumer checks remain mandatory; handwritten administration code retains all analysis gates. Rename amendment (#2555): after the observed same-owner rename, canonical analysis admits only Brad-Edwards/bigrae with immutable repository ID 1241599684 and owner ID 56809295. The old slug, recreated slugs, other owners and fork-origin pull requests are denied. Current repository tooling, source labels, attestation checks and future-deployment examples use the new slug; historical links, published provenance and pinned pack records retain original coordinates. New public SDK/client coordinates ship legacy import aliases and deprecation distributions; Dependabot owns each package root, including both compatibility distributions. Transfer amendment (#2660): after the transfer to the OpenRAE organization, canonical analysis admits only OpenRAE/bigrae with the unchanged repository ID 1241599684 and owner ID 308592074; Brad-Edwards/bigrae is a former name.",
         "checks": []
       },
       {
@@ -3329,6 +3329,11 @@
         "id": "ADR-051-R13",
         "description": "The #2053 participant inbox extends the existing event-scoped inbox service and ledger. Its message identity is the recipient snapshot UUID; distinct occurrences remain distinct while retries converge on that snapshot. Read, dismiss and explicit acknowledgement are separate idempotent monotonic receipt facts, never inferred from GET, prefetch, toast display, socket delivery or one another. Dismissal preserves access to unmet required acknowledgement, which never traps emergency navigation or becomes play authority. Every read, page and action reauthorizes the exact live participation; retention, authorization loss and browser context changes cannot preserve unauthorized content. The existing versioned content validator and MarkdownContent profile own bounded admission/rendering, including media rejection and deployment-owned link policy under enforced CSP. Reference-only wake-ups are optional accelerators; offline, reconnect and cross-tab reconciliation use the authenticated durable API. The participant inbox boundary note records the cross-cutting gates and current gaps; this rule adds no workflow owner or ADR-066 activation and passing registry checks does not prove implementation.",
         "checks": []
+      },
+      {
+        "id": "ADR-051-R14",
+        "description": "Issue #1525 activates email only through the existing communication ChannelAdapter and DeliveryAttempt outbox, with MIME/backend execution owned by shared.email and no parallel fan-out or retry owner. Requests report committed ledger acceptance; release remains distinct from delivery completion. Persist the occurrence delivery disposition within the canonical intent owner, derived consistently from per-recipient/channel outcomes without rewriting authored intent or legacy aggregates. Provider acceptance is not mailbox delivery/read/acknowledgement; stable Message-ID and lease fencing do not prove provider deduplication after an uncertain send. The email preflight records required backend capability evidence, pre-I/O retry ceilings, real transport deadlines and shutdown bounds, isolated coordinate decryption, safe rendering/header handling, closed error/log outcomes, deployment config and least-privilege worker wiring, and restart/concurrency proofs. Preserve ADR-065 retirement and explicit recovery of mapped schedules. ADR-071 and the #1525 email delivery design record the implemented transport seam and the closed delivery_state values (not_released, empty, pending, accepted, partial, failed, withdrawn). Registry validation alone does not prove runtime delivery.",
+        "checks": []
       }
     ],
     "exceptions": [],
@@ -3343,6 +3348,8 @@
       "https://github.com/Brad-Edwards/bigrae/issues/2048",
       "docs/architecture/ctf-communications-raes-inject-preflight-2047.md",
       "docs/architecture/ctf-communication-delivery-engine-preflight-2049.md",
+      "docs/architecture/ctf-email-durable-delivery-preflight-1525.md",
+      "docs/architecture/email-delivery-design-1525.md",
       "docs/architecture/ctf-communication-api-cutover-preflight-2100.md",
       "docs/design/ctf-communications-console-boundaries-2052.md",
       "docs/architecture/ctf-api-integration-preflight-2052.md",
@@ -4581,6 +4588,51 @@
       "scripts/adr_guard/_guard/checks/release_workflow.py",
       "scripts/adr_guard/tests/test_release_workflow.py",
       "scripts/adr_guard/tests/test_deploy_workflow.py"
+    ]
+  },
+  {
+    "id": "ADR-071",
+    "title": "Email delivery reports observed outcomes",
+    "status": "accepted",
+    "scope": "shifter_platform",
+    "decision": "Email success is a backend acceptance observed by one bounded send attempt, never a dispatch, a thread submission, or a release. CTF email is a ChannelAdapter on the ADR-051 communication ledger: the DeliveryAttempt row is the durable command and the existing worker is the only retry owner. Workspace invitation and administrator password-reset messages use one bounded synchronous attempt after commit; the invitation persists its delivery status for the current generation and the reset API reports a non-accepted send. Resend is their retry, and no second email outbox exists. shared.email.attempt_email is the single transport seam: it enforces one wall-clock deadline on every socket read and write of the attempt (SMTP, the requests-based Anymail ESPs, and SES through a botocore before-send hook), disables SDK retries and django-ses throttling sleeps, and returns a closed outcome, closed reason, and validated optional receipt. Console, file, and dummy backends are unavailable outside development and test runtimes. Idempotency is ledger-level: one command per recipient and channel with a stable Message-ID; the crash window after provider acceptance and before settlement is a documented at-least-once limit.",
+    "rules": [
+      {
+        "id": "ADR-071-R1",
+        "description": "CTF email delivery runs only through the communication ChannelAdapter seam and the existing DeliveryAttempt worker. The worker enforces the attempt and elapsed ceilings before transport I/O and after a retriable result, releases unattempted claims on graceful shutdown, and persists CommunicationIntent.delivery_state through one locked derivation from committed rows. In-app success is the committed inbox receipt, not the wake-up command.",
+        "checks": []
+      },
+      {
+        "id": "ADR-071-R2",
+        "description": "Workspace invitation and administrator password-reset email use one bounded synchronous shared.email attempt after the triggering transaction commits. The invitation records pending, accepted, failed, or unavailable for its current generation only, and a later resend or revoke fences an earlier send. A non-accepted reset send returns reset_delivery_failed. Neither path adds an outbox, scheduler row, retry loop, or thread pool.",
+        "checks": []
+      },
+      {
+        "id": "ADR-071-R3",
+        "description": "shared.email.attempt_email makes exactly one backend call that stops at one wall-clock deadline, because each blocking socket operation gets only the remaining time, returns a closed outcome and reason, and never logs a recipient, body, provider text, or traceback. EMAIL_DELIVERY_AVAILABLE is false for console, file, and dummy backends outside development and test runtimes; an unavailable backend sends nothing and is never reported as accepted.",
+        "checks": []
+      }
+    ],
+    "exceptions": [],
+    "enforcement": [
+      "ci",
+      "agent-policy"
+    ],
+    "evidence": [
+      "https://github.com/Brad-Edwards/bigrae/issues/1525",
+      "docs/adr/071-observed-email-delivery-outcomes.md",
+      "docs/architecture/email-delivery-design-1525.md",
+      "docs/architecture/ctf-email-durable-delivery-preflight-1525.md",
+      "shifter/shifter_platform/shared/email.py",
+      "shifter/shifter_platform/shared/email_classification.py",
+      "shifter/shifter_platform/shared/email_deadline.py",
+      "shifter/shifter_platform/config/_email.py",
+      "shifter/shifter_platform/ctf/services/communication/adapters/email.py",
+      "shifter/shifter_platform/ctf/services/communication/delivery.py",
+      "shifter/shifter_platform/ctf/services/communication/disposition.py",
+      "shifter/shifter_platform/workspaces/services/_invitations.py",
+      "shifter/shifter_platform/workspaces/services/_invitation_delivery.py",
+      "shifter/shifter_platform/management/password_reset.py"
     ]
   }
 ]

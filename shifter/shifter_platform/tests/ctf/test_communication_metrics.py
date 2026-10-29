@@ -91,6 +91,44 @@ def test_backlog_gauges_report_per_channel_depth(organizer_user, ctf_event):
     )
 
 
+def test_worker_outcomes_carry_outcome_and_channel_dimensions(db):
+    stats = DeliveryRunStats()
+    stats.count("claimed", "email")
+    stats.count("accepted", "email")
+    stats.count("retried", "in_app")
+    stats.count("released", "email")
+    client = _CapturingClient()
+
+    metrics.emit_worker_run(stats, now_func=timezone.now, client=client)
+
+    outcomes = {
+        tuple((d["Name"], d["Value"]) for d in entry["Dimensions"]): entry["Value"]
+        for call in client.calls
+        for entry in call["MetricData"]
+        if entry["MetricName"] == "WorkerOutcome"
+    }
+    assert outcomes == {
+        (("Outcome", "accepted"), ("Channel", "email")): 1.0,
+        (("Outcome", "claimed"), ("Channel", "email")): 1.0,
+        (("Outcome", "released"), ("Channel", "email")): 1.0,
+        (("Outcome", "retried"), ("Channel", "in_app")): 1.0,
+    }
+
+
+def test_drained_channels_report_zero_backlog(db):
+    client = _CapturingClient()
+
+    metrics.emit_backlog_gauges(now_func=timezone.now, client=client)
+
+    depth = {
+        entry["Dimensions"][0]["Value"]: entry["Value"]
+        for call in client.calls
+        for entry in call["MetricData"]
+        if entry["MetricName"] == "BacklogDepth"
+    }
+    assert depth == {"email": 0.0, "in_app": 0.0}
+
+
 def test_resolve_client_selects_aws(settings, monkeypatch):
     settings.CLOUD_PROVIDER = "aws"
     import boto3

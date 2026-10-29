@@ -194,7 +194,8 @@ def _delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int
 
     Delivery commands and receipts are counted in separate grouped queries, so a
     receipt is never multiplied by the number of channels. Each command keeps its
-    own truthful status; nothing here is a persisted aggregate.
+    own truthful status. ``delivery_state`` is the persisted occurrence aggregate
+    that ``disposition.refresh_delivery_state`` maintains (#1525).
     """
     page = list(
         CommunicationIntent.objects.filter(campaign=campaign)
@@ -219,6 +220,7 @@ def _delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int
                 "due_at": intent.due_at,
                 "released_at": intent.released_at,
                 "schedule_status": schedule.get(str(intent.pk)),
+                "delivery_state": intent.delivery_state,
                 "events": events,
                 "totals": totals,
             }
@@ -262,6 +264,7 @@ def _recipient_rows(
         raise _unavailable()
     snapshots = list(
         RecipientSnapshot.objects.filter(intent=intent, event=event)
+        .defer("delivery_coordinate")
         .select_related("participant", "participant__team", "receipt")
         .prefetch_related("delivery_attempts")
         .order_by("participant_public_id")[offset : offset + limit + 1]

@@ -25436,6 +25436,14 @@
             "readOnly": true,
             "nullable": true
           },
+          "delivery_state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryStateEnum"
+              }
+            ],
+            "readOnly": true
+          },
           "events": {
             "type": "array",
             "items": {
@@ -25453,6 +25461,7 @@
           }
         },
         "required": [
+          "delivery_state",
           "due_at",
           "events",
           "intent_id",
@@ -26924,6 +26933,30 @@
         "required": [
           "success"
         ]
+      },
+      "DeliveryStateEnum": {
+        "enum": [
+          "not_released",
+          "pending",
+          "accepted",
+          "partial",
+          "failed",
+          "withdrawn",
+          "empty"
+        ],
+        "type": "string",
+        "description": "* `not_released` - Not Released\n* `pending` - Pending\n* `accepted` - Accepted\n* `partial` - Partial\n* `failed` - Failed\n* `withdrawn` - Withdrawn\n* `empty` - Empty"
+      },
+      "DeliveryStatusEnum": {
+        "enum": [
+          "pending",
+          "accepted",
+          "failed",
+          "unavailable",
+          "unknown"
+        ],
+        "type": "string",
+        "description": "* `pending` - Pending\n* `accepted` - Accepted\n* `failed` - Failed\n* `unavailable` - Unavailable\n* `unknown` - Unknown"
       },
       "DirectActionAssignmentMutation": {
         "type": "object",
@@ -31703,6 +31736,15 @@
             ],
             "readOnly": true
           },
+          "delivery_status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryStatusEnum"
+              }
+            ],
+            "readOnly": true,
+            "description": "Observed outcome of the latest send; accepted means the mail backend took it, not that it was read.\n\n* `pending` - Pending\n* `accepted` - Accepted\n* `failed` - Failed\n* `unavailable` - Unavailable\n* `unknown` - Unknown"
+          },
           "expires_at": {
             "type": "string",
             "format": "date-time",
@@ -31721,6 +31763,7 @@
         },
         "required": [
           "created_at",
+          "delivery_status",
           "email",
           "expires_at",
           "invitation_uuid",
