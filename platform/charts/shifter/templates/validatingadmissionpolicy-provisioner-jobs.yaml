@@ -34,11 +34,12 @@ spec:
   # Fail closed: a CEL evaluation error denies the request rather than admitting it.
   failurePolicy: Fail
   # The allowed image/env are pinned to the live runtime contract (ENGINE_TASK_IMAGE
-  # etc.). GCP reads them from the platform-runtime ConfigMap via paramKind so the
-  # policy follows image rolls without a second source of truth. EKS cannot resolve
-  # ValidatingAdmissionPolicy ConfigMap params at all (verified: every binding denies
-  # with "no params found"), so on AWS the values are inlined into the paramData CEL
-  # variable at render time and paramKind/paramRef are omitted.
+  # etc.). Neither EKS nor GKE 1.36 resolves ValidatingAdmissionPolicy ConfigMap
+  # params (verified: every binding denies with "no params found", #2633), so by
+  # default the platform-runtime map is inlined into the paramData CEL variable at
+  # render time and paramKind/paramRef are omitted. The inline map and the ConfigMap
+  # come from the same shifter.platformRuntimeEnv template, so each Helm upgrade
+  # moves both together.
   {{- if not .Values.provisionerAdmission.inlineParams }}
   paramKind:
     apiVersion: v1
@@ -57,16 +58,16 @@ spec:
       expression: has(variables.podSpec.serviceAccountName) && variables.podSpec.serviceAccountName == '{{ .Values.serviceAccounts.provisioner.name }}'
     - name: containers
       expression: "has(variables.podSpec.containers) ? variables.podSpec.containers : []"
-    # Param source: the platform-runtime ConfigMap on GCP (paramKind), or the
-    # render-time inline map on AWS (EKS cannot resolve ConfigMap params). Only
-    # quote-safe values are inlined; the policy compares provisioner env values,
-    # which are all quote-free infra strings.
+    # Param source: the render-time inline platform-runtime map (default), or the
+    # platform-runtime ConfigMap (paramKind) where the control plane resolves it.
+    # Only quote-safe values are inlined; the policy compares provisioner env
+    # values, which are all quote-free infra strings.
     {{- if .Values.provisionerAdmission.inlineParams }}
     - name: paramData
       expression: >-
         {
         {{- $pairs := list -}}
-        {{- range $k, $v := .Values.runtimeEnv -}}
+        {{- range $k, $v := include "shifter.platformRuntimeEnv" . | fromJson -}}
         {{- if and (not (contains "'" $v)) (not (contains "\\" $v)) (not (contains "\n" $v)) -}}
         {{- $pairs = append $pairs (printf "%s: %s" ($k | squote) ($v | squote)) -}}
         {{- end -}}
