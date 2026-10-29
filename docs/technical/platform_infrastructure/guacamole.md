@@ -66,12 +66,21 @@ On AWS and GCP, `guacd`, `guacamole-client` and the prune worker run as Kubernet
 The shared Helm chart hosts them on EKS or GKE.
 Guacamole uses RDS PostgreSQL on AWS and Cloud SQL PostgreSQL on GCP.
 The Django integration and JSON-auth flow are shared across clouds.
+On both clouds, `guacamole_admin` owns the `guacamole` database and its
+`public` schema, so the client entrypoint can create the Guacamole schema. On
+GCP, `reconcile_gcp_database_duties` sets that ownership before the Helm
+rollout and removes the provider `cloudsqlsuperuser` role from the login (#2626).
 
-The BigRAE client image removes the unused upstream CAS, client-certificate SSO,
-and Keeper Secrets Manager extensions, including their activation links. Those
-extensions bundle vulnerable Bouncy Castle providers; BigRAE's JSON-auth and
-PostgreSQL integration does not use them. Enabling any of those upstream
-extensions requires a separately reviewed image change with patched dependencies.
+The BigRAE client image keeps the JSON-auth and JDBC PostgreSQL upstream
+extensions, plus the native authority extension built from this repository.
+It removes every other upstream extension, their activation links,
+and the MySQL and SQL Server drivers, because they bundle vulnerable
+dependencies that BigRAE does not use. Guacamole 1.6.0 bundles guava, jackson,
+and an old PostgreSQL JDBC driver with fixable HIGH findings. The image build
+swaps those bundled jars for fixed, hash-verified copies
+(`shifter/engine/guacamole/patch_bundled_jars.py`, #2610). Enabling another
+upstream extension requires a separately reviewed image change with patched
+dependencies.
 
 ## Components
 

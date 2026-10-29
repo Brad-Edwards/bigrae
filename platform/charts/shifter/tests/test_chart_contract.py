@@ -60,11 +60,11 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress.
 # Regenerated for #2321 integration: retain native policy/PDB delivery and catalog
 # initialization alongside the credential-less CTF image egress proxy.
-# Regenerated for #2622 integration: retain these native runtime contracts while
-# applying the API server CEL compilation correction to the provisioner policy.
+# Regenerated for #2622/#2633 integration: compile the provisioner policy and
+# inline the shared platform-runtime map without losing native runtime contracts.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "964ca980ba73978a28f1ab6a1e2fcd7a3bc0492b05b24bdbf3ca5d0a9de77c4b",
-    "gcp-prod": "22e59c3a74623645fac14314dd2d185c122b6c69474347b216f86d1b159fc61d",
+    "gcp-prod": "7d0f23ee4745af91c367625390768138d8fe3ddf917e6fd1119dd070490f6fe5",
+    "gcp-dev": "117efe93cc24f9cc373ffe235f166fc76a4ac6b6c8f6b197438284be31eb9adc",
 }
 
 

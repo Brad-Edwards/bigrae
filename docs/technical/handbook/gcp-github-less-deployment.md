@@ -168,7 +168,7 @@ To publish base guest images to the release registry, set the
    ```bash
    cosign verify-attestation --type https://slsa.dev/provenance/v1 \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-     --certificate-identity "https://github.com/<owner>/<repo>/.github/workflows/release-gcp.yml@refs/heads/main" \
+     --certificate-identity "https://github.com/<owner>/<repo>/.github/workflows/release-gcp.yml@<release ref>" \
      --certificate-github-workflow-sha "$REV" "$REG/deployer@$DIGEST"
    ```
 
@@ -240,7 +240,11 @@ mode. It creates these resources:
 - the token-creator grants for the named principals;
 - the release-evidence bucket, with a locked 90-day retention policy;
 - the deployment config bucket, with uniform access, public access
-  prevention, versioning, and access logs in the release-evidence bucket;
+  prevention, and versioning;
+- Cloud Audit Logs for storage reads and writes in the project. Usage-log
+  delivery to the release-evidence bucket is optional
+  (`enable_gcs_usage_log_delivery`), because a Domain Restricted Sharing org
+  policy rejects its Google-managed writer group;
 - the image-build network, only when `enable_image_build_network` is `true`.
 
 The retention lock on the release-evidence bucket is permanent. Check the

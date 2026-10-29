@@ -161,10 +161,10 @@ provisioner:
 
 provisionerAdmission:
   # When true, restrict-provisioner-jobs inlines its param values into the policy CEL
-  # instead of a ConfigMap paramRef. Set true only on backends whose control plane
-  # cannot resolve ValidatingAdmissionPolicy ConfigMap params (AWS EKS); GCP resolves
-  # them, so it keeps the paramRef.
-  inlineParams: false
+  # instead of a ConfigMap paramRef. Neither EKS nor GKE 1.36 resolves
+  # ValidatingAdmissionPolicy ConfigMap params, so the default is true (#2633). Set
+  # false only on a control plane that is verified to resolve them.
+  inlineParams: true
 
 runtime:
   secretReferences: {}
