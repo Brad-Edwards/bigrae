@@ -125,7 +125,7 @@ def authorize_subscription(user: AbstractBaseUser | AnonymousUser, topic: str) -
             if registration.can_subscribe(user, topic):
                 authorized = True
                 break
-        except Exception:  # noqa: BLE001 - isolates registered authorizers; fails closed, traceback at WARNING
+        except Exception:  # noqa: BLE001  # isolates registered authorizers; fails closed, traceback at WARNING
             logger.warning(
                 "notification authorizer failed: type=%s topic=%s user_id=%s",
                 registration.name,

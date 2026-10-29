@@ -234,6 +234,7 @@ def _resolve_ngfw_ssh(user: User | CredentialContext, app_id: str) -> _SSHConn:
             safe_log_value(app_id),
             type(e).__name__,
             safe_log_fingerprint(e),
+            exc_info=False,
         )
         raise BootstrapFailure(_INTERNAL_SERVER_ERROR, status_code=500) from e
 
@@ -274,6 +275,7 @@ def _generate_ngfw_ssh_url(
             safe_log_value(app_id),
             type(e).__name__,
             safe_log_fingerprint(e),
+            exc_info=False,
         )
         raise BootstrapFailure(_INTERNAL_SERVER_ERROR, status_code=500) from e
 
@@ -333,6 +335,7 @@ def _resolve_range_ssh(
             safe_log_value(instance_uuid),
             type(e).__name__,
             safe_log_fingerprint(e),
+            exc_info=False,
         )
         raise BootstrapFailure(_INTERNAL_SERVER_ERROR, status_code=500) from e
 
@@ -373,6 +376,7 @@ def _generate_range_ssh_url(
             safe_log_value(instance_uuid),
             type(e).__name__,
             safe_log_fingerprint(e),
+            exc_info=False,
         )
         raise BootstrapFailure(_INTERNAL_SERVER_ERROR, status_code=500) from e
 

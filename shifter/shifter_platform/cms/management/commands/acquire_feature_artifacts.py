@@ -35,7 +35,7 @@ class Command(BaseCommand):
         for scenario_id in RaesPackageSource.objects.order_by("scenario_id").values_list("scenario_id", flat=True):
             try:
                 requested += request_pack_feature_artifacts(scenario_id)
-            except Exception as exc:  # noqa: BLE001 - per-pack boundary; RAES pack errors embed local filesystem paths
+            except Exception as exc:  # noqa: BLE001  # per-pack boundary; RAES pack errors embed local filesystem paths
                 # One unassessable pack never blocks the others or the deploy.
                 logger.warning(
                     "acquire_feature_artifacts: skipped scenario_id=%s error=%s",

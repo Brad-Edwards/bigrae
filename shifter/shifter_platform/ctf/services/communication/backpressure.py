@@ -92,11 +92,15 @@ def _consume(scope_class: str, key: str, limit: int, window: int, code: str, mes
 
     try:
         used = consume_fixed_window(cache, f"ctf:comm:admit:{key}", window)
-    except Exception as exc:  # noqa: BLE001 - cache client errors can carry the connection URL; log the class only
+    # cache client errors can carry the connection URL; log the class only
+    except Exception as exc:  # noqa: BLE001
         # Fail closed: deny admission when the shared rate counter is unavailable.
         # ``from None`` keeps the cache client cause out of later tracebacks.
         logger.error(
-            "Communication admission rate counter unavailable scope=%s exc_type=%s", scope_class, type(exc).__name__
+            "Communication admission rate counter unavailable scope=%s exc_type=%s",
+            scope_class,
+            type(exc).__name__,
+            exc_info=False,
         )
         raise CTFCommunicationError(
             "Communication admission unavailable", code="CTF_COMMUNICATION_ADMISSION_UNAVAILABLE"

@@ -105,7 +105,7 @@ def _run_gdc_deprovision(
                 management_ip=management_ip,
                 ssh_key_secret_arn=ssh_key_secret_arn,
             )
-        except Exception as e:  # noqa: BLE001 - best-effort license deactivation; destroy proceeds regardless
+        except Exception as e:  # noqa: BLE001  # best-effort license deactivation; destroy proceeds regardless
             logger.warning("GDC VM-Series license deactivation error: %s, proceeding with destroy", e)
     else:
         logger.warning(
@@ -155,7 +155,7 @@ def _deactivate_aws_vmseries_license(current_state: dict[str, Any]) -> None:
             management_ip=management_ip,
             ssh_key_secret_arn=ssh_key_secret_arn,
         )
-    except Exception as e:  # noqa: BLE001 - best-effort license deactivation; destroy proceeds regardless
+    except Exception as e:  # noqa: BLE001  # best-effort license deactivation; destroy proceeds regardless
         logger.warning("License deactivation error: %s, proceeding with destroy", e)
 
 

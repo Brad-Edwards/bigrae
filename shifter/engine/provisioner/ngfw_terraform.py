@@ -182,7 +182,8 @@ def run_ngfw_terraform(operation: str, request_id: str, *, operation_id: str | N
         if operation == "up":
             try:
                 _cleanup_failed_ngfw_provision(request_id, instance_id, app_spec)
-            except Exception as cleanup_error:  # noqa: BLE001 - best-effort cleanup must not mask the provision failure
+            # best-effort cleanup must not mask the provision failure
+            except Exception as cleanup_error:  # noqa: BLE001
                 # Class name only: cleanup errors can carry Terraform/provider output (ADR-043-R5).
                 logger.warning(
                     "NGFW auto-cleanup failed request_id=%s exc_type=%s", request_id, type(cleanup_error).__name__
@@ -327,7 +328,7 @@ def _auto_stop_ngfw(request_id: str, *, operation_id: str | None = None) -> None
     try:
         run_ngfw_operation("stop", request_id, operation_id=operation_id, owning_operation="provision")
         logger.info("Auto-stop completed: request_id=%s", request_id)
-    except Exception as exc:  # noqa: BLE001 - non-fatal auto-stop; run_ngfw_operation logs the operation traceback
+    except Exception as exc:  # noqa: BLE001  # non-fatal auto-stop; run_ngfw_operation logs the operation traceback
         logger.warning(
             "Auto-stop failed (non-fatal) - NGFW remains running: request_id=%s exc_type=%s",
             request_id,
@@ -383,7 +384,7 @@ def _run_pan_os_post_provision(
     bootstrap_cleanup_error = None
     try:
         _cleanup_ngfw_bootstrap_objects(instance_id)
-    except Exception as e:  # noqa: BLE001 - deferred: re-raised after auto-stop, where the caller logs the traceback
+    except Exception as e:  # noqa: BLE001  # deferred: re-raised after auto-stop, where the caller logs the traceback
         logger.warning("NGFW bootstrap object cleanup failed; failing after auto-stop: request_id=%s", request_id)
         bootstrap_cleanup_error = e
     logger.info(

@@ -65,10 +65,9 @@ def authorize_bootstrap(row: GuacamoleBootstrapRequest, credential: CredentialCo
             row.pk,
             type(exc).__name__,
         )
-        return False
     except Exception:
         logger.exception("Guacamole bootstrap reauthorization failed closed: bootstrap_id=%s", row.pk)
-        return False
+    return False
 
 
 def terminate_bootstrap(

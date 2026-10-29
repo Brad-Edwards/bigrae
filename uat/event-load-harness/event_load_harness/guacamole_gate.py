@@ -202,7 +202,7 @@ class GuacamoleGateExecutor:
             return _failure(started, "peer_failed")
         try:
             client = await self._authenticator(self.base_url, actor)
-        except Exception:  # noqa: BLE001 - participant boundary: the result records authentication_error
+        except Exception:  # noqa: BLE001  # participant boundary: the result records authentication_error
             return await self._fail(started, "authentication_error")
         self._active_clients[actor.label] = client
         try:
@@ -211,7 +211,7 @@ class GuacamoleGateExecutor:
                 if response.status_code >= 400:
                     raise targets.TargetError("range projection was refused")
                 target = targets.select_target(_safe_json(response), role=self.target_role)
-            except Exception:  # noqa: BLE001 - participant boundary: the result records target_discovery_error
+            except Exception:  # noqa: BLE001  # participant boundary: the result records target_discovery_error
                 return await self._fail(started, "target_discovery_error")
             status_url = await self._start_bootstrap(client, target)
             delivered_url = await self._await_delivery(client, status_url)
@@ -233,7 +233,7 @@ class GuacamoleGateExecutor:
                 )
         except _GateFailure as exc:
             return await self._fail(started, exc.category)
-        except Exception:  # noqa: BLE001 - participant boundary: the result records tunnel_error
+        except Exception:  # noqa: BLE001  # participant boundary: the result records tunnel_error
             return await self._fail(started, "tunnel_error")
         finally:
             self._active_clients.pop(actor.label, None)

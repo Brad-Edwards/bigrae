@@ -205,7 +205,7 @@ class TestApplyRangeStatus:
             pre_save.disconnect(_fail_if_target, sender=RangeInstance)
 
     @pytest.mark.parametrize("failure", ["raise", "sql"])
-    def test_ctf_receiver_failure_is_logged_and_the_status_write_stands(self, db, caplog, failure):
+    def test_ctf_receiver_failure_retains_a_retry_and_the_status_write_stands(self, db, caplog, failure):
         """A failing CTF receiver rolls back only its own writes; the CMS status commits."""
         from django.db import connection
 
@@ -231,9 +231,20 @@ class TestApplyRangeStatus:
         instance.refresh_from_db()
         assert instance.status == ResourceStatus.READY.value
         assert instance.scenario_id == "basic"
-        failures = [r for r in caplog.records if "CTF range status receiver failed" in r.getMessage()]
+        failures = [r for r in caplog.records if "CTF range status delivery retained for retry" in r.getMessage()]
         assert len(failures) == 1
-        assert failures[0].exc_info is not None
+        assert not failures[0].exc_info
+        from cms.handlers.ctf_bridge import drain_ctf_status_deliveries
+        from cms.models import RangeStatusDelivery
+
+        delivery = RangeStatusDelivery.objects.get(range_instance_id=instance.pk)
+        assert delivery.attempts == 1
+        assert delivery.last_error_type in {"RuntimeError", "OperationalError", "ProgrammingError"}
+        # The already-committed CMS status cannot erase pending work on redelivery.
+        assert apply_range_status(instance, ResourceStatus.READY.value) is False
+        RangeStatusDelivery.objects.filter(pk=delivery.pk).update(next_attempt_at=timezone.now())
+        assert drain_ctf_status_deliveries() == 1
+        assert not RangeStatusDelivery.objects.exists()
 
     def test_already_converged_no_op_returns_without_raising(self, db):
         """Already at target status → returns False without saving or raising."""

@@ -150,6 +150,6 @@ def verify_bootstrap_composition(
             verified.update(account.address for account in accounts)
     except RaesGceCompositionError:
         raise
-    except Exception:  # noqa: BLE001 - value-free boundary: guest output and transport text stay out (ADR-043-R5)
+    except Exception:  # noqa: BLE001  # value-free boundary: guest output and transport text stay out (ADR-043-R5)
         raise RaesGceCompositionError("RAES composition in-guest verification failed") from None
     return frozenset(verified)

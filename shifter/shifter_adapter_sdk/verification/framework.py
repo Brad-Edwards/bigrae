@@ -268,7 +268,7 @@ def _execute_adapter(
         status, reason = CheckStatus.ERROR, CheckReason.TIMEOUT
     except RunnerExecutionError:
         status, reason = CheckStatus.ERROR, CheckReason.RUNNER_ERROR
-    except Exception:  # noqa: BLE001 - adapter isolation: the closed ADAPTER_ERROR result records the failure
+    except Exception:  # noqa: BLE001  # adapter isolation: the closed ADAPTER_ERROR result records the failure
         status, reason = CheckStatus.ERROR, CheckReason.ADAPTER_ERROR
     else:
         if not isinstance(outcome, AdapterOutcome):

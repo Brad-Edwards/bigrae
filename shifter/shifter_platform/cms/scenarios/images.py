@@ -74,7 +74,7 @@ def project_scenario_images(scenario_id: str) -> ScenarioImageProjection:
         if not verify_pack_digest(pack_root, source.package_digest):
             raise ValueError("pack digest mismatch")
         scenario = load_pack_scenario(pack_root)
-    except Exception as exc:  # noqa: BLE001 - degrades to an unresolved projection; pack errors embed absolute paths
+    except Exception as exc:  # noqa: BLE001  # degrades to an unresolved projection; pack errors embed absolute paths
         logger.warning(
             "capacity: could not load scenario for image projection scenario_id=%s exc_type=%s",
             safe_log_value(scenario_id),

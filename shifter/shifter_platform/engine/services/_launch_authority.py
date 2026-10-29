@@ -90,7 +90,7 @@ def admit_launch_authority(payload: dict[str, object], credential: CredentialCon
             raise ValueError("Operation authority changed")
         if project_range_authority(request_uuid) != projection or resolve_credential_scope(leaf) != projection.scope:
             raise ValueError("Operation authority changed")
-    except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
+    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
         raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE) from None
     return admitted_range_authority_fields(current, projection, runtime, action=action, target=target)
 
@@ -169,7 +169,7 @@ def authorize_launch_authority(intent: ProvisionerLaunchIntent, runtime: Range |
                 parent=parent if target.type == "range" else None,
             )
         )
-    except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
+    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
         raise PermissionError(_OPERATION_AUTHORITY_UNAVAILABLE) from None
 
 

@@ -40,7 +40,7 @@ def content_scope(row: Asset | RaesPackageSource | None) -> ResourceScope:
         )
         resolve_resource_scope(scope)
         return scope
-    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise CMSError(_UNAVAILABLE) from None
 
 
@@ -108,5 +108,5 @@ def require_content_scope(
         return current
     except AuthorizationProviderBindingError:
         raise CMSError("Content authority unavailable", details={"code": "authority-unavailable"}) from None
-    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise CMSError(_UNAVAILABLE) from None

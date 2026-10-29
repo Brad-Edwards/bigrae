@@ -277,7 +277,8 @@ def apply_raes_ec2_range(
         # explicit destroy path; the original error is what must propagate here.
         try:
             destroy_raes_ec2_range(request_id, range_id, plan, options)
-        except Exception as cleanup_exc:  # noqa: BLE001 - compensation must not mask the launch failure re-raised below
+        # compensation must not mask the launch failure re-raised below
+        except Exception as cleanup_exc:  # noqa: BLE001
             # Value-free like the rest of the EC2 path: log the class name only.
             logger.warning(
                 "EC2 launch compensation failed range_id=%s exc_type=%s", range_id, type(cleanup_exc).__name__

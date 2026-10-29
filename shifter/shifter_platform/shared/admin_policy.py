@@ -99,9 +99,7 @@ class PolicyAdminSite(admin.AdminSite):
     def has_permission(self, request: HttpRequest) -> bool:
         try:
             actor = authenticated_credential(cast("Request", request))
-            if actor.kind != "session":
-                return False
-            return resolve_principal(actor.principal) == actor.principal
+            return actor.kind == "session" and resolve_principal(actor.principal) == actor.principal
         except EXPECTED_ADMIN_DENIALS:
             return False
         except Exception:

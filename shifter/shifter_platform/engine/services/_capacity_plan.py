@@ -186,7 +186,7 @@ def _observe(
         return None
     try:
         return inventory.observe(spec, partition)
-    except Exception as exc:  # noqa: BLE001 - adapter errors can carry provider payloads; log the type only
+    except Exception as exc:  # noqa: BLE001  # adapter errors can carry provider payloads; log the type only
         # Adapters are contractually non-raising; this is the belt-and-braces
         # path so a misbehaving adapter cannot break provisioning.
         logger.warning(
@@ -293,7 +293,7 @@ def assess_declared_event_capacity(
 
         try:
             inventory = get_capacity_inventory()
-        except Exception as exc:  # noqa: BLE001 - client setup errors can carry credential detail; log the type only
+        except Exception as exc:  # noqa: BLE001  # client setup errors can carry credential detail; log the type only
             # No adapter for this backend: unmeasurable, never assumed-available.
             logger.warning(
                 "capacity: no inventory adapter available event_ref=%s exc_type=%s",

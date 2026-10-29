@@ -85,8 +85,9 @@ def _heartbeat(controller: Controller) -> None:
     while True:
         try:
             interval = controller.heartbeat()
-        except Exception as error:  # noqa: BLE001 - fail closed; VPN control errors are logged by class only
-            _LOGGER.error("VPN control failed; stopping the server exc_type=%s", type(error).__name__)
+        # fail closed; VPN control errors are logged by class only
+        except Exception as error:  # noqa: BLE001
+            _LOGGER.error("VPN control failed; stopping the server exc_type=%s", type(error).__name__, exc_info=False)
             os._exit(1)
         time.sleep(interval)
 

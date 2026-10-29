@@ -66,7 +66,8 @@ def main() -> None:
     isolate_transport_diagnostics()
     try:
         _main()
-    except Exception:  # noqa: BLE001 - startup inputs can carry secrets; the broker logs nothing and exits with fixed text
+    # startup inputs can carry secrets; the broker logs nothing and exits with fixed text
+    except Exception:  # noqa: BLE001
         raise SystemExit("model broker configuration is invalid") from None
 
 

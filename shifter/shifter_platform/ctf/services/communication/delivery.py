@@ -351,7 +351,7 @@ def process_attempt(attempt: DeliveryAttempt, cfg: WorkerConfig, now_func: NowFu
     try:
         outcome = adapter.deliver(command, timeout=cfg.timeout_seconds)
     # Never let one transport error abort the batch (partial-failure isolation).
-    except Exception as exc:  # noqa: BLE001 - transport errors may carry provider payloads; the attempt is retried
+    except Exception as exc:  # noqa: BLE001  # transport errors may carry provider payloads; the attempt is retried
         logger.warning(
             "communication adapter raised for attempt %s channel %s exc_type=%s",
             attempt.pk,

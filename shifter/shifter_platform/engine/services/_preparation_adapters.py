@@ -64,7 +64,7 @@ def require_preparation_permission(user: User | CredentialContext, permission: s
                 )
             )
             return current
-        except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
+        except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
             raise ValidationError("Artifact preparation access is not permitted") from None
     if not (user and user.is_authenticated and user.is_active and user.has_perm(f"engine.{permission}")):
         raise ValidationError("Artifact preparation access is not permitted")

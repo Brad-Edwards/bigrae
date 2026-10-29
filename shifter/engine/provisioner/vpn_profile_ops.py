@@ -83,7 +83,7 @@ def run_vpn_profile_operation(request_id: str, profile_id: str, operation: str, 
             issuer_secret=value.issuer_secret_ref,
         )
         receipt = execute_vpn_profile_operation(validated.payload, operation, secret_ops, openvpn_pool_endpoint())
-    except Exception:  # noqa: BLE001 - VPN PKI boundary: cause can carry key material; authored failure only
+    except Exception:  # noqa: BLE001  # VPN PKI boundary: cause can carry key material; authored failure only
         append_operation_step_result(
             OperationRef(validated.request_id, validated.operation_id),
             resource="vpn-profile",

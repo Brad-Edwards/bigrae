@@ -165,6 +165,6 @@ def _load_principal_range(
         raise OpenVpnProfileNotFound(_RANGE_NOT_FOUND)
     try:
         admit_range_vpn_authority(user, instance.request.request_id, participation=range_source == RangeSource.CTF)
-    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise OpenVpnProfileNotFound(_RANGE_NOT_FOUND) from None
     return instance

@@ -92,7 +92,7 @@ class Runner:
         started = time.monotonic()
         try:
             response = await client.get(targets.RANGE_PATH, headers={"Accept": "application/json"})
-        except Exception:  # noqa: BLE001 - stage boundary: an authored ERROR check records the failure
+        except Exception:  # noqa: BLE001  # stage boundary: an authored ERROR check records the failure
             self.results.record(CheckCode.RANGE_OWNED_READY, Status.ERROR, "range projection request failed")
             return None
         if response.status_code >= 400:
@@ -144,7 +144,7 @@ class Runner:
                     CheckCode.TERMINAL_SOCKET_OPEN, Status.PASSED, "consumer accepted the socket", _ms(started)
                 )
                 await self._nonce_exchange(socket, nonce)
-        except Exception as exc:  # noqa: BLE001 - stage boundary: an authored FAILED check keeps only the close code
+        except Exception as exc:  # noqa: BLE001  # stage boundary: an authored FAILED check keeps only the close code
             code = getattr(getattr(exc, "rcvd", None), "code", None) or getattr(exc, "code", None)
             detail = f"terminal socket did not open (close code {code})" if code else "terminal socket did not open"
             self.results.record(CheckCode.TERMINAL_SOCKET_OPEN, Status.FAILED, detail, _ms(started))
@@ -160,7 +160,7 @@ class Runner:
             observed = await asyncio.wait_for(self._await_nonce(socket, nonce), timeout=deadline)
         except TimeoutError:
             observed = False
-        except Exception:  # noqa: BLE001 - stage boundary: an authored FAILED check records the failure
+        except Exception:  # noqa: BLE001  # stage boundary: an authored FAILED check records the failure
             self.results.record(
                 CheckCode.TERMINAL_NONCE_EXCHANGE, Status.FAILED, "terminal closed during the exchange", _ms(started)
             )
@@ -215,7 +215,7 @@ class Runner:
                 json={"instance_uuid": target.instance_uuid},
                 headers=await self._csrf_headers(client),
             )
-        except Exception:  # noqa: BLE001 - stage boundary: an authored ERROR check records the failure
+        except Exception:  # noqa: BLE001  # stage boundary: an authored ERROR check records the failure
             self.results.record(CheckCode.GUACAMOLE_BOOTSTRAP_ACCEPTED, Status.ERROR, "bootstrap request failed")
             return None
 
@@ -256,7 +256,7 @@ class Runner:
         while time.monotonic() < deadline:
             try:
                 response = await client.get(status_url, headers={"Accept": "application/json"})
-            except Exception:  # noqa: BLE001 - stage boundary: an authored FAILED check records the failure
+            except Exception:  # noqa: BLE001  # stage boundary: an authored FAILED check records the failure
                 last = "status poll request failed"
                 break
             poll = guacamole.classify_poll(response.status_code, _safe_json(response))
@@ -310,7 +310,7 @@ class Runner:
                 outcome = await asyncio.wait_for(self._await_ready(tunnel), timeout=deadline)
         except TimeoutError:
             outcome = "no ready instruction before the deadline"
-        except Exception as exc:  # noqa: BLE001 - stage boundary: an authored FAILED check keeps only the close code
+        except Exception as exc:  # noqa: BLE001  # stage boundary: an authored FAILED check keeps only the close code
             code = getattr(getattr(exc, "rcvd", None), "code", None) or getattr(exc, "code", None)
             outcome = f"tunnel refused ({code})" if code else "tunnel could not be opened"
 

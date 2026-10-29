@@ -40,7 +40,7 @@ def admit_plugin_authority(credential: CredentialContext, organization_uuid: UUI
             "authority_workspace_uuid": scope.workspace_uuid,
             "authority_owner_uuid": current.principal.uuid,
         }
-    except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
+    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
         raise ValidationError(_PLUGIN_AUTHORITY_UNAVAILABLE) from None
 
 

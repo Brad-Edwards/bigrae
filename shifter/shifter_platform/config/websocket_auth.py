@@ -92,10 +92,9 @@ class CredentialSessionWebSocketBoundary:
                 safe_log_value(scope.get("path")),
                 type(exc).__name__,
             )
-            return False
         except Exception:
             logger.exception("WebSocket revalidation failed closed: path=%s", safe_log_value(scope.get("path")))
-            return False
+        return False
 
     async def _resource_allowed(self, scope: ASGIScope) -> bool:
         """Use the configured resource check or the owning service composition."""

@@ -171,7 +171,7 @@ class Command(BaseCommand):
                 )
             if not task_ref:
                 raise RuntimeError("provisioner task runner is not configured")
-        except Exception as exc:  # noqa: BLE001 - dispatch errors can echo the Job spec; record the type only
+        except Exception as exc:  # noqa: BLE001  # dispatch errors can echo the Job spec; record the type only
             self._record_failure(row, exc)
             return
         self._record_success(row, task_ref)

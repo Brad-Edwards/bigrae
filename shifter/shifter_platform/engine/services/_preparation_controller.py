@@ -59,7 +59,7 @@ def reconcile_preparations(*, limit: int = 20, scope_digest: str | None = None) 
     for identity in identities:
         try:
             reconcile_preparation(identity)
-        except Exception as exc:  # noqa: BLE001 - provider errors can carry operation input; log the type only
+        except Exception as exc:  # noqa: BLE001  # provider errors can carry operation input; log the type only
             # A failed provider read must not strand another operation. The
             # durable attempt remains pending for retry; never log its input.
             logger.warning(

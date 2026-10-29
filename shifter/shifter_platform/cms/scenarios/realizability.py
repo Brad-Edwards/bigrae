@@ -240,12 +240,8 @@ def _staged_object_scenario_path(stack: ExitStack, source: RaesPackageSource) ->
     """Stage the object pack into ``stack`` and resolve its verified SDL path."""
     try:
         pack_root = stack.enter_context(_stage_object_pack(source))
-    except Exception as exc:  # noqa: BLE001 - fail closed to indeterminate; pack and storage errors embed paths
-        logger.warning(
-            "raes realizability could not stage object pack scenario_id=%s exc_type=%s",
-            safe_log_value(source.scenario_id),
-            type(exc).__name__,
-        )
+    except Exception as exc:  # noqa: BLE001  # fail closed to indeterminate; pack and storage errors embed paths
+        _log_resolution_failure(source.scenario_id, exc)
         return None, _gap_pack_unresolvable()
     return _verified_object_scenario_path(pack_root, source)
 
@@ -260,14 +256,8 @@ def _repo_scenario_path(source: RaesPackageSource) -> tuple[Path | None, Realiza
         if source.package_digest and not verify_pack_digest(pack_root, source.package_digest):
             return None, _gap_untrusted()
         return resolve_pack_scenario_path(pack_root), _gap_untrusted()
-    except Exception as exc:  # noqa: BLE001 - fail closed to indeterminate; RAES/pack errors embed absolute paths
-        # Any resolution failure means "cannot assess", never "realizable". Only
-        # the failure class is surfaced: RAES/pack errors embed absolute paths.
-        logger.warning(
-            "raes realizability could not resolve pack scenario_id=%s exc_type=%s",
-            safe_log_value(source.scenario_id),
-            type(exc).__name__,
-        )
+    except Exception as exc:  # noqa: BLE001  # fail closed to indeterminate; RAES/pack errors embed absolute paths
+        _log_resolution_failure(source.scenario_id, exc)
         return None, _gap_pack_unresolvable()
 
 
@@ -316,12 +306,8 @@ def _verified_object_scenario_path(pack_root: Path, source: RaesPackageSource) -
         if not trusted:
             return None, _gap_untrusted()
         return resolve_pack_scenario_path(pack_root), _gap_untrusted()
-    except Exception as exc:  # noqa: BLE001 - fail closed to indeterminate; RAES/pack errors embed absolute paths
-        logger.warning(
-            "raes realizability could not verify object pack scenario_id=%s exc_type=%s",
-            safe_log_value(source.scenario_id),
-            type(exc).__name__,
-        )
+    except Exception as exc:  # noqa: BLE001  # fail closed to indeterminate; RAES/pack errors embed absolute paths
+        _log_resolution_failure(source.scenario_id, exc)
         return None, _gap_pack_unresolvable()
 
 
@@ -503,4 +489,12 @@ def _gap_pack_unresolvable() -> RealizabilityGap:
         _PLAN_ADDRESS,
         GapCategory.SOURCE_INTEGRITY,
         "the registered pack could not be resolved, so realizability cannot be assessed",
+    )
+
+
+def _log_resolution_failure(scenario_id: str, exc: Exception) -> None:
+    logger.warning(
+        "raes realizability could not resolve pack scenario_id=%s exc_type=%s",
+        safe_log_value(scenario_id),
+        type(exc).__name__,
     )

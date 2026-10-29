@@ -149,7 +149,7 @@ def _reconcile(row: RuntimePluginInvocation) -> None:
         launch_plugin(request, image_pull_secret=secret_name)
         _pull_secret(installation, request)
         result, state = _observe_plan(request)
-    except Exception as exc:  # noqa: BLE001 - plugin and registry errors can carry private output; log the type only
+    except Exception as exc:  # noqa: BLE001  # plugin and registry errors can carry private output; log the type only
         # Private code, scripts and registry diagnostics never enter public logs.
         state = "failed"
         result = None
@@ -172,7 +172,7 @@ def _reconcile(row: RuntimePluginInvocation) -> None:
             _authorized_request(current)
             if current.expires_at <= timezone.now():
                 raise ValueError("Plugin planning expired")
-        except Exception as exc:  # noqa: BLE001 - fail-closed recheck; input errors can carry private plan content
+        except Exception as exc:  # noqa: BLE001  # fail-closed recheck; input errors can carry private plan content
             if state != "failed":
                 logger.warning(
                     "runtime plugin planning revoked at commit invocation_id=%s operation_id=%s exc_type=%s",

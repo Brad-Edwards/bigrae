@@ -251,7 +251,7 @@ def reconcile_tenant_pack_removal(removal_id: UUID) -> bool:
                 archive.pk,
             )
             continue
-        except Exception as exc:  # noqa: BLE001 - storage errors carry provider payloads; the removal retries
+        except Exception as exc:  # noqa: BLE001  # storage errors carry provider payloads; the removal retries
             failure = failure or _STORAGE_DELETE_FAILED
             logger.warning(
                 "tenant pack removal: archive delete failed removal_id=%s archive_id=%s exc_type=%s",

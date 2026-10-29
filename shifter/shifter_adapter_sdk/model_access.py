@@ -165,7 +165,7 @@ def enroll(path: Path, payload: bytes) -> None:
         with _locked(path) as directory:
             pair = _pair(_post(value, "exchange", {"token": token}))
             _write(directory, {**value, **pair})
-    except Exception:  # noqa: BLE001 - closed error: the cause can carry broker tokens or transport detail
+    except Exception:  # noqa: BLE001  # closed error: the cause can carry broker tokens or transport detail
         raise ModelAccessError("Model enrollment unavailable") from None
 
 
@@ -191,7 +191,7 @@ def access_token(path: Path) -> str:
             if not isinstance(token, str) or not _TOKEN.fullmatch(token):
                 raise ValueError
             return token
-    except Exception:  # noqa: BLE001 - closed error: the cause can carry broker tokens or transport detail
+    except Exception:  # noqa: BLE001  # closed error: the cause can carry broker tokens or transport detail
         raise ModelAccessError("Model access unavailable") from None
 
 

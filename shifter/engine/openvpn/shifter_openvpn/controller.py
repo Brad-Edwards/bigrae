@@ -121,9 +121,13 @@ class Controller:
     def _connect_safely(self, event: ClientEvent) -> None:
         try:
             self._connect(event)
-        except Exception as error:  # noqa: BLE001 - fail closed; client and portal detail stay out of logs (class only)
+        # fail closed; client and portal detail stay out of logs (class only)
+        except Exception as error:  # noqa: BLE001
             _LOGGER.error(
-                "VPN authorization failed cid=%s exc_type=%s; stopping the server", event.cid, type(error).__name__
+                "VPN authorization failed cid=%s exc_type=%s; stopping the server",
+                event.cid,
+                type(error).__name__,
+                exc_info=False,
             )
             self._fatal()
 
@@ -196,8 +200,11 @@ class Controller:
                 return
             try:
                 self._firewall.allow(address, session.target, session.ports)
-            except Exception as error:  # noqa: BLE001 - the client is killed; firewall errors are logged by class only
-                _LOGGER.error("kill cid=%s reason=firewall exc_type=%s", event.cid, type(error).__name__)
+            # the client is killed; firewall errors are logged by class only
+            except Exception as error:  # noqa: BLE001
+                _LOGGER.error(
+                    "kill cid=%s reason=firewall exc_type=%s", event.cid, type(error).__name__, exc_info=False
+                )
                 self._management.kill(event.cid)
                 return
             # Installation and address publication are fenced with retirement.
@@ -211,8 +218,9 @@ class Controller:
             if session.address:
                 try:
                     self._firewall.revoke(session.address, session.target, session.ports)
-                except Exception as error:  # noqa: BLE001 - fail closed with the authored termination error; class-only log
-                    _LOGGER.error("revoke failed cid=%s exc_type=%s", event.cid, type(error).__name__)
+                # fail closed with the authored termination error; class-only log
+                except Exception as error:  # noqa: BLE001
+                    _LOGGER.error("revoke failed cid=%s exc_type=%s", event.cid, type(error).__name__, exc_info=False)
                     # Stale allowances could authorize a later address occupant.
                     raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE) from None
         try:
@@ -236,12 +244,14 @@ class Controller:
                 try:
                     self._firewall.revoke(session.address, session.target, session.ports)
                     forwarding_removed = True
-                except Exception as error:  # noqa: BLE001 - checked below: a kept allowance raises; class-only log
-                    _LOGGER.error("revoke failed cid=%s exc_type=%s", cid, type(error).__name__)
+                # checked below: a kept allowance raises; class-only log
+                except Exception as error:  # noqa: BLE001
+                    _LOGGER.error("revoke failed cid=%s exc_type=%s", cid, type(error).__name__, exc_info=False)
         try:
             self._management.kill(cid)
-        except Exception as error:  # noqa: BLE001 - fail closed with the authored termination error; class-only log
-            _LOGGER.error("kill failed cid=%s exc_type=%s", cid, type(error).__name__)
+        # fail closed with the authored termination error; class-only log
+        except Exception as error:  # noqa: BLE001
+            _LOGGER.error("kill failed cid=%s exc_type=%s", cid, type(error).__name__, exc_info=False)
             raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE) from None
         if not forwarding_removed:
             raise RuntimeError(_VPN_TERMINATION_UNAVAILABLE)

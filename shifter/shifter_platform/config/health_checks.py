@@ -56,7 +56,8 @@ class ChannelLayerRedisHealthCheck(HealthCheckPluginBase):
     def check_status(self) -> None:
         try:
             self._probe()
-        except Exception as exc:  # noqa: BLE001 - readiness probe; Redis errors carry internal endpoints, so log the type only
+        # readiness probe; Redis errors carry internal endpoints, so log the type only
+        except Exception as exc:  # noqa: BLE001
             _logger.warning("channel-layer Redis readiness failed: exc_type=%s", type(exc).__name__)
             self.add_error(ServiceUnavailable("Channel layer Redis unavailable"))
 

@@ -111,7 +111,7 @@ def test_projection_refresh_uses_the_publication_and_drain_lock_order(operation)
                 observed_at=timezone.now(),
                 freshness_deadline=timezone.now() + timedelta(minutes=5),
             )
-        except Exception as exc:  # noqa: BLE001 - the thread hands any failure to the assertions below
+        except Exception as exc:  # noqa: BLE001  # the thread hands any failure to the assertions below
             result["error"] = exc
         finally:
             finished.set()
@@ -193,7 +193,7 @@ def test_group_removal_serializes_on_owner_row_then_invalidates_projected_revisi
             worker_member = User.objects.get(pk=member.pk)
             worker_group = Group.objects.get(pk=group.pk)
             worker_member.groups.remove(worker_group)
-        except Exception as exc:  # noqa: BLE001 - the thread hands any failure to the assertions below
+        except Exception as exc:  # noqa: BLE001  # the thread hands any failure to the assertions below
             result["error"] = exc
         finally:
             finished.set()

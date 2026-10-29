@@ -110,7 +110,7 @@ class BrokerApplication:
             await _error(send, status, category, exc.code)
         except (ValueError, TimeoutError):
             await _error(send, 400, "invalid_request_error", "broker.invalid_request")
-        except Exception:  # noqa: BLE001 - request boundary: the broker logs nothing and answers with a fixed envelope
+        except Exception:  # noqa: BLE001  # request boundary: the broker logs nothing and answers with a fixed envelope
             await _error(send, 503, "api_error", "broker.unavailable")
 
     async def _ready(self) -> bool:
@@ -119,7 +119,7 @@ class BrokerApplication:
             return False
         try:
             return (await self.control.call("ready", {})).get("ready") is True
-        except Exception:  # noqa: BLE001 - readiness fails closed; the broker logs nothing
+        except Exception:  # noqa: BLE001  # readiness fails closed; the broker logs nothing
             return False
 
     async def _post(self, scope: ASGIScope, receive: Receive, send: Send, *, started_at: float) -> None:

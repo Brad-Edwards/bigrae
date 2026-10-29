@@ -17,6 +17,7 @@ import threading
 import time
 from typing import IO, BinaryIO, cast
 
+from executors._ssh_readiness import _probe_failure_category
 from executors.base import (
     CommandResult,
     ExecutorCommandError,
@@ -44,30 +45,6 @@ class GuestSSHConnectionError(ExecutorConnectionError):
 _STREAM_CHUNK_BYTES = 1024 * 1024
 #: Bound on captured stdout/stderr of a streamed run (setup scripts print markers).
 _MAX_STREAMED_OUTPUT_BYTES = 1024 * 1024
-
-
-#: Authored categories for a failed readiness probe, matched against the ssh
-#: client's own diagnostics in order. Only the category leaves this module.
-_PROBE_FAILURE_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
-    (
-        ("Host key verification failed", "REMOTE HOST IDENTIFICATION HAS CHANGED", "host key is known"),
-        "host key not verifiable",
-    ),
-    (("Permission denied",), "authentication refused"),
-    (("a password is required", "sudo:"), "privilege escalation refused"),
-    (("Connection refused",), "connection refused"),
-    (("timed out", "TimeoutError"), "connection timed out"),
-    (("No route to host",), "no route to host"),
-    (("exit=0",), "unexpected probe output"),
-)
-
-
-def _probe_failure_category(detail: str) -> str:
-    """Map a probe's raw diagnostic onto one authored category."""
-    for markers, category in _PROBE_FAILURE_CATEGORIES:
-        if any(marker in detail for marker in markers):
-            return category
-    return "unavailable"
 
 
 def _command_result(returncode: int, stdout_bytes: bytes, stderr_bytes: bytes) -> CommandResult:

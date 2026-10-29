@@ -179,7 +179,7 @@ def _remove_ngfw_attachments_for_destroy(user_id: int, range_id: int, range_spec
                 ngfw_request_id=ngfw_data[_NGFW_REQUEST_ID_KEY],
                 range_id=range_id,
             )
-    except Exception as exc:  # noqa: BLE001 - best-effort NGFW detach; range destroy continues
+    except Exception as exc:  # noqa: BLE001  # best-effort NGFW detach; range destroy continues
         logger.warning("NGFW subnet removal failed (continuing): %s", exc)
 
 
@@ -192,7 +192,7 @@ def _maybe_pause_user_ngfw(user_id: int, range_id: int) -> None:
         if ngfw_data and ngfw_data[_STATUS_KEY] == STATUS_READY and ngfw_data.get("cloud_provider") == "aws":
             logger.info("No other active ranges, pausing NGFW")
             run_ngfw_operation("stop", ngfw_data[_NGFW_REQUEST_ID_KEY])
-    except Exception as exc:  # noqa: BLE001 - best-effort NGFW pause after destroy; the destroy outcome stands
+    except Exception as exc:  # noqa: BLE001  # best-effort NGFW pause after destroy; the destroy outcome stands
         # run_ngfw_operation logs the operation traceback; provider text stays out of this line.
         logger.warning("Failed to pause NGFW (non-fatal): range_id=%s exc_type=%s", range_id, type(exc).__name__)
 

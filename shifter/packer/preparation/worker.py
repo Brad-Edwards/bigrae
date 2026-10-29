@@ -74,7 +74,7 @@ def execute_attempt(
         result.update(status="succeeded", failure_code="", evidence=output)
     except TimeoutError:
         result["failure_code"] = "deadline-exceeded"
-    except Exception:  # noqa: BLE001 - worker boundary: the receipt records the failure as a closed code
+    except Exception:  # noqa: BLE001  # worker boundary: the receipt records the failure as a closed code
         # Cloud response bodies, context paths, private constraints and identity
         # material must never become worker logs or an unbounded failure payload.
         result.update(status="failed", failure_code=_FAILURES[phase], evidence={})

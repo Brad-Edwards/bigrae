@@ -8,8 +8,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from log_redact import safe_log_value
-
 from ._backend import _AWS_BACKEND, get_backend_config
 from ._workspace import (
     _TF_INPUT_FALSE,
@@ -21,17 +19,13 @@ from ._workspace import (
 
 logger = logging.getLogger(__name__)
 
-# Bound for the one sanitized stderr copy of a failed command that ADR-043-R5
-# allows in the provisioner log.
-_STDERR_LOG_MAX_CHARS = 4000
-
 
 class TerraformCommandError(RuntimeError):
     """A Terraform command exited with a non-zero status.
 
     The message is authored: it names the subcommand and the exit code only.
-    ``run_terraform`` logs Terraform's stderr and keeps it out of the message, so
-    the message can go into range error text and operation results (ADR-043-R5).
+    Provider output stays out of logs and the message, which can go into range
+    error text and operation results (ADR-043-R5).
     """
 
 
@@ -39,7 +33,6 @@ def run_terraform(
     args: list[str],
     working_dir: Path,
     env: dict[str, str] | None = None,
-    capture_output: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     """Run a Terraform command.
 
@@ -47,7 +40,6 @@ def run_terraform(
         args: Terraform command arguments (without 'terraform' prefix)
         working_dir: Directory to run command in
         env: Environment variables (merged with current env)
-        capture_output: Whether to capture stdout/stderr
 
     Returns:
         Completed process result
@@ -64,21 +56,19 @@ def run_terraform(
         cmd,
         cwd=working_dir,
         env=run_env,
-        capture_output=capture_output,
+        capture_output=True,
         text=True,
     )
 
     if result.returncode != 0:
         subcommand = args[0] if args else "command"
         logger.error(
-            "Terraform %s failed exit_code=%d stderr=%s",
+            "Terraform %s failed exit_code=%d",
             subcommand,
             result.returncode,
-            safe_log_value(result.stderr, max_len=_STDERR_LOG_MAX_CHARS),
         )
-        # ADR-043-R5 allows only this bounded, sanitized stderr copy, and only in
-        # the provisioner log. It stays out of the exception, whose text reaches
-        # range error text and operation results.
+        # Terraform diagnostics can echo credentials, including values that its
+        # provider did not mark sensitive. Escaping/truncation cannot redact them.
         raise TerraformCommandError(f"Terraform {subcommand} failed (exit_code={result.returncode})")
 
     return result
@@ -220,7 +210,8 @@ def cleanup_state(state_key_prefix: str, request_uuid: str, label: str) -> None:
 
     try:
         storage.delete_object(bucket=backend.bucket, key=backend.state_object_key)
-    except Exception as e:  # noqa: BLE001 - best-effort state cleanup after a confirmed destroy; adapter logs traceback
+    # best-effort state cleanup after a confirmed destroy; adapter logs traceback
+    except Exception as e:  # noqa: BLE001
         logger.warning("Failed to delete state file: %s", e)
 
     if backend.backend_type == _AWS_BACKEND:

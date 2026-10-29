@@ -210,7 +210,7 @@ def _initial_controller_execution(
     try:
         _wait_for_ready(execution, 60)
         return execution
-    except Exception as exc:  # noqa: BLE001 - expected after promotion: fall back to the reconciled authority login
+    except Exception as exc:  # noqa: BLE001  # expected after promotion: fall back to the reconciled authority login
         logger.info(
             "RAES directory controller bootstrap login unavailable; reconnecting as domain authority exc_type=%s",
             type(exc).__name__,
@@ -370,7 +370,7 @@ def realize_raes_active_directory(
             _realize_domain(runtime, domain)
     except RaesActiveDirectoryError:
         raise
-    except Exception:  # noqa: BLE001 - value-free boundary: the cause can carry directory credential material
+    except Exception:  # noqa: BLE001  # value-free boundary: the cause can carry directory credential material
         raise RaesActiveDirectoryError("RAES directory realization failed") from None
 
 

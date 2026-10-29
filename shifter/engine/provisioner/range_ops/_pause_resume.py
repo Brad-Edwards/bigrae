@@ -311,7 +311,7 @@ def run_range_pause(request_id: str, *, operation_id: str | None = None) -> None
     # Cascade: pause NGFW if no other ranges need it (before reporting paused)
     try:
         _pkg.pause_ngfw_for_range(request_id, ref=ref)
-    except Exception as e:  # noqa: BLE001 - non-fatal NGFW cascade; the range instances are already paused
+    except Exception as e:  # noqa: BLE001  # non-fatal NGFW cascade; the range instances are already paused
         # Non-fatal: log and continue - range instances are already paused
         logger.warning(
             "run_range_pause: NGFW pause failed (non-fatal): %s request_id=%s",

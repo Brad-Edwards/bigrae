@@ -79,7 +79,8 @@ def apply_policy_mutation(request: PolicyMutationRequest, provider: Authorizatio
         _resolve_policy_change(request)
         decisions = provider.batch_check(_delegation_requests(request))
         allowed = len(decisions) == 2 and all(decision.allowed for decision in decisions)
-    except Exception as exc:  # noqa: BLE001 - fail closed; an unresolvable or undelegable change is journaled as denied
+    # fail closed; an unresolvable or undelegable change is journaled as denied
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
             "Policy mutation delegation check failed closed: idempotency_key=%s exc_type=%s",
             safe_log_value(request.idempotency_key),
@@ -141,7 +142,8 @@ def apply_native_relationship_mutation(
         checks = _native_delegation_requests(request)
         decisions = provider.batch_check(checks)
         allowed = bool(checks) and len(decisions) == len(checks) and all(item.allowed for item in decisions)
-    except Exception as exc:  # noqa: BLE001 - fail closed; an unresolvable or undelegable change is journaled as denied
+    # fail closed; an unresolvable or undelegable change is journaled as denied
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
             "Native relationship delegation check failed closed: idempotency_key=%s exc_type=%s",
             safe_log_value(request.idempotency_key),

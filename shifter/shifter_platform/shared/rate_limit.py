@@ -25,7 +25,7 @@ def _redis_client(cache: BaseCache, made_key: str) -> Any | None:
         return None
     try:
         return get_client(made_key, write=True)
-    except Exception as exc:  # noqa: BLE001 - cache client errors can carry the connection URL; log the class only
+    except Exception as exc:  # noqa: BLE001  # cache client errors can carry the connection URL; log the class only
         logger.warning(
             "rate limit: native Redis client unavailable; counter is not atomic exc_type=%s", type(exc).__name__
         )

@@ -379,7 +379,7 @@ class RangePodSSHExecutor(GuestSSHExecutor):
             from kubernetes.stream.ws_client import ERROR_CHANNEL
 
             raw = resp.read_channel(ERROR_CHANNEL)
-        except Exception as exc:  # noqa: BLE001 - an unreadable exec status fails closed as exit code 1
+        except Exception as exc:  # noqa: BLE001  # an unreadable exec status fails closed as exit code 1
             logger.warning("runner exec status unreadable; reporting exit code 1 exc_type=%s", type(exc).__name__)
             return 1
         return RangePodSSHExecutor._exit_code_from_error_status(raw)

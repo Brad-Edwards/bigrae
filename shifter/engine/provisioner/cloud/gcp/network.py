@@ -127,12 +127,14 @@ class GCPNetworkInventory:
             )
         except ImportError as e:
             raise CloudNetworkInventoryError("GDC network inventory requires kubernetes and PyYAML") from e
-        except Exception as e:  # noqa: BLE001 - kubeconfig parse errors can quote credential lines; class name only
+        # kubeconfig parse errors can quote credential lines; class name only
+        except Exception as e:  # noqa: BLE001
             logger.error(
                 "list_subnet_cidrs: failed to read GDC network inventory network_id=%s exc_type=%s status=%s",
                 network_id,
                 type(e).__name__,
                 getattr(e, "status", None),
+                exc_info=False,
             )
             raise CloudNetworkInventoryError("Failed to read GDC network inventory") from None
 

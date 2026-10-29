@@ -129,7 +129,7 @@ def _verify_http_flag(
             )
         else:
             is_valid = validate_http(submitted_flag, config, flag_obj.challenge_id)
-    except Exception as exc:  # noqa: BLE001 - receipt/provider errors may carry URLs, claims, or credentials
+    except Exception as exc:  # noqa: BLE001  # receipt/provider errors may carry URLs, claims, or credentials
         # Preserve correlation by flag id and expose no nested exception text.
         logger.warning("HTTP validator failed closed for flag %s exc_type=%s", flag_obj.id, type(exc).__name__)
         is_valid = False
@@ -287,7 +287,7 @@ def _verify_installed_flag(
         else:
             legacy = cast("Callable[[CTFFlag, str], bool]", custom)
             is_valid = bool(legacy(flag_obj, submitted_flag))
-    except Exception as exc:  # noqa: BLE001 - extension validator errors may carry flag values or receipt claims
+    except Exception as exc:  # noqa: BLE001  # extension validator errors may carry flag values or receipt claims
         logger.warning(
             "Installed flag validator failed closed for flag %s exc_type=%s", flag_obj.id, type(exc).__name__
         )

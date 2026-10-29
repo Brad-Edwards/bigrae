@@ -207,7 +207,7 @@ def authorize_device_authority(intent: ProvisionerLaunchIntent, runtime: Instanc
             return
         current = resolve_current_credential(credential_reference_from_record(intent))
         require_device_scope(current, device_scope(runtime))
-    except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
+    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
         raise PermissionError(_DEVICE_AUTHORITY_UNAVAILABLE) from None
 
 
@@ -357,5 +357,5 @@ def admit_native_device_access(credential: CredentialContext, identifier: UUID |
         fields["authority_action"] = fields["authority_action"].replace("manage_devices", "access_devices")
         fields["authority_resource_uuid"] = latest.uuid
         return fields
-    except Exception:  # noqa: BLE001 - fail-closed authority check; every failure is one bounded denial
+    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
         raise PermissionError("Device access unavailable") from None

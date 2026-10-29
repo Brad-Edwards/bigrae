@@ -150,12 +150,16 @@ class TestWorkspaceInitialization:
 class TestRunTerraformFailure:
     """A failed Terraform command keeps raw stderr out of the raised error text."""
 
-    def test_failure_logs_stderr_once_and_raises_bounded_error(self, tmp_path, caplog):
+    def test_failure_keeps_provider_secrets_out_of_logs_and_error(self, tmp_path, caplog):
         import logging
 
         from terraform_base import TerraformCommandError, run_terraform
 
-        stderr = "Error: synthetic provider response\nsecond line" + "x" * 6000
+        stderr = (
+            "password=SYNTHETIC_PASSWORD\n"
+            "https://example.invalid/file?X-Amz-Signature=SYNTHETIC_SIGNATURE\n"
+            "-----BEGIN PRIVATE KEY-----\nSYNTHETIC_KEY"
+        )
         failed = MagicMock(returncode=1, stdout="", stderr=stderr)
         with (
             patch("terraform_base._run.subprocess.run", return_value=failed),
@@ -167,14 +171,10 @@ class TestRunTerraformFailure:
         # The exception text reaches range error text and operation results (ADR-043-R5).
         assert isinstance(error.value, TerraformCommandError)
         assert str(error.value) == "Terraform apply failed (exit_code=1)"
-        assert caplog.text.count("synthetic provider response") == 1
-        # The one stderr copy that ADR-043-R5 allows is sanitized and bounded.
+        assert not any(value in caplog.text for value in ("SYNTHETIC_", "X-Amz-Signature", "PRIVATE KEY"))
         [record] = [r for r in caplog.records if r.name == "terraform_base._run"]
         message = record.getMessage()
-        assert "\\nsecond line" in message
-        assert "\n" not in message
-        assert message.endswith("...")
-        assert len(message) < 4100
+        assert message == "Terraform apply failed exit_code=1"
 
 
 class TestStateCleanup:

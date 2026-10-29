@@ -382,5 +382,5 @@ def realize_raes_content_delivery(
         raise RaesContentDeliveryError("RAES feature realization dependencies contain a cycle") from None
     except RaesContentDeliveryError:
         raise
-    except Exception:  # noqa: BLE001 - value-free boundary: storage keys and guest output stay out (ADR-043-R5)
+    except Exception:  # noqa: BLE001  # value-free boundary: storage keys and guest output stay out (ADR-043-R5)
         raise RaesContentDeliveryError("RAES content delivery realization failed") from None

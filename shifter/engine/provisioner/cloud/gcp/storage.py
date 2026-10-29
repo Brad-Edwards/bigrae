@@ -98,9 +98,14 @@ class GCPObjectStorage:
                 method="GET",
                 **self._iam_signing_kwargs(),
             )
-        except Exception as e:  # noqa: BLE001 - signing refreshes credentials; their errors can carry proof
+        # signing refreshes credentials; their errors can carry proof
+        except Exception as e:  # noqa: BLE001
             logger.error(
-                "generate_presigned_download_url: failed bucket=%s key=%s exc_type=%s", bucket, key, type(e).__name__
+                "generate_presigned_download_url: failed bucket=%s key=%s exc_type=%s",
+                bucket,
+                key,
+                type(e).__name__,
+                exc_info=False,
             )
             raise CloudStorageError("Failed to generate GCS download URL") from None
 

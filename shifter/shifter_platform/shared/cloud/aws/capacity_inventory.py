@@ -140,7 +140,7 @@ class AWSCapacityInventory:
 
         try:
             credentials = self._credentials_for(partition)
-        except Exception as exc:  # noqa: BLE001 - assume-role errors can carry the role ARN; log the class only
+        except Exception as exc:  # noqa: BLE001  # assume-role errors can carry the role ARN; log the class only
             # Bounded: the role ARN and provider error are deliberately omitted.
             logger.warning(
                 "capacity: could not assume read role for partition %s metric %s exc_type=%s",
@@ -204,7 +204,8 @@ class AWSCapacityInventory:
         try:
             client = self._client_factory("service-quotas", region=partition.region, credentials=credentials)
             response = client.get_service_quota(ServiceCode=service_code, QuotaCode=quota_code)
-        except Exception as exc:  # noqa: BLE001 - fail soft; provider text can carry account detail, log the class only
+        # fail soft; provider text can carry account detail, log the class only
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "capacity: quota read failed for metric %s in %s exc_type=%s",
                 safe_log_value(spec.name),
@@ -232,7 +233,8 @@ class AWSCapacityInventory:
         try:
             client = self._client_factory("cloudwatch", region=partition.region, credentials=credentials)
             response = client.get_metric_data(**self._usage_query(namespace, metric_name))
-        except Exception as exc:  # noqa: BLE001 - fail soft; provider text can carry account detail, log the class only
+        # fail soft; provider text can carry account detail, log the class only
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "capacity: usage read failed for metric %s in %s exc_type=%s",
                 safe_log_value(spec.name),

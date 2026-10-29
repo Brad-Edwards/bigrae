@@ -48,7 +48,7 @@ class GCPSecretsStore:
                 retry=None,
             )
             return f"{resource}/versions/1"
-        except Exception:  # noqa: BLE001 - the request carries the secret value; a fixed error replaces provider text
+        except Exception:  # noqa: BLE001  # the request carries the secret value; a fixed error replaces provider text
             raise CloudSecretsError("Failed to store model credential") from None
 
     @staticmethod
@@ -69,7 +69,7 @@ class GCPSecretsStore:
             )
         except NotFound:
             return
-        except Exception:  # noqa: BLE001 - secret-store errors can name the secret; a fixed error replaces them
+        except Exception:  # noqa: BLE001  # secret-store errors can name the secret; a fixed error replaces them
             raise CloudSecretsError("Failed to retire model credential") from None
 
     @staticmethod
@@ -93,7 +93,7 @@ class GCPSecretsStore:
             return response.payload.data.decode("utf-8")
         except ImportError as e:
             raise CloudSecretsError("GCP secrets support requires google-cloud-secret-manager") from e
-        except Exception as exc:  # noqa: BLE001 - provider text can carry the secret path; log the class only
+        except Exception as exc:  # noqa: BLE001  # provider text can carry the secret path; log the class only
             # Provider exceptions commonly contain the full secret resource
             # path. Keep correlation via a process-local fingerprint and return
             # a stable error that cannot disclose names through portal logs.

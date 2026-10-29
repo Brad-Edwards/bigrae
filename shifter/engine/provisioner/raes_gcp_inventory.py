@@ -49,7 +49,8 @@ class _Tally:
         try:
             if _get_or_none(getter, clients.google_exceptions, **kwargs) is not None:
                 self.residuals[category] = self.residuals.get(category, 0) + 1
-        except Exception as exc:  # noqa: BLE001 - an unobservable resource marks the inventory INCOMPLETE, never absent
+        # an unobservable resource marks the inventory INCOMPLETE, never absent
+        except Exception as exc:  # noqa: BLE001
             logger.warning("RAES cleanup inventory probe failed category=%s exc_type=%s", category, type(exc).__name__)
             self.incomplete = True
 

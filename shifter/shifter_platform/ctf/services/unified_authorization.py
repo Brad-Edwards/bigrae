@@ -71,9 +71,10 @@ def _require_policy(request: AuthorizationRequest) -> None:
     """Keep evaluator failures distinct from an explicit policy denial."""
     try:
         decision = configured_authorization_provider().check(request)
-    except Exception as exc:  # noqa: BLE001 - provider errors may carry evaluator endpoint or credential details
+    # provider errors may carry evaluator endpoint or credential details
+    except Exception as exc:  # noqa: BLE001
         # Fail closed. ``from None`` keeps the provider cause out of later tracebacks.
-        logger.error("CTF authority provider unavailable exc_type=%s", type(exc).__name__)
+        logger.error("CTF authority provider unavailable exc_type=%s", type(exc).__name__, exc_info=False)
         raise CTFError(_UNAVAILABLE, code="CTF_AUTHORITY_UNAVAILABLE") from None
     if decision.kind == DecisionKind.EVALUATOR_ERROR:
         raise CTFError(_UNAVAILABLE, code="CTF_AUTHORITY_UNAVAILABLE")

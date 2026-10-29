@@ -183,7 +183,7 @@ def inventory_ec2_resources(scope: Ec2CleanupScope, ec2: BaseClient) -> dict[str
     """Return bounded inventory evidence; inability to observe never means absent."""
     try:
         return _result(scope, _inventory(scope, ec2))
-    except Exception as exc:  # noqa: BLE001 - unobservable inventory is reported as INCOMPLETE, never as absence
+    except Exception as exc:  # noqa: BLE001  # unobservable inventory is reported as INCOMPLETE, never as absence
         # Provider diagnostics carry resource identifiers; log the class name only.
         logger.warning("EC2 cleanup inventory incomplete range_id=%s exc_type=%s", scope.range_id, type(exc).__name__)
         return _result(scope, {}, incomplete=True)
@@ -206,7 +206,7 @@ def destroy_ec2_resources(scope: Ec2CleanupScope, ec2: BaseClient) -> dict[str, 
         return inventory_ec2_resources(scope, ec2)
     except Ec2CleanupError:
         raise
-    except Exception:  # noqa: BLE001 - translated to a value-free error; provider text carries resource identifiers
+    except Exception:  # noqa: BLE001  # translated to a value-free error; provider text carries resource identifiers
         raise Ec2CleanupError("EC2 resource cleanup failed; ownership evidence must be retained") from None
 
 

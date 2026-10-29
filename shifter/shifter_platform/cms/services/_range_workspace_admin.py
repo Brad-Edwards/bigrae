@@ -112,7 +112,7 @@ def list_range_scope_bindings(
                 .select_related("request")
                 .order_by("-created_at", "-id")
             )
-        except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
+        except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
             raise RangeScopeAdminError(RangeScopeAdminError.Kind.NOT_FOUND, _RANGE_NOT_FOUND) from None
     _validate_caller_user(actor, "list_range_scope_bindings")
 

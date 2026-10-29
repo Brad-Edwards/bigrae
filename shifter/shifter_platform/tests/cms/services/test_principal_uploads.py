@@ -259,7 +259,7 @@ def test_cleanup_preserves_deletion_that_commits_after_its_retirement_snapshot(
                 _cleanup_upload(upload)
         except CMSError:
             pass
-        except Exception as error:  # noqa: BLE001 - thread target; the main thread asserts no failures
+        except Exception as error:  # noqa: BLE001  # thread target; the main thread asserts no failures
             failures.append(type(error).__name__)
         finally:
             connection.close()

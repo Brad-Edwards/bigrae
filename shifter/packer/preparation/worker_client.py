@@ -125,11 +125,11 @@ def main() -> None:
 
     result = execute_attempt(envelope, Path(__file__).parent, cloud)
     client.submit(result)
-    print("preparation receipt recorded", flush=True)  # noqa: T201 - fixed bounded worker progress
+    print("preparation receipt recorded", flush=True)  # noqa: T201  # fixed bounded worker progress
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception:  # noqa: BLE001 - entry point: fixed exit text keeps credential and cloud detail out of logs
+    except Exception:  # noqa: BLE001  # entry point: fixed exit text keeps credential and cloud detail out of logs
         raise SystemExit("preparation worker failed") from None

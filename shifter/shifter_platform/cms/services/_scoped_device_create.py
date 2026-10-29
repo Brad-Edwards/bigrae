@@ -126,7 +126,7 @@ def create_scoped_device(
             instance.save(update_fields=["data"])
             create_ngfw(spec, credential=current, resource_scope=scope, prepared_creation=prepared)
         return NGFWAppRef(app_id=app.pk, instance_id=instance.pk, is_deleted=False)
-    except Exception as exc:  # noqa: BLE001 - causes can carry NGFW registration secrets (authcode, OTP, PIN)
+    except Exception as exc:  # noqa: BLE001  # causes can carry NGFW registration secrets (authcode, OTP, PIN)
         logger.warning("create_scoped_device: device creation refused exc_type=%s", type(exc).__name__)
         raise CMSError("Device creation unavailable") from None
 

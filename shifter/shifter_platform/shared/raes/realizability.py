@@ -228,7 +228,7 @@ def assess_scenario_capability(
         manager_plan = _plan(scenario, parameters, artifact_availability_provider)
     # Any planner failure means "cannot assess", not a crash: the editor must
     # render INDETERMINATE rather than 500, and must never call it realizable.
-    except Exception as exc:  # noqa: BLE001 - planner text can echo SDL fragments; log and return the class only
+    except Exception as exc:  # noqa: BLE001  # planner text can echo SDL fragments; log and return the class only
         logger.warning(
             "raes realizability: planning failed scenario_path=%s exc_type=%s",
             safe_log_value(scenario_path),

@@ -112,7 +112,7 @@ def _reconcile(row: RuntimePluginInstallation) -> None:
             interrupt_plugin(request)
         else:
             state, failure_code = _observe_probe(row, request)
-    except Exception as exc:  # noqa: BLE001 - Kubernetes and image errors can carry registry detail; log the type only
+    except Exception as exc:  # noqa: BLE001  # Kubernetes and image errors can carry registry detail; log the type only
         # Kubernetes/image errors can contain registry addresses and diagnostic
         # output. Persist and audit only a closed, tenant-actionable code.
         state, failure_code = "failed", failure_code or "installation-failed"

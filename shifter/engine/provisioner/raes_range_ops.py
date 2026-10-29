@@ -253,7 +253,9 @@ def run_raes_range_provision(request_id: str, *, operation_id: str | None = None
         _release_failed_provision_allocation(run, raes_plan, config, network_allocation, pre_mutation_release_attempted)
         cleanup_failed_provision_openvpn(run.request_id, run.input.legacy_range_id, run.input.remote_access)
         reason_code, diagnostic = _classify_failure(exc, "raes range provision")
-        logger.error("RAES range provision failed for request_id=%s exc_type=%s", request_id, type(exc).__name__)
+        logger.error(
+            "RAES range provision failed for request_id=%s exc_type=%s", request_id, type(exc).__name__, exc_info=False
+        )
         _report_failure(ref, operation, diagnostic, reason_code)
         raise
     # The realized member/access projection rides the terminal result itself, so
@@ -290,7 +292,10 @@ def _report_realized_provision(
         # removes its OpenVPN access.
         reason_code, diagnostic = _classify_failure(exc, "raes range provision result")
         logger.error(
-            "RAES range provision result was rejected for request_id=%s exc_type=%s", request_id, type(exc).__name__
+            "RAES range provision result was rejected for request_id=%s exc_type=%s",
+            request_id,
+            type(exc).__name__,
+            exc_info=False,
         )
         _report_failure(ref, operation, diagnostic, reason_code)
         raise
@@ -380,7 +385,9 @@ def run_raes_range_activate(request_id: str, *, operation_id: str | None = None)
         resources = result.completion["resources"]
     except Exception as exc:
         reason_code, diagnostic = _classify_failure(exc, "raes range activate")
-        logger.error("RAES range activation failed for request_id=%s exc_type=%s", request_id, type(exc).__name__)
+        logger.error(
+            "RAES range activation failed for request_id=%s exc_type=%s", request_id, type(exc).__name__, exc_info=False
+        )
         _report_failure(ref, operation, diagnostic, reason_code)
         raise
     _report(ref, operation, ResultStep.RAES_ACTIVATE_SNAPSHOT, {"resources": resources})
@@ -463,7 +470,9 @@ def run_raes_range_destroy(request_id: str, *, operation_id: str | None = None) 
         cleanup_raes_openvpn(run.request_id, range_id, operation_input.remote_access)
     except Exception as exc:
         reason_code, diagnostic = _classify_failure(exc, "raes range destroy")
-        logger.error("RAES range destroy failed for request_id=%s exc_type=%s", request_id, type(exc).__name__)
+        logger.error(
+            "RAES range destroy failed for request_id=%s exc_type=%s", request_id, type(exc).__name__, exc_info=False
+        )
         _report_failure(ref, operation, diagnostic, reason_code)
         raise
     # Independent inventory/readback of owned resources -- verified cleanup requires

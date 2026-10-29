@@ -140,6 +140,7 @@ def _store_credential(
                 source.id,
                 revision.credential_version,
                 type(exc).__name__,
+                exc_info=False,
             )
             ModelSourceRevision.objects.filter(pk=revision.pk, state="pending").update(state="failed")
             raise ContractError("source.credential_unavailable") from None

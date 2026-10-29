@@ -87,5 +87,5 @@ def credential_reference_from_record(row: RecordedAuthorityFields) -> Credential
             scopes,
             row.credential_event_uuid,
         )
-    except Exception:  # noqa: BLE001 - fail-closed authority boundary; the cause stays out of the chain
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise ValueError(_OPERATION_AUTHORITY_UNAVAILABLE) from None

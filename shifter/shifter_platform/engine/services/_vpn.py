@@ -62,7 +62,7 @@ def has_openvpn_profile(user: User, request_id: UUID) -> bool:
             runtime = Range.objects.get(request__request_id=request_id)
             parse_openvpn_capability(runtime.remote_access_capability)
             return True
-        except Exception:  # noqa: BLE001 - fail-closed readiness projection; any failure reports no profile
+        except Exception:  # noqa: BLE001  # fail-closed readiness projection; any failure reports no profile
             return False
 
     return _has_legacy_openvpn_profile(user, request_id)

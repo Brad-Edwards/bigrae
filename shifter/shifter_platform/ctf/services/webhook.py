@@ -142,6 +142,16 @@ def _delivery_is_current(webhook_pk: UUID, url: str, secret: str, event_type: st
     )
 
 
+def _attempt_delivery(
+    webhook_pk: UUID, url: str, secret: str, body: bytes, event_type: str | None, headers: dict
+) -> str:
+    """Return one current subscription's HTTP outcome, or refuse a revoked one."""
+    if not _delivery_is_current(webhook_pk, url, secret, event_type):
+        return "failed:revoked"
+    status = _post_pinned(url, body, headers)
+    return f"{'ok' if 200 <= status < 300 else 'failed'}:{status}"
+
+
 def _deliver_with_retries(webhook_pk: UUID, url: str, secret: str, body: bytes, event_type: str | None = None) -> None:
     """Recheck the live subscription before each pinned POST and record the outcome."""
     from django.db import DatabaseError
@@ -157,14 +167,9 @@ def _deliver_with_retries(webhook_pk: UUID, url: str, secret: str, body: bytes, 
     status = "failed"
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            if not _delivery_is_current(webhook_pk, url, secret, event_type):
-                status = "failed:revoked"
+            status = _attempt_delivery(webhook_pk, url, secret, body, event_type, headers)
+            if status.startswith("ok:") or status == "failed:revoked":
                 break
-            response_status = _post_pinned(url, body, headers)
-            if 200 <= response_status < 300:
-                status = f"ok:{response_status}"
-                break
-            status = f"failed:{response_status}"
         except _BlockedDestinationError:
             status = "failed:blocked_destination"
             break
@@ -173,9 +178,12 @@ def _deliver_with_retries(webhook_pk: UUID, url: str, secret: str, body: bytes, 
             break
         except (OSError, http.client.HTTPException):
             status = "failed:transport"
-        except Exception as exc:  # noqa: BLE001 - delivery errors may carry the webhook URL, which can embed a token
+        # delivery errors may carry the webhook URL, which can embed a token
+        except Exception as exc:  # noqa: BLE001
             # Thread-pool boundary: an unexpected error must not end the delivery without a record.
-            logger.error("Webhook %s delivery failed unexpectedly exc_type=%s", webhook_pk, type(exc).__name__)
+            logger.error(
+                "Webhook %s delivery failed unexpectedly exc_type=%s", webhook_pk, type(exc).__name__, exc_info=False
+            )
             status = "failed"
             break
         if attempt < _MAX_ATTEMPTS:

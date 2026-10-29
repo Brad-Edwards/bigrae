@@ -161,6 +161,7 @@ def resolve_scenario_ctf_content(scenario_id: str) -> ResolvedCtfContent | None:
             safe_log_value(scenario_id),
             exc.code,
             type(cause).__name__ if cause is not None else "none",
+            exc_info=False,
         )
         raise
     return resolved

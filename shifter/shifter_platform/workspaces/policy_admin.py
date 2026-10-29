@@ -37,7 +37,7 @@ class _ScopedReadOnlyAdmin(PolicyReadOnlyAdmin):
         if obj is None:
             return self.has_module_permission(request)
         try:
-            return _allowed_batch(
+            allowed = _allowed_batch(
                 self._credential(request),
                 configured_authorization_provider(),
                 self.policy_action,
@@ -45,10 +45,11 @@ class _ScopedReadOnlyAdmin(PolicyReadOnlyAdmin):
                 (cast("WorkspaceQuotaPolicy | WorkspaceInvitation", obj).workspace.uuid,),
             )[0]
         except EXPECTED_ADMIN_DENIALS:
-            return False
+            allowed = False
         except Exception:
             logger.exception("Workspace policy admin object check failed; access denied")
-            return False
+            allowed = False
+        return allowed
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[Model]:
         if not self.has_module_permission(request):

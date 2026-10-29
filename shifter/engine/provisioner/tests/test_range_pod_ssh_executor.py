@@ -127,7 +127,7 @@ def test_ensure_pull_secret_skipped_for_public_registry():
 
 def test_provision_key_returns_in_pod_path_not_local_file():
     executor = _make_executor(MagicMock())
-    assert executor._key_path.startswith("/tmp/shifter-guest-key-")  # noqa: S108 - in-pod path
+    assert executor._key_path.startswith("/tmp/shifter-guest-key-")  # noqa: S108  # in-pod path
     # No local key file is created for the range transport.
     import os
 
@@ -211,7 +211,7 @@ def _make_executor_with_host_key(core_api):
 
 def test_provision_known_hosts_returns_in_pod_path_and_captures_content():
     executor = _make_executor_with_host_key(MagicMock())
-    assert executor._known_hosts_path.startswith("/tmp/shifter-known-hosts-")  # noqa: S108 - in-pod path
+    assert executor._known_hosts_path.startswith("/tmp/shifter-known-hosts-")  # noqa: S108  # in-pod path
     assert executor._known_hosts_content == "10.200.2.10 ssh-ed25519 AAAAHOSTKEY guest\n"
 
 

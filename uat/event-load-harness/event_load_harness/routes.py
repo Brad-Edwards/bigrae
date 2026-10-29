@@ -112,7 +112,7 @@ class LiveRouteExecutor:
                     uuid = instances[0].get("uuid") or instances[0].get("instance_uuid")
                     if uuid:
                         targets["instance_uuid"] = str(uuid)
-        except Exception:  # noqa: BLE001 - best-effort discovery: target-dependent routes then record no_target
+        except Exception:  # noqa: BLE001  # best-effort discovery: target-dependent routes then record no_target
             return targets
         return targets
 
@@ -134,7 +134,7 @@ class LiveRouteExecutor:
         start = time.monotonic()
         try:
             resp = await client.request(method, path, **({"json": body} if body else {}))
-        except Exception:  # noqa: BLE001 - load-route boundary: the result records transport_error
+        except Exception:  # noqa: BLE001  # load-route boundary: the result records transport_error
             elapsed = (time.monotonic() - start) * 1000.0
             return RouteResult(
                 route_class, "http", ok=False, status_code=None, latency_ms=elapsed, error_category="transport_error"
@@ -194,7 +194,7 @@ class LiveRouteExecutor:
             return RouteResult(
                 route_class, "ws", ok=True, status_code=None, latency_ms=open_ms, ws_opened=True, close_code=1000
             )
-        except Exception as exc:  # noqa: BLE001 - load-route boundary: the result records the close code or ws_drop
+        except Exception as exc:  # noqa: BLE001  # load-route boundary: the result records the close code or ws_drop
             elapsed = (time.monotonic() - start) * 1000.0
             code = _extract_close_code(exc)
             ok, category = ws_close_result(code) if code is not None else (False, "ws_drop")

@@ -230,7 +230,7 @@ class TestDNSRebindingProtection:
             _resolve_and_validate("multi.example.com", 443)
 
     def test_resolve_and_validate_rejects_unspecified(self):
-        unspecified = "0.0.0.0"  # noqa: S104 - DNS answer literal, not a bind target
+        unspecified = "0.0.0.0"  # noqa: S104  # DNS answer literal, not a bind target
         with (
             patch(
                 "ctf.validators.socket.getaddrinfo",

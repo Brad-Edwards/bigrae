@@ -761,6 +761,18 @@ def test_apply_wraps_dispatch_failure_as_diagnostic() -> None:
     assert any(d.code == "shifter-provisioner.dispatch-failed" for d in result.diagnostics)
 
 
+@pytest.mark.parametrize("method", ["apply", "enqueue"])
+def test_dispatch_diagnostics_do_not_expose_provider_secrets(method, caplog) -> None:
+    secret = "password=SYNTHETIC_DISPATCH_SECRET https://example.invalid/?token=SYNTHETIC_TOKEN"
+    provisioner = ShifterProvisioner(FakeDispatchPort(raises=RuntimeError(secret)))
+    plan = _plan(_node("provision.node.web", "web"))
+    result = provisioner.apply(plan, RuntimeSnapshot()) if method == "apply" else provisioner.enqueue(plan)
+    [failure] = [d for d in result.diagnostics if d.code == "shifter-provisioner.dispatch-failed"]
+    assert failure.message == "Provisioning dispatch failed (RuntimeError)"
+    assert "SYNTHETIC_" not in caplog.text
+    assert "SYNTHETIC_" not in str(result)
+
+
 def test_apply_and_validate_reject_non_plan() -> None:
     provisioner = ShifterProvisioner(FakeDispatchPort())
     assert provisioner.validate("nope")[0].code == "shifter-provisioner.invalid-plan"

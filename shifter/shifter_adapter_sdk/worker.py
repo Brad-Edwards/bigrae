@@ -51,7 +51,7 @@ def plan_invocation(request: RuntimeInput) -> RuntimePlan:
         result = RuntimePlan.model_validate(plugin.plan(request))
         result.authorize(original)
         return result
-    except Exception:  # noqa: BLE001 - plugin isolation: the bounded planning-failed result records the failure
+    except Exception:  # noqa: BLE001  # plugin isolation: the bounded planning-failed result records the failure
         return RuntimePlan(
             protocol=original.protocol,
             invocation_id=original.invocation_id,
@@ -68,7 +68,7 @@ def inspect_invocation(request: InspectionInput) -> InspectionResult:
     try:
         _load_plugin(request.manifest)
         status = "compatible"
-    except Exception:  # noqa: BLE001 - plugin isolation: the failed inspection status records the failure
+    except Exception:  # noqa: BLE001  # plugin isolation: the failed inspection status records the failure
         status = "failed"
     return InspectionResult(
         protocol=request.protocol,

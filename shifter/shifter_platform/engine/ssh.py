@@ -127,7 +127,8 @@ class SSHConnection:
         except asyncio.CancelledError:
             await self.disconnect()
             raise
-        except Exception as exc:  # noqa: BLE001 - SSH error text can echo provider output; log the type only
+        # SSH error text can echo provider output; log the type only
+        except Exception as exc:  # noqa: BLE001
             await self.disconnect()
             if isinstance(exc, asyncssh.PermissionDenied):
                 message = "SSH authentication failed"
@@ -145,6 +146,7 @@ class SSHConnection:
                 type(exc).__name__,
                 self.host,
                 self.port,
+                exc_info=False,
             )
             raise SSHConnectionError(message) from None
 
@@ -165,7 +167,7 @@ class SSHConnection:
             if connection:
                 connection.abort()
             raise
-        except Exception as exc:  # noqa: BLE001 - best-effort close; abort the transport and warn
+        except Exception as exc:  # noqa: BLE001  # best-effort close; abort the transport and warn
             if connection:
                 connection.abort()
             logger.warning("SSH transport aborted during close host=%s exc_type=%s", self.host, type(exc).__name__)

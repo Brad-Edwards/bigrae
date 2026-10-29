@@ -76,6 +76,7 @@ def dispatch_repo_raes_package(
             request_id,
             safe_log_value(source.scenario_id),
             type(exc).__name__,
+            exc_info=False,
         )
         raise CMSError("RAES package could not be resolved") from None
     try:
@@ -170,6 +171,7 @@ def dispatch_object_raes_package(
             request_id,
             safe_log_value(source.scenario_id),
             type(exc).__name__,
+            exc_info=False,
         )
         raise CMSError("RAES object package could not be resolved") from None
 
@@ -202,6 +204,7 @@ def _launch_pack(
             "create_raes_native_range: package scenario could not be resolved request_id=%s exc_type=%s",
             request_id,
             type(exc).__name__,
+            exc_info=False,
         )
         raise CMSError("RAES package could not be resolved") from None
 
@@ -229,6 +232,7 @@ def _launch_pack(
             "create_raes_native_range: package could not be launched request_id=%s exc_type=%s",
             request_id,
             type(exc).__name__,
+            exc_info=False,
         )
         raise CMSError("RAES package could not be launched") from None
     if not result.accepted:

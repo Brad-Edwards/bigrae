@@ -1334,12 +1334,12 @@
       },
       {
         "id": "ADR-025-R2",
-        "description": "Every correctness-critical event must have at least one durable recovery path: either (a) transactional outbox (`engine_range_event_outbox` enqueued atomically with the authoritative state write) with a drainer that publishes with exponential-backoff retry, a DLQ terminal state after max_attempts, and an operator alert; or (b) idempotent DB-authoritative reconciliation that re-reads `engine.Range` state and re-drives the affected domain projections through existing handler/orchestrator/bridge seams. The two paths are complementary and both are present in the shipping implementation.",
+        "description": "Every correctness-critical event must have at least one durable recovery path: either (a) transactional outbox (`engine_range_event_outbox` enqueued atomically with the authoritative state write) with a drainer that publishes with exponential-backoff retry, a DLQ terminal state after max_attempts, and an operator alert; or (b) idempotent DB-authoritative reconciliation that re-reads `engine.Range` state and re-drives the affected domain projections through existing handler/orchestrator/bridge seams. The two paths are complementary and both are present in the shipping implementation. CMS-to-CTF status delivery is persisted atomically with the CMS status in cms.RangeStatusDelivery. Receiver writes and successful delivery removal are atomic; failures retain ordered, bounded-backoff retries through the existing range reconciler, including terminal or physically pruned CMS projections. Capacity-release failures must preserve the participant linkage and pending delivery. Raw receiver exception text is neither persisted nor logged.",
         "checks": []
       },
       {
         "id": "ADR-025-R3",
-        "description": "Consumer handlers must propagate transient DB or broker failures so the worker ack-after-handler retry and DLQ engage. Swallowing a transient exception and returning normally is not acceptable for correctness-critical events. Invalid, permanently unprocessable, or duplicate payloads may be deliberately logged and acknowledged; the distinction must be explicit in the handler.",
+        "description": "Consumer handlers must propagate transient DB or broker failures so the worker ack-after-handler retry and DLQ engage. Swallowing a transient exception and returning normally is not acceptable for correctness-critical events. A local CTF receiver may fail independently only when its pending CMS delivery has been persisted with the status write; the reconciler retries those records until receiver writes and delivery removal commit together. Invalid, permanently unprocessable, or duplicate payloads may be deliberately logged and acknowledged; the distinction must be explicit in the handler.",
         "checks": []
       },
       {
@@ -1370,6 +1370,11 @@
       "shifter/shifter_platform/cms/management/commands/reconcile_range_events.py",
       "shifter/shifter_platform/cms/handlers/__init__.py",
       "shifter/shifter_platform/cms/handlers/range_events.py",
+      "shifter/shifter_platform/cms/models/range_status_delivery.py",
+      "shifter/shifter_platform/cms/migrations/0067_range_status_delivery.py",
+      "shifter/shifter_platform/cms/handlers/ctf_bridge.py",
+      "shifter/shifter_platform/tests/cms/test_ctf_status_delivery.py",
+      "docs/runbooks/rb006-worker-errors.md",
       "shifter/shifter_platform/engine/handlers.py",
       "shifter/shifter_platform/mission_control/handlers.py",
       "platform/terraform/modules/portal/messaging/main.tf",
@@ -2635,7 +2640,7 @@
       },
       {
         "id": "ADR-043-R5",
-        "description": "Process argv is limited to the canonical resource/operation, request or legacy identifiers, and optional operation-generation UUID correlation; payloads, capabilities, credentials, database tokens, signed URLs, VPN profiles, provider responses, and environment maps MUST NOT enter argv, logs, audit context, range error text, events, or public error envelopes. One exception applies: when a Terraform command fails, the provisioner's own log MAY record that command's stderr once, sanitized by provisioner log_redact and bounded in length. That copy MUST NOT enter argv, audit context, range error text, events, operation results, or public error envelopes. Existing IAM/Cloud SQL DB auth, TLS, sensitive-env projection, env inventories/renderers, admission policy, shared.log_sanitize/provisioner log_redact, and shared API error envelopes remain authoritative.",
+        "description": "Process argv is limited to the canonical resource/operation, request or legacy identifiers, and optional operation-generation UUID correlation; payloads, capabilities, credentials, database tokens, signed URLs, VPN profiles, provider responses, and environment maps MUST NOT enter argv, logs, audit context, range error text, events, or public error envelopes. Existing IAM/Cloud SQL DB auth, TLS, sensitive-env projection, env inventories/renderers, admission policy, shared.log_sanitize/provisioner log_redact, and shared API error envelopes remain authoritative.",
         "checks": []
       },
       {

@@ -127,7 +127,7 @@ def scan_observation(*, verify_output: bool) -> dict[str, Any]:
         if verify_output:
             observation.update(constraint_values=inspect_output(raw_disk), sanitized=True)
         return observation
-    except Exception as exc:  # noqa: BLE001 - scanner boundary: the output carries one closed failure code only
+    except Exception as exc:  # noqa: BLE001  # scanner boundary: the output carries one closed failure code only
         return {"failure_code": FAILURE_MESSAGES.get(str(exc), "scanner_failed")}
 
 
@@ -148,7 +148,7 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except Exception:  # noqa: BLE001 - entry point: fixed exit text keeps candidate detail off the console
+    except Exception:  # noqa: BLE001  # entry point: fixed exit text keeps candidate detail off the console
         # Console output is available to cloud operators. Never emit private
         # context, candidate file contents, or exception detail on failure.
         raise SystemExit("preparation scanner failed") from None

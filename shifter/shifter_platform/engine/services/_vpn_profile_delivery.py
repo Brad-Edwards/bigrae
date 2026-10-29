@@ -44,7 +44,7 @@ def get_individual_vpn_profile(
         return OpenVpnProfile(content, row.generation, OPENVPN_PROFILE_VERSION)
     except VpnProfilePending:
         raise
-    except Exception:  # noqa: BLE001 - fail-closed delivery; VPN material can reach the cause, so it is not chained
+    except Exception:  # noqa: BLE001  # fail-closed delivery; VPN material can reach the cause, so it is not chained
         raise VpnProfileUnavailable("VPN profile unavailable") from None
 
 

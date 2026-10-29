@@ -37,5 +37,6 @@ class AWSSecretsStore(BaseAWSAdapter):
                 safe_log_fingerprint(secret_id),
                 type(e).__name__,
                 code,
+                exc_info=False,
             )
             raise CloudSecretsError("Failed to retrieve secret") from None

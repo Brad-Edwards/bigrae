@@ -90,7 +90,7 @@ class Command(BaseCommand):
 
             sts_client = boto3.client("sts")
             return sts_client.get_caller_identity()["Account"]
-        except Exception:  # noqa: BLE001 - optional owner check; the command reports the skip and continues
+        except Exception:  # noqa: BLE001  # optional owner check; the command reports the skip and continues
             self.stdout.write(self.style.WARNING("  ExpectedBucketOwner check disabled (STS GetCallerIdentity failed)"))
             return ""
 

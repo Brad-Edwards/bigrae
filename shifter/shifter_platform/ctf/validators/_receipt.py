@@ -124,7 +124,7 @@ def _load_service_auth(profile: ReceiptVerifierProfile) -> str | None:
     """Load one bounded service credential without exposing its value."""
     try:
         service_auth = get_secrets_store().get_secret(profile.service_auth_secret_ref)
-    except Exception as exc:  # noqa: BLE001 - secret-store error text may carry provider payloads; class name only
+    except Exception as exc:  # noqa: BLE001  # secret-store error text may carry provider payloads; class name only
         logger.warning("Receipt validator service authentication is unavailable exc_type=%s", type(exc).__name__)
         return None
     if not isinstance(service_auth, str) or not service_auth or len(service_auth) > 8192:

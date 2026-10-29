@@ -61,7 +61,7 @@ class TestSendEmail:
         assert result is False
         assert "exc_type=RuntimeError" in caplog.text
         assert "a@b.com" not in caplog.text
-        assert all(record.exc_info is None for record in caplog.records)
+        assert all(not record.exc_info for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------

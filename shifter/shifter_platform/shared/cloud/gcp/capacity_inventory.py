@@ -138,7 +138,8 @@ class GCPCapacityInventory:
                 project=partition.account,
                 region=partition.region,
             )
-        except Exception as exc:  # noqa: BLE001 - fail soft; provider text can carry the project id, log the class only
+        # fail soft; provider text can carry the project id, log the class only
+        except Exception as exc:  # noqa: BLE001
             # Bounded: the project id and provider error text are omitted.
             logger.warning(
                 "capacity: monitoring read failed for metric %s in %s exc_type=%s",

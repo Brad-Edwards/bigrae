@@ -18,7 +18,7 @@ class WorkloadIdentity:
     async def __call__(self) -> str:
         try:
             return await _IDENTITY_WORK.run(self._assertion)
-        except Exception:  # noqa: BLE001 - cloud identity errors can carry credential detail; closed code only
+        except Exception:  # noqa: BLE001  # cloud identity errors can carry credential detail; closed code only
             raise ContractError("control.identity_unavailable") from None
 
     def _assertion(self) -> str:

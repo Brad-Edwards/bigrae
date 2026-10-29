@@ -141,7 +141,7 @@ def acquire(
         )
     except (RecipeError, NpmAcquisitionError) as exc:
         return AcquisitionResult(ok=False, reason=str(exc)[:256])
-    except Exception as exc:  # noqa: BLE001 - Job boundary: the result line records the class, not provider text
+    except Exception as exc:  # noqa: BLE001  # Job boundary: the result line records the class, not provider text
         return AcquisitionResult(ok=False, reason=f"acquisition failed ({type(exc).__name__})")
     finally:
         clear_workdir(workdir)

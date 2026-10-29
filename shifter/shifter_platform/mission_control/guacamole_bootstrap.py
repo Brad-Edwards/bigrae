@@ -202,8 +202,14 @@ def _run_bootstrap(
         )
     except GuacamoleBootstrapRequest.DoesNotExist:
         logger.warning("Guacamole bootstrap request disappeared before execution: request_id=%s", request_id)
-    except Exception as exc:  # noqa: BLE001 - worker thread boundary; errors here can carry session-token material, so log the type only
-        logger.error("Guacamole bootstrap worker failed: request_id=%s exc_type=%s", request_id, type(exc).__name__)
+    # worker thread boundary; errors here can carry session-token material, so log the type only
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Guacamole bootstrap worker failed: request_id=%s exc_type=%s",
+            request_id,
+            type(exc).__name__,
+            exc_info=False,
+        )
     finally:
         slots.release()
         close_old_connections()
@@ -299,7 +305,8 @@ def _build_bootstrap_url(
     except BootstrapFailure as exc:
         _finish_failure(bootstrap, started, exc.user_message, exc.status_code)
         return None
-    except Exception as exc:  # noqa: BLE001 - Guacamole failures can carry credential-bearing upstream values; log the type only
+    # Guacamole failures can carry credential-bearing upstream values; log the type only
+    except Exception as exc:  # noqa: BLE001
         # Keep the original exception text and traceback out of logs; the
         # fingerprint still correlates repeated failures within the process.
         logger.error(
@@ -307,6 +314,7 @@ def _build_bootstrap_url(
             bootstrap.pk,
             type(exc).__name__,
             safe_log_fingerprint(exc),
+            exc_info=False,
         )
         _finish_failure(bootstrap, started, _GENERIC_BOOTSTRAP_FAILURE, 500)
         return None

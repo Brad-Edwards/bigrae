@@ -144,7 +144,7 @@ def create_scoped_range(
         )
     except WorkspaceLaunchQuotaExceeded:
         raise
-    except Exception as exc:  # noqa: BLE001 - dispatch causes can carry private provider material
+    except Exception as exc:  # noqa: BLE001  # dispatch causes can carry private provider material
         logger.warning(
             "create_scoped_range: launch refused scenario_id=%s exc_type=%s",
             safe_log_value(scenario),

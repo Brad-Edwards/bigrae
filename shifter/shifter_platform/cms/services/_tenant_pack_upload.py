@@ -45,7 +45,7 @@ def _pack_model_needs(root: Path, digest: str) -> dict[str, dict[str, object]]:
     try:
         declaration = PackModelNeedsDeclaration.model_validate(json.loads(path.read_text(encoding="utf-8")))
         return declaration.bind_to_digest(digest)
-    except Exception:  # noqa: BLE001 - untrusted pack content; its error text stays out of the chain
+    except Exception:  # noqa: BLE001  # untrusted pack content; its error text stays out of the chain
         raise ValueError("Pack model needs are invalid") from None
 
 
@@ -179,7 +179,7 @@ def upload_tenant_pack(
         try:
             _write_archive(archive, path)
             digest, version, model_needs = _validate_archive(path, name, report)
-        except Exception as exc:  # noqa: BLE001 - untrusted pack content; its error text stays out of the chain
+        except Exception as exc:  # noqa: BLE001  # untrusted pack content; its error text stays out of the chain
             # Pack validation errors embed archive paths and content, so log only the class.
             logger.warning(
                 "upload_tenant_pack: archive validation failed organization_uuid=%s exc_type=%s",
@@ -214,7 +214,7 @@ def upload_tenant_pack(
                 model_needs,
                 (bucket, key),
             )
-        except Exception as exc:  # noqa: BLE001 - untrusted pack content; its error text stays out of the chain
+        except Exception as exc:  # noqa: BLE001  # untrusted pack content; its error text stays out of the chain
             logger.warning(
                 "upload_tenant_pack: installation failed organization_uuid=%s exc_type=%s",
                 organization_uuid,
@@ -222,7 +222,8 @@ def upload_tenant_pack(
             )
             try:
                 storage.delete_object(bucket, key)
-            except Exception as cleanup_exc:  # noqa: BLE001 - storage errors carry provider payloads; adapter logs them
+            # storage errors carry provider payloads; adapter logs them
+            except Exception as cleanup_exc:  # noqa: BLE001
                 logger.warning(
                     "upload_tenant_pack: uncommitted archive cleanup failed organization_uuid=%s exc_type=%s",
                     organization_uuid,

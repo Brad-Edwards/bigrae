@@ -171,7 +171,7 @@ def _attempt_terraform_auto_cleanup(operation: RangeOperation) -> None:
     failure: str | None = None
     try:
         _teardown_owned_range_resources(operation)
-    except Exception as exc:  # noqa: BLE001 - best-effort compensation; the class name is logged below (ADR-043-R5)
+    except Exception as exc:  # noqa: BLE001  # best-effort compensation; the class name is logged below (ADR-043-R5)
         failure = type(exc).__name__
     if failure is None:
         logger.info("Compensation destroy succeeded for range_id=%s", operation.range_id)

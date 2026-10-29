@@ -61,7 +61,7 @@ def _fetch(url: str, session: str, cookie_name: str) -> tuple[int, bytes]:
         "::1",
     }:
         raise ValueError("stack-smoke HTTP targets must use HTTP(S) on loopback")
-    req = urllib.request.Request(url)  # noqa: S310 - only HTTP(S) loopback URLs pass validation
+    req = urllib.request.Request(url)  # noqa: S310  # only HTTP(S) loopback URLs pass validation
     req.add_header("Cookie", f"{cookie_name}={session}")
     # Mirror the ALB's forwarded proto so SECURE_PROXY_SSL_HEADER marks the
     # request secure and the production image serves instead of 301-redirecting.
@@ -78,7 +78,7 @@ def _check_asset(url: str, label: str, session: str, cookie_name: str, failures:
     except urllib.error.HTTPError as exc:
         failures.append(f"{label} -> HTTP {exc.code}")
         return b""
-    except Exception as exc:  # noqa: BLE001 - text can carry the session cookie; record only the class name
+    except Exception as exc:  # noqa: BLE001  # text can carry the session cookie; record only the class name
         failures.append(f"{label} -> {type(exc).__name__}")
         return b""
     if status != 200:
