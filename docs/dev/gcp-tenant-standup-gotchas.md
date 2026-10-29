@@ -22,6 +22,84 @@ impersonation. The ADC quota-project note in `scripts/bootstrap/README.md`
 applies only to a manual Terraform run under your own Application Default
 Credentials.
 
+## Release from dev or a deploy-test branch
+
+`release-gcp.yml` publishes from `refs/heads/main`, `refs/heads/dev`, and
+`refs/heads/deploy-test`. GitHub dispatches a `workflow_dispatch`-only workflow
+only after the file is on the default branch. After `release-gcp.yml` is on
+`main` once, dispatch it on another release ref:
+
+```bash
+gh workflow run release-gcp.yml --ref deploy-test
+```
+
+The run uses the workflow file of that ref. Each release ref needs a `release`
+purpose context in the foundation and a deployment branch policy in the
+`gcp-release` Environment. Protect `deploy-test` against force pushes and
+deletion.
+
+`gcp-deploy` requires that its own revision equals the release revision. A deploy
+fix therefore needs a new release. Put the fixes on `deploy-test` and release
+from it, so that a test cycle does not wait for a merge to `dev`.
+
+## Hand-patch a checkout deploy during a test cycle
+
+`gcp-deploy` reads `BIGRAE_SOURCE_REVISION` before it reads `git`. The deployer
+image sets it. To test a fix before the next release, cherry-pick the fix into
+a worktree of the release revision and set the variable to that revision:
+
+```bash
+BIGRAE_SOURCE_REVISION=<release revision> \
+  uv run --project scripts/bootstrap scripts/bootstrap/deploy.py gcp-deploy \
+  --store gs://<bucket> --release-manifest release.json
+```
+
+The release images and their provenance stay those of the release. Use this
+only for a fix that is already in a pull request, and release again after it
+merges to `deploy-test`.
+
+## Release registry in the deployment project
+
+One project can hold the release registry and the deployment. Apply the
+foundation in GitHub mode with the `release` purpose contexts and also set
+`impersonation_principals` and `deployment_config_bucket_name`. The root then
+creates the release WIF trust, the purpose identities, and the config bucket in
+one state.
+
+## Manual Terraform runs and a stale ADC quota project
+
+`gcp-foundation` sets the quota project of its child processes. A manual run,
+for example the `release-registry` apply, uses the quota project in your ADC
+file. If that project is deleted, each call fails with the error `The requested
+project was not found`. Set the quota project and a private data directory for the run:
+
+```bash
+export GOOGLE_CLOUD_QUOTA_PROJECT=<project> TF_DATA_DIR="$(mktemp -d)"
+```
+
+## Read the release manifest without Docker
+
+A checkout deploy needs `--release-manifest`. The deployer image holds the
+manifest at `/opt/bigrae/release.json`, and the release run summary prints it.
+Without Docker, extract it from the image layer with ORAS:
+
+```bash
+REF=<release registry>/deployer@<digest>
+IMAGE=$(oras manifest fetch "$REF" | jq -r '.manifests[0].digest')
+for layer in $(oras manifest fetch "${REF%@*}@$IMAGE" | jq -r '.layers[] | select(.size < 200000) | .digest'); do
+  oras blob fetch "${REF%@*}@$layer" --output - | tar -xzO opt/bigrae/release.json 2>/dev/null > release.json && break
+done
+```
+
+ORAS uses the Docker credential helper for Artifact Registry, so
+`docker-credential-gcloud` must be on `PATH`.
+
+## Range images that are already in the project
+
+If the base guest images already exist in the project, record them with
+`gcp-config set-range-image` for the `linux`, `kali`, and `dc` roles. Then you
+do not need `gcp-images`.
+
 ## Use the deployer image for the tools
 
 The deployer image holds every deploy tool at the release version. Without it,
@@ -66,7 +144,11 @@ machine-type and zone specific. Confirm an alternative type has capacity in all
 of the cluster's zones (the `access` pool already proves `e2-standard-8`
 availability), then set `provisioner_machine_type` to that type of the same
 size class (`e2-standard-8` is the same 8 vCPU / 32 GB shape as
-`n2-standard-8`). Set it in the bundle's Terraform values (`terraform.tfvars`
+`n2-standard-8`). The pool runs only the provisioner launcher and the
+Terraform provisioner Jobs, so a smaller E2 type, for example `e2-standard-4`,
+also works. After a stockout, the pool stays `RUNNING_WITH_ERROR` and the apply
+fails at the node-pool timeout. Publish the new type in the bundle and run the
+deploy again; Terraform replaces the pool. Set it in the bundle's Terraform values (`terraform.tfvars`
 or `terraform.tfvars.json`). A CI deployment sets it in its committed
 `environments/<environment>/terraform.tfvars`. Do not try to pin the GKE node
 zones: there is no tfvar for it, so that would be a module change, not an

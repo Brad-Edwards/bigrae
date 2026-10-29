@@ -12,6 +12,8 @@ from psycopg.rows import TupleRow
 from shared.gcp_native_identity import NATIVE_APPLICATION_WORKLOADS, NATIVE_POLICY_WORKLOADS
 
 _LEGACY_RUNTIME_LOGINS = ("portal_runtime", "provisioner_runtime", "guacamole_admin")
+_GUACAMOLE_LOGIN = "guacamole_admin"
+_GUACAMOLE_DATABASE = "guacamole"
 
 
 class _DutyCursor(Protocol):
@@ -105,6 +107,35 @@ def reconcile_application_duties(cursor: _DutyCursor, native_users: Mapping[str,
     cursor.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO portal_runtime, provisioner_lambda").format(database))
     _grant_native_application_duties(cursor, native_users)
     _assert_policy_application_isolation(cursor, native_users)
+
+
+def reconcile_guacamole_owner(connection_parameters: dict[str, Any]) -> None:
+    """Make the Guacamole login the owner of its own database.
+
+    ``reconcile_application_duties`` removes ``cloudsqlsuperuser`` from
+    ``guacamole_admin``. On PostgreSQL 15 and later that membership was its only
+    CREATE path on the public schema of the ``guacamole`` database, so Guacamole
+    could not create its schema in a fresh deployment (#2626). The login owns its
+    database, as on AWS, and no other role keeps default access to it.
+    """
+    login = sql.Identifier(_GUACAMOLE_LOGIN)
+    with psycopg.connect(**{**connection_parameters, "connect_timeout": 10}) as connection:
+        present = connection.execute(
+            "SELECT EXISTS (SELECT FROM pg_database WHERE datname = %s)"
+            " AND EXISTS (SELECT FROM pg_roles WHERE rolname = %s)",
+            [_GUACAMOLE_DATABASE, _GUACAMOLE_LOGIN],
+        ).fetchone()
+    if present != (True,):
+        return
+    parameters = {**connection_parameters, "dbname": _GUACAMOLE_DATABASE, "connect_timeout": 10}
+    with psycopg.connect(**parameters) as connection, connection.cursor() as cursor:
+        cursor.execute(sql.SQL("GRANT {} TO CURRENT_USER").format(login))
+        cursor.execute(sql.SQL("ALTER DATABASE {} OWNER TO {}").format(sql.Identifier(_GUACAMOLE_DATABASE), login))
+        cursor.execute(sql.SQL("ALTER SCHEMA public OWNER TO {}").format(login))
+        cursor.execute("REVOKE ALL ON SCHEMA public FROM PUBLIC")
+        cursor.execute(
+            sql.SQL("REVOKE CONNECT, TEMPORARY ON DATABASE {} FROM PUBLIC").format(sql.Identifier(_GUACAMOLE_DATABASE))
+        )
 
 
 def _prepare_policy_owner(cursor: _DutyCursor) -> str:

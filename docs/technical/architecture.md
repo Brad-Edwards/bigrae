@@ -122,7 +122,9 @@ Control-plane workloads run as the non-root runtime identity UID 10001, with a
 read-only root filesystem, dropped capabilities, and the `RuntimeDefault` seccomp
 profile. The admission policies pin that identity for the provisioner,
 preparation, and acquisition Jobs. The Cloud SQL proxy keeps its own 65532
-identity. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
+identity. The repository tests evaluate the admission policies with a Python
+CEL interpreter. They do not prove that a policy compiles on the Kubernetes API
+server. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
 each supported values file. A scoped waiver uses a chart template annotation
 with a matching `docs/adr/exceptions.yaml` entry (ADR-004-R11).
 

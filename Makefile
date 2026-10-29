@@ -59,19 +59,19 @@ test: test-platform test-adapter-sdk test-provisioner test-packer test-installat
 test-adapter-sdk: ## Independent adapter contract and packaging checks
 	cd shifter/shifter_adapter_sdk && uv sync --frozen --all-extras && uv run --all-extras pytest tests/ && uv build
 
-test-platform: ## Platform fast lane (SQLite; sole coverage publisher)
+test-platform: ## Platform fast local lane (SQLite; CI runs the PostgreSQL lane)
 	cd shifter/shifter_platform && uv sync --group dev && \
 	  $(PLATFORM_ENV) uv run python manage.py collectstatic --noinput && \
 	  $(PLATFORM_ENV) uv run pytest tests/ -m "not redis and not postgres" --cov
 
-# Mirrors the `shifter-platform-tests-postgres` CI job, including collectstatic.
+# Mirrors the sharded `shifter-platform-tests` CI job, including collectstatic.
 POSTGRES_ENV := TESTING=1 DJANGO_DEBUG=true TEST_DB_BACKEND=postgres DJANGO_SECRET_KEY=$(TEST_DJANGO_SECRET_KEY) \
   DB_HOST=localhost DB_PORT=5432 DB_NAME=shifter DB_USER=test DB_PASSWORD=test
 
-test-platform-postgres: ## Platform PostgreSQL semantics lane (needs a Postgres service on :5432)
+test-platform-postgres: ## Platform CI lane: PostgreSQL suite and coverage floor (needs Postgres on :5432)
 	cd shifter/shifter_platform && uv sync --group dev && \
 	  $(POSTGRES_ENV) uv run python manage.py collectstatic --noinput && \
-	  $(POSTGRES_ENV) uv run pytest tests/ -m "not redis and not openfga"
+	  $(POSTGRES_ENV) uv run pytest tests/ -m "not redis and not openfga" --cov
 
 test-platform-redis: ## Platform Redis channel-layer integration lane (needs a Redis service on :6379)
 	cd shifter/shifter_platform && uv sync --group dev && \
