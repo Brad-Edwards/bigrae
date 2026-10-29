@@ -13,6 +13,11 @@ This note records the repo-wide guardrails for PLAT-232 after ADR-066. It is not
 an implementation plan and adds no model, migration, endpoint, scope, or SPA
 behavior.
 
+For S8, use the [PLAT-232 activation guidance](integrated-identity-cutover-preflight-2321.md#plat-232-organization-profile-activation)
+and ADR-066's administration decision. This record's session-only admission,
+persisted-role authority and Django override describe the retained S1 runtime;
+they are not additional S8 permission checks.
+
 ## Decisions and boundaries
 
 - `workspaces` remains the persistence and authorization owner. Public callers

@@ -71,8 +71,10 @@ class FakeTerminal:
 
 
 @pytest.fixture
-def user(db):
-    return User.objects.create_user(username="term-factory@example.com", email="term-factory@example.com")
+def user(db, live_session_credential):
+    user = User.objects.create_user(username="term-factory@example.com", email="term-factory@example.com")
+    user.credential = live_session_credential(user)
+    return user
 
 
 @pytest.fixture(autouse=True)
@@ -91,11 +93,13 @@ async def _communicator(user, factory, *, instance_uuid=INSTANCE_UUID):
         f"/ws/terminal/{instance_uuid}/",
     )
     communicator.scope["user"] = user
+    communicator.scope["credential_context"] = user.credential
     communicator.scope["url_route"] = {"kwargs": {"instance_uuid": instance_uuid}}
     return communicator
 
 
 @pytest.mark.asyncio
+@pytest.mark.postgres
 async def test_injected_factory_drives_an_accepted_session(user, range_ssh_instance, secrets_boundary):
     """A fake transport is accepted and its output reaches the browser socket.
 

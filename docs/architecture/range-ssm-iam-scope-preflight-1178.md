@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-27
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1178>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1178>
 
 This note records the architecture boundary for fixing the range instance role
 that can read and mutate every range's SSM Parameter Store namespace. It is not

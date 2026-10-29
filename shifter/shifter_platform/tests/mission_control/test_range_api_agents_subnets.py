@@ -28,6 +28,30 @@ def _json(response):
 
 
 class TestListAgents:
+    @pytest.mark.parametrize("route", ["agents-list", "scenarios-list"])
+    @pytest.mark.parametrize("provider_unavailable", [False, True])
+    def test_catalog_denial_returns_a_bounded_error(
+        self, authenticated_client, monkeypatch, route, provider_unavailable
+    ):
+        from shared.exceptions import CMSError
+
+        client, _user = authenticated_client(email=f"catalog-{route}@example.com")
+        target = "cms_list_agents" if route == "agents-list" else "cms_list_launchable_scenarios"
+
+        def denied(*args, **kwargs):
+            raise CMSError(
+                "SYNTHETIC_PRIVATE_PROVIDER_TEXT",
+                details={"code": "authority-unavailable"} if provider_unavailable else {},
+            )
+
+        monkeypatch.setattr(f"mission_control.api.ranges.{target}", denied)
+        response = client.get(reverse(f"v1:mission_control:{route}"))
+        assert response.status_code == (503 if provider_unavailable else 403)
+        assert "SYNTHETIC_PRIVATE_PROVIDER_TEXT" not in response.content.decode()
+        assert _json(response)["error"]["code"] == (
+            "catalog_unavailable" if provider_unavailable else "content_not_available"
+        )
+
     def test_requires_login(self):
         response = Client().get(reverse("v1:mission_control:agents-list"))
         assert response.status_code == 401
@@ -70,6 +94,26 @@ class TestListAgents:
         response = client.get(reverse("v1:mission_control:agents-list"))
         assert response.status_code == 200
         assert _json(response)["max_file_size_bytes"] == 2048 * 1024 * 1024
+
+    @pytest.mark.parametrize("route", ["agents-list", "scenarios-list"])
+    def test_catalog_reads_reject_malformed_workspace_selector(self, authenticated_client, route):
+        client, _user = authenticated_client(email=f"bad-{route}@example.com")
+
+        response = client.get(reverse(f"v1:mission_control:{route}"), {"workspace_uuid": "not-a-uuid"})
+
+        assert response.status_code == 400
+        assert _json(response)["error"]["code"] == "invalid"
+
+    @pytest.mark.parametrize("route", ["agents-list", "scenarios-list"])
+    def test_catalog_reads_hide_unavailable_workspace(self, authenticated_client, route):
+        from uuid import uuid4
+
+        client, _user = authenticated_client(email=f"foreign-{route}@example.com")
+
+        response = client.get(reverse(f"v1:mission_control:{route}"), {"workspace_uuid": str(uuid4())})
+
+        assert response.status_code == 403
+        assert _json(response)["error"]["code"] == "workspace_not_available"
 
 
 class TestSubnetIndexAllocation:

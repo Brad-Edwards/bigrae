@@ -25,6 +25,8 @@ from cms.scenarios.pack_validation import check_pack, pack_digest
 from cms.scenarios.registry import get_catalog_entry, list_all_scenarios
 from cms.scenarios.run_capability import get_run_capability
 from cms.services import PackRegistrationRequest, register_pack
+from shared.identity_scope import ResourceScope
+from tests.cms._native_catalog import native_catalog as native_catalog
 from tests.cms.conftest import IMAGELESS_PACK_SDL, PARAMETERIZED_PACK_SDL
 
 User = get_user_model()
@@ -33,12 +35,8 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
-def staff_user(db):
-    return User.objects.create_user(
-        username="image-optional-staff@example.com",
-        email="image-optional-staff@example.com",
-        is_staff=True,
-    )
+def staff_user(native_catalog):
+    return native_catalog.credential
 
 
 def _register(staff_user, make_pack, tmp_path, monkeypatch, *, name, sdl=..., source_kind="repo", package_ref=None):
@@ -57,7 +55,7 @@ def _register(staff_user, make_pack, tmp_path, monkeypatch, *, name, sdl=..., so
         package_digest=digest,
         provenance={"repo": "acme/example", "commit": "c" * 40},
     )
-    return register_pack(user=staff_user, request=request)
+    return register_pack(scope=ResourceScope("installation"), user=staff_user, request=request)
 
 
 class TestImagelessPackImports:
@@ -70,15 +68,18 @@ class TestImagelessPackImports:
         result = _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless", sdl=IMAGELESS_PACK_SDL)
         assert result.created is True
         assert RaesPackageSource.objects.filter(scenario_id="imageless").exists()
-        assert get_catalog_entry("imageless") is not None
-        assert any(entry["id"] == "imageless" for entry in list_all_scenarios(user=None))
+        assert get_catalog_entry("imageless", user=staff_user, scope=ResourceScope("installation")) is not None
+        assert any(
+            entry["id"] == "imageless"
+            for entry in list_all_scenarios(user=staff_user, scope=ResourceScope("installation"))
+        )
 
     def test_parameterized_pack_imports_and_appears_in_catalog(self, staff_user, make_pack, tmp_path, monkeypatch):
         result = _register(
             staff_user, make_pack, tmp_path, monkeypatch, name="parameterized", sdl=PARAMETERIZED_PACK_SDL
         )
         assert result.created is True
-        assert get_catalog_entry("parameterized") is not None
+        assert get_catalog_entry("parameterized", user=staff_user, scope=ResourceScope("installation")) is not None
 
 
 class TestRunCapabilityProjection:

@@ -74,7 +74,7 @@ def _project_eligible_event(event: CTFEvent, *, at: datetime) -> PublicEventProj
     if (
         event.deleted_at is not None
         or not event.public_registration_enabled
-        or event.workspace_id is None
+        or (event.workspace_id is None and not (event.scope_kind == "account" and event.account_id is not None))
         or event.status != EventStatus.REGISTRATION.value
     ):
         raise PublicEventUnavailable
@@ -146,7 +146,7 @@ def submit_public_registration_request(
 def list_pending_public_registration_requests(
     event_id: UUID,
     *,
-    actor_id: int,
+    actor_id: object,
 ) -> QuerySet[CTFPublicRegistrationRequest]:
     """Return the event's pending queue after service-boundary authorization."""
     from ctf.enums import EventCapability
@@ -162,7 +162,7 @@ def list_pending_public_registration_requests(
     )
 
 
-def _locked_pending_request(request_id: UUID, *, actor_id: int) -> CTFPublicRegistrationRequest:
+def _locked_pending_request(request_id: UUID, *, actor_id: object) -> CTFPublicRegistrationRequest:
     """Lock and authorize one still-pending request."""
     from ctf.enums import EventCapability
     from ctf.services.authorization import assert_event_capability
@@ -179,7 +179,7 @@ def _locked_pending_request(request_id: UUID, *, actor_id: int) -> CTFPublicRegi
     return request_row
 
 
-def approve_public_registration_request(request_id: UUID, *, actor_id: int) -> PublicRegistrationDispositionResult:
+def approve_public_registration_request(request_id: UUID, *, actor_id: object) -> PublicRegistrationDispositionResult:
     """Admit one request through the canonical participant service."""
     from ctf.services.participant.lifecycle import add_participant
 
@@ -188,7 +188,11 @@ def approve_public_registration_request(request_id: UUID, *, actor_id: int) -> P
         # The stored ``name`` is the participant's self-chosen handle (#2455):
         # use it as the single username (login + scoreboard display).
         participant = add_participant(
-            request_row.event_id, request_row.email, request_row.name, username=request_row.name
+            request_row.event_id,
+            request_row.email,
+            request_row.name,
+            username=request_row.name,
+            actor=actor_id,
         )
         request_row.disposition = PublicRegistrationDisposition.APPROVED.value
         request_row.dispositioned_at = timezone.now()
@@ -206,7 +210,7 @@ def approve_public_registration_request(request_id: UUID, *, actor_id: int) -> P
         )
 
 
-def reject_public_registration_request(request_id: UUID, *, actor_id: int) -> PublicRegistrationDispositionResult:
+def reject_public_registration_request(request_id: UUID, *, actor_id: object) -> PublicRegistrationDispositionResult:
     """Reject one pending request without invoking participant admission."""
     with transaction.atomic():
         request_row = _locked_pending_request(request_id, actor_id=actor_id)

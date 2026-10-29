@@ -7,14 +7,10 @@ import pytest
 from django.utils import timezone
 
 from engine.models import PreparationAttempt, PreparationOperation
-from engine.services import (
-    cancel_artifact_preparation,
-    read_preparation_worker_input,
-    record_preparation_worker_result,
-    request_artifact_preparation,
-)
+from engine.services import cancel_artifact_preparation, read_preparation_worker_input, record_preparation_worker_result
 from engine.services._preparation_worker import attempt_token
 from shared.exceptions import ValidationError
+from tests.engine.services._preparation_fixtures import request_artifact_preparation
 from tests.engine.services.test_preparation_operations import administrator, grant, installed, operator, package_input
 
 pytestmark = pytest.mark.django_db
@@ -51,9 +47,9 @@ def test_correct_attempt_can_read_only_its_immutable_input(attempt):
         read_preparation_worker_input(attempt.operation_id, str(attempt.id))
 
 
-def test_expired_attempt_cannot_read_or_submit(attempt):
-    attempt.expires_at = timezone.now() - timedelta(seconds=1)
-    attempt.save()
+def test_expired_attempt_cannot_read_or_submit(attempt, monkeypatch):
+    future = attempt.expires_at + timedelta(seconds=1)
+    monkeypatch.setattr(timezone, "now", lambda: future)
     token = attempt_token(attempt)
     with pytest.raises(ValidationError):
         read_preparation_worker_input(attempt.operation_id, token)
@@ -111,7 +107,9 @@ def test_worker_cannot_inject_arbitrary_error_payload(attempt):
 
 
 def test_revoked_requester_cannot_continue_private_execution(attempt, operator):
-    operator.user_permissions.clear()
+    from management.models import PrincipalSession
+
+    PrincipalSession.objects.filter(credential_uuid=operator.credential_uuid).delete()
     with pytest.raises(ValidationError):
         read_preparation_worker_input(attempt.operation_id, attempt_token(attempt))
     assert (
@@ -136,11 +134,15 @@ def test_cleanup_survives_revocation_but_cannot_change_its_pinned_cloud_scope(at
     cleanup = new_preparation_attempt(row, "cleanup", evidence={"attempts": [str(attempt.id)]})
     grant.active = False
     grant.save(update_fields=["active"])
-    operator.user_permissions.clear()
+    from management.models import PrincipalSession
+
+    PrincipalSession.objects.filter(credential_uuid=operator.credential_uuid).delete()
     token = attempt_token(cleanup)
     assert read_preparation_worker_input(row.id, token)["input"]["grant"]["project_id"] == "test-project"
     changed = cleanup.input
     changed["grant"]["project_id"] = "foreign-project"
-    PreparationAttempt.objects.filter(pk=cleanup.id).update(input=changed)
-    with pytest.raises(ValidationError):
-        read_preparation_worker_input(row.id, token)
+    from django.db import IntegrityError, transaction
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PreparationAttempt.objects.filter(pk=cleanup.id).update(input=changed)
+    assert read_preparation_worker_input(row.id, token)["input"]["grant"]["project_id"] == "test-project"

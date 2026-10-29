@@ -50,7 +50,9 @@ spec:
             - name: guacamole-home
               mountPath: /home/guacamole
           env:
-            {{- range $name := list "OPENFGA_ENABLED" "GUACAMOLE_CONTROL_URL" "GUACAMOLE_CONTROL_AUDIENCE" }}
+            - name: OPENFGA_ENABLED
+              value: "true"
+            {{- range $name := list "GUACAMOLE_CONTROL_URL" "GUACAMOLE_CONTROL_AUDIENCE" }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:

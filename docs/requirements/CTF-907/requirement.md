@@ -28,4 +28,4 @@ CTF events and Mission Control demos share provisioning infrastructure. Concurre
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/mission_control/views/` (Mission Control views (shared cms.services.create_range() call))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/auth.py` (Shared auth (CTF participants as standard platform users via group membership))
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (CTF range provisioning tests (verifies shared CMS path))
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#546` (CTF-907: MC + CTF Range Coexistence)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#546` (CTF-907: MC + CTF Range Coexistence)

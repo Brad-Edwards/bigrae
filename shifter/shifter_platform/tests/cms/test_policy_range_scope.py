@@ -102,14 +102,14 @@ def test_policy_range_list_and_prepared_http_rebind(owned_resources, monkeypatch
         response = client.get(f"/api/v1/cms/workspaces/{workspace.uuid}/range-scoping/")
         assert response.status_code == 200 and response.data["count"] == 1
         response = client.post(
-            f"/api/v1/cms/ranges/{request.request_id}/workspace/",
+            f"/api/v1/cms/ranges/{request.request_id}/scope/",
             {"target_workspace_uuid": str(workspace.uuid)},
             format="json",
         )
         assert response.status_code == 200 and response.data["changed"] is False
         assert (
             client.post(
-                f"/api/v1/cms/ranges/{request.request_id}/workspace/",
+                f"/api/v1/cms/ranges/{request.request_id}/scope/",
                 {"target_workspace_uuid": str(workspace.uuid), "owner_id": source.pk},
                 format="json",
             ).status_code

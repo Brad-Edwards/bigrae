@@ -5,7 +5,7 @@
 
 Status: pre-implementation guidance
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1179>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1179>
 
 Source context: Codex Security finding `csf_f6bdcef088d391e2285d33e3`
 flags the engine-provisioner ECS task role because `ssm:SendCommand` can target

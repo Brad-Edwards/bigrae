@@ -132,24 +132,46 @@ for _ in $(seq 1 60); do
 done
 curl --silent --fail --cacert "${FIXTURE_DIR}/tls.crt" "${API_URL}/healthz" >/dev/null
 
-TESTING=1 \
-ENVIRONMENT=test \
-TEST_DB_BACKEND=postgres \
-DB_NAME=shifter_integration \
-DB_USER=openfga \
-DB_PASSWORD="${DB_PASSWORD}" \
-DB_HOST=127.0.0.1 \
-DB_PORT="${POSTGRES_PORT}" \
-OPENFGA_INTEGRATION_URL="${API_URL}" \
-OPENFGA_INTEGRATION_ADMIN_URL="${ADMIN_API_URL}" \
-OPENFGA_INTEGRATION_ADMIN_TOKEN="${ADMIN_TOKEN}" \
-OPENFGA_INTEGRATION_POSTGRES_CONTAINER="${POSTGRES_NAME}" \
-OPENFGA_INTEGRATION_STORE_ID="${STORE_ID}" \
-OPENFGA_INTEGRATION_MODEL_ID="${MODEL_ID}" \
-OPENFGA_INTEGRATION_TOKEN="${TOKEN}" \
-OPENFGA_INTEGRATION_CA_CERT="${FIXTURE_DIR}/tls.crt" \
-OPENFGA_INTEGRATION_REQUIRED=1 \
-uv run --no-build --no-sync pytest -n0 -q \
-  tests/integration/authorization/test_openfga_released_server.py \
-  tests/integration/authorization/test_openfga_prepared_administration.py \
-  tests/integration/authorization/test_gcp_native_database_duties.py "$@"
+export TESTING=1
+export ENVIRONMENT=test
+export TEST_DB_BACKEND=postgres
+export DB_NAME=shifter_integration
+export DB_USER=openfga
+export DB_PASSWORD
+export DB_HOST=127.0.0.1
+export DB_PORT="${POSTGRES_PORT}"
+export OPENFGA_INTEGRATION_URL="${API_URL}"
+export OPENFGA_INTEGRATION_ADMIN_URL="${ADMIN_API_URL}"
+export OPENFGA_INTEGRATION_ADMIN_TOKEN="${ADMIN_TOKEN}"
+export OPENFGA_INTEGRATION_POSTGRES_CONTAINER="${POSTGRES_NAME}"
+export OPENFGA_INTEGRATION_STORE_ID="${STORE_ID}"
+export OPENFGA_INTEGRATION_MODEL_ID="${MODEL_ID}"
+export OPENFGA_INTEGRATION_TOKEN="${TOKEN}"
+export OPENFGA_INTEGRATION_CA_CERT="${FIXTURE_DIR}/tls.crt"
+export OPENFGA_INTEGRATION_REQUIRED=1
+
+if [[ "${1:-}" == "--browser" ]]; then
+  shift
+  if [[ "$#" -eq 0 ]]; then
+    echo "--browser requires a frontend test command" >&2
+    exit 2
+  fi
+  # Synthetic credentials stay in this disposable, local fixture directory.
+  printf '%s' "${TOKEN}" > "${FIXTURE_DIR}/runtime-token"
+  chmod 0600 "${FIXTURE_DIR}/runtime-token"
+  export OPENFGA_API_URL="${API_URL}"
+  export OPENFGA_STORE_ID="${STORE_ID}"
+  export OPENFGA_MODEL_ID="${MODEL_ID}"
+  export OPENFGA_API_TOKEN_FILE="${FIXTURE_DIR}/runtime-token"
+  export OPENFGA_CA_CERT_PATH="${FIXTURE_DIR}/tls.crt"
+  export DJANGO_DEBUG=true
+  uv run --no-build --no-sync python manage.py migrate --noinput
+  uv run --no-build --no-sync python manage.py seed_e2e
+  cd frontend
+  "$@"
+else
+  uv run --no-build --no-sync pytest -n0 -q \
+    tests/integration/authorization/test_openfga_released_server.py \
+    tests/integration/authorization/test_openfga_prepared_administration.py \
+    tests/integration/authorization/test_gcp_native_database_duties.py "$@"
+fi

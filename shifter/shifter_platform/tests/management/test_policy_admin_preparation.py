@@ -1,4 +1,4 @@
-"""Dormant Django-admin registration cannot become an unguarded write path."""
+"""Production Django admin cannot become an unguarded write path."""
 
 import pytest
 from django.contrib.admin import AdminSite
@@ -12,13 +12,14 @@ from tests.workspaces.test_account_policy_admin import Provider, _actor
 pytestmark = pytest.mark.django_db
 
 
-def test_prepared_profile_admin_is_policy_guarded_and_every_write_is_disabled(monkeypatch):
+def test_prepared_profile_admin_is_policy_guarded_and_every_write_is_disabled(monkeypatch, live_session_credential):
     from management.policy_admin import PolicyUserProfileAdmin
 
     actor = _actor("human", actions=frozenset({"installation.manage_principals"}))
     user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
     request = RequestFactory().get("/admin/")
     request.user = user
+    request.credential_context = live_session_credential(user)
     instance = PolicyUserProfileAdmin(UserProfile, AdminSite())
     monkeypatch.setattr("shared.admin_policy.configured_authorization_provider", lambda: Provider(allowed=False))
     assert not instance.has_view_permission(request)
@@ -33,21 +34,25 @@ def test_prepared_profile_admin_is_policy_guarded_and_every_write_is_disabled(mo
         instance.delete_model(request, user.profile)
 
 
-def test_live_profile_admin_remains_unchanged_before_cutover():
-    from django.contrib import admin
+def test_production_admin_uses_policy_site_and_read_only_registrations():
+    from django.urls import resolve
 
-    from management.admin import UserProfileAdmin
+    from config.policy_admin_site import policy_admin_site
+    from management.policy_admin import PolicyUserProfileAdmin
 
-    assert isinstance(admin.site._registry[UserProfile], UserProfileAdmin)
+    resolved = resolve("/admin/")
+    assert resolved.func.admin_site is policy_admin_site
+    assert isinstance(policy_admin_site._registry[UserProfile], PolicyUserProfileAdmin)
 
 
-def test_prepared_admin_site_admits_policy_session_without_staff_flags():
+def test_prepared_admin_site_admits_policy_session_without_staff_flags(live_session_credential):
     from shared.admin_policy import PolicyAdminSite
 
     actor = _actor("human", actions=frozenset({"installation.manage_principals"}))
     user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
     request = RequestFactory().get("/admin/")
     request.user = user
+    request.credential_context = live_session_credential(user)
     site = PolicyAdminSite()
     assert not user.is_staff and not user.is_superuser
     assert site.has_permission(request)
@@ -125,18 +130,25 @@ def test_owning_human_session_can_update_its_recovery_email():
     assert changed.email == "owner@example.test"
 
 
-def test_personal_token_cannot_redirect_its_owners_recovery_email():
-    from dataclasses import replace
-
+def test_personal_token_cannot_redirect_its_owners_recovery_email(monkeypatch):
     from management import admin_services
+    from shared.api_tokens.models import ApiToken
+    from shared.api_tokens.policy import personal_credential_for_token
+    from shared.authorization import TargetRef, port
 
     actor = _actor("human", actions=frozenset({"installation.manage_principals"}))
     user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
+    monkeypatch.setattr(port, "_provider_factory", Provider)
+    token, _raw = ApiToken.create_token(
+        name="Personal administration",
+        scopes=["authorization:installation.manage_principals"],
+        created_by=user,
+        target=TargetRef("installation"),
+    )
+    personal = personal_credential_for_token(token)
     original_email = user.email
     with pytest.raises(ValueError):
-        admin_services.update_policy_user_metadata(
-            replace(actor, kind="personal"), Provider(), user.pk, {"email": "replacement@example.test"}
-        )
+        admin_services.update_policy_user_metadata(personal, Provider(), user.pk, {"email": "replacement@example.test"})
     user.refresh_from_db()
     assert user.email == original_email
 

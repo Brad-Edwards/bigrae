@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for [#2275](https://github.com/Brad-Edwards/shifter/issues/2275),
+Accepted for [#2275](https://github.com/Brad-Edwards/bigrae/issues/2275),
 2026-09-19. Supersedes ADR-059's "no-service-account guest default" decision
 (ADR-059-R3) for GCP. Restores the default-on model-access enablement removed
 by the ADR-059 direct guest-credential retirement, without reintroducing
@@ -63,7 +63,7 @@ guest path is configured, the keyless guest identity is attached.
 | --- | --- |
 | Keep model access broker-only, off by default | Reject: leaves every fresh tenant with no model access and couples enablement to a heavyweight per-tenant TLS/DNS/KMS/catalog bring-up. |
 | Restore per-range Vertex **keys** (the retired path) | Reject: reintroduces guest-held key material and the 10-key-per-principal / 24-slot limit. Keyless Workload Identity attachment gives the same reachability without keys. |
-| Make the broker turnkey and default-on | Not selected now: the broker's required TLS, CA, VIP/DNS, fingerprint KMS and priced catalog cannot be sensibly auto-defaulted. The strategic turnkey path is the AI-gateway work (milestone: AI Gateway, [#2274](https://github.com/Brad-Edwards/shifter/issues/2274)). |
+| Make the broker turnkey and default-on | Not selected now: the broker's required TLS, CA, VIP/DNS, fingerprint KMS and priced catalog cannot be sensibly auto-defaulted. The strategic turnkey path is the AI-gateway work (milestone: AI Gateway, [#2274](https://github.com/Brad-Edwards/bigrae/issues/2274)). |
 
 ## Consequences
 

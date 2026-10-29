@@ -107,9 +107,18 @@ def range_authorization_binding(
 
 
 def require_range_action(
-    credential: CredentialContext, range_uuid: UUID, action: str, *, include_terminal: bool = False
+    credential: CredentialContext,
+    range_uuid: UUID,
+    action: str,
+    *,
+    include_terminal: bool = False,
+    authority_target: TargetRef | None = None,
 ) -> RangeInstance:
-    """Authorize direct callers without creator/contact or human-only vetoes."""
+    """Authorize direct callers without creator/contact or human-only vetoes.
+
+    Event-owned ranges may use the exact event range-management grant admitted
+    by the CTF domain. Generic callers continue to require the range leaf.
+    """
     try:
         current = resolve_current_credential(credential)
         instance, scope, parent = _range_binding(
@@ -118,12 +127,20 @@ def require_range_action(
         if (
             include_terminal
             and action != "range.read"
-            and (action != "range.manage" or (instance.is_deleted and instance.status not in {"destroying", "failed"}))
+            and (
+                action not in {"range.manage", "event.manage_ranges"}
+                or (instance.is_deleted and instance.status not in {"destroying", "failed"})
+            )
         ):
             raise ValueError(_UNAVAILABLE)
-        request = AuthorizationRequest(
-            current.principal, action, TargetRef("range", instance.uuid), scope, current.ceiling, parent=parent
-        )
+        target = TargetRef("range", instance.uuid)
+        request_parent: TargetRef | None = parent
+        if authority_target is not None:
+            if action != "event.manage_ranges" or parent.type != "event" or authority_target != parent:
+                raise ValueError(_UNAVAILABLE)
+            target = authority_target
+            request_parent = None
+        request = AuthorizationRequest(current.principal, action, target, scope, current.ceiling, parent=request_parent)
         require_authorization(request)
         return instance
     except AuthorizationProviderBindingError:

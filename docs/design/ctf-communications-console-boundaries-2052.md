@@ -1,5 +1,11 @@
 # CTF communications API and console boundaries (#2052)
 
+S8 integration note (#2321): the historical legacy-user/workspace authority
+below is superseded by native credentials, exact account/organization/workspace
+parents and current event policy. The [current communication contracts](../technical/shifter_platform/ctf-communications.md)
+define the implemented authority and discovery boundaries. The console and
+receipt semantics remain; no legacy authority fallback is retained.
+
 Architecture preflight for CTF-008/010/012, inspected 2026-10-27 at
 `4b44a4285`. This specializes ADR-051; it is design guidance, not an
 implementation plan or a claim of shipping behavior. ADR-052, ADR-065 and

@@ -7,7 +7,7 @@ Status: pre-implementation guidance; architecture decision required
 
 Date: 2026-07-12
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1546>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1546>
 
 This is a requirement-free preflight. The GitHub issue is the shipping
 contract: provision and register a private GCE runner in the target GCP project,
@@ -95,7 +95,7 @@ and auditable secret surface.
 | GCP network precedent | `platform/terraform/gcp/modules/{portal,range}/vpc`, `cicd-github-oidc/build-infra.tf`, `docs/architecture/gcp-vpc-firewall-preflight.md` | Reuse custom-network, private subnet, reserved Cloud NAT, flow-log, IAP-range, service-account-targeted firewall, and explicit-policy conventions without importing platform/range semantics. |
 | GCP backend convention | `platform/terraform/gcp/environments/gcp-dev/backend.tf`, `_gcp-dev.yml`, `GDCBootstrapConfig.terraform_state_bucket_name` | Reuse `${project_id}-terraform-state` and a dedicated runner prefix. Do not add runner resources to the platform state or copy the workflow's bucket bootstrap shell into another workflow. |
 | Terraform ownership/validation | `platform/terraform/validation-inventory.yaml`, `scripts/check_tf_roots`, `.tflint.hcl`, `platform/terraform/.checkov.yaml` | Register the new execution root, commit its lockfile, use the GCP toolchain profile, and keep backendless validation plus blocking Checkov/TFLint. |
-| GitHub target | `.ground-control.yaml` `github_repo`, existing bootstrap GitHub defaults | Default to `Brad-Edwards/shifter`; do not derive the target from remotes or add a second repo schema. |
+| GitHub target | `.ground-control.yaml` `github_repo`, existing bootstrap GitHub defaults | Default to `Brad-Edwards/bigrae`; do not derive the target from remotes or add a second repo schema. |
 | Workflow trust | ADR-003-R5, `scripts/adr_guard/adr_guard.py` `deploy-workflow-runner-exposure`, trusted GCP environment binding | No pull-request reachability, no implicit scheduling via generic labels, and no custom-label blind spot once routing activates. |
 | GCP deploy auth | `_gcp-dev.yml` Workload Identity Federation | Jobs continue to obtain deploy credentials through OIDC. The VM service account is not a substitute deploy identity and receives no broad project mutation role. |
 | Operator docs | `scripts/bootstrap/README.md`, `docs/dev/deploy-secrets.md`, `docs/technical/platform_infrastructure/github-runners.md`, `docs/index.md` | Extend the existing bootstrap/runner documentation surfaces after the architecture gate is resolved; do not create a disconnected runbook taxonomy. |

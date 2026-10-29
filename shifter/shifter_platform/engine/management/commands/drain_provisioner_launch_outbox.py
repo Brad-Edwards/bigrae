@@ -27,7 +27,10 @@ from engine.launch_intents import (
     validate_provisioner_generation,
 )
 from engine.launch_interrupt import drain_due_interrupts
+from engine.launch_target import lock_provisioner_target
 from engine.models import InterruptState, ProvisionerLaunchIntent, ProvisionerLaunchStatus
+from shared.credentials import resolve_local_credential
+from shared.operation_authority import credential_reference_from_record
 
 logger = logging.getLogger(__name__)
 HEARTBEAT_FILE = Path(tempfile.gettempdir()) / "worker-provisioner-launcher-heartbeat"
@@ -152,7 +155,11 @@ class Command(BaseCommand):
             # either this generation is authorized first, or the newer generation wins
             # and this intent is rejected before provider dispatch.
             with transaction.atomic():
+                lock_provisioner_target(row.payload)
                 current = ProvisionerLaunchIntent.objects.select_for_update().get(pk=row.pk)
+                if not self._lease_matches(current, row):
+                    logger.info("ignoring stale provisioner launch lease intent_id=%s", row.intent_id)
+                    return
                 if current.interrupt_state != InterruptState.NONE:
                     # A cancellation landed after this intent was claimed: do not
                     # dispatch (#277). Release the launch lease so the intent is not
@@ -164,6 +171,10 @@ class Command(BaseCommand):
                     return
                 validate_provisioner_generation(row.payload, expected_operation_id=row.operation_id)
                 assert_provisioner_input_matches(row.payload, row.operation_id)
+                if current.authority_kind in {"principal", "warm_pool"}:
+                    recorded = credential_reference_from_record(current)
+                    if resolve_local_credential(recorded) != recorded:
+                        raise ValueError("Provisioner launch credential changed")
                 task_ref = dispatch_provisioner_command(
                     command,
                     task_identity=str(row.intent_id),
@@ -183,9 +194,12 @@ class Command(BaseCommand):
 
     def _record_failure(self, row: ProvisionerLaunchIntent, exc: Exception) -> None:
         with transaction.atomic():
+            lock_provisioner_target(row.payload)
             current = ProvisionerLaunchIntent.objects.select_for_update().get(pk=row.pk)
             if not self._lease_matches(current, row):
                 logger.info("ignoring stale provisioner launch failure intent_id=%s", row.intent_id)
+                return
+            if current.interrupt_state != InterruptState.NONE:
                 return
             current.attempts += 1
             current.last_error = type(exc).__name__[:128]

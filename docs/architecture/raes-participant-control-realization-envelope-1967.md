@@ -4,7 +4,7 @@ Status: accepted architecture guidance; implementation not present
 
 Date: 2026-09-06
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1967>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1967>
 
 Portable authority: OpenRAE ADR-108 and
 `participant-control-composition/rev1` (PC-01 through PC-15), accepted at
@@ -74,9 +74,9 @@ the gap.
 
 ### Research basis and alternatives
 
-The [issue research record](https://github.com/Brad-Edwards/shifter/issues/1967#issuecomment-5555762123)
+The [issue research record](https://github.com/Brad-Edwards/bigrae/issues/1967#issuecomment-5555762123)
 contains the source inventory, methods, limitations and SDL lineage assessment;
-the [accepted-authority update](https://github.com/Brad-Edwards/shifter/issues/1967#issuecomment-5556555834)
+the [accepted-authority update](https://github.com/Brad-Edwards/bigrae/issues/1967#issuecomment-5556555834)
 supersedes its earlier status of #1068. These sources informed the selection:
 
 - The RAES SDL lineage ledger distinguishes Open Cyber Range authoring/model

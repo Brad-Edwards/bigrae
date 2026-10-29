@@ -29,7 +29,7 @@ from gcp_helm import (
 )
 from gcp_inputs import load_deployment_inputs
 from gcp_openvpn import OpenVpnError, ensure_pki, pool_output, roll_out_pool
-from gcp_process import ProcessResult
+from gcp_process import GcpCommandError, ProcessResult
 from gcp_rollout import (
     RolloutError,
     record_running_images,
@@ -165,7 +165,8 @@ class TestHelm:
         with pytest.raises(HelmReleaseError, match="another Helm release"):
             adopt_objects(FakeRunner().on(["kubectl", "get"], ProcessResult(0, json.dumps(foreign))), {}, documents)
         missing_kind = FakeRunner().on(["kubectl", "get"], ProcessResult(1))
-        assert adopt_objects(missing_kind, {}, documents) == []
+        with pytest.raises(GcpCommandError):
+            adopt_objects(missing_kind, {}, documents)
 
     def test_render_upgrade_and_retire(self):
         rendered = yaml.safe_dump_all([{"kind": "A", "metadata": {"name": "x"}}, None])
@@ -418,3 +419,16 @@ class TestSmoke:
         )
         with pytest.raises(ValueError):
             run_smoke(FakeRunner(), {}, user_email="s@example.com", run_id="r", variant="mac")
+
+
+@pytest.mark.parametrize("bad", ["not-json", "{}", '{"items":[{}]}', None])
+def test_adoption_validates_every_inventory_before_any_metadata_effect(bad):
+    documents = [
+        {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "a", "namespace": "ns"}},
+        {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "b", "namespace": "ns"}},
+    ]
+    runner = FakeRunner().on(["kubectl", "get", "configmap"], ProcessResult(0, '{"items":[{"metadata":{"name":"a"}}]}'))
+    runner.on(["kubectl", "get", "deployment.apps"], ProcessResult(1) if bad is None else ProcessResult(0, bad))
+    with pytest.raises((GcpCommandError, HelmReleaseError)):
+        adopt_objects(runner, {}, documents)
+    assert all(call.argv[:2] == ["kubectl", "get"] for call in runner.calls)

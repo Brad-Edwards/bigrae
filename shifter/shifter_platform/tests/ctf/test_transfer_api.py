@@ -256,7 +256,7 @@ class TestWebhooks:
             kwargs={"event_id": ctf_event.id},
             body={"url": "https://hooks.example.test/ctf", "secret": "s3cret", "subscribed_events": ["flag_solve"]},
         )
-        assert created.status_code == 201
+        assert created.status_code == 200
         assert created.json()["has_secret"] is True
 
         listing = call_json(
@@ -271,7 +271,7 @@ class TestWebhooks:
             "api_webhook_detail",
             kwargs={"webhook_id": created.json()["id"]},
         )
-        assert gone.status_code == 200
+        assert gone.status_code == 204
         assert not CTFWebhook.objects.filter(deleted_at__isnull=True).exists()
 
     def test_register_rejects_unknown_event_type(self, ctf_event, authenticated_organizer_client):

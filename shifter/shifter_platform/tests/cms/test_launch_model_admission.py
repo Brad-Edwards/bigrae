@@ -167,12 +167,14 @@ def test_required_need_without_configured_catalog_refuses(actor, monkeypatch):
     assert "policy_unavailable" in exc.value.details["reason_codes"]
 
 
-def test_required_need_admitted_with_matching_catalog(actor, monkeypatch):
+def test_required_broker_need_is_parked_even_with_matching_catalog(actor, monkeypatch):
     monkeypatch.setattr(settings, "MODEL_ACCESS_ENABLED", True, raising=False)
     monkeypatch.setattr(settings, "MODEL_ACCESS_CATALOG", _catalog(), raising=False)
     _register(actor)
     _author(actor)
-    assert assert_launch_model_access(user=actor, scenario_id="scn", egress_mode="status-quo") is None
+    with pytest.raises(CMSError) as exc:
+        assert_launch_model_access(user=actor, scenario_id="scn", egress_mode="status-quo")
+    assert exc.value.details["reason_codes"] == ["authority_unavailable"]
 
 
 def test_zero_egress_refuses_required_external_need(actor, monkeypatch):
@@ -182,7 +184,7 @@ def test_zero_egress_refuses_required_external_need(actor, monkeypatch):
     _author(actor)
     with pytest.raises(CMSError) as exc:
         assert_launch_model_access(user=actor, scenario_id="scn", egress_mode="deny-all")
-    assert "egress_incompatible" in exc.value.details["reason_codes"]
+    assert exc.value.details["reason_codes"] == ["authority_unavailable"]
 
 
 def test_stale_pack_digest_refuses_required_need(actor, monkeypatch):
@@ -192,7 +194,7 @@ def test_stale_pack_digest_refuses_required_need(actor, monkeypatch):
     _author(actor, authored=_DIGEST)  # binding authored against old content
     with pytest.raises(CMSError) as exc:
         assert_launch_model_access(user=actor, scenario_id="scn", egress_mode="status-quo")
-    assert "digest_mismatch" in exc.value.details["reason_codes"]
+    assert exc.value.details["reason_codes"] == ["authority_unavailable"]
 
 
 # --- wiring into the authoritative launch path ------------------------------

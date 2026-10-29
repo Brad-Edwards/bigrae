@@ -152,7 +152,7 @@ event ends. The image view applies the same rule and checks the stored SHA-256.
 | Control C5 (T5) | HTTPS only; no URL credentials; public addresses only; no redirects; the egress proxy repeats the address check, pins the address, and is the only pod with public egress (ADR-006-R3) |
 | Control C6 (T6) | Type allowlist with magic-byte check; served with the stored type and `nosniff` |
 | Control C7 (T7) | 5 MiB counted limit; per-copy elapsed deadline; bounded batch after due tasks; heartbeat after each copy; storage writes limited to the `ctf-content-images/` prefix |
-| Control C8 (T8) | Staff with the challenges capability (owners, co-organizers, platform admins) read every image of the event; a participant reads an image only while it is in content they can read |
+| Control C8 (T8) | Current native `event.manage_challenges` authority admits the complete collection; otherwise exact eligible participation and `event.participate` admit only currently visible content |
 | Control C9 (T9) | Browsers load only the first-party copy |
 
 Residual risks: copies use storage until the organizer removes the URL from the
@@ -218,13 +218,13 @@ sequenceDiagram
     participant S as SPA module
     participant L as Library
     B->>D: GET /mission-control
-    D->>D: Render template; read csp_nonce
+    D->>D: Render template and read csp_nonce
     D-->>B: HTML, CSP header with nonce, no-store
     B->>S: Load SPA bundle
-    S->>S: Read meta nonce; wrap createElement
+    S->>S: Read meta nonce and wrap createElement
     L->>S: createElement("style")
     S-->>L: style element with nonce
-    L->>B: Insert style; browser allows it
+    L->>B: Insert style, browser allows it
 ```
 
 ## Policy, architecture and ADR changes
@@ -250,3 +250,14 @@ sequenceDiagram
 - No Trusted Types, `strict-dynamic` or nonce for scripts.
 - No rewrite of the unrouted legacy templates. They are not served.
 - No multi-browser or deployed scan. #2117 owns those tiers.
+
+### Native identity integration
+
+Issue #2321 replaces legacy user/owner checks on image reads with current native
+credential and exact event-policy admission. Policy outages return 503 without
+participant fallback; denied bytes remain an opaque 404. Participant image maps
+also recheck their exact native participation. Verified bytes use `private,
+no-store` because authorization can change even when the stored copy cannot.
+These decisions follow [OWASP authorization guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html)
+for protected static resources and [OWASP REST response-header guidance](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html).
+The existing copy, visibility, SSRF and integrity controls remain in force.

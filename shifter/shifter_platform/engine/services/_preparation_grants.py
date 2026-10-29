@@ -16,7 +16,7 @@ from shared.cloud.preparation_installation import PreparationInstallation
 from shared.cloud.preparation_installation_readback import verify_kubernetes_installation
 from shared.exceptions import ValidationError
 
-from ._preparation_adapters import require_preparation_permission
+from ._preparation_adapters import _fence_preparation_actor, require_preparation_permission
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -51,9 +51,10 @@ def activate_preparation_grant(
     except ValueError as exc:
         raise ValidationError("Preparation installation verification failed") from exc
     grant = configuration.grant
+    require_preparation_permission(user, "manage_preparation_grants")
     with transaction.atomic():
         actor = get_user_model().objects.select_for_update().get(pk=user.pk)
-        require_preparation_permission(actor, "manage_preparation_grants")
+        _fence_preparation_actor(actor)
         PreparationScopeLock.objects.get_or_create(scope_digest=grant.scope_digest)
         PreparationScopeLock.objects.select_for_update().get(pk=grant.scope_digest)
         existing = PreparationGrant.objects.select_for_update().filter(scope_digest=grant.scope_digest)
@@ -99,6 +100,7 @@ def revoke_preparation_grant(user: User, identity: UUID) -> None:
             raise ValidationError("The preparation grant is unavailable")
         PreparationScopeLock.objects.select_for_update().get(pk=initial.scope_digest)
         row = PreparationGrant.objects.select_for_update().get(pk=identity)
+        _fence_preparation_actor(user)
         row.active = False
         row.save(update_fields=["active"])
         _audit_grant(user, row)

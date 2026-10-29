@@ -24,6 +24,7 @@ from django.db.models import QuerySet
 
 from cms.models import RangeInstance
 from cms.services._range_workspace import authorized_range_workspace_ids
+from shared.credentials import CredentialContext
 from shared.enums import TERMINAL_STATUSES
 from shared.pack_references import PackReference, project_pack_references
 from workspaces.services import WorkspaceOperation
@@ -52,7 +53,7 @@ class PackBlockers:
     total: int
 
 
-def find_pack_blockers(scenario_id: str, actor: User) -> PackBlockers:
+def find_pack_blockers(scenario_id: str, actor: User | CredentialContext) -> PackBlockers:
     """Return every active reference to ``scenario_id``, bounded for display.
 
     Raises:
@@ -61,8 +62,17 @@ def find_pack_blockers(scenario_id: str, actor: User) -> PackBlockers:
     """
     buckets = _warm_pool_references(scenario_id)
     ranges = _active_ranges(scenario_id)
-    readable = set(authorized_range_workspace_ids(actor, WorkspaceOperation.READ_RANGE))
-    domain = project_pack_references(scenario_id, BLOCKER_LIMIT, actor)
+    readable = (
+        set()
+        if isinstance(actor, CredentialContext)
+        else set(authorized_range_workspace_ids(actor, WorkspaceOperation.READ_RANGE))
+    )
+    # The native removal transaction must not make a second policy request
+    # while holding the source fence. Counts remain exact; labels require their
+    # own read admission and are conservatively omitted here.
+    domain = project_pack_references(
+        scenario_id, BLOCKER_LIMIT, None if isinstance(actor, CredentialContext) else actor
+    )
     references = [
         *buckets,
         *(

@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: `CTF-1002` - Automated Range Spinup
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/539>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/539>
 
 This note is intentionally not an implementation plan. The upcoming work should
 close the CTF-1002 evidence gap with meaningful automated coverage and Ground
@@ -119,7 +119,7 @@ coverage.
   id, participant totals, ready/failed/skipped/remaining counts, event start,
   and whether a delay notice was sent. Keep labels low-cardinality and sanitize
   user-controlled or external values.
-- Ground Control traceability: use the repo's canonical `Brad-Edwards/shifter`
+- Ground Control traceability: use the repo's canonical `Brad-Edwards/bigrae`
   context and add a `TESTS` link to the maintained test asset only after the
   test asserts CTF-1002 behavior. `IMPLEMENTS` links already exist for the core
   code surfaces.

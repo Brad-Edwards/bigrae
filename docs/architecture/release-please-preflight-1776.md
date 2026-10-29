@@ -7,7 +7,7 @@ Status: binding pre-implementation guidance
 
 Date: 2026-07-20
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1776>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1776>
 
 ## Resolution (implementation, #1776)
 

@@ -107,6 +107,40 @@ def _apply_retirement(base: dict[str, Any], current: dict[str, Any], retirement:
         base.get("paths", {}).get(path, {}).pop(method, None)
     for retired_property in retirement.get("response_schema_properties", []):
         _remove_retired_property(base, current, retired_property)
+    for parameter in retirement.get("parameters", []):
+        _remove_retired_parameter(base, current, parameter)
+
+
+def _validate_retired_parameter(parameter: dict[str, str]) -> None:
+    """Require an exact parameter location before projecting a retirement."""
+    if (
+        not isinstance(parameter, dict)
+        or set(parameter) != {"path", "method", "name", "in"}
+        or not all(isinstance(value, str) for value in parameter.values())
+        or (
+            parameter["method"] not in {"get", "post", "put", "patch", "delete", "head", "options"}
+            or parameter["in"] not in {"query", "header", "cookie"}
+            or not parameter["path"].startswith("/")
+            or not parameter["name"]
+        )
+    ):
+        raise RuntimeError("Invalid retired API parameter")
+
+
+def _remove_retired_parameter(base: dict[str, Any], current: dict[str, Any], parameter: dict[str, str]) -> None:
+    """Project one exact ADR-backed parameter; preserve every other operation and field."""
+    _validate_retired_parameter(parameter)
+    path, method = parameter["path"], parameter["method"]
+
+    def matches(item: dict[str, object]) -> bool:
+        """Match both parameter name and location in the published operation."""
+        return item.get("name") == parameter["name"] and item.get("in") == parameter["in"]
+
+    if any(matches(item) for item in current.get("paths", {}).get(path, {}).get(method, {}).get("parameters", [])):
+        raise RuntimeError(f"Retired API parameter was reintroduced: {method} {path} {parameter['name']}")
+    operation = base.get("paths", {}).get(path, {}).get(method)
+    if operation is not None and "parameters" in operation:
+        operation["parameters"] = [item for item in operation["parameters"] if not matches(item)]
 
 
 def apply_accepted_retirements(base_text: str, current_text: str, major: str = API_MAJOR) -> str:

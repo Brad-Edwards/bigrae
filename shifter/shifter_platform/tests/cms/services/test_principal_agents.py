@@ -61,6 +61,7 @@ def test_historical_user_attribution_does_not_open_an_unscoped_read(scoped_agent
 
     user = django_user_model.objects.create_user(username="synthetic-historical-uploader")
     AgentConfig.objects.filter(pk=scoped_agents[1].pk).update(user=user)
-    assert list_agents(user) == []
+    with pytest.raises(CMSError, match="Content unavailable"):
+        list_agents(user)
     with pytest.raises(CMSError):
         get_agent(user, scoped_agents[1].pk)

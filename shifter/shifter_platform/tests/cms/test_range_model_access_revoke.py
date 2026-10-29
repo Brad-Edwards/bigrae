@@ -29,12 +29,12 @@ def admin():
 
 
 def _url() -> str:
-    return f"/api/v1/cms/ranges/{uuid4()}/model-sources/revoke/"
+    return f"/api/v1/cms/ranges/{uuid4()}/model-access/revoke/"
 
 
-def _session(user) -> APIClient:
+def _session(user, credential) -> APIClient:
     client = APIClient()
-    client.force_authenticate(user=user)
+    client.force_authenticate(user=user, token=credential)
     return client
 
 
@@ -49,28 +49,28 @@ def test_unauthenticated_is_rejected():
     assert APIClient().post(_url(), {}, format="json").status_code == 401
 
 
-def test_success_returns_range_status(admin, monkeypatch):
+def test_success_returns_range_status(admin, monkeypatch, live_session_credential):
     status_payload = {"request_id": str(uuid4()), "revision": 3, "runtime": {"state": "unavailable", "assignments": []}}
     monkeypatch.setattr("cms.api.range_model_sources.revoke_range_model_sources", lambda *a, **k: status_payload)
-    response = _session(admin).post(_url(), {}, format="json")
+    response = _session(admin, live_session_credential(admin)).post(_url(), {}, format="json")
     assert response.status_code == 200
     assert response.json()["runtime"]["state"] == "unavailable"
 
 
-def test_workspace_authority_denied_is_403(admin, monkeypatch):
+def test_workspace_authority_denied_is_403(admin, monkeypatch, live_session_credential):
     def _raise(*a, **k):
         raise WorkspaceAuthorizationError("Range access denied")
 
     monkeypatch.setattr("cms.api.range_model_sources.revoke_range_model_sources", _raise)
-    assert _session(admin).post(_url(), {}, format="json").status_code == 403
+    assert _session(admin, live_session_credential(admin)).post(_url(), {}, format="json").status_code == 403
 
 
-def test_unavailable_range_is_403(admin, monkeypatch):
+def test_unavailable_range_is_403(admin, monkeypatch, live_session_credential):
     def _raise(*a, **k):
         raise ContractError("source.range_unavailable")
 
     monkeypatch.setattr("cms.api.range_model_sources.revoke_range_model_sources", _raise)
-    assert _session(admin).post(_url(), {}, format="json").status_code == 403
+    assert _session(admin, live_session_credential(admin)).post(_url(), {}, format="json").status_code == 403
 
 
 def test_scoped_token_parity(admin, monkeypatch):

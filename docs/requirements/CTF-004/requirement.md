@@ -29,4 +29,4 @@ The scoreboard is the primary competitive interface, participants check it const
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/migrations/0021_add_scoreboard_visible.py` (Migration: add scoreboard_visible field to CTFEvent)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (URL routing for scoreboard views and API endpoints)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring.py` (Tests for scoreboard ranking, freeze logic, and visibility controls)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#576` (CTF-004: Scoreboard & Rankings)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#576` (CTF-004: Scoreboard & Rankings)

@@ -54,6 +54,7 @@ def test_native_owner_job_retains_password_duty_without_an_iam_login():
     assert env["DB_AUTH_MODE"]["value"] == "password" and env["DB_HOST"]["value"] == "127.0.0.1"
     assert env["DB_SECRET_ID"]["valueFrom"]["configMapKeyRef"]["key"] == "DB_MIGRATION_SECRET_ID"
     assert "DB_PASSWORD" not in env
+    assert env["SHIFTER_IDENTITY_MAINTENANCE"]["value"] == "true"
 
 
 def test_runtime_projection_rejects_a_login_for_another_workload_identity():

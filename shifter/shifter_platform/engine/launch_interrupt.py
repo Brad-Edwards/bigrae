@@ -9,8 +9,8 @@ advance one step toward the canonical destroy --
 - identity mismatch -> fail closed (leave the range DESTROYING, never destroyed);
 - unknown/awaiting -> reschedule with bounded backoff.
 
-The provider stop call runs outside the intent row lock (like the launcher's own
-dispatch), and the result is applied under a lease check so a reclaimed intent is
+The provider stop call runs outside the intent row lock; task submission instead
+holds the target lock to serialize cancellation. The stop result is applied under a lease check so a reclaimed intent is
 never double-advanced. Destroy is enqueued through the canonical
 ``enqueue_provisioner_launch`` path, which mints its own operation generation and
 is idempotent, so re-entry after a crash converges rather than duplicating.
@@ -167,7 +167,7 @@ def _enqueue_destroy(claimed: ProvisionerLaunchIntent) -> bool:
             return False
         enqueue_provisioner_launch(
             [str(resource), "destroy", "--request-id", str(request_id)],
-            cleanup_for=claimed.operation_id if claimed.authority_kind == "principal" else None,
+            cleanup_for=claimed.operation_id if claimed.authority_kind in {"principal", "warm_pool"} else None,
         )
     return True
 
@@ -290,6 +290,6 @@ def _interruptible_provision_intent(range_obj: Range) -> ProvisionerLaunchIntent
     if intent is None:
         return None
     payload = intent.payload or {}
-    if (payload.get("resource"), payload.get("operation")) != _INTERRUPTIBLE_PROVISION:
+    if payload.get("resource") != "raes-range" or payload.get("operation") not in {"provision", "activate"}:
         return None
     return intent

@@ -2,7 +2,7 @@
 
 Status: active
 
-Issue: [#1519](https://github.com/Brad-Edwards/shifter/issues/1519)
+Issue: [#1519](https://github.com/Brad-Edwards/bigrae/issues/1519)
 
 ADR: [ADR-037](../adr/index.yaml)
 
@@ -20,7 +20,7 @@ the enforced rules are `ADR-037-R1..R6`.
 | Downloaded CLIs integrity-verified | provisioner `terraform` (and `kubectl`/`virtctl` in the GDC build), `kubeconform`, `kube-linter` | `sha256sum -c` before use (`ADR-037-R3`) |
 | Python runtime deps hash-pinned | provisioner image | `pip install --require-hashes` from reviewed locks (`ADR-037-R4`) |
 | SBOM + signed provenance for release images | portal, provisioner, guacd, guacamole-client builds | `docker/build-push-action` `provenance: mode=max` + `sbom: true`, then `actions/attest-build-provenance` (`ADR-037-R5`) |
-| Deploy verifies attestation before rollout | AWS ECS (portal, provisioner, guacd, guacamole-client) | `gh attestation verify oci://<image@digest> --repo Brad-Edwards/shifter` (`ADR-037-R6`) |
+| Deploy verifies attestation before rollout | AWS ECS (portal, provisioner, guacd, guacamole-client) | `gh attestation verify oci://<image@digest> --repo "$GITHUB_REPOSITORY" --signer-repo "$GITHUB_REPOSITORY"` (`ADR-037-R6`) |
 | Deploy verifies attestation before rollout | GKE (portal, provisioner, guacd, guacamole-client, openvpn) | `gcp-deploy` verifies the registry-stored Sigstore bundle of each digest with the Sigstore trust root, with no GitHub API (`ADR-037-R6`, ADR-070) |
 
 ## Refresh procedures
@@ -91,7 +91,7 @@ Release image builds embed an SBOM and maximum BuildKit provenance and create a
 GitHub OIDC-signed attestation (`actions/attest-build-provenance`) bound to the
 fully qualified image name and the exact `@sha256` digest. The AWS deployment verifies
 that attestation with `gh attestation verify` against the fixed
-`Brad-Edwards/shifter` repository identity and the exact digest before it mutates
+`Brad-Edwards/bigrae` repository identity and the exact digest before it mutates
 any runtime. Any verifier failure, missing attestation, repository mismatch, or
 digest mismatch is a hard `::error::` and non-zero exit; there is no bypass.
 

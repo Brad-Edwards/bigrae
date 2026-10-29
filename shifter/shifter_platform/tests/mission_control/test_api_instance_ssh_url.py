@@ -10,6 +10,7 @@ the SSH key (``secrets_boundary``) and the urllib Guacamole token POST
 """
 
 import json
+import sys
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -36,6 +37,22 @@ def rf():
 @pytest.fixture
 def user(db):
     return User.objects.create_user(username="ssh-url@example.com", email="ssh-url@example.com")
+
+
+@pytest.fixture(autouse=True)
+def referenced_session_authentication(monkeypatch, live_session_credential):
+    """Make direct DRF view requests carry the same session proof as production."""
+    original = force_authenticate
+    sessions = {}
+
+    def authenticate(request, user=None, token=None):
+        if isinstance(user, User) and token is None:
+            if user.pk not in sessions:
+                sessions[user.pk] = live_session_credential(user)
+            token = sessions[user.pk]
+        return original(request, user=user, token=token)
+
+    monkeypatch.setattr(sys.modules[__name__], "force_authenticate", authenticate)
 
 
 @pytest.fixture(autouse=True)
@@ -138,30 +155,31 @@ class TestApiInstanceSSHURL:
 
     def test_returns_400_when_instance_not_in_range(self, rf, user, guac_configured, range_ssh_instance):
         # A READY range exists, but the requested instance uuid is not in it.
-        # Resolution moved into the worker (#929) -> polled FAILED bootstrap (400).
         range_ssh_instance(user, uuid="a-different-instance-uuid")
         request = _post_request(rf, user)
 
         response = guacamole_ssh_url(request)
 
-        assert response.status_code == 202
-        status = _status_response(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
-        assert "not found" in _json(status)["error"].lower()
+        assert response.status_code == 403
 
-    def test_membership_removal_revokes_instance_access(self, rf, user, guac_configured, range_ssh_instance):
-        from workspaces.models import WorkspaceMembership
+    def test_explicit_policy_denial_revokes_instance_access(
+        self, rf, user, guac_configured, range_ssh_instance, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
 
         range_ssh_instance(user)
-        WorkspaceMembership.objects.filter(user=user).delete()
+        monkeypatch.setattr(
+            port,
+            "_provider_factory",
+            lambda: SimpleNamespace(check=lambda _request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied")),
+        )
         request = _post_request(rf, user)
 
         response = guacamole_ssh_url(request)
 
-        assert response.status_code == 202
-        status = _status_response(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
-        assert "permission denied" in _json(status)["error"].lower()
+        assert response.status_code == 403
 
     def test_returns_503_when_guacamole_not_configured(self, rf, user, settings, range_ssh_instance, secrets_boundary):
         settings.GUACAMOLE_JSON_AUTH_SECRET = ""

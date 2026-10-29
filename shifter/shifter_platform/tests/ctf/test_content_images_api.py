@@ -135,7 +135,7 @@ def test_image_view_serves_verified_bytes_from_the_portal_origin(images, partici
     assert resp.content == PNG
     assert resp["Content-Type"] == "image/png"
     assert resp["X-Content-Type-Options"] == "nosniff"
-    assert "private" in resp["Cache-Control"]
+    assert resp["Cache-Control"] == "private, no-store"
     assert resp["Content-Disposition"] == "inline"
 
 
@@ -174,11 +174,13 @@ def test_organizer_challenge_detail_names_its_event(ctf_event_active, authentica
 
 
 @pytest.mark.parametrize("role", ["moderator", "judge"])
-def test_bounded_staff_roles_cannot_list_or_download_images(images, ctf_event_active, second_organizer_user, role):
+def test_bounded_staff_roles_cannot_list_or_download_images(
+    images, ctf_event_active, second_organizer_user, organizer_credential, role
+):
     """The collection includes hidden challenges and solutions (security-F1, #2090)."""
-    from ctf.models import CTFEventStaff
+    from ctf.services.event import assign_event_staff
 
-    CTFEventStaff.objects.create(event=ctf_event_active, user=second_organizer_user, role=role)
+    assign_event_staff(ctf_event_active.pk, organizer_credential, second_organizer_user.identity_principal.uuid, role)
     client = Client()
     client.force_login(second_organizer_user)
     listing = call_json(client, "get", "api_event_content_images", kwargs={"event_id": ctf_event_active.id})
@@ -187,10 +189,12 @@ def test_bounded_staff_roles_cannot_list_or_download_images(images, ctf_event_ac
     assert _get_image(client, hidden).status_code == 404
 
 
-def test_co_organizer_reads_the_whole_collection(images, ctf_event_active, second_organizer_user):
-    from ctf.models import CTFEventStaff
+def test_co_organizer_reads_the_whole_collection(images, ctf_event_active, second_organizer_user, organizer_credential):
+    from ctf.services.event import assign_event_staff
 
-    CTFEventStaff.objects.create(event=ctf_event_active, user=second_organizer_user, role="co_organizer")
+    assign_event_staff(
+        ctf_event_active.pk, organizer_credential, second_organizer_user.identity_principal.uuid, "co_organizer"
+    )
     client = Client()
     client.force_login(second_organizer_user)
     listing = call_json(client, "get", "api_event_content_images", kwargs={"event_id": ctf_event_active.id})

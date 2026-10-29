@@ -21,4 +21,4 @@ Palo has agreed to OSS Shifter, but the current frontend embeds Cortex/XDR look-
 ## Traceability
 
 - DOCUMENTS → DOCUMENTATION `docs/design/ux-002-oss-visual-identity-preflight.md` (UX-002 OSS Visual Identity Preflight (architecture guardrails for partial debrand))
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#718` (Strip Cortex/Palo branding and swap theme to neutral interim (partial UX-002))
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#718` (Strip Cortex/Palo branding and swap theme to neutral interim (partial UX-002))

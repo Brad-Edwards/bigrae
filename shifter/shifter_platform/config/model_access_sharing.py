@@ -23,6 +23,7 @@ from shared.model_access import (
     compute_digest,
     seal_sharing_binding,
 )
+from shared.model_access.availability import require_model_access_available
 
 
 class ModelAccessCompositionError(Exception):
@@ -48,6 +49,7 @@ def refresh_model_launch_projections(deployment_id: UUID) -> None:
     Each owner resolver holds its incumbent mutex through the caller's launch
     transaction. Publication races are detected again by Engine admission.
     """
+    require_model_access_available()
     from cms.services import engine_list_model_launch_refreshes, engine_project_selector_resolution
     from management.services import get_admin_user, resolve_model_access_users
     from shared.model_access import ContractError
@@ -203,6 +205,7 @@ def resolve_model_access_selector(
     selector: SharingSelector | dict[str, object],
 ) -> SelectorResolution:
     """Resolve an atomic selector or a bounded, non-recursive named union."""
+    require_model_access_available()
     from cms.services import ModelAccessSelectorError as CmsModelAccessSelectorError
     from ctf.services import ModelAccessSelectorError as CtfModelAccessSelectorError
 
@@ -252,6 +255,7 @@ def publish_model_access_binding(
     Returns a bounded revision projection (binding id, definition revision, state);
     the raw Engine revision row never crosses the composition-root boundary.
     """
+    require_model_access_available()
     from cms.services import (
         engine_fence_model_policy_publication,
         engine_project_selector_resolution,
@@ -305,6 +309,7 @@ def drain_model_access_binding(
     fence; it never refunds, resets or cancels a billable request. Returns a
     bounded revision projection.
     """
+    require_model_access_available()
     from cms.services import engine_drain_sharing_binding
 
     publisher = _publisher_identity(actor)

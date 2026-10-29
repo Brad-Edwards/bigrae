@@ -52,6 +52,8 @@ if TYPE_CHECKING:
     from shared.range_instantiation_policy import BackendAdmission
     from shared.schemas.range import RangeContext
 
+    from ._scoped_launch_types import NativeEventLaunchOptions
+
 logger = logging.getLogger(__name__)
 
 _OBJECT_SOURCE_KIND = "object"
@@ -192,6 +194,8 @@ def create_raes_native_range(
     range_source: RangeSource | None = None,
     workspace_uuid: str | UUID | None = None,
     scope: ResourceScope | None = None,
+    model_sources: dict | None = None,
+    event_options: NativeEventLaunchOptions | None = None,
 ) -> RangeContext:
     """Launch a registered RAES package through the native provisioning path.
 
@@ -205,12 +209,21 @@ def create_raes_native_range(
     error propagates.
     """
     if isinstance(user, CredentialContext):
+        from ._scoped_launch_types import NativeEventLaunchOptions, ScopedRangeLaunchOptions
         from ._scoped_range_launch import create_scoped_range
 
         return create_scoped_range(
-            user, scenario, scope=scope, range_source=range_source, workspace_uuid=workspace_uuid
+            user,
+            scenario,
+            ScopedRangeLaunchOptions(
+                scope=scope,
+                range_source=range_source,
+                workspace_uuid=workspace_uuid,
+                model_sources=model_sources,
+                event=event_options or NativeEventLaunchOptions(),
+            ),
         )
-    if scope is not None:
+    if scope is not None or model_sources or event_options is not None:
         raise CMSError("Range launch scope unavailable")
     return _create_raes_native_range_impl(
         user,
@@ -364,43 +377,6 @@ def _create_raes_native_range_impl(  # NOSONAR -- mirrors the stable launch serv
         subject=model_admission_subject,
         package_digest=source.package_digest,
     )
-
-    # #28: attempt an atomic warm-pool claim before cold provisioning. A hit
-    # transfers a ready, compatible, system-owned generation to this user (audited
-    # ownership rehome) and enqueues activation, which realizes the claimant's
-    # fresh, sanitized access. A miss / disabled policy / unsupported backend
-    # cold-falls-back through the unchanged reservation + dispatch path below, with
-    # the inputs already validated for this launch.
-    from cms.services._warm_pool_claim import WarmClaimRequest, attempt_warm_claim
-
-    claimed_request_id = attempt_warm_claim(
-        WarmClaimRequest(
-            user=user,
-            scenario=scenario,
-            package_digest=source.package_digest,
-            lock_digest=source.lock_digest,
-            backend=backend_admission.backend if backend_admission else "",
-            instantiation_purpose=instantiation_purpose,
-            range_source=range_source,
-            workspace_id=workspace_id,
-            egress_mode=egress_mode,
-            request_id=request_id,
-            enforced_deadline=enforced_deadline,
-            model_launch_scope=model_launch_scope,
-            model_sources=model_sources,
-            policy_workspace_id=ctf_policy_workspace_id,
-        )
-    )
-    if claimed_request_id is not None:
-        _audit_raes_range_provision(
-            claimed_request_id,
-            scenario,
-            user,
-            range_source,
-            egress_policy_workspace_id=policy_workspace_id,
-            egress_mode=egress_mode,
-        )
-        return _build_raes_range_context(claimed_request_id, scenario, user)
 
     _request_id, _cms_request, range_instance, egress_mode = _reserve_active_range_slot(
         user,

@@ -12,38 +12,38 @@ from drf_spectacular.utils import extend_schema
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from mission_control.api._base import (
-    MissionControlReadAPIView,
-    _guacamole_read_permission,
-    _validated,
-)
+from mission_control.api._base import MissionControlReadAPIView, _validated
 from mission_control.api.permissions import HasMissionControlActor
 from mission_control.api.serializers import (
     GuacamoleBootstrapQueuedSerializer,
     GuacamoleBootstrapStatusSerializer,
     GuacamoleInstanceSerializer,
 )
+from mission_control.guacamole_authority import authorize_bootstrap
 from mission_control.guacamole_bootstrap import BootstrapFailure, BootstrapQueueFull, consume_ready_url
 from mission_control.guacamole_session import launch_guacamole_session
 from mission_control.models import GuacamoleBootstrapRequest
 from mission_control.views._guacamole_bootstrap import (
-    _authenticated_user_id,
     _bootstrap_urls,
-    _BootstrapViewError,
     _mark_expired,
 )
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
 from shared.api.schema import ApiErrorSerializer, LegacyErrorSerializer
+from shared.authorization.operations import scope_actions
 from shared.errors import classify_user_message
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+    from shared.credentials import CredentialContext
+
+_REMOTE_ACCESS_ACTIONS = ("range.access", *scope_actions("access_devices"))
 
 
 class GuacamoleRDPURLView(MissionControlReadAPIView):
     """Queue Guacamole URL bootstrap for range RDP access."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _guacamole_read_permission()]
+    required_actions = _REMOTE_ACCESS_ACTIONS
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
 
     @extend_schema(
         request=GuacamoleInstanceSerializer,
@@ -61,7 +61,7 @@ class GuacamoleRDPURLView(MissionControlReadAPIView):
             return error
         assert data is not None
         return _launch_response(
-            user=self.actor_user(),
+            user=self.actor_credential(),
             protocol=GuacamoleBootstrapRequest.Protocol.RDP,
             target_id=data["instance_uuid"],
         )
@@ -70,7 +70,9 @@ class GuacamoleRDPURLView(MissionControlReadAPIView):
 class GuacamoleRangeSSHURLView(MissionControlReadAPIView):
     """Queue Guacamole URL bootstrap for range SSH access."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _guacamole_read_permission()]
+    required_actions = _REMOTE_ACCESS_ACTIONS
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
 
     @extend_schema(
         request=GuacamoleInstanceSerializer,
@@ -88,7 +90,7 @@ class GuacamoleRangeSSHURLView(MissionControlReadAPIView):
             return error
         assert data is not None
         return _launch_response(
-            user=self.actor_user(),
+            user=self.actor_credential(),
             protocol=GuacamoleBootstrapRequest.Protocol.RANGE_SSH,
             target_id=data["instance_uuid"],
         )
@@ -97,7 +99,9 @@ class GuacamoleRangeSSHURLView(MissionControlReadAPIView):
 class GuacamoleNGFWSSHURLView(MissionControlReadAPIView):
     """Queue Guacamole URL bootstrap for NGFW SSH access."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _guacamole_read_permission()]
+    required_actions = _REMOTE_ACCESS_ACTIONS
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
 
     @extend_schema(
         request=None,
@@ -107,7 +111,7 @@ class GuacamoleNGFWSSHURLView(MissionControlReadAPIView):
     def post(self, request: Request, app_id: str) -> JsonResponse | Response:
         """Queue an SSH bootstrap request for an NGFW instance."""
         return _launch_response(
-            user=self.actor_user(),
+            user=self.actor_credential(),
             protocol=GuacamoleBootstrapRequest.Protocol.NGFW_SSH,
             target_id=str(app_id),
         )
@@ -116,7 +120,9 @@ class GuacamoleNGFWSSHURLView(MissionControlReadAPIView):
 class GuacamoleBootstrapStatusView(MissionControlReadAPIView):
     """Return Guacamole bootstrap status."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _guacamole_read_permission()]
+    required_actions = _REMOTE_ACCESS_ACTIONS
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
 
     @extend_schema(
         responses={
@@ -134,20 +140,19 @@ class GuacamoleBootstrapStatusView(MissionControlReadAPIView):
     )
     def get(self, request: Request, request_id: UUID) -> JsonResponse:
         """Return current status for a queued Guacamole bootstrap request."""
-        user = self.actor_user()
-        try:
-            bootstrap = GuacamoleBootstrapRequest.objects.get(pk=request_id, user_id=_authenticated_user_id(user))
-        except GuacamoleBootstrapRequest.DoesNotExist:
+        user = self.actor_credential()
+        bootstrap = _authorized_bootstrap(request_id, user)
+        if bootstrap is None:
             return JsonResponse({"error": "Guacamole bootstrap request not found"}, status=404)
-        except _BootstrapViewError as err:
-            return err.response
-        return _status_response(bootstrap)
+        return _status_response(bootstrap, credential=user)
 
 
 class GuacamoleBootstrapOpenView(MissionControlReadAPIView):
     """Render the compatibility opener for a Guacamole bootstrap."""
 
-    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor, _guacamole_read_permission()]
+    required_actions = _REMOTE_ACCESS_ACTIONS
+
+    permission_classes = [IsAuthenticatedSessionOrApiToken, HasMissionControlActor]
 
     @extend_schema(
         # Deliberate non-JSON route: returns an HTML opener page that polls the
@@ -161,13 +166,10 @@ class GuacamoleBootstrapOpenView(MissionControlReadAPIView):
     )
     def get(self, request: Request, request_id: UUID) -> HttpResponse:
         """Render an opener page that polls until the bootstrap URL is ready."""
-        user = self.actor_user()
-        try:
-            GuacamoleBootstrapRequest.objects.only("id").get(pk=request_id, user_id=_authenticated_user_id(user))
-        except GuacamoleBootstrapRequest.DoesNotExist:
+        user = self.actor_credential()
+        bootstrap = _authorized_bootstrap(request_id, user)
+        if bootstrap is None:
             return HttpResponse("Guacamole session request not found.", status=404, content_type="text/plain")
-        except _BootstrapViewError as err:
-            return err.response
 
         status_url = reverse(
             "v1:mission_control:guacamole-bootstrap-status",
@@ -212,7 +214,7 @@ class GuacamoleBootstrapOpenView(MissionControlReadAPIView):
         return HttpResponse(html)
 
 
-def _launch_response(*, user: User, protocol: str, target_id: str) -> JsonResponse:
+def _launch_response(*, user: CredentialContext, protocol: str, target_id: str) -> JsonResponse:
     """Invoke the remote-access session service and render the queued response.
 
     HTTP concerns stay in this adapter: the service's neutral
@@ -246,7 +248,9 @@ def _launch_response(*, user: User, protocol: str, target_id: str) -> JsonRespon
     return response
 
 
-def _status_response(bootstrap: GuacamoleBootstrapRequest) -> JsonResponse:
+def _status_response(
+    bootstrap: GuacamoleBootstrapRequest, *, credential: CredentialContext | None = None
+) -> JsonResponse:
     """Return a JSON status response for a Guacamole bootstrap record."""
     payload: dict[str, str | int] = {"request_id": str(bootstrap.id), "status": bootstrap.status}
     status_code = 200
@@ -262,7 +266,7 @@ def _status_response(bootstrap: GuacamoleBootstrapRequest) -> JsonResponse:
         payload["error"] = bootstrap.error_message or "Guacamole session request expired"
         status_code = 410
     elif bootstrap.status == GuacamoleBootstrapRequest.Status.SUCCEEDED:
-        url = consume_ready_url(request_id=bootstrap.id, user_id=bootstrap.user_id)
+        url = consume_ready_url(request_id=bootstrap.id, credential=credential)
         if url:
             payload["url"] = url
         else:
@@ -288,3 +292,12 @@ def _clear_parked_url(bootstrap: GuacamoleBootstrapRequest) -> None:
     if bootstrap.result_url:
         bootstrap.result_url = ""
         bootstrap.save(update_fields=("result_url", "updated_at"))
+
+
+def _authorized_bootstrap(request_id: UUID, credential: CredentialContext) -> GuacamoleBootstrapRequest | None:
+    """Read one server-owned request only when current native authority still admits its exact target."""
+    try:
+        bootstrap = GuacamoleBootstrapRequest.objects.get(pk=request_id)
+    except GuacamoleBootstrapRequest.DoesNotExist:
+        return None
+    return bootstrap if authorize_bootstrap(bootstrap, credential) else None

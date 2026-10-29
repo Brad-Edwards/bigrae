@@ -12,7 +12,7 @@ from cms.exceptions import CMSError
 from cms.models import AgentConfig
 
 from ._common import _agent_projection_dict
-from ._content_authority import content_scope, content_scope_fields, require_content_scope
+from ._content_authority import content_scope, content_scope_fields, fence_content_scope, require_content_scope
 
 if TYPE_CHECKING:
     from shared.credentials import CredentialContext
@@ -92,6 +92,7 @@ def delete_scoped_agent(credential: CredentialContext, identifier: int) -> None:
         )
         if row is None:
             raise CMSError(_CONTENT_UNAVAILABLE)
+        fence_content_scope(current, scope)
         row.deleted_at = timezone.now()
         row.save(update_fields=["deleted_at"])
         AgentUpload.objects.filter(pk=upload.pk).update(cleanup_pending=True)

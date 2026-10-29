@@ -4,12 +4,12 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-import workspaces.services as ws
 from ctf.models import CTFParticipant, ParticipantReceipt
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
 from shared.api_tokens.models import ApiToken
+from tests.ctf._account_scope import individual_account_uuid
 
-pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
+pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def inbox(organizer_user, ctf_event, django_user_model):
     )
     campaign = create_campaign(
         organizer_user,
-        ws.resolve_personal_workspace(organizer_user).workspace_uuid,
+        individual_account_uuid(organizer_user),
         CampaignDraft(
             title="Notice",
             origin="organizer_staff",
@@ -37,6 +37,7 @@ def inbox(organizer_user, ctf_event, django_user_model):
             body="Read this",
             acknowledgement_policy="explicit",
         ),
+        parent_type="account",
     )
     intent = release_campaign(campaign, occurrence_key="inbox-1", actor_user_id=organizer_user.pk)
     snapshot = intent.recipient_snapshots.get()

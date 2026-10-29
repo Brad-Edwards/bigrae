@@ -21,6 +21,9 @@ from shared.api_tokens import scopes
 from shared.api_tokens.models import ApiToken
 from shared.audit import AuditAction, AuditEntityType
 from shared.models import AuditLog
+from tests.cms._content_api_fixtures import content_policy
+
+__all__ = ["content_policy"]
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
 
@@ -51,11 +54,13 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture
-def staff_user(django_user_model):
-    return django_user_model.objects.create_user(
-        username="pack-api-staff@example.com",
-        email="pack-api-staff@example.com",
-        is_staff=True,
+def staff_user(django_user_model, content_policy):
+    return content_policy(
+        django_user_model.objects.create_user(
+            username="pack-api-staff@example.com",
+            email="pack-api-staff@example.com",
+            is_staff=True,
+        )
     )
 
 
@@ -65,6 +70,11 @@ def _bearer(client: APIClient, raw: str) -> APIClient:
 
 
 def _token(user, *granted_scopes: str) -> str:
+    replacements = {
+        scopes.CMS_AUTHORING_READ: scopes.AUTHORIZATION_ACTION_SCOPES["installation.read_content"],
+        scopes.CMS_AUTHORING_WRITE: scopes.AUTHORIZATION_ACTION_SCOPES["installation.manage_content"],
+    }
+    granted_scopes = tuple(replacements.get(value, value) for value in granted_scopes)
     _, raw = ApiToken.create_token(name="pack-api", created_by=user, scopes=list(granted_scopes))
     return raw
 

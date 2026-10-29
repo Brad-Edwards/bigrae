@@ -101,6 +101,9 @@ def save_admission(operation: PreparationOperation, facts: VerifiedMaterializati
     """Caller holds scope/grant/adapter/operation/attempt fences in one transaction."""
     from engine.models import PreparedArtifactAdmission, RaesImageMapping
 
+    if operation.authority_kind != "principal":
+        raise ValueError("Preparation native authority unavailable")
+
     scope = {}
     if operation.authority_kind:
         scope = {

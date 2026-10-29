@@ -16,11 +16,9 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.contrib.auth.models import AnonymousUser
+from shared.credentials import CredentialContext
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
-
     from ctf.models import CTFEvent
 
 logger = logging.getLogger(__name__)
@@ -47,56 +45,22 @@ def _topic_event(topic: str) -> CTFEvent | None:
     return CTFEvent.objects.filter(pk=event_id, deleted_at__isnull=True).only("id", "created_by_id").first()
 
 
-def _live_notification_user(user: AbstractBaseUser | AnonymousUser) -> User | None:
-    """Reload active account state instead of trusting the connected session object."""
-    from django.contrib.auth import get_user_model
+def _can_subscribe(credential: CredentialContext, topic: str) -> bool:
+    """Authorize the actual current browser proof, never SQL owner/group flags."""
+    from ctf.exceptions import CTFError
+    from ctf.services.event_projection import authorize_event_projection
 
-    user_id = getattr(user, "pk", None)
-    if user_id is None:
-        return None
-    live_user = get_user_model().objects.filter(pk=user_id, is_active=True).first()
-    if live_user is None or getattr(getattr(live_user, "profile", None), "deleted_at", None):
-        return None
-    return live_user
-
-
-def _can_subscribe(user: AbstractBaseUser | AnonymousUser, topic: str) -> bool:
-    """Authorize a subscription: event organizer, eligible staff, or viewing participant.
-
-    A live staff row authorizes only while the account still holds the global CTF
-    Organizer role (#1922 review — no stale-row bypass).
-    """
-    from ctf.services.participant.accounts import live_participant_for_user
-    from management.services import is_ctf_password_change_required, is_temporary_ctf_account
-
-    live_user = _live_notification_user(user)
-    event = _topic_event(topic) if live_user is not None else None
-    if live_user is None or event is None:
+    if not isinstance(credential, CredentialContext) or credential.principal.kind != "human":
         return False
-    if is_temporary_ctf_account(live_user):
-        participant = live_participant_for_user(live_user)
-        return bool(participant and participant.event_id == event.pk and not is_ctf_password_change_required(live_user))
-    return _account_may_follow_event(live_user, event)
-
-
-def _account_may_follow_event(live_user: User, event: CTFEvent) -> bool:
-    """Admit an organizing owner, a live staff organizer, or a viewing participant.
-
-    Ownership alone is not standing: a demoted owner keeps no event feed (#2617).
-    """
-    from ctf.models import CTFEventStaff, CTFParticipant
-    from ctf.services.authorization import is_ctf_platform_admin
-    from ctf.services.event.staff import actor_is_active_ctf_organizer
-    from ctf.services.participant import viewing_participant_q
-
-    user_id = live_user.pk
-    if event.created_by_id == user_id and (actor_is_active_ctf_organizer(user_id) or is_ctf_platform_admin(live_user)):
-        return True
-    if CTFEventStaff.objects.filter(
-        event=event, user_id=user_id, deleted_at__isnull=True
-    ).exists() and actor_is_active_ctf_organizer(user_id):
-        return True
-    return CTFParticipant.objects.filter(viewing_participant_q(), event=event, user_id=user_id).exists()
+    event = _topic_event(topic)
+    if event is None:
+        return False
+    try:
+        authorize_event_projection(credential, event.pk)
+        allowed = True
+    except CTFError:
+        allowed = False
+    return allowed
 
 
 def _reference_payload(payload: Mapping[str, Any]) -> dict[str, str]:
@@ -149,7 +113,7 @@ def publish_event_notification(
         register_ctf_notifications()
         if recipient_ids is None:
             from ctf.models import CTFParticipant
-            from ctf.services.event.staff import eligible_co_organizer_ids
+            from ctf.services.event.staff import event_notification_organizer_ids
             from ctf.services.participant import viewing_participant_q
 
             recipient_ids = list(
@@ -157,13 +121,9 @@ def publish_event_notification(
                 .values_list("user_id", flat=True)
                 .distinct()
             )
-            # Organizer-directed recipients are the canonical owner plus live full
-            # co-organizers who are still eligible (active + global CTF Organizer
-            # role), derived from current assignments and de-duplicated (#1922).
-            # Distinct from notification sender/`created_by` attribution;
-            # moderators/judges are unchanged.
-            recipient_ids.append(event.created_by_id)
-            recipient_ids.extend(eligible_co_organizer_ids(event))
+            # These are delivery candidates. Subscription and every send/replay
+            # independently check the current credential and owning policy.
+            recipient_ids.extend(event_notification_organizer_ids(event))
             recipient_ids = list(dict.fromkeys(recipient_ids))
         publish_notification(
             NOTIFICATION_TYPE,

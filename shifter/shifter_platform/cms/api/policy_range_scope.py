@@ -6,6 +6,7 @@ from django.db.models import QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import NotFound
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -56,12 +57,12 @@ class PolicyRangeWorkspaceRebindView(RangeWorkspaceRebindView):
 
     authentication_classes = [ApiTokenAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticatedSessionOrApiToken]
-    parser_classes = [ClosedJSONParser]
+    parser_classes = [ClosedJSONParser, FormParser, MultiPartParser]
 
     @extend_schema(
         request=PolicyRangeWorkspaceCommandSerializer,
         responses=RangeWorkspaceRebindResultSerializer,
-        operation_id="api_v1_policy_range_workspace_rebind",
+        operation_id="api_v1_cms_range_workspace_rebind",
     )
     def post(self, request: Request, request_id: UUID) -> Response:
         command = PolicyRangeWorkspaceCommandSerializer(data=request.data)

@@ -16,15 +16,15 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from cms.models import RangeInstance, Request
 from shared.api_tokens import scopes
 from shared.api_tokens.models import ApiToken
-from shared.enums import RequestType
 from shared.models import RaesParticipantRuntimeRecord
 from shared.raes.contracts import SHIFTER_BACKEND_PROFILE
 from shared.schemas.raes_participant_runtime import canonical_raes_payload_digest
+from tests._mission_control_fixtures import native_range_for_user as _owned_range
+from tests._mission_control_fixtures import native_scopes
 
-pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant", "principal_owner_policy")]
 
 _CONTRACT_VERSION = {
     RaesParticipantRuntimeRecord.RecordKind.PARTICIPANT_IMPLEMENTATION: "participant-implementation-v1",
@@ -57,24 +57,18 @@ def client():
     return APIClient()
 
 
-def _owned_range(user):
-    """Create a RangeInstance + Request owned by ``user``; return the request_id."""
-    from workspaces.services import resolve_personal_workspace
+def _deny_range_read(monkeypatch) -> None:
+    from types import SimpleNamespace
 
-    workspace_id = resolve_personal_workspace(user).workspace_id
-    request = Request.objects.create(
-        workspace_id=workspace_id, request_id=uuid4(), request_type=RequestType.RANGE.value, user=user
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+    monkeypatch.setattr(
+        port,
+        "_provider_factory",
+        lambda: SimpleNamespace(
+            check=lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied"),
+        ),
     )
-    RangeInstance.objects.create(
-        workspace_id=workspace_id, scenario_id="basic", user_id=user.id, status="ready", request=request
-    )
-    return request.request_id
-
-
-def _revoke_workspace_membership(user) -> None:
-    from workspaces.models import WorkspaceMembership
-
-    WorkspaceMembership.objects.filter(user=user).delete()
 
 
 def _seed_record(request_id, *, participant_ref, record_kind, payload, source_timestamp=None):
@@ -95,7 +89,7 @@ def _seed_record(request_id, *, participant_ref, record_kind, payload, source_ti
 
 
 def _token(user, *granted_scopes: str) -> str:
-    _, raw = ApiToken.create_token(name="raes-pr-mc", created_by=user, scopes=list(granted_scopes))
+    _, raw = ApiToken.create_token(name="raes-pr-mc", created_by=user, scopes=native_scopes(list(granted_scopes)))
     return raw
 
 
@@ -167,9 +161,9 @@ class TestParticipantRuntimeRead:
         response = client.get(_runtimes_url(request_id))
         assert response.status_code == 404
 
-    def test_membership_removal_revokes_runtime_read(self, client, user):
+    def test_policy_removal_revokes_runtime_read(self, client, user, monkeypatch):
         request_id = _owned_range(user)
-        _revoke_workspace_membership(user)
+        _deny_range_read(monkeypatch)
         client.force_authenticate(user=user)
 
         assert client.get(_runtimes_url(request_id)).status_code == 404
@@ -251,9 +245,9 @@ class TestParticipantImplementationRead:
         client.force_authenticate(user=user)
         assert client.get(_implementations_url(request_id)).status_code == 404
 
-    def test_membership_removal_revokes_implementation_read(self, client, user):
+    def test_policy_removal_revokes_implementation_read(self, client, user, monkeypatch):
         request_id = _owned_range(user)
-        _revoke_workspace_membership(user)
+        _deny_range_read(monkeypatch)
         client.force_authenticate(user=user)
 
         assert client.get(_implementations_url(request_id)).status_code == 404

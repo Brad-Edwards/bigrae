@@ -7,7 +7,6 @@ from uuid import UUID
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -21,18 +20,9 @@ from cms.api.preparation_adapters import (
 from cms.scenarios.preparation import prepare_registered_artifact
 from engine.services import cancel_artifact_preparation, get_artifact_preparation, retry_artifact_preparation
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
-from shared.api.principals import active_actor_user
 from shared.api_tokens import scopes
 from shared.api_tokens.permissions import require_scope
 from shared.exceptions import ValidationError
-
-
-class HasPreparationPermission(BasePermission):
-    """An API token scope does not replace its owner's current role."""
-
-    def has_permission(self, request: Request, view: APIView) -> bool:
-        actor = active_actor_user(request)
-        return bool(actor and actor.has_perm("engine.prepare_artifacts"))
 
 
 class PreparationRequestSerializer(PreparationSerializer):
@@ -59,7 +49,6 @@ class PreparationRequestView(APIView):
 
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
-        HasPreparationPermission,
         require_scope(scopes.CMS_PREPARATION_READ, scopes.CMS_PREPARATION_WRITE),
     ]
 

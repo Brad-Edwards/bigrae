@@ -30,6 +30,9 @@ pytestmark = pytest.mark.django_db
 
 def _campaign(ctf_event, organizer_user, **overrides):
     data = {
+        "scope_kind": ctf_event.scope_kind,
+        "account_id": ctf_event.account_id,
+        "organization_id": ctf_event.organization_id,
         "workspace_id": ctf_event.workspace_id,
         "title": "Kickoff",
         "origin": "organizer_staff",

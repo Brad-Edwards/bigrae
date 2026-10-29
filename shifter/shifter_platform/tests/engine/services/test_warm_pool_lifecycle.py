@@ -263,11 +263,12 @@ class TestRecoverStalled:
         assert recover_stalled_generations(_BUCKET, stall_grace_seconds=600) == 0
 
     def test_claimed_activation_stalled_recovered(self):
-        _seed_generation(
+        generation = _seed_generation(
             state=WarmRangeGeneration.State.CLAIMED,
             range_status=Range.Status.PROVISIONING,
             created_delta=timedelta(hours=-2),
         )
+        WarmRangeGeneration.objects.filter(pk=generation.pk).update(claimed_at=timezone.now() - timedelta(hours=2))
         assert recover_stalled_generations(_BUCKET, stall_grace_seconds=600) == 1
 
 
@@ -338,7 +339,7 @@ class TestEnqueue:
         seen: list = []
         monkeypatch.setattr(
             "engine.launch_intents.enqueue_provisioner_launch",
-            lambda command: seen.append(command) or "intent-123",
+            lambda command, **_kwargs: seen.append(command) or "intent-123",
             raising=True,
         )
         rid = uuid4()

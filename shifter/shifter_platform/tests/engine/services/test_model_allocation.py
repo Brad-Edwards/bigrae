@@ -30,18 +30,42 @@ def allocation_inputs(django_user_model, *, user=None):
     now = timezone.now()
     catalog = _catalog()
     user = user or django_user_model.objects.create_user(username=f"allocation-{uuid4()}")
-    request = Request.objects.create(request_id=uuid4(), request_type="range", user=user)
+    principal_uuid = user.identity_principal.uuid
+    from shared.identity_scope import PrincipalRef
+    from workspaces.models import Account
+    from workspaces.services import create_account
+
+    account = Account.objects.filter(individual_principal_uuid=principal_uuid).first()
+    if account is None:
+        account = create_account(
+            kind="individual",
+            name="Synthetic model allocation",
+            owner=PrincipalRef(principal_uuid, "human"),
+        )
+        account_id = account.id
+    else:
+        account_id = account.pk
+    request = Request.objects.create(
+        request_id=uuid4(),
+        request_type="range",
+        user=user,
+        owner_principal_uuid=principal_uuid,
+        scope_kind="account",
+        account_id=account_id,
+    )
     operation_id = uuid4()
     range_obj = Range.objects.create(
         user=user,
         request=request,
-        workspace_id=1,
+        scope_kind="account",
+        account_id=account_id,
         cms_user_id=user.pk,
+        owner_principal_uuid=principal_uuid,
         provisioner_operation="raes-range:provision",
         provisioner_operation_id=operation_id,
         status=Range.Status.PROVISIONING,
     )
-    authority = {"owner": "management", "reference": f"user:{user.pk}"}
+    authority = {"owner": "management", "reference": f"principal:{principal_uuid}"}
     from engine.services._sharing_authority import _refresh_authority_fences
 
     with transaction.atomic():

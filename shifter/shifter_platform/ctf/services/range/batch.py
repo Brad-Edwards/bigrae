@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -63,6 +64,7 @@ def _record_provision_attempt(
     tallies: dict[str, int],
     errors: list[dict[str, str]],
     heartbeat: Callable[[], None] | None = None,
+    actor: object | None = None,
 ) -> None:
     """Provision one participant and fold the outcome into the running tallies.
 
@@ -72,7 +74,7 @@ def _record_provision_attempt(
     the scheduled task and liveness file fresh (#943).
     """
     try:
-        provision_participant_range_with_retry(participant.pk, heartbeat=heartbeat)
+        provision_participant_range_with_retry(participant.pk, heartbeat=heartbeat, actor=actor)
         tallies["successful"] += 1
     except Exception as e:
         if _is_already_assigned_error(e):
@@ -89,6 +91,7 @@ def provision_event_ranges_throttled(
     spinup_window_seconds: int,
     shutdown_check: Callable[[], bool] | None = None,
     heartbeat: Callable[[], None] | None = None,
+    actor: object | None = None,
 ) -> dict[str, Any]:
     """Provision ranges for all participants with throttled pacing.
 
@@ -113,6 +116,20 @@ def provision_event_ranges_throttled(
     Raises:
         CTFNotFoundError: If event doesn't exist.
     """
+    try:
+        event = CTFEvent.objects.get(pk=event_id)
+    except CTFEvent.DoesNotExist:
+        raise CTFNotFoundError(
+            f"Event {event_id} not found",
+            details={"event_id": str(event_id)},
+        ) from None
+    if actor is None:
+        raise ValueError("Range provisioning authority unavailable")
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import assert_event_action
+
+    credential = event_actor_credential(actor)
+    assert_event_action(credential, event, "event.manage_ranges")
     capacity = _declare_and_assess(event_id)
     if capacity is not None and capacity["blocking"]:
         return _capacity_refused_result(event_id, capacity)
@@ -122,18 +139,15 @@ def provision_event_ranges_throttled(
         spinup_window_seconds,
     )
 
-    try:
-        CTFEvent.objects.get(pk=event_id)
-    except CTFEvent.DoesNotExist:
-        raise CTFNotFoundError(
-            f"Event {event_id} not found",
-            details={"event_id": str(event_id)},
-        ) from None
+    from django.db.models import Q
 
+    from ctf.models import CTFRangeLaunch
+
+    pending = CTFRangeLaunch.objects.filter(event_id=event_id, dispatched_at=None).values_list("pk", flat=True)
     participants = list(
         CTFParticipant.objects.filter(
+            Q(range_instance_id__isnull=True) | Q(range_request_id__in=pending),
             event_id=event_id,
-            range_instance_id__isnull=True,
         )
     )
 
@@ -150,10 +164,10 @@ def provision_event_ranges_throttled(
         event_id,
         participants,
         delay,
-        tallies,
-        errors,
+        _ProvisioningProgress(tallies, errors),
         shutdown_check=shutdown_check,
         heartbeat=heartbeat,
+        actor=credential,
     )
 
     _notify_provision_failures(event_id, errors)
@@ -174,15 +188,23 @@ def provision_event_ranges_throttled(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class _ProvisioningProgress:
+    """Accumulate bounded per-wave outcome counts and public participant errors."""
+
+    tallies: dict[str, int]
+    errors: list[dict[str, str]]
+
+
 def _provision_participants_paced(
     event_id: UUID,
     participants: list[CTFParticipant],
     delay: float,
-    tallies: dict[str, int],
-    errors: list[dict[str, str]],
+    progress: _ProvisioningProgress,
     *,
     shutdown_check: Callable[[], bool] | None = None,
     heartbeat: Callable[[], None] | None = None,
+    actor: object | None = None,
 ) -> bool:
     """Provision each participant in turn, waiting ``delay`` seconds between them.
 
@@ -201,16 +223,16 @@ def _provision_participants_paced(
             return True
 
         _safe_heartbeat(heartbeat, event_id)
-        _record_provision_attempt(participant, tallies, errors, heartbeat=heartbeat)
+        _record_provision_attempt(participant, progress.tallies, progress.errors, heartbeat=heartbeat, actor=actor)
 
         logger.info(
             "Throttled provisioning progress for event %s: %d/%d (%d ready, %d failed, %d skipped)",
             event_id,
             i + 1,
             count,
-            tallies["successful"],
-            tallies["failed"],
-            tallies["skipped"],
+            progress.tallies["successful"],
+            progress.tallies["failed"],
+            progress.tallies["skipped"],
         )
 
         # Sleep between provisions (skip after the last one). The wait is

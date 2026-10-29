@@ -14,6 +14,14 @@ from shared.principal_port import resolve_principal
 if TYPE_CHECKING:
     from shared.models import AuditLog
 
+
+def retained_audit_event_count() -> int:
+    """Count retained audit rows for bounded cutover planning."""
+    from shared.models import AuditLog
+
+    return AuditLog.objects.count()
+
+
 _DENIED = "Audit read denied"
 
 

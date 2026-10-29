@@ -9,7 +9,7 @@ Date: 2026-06-25
 
 Requirement: PLAT-106, "Unified DRF API Surface"
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1119>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1119>
 
 This note sets the architecture guardrails for the shared DRF conventions and
 OpenAPI schema. It is intentionally not an implementation plan.

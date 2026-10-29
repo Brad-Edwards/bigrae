@@ -1,7 +1,7 @@
 # Model-access implementation and dependency ledger
 
 Design: [#681 / PLAT-202](index.md). Created and verified 2026-09-06.
-The full capability remains tracked by [#681](https://github.com/Brad-Edwards/shifter/issues/681).
+The full capability remains tracked by [#681](https://github.com/Brad-Edwards/bigrae/issues/681).
 The design PR references it without a closing keyword.
 
 ## Delivery ownership
@@ -15,37 +15,37 @@ own independent deployed evidence, not an excuse to ship untested code.
 
 | Package | Issue and outcome | Milestone | Native prerequisites |
 | --- | --- | --- | --- |
-| M01 | [#2118: define policy catalog and shared access contracts](https://github.com/Brad-Edwards/shifter/issues/2118) | 35 | Reviewed design on dev |
-| M19 | [#2139: persist sharing bindings and resolve overlapping policies](https://github.com/Brad-Edwards/shifter/issues/2139) | 35 | [#2118](https://github.com/Brad-Edwards/shifter/issues/2118) |
-| M20 | [#2140: project sharing membership and fence authority changes](https://github.com/Brad-Edwards/shifter/issues/2140) | 35 | [#2139](https://github.com/Brad-Edwards/shifter/issues/2139) |
-| M02 | [#2119: bind scenario and event intent to enforcing model demand](https://github.com/Brad-Edwards/shifter/issues/2119) | 35 | [#2118](https://github.com/Brad-Edwards/shifter/issues/2118), [#2140](https://github.com/Brad-Edwards/shifter/issues/2140) |
-| M03 | [#2120: persist quota-aware shard allocations and grant bindings](https://github.com/Brad-Edwards/shifter/issues/2120) | 35 | [#2119](https://github.com/Brad-Edwards/shifter/issues/2119) |
-| M04 | [#2121: enforce atomic request budgets and dispatch leases](https://github.com/Brad-Edwards/shifter/issues/2121) | 35 | [#2120](https://github.com/Brad-Edwards/shifter/issues/2120) |
-| M05 | [#2122: add the private broker and authenticated Engine control API](https://github.com/Brad-Edwards/shifter/issues/2122) | 35 | [#2121](https://github.com/Brad-Edwards/shifter/issues/2121) |
-| M06 | [#2123: package model broker identity and private range reachability](https://github.com/Brad-Edwards/shifter/issues/2123) | 35 | [#2118](https://github.com/Brad-Edwards/shifter/issues/2118) |
-| M07 | [#2124: implement the Vertex invocation and usage adapter](https://github.com/Brad-Edwards/shifter/issues/2124) | 35 | [#2122](https://github.com/Brad-Edwards/shifter/issues/2122), [#2123](https://github.com/Brad-Edwards/shifter/issues/2123) |
-| M08 | [#2125: bind guest enrollment and revocation to range lifecycle](https://github.com/Brad-Edwards/shifter/issues/2125) | 35 | [#2124](https://github.com/Brad-Edwards/shifter/issues/2124), [#2083](https://github.com/Brad-Edwards/shifter/issues/2083) |
-| M09 | [#2126: expose scoped operator and organizer management](https://github.com/Brad-Edwards/shifter/issues/2126) | 35 | [#2121](https://github.com/Brad-Edwards/shifter/issues/2121) |
-| M10 | [#2127: prove model-access identity and revocation boundaries](https://github.com/Brad-Edwards/shifter/issues/2127) | 35 | [#2125](https://github.com/Brad-Edwards/shifter/issues/2125), [#2126](https://github.com/Brad-Edwards/shifter/issues/2126) |
-| M11 | [#2128: drain and retire legacy guest provider credentials](https://github.com/Brad-Edwards/shifter/issues/2128) | 36 | [#2127](https://github.com/Brad-Edwards/shifter/issues/2127) |
-| M12 | [#2129: add operator telemetry and bounded reconciliation](https://github.com/Brad-Edwards/shifter/issues/2129) | 36 | [#2125](https://github.com/Brad-Edwards/shifter/issues/2125) |
-| M13 | [#2130: qualify load, rollout and restore failure behavior](https://github.com/Brad-Edwards/shifter/issues/2130) | 36 | [#2128](https://github.com/Brad-Edwards/shifter/issues/2128), [#2129](https://github.com/Brad-Edwards/shifter/issues/2129), [#2086](https://github.com/Brad-Edwards/shifter/issues/2086) |
-| M14 | [#2131: qualify the selected scenario's brokered model access](https://github.com/Brad-Edwards/shifter/issues/2131) | 37 | [#2130](https://github.com/Brad-Edwards/shifter/issues/2130), [#2082](https://github.com/Brad-Edwards/shifter/issues/2082) |
-| M15 | [#2132: add the cross-account Bedrock broker adapter](https://github.com/Brad-Edwards/shifter/issues/2132) | 22 | [#2129](https://github.com/Brad-Edwards/shifter/issues/2129) |
-| M16 | [#2133: add a direct Anthropic provider adapter](https://github.com/Brad-Edwards/shifter/issues/2133) | 22 | [#2129](https://github.com/Brad-Edwards/shifter/issues/2129) |
-| M17 | [#2134: add capability-scoped external HTTPS tool invocation](https://github.com/Brad-Edwards/shifter/issues/2134) | 22 | [#2129](https://github.com/Brad-Edwards/shifter/issues/2129) |
-| M18 | [#2135: prove multi-provider allocation and adapter conformance](https://github.com/Brad-Edwards/shifter/issues/2135) | 22 | [#2131](https://github.com/Brad-Edwards/shifter/issues/2131), [#2132](https://github.com/Brad-Edwards/shifter/issues/2132), [#2133](https://github.com/Brad-Edwards/shifter/issues/2133) |
+| M01 | [#2118: define policy catalog and shared access contracts](https://github.com/Brad-Edwards/bigrae/issues/2118) | 35 | Reviewed design on dev |
+| M19 | [#2139: persist sharing bindings and resolve overlapping policies](https://github.com/Brad-Edwards/bigrae/issues/2139) | 35 | [#2118](https://github.com/Brad-Edwards/bigrae/issues/2118) |
+| M20 | [#2140: project sharing membership and fence authority changes](https://github.com/Brad-Edwards/bigrae/issues/2140) | 35 | [#2139](https://github.com/Brad-Edwards/bigrae/issues/2139) |
+| M02 | [#2119: bind scenario and event intent to enforcing model demand](https://github.com/Brad-Edwards/bigrae/issues/2119) | 35 | [#2118](https://github.com/Brad-Edwards/bigrae/issues/2118), [#2140](https://github.com/Brad-Edwards/bigrae/issues/2140) |
+| M03 | [#2120: persist quota-aware shard allocations and grant bindings](https://github.com/Brad-Edwards/bigrae/issues/2120) | 35 | [#2119](https://github.com/Brad-Edwards/bigrae/issues/2119) |
+| M04 | [#2121: enforce atomic request budgets and dispatch leases](https://github.com/Brad-Edwards/bigrae/issues/2121) | 35 | [#2120](https://github.com/Brad-Edwards/bigrae/issues/2120) |
+| M05 | [#2122: add the private broker and authenticated Engine control API](https://github.com/Brad-Edwards/bigrae/issues/2122) | 35 | [#2121](https://github.com/Brad-Edwards/bigrae/issues/2121) |
+| M06 | [#2123: package model broker identity and private range reachability](https://github.com/Brad-Edwards/bigrae/issues/2123) | 35 | [#2118](https://github.com/Brad-Edwards/bigrae/issues/2118) |
+| M07 | [#2124: implement the Vertex invocation and usage adapter](https://github.com/Brad-Edwards/bigrae/issues/2124) | 35 | [#2122](https://github.com/Brad-Edwards/bigrae/issues/2122), [#2123](https://github.com/Brad-Edwards/bigrae/issues/2123) |
+| M08 | [#2125: bind guest enrollment and revocation to range lifecycle](https://github.com/Brad-Edwards/bigrae/issues/2125) | 35 | [#2124](https://github.com/Brad-Edwards/bigrae/issues/2124), [#2083](https://github.com/Brad-Edwards/bigrae/issues/2083) |
+| M09 | [#2126: expose scoped operator and organizer management](https://github.com/Brad-Edwards/bigrae/issues/2126) | 35 | [#2121](https://github.com/Brad-Edwards/bigrae/issues/2121) |
+| M10 | [#2127: prove model-access identity and revocation boundaries](https://github.com/Brad-Edwards/bigrae/issues/2127) | 35 | [#2125](https://github.com/Brad-Edwards/bigrae/issues/2125), [#2126](https://github.com/Brad-Edwards/bigrae/issues/2126) |
+| M11 | [#2128: drain and retire legacy guest provider credentials](https://github.com/Brad-Edwards/bigrae/issues/2128) | 36 | [#2127](https://github.com/Brad-Edwards/bigrae/issues/2127) |
+| M12 | [#2129: add operator telemetry and bounded reconciliation](https://github.com/Brad-Edwards/bigrae/issues/2129) | 36 | [#2125](https://github.com/Brad-Edwards/bigrae/issues/2125) |
+| M13 | [#2130: qualify load, rollout and restore failure behavior](https://github.com/Brad-Edwards/bigrae/issues/2130) | 36 | [#2128](https://github.com/Brad-Edwards/bigrae/issues/2128), [#2129](https://github.com/Brad-Edwards/bigrae/issues/2129), [#2086](https://github.com/Brad-Edwards/bigrae/issues/2086) |
+| M14 | [#2131: qualify the selected scenario's brokered model access](https://github.com/Brad-Edwards/bigrae/issues/2131) | 37 | [#2130](https://github.com/Brad-Edwards/bigrae/issues/2130), [#2082](https://github.com/Brad-Edwards/bigrae/issues/2082) |
+| M15 | [#2132: add the cross-account Bedrock broker adapter](https://github.com/Brad-Edwards/bigrae/issues/2132) | 22 | [#2129](https://github.com/Brad-Edwards/bigrae/issues/2129) |
+| M16 | [#2133: add a direct Anthropic provider adapter](https://github.com/Brad-Edwards/bigrae/issues/2133) | 22 | [#2129](https://github.com/Brad-Edwards/bigrae/issues/2129) |
+| M17 | [#2134: add capability-scoped external HTTPS tool invocation](https://github.com/Brad-Edwards/bigrae/issues/2134) | 22 | [#2129](https://github.com/Brad-Edwards/bigrae/issues/2129) |
+| M18 | [#2135: prove multi-provider allocation and adapter conformance](https://github.com/Brad-Edwards/bigrae/issues/2135) | 22 | [#2131](https://github.com/Brad-Edwards/bigrae/issues/2131), [#2132](https://github.com/Brad-Edwards/bigrae/issues/2132), [#2133](https://github.com/Brad-Edwards/bigrae/issues/2133) |
 
 ## Milestone scope
 
-- [35 — BigRAE GCP 1: scope and security foundations](https://github.com/Brad-Edwards/shifter/milestone/35):
+- [35 — BigRAE GCP 1: scope and security foundations](https://github.com/Brad-Edwards/bigrae/milestone/35):
   #2118–#2127 and #2139–#2140, ending in effective GCP identity, network,
   configurable sharing and revocation proof.
-- [36 — BigRAE GCP 2: reliable operations](https://github.com/Brad-Edwards/shifter/milestone/36):
+- [36 — BigRAE GCP 2: reliable operations](https://github.com/Brad-Edwards/bigrae/milestone/36):
   #2128–#2130, legacy credential retirement, telemetry/reconciliation, load and restore.
-- [37 — BigRAE GCP 3: qualified scenarios and adoption](https://github.com/Brad-Edwards/shifter/milestone/37):
+- [37 — BigRAE GCP 3: qualified scenarios and adoption](https://github.com/Brad-Edwards/bigrae/milestone/37):
   #2131, the released scenario's GCP model-access evidence consumed by #2091.
-- [22 — Backend Bundles & Substrate Program](https://github.com/Brad-Edwards/shifter/milestone/22):
+- [22 — Backend Bundles & Substrate Program](https://github.com/Brad-Edwards/bigrae/milestone/22):
   #2132–#2135 and the full #681 tracker, covering additional provider/account/cloud
   adapters, external tools and conformance beyond the GCP adoption slice.
 
@@ -57,7 +57,7 @@ requirement was narrowed or marked complete.
 ## Native dependency semantics
 
 Dependencies were created with `gh api` using
-`POST /repos/Brad-Edwards/shifter/issues/{number}/dependencies/blocked_by`
+`POST /repos/Brad-Edwards/bigrae/issues/{number}/dependencies/blocked_by`
 and the prerequisite's numeric GitHub database `issue_id`, not its issue
 number. The [API contract](https://docs.github.com/en/rest/issues/issue-dependencies)
 defines these native blocking relationships. Narrative references and

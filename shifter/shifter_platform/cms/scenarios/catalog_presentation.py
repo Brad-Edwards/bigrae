@@ -21,6 +21,8 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from cms.scenarios.registry import get_catalog_entry, list_all_scenarios
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -61,28 +63,53 @@ def scenario_source(scenario_type: str, is_default: bool) -> str:
     return "builtin" if is_default else "custom"
 
 
-def get_catalog_presentation(scenario_id: str, *, user: User | None = None) -> dict[str, Any] | None:
+def get_catalog_presentation(
+    scenario_id: str, *, user: User | CredentialContext | None = None, scope: ResourceScope | None = None
+) -> dict[str, Any] | None:
     """Return the read-only presentation DTO for a scenario id, or None if absent.
 
     Includes disabled entries for review, within the caller's organization scope.
     """
-    entry = get_catalog_entry(scenario_id, user=user)
+    if isinstance(user, CredentialContext):
+        from cms.models import RaesPackageSource
+        from cms.services._content_authority import content_scope
+
+        source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
+        if source is None:
+            return None
+        scope = content_scope(source)
+    entry = get_catalog_entry(scenario_id, user=user, scope=scope)
     if entry is None:
         return None
     sources = _raes_source_map([scenario_id]) if _is_raes(entry) else {}
     return _to_presentation(entry, sources)
 
 
-def list_catalog_presentations(user: User | None = None, *, include_unavailable: bool = False) -> list[dict[str, Any]]:
+def list_catalog_presentations(
+    user: User | CredentialContext | None = None,
+    *,
+    include_unavailable: bool = False,
+    scope: ResourceScope | None = None,
+) -> list[dict[str, Any]]:
     """Return read-only presentation DTOs for all catalog entries.
 
     Access filtering (``enabled`` / ``staff_only``) is delegated to the registry
     via ``user``; pass ``None`` for the unfiltered staff-review projection.
     """
-    entries = list_all_scenarios(user=user, include_unavailable=include_unavailable)
+    entries = list_all_scenarios(user=user, include_unavailable=include_unavailable, scope=scope)
     raes_ids = [entry["id"] for entry in entries if _is_raes(entry)]
     sources = _raes_source_map(raes_ids)
-    return [_to_presentation(entry, sources) for entry in entries]
+    presentations = [_to_presentation(entry, sources) for entry in entries]
+    if isinstance(user, CredentialContext):
+        from cms.services._content_authority import content_scope
+
+        for presentation in presentations:
+            source = sources.get(presentation["id"])
+            if source is not None and content_scope(source) != scope and presentation["raes"] is not None:
+                for field in ("package_ref", "lock_ref", "conformance_report_ref"):
+                    presentation["raes"][field] = ""
+                presentation["raes"]["provenance_summary"] = {}
+    return presentations
 
 
 def _is_raes(entry: Mapping[str, Any]) -> bool:

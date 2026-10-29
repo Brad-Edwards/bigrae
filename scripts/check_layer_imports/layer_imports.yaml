@@ -98,6 +98,7 @@ allowed:
     - shared
     - cms.services
     - ctf.services
+    - engine.services
     - management.services
     - mission_control.routing
     - mission_control.terminal_sessions
@@ -127,7 +128,16 @@ allowed_symbols:
       # ADR-066-R8: exact scalar ancestry/owner facts for a CMS-orchestrated
       # range move. No tenancy policy, CRUD, or role mutation crosses this seam.
       - resolve_range_scope_binding
+      # Model-source admission validates the persisted organization ancestry
+      # before evaluating its exact policy action.
+      - hierarchy_target_scope
   config:
+    engine.services:
+      # S8 composition inventories and converts Engine-owned retained rows.
+      - apply_identity_cutover_resources
+      - identity_cutover_contract_gaps
+      - identity_cutover_resource_disposition
+      - pending_identity_cutover_work
     workspaces.services:
       - list_administrable_organizations
       # Credential issuance resolves SQL-owned target ancestry (ADR-066, S3).
@@ -137,6 +147,24 @@ allowed_symbols:
       - PolicyMutationRequest
       - apply_policy_mutation
       - event_placement_scope
+      # SPA composition reads a bounded cross-account policy projection.
+      - admin_principal_context
+      - policy_admin_registrations
+      # One-time S8 cutover composition; persistence remains in tenancy.
+      - IdentityCutoverConflict
+      - IdentityCutoverStateView
+      - activate_identity_cutover
+      - apply_identity_cutover_sql
+      - begin_identity_cutover
+      - bind_identity_cutover_provider
+      - get_identity_cutover_state
+      - identity_cutover_disposition
+      - identity_cutover_relationships
+      - identity_cutover_resource_mappings
+      - plan_identity_cutover_accounts
+      - record_identity_cutover_bootstrap
+      - record_identity_cutover_policy_intent
+      - verify_identity_cutover_hierarchy
     management.api.policy_views:
       - PolicyAdminView
     workspaces.api.serializers:

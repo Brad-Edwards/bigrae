@@ -71,7 +71,7 @@ def test_customer_permission_ceiling_and_provider_denial_cannot_read_global_ledg
 
 
 @pytest.mark.parametrize("kind", ["human", "service"])
-def test_policy_audit_api_admits_full_application_admin_without_staff_flag(monkeypatch, kind):
+def test_policy_audit_api_admits_full_application_admin_without_staff_flag(monkeypatch, kind, live_session_credential):
     from shared.api.audit import PolicyAuditLogViewSet
 
     actor = _actor(kind, frozenset({"installation.read_audit"}))
@@ -80,7 +80,7 @@ def test_policy_audit_api_admits_full_application_admin_without_staff_flag(monke
     request = APIRequestFactory().get("/api/v1/audit/")
     if kind == "human":
         user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
-        force_authenticate(request, user=user)
+        force_authenticate(request, user=user, token=live_session_credential(user))
     else:
         request.credential_context = actor
         force_authenticate(request, token=actor)

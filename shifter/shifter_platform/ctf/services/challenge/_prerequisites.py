@@ -45,7 +45,7 @@ def add_prerequisite(
     challenge_id: UUID,
     required_challenge_id: UUID,
     *,
-    actor_id: int,
+    actor_id: object,
 ) -> CTFChallengePrerequisite:
     """Add a prerequisite to a challenge.
 
@@ -191,7 +191,7 @@ def _would_create_cycle(challenge_id: UUID, required_challenge_id: UUID) -> bool
     return False
 
 
-def remove_prerequisite(prerequisite_id: UUID, *, actor_id: int) -> None:
+def remove_prerequisite(prerequisite_id: UUID, *, actor_id: object) -> None:
     """Remove a prerequisite.
 
     Args:

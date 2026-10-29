@@ -16,6 +16,8 @@ from shared.channels.groups import notification_user_topic_group
 from shared.enums import WebSocketCloseCode
 from shared.models import WebSocketNotification
 
+pytestmark = pytest.mark.django_db(transaction=True)
+
 
 @pytest.fixture(autouse=True)
 def clear_notification_registry():
@@ -39,9 +41,15 @@ def _enable_notifications(settings):
 
 
 @pytest.fixture
-def user(db):
+def user(db, live_session_credential):
     """Create a test user."""
-    return get_user_model().objects.create_user(username="owner@example.com", email="owner@example.com")
+    account = get_user_model().objects.create_user(username="owner@example.com", email="owner@example.com")
+    account.notification_credential = live_session_credential(account)
+    return account
+
+
+def _scope(user):
+    return {"type": "websocket", "user": user, "credential_context": user.notification_credential}
 
 
 def _register_authorized_topic() -> None:
@@ -156,7 +164,7 @@ async def test_subscribe_before_auth_closes(consumer):
 @pytest.mark.asyncio
 async def test_subscribe_rejects_invalid_topic(consumer, user):
     """Invalid topic syntax closes the socket."""
-    consumer.scope = {"type": "websocket", "user": user}
+    consumer.scope = _scope(user)
     await consumer.connect()
 
     await consumer.receive_json({"type": "subscribe", "topic": "not valid"})
@@ -177,7 +185,7 @@ async def test_subscribe_replays_pending_notifications_and_marks_delivered(consu
         payload={"run_id": 7, "status": "running"},
         expires_at=timezone.now() + timedelta(days=1),
     )
-    consumer.scope = {"type": "websocket", "user": user}
+    consumer.scope = _scope(user)
 
     await consumer.connect()
     await consumer.receive_json({"type": "subscribe", "topic": "experiment:100"})
@@ -197,7 +205,7 @@ async def test_subscribe_replays_pending_notifications_and_marks_delivered(consu
 @pytest.mark.asyncio
 async def test_unsubscribe_discards_known_topic_and_confirms(consumer, user):
     """Unsubscribe leaves a joined topic group and sends an acknowledgement."""
-    consumer.scope = {"type": "websocket", "user": user}
+    consumer.scope = _scope(user)
     await consumer.connect()
     consumer.subscriptions = {"experiment:100"}
 
@@ -223,7 +231,7 @@ async def test_unsubscribe_without_user_returns(consumer):
 @pytest.mark.asyncio
 async def test_unsubscribe_rejects_invalid_topic(consumer, user):
     """Invalid unsubscribe topics close the socket."""
-    consumer.scope = {"type": "websocket", "user": user}
+    consumer.scope = _scope(user)
     await consumer.connect()
 
     await consumer.receive_json({"type": "unsubscribe", "topic": "not valid"})
@@ -258,7 +266,7 @@ async def test_live_dispatch_sends_notification_and_marks_delivered(consumer, us
         payload={"run_id": 8, "status": "completed"},
         expires_at=timezone.now() + timedelta(days=1),
     )
-    consumer.scope = {"type": "websocket", "user": user}
+    consumer.scope = _scope(user)
     consumer.subscriptions = {"experiment:100"}
     consumer._user_id = user.id
 
@@ -323,9 +331,9 @@ async def test_send_notification_without_user_returns(consumer, user):
     consumer.send.assert_not_awaited()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_rejects_unauthorized_subscription(consumer):
+async def test_rejects_unauthorized_subscription(consumer, user):
     """A registered topic must authorize the current user before subscription."""
     from shared.notifications import register_notification_type
 
@@ -334,8 +342,7 @@ async def test_rejects_unauthorized_subscription(consumer):
         topic_prefix="experiment:",
         can_subscribe=lambda _user, _topic: False,
     )
-    user = MagicMock(id=42, is_authenticated=True)
-    consumer.scope = {"type": "websocket", "user": user}
+    consumer.scope = _scope(user)
 
     await consumer.connect()
     await consumer.receive_json({"type": "subscribe", "topic": "experiment:100"})
@@ -364,7 +371,7 @@ async def test_delivery_rechecks_topic_authority(consumer, user):
         payload={"body": "private-canary"},
         expires_at=timezone.now() + timedelta(minutes=1),
     )
-    consumer.scope = {"user": user}
+    consumer.scope = _scope(user)
     consumer._user_id = user.pk
     consumer.subscriptions = {row.topic}
     await consumer._send_notification(row)
@@ -389,7 +396,7 @@ async def test_replay_applies_current_payload_projection(consumer, user):
         payload={"body": "private-canary"},
         expires_at=timezone.now() + timedelta(minutes=1),
     )
-    consumer.scope = {"user": user}
+    consumer.scope = _scope(user)
     consumer._user_id = user.pk
     consumer.subscriptions = {row.topic}
     await consumer._send_notification(row)

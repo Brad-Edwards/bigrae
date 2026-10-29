@@ -7,7 +7,7 @@ Status: pre-implementation architecture guidance
 
 Date: 2026-07-28
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1538>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1538>
 
 This is a requirement-free preflight. GitHub issue #1538 is the shipping
 contract. This note does not implement or rerun a gate, change a runtime path,

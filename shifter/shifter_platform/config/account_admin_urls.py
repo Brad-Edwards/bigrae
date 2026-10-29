@@ -10,7 +10,10 @@ api_patterns = [
     path("", include("management.api.account_admin_urls")),
     path("cms/", include("cms.api.account_admin_urls")),
     path("administer/users/<int:pk>/transfer-ownership/", PolicyAdministerTransferOwnershipView.as_view()),
-    path("administer/users/<int:pk>/grant-organizer/", PolicyAdministerGrantOrganizerView.as_view()),
+    path(
+        "administer/principals/<uuid:principal_uuid>/event-creation-grants/",
+        PolicyAdministerGrantOrganizerView.as_view(),
+    ),
     path("administer/mission-control/lease-policy/", leases.PolicyMissionControlLeasePolicySettingsView.as_view()),
     path("administer/mission-control/lease-policy/tenant/", leases.PolicyMissionControlTenantLeasePolicyView.as_view()),
     path(

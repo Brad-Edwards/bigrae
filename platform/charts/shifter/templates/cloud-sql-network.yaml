@@ -2,7 +2,7 @@
 {{- if empty .Values.cloudSqlProxy.databaseCidrs }}
 {{- fail "Native Cloud SQL requires the exact database address for its egress lane" }}
 {{- end }}
-{{- range $lane := list (dict "name" "platform" "namespace" .Values.namespaces.platform "components" (list "portal" "worker-cms" "worker-engine" "worker-mc" "ctf-communication-worker" "ctf-scheduler" "worker-outbox-drainer" "worker-reconciler" "worker-warm-pool-reconciler" "worker-pack-removal-reconciler" "worker-operation-result-applier" "worker-provisioner-launcher" "model-access-control" "guacamole-bootstrap-prune" "raes-operation-record-prune" "migrator" "guacamole-client" "post-deploy-smoke")) (dict "name" "jobs" "namespace" .Values.namespaces.jobs "components" (list "pulumi-provisioner")) }}
+{{- range $lane := list (dict "name" "platform" "namespace" .Values.namespaces.platform "components" (list "portal" "identity-cutover" "worker-cms" "worker-engine" "worker-mc" "ctf-communication-worker" "ctf-scheduler" "worker-outbox-drainer" "worker-reconciler" "worker-warm-pool-reconciler" "worker-pack-removal-reconciler" "worker-operation-result-applier" "worker-provisioner-launcher" "model-access-control" "guacamole-bootstrap-prune" "raes-operation-record-prune" "migrator" "guacamole-client" "post-deploy-smoke")) (dict "name" "jobs" "namespace" .Values.namespaces.jobs "components" (list "pulumi-provisioner")) }}
 {{- with $ }}
 ---
 apiVersion: networking.k8s.io/v1

@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-22
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/698>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/698>
 
 Superseded note: ADR-027 / issue #1195 removed the legacy `cms.experiments`
 view surface. This preflight is historical and no longer describes active

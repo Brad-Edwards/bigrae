@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import { CONTENT_IMAGE_POLL_MS, ctfKeys } from "./ctf";
 import type {
+  ContentScopeOption,
   CtfAssignBracketResult,
   CtfAward,
   CtfAwardListResponse,
@@ -55,10 +56,11 @@ const BASE = "/ctf";
 
 // --- Events ---------------------------------------------------------------
 
-export function useCtfEvents() {
+export function useCtfEvents(page = 1, search = "") {
+  const query = { page, page_size: 50, search };
   return useQuery({
-    queryKey: ctfKeys.events(),
-    queryFn: ({ signal }) => apiFetch<CtfEventListResponse>(`${BASE}/events/`, { signal }),
+    queryKey: [...ctfKeys.events(), query],
+    queryFn: ({ signal }) => apiFetch<CtfEventListResponse>(`${BASE}/events/`, { query, signal }),
   });
 }
 
@@ -70,11 +72,14 @@ export function useCtfEvent(eventId: string, enabled = true) {
   });
 }
 
-export function useCtfScenarios(enabled = true) {
+export function useCtfScenarios(scope: ContentScopeOption | null) {
+  const query = scope ? {
+    scope_kind: scope.scope_kind, account: scope.account, organization: scope.organization, workspace: scope.workspace,
+  } : undefined;
   return useQuery({
-    queryKey: ctfKeys.scenarios(),
-    enabled,
-    queryFn: ({ signal }) => apiFetch<CtfScenarioListResponse>(`${BASE}/scenarios/`, { signal }),
+    queryKey: [...ctfKeys.scenarios(), query],
+    enabled: scope !== null,
+    queryFn: ({ signal }) => apiFetch<CtfScenarioListResponse>(`${BASE}/scenario-options/`, { query, signal }),
   });
 }
 

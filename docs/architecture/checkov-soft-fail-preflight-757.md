@@ -5,7 +5,7 @@
 
 Status: implemented
 
-Original tracking issue: <https://github.com/Brad-Edwards/shifter/issues/757>
+Original tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/757>
 
 Migrated from: <https://github.com/PaloAltoNetworks/shifter/issues/1192>
 
@@ -49,7 +49,7 @@ gate that runs Checkov against the same config in CI.
 
 ## Implementation summary
 
-Issue [#757](https://github.com/Brad-Edwards/shifter/issues/757) reduced
+Issue [#757](https://github.com/Brad-Edwards/bigrae/issues/757) reduced
 the baseline of 321 first-party Terraform Checkov findings to zero
 unwaived. The work split as follows:
 

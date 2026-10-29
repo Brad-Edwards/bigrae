@@ -28,4 +28,4 @@ Role separation ensures participants cannot accidentally or intentionally modify
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_auth.py` (Dual-role and per-event role assignment tests)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (UserType enum (ctf_organizer, ctf_participant -- no observer))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums_registration.py` (Event-scoped PLAYER and OBSERVER participation roles)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#653` (CTF-604: Participant Roles)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#653` (CTF-604: Participant Roles)

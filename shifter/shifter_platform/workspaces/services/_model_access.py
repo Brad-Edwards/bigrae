@@ -156,37 +156,3 @@ def authorize_model_source_workspace(
         organization_uuid=workspace.organization.uuid,
         role="admin",
     )
-
-
-def list_model_source_users(
-    actor: User, organization_uuid: uuid.UUID, *, search: str = "", page: int = 1
-) -> dict[str, object]:
-    """Tenant-admin directory for explicit source-use grants, with bounded paging."""
-    from django.contrib.auth.models import User
-    from django.db.models import Q
-
-    from workspaces.models import OrganizationMembership, WorkspaceMembership
-
-    current_actor = User.objects.filter(pk=actor.pk, is_active=True).first()
-    if current_actor is None:
-        raise OrganizationAuthorizationError("Organization access denied")
-    actor = current_actor
-    organization, _override = resolve_administrable_organization(actor, organization_uuid)
-    members = WorkspaceMembership.objects.filter(
-        workspace__organization=organization, workspace__archived_at__isnull=True
-    ).values_list("user_id", flat=True)
-    admins = OrganizationMembership.objects.filter(organization=organization).values_list("user_id", flat=True)
-    users = User.objects.filter(Q(pk__in=members) | Q(pk__in=admins), is_active=True)
-    if search:
-        users = users.filter(
-            Q(username__icontains=search) | Q(first_name__icontains=search) | Q(last_name__icontains=search)
-        )
-    users = users.order_by("username", "pk")
-    count = users.count()
-    return {
-        "has_next": page * 25 < count,
-        "results": [
-            {"id": user.pk, "name": user.get_full_name() or user.username, "username": user.username}
-            for user in users[(page - 1) * 25 : page * 25]
-        ],
-    }

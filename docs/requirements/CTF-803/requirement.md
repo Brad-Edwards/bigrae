@@ -21,4 +21,4 @@ Announcements are the organizer's broadcast channel during live events for commu
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#666` (CTF-803: Announcements)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#666` (CTF-803: Announcements)

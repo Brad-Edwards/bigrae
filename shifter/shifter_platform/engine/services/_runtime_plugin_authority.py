@@ -11,7 +11,12 @@ from uuid import UUID
 
 from shared.authorization import AuthorizationRequest, TargetRef
 from shared.authorization.policy import require_authorization
-from shared.credentials import CredentialContext, resolve_credential_scope, resolve_current_credential
+from shared.credentials import (
+    CredentialContext,
+    resolve_credential_scope,
+    resolve_current_credential,
+    resolve_local_credential,
+)
 from shared.exceptions import ValidationError
 from shared.operation_authority import credential_reference_fields, credential_reference_from_record
 
@@ -19,10 +24,20 @@ _PLUGIN_AUTHORITY_UNAVAILABLE = "Plugin authority unavailable"
 _ORGANIZATION_MANAGE_ADAPTERS = "organization.manage_adapters"
 
 
+def current_plugin_credential(credential: object) -> CredentialContext:
+    """Executable installation and binding commands require a persisted native proof."""
+    try:
+        if not isinstance(credential, CredentialContext):
+            raise ValueError("Native plugin credential required")
+        return resolve_current_credential(credential)
+    except ValueError:
+        raise ValidationError(_PLUGIN_AUTHORITY_UNAVAILABLE) from None
+
+
 def admit_plugin_authority(credential: CredentialContext, organization_uuid: UUID) -> dict[str, object]:
     """Resolve the actual organization/account before any secret or installation I/O."""
     try:
-        current = resolve_current_credential(credential)
+        current = current_plugin_credential(credential)
         target = TargetRef("organization", organization_uuid)
         scope = resolve_credential_scope(target)
         require_authorization(
@@ -41,6 +56,22 @@ def admit_plugin_authority(credential: CredentialContext, organization_uuid: UUI
             "authority_owner_uuid": current.principal.uuid,
         }
     except Exception:
+        raise ValidationError(_PLUGIN_AUTHORITY_UNAVAILABLE) from None
+
+
+def fence_plugin_authority(credential: CredentialContext, fields: dict[str, object]) -> None:
+    """Fence current native proof and exact organization ancestry inside SQL."""
+    from shared.operation_authority import authority_resource_scope
+
+    try:
+        organization_uuid = fields["authority_organization_uuid"]
+        if not isinstance(organization_uuid, UUID):
+            raise ValueError("Plugin ancestry unavailable")
+        if resolve_local_credential(credential) != credential or resolve_credential_scope(
+            TargetRef("organization", organization_uuid)
+        ) != authority_resource_scope(fields):
+            raise ValueError("Plugin authority changed")
+    except ValueError:
         raise ValidationError(_PLUGIN_AUTHORITY_UNAVAILABLE) from None
 
 

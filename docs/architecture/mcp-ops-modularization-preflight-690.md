@@ -73,7 +73,7 @@ code moves out of `index.js`.
   Handler-thrown failures must still flow through the policy wrapper so refusal
   and failure audits are not bypassed.
 - `mcp/ops/lib.js::DEFAULT_GITHUB_REPO`, `.ground-control.yaml`, and the repo
-  rules all identify `Brad-Edwards/shifter` as canonical. Workflow dispatch must
+  rules all identify `Brad-Edwards/bigrae` as canonical. Workflow dispatch must
   retain the existing fixed workflow names, `dev` promotion refs, structured
   `-f key=value` argv, and token environment binding. There is no Ground Control
   interaction in the current server; this refactor must not invent one.

@@ -13,6 +13,9 @@ _MODELS = ("organization.manage_model_sources",)
 _ADAPTERS = ("organization.manage_adapters",)
 
 API_OPERATION_POLICY: dict[str, OperationPolicy] = {
+    "cms_content_scopes_retrieve": OperationPolicy(
+        _READ, "scope", "content_scope_collection", selector="policy_filtered_ancestry"
+    ),
     "cms_artifact_preparation_create": OperationPolicy(
         _PREPARE, "scope", "preparation_parent", selector="validated_parent"
     ),
@@ -27,9 +30,6 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "cms_model_source_options_retrieve": OperationPolicy(_READ, "scope", "content_parent", selector="validated_parent"),
     "cms_organizations_model_ranges_retrieve": OperationPolicy(
         _MODELS, "organization", "organization_range_collection"
-    ),
-    "cms_organizations_model_source_users_retrieve": OperationPolicy(
-        _MODELS, "organization", "organization_source_collection"
     ),
     "cms_organizations_model_sources_retrieve": OperationPolicy(
         _MODELS, "organization", "organization_source_collection"
@@ -71,9 +71,9 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "cms_raes_image_mappings_disable_create": OperationPolicy(
         (_INSTALLATION_PREPARE_CONTENT,), "installation", "image_mapping"
     ),
-    "cms_ranges_model_sources_retrieve": OperationPolicy(("range.read",), "range", "range_request"),
-    "cms_ranges_model_sources_update": OperationPolicy(("range.manage",), "range", "range_request"),
-    "cms_ranges_model_sources_revoke_create": OperationPolicy(("range.manage",), "range", "range_request"),
+    "cms_ranges_model_access_retrieve": OperationPolicy(("range.read",), "range", "range_request"),
+    "cms_ranges_model_access_update": OperationPolicy(("range.manage",), "range", "range_request"),
+    "cms_ranges_model_access_revoke_create": OperationPolicy(("range.manage",), "range", "range_request"),
     "api_v1_cms_range_workspace_rebind": OperationPolicy(
         scope_actions("manage_range_scope"), "scope", "range_source_and_destination", selector="both_scopes"
     ),

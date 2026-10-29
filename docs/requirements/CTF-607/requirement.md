@@ -22,4 +22,4 @@ Large CTF events often have support staff who need some admin capabilities witho
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event_staff.py` (Event-scoped moderator, judge, and co-organizer assignment model)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#656` (CTF-607: Admin Roles (Moderator/Judge))
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#656` (CTF-607: Admin Roles (Moderator/Judge))

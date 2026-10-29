@@ -30,6 +30,7 @@ _resolver: PrincipalResolver | None = None
 _uuid_resolver: PrincipalUuidResolver | None = None
 _verified_resolver: VerifiedPrincipalResolver | None = None
 _identity_for_user: PrincipalForUser | None = None
+_identity_for_uuid: PrincipalUuidResolver | None = None
 
 
 def bind_principal_directory(
@@ -38,9 +39,10 @@ def bind_principal_directory(
     uuid_resolver: PrincipalUuidResolver,
     verified_resolver: VerifiedPrincipalResolver | None = None,
     identity_for_user: PrincipalForUser | None = None,
+    identity_for_uuid: PrincipalUuidResolver | None = None,
 ) -> None:
     """Bind the management-owned directory once at composition startup."""
-    global _for_user, _resolver, _uuid_resolver, _verified_resolver, _identity_for_user
+    global _for_user, _resolver, _uuid_resolver, _verified_resolver, _identity_for_user, _identity_for_uuid
     bindings: tuple[tuple[object | None, object], ...] = (
         (_for_user, for_user),
         (_resolver, resolver),
@@ -50,6 +52,8 @@ def bind_principal_directory(
         bindings += ((_verified_resolver, verified_resolver),)
     if identity_for_user is not None:
         bindings += ((_identity_for_user, identity_for_user),)
+    if identity_for_uuid is not None:
+        bindings += ((_identity_for_uuid, identity_for_uuid),)
     if any(current is not None and current is not incoming for current, incoming in bindings):
         raise PrincipalResolutionError("A different principal directory is already bound")
     _for_user = for_user
@@ -59,6 +63,18 @@ def bind_principal_directory(
         _verified_resolver = verified_resolver
     if identity_for_user is not None:
         _identity_for_user = identity_for_user
+    if identity_for_uuid is not None:
+        _identity_for_uuid = identity_for_uuid
+
+
+def principal_identity_for_uuid(principal_uuid: UUID) -> PrincipalRef:
+    """Resolve a retained policy subject; this does not admit the subject as an actor."""
+    if _identity_for_uuid is None:
+        raise PrincipalResolutionError(_DIRECTORY_UNBOUND)
+    try:
+        return _identity_for_uuid(principal_uuid)
+    except Exception as exc:
+        raise PrincipalResolutionError(_PRINCIPAL_UNAVAILABLE) from exc
 
 
 def principal_identity_for_user(user: User) -> PrincipalRef:

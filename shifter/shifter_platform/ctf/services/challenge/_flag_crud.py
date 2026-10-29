@@ -133,7 +133,7 @@ def add_flag(
     challenge_id: UUID,
     flag_data: dict[str, Any],
     *,
-    actor_id: int,
+    actor_id: object,
 ) -> CTFFlag:
     """Add a flag to a challenge.
 
@@ -220,7 +220,7 @@ def update_flag(
     flag_id: UUID,
     flag_data: dict[str, Any],
     *,
-    actor_id: int,
+    actor_id: object,
 ) -> CTFFlag:
     """Update an existing challenge flag (including live-event repairs).
 
@@ -300,7 +300,7 @@ def update_flag(
     return flag_obj
 
 
-def remove_flag(flag_id: UUID, *, actor_id: int) -> None:
+def remove_flag(flag_id: UUID, *, actor_id: object) -> None:
     """Remove a flag from a challenge.
 
     Args:

@@ -13,7 +13,7 @@ and live qualification determine support; source code or a passing compatibility
 probe does not qualify a scenario.
 
 For non-sensitive bugs and feature requests, use
-[the canonical issue tracker](https://github.com/Brad-Edwards/shifter/issues).
+[the canonical issue tracker](https://github.com/Brad-Edwards/bigrae/issues).
 Include the release/commit, selected backend, expected and actual behavior and a
 synthetic reproduction. Remove credentials, signed URLs, private pack identities,
 customer configuration and operational evidence before posting. Keep private

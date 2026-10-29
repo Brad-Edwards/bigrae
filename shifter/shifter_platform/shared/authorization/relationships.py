@@ -10,6 +10,7 @@ from typing import Literal, Protocol
 from uuid import UUID
 
 from .catalog import (
+    ACTION_CATALOG,
     AuthorizationContractError,
     PredefinedPolicyDefinition,
     action_definition,
@@ -17,6 +18,8 @@ from .catalog import (
 )
 from .contracts import TargetRef
 from .model import deny_relation_for_action, grant_relation_for_action
+
+_INVALID_CUTOVER_RELATIONSHIP = "Invalid cutover relationship"
 
 SubjectKind = Literal["principal", "group", "role"]
 RelationshipObjectType = Literal[
@@ -30,6 +33,18 @@ RelationshipObjectType = Literal[
     "event",
     "range",
 ]
+
+_CUTOVER_PARENT_RELATIONS = {
+    ("installation", "account"),
+    ("account", "organization"),
+    ("organization", "workspace"),
+    ("account", "event"),
+    ("organization", "event"),
+    ("workspace", "event"),
+}
+_CUTOVER_EVENT_GRANTS = {
+    grant_relation_for_action(action.code) for action in ACTION_CATALOG if action.target_type == "event"
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +71,128 @@ class RelationshipTuple:
     user: str
     relation: str
     object: str
+
+
+@dataclass(frozen=True, slots=True)
+class HierarchyRelationshipChange:
+    """One SQL-owned parent relationship published by a runtime command."""
+
+    user: str
+    relation: str
+    object: str
+
+    def __post_init__(self) -> None:
+        user_type, user_id = _cutover_object(self.user)
+        object_type, _ = _cutover_object(self.object)
+        if (
+            (user_type, object_type) not in _CUTOVER_PARENT_RELATIONS
+            or self.relation != user_type
+            or (user_type == "installation" and user_id != "root")
+        ):
+            raise AuthorizationContractError("Invalid hierarchy relationship")
+
+    @property
+    def effect(self) -> PolicyEffect:
+        """Represent this retained relationship as a grant."""
+        return PolicyEffect.GRANT
+
+    @property
+    def grant_tuple(self) -> RelationshipTuple:
+        """Project the exact subject, relation and object tuple."""
+        return RelationshipTuple(self.user, self.relation, self.object)
+
+    @property
+    def deny_tuple(self) -> RelationshipTuple:
+        """Expose the same tuple for the common grant-only change contract."""
+        return self.grant_tuple
+
+    @property
+    def writes(self) -> tuple[RelationshipTuple, ...]:
+        """Return the single relationship to publish."""
+        return (self.grant_tuple,)
+
+    @property
+    def deletes(self) -> tuple[RelationshipTuple, ...]:
+        """Keep existing relationships when publishing this grant."""
+        return ()
+
+
+@dataclass(frozen=True, slots=True)
+class CutoverRelationshipChange:
+    """One closed, grant-only relationship replayed by the S8 cutover.
+
+    This is deliberately narrower than the provider tuple API. It accepts only
+    hierarchy parents and explicit administrator dispositions produced by the
+    cutover planner.
+    """
+
+    user: str
+    relation: str
+    object: str
+
+    def __post_init__(self) -> None:
+        user_type, user_id = _cutover_object(self.user)
+        object_type, _ = _cutover_object(self.object)
+        valid_parent = (user_type, object_type) in _CUTOVER_PARENT_RELATIONS and self.relation == user_type
+        valid_principal_grant = _cutover_principal_grant(user_type, object_type, self.relation)
+        if user_type == "installation" and user_id != "root":
+            valid_parent = False
+        if not valid_parent and not valid_principal_grant:
+            raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP)
+
+    @property
+    def effect(self) -> PolicyEffect:
+        """Represent this retained relationship as a grant."""
+        return PolicyEffect.GRANT
+
+    @property
+    def grant_tuple(self) -> RelationshipTuple:
+        """Project the exact subject, relation and object tuple."""
+        return RelationshipTuple(self.user, self.relation, self.object)
+
+    @property
+    def deny_tuple(self) -> RelationshipTuple:
+        """Expose the same tuple for the common grant-only change contract."""
+        return self.grant_tuple
+
+    @property
+    def writes(self) -> tuple[RelationshipTuple, ...]:
+        """Return the single relationship to publish."""
+        return (self.grant_tuple,)
+
+    @property
+    def deletes(self) -> tuple[RelationshipTuple, ...]:
+        """Keep existing relationships when publishing this grant."""
+        return ()
+
+
+def _cutover_principal_grant(user_type: str, object_type: str, relation: str) -> bool:
+    """Accept only the closed administrator and event-action dispositions in a cutover plan."""
+    if user_type != "principal":
+        return False
+    administrator = relation == "direct_administrator" and object_type in {"organization", "workspace", "event"}
+    event_grant = object_type == "event" and relation in _CUTOVER_EVENT_GRANTS
+    return administrator or event_grant
+
+
+def _cutover_object(value: str) -> tuple[str, str]:
+    """Parse one cutover object without admitting arbitrary provider syntax."""
+    try:
+        object_type, object_id = value.split(":", 1)
+    except ValueError as exc:
+        raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP) from exc
+    if object_type == "installation":
+        if object_id != "root":
+            raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP)
+    elif object_type in {"principal", "account", "organization", "workspace", "event"}:
+        try:
+            if UUID(object_id).int == 0:
+                raise ValueError
+        except ValueError as exc:
+            raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP) from exc
+    else:
+        raise AuthorizationContractError(_INVALID_CUTOVER_RELATIONSHIP)
+    return object_type, object_id
 
 
 class AuthorizationProviderError(RuntimeError):
@@ -251,6 +388,7 @@ class AdministrativeRoleChange(_MonotonicChange):
 
     @property
     def deny_tuple(self) -> RelationshipTuple:
+        """Project the explicit exclusion for this predefined administrative role."""
         return RelationshipTuple(
             self.subject.openfga_user,
             f"deny_{self._definition.relation}",
@@ -259,7 +397,12 @@ class AdministrativeRoleChange(_MonotonicChange):
 
 
 type AuthorizationRelationshipChange = (
-    PolicyRelationshipChange | GroupMembershipChange | RoleAssignmentChange | AdministrativeRoleChange
+    PolicyRelationshipChange
+    | GroupMembershipChange
+    | RoleAssignmentChange
+    | AdministrativeRoleChange
+    | HierarchyRelationshipChange
+    | CutoverRelationshipChange
 )
 
 

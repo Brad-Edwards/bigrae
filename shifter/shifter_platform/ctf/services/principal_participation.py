@@ -15,6 +15,8 @@ from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.principal_port import resolve_principal
 
+_EVENT_PARTICIPATE = "event.participate"
+
 _PARTICIPATION_DENIED = "Participation denied"
 
 
@@ -57,13 +59,13 @@ def admit_service_participant(
 def participant_for_credential(credential: CredentialContext, event_uuid: UUID) -> CTFParticipant:
     """Resolve exact participation under current proof, live policy and lifecycle."""
     resolve_principal(credential.principal)
-    if not credential.ceiling.permits("event.participate", TargetRef("event", event_uuid)):
+    if not credential.ceiling.permits(_EVENT_PARTICIPATE, TargetRef("event", event_uuid)):
         raise ValueError(_PARTICIPATION_DENIED)
     if credential.kind == "temporary":
         if credential.event_uuid != event_uuid:
             raise ValueError(_PARTICIPATION_DENIED)
     else:
-        require_event_action(credential, event_uuid, "event.participate")
+        require_event_action(credential, event_uuid, _EVENT_PARTICIPATE)
     now = timezone.now()
     participant = CTFParticipant.objects.filter(
         eligible_participant_q(),
@@ -75,4 +77,40 @@ def participant_for_credential(credential: CredentialContext, event_uuid: UUID) 
     ).first()
     if participant is None:
         raise ValueError(_PARTICIPATION_DENIED)
+    return participant
+
+
+def viewing_participant_for_credential(credential: CredentialContext, event_uuid: UUID) -> CTFParticipant:
+    """Admit exact participant reads, including disqualified and finished-event viewing."""
+    from ctf.services.participant import viewing_participant_q
+    from ctf.services.participant.accounts import live_participant_for_user
+    from management.services import is_ctf_password_change_required
+    from shared.credentials import resolve_current_credential
+
+    credential = resolve_current_credential(credential)
+    if not credential.ceiling.permits(_EVENT_PARTICIPATE, TargetRef("event", event_uuid)):
+        raise ValueError(_PARTICIPATION_DENIED)
+    if credential.kind == "temporary":
+        if credential.event_uuid != event_uuid:
+            raise ValueError(_PARTICIPATION_DENIED)
+    else:
+        require_event_action(credential, event_uuid, _EVENT_PARTICIPATE)
+    participant = (
+        CTFParticipant.objects.select_related("user")
+        .filter(
+            viewing_participant_q(),
+            principal_uuid=credential.principal.uuid,
+            event_id=event_uuid,
+            event__deleted_at__isnull=True,
+        )
+        .first()
+    )
+    if participant is None:
+        raise ValueError(_PARTICIPATION_DENIED)
+    if credential.kind == "temporary":
+        if participant.user is None or is_ctf_password_change_required(participant.user):
+            raise ValueError(_PARTICIPATION_DENIED)
+        live = live_participant_for_user(participant.user)
+        if live is None or live.pk != participant.pk:
+            raise ValueError(_PARTICIPATION_DENIED)
     return participant

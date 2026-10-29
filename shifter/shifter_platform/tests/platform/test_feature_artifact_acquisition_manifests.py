@@ -82,7 +82,7 @@ def _launcher_job() -> dict[str, Any]:
 
 
 def _allows(policy: dict[str, Any], job: dict[str, Any], username: str = LAUNCHER) -> bool:
-    return _semantic_policy_allows(policy, username, job, IMAGE, parameter_data={})
+    return _semantic_policy_allows(policy, username, job, parameter_data={})
 
 
 def _container(job: dict[str, Any]) -> dict[str, Any]:

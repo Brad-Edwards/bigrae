@@ -5,16 +5,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from cms.models import RaesPackageSource, ScenarioMetadata
+from cms.models import ScenarioMetadata
 from cms.scenarios.realizability import get_scenario_realizability
-from cms.scenarios.registry import get_catalog_entry
-from shared.audit import AuditAction
 from shared.credentials import CredentialContext
 from shared.identity_scope import ResourceScope
 from shared.log_sanitize import safe_log_value
 from shared.raes.realizability import RealizabilityOutcome
 
-from ._common import ScenarioEditorError, audit_scenario_change, validate_user
+from ._common import ScenarioEditorError
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -23,17 +21,6 @@ logger = logging.getLogger(__name__)
 
 #: Cap on gaps quoted in a refusal so the message stays readable and bounded.
 _MAX_REPORTED_GAPS = 3
-
-
-def _verify_scenario_exists(scenario_id: str, *, user: User) -> None:
-    """Confirm the RAES source exists before metadata changes."""
-    if get_catalog_entry(scenario_id, user=user) is None:
-        logger.error(
-            "update_metadata: scenario not found, scenario_id=%s, user_id=%s",
-            safe_log_value(scenario_id),
-            user.id,
-        )
-        raise ScenarioEditorError(f"Scenario '{scenario_id}' not found")
 
 
 #: Outcomes that permit publication. ``INDETERMINATE`` is deliberately absent:
@@ -108,67 +95,9 @@ def update_metadata(
     enabled: bool | None = None,
     staff_only: bool | None = None,
 ) -> ScenarioMetadata:
-    """Update availability metadata for a RAES package source."""
-    if isinstance(user, CredentialContext):
-        from ._scoped_metadata import update_scoped_metadata
+    """Mutate availability only under an admitted native credential and source lock."""
+    if not isinstance(user, CredentialContext):
+        raise ScenarioEditorError("Scenario metadata authority unavailable")
+    from ._scoped_metadata import update_scoped_metadata
 
-        return update_scoped_metadata(user, scenario_id, enabled=enabled, staff_only=staff_only)
-    source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
-    if source is not None and source.organization_uuid is not None:
-        from workspaces.services import get_organization_profile
-
-        get_organization_profile(user, source.organization_uuid)
-    else:
-        validate_user(user, "update_metadata")
-    logger.debug(
-        "update_metadata called for user_id=%s, scenario_id=%s",
-        user.id,
-        safe_log_value(scenario_id),
-    )
-
-    try:
-        _verify_scenario_exists(scenario_id, user=user)
-        _assert_publishable(scenario_id, enabled=enabled)
-
-        metadata, created = ScenarioMetadata.objects.get_or_create(
-            scenario_id=scenario_id,
-            defaults={
-                "enabled": enabled if enabled is not None else True,
-                "staff_only": staff_only if staff_only is not None else False,
-                "updated_by": user,
-            },
-        )
-
-        if not created:
-            update_fields = ["updated_by", "updated_at"]
-            if enabled is not None:
-                metadata.enabled = enabled
-                update_fields.append("enabled")
-            if staff_only is not None:
-                metadata.staff_only = staff_only
-                update_fields.append("staff_only")
-            metadata.updated_by = user
-            metadata.save(update_fields=update_fields)
-    except (TypeError, ScenarioEditorError):
-        raise
-    except Exception:
-        logger.exception(
-            "Error in update_metadata for user_id=%s, scenario_id=%s",
-            user.id,
-            safe_log_value(scenario_id),
-        )
-        raise
-
-    audit_scenario_change(
-        action=AuditAction.UPDATE,
-        actor_id=user.id,
-        state={"scenario_id": scenario_id, "enabled": metadata.enabled, "staff_only": metadata.staff_only},
-    )
-    logger.info(
-        "Scenario metadata updated: scenario_id=%s, enabled=%s, staff_only=%s by user_id=%s",
-        safe_log_value(scenario_id),
-        metadata.enabled,
-        metadata.staff_only,
-        user.id,
-    )
-    return metadata
+    return update_scoped_metadata(user, scenario_id, enabled=enabled, staff_only=staff_only)

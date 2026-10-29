@@ -75,23 +75,20 @@ def project_event_model_scope(
 
 
 def _system_preparation(event: CTFEvent, spare_id: UUID) -> SystemPreparationAuthority:
-    """Prove the real unconsumed spare/owner under CTF's locks, not a caller flag."""
+    """Prove the real unconsumed event spare under CTF's locks, not a caller flag."""
     spare = (
-        CTFSpareRange.objects.select_for_update(of=("self", "owner_user"))
-        .select_related("owner_user")
+        CTFSpareRange.objects.select_for_update(of=("self",))
         .filter(
             pk=spare_id,
             event=event,
             status="provisioning",
             consumed_by__isnull=True,
-            owner_user__is_active=False,
-            owner_user__profile__deleted_at__isnull=True,
         )
         .first()
     )
-    if spare is None or spare.owner_user is None or spare.owner_user.has_usable_password():
+    if spare is None:
         raise ContractError("allocation.system_owner_unavailable")
     return SystemPreparationAuthority(
-        owner_ref=OwnedReference(owner="management", reference=f"user:{spare.owner_user_id}"),
+        owner_ref=OwnedReference(owner="management", reference=f"principal:{event.owner_principal_uuid}"),
         spare_id=spare.pk,
     )

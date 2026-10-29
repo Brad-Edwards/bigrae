@@ -23,4 +23,4 @@ Topics enable filtering challenges by attack technique across events, which is v
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFTopic model and topics M2M on CTFChallenge)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (_resolve_topics() and topics in create_challenge/update_challenge)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#552` (CTF-119: Challenge Topics)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#552` (CTF-119: Challenge Topics)

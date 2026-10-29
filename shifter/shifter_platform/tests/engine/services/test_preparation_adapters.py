@@ -16,7 +16,10 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
-def administrator():
+def administrator(monkeypatch):
+    from tests.engine.services._preparation_fixtures import preparation_policy
+
+    preparation_policy(monkeypatch)
     actor = User.objects.create_user(username="adapter-admin")
     actor.user_permissions.add(Permission.objects.get(codename="manage_preparation_adapters"))
     return actor

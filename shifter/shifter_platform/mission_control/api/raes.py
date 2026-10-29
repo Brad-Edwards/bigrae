@@ -32,6 +32,7 @@ from mission_control.api.serializers import (
     RaesRecordQuerySerializer,
     RangeCleanupOutcomeResponseSerializer,
 )
+from shared.api.principals import authenticated_credential
 from shared.exceptions import CMSError
 from shared.raes.projections import (
     RECORD_KIND_OPERATION_RECEIPT,
@@ -49,7 +50,7 @@ class _RaesRecordListView(MissionControlReadAPIView):
 
     def get(self, request: Request, request_id: UUID) -> Response:
         """Return newest-first redacted records for the owned range's request_id."""
-        actor = self.actor_user()
+        actor = authenticated_credential(request)
         # Authorize BEFORE touching the sidecar. Not-owned and unknown both 404.
         try:
             get_range_by_request_id(actor, str(request_id))
@@ -122,7 +123,7 @@ class RangeCleanupOutcomeView(MissionControlReadAPIView):
     )
     def get(self, request: Request, request_id: UUID) -> Response:
         """Return the cleanup outcome for the owned range's request_id."""
-        actor = self.actor_user()
+        actor = authenticated_credential(request)
         try:
             # Terminal-aware: the cleanup surface must authorize and report on
             # DESTROYED/FAILED ranges, not 404 the terminal outcomes it advertises.

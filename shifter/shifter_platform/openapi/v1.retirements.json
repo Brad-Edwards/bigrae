@@ -151,6 +151,76 @@
           "method": "post"
         }
       ]
+    },
+    {
+      "adr": "ADR-066",
+      "issue": 2321,
+      "parameters": [
+        {"path": "/api/v1/ctf/communications/", "method": "get", "name": "workspace_id", "in": "query"}
+      ],
+      "paths": [
+        "/api/v1/administer/users/{id}/grant-organizer/",
+        "/api/v1/cms/organizations/{organization_uuid}/model-source-users/",
+        "/api/v1/cms/ranges/{request_id}/model-sources/",
+        "/api/v1/cms/ranges/{request_id}/model-sources/revoke/",
+        "/api/v1/cms/ranges/{request_id}/workspace/",
+        "/api/v1/ctf/events/{event_id}/staff/",
+        "/api/v1/ctf/events/{event_id}/staff/{user_id}/",
+        "/api/v1/ctf/events/{event_id}/transfer-ownership/",
+        "/api/v1/ctf/scenarios/",
+        "/api/v1/workspaces/",
+        "/api/v1/workspaces/context/",
+        "/api/v1/workspaces/organizations/",
+        "/api/v1/workspaces/organizations/{organization_uuid}/",
+        "/api/v1/workspaces/{workspace_uuid}/",
+        "/api/v1/workspaces/{workspace_uuid}/authorization/direct-assignments/",
+        "/api/v1/workspaces/{workspace_uuid}/authorization/groups/",
+        "/api/v1/workspaces/{workspace_uuid}/authorization/groups/{group_uuid}/memberships/",
+        "/api/v1/workspaces/{workspace_uuid}/authorization/operations/{operation_uuid}/",
+        "/api/v1/workspaces/{workspace_uuid}/authorization/policies/",
+        "/api/v1/workspaces/{workspace_uuid}/authorization/policies/{policy_uuid}/actions/",
+        "/api/v1/workspaces/{workspace_uuid}/authorization/policies/{policy_uuid}/assignments/",
+        "/api/v1/workspaces/{workspace_uuid}/authorization/predefined-assignments/",
+        "/api/v1/workspaces/{workspace_uuid}/invitations/",
+        "/api/v1/workspaces/{workspace_uuid}/invitations/{invitation_uuid}/resend/",
+        "/api/v1/workspaces/{workspace_uuid}/invitations/{invitation_uuid}/revoke/",
+        "/api/v1/workspaces/{workspace_uuid}/membership/",
+        "/api/v1/workspaces/{workspace_uuid}/memberships/",
+        "/api/v1/workspaces/{workspace_uuid}/memberships/leave/",
+        "/api/v1/workspaces/{workspace_uuid}/memberships/{user_id}/remove/",
+        "/api/v1/workspaces/{workspace_uuid}/memberships/{user_id}/role/",
+        "/api/v1/workspaces/{workspace_uuid}/transfer/"
+      ],
+      "response_schema_properties": [
+        {
+          "schema": "CommunicationCreate",
+          "property": "workspace_id"
+        },
+        {
+          "schema": "EventOwnershipTransferRequest",
+          "property": "user_id"
+        },
+        {
+          "schema": "EventStaffAssignRequest",
+          "property": "email"
+        },
+        {
+          "schema": "EventStaffMember",
+          "property": "email"
+        },
+        {
+          "schema": "EventStaffMember",
+          "property": "user_id"
+        },
+        {
+          "schema": "ModelSourceConfiguration",
+          "property": "allow_organization_members"
+        },
+        {
+          "schema": "ModelSourceConfiguration",
+          "property": "allowed_user_ids"
+        }
+      ]
     }
   ]
 }

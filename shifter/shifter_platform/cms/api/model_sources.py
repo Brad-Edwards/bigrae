@@ -18,12 +18,17 @@ from engine.services import (
 )
 from shared.api.errors import api_error_response
 from shared.api.model_sources import ModelSourceRevisionField
-from shared.api.permissions import IsAuthenticatedSession
+from shared.api.permissions import IsAuthenticatedSessionOrApiToken
+from shared.api.principals import authenticated_credential
 from shared.api.strict_json import ClosedJSONParser
+from shared.api_tokens.permissions import require_scope
+from shared.api_tokens.scopes import AUTHORIZATION_ACTION_SCOPES
 from shared.model_access import ContractError
 from workspaces.services import OrganizationAuthorizationError
 
 from .preparation_adapters import PreparationSerializer
+
+_MANAGE_ORGANIZATION_MODEL_SOURCES = "organization.manage_model_sources"
 
 
 class ModelSourceConfigurationSerializer(PreparationSerializer):
@@ -55,8 +60,6 @@ class ModelSourceConfigurationSerializer(PreparationSerializer):
     output_price_per_million = serializers.IntegerField(min_value=0)
     currency = serializers.ChoiceField(choices=["AUD", "CAD", "CHF", "EUR", "GBP", "JPY", "USD"], default="USD")
     price_valid_until = serializers.DateTimeField()
-    allow_organization_members = serializers.BooleanField(default=False)
-    allowed_user_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), max_length=256, default=list)
     upstream_provider = serializers.CharField(max_length=100, allow_blank=True, required=False, default="")
 
 
@@ -112,13 +115,19 @@ def _error(request: Request, exc: OrganizationAuthorizationError | ContractError
 class ModelSourceListCreateView(APIView):
     """List and create sources for an administrable organization."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = [
+        IsAuthenticatedSessionOrApiToken,
+        require_scope(
+            AUTHORIZATION_ACTION_SCOPES[_MANAGE_ORGANIZATION_MODEL_SOURCES],
+        ),
+    ]
     parser_classes = [ClosedJSONParser]
 
     @extend_schema(responses=ModelSourcePageSerializer)
     def get(self, request: Request, organization_uuid: UUID) -> Response:
         try:
-            return Response({"results": [asdict(row) for row in list_model_sources(request.user, organization_uuid)]})
+            credential = authenticated_credential(request)
+            return Response({"results": [asdict(row) for row in list_model_sources(credential, organization_uuid)]})
         except OrganizationAuthorizationError as exc:
             return _error(request, exc)
 
@@ -127,8 +136,10 @@ class ModelSourceListCreateView(APIView):
         body = ModelSourceWriteSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         try:
+            credential = authenticated_credential(request)
             return Response(
-                asdict(create_model_source(request.user, organization_uuid, **body.validated_data)), status=201
+                asdict(create_model_source(credential, organization_uuid, **body.validated_data)),
+                status=201,
             )
         except (OrganizationAuthorizationError, ContractError) as exc:
             return _error(request, exc)
@@ -137,7 +148,10 @@ class ModelSourceListCreateView(APIView):
 class ModelSourceDetailView(APIView):
     """Replace a source only at its expected revision."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = [
+        IsAuthenticatedSessionOrApiToken,
+        require_scope(AUTHORIZATION_ACTION_SCOPES[_MANAGE_ORGANIZATION_MODEL_SOURCES]),
+    ]
     parser_classes = [ClosedJSONParser]
 
     @extend_schema(request=ModelSourceUpdateSerializer, responses=ModelSourceViewSerializer)
@@ -146,7 +160,11 @@ class ModelSourceDetailView(APIView):
         body.is_valid(raise_exception=True)
         try:
             return Response(
-                asdict(update_model_source(request.user, organization_uuid, source_id, **body.validated_data))
+                asdict(
+                    update_model_source(
+                        authenticated_credential(request), organization_uuid, source_id, **body.validated_data
+                    )
+                )
             )
         except (OrganizationAuthorizationError, ContractError) as exc:
             return _error(request, exc)
@@ -155,13 +173,21 @@ class ModelSourceDetailView(APIView):
 class UsableModelSourceListView(APIView):
     """List sources explicitly available to the current actor."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = [
+        IsAuthenticatedSessionOrApiToken,
+        require_scope(AUTHORIZATION_ACTION_SCOPES[_MANAGE_ORGANIZATION_MODEL_SOURCES]),
+    ]
 
     @extend_schema(responses=ModelSourcePageSerializer)
     def get(self, request: Request, organization_uuid: UUID) -> Response:
         try:
             return Response(
-                {"results": [asdict(row) for row in list_usable_model_sources(request.user, organization_uuid)]}
+                {
+                    "results": [
+                        asdict(row)
+                        for row in list_usable_model_sources(authenticated_credential(request), organization_uuid)
+                    ]
+                }
             )
         except OrganizationAuthorizationError as exc:
             return _error(request, exc)
@@ -176,7 +202,10 @@ class CredentialRetirementSerializer(serializers.Serializer):
 class ModelSourceCredentialRetirementView(APIView):
     """Retire obsolete credentials after checking live references."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = [
+        IsAuthenticatedSessionOrApiToken,
+        require_scope(AUTHORIZATION_ACTION_SCOPES[_MANAGE_ORGANIZATION_MODEL_SOURCES]),
+    ]
     parser_classes = [ClosedJSONParser]
 
     @extend_schema(request=PreparationSerializer, responses=CredentialRetirementSerializer)
@@ -185,46 +214,11 @@ class ModelSourceCredentialRetirementView(APIView):
         body.is_valid(raise_exception=True)
         try:
             return Response(
-                {"retired": retire_unused_model_source_credentials(request.user, organization_uuid, source_id)}
+                {
+                    "retired": retire_unused_model_source_credentials(
+                        authenticated_credential(request), organization_uuid, source_id
+                    )
+                }
             )
         except (OrganizationAuthorizationError, ContractError) as exc:
-            return _error(request, exc)
-
-
-class ModelSourceUserSerializer(serializers.Serializer):
-    """Tenant directory identity for an explicit source-use grant."""
-
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    username = serializers.CharField()
-
-
-class ModelSourceUserPageSerializer(serializers.Serializer):
-    """Bounded directory results and continuation indicator."""
-
-    has_next = serializers.BooleanField()
-    results = ModelSourceUserSerializer(many=True)
-
-
-class ModelSourceUserQuerySerializer(PreparationSerializer):
-    """Search and paging inputs for the tenant directory."""
-
-    search = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
-    page = serializers.IntegerField(min_value=1, max_value=1000000, default=1)
-
-
-class ModelSourceUsersView(APIView):
-    """Search tenant members eligible for explicit source-use grants."""
-
-    permission_classes = [IsAuthenticatedSession]
-
-    @extend_schema(parameters=[ModelSourceUserQuerySerializer], responses=ModelSourceUserPageSerializer)
-    def get(self, request: Request, organization_uuid: UUID) -> Response:
-        from workspaces.services import list_model_source_users
-
-        query = ModelSourceUserQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        try:
-            return Response(list_model_source_users(request.user, organization_uuid, **query.validated_data))
-        except OrganizationAuthorizationError as exc:
             return _error(request, exc)

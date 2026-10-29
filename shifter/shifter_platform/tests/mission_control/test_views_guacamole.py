@@ -18,6 +18,7 @@ map; ``TestGenerateRdpUrlSftpRoot`` covers that pass-through.
 from __future__ import annotations
 
 import json
+import sys
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -57,13 +58,28 @@ def other_user(db):
 
 
 @pytest.fixture
-def mock_user():
-    """A no-DB user input for the bootstrap status/open views (no engine calls)."""
-    user = MagicMock()
-    user.id = 1
-    user.email = "u@example.com"
-    user.is_authenticated = True
-    return user
+def mock_user(native_guacamole):
+    """A durable user for bootstrap status/open authorization checks."""
+    return native_guacamole.user
+
+
+@pytest.fixture(autouse=True)
+def referenced_session_authentication(monkeypatch, live_session_credential):
+    """Make direct DRF view requests carry the same session proof as production."""
+    from django.contrib.auth import get_user_model
+
+    original = force_authenticate
+    user_model = get_user_model()
+    sessions = {}
+
+    def authenticate(request, user=None, token=None):
+        if isinstance(user, user_model) and token is None:
+            if user.pk not in sessions:
+                sessions[user.pk] = getattr(user, "credential", None) or live_session_credential(user)
+            token = sessions[user.pk]
+        return original(request, user=user, token=token)
+
+    monkeypatch.setattr(sys.modules[__name__], "force_authenticate", authenticate)
 
 
 @pytest.fixture(autouse=True)
@@ -91,6 +107,19 @@ def _json(response):
     return json.loads(response.content)
 
 
+@pytest.fixture
+def denied_remote_policy(monkeypatch):
+    from types import SimpleNamespace
+
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+    monkeypatch.setattr(
+        port,
+        "_provider_factory",
+        lambda: SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied")),
+    )
+
+
 def _get_status(rf, user, request_id):
     from mission_control.api.views import guacamole_bootstrap_status
 
@@ -115,17 +144,17 @@ class TestGuacamoleBootstrapStatus:
 
         from django.utils import timezone
 
-        from mission_control.models import GuacamoleBootstrapRequest
-
         defaults = {
-            "user_id": mock_user.id,
-            "protocol": GuacamoleBootstrapRequest.Protocol.RDP,
-            "target_id": "vm-1",
             "status": status,
+            "result_url": "",
             "expires_at": timezone.now() + timedelta(minutes=5),
         }
         defaults.update(overrides)
-        return GuacamoleBootstrapRequest.objects.create(**defaults)
+        row = mock_user.native_bootstrap
+        for name, value in defaults.items():
+            setattr(row, name, value)
+        row.save(update_fields=list(defaults))
+        return row
 
     def test_returns_404_for_other_user(self, rf, mock_user):
         from datetime import timedelta
@@ -197,10 +226,8 @@ class TestGuacamoleBootstrapStatus:
 
         from mission_control.models import GuacamoleBootstrapRequest
 
-        bootstrap = GuacamoleBootstrapRequest.objects.create(
-            user_id=mock_user.id,
-            protocol=GuacamoleBootstrapRequest.Protocol.RDP,
-            target_id="vm-1",
+        bootstrap = self._bootstrap(
+            mock_user,
             status=GuacamoleBootstrapRequest.Status.PENDING,
             expires_at=timezone.now() - timedelta(seconds=1),
         )
@@ -252,10 +279,8 @@ class TestGuacamoleBootstrapStatus:
 
         from mission_control.models import GuacamoleBootstrapRequest
 
-        bootstrap = GuacamoleBootstrapRequest.objects.create(
-            user_id=mock_user.id,
-            protocol=GuacamoleBootstrapRequest.Protocol.RDP,
-            target_id="vm-1",
+        bootstrap = self._bootstrap(
+            mock_user,
             status=GuacamoleBootstrapRequest.Status.SUCCEEDED,
             result_url="https://guac/secret-token",
             expires_at=timezone.now() - timedelta(seconds=1),
@@ -279,12 +304,12 @@ class TestGuacamoleBootstrapStatus:
         body = response.content.decode("utf-8")
         assert f"api/v1/mission-control/guacamole/bootstrap/{bootstrap.id}/" in body
 
-    def test_open_page_returns_404_for_other_user(self, rf, mock_user):
+    def test_open_page_returns_404_for_other_user(self, rf, mock_user, other_user):
         from mission_control.models import GuacamoleBootstrapRequest
 
-        bootstrap = self._bootstrap(mock_user, user_id=2, status=GuacamoleBootstrapRequest.Status.PENDING)
+        bootstrap = self._bootstrap(mock_user, status=GuacamoleBootstrapRequest.Status.PENDING)
 
-        response = _get_open(rf, mock_user, bootstrap.id)
+        response = _get_open(rf, other_user, bootstrap.id)
 
         assert response.status_code == 404
 
@@ -328,11 +353,11 @@ class TestGuacamoleRDPURL:
         # raises ValueError -> polled FAILED bootstrap with status 400.
         request = _post(rf, "/mc/guac/rdp/", {"instance_uuid": str(uuid4())}, user)
         response = guacamole_rdp_url(request)
-        assert response.status_code == 202
-        status = _get_status(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
+        assert response.status_code == 403
 
-    def test_rejects_instance_owned_by_another_user(self, rf, user, other_user, guac_configured, range_rdp_instance):
+    def test_explicit_policy_denial_rejects_foreign_instance(
+        self, rf, user, other_user, guac_configured, range_rdp_instance, denied_remote_policy
+    ):
         from mission_control.api.views import guacamole_rdp_url
 
         _rng, instance = range_rdp_instance(other_user, os_type="windows")
@@ -340,10 +365,7 @@ class TestGuacamoleRDPURL:
 
         response = guacamole_rdp_url(request)
 
-        assert response.status_code == 202
-        status = _get_status(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
-        assert _json(status)["error"] == "Resource not found"
+        assert response.status_code == 403
 
     def test_returns_bootstrap_status_url_on_success(
         self, rf, user, guac_configured, range_rdp_instance, secrets_boundary, guac_exchange
@@ -442,11 +464,11 @@ class TestGuacamoleSSHURL:
         # polled FAILED bootstrap with status 400.
         request = _post(rf, "/mc/guac/ssh/", {"instance_uuid": str(uuid4())}, user)
         response = guacamole_ssh_url(request)
-        assert response.status_code == 202
-        status = _get_status(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
+        assert response.status_code == 403
 
-    def test_rejects_instance_owned_by_another_user(self, rf, user, other_user, guac_configured, range_ssh_instance):
+    def test_explicit_policy_denial_rejects_foreign_instance(
+        self, rf, user, other_user, guac_configured, range_ssh_instance, denied_remote_policy
+    ):
         from mission_control.api.views import guacamole_ssh_url
 
         _rng, instance = range_ssh_instance(other_user)
@@ -454,10 +476,7 @@ class TestGuacamoleSSHURL:
 
         response = guacamole_ssh_url(request)
 
-        assert response.status_code == 202
-        status = _get_status(rf, user, _json(response)["request_id"])
-        assert status.status_code == 400
-        assert _json(status)["error"] == "Resource not found"
+        assert response.status_code == 403
 
     def test_returns_500_when_secrets_manager_fails(
         self, rf, user, guac_configured, range_ssh_instance, secrets_boundary, secrets_client_factory

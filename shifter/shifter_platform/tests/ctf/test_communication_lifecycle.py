@@ -14,7 +14,6 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
 from ctf.enums_communication import DeliveryStatus, IntentStatus
 from ctf.models import (
@@ -37,12 +36,9 @@ from ctf.services.communication import (
     purge_expired_communications,
     release_campaign,
 )
+from tests.ctf._account_scope import individual_account_scope_fields, individual_account_uuid
 
 pytestmark = pytest.mark.django_db
-
-
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
 
 
 def _participant(event, email):
@@ -59,7 +55,7 @@ def _released_campaign(organizer_user, ctf_event, *, occurrence="occ", range_gen
     _participant(ctf_event, "a@test.com")
     campaign = create_campaign(
         organizer_user,
-        _workspace_uuid(organizer_user),
+        individual_account_uuid(organizer_user),
         CampaignDraft(
             title="Kickoff",
             origin="organizer_staff",
@@ -70,6 +66,7 @@ def _released_campaign(organizer_user, ctf_event, *, occurrence="occ", range_gen
             subject="Welcome",
             body="Hello",
         ),
+        parent_type="account",
     )
     intent = release_campaign(
         campaign, occurrence_key=occurrence, actor_user_id=organizer_user.id, range_generation_ref=range_generation_ref
@@ -146,7 +143,7 @@ def test_retention_purges_communications_past_the_window(organizer_user):
     past_event = CTFEvent.objects.create(
         name="Long over",
         created_by=organizer_user,
-        workspace_id=workspace_services.resolve_personal_workspace(organizer_user).workspace_id,
+        **individual_account_scope_fields(organizer_user),
         event_start=timezone.now() - timedelta(days=200),
         event_end=timezone.now() - timedelta(days=199),
     )
