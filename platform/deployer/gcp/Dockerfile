@@ -68,12 +68,12 @@ RUN uv export --project scripts/bootstrap --frozen --no-dev --no-emit-project \
 # base image: python:3.12-slim-trixie
 FROM python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS tools
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-# Keep each tool at the latest release of its line (Terraform 1.16, Helm 3,
+# Keep each tool at the latest release of its line (Terraform 1.17, Helm 3,
 # kubectl 1.34, Trivy, ORAS 1.3). Older releases carry fixable HIGH and CRITICAL
 # findings in their compiled Go dependencies.
-ARG TERRAFORM_VERSION=1.16.7
-# From terraform_1.16.7_SHA256SUMS (signature checked with HashiCorp key C874011F0AB405110D02105534365D9472D7468F).
-ARG TERRAFORM_SHA256=5454efcf7fc87f0c2113111b9a5c7182f0ca1c6f0f23a1e110a50770a8fe473b
+ARG TERRAFORM_VERSION=1.17.1
+# From terraform_1.17.1_SHA256SUMS (signature checked with HashiCorp key C874011F0AB405110D02105534365D9472D7468F).
+ARG TERRAFORM_SHA256=4638628058e71a55212b1c563712eac03b902128f40740f3dc8174df12135061
 ARG HELM_VERSION=v3.22.1
 ARG HELM_SHA256=896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
 ARG KUBECTL_VERSION=v1.34.13
@@ -125,6 +125,28 @@ RUN find /opt/bigrae/platform/terraform/gcp -name .terraform.lock.hcl -printf '%
       /out/bin/terraform -chdir="${root}" providers mirror -platform=linux_amd64 /opt/bigrae/terraform-providers && \
       rm -rf "${TF_DATA_DIR}" || exit 1; \
     done < /opt/bigrae/terraform-roots
+
+# ---------------------------------------------------------------------------
+# Build gke-gcloud-auth-plugin with fixed Go, x/net, and x/text dependencies so
+# the deployer scan needs no plugin-specific exceptions. CVE-2026-56857 affects
+# Windows only; the other Go and module findings apply to the vendor's Linux
+# binary. The Go image and upstream source commit are pinned, and go.sum
+# verifies each module. Keep both pins current. Return to the Google binary
+# when it passes the deployer scan without plugin-specific exceptions.
+# ---------------------------------------------------------------------------
+# base image: golang:1.27.3-trixie
+FROM golang@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS gke-auth-plugin
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# The commit that tag v37.1.13 points to.
+ARG CLOUD_PROVIDER_GCP_COMMIT=8ee7ffa8eec98eb6e9a560a5276131516da1e359
+WORKDIR /src
+RUN git init -q . && \
+    git fetch -q --depth 1 https://github.com/kubernetes/cloud-provider-gcp.git "${CLOUD_PROVIDER_GCP_COMMIT}" && \
+    git checkout -q FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "${CLOUD_PROVIDER_GCP_COMMIT}" && \
+    CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags "-s -w" \
+      -o /out/gke-gcloud-auth-plugin ./cmd/gke-gcloud-auth-plugin && \
+    /out/gke-gcloud-auth-plugin --help >/dev/null
 
 # ---------------------------------------------------------------------------
 # Runtime image.

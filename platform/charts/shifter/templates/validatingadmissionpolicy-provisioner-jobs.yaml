@@ -83,7 +83,7 @@ spec:
       expression: "('DB_AUTH_MODE' in variables.paramData) && variables.paramData['DB_AUTH_MODE'] == 'cloud-sql-proxy' && ('CLOUD_PROVIDER' in variables.paramData) && variables.paramData['CLOUD_PROVIDER'] == 'gcp'"
     - name: cloudSqlProxyArgs
       expression: >-
-        ['--auto-iam-authn', '--private-ip', '--address=127.0.0.1', '--port=5432', '--structured-logs', '--health-check', '--http-address=0.0.0.0', '--http-port=9801', '--run-connection-test', ('CLOUD_SQL_INSTANCE_CONNECTION_NAME' in variables.paramData) ? variables.paramData['CLOUD_SQL_INSTANCE_CONNECTION_NAME'] : '']
+        ['--auto-iam-authn', '--private-ip', '--address=127.0.0.1', '--port=5432', '--structured-logs', '--health-check', '--http-address=0.0.0.0', '--http-port=9801', '--run-connection-test', string(('CLOUD_SQL_INSTANCE_CONNECTION_NAME' in variables.paramData) ? variables.paramData['CLOUD_SQL_INSTANCE_CONNECTION_NAME'] : '')]
     {{- if eq .Values.provisioner.taskRunner "aws" }}
     # AWS (EKS) provisioner env contract (#1826). Derived from the AWS runtime
     # env the provisioner used to receive via its ECS task definition, mirroring
@@ -112,7 +112,7 @@ spec:
       expression: "variables.cloudSqlNative ? ['FIELD_ENCRYPTION_KEY'] : ['DB_PASSWORD', 'FIELD_ENCRYPTION_KEY']"
     {{- end }}
   validations:
-    - expression: "!variables.targetsProvisioner || !variables.cloudSqlNative || variables.containers.all(c, has(c.env) && !c.env.exists(e, e.name == 'DB_PASSWORD') && c.env.exists(e, e.name == 'DB_HOST' && e.value == '127.0.0.1') && c.env.exists(e, e.name == 'DB_PORT' && e.value == '5432') && c.env.exists(e, e.name == 'DB_USER' && e.value.matches('^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam$')))"
+    - expression: "!variables.targetsProvisioner || !variables.cloudSqlNative || variables.containers.all(c, has(c.env) && !c.env.exists(e, e.name == 'DB_PASSWORD') && c.env.exists(e, e.name == 'DB_HOST' && e.value == '127.0.0.1') && c.env.exists(e, e.name == 'DB_PORT' && e.value == '5432') && c.env.exists(e, e.name == 'DB_USER' && e.value.matches('^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9][.]iam$')))"
       message: "Native database authentication requires loopback and the provisioner IAM login without a password."
       reason: Forbidden
     # RBAC and admission name the same dedicated launcher identity.
