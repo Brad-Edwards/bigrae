@@ -44,6 +44,7 @@ KMS_KEY_SUFFIXES = ("google_kms_crypto_key.artifact_registry", "google_kms_key_r
 COMMAND_OWNED_KEYS = frozenset(
     {
         "project_id",
+        "adopt_artifact_registry_kms",
         "region",
         "artifact_registry_location",
         "environment",
@@ -226,9 +227,10 @@ def terraform_apply(
     max_attempts: int = 12,
     sleep_seconds: int = 10,
     sleep: Callable[[float], None] = time.sleep,
+    extra_args: tuple[str, ...] = (),
 ) -> None:
     """Apply the platform root, retrying only IAM propagation failures."""
-    argv = ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args())
+    argv = ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), *extra_args)
     for attempt in range(1, max_attempts + 1):
         result = runner.run(argv, env=ctx.env, check=False)
         if result.stdout:
@@ -287,6 +289,34 @@ def apply_destroy_settings(runner: ProcessRunner, ctx: TerraformContext) -> None
         env=ctx.env,
         capture=False,
     )
+
+
+def artifact_registry_kms_adoption(
+    runner: ProcessRunner, ctx: TerraformContext, inputs: DeploymentInputs
+) -> tuple[str, ...]:
+    """Return the apply arguments that adopt a key ring that a previous destroy left behind (#2643)."""
+    if any(address.endswith(suffix) for address in state_addresses(runner, ctx) for suffix in KMS_KEY_SUFFIXES):
+        return ()
+    key_ring = f"shifter-{inputs.environment}-ar"
+    exists = runner.run(
+        [
+            "gcloud",
+            "kms",
+            "keyrings",
+            "describe",
+            key_ring,
+            "--location",
+            inputs.region,
+            "--project",
+            inputs.project_id,
+        ],
+        env=ctx.env,
+        check=False,
+    )
+    if exists.returncode != 0:
+        return ()
+    info(f"Adopting the existing Artifact Registry key ring {key_ring} and its key")
+    return ("-var=adopt_artifact_registry_kms=true",)
 
 
 def drop_unremovable_kms_resources(runner: ProcessRunner, ctx: TerraformContext) -> None:
