@@ -74,12 +74,35 @@ with bounded errors. API errors use authored messages through `shared.api.errors
 
 ## Inbox and socket policy
 
+The [participant inbox boundary note](../../design/ctf-participant-inbox-boundaries-2053.md)
+(#2053) records the preflight constraints, including CTF-014's trusted-app,
+branding and Django/gettext boundaries. It does not claim multilingual SPA support.
+The [participant inbox design](../../architecture/ctf-participant-inbox-design-2053.md)
+records the receipt states, views, content checks, security controls and data flow.
+
 `ctf.services.communication.inbox` matches event, immutable participant public
 identity and user together. A committed receipt and released intent prove in-app
-availability. A GET never creates or changes a receipt. Read/ack actions lock and
-recheck live participation, then set the first timestamp idempotently. The pinned
+availability. Inbox reads exclude campaigns past the retention cut-off from
+`retention.expired_campaign_ids`, so purge lag does not extend access. A GET never
+creates or changes a receipt. `interact_with_receipt` takes one closed
+`ReceiptAction` (`read`, `dismiss`, `acknowledge`). It locks the event, the
+participant and the receipt, rechecks live participation, and then sets that
+action's first timestamp. No action changes another timestamp. The pinned
 acknowledgement policy governs explicit acknowledgement. Retained inbox access
 is distinct from permission to compete or temporary-account lifetime.
+
+`InboxFilter` selects the list view. `inbox` hides a dismissed message only when
+its pinned policy has no open obligation. `action_required` lists open
+obligations. `dismissed` lists dismissed messages. The list adds inbox-wide counts
+and the deployment link-host allowlist. Every inbox response carries Django's
+never-cache headers (`no-store`, `private`). Validation errors use one generic
+`invalid` envelope that does not repeat the input.
+
+Admission parses the body with `markdown-it-py` (CommonMark, tables and
+strikethrough). It rejects image tokens, HTML tokens, link targets outside the
+policy, GFM `www.` autolinks and rendered output above 131,072 bytes. The link-host
+setting rejects `localhost` and IP literals at startup. The participant inbox and
+the organizer preview render under the same server-projected allowlist.
 
 The exact `/ws/notifications/` path is admitted for an eligible temporary account
 after password change, through the existing origin/session/account stack. The
@@ -87,8 +110,11 @@ consumer retains the actual native credential and checks topic policy on
 subscription, replay and each delivery. It projects retained payloads
 through the current registration. CTF wake-ups contain references only; legacy
 bodies become a refresh hint. Revocation at final send retains the undelivered
-receipt. The communication Markdown profile on the canonical
-renderer rejects media and non-allowlisted navigation at render time.
+receipt. The SPA shell refetches the inbox on a `communication` hint and
+refetches CTF reads on a `refresh` hint. It drops other frames. The
+communication Markdown profile on the canonical renderer drops media and renders
+non-allowlisted links as plain text. An unknown content profile shows no body
+and offers no read or acknowledge action.
 
 ## Public contract and verification
 
