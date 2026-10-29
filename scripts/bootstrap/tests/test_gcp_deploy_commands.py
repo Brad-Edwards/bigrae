@@ -357,13 +357,18 @@ class TestOtherCommands:
         )
         for name in (
             "terraform_init",
-            "lift_sql_deletion_protection",
+            "apply_destroy_settings",
             "drop_unremovable_kms_resources",
             "terraform_destroy",
         ):
             monkeypatch.setattr(
                 f"gcp_terraform.{name}", lambda *a, _n=name, **k: steps.append((_n, os.environ.get(IMPERSONATION_KEY)))
             )
+        monkeypatch.setattr(
+            gcp_destroy,
+            "remove_platform_release",
+            lambda *a, **k: steps.append(("remove_platform_release", os.environ.get(IMPERSONATION_KEY))),
+        )
         with pytest.raises(GcpDeployError, match="--confirm"):
             run_destroy(DestroyOptions(source=str(bundle), confirm="other", lock="external"), runner=FakeRunner())
         assert (
@@ -373,7 +378,8 @@ class TestOtherCommands:
         assert steps[0] == "verified"
         assert [step[0] for step in steps[1:]] == [
             "terraform_init",
-            "lift_sql_deletion_protection",
+            "remove_platform_release",
+            "apply_destroy_settings",
             "drop_unremovable_kms_resources",
             "terraform_destroy",
         ]
@@ -384,6 +390,30 @@ class TestOtherCommands:
             runner=FakeRunner(),
         )
         assert "verified" not in steps
+
+    def test_destroy_uninstalls_the_release_before_terraform(self, bundle, tmp_path: Path):
+        # The Ingress controller removes its load balancer only while the cluster exists (#2640).
+        inputs = load_deployment_inputs(str(bundle), tmp_path / "w", FakeRunner(), {})
+        absent = FakeRunner().on(["gcloud", "container", "fleet", "memberships", "describe"], ProcessResult(1))
+        gcp_destroy.remove_platform_release(absent, inputs)
+        assert not absent.find("helm")
+        no_release = FakeRunner().on(["helm", "status"], ProcessResult(1))
+        gcp_destroy.remove_platform_release(no_release, inputs)
+        assert no_release.find("helm", "status") and not no_release.find("helm", "uninstall")
+        installed = FakeRunner()
+        gcp_destroy.remove_platform_release(installed, inputs)
+        uninstall = installed.find("helm", "uninstall")[0].argv
+        assert uninstall == [
+            "helm",
+            "uninstall",
+            "shifter",
+            "--namespace",
+            "shifter-system",
+            "--wait",
+            "--timeout",
+            "15m",
+        ]
+        assert installed.find("gcloud", "container", "fleet", "memberships", "get-credentials")
 
     def test_destroy_tooling_verification_checks_release_provenance(
         self, bundle, manifest, monkeypatch, tmp_path: Path
