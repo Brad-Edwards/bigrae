@@ -219,6 +219,68 @@ class TestDetailAndMutation:
             new_state__operation="event.lifecycle.activate",
         ).exists()
 
+    def test_superuser_participant_range_action_records_intent_and_outcome(self, superuser_client, other_event):
+        """A per-participant range action through the override gets the ADR-052-R4 audit (#2617).
+
+        The participant has no range, so the real range service refuses the stop:
+        the intent is recorded before the attempt and the failure after it.
+        """
+        from django.utils import timezone
+
+        from ctf.models import CTFParticipant
+
+        participant = CTFParticipant.objects.create(
+            event=other_event, email="p@test.com", name="p", status="active", registered_at=timezone.now()
+        )
+
+        resp = call_json(
+            superuser_client, "post", "api_stop_participant_range", kwargs={"participant_id": participant.id}
+        )
+
+        assert resp.status_code == 400
+        outcomes = list(
+            AuditLog.objects.filter(context="ctf_event_action", new_state__operation="range.participant.stop")
+            .order_by("sequence")
+            .values_list("new_state__outcome", flat=True)
+        )
+        assert outcomes == ["intent", "failed"]
+        organizer_row = AuditLog.objects.get(context="ctf_organizer_participant_range_action")
+        assert organizer_row.new_state["authority_source"] == "policy"
+
+    def test_service_range_action_retains_native_principal_audit(self, ctf_participant, settings, monkeypatch):
+        """The real no-range failure records its service actor without inventing a User."""
+        from types import SimpleNamespace
+
+        from rest_framework.test import APIRequestFactory, force_authenticate
+
+        from ctf.api.organizer.ranges import ParticipantRangeStopView
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
+        from tests.cms._warm_pool_fixtures import service_credential
+
+        credential = service_credential(settings, scopes=["authorization:event.manage_ranges", "ctf:event:write"])
+        monkeypatch.setattr(
+            port,
+            "_provider_factory",
+            lambda: SimpleNamespace(
+                check=lambda request: AuthorizationDecision(
+                    DecisionKind.ALLOWED if request.principal == credential.principal else DecisionKind.DENIED,
+                    "policy_allowed" if request.principal == credential.principal else "policy_denied",
+                )
+            ),
+        )
+        request = APIRequestFactory().post("/", {})
+        force_authenticate(request, user=None, token=credential)
+        response = ParticipantRangeStopView.as_view()(request, participant_id=ctf_participant.pk)
+        assert response.status_code == 400
+        assert response.data["error"]["message"] == "Could not process range request."
+        row = AuditLog.objects.get(context="ctf_organizer_participant_range_action")
+        assert row.actor_type == "principal" and row.actor_id is None
+        assert row.actor_principal_uuid == credential.principal.uuid
+        assert row.new_state["authority_source"] == "policy"
+        effects = AuditLog.objects.filter(context="ctf_event_action", new_state__operation="range.participant.stop")
+        assert list(effects.order_by("sequence").values_list("new_state__outcome", flat=True)) == ["intent", "failed"]
+        assert all(effect.actor_principal_uuid == credential.principal.uuid for effect in effects)
+
 
 class TestNestedMutationPolicyAudit:
     """Nested event-derived mutations retain principal policy audit evidence."""

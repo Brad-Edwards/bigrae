@@ -142,17 +142,41 @@ class TestRealtimeBus:
         assert not WebSocketNotification.objects.exists()
 
     def test_subscription_authorization(
-        self, ctf_event_active, participant_user, organizer_user, django_user_model, live_session_credential
+        self,
+        ctf_event_active,
+        participant_user,
+        organizer_user,
+        django_user_model,
+        live_session_credential,
+        monkeypatch,
     ):
         from ctf.services.notification.realtime import _can_subscribe, event_topic
+        from shared.authorization import AuthorizationDecision, DecisionKind, configured_authorization_provider
 
         _register(ctf_event_active, "member", user=participant_user)
         stranger = django_user_model.objects.create_user(username="s@test.com", email="s@test.com")
         topic = event_topic(ctf_event_active.pk)
+        organizer_proof = live_session_credential(organizer_user)
 
-        assert _can_subscribe(live_session_credential(organizer_user), topic) is True
+        assert _can_subscribe(organizer_proof, topic) is True
         assert _can_subscribe(live_session_credential(participant_user), topic) is True
         assert _can_subscribe(live_session_credential(stranger), topic) is False
+
+        # Keep the same live proof and owner; revoke only native read policy (#2617).
+        provider = configured_authorization_provider()
+        check = provider.check
+        checked = []
+
+        def deny_current_grant(request):
+            if request.action == "event.read" and request.principal == organizer_proof.principal:
+                checked.append(request)
+                return AuthorizationDecision(DecisionKind.DENIED, "policy_denied")
+            return check(request)
+
+        monkeypatch.setattr(provider, "check", deny_current_grant)
+        assert _can_subscribe(organizer_proof, topic) is False
+        assert checked
+        assert _can_subscribe(live_session_credential(participant_user), topic) is True
 
     def test_first_blood_published_once(self, ctf_event_active, participant_user, monkeypatch):
         from ctf.enums import ChallengeCategory, ChallengeDifficulty

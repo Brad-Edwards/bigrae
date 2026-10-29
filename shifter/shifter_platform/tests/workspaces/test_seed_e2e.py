@@ -16,7 +16,7 @@ from workspaces.management.commands.seed_e2e import (
     STANDARD_EMAIL,
     THREAT_EMAIL,
 )
-from workspaces.models import Account, HierarchyPublication, OrganizationMembership, WorkspaceMembership
+from workspaces.models import Account, HierarchyPublication, OrganizationMembership, Workspace, WorkspaceMembership
 
 User = get_user_model()
 
@@ -47,6 +47,8 @@ def test_seed_creates_synthetic_actors_and_org_authority(seed_provider):
     assert not OrganizationMembership.objects.filter(user=staff).exists()
     assert not WorkspaceMembership.objects.filter(user=staff).exists()
     assert not HierarchyPublication.objects.exclude(state="confirmed").exists()
+    workspace = Workspace.objects.get(organization__account=business, organization__is_default=True, is_default=True)
+    assert workspace.personal_for_user_id is None
 
     threat = User.objects.get(username=THREAT_EMAIL)
     assert threat.groups.filter(name="Threat Research").exists()

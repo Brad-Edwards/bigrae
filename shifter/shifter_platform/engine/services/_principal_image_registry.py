@@ -74,6 +74,7 @@ def upsert_operator_image(
             or PreparedArtifactAdmission.objects.filter(image_mapping=existing).exists()
         ):
             raise PermissionError(_IMAGE_REGISTRY_UNAVAILABLE)
+        previous_state = _mapping_audit_state(existing) if existing is not None else None
         row, _ = RaesImageMapping.objects.update_or_create(
             **selection,
             defaults=defaults,
@@ -83,7 +84,7 @@ def upsert_operator_image(
                 "catalog_publication_scope": "operator",
             },
         )
-        _audit_image(row, current)
+        _audit_image(row, current, previous_state)
         return row
 
 
@@ -101,22 +102,37 @@ def disable_operator_image(credential: object, *, key: Mapping[str, object]) -> 
             raise RaesImageMappingError("Image mapping unavailable")
         if row.owner_principal_uuid is None:
             raise PermissionError(_IMAGE_REGISTRY_UNAVAILABLE)
+        previous_state = _mapping_audit_state(row)
         row.enabled = False
         row.save(update_fields=["enabled", "updated_at"])
-        _audit_image(row, current)
+        _audit_image(row, current, previous_state)
         return row
 
 
-def _audit_image(row: RaesImageMapping, current: CredentialContext) -> None:
-    """Record exact principal attribution for the persisted installation image."""
+def _mapping_audit_state(row: RaesImageMapping) -> dict[str, object]:
+    """Capture the locked image selection before or after a registry mutation."""
+    return {
+        "image_mapping_id": row.pk,
+        "provider": row.provider,
+        "source_name": row.source_name,
+        "source_version": row.source_version,
+        "image_ref": row.image_ref,
+        "image_kind": row.image_kind,
+        "enabled": row.enabled,
+    }
+
+
+def _audit_image(row: RaesImageMapping, current: CredentialContext, previous_state: dict[str, object] | None) -> None:
+    """Commit principal attribution and exact before/after images with the mutation."""
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.CONFIG,
             entity_id=row.pk,
-            entity_ref=str(row.pk),
-            action=AuditAction.UPDATE,
+            entity_ref=f"raes-image-mapping:{row.provider}:{row.source_name}@{row.source_version or '*'}",
+            action=AuditAction.UPDATE if previous_state is not None else AuditAction.CREATE,
             **principal_actor_fields(current.principal),
-            new_state={"image_mapping_id": row.pk, "enabled": row.enabled},
+            previous_state=previous_state,
+            new_state=_mapping_audit_state(row),
             context="installation_image_registry",
         ),
         strict=True,

@@ -310,3 +310,33 @@ def test_event_time_change_keeps_an_independent_scheduled_communication(organize
     assert task.metadata["intent_id"] == str(intent.id)
     starts = CTFScheduledTask.objects.filter(task_type=ScheduledTaskType.EVENT_START.value)
     assert starts.filter(status=ScheduledTaskStatus.PENDING.value, scheduled_for=ctf_event.event_start).count() == 1
+
+
+def test_due_release_denies_an_author_demoted_from_organizer(organizer_user, ctf_event, monkeypatch):
+    """A live owner cannot release after its native communication grant is withdrawn (#2617)."""
+    from shared.authorization import AuthorizationDecision, DecisionKind, configured_authorization_provider
+
+    due = timezone.now() - timezone.timedelta(minutes=1)
+    _campaign, intent, credential = _scheduled(organizer_user, ctf_event, due_at=due)
+    task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
+    provider = configured_authorization_provider()
+    check = provider.check
+    checked = []
+
+    def deny_current_grant(request):
+        if request.action == "event.manage_communications":
+            checked.append(request)
+            return AuthorizationDecision(DecisionKind.DENIED, "policy_denied")
+        return check(request)
+
+    monkeypatch.setattr(provider, "check", deny_current_grant)
+
+    result = run_release_communication_task(task)
+
+    assert checked and all(request.principal == credential.principal for request in checked)
+    assert ApiToken.objects.get(credential_uuid=credential.credential_uuid).is_active
+    ctf_event.refresh_from_db()
+    assert ctf_event.owner_principal_uuid == credential.principal.uuid
+    assert result["outcome"] == "denied"
+    assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.EXPIRED.value
+    assert not RecipientSnapshot.objects.filter(intent=intent).exists()

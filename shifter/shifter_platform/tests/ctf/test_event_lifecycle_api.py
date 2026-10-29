@@ -112,6 +112,41 @@ class TestTaskControls:
         resp = call_json(client, "post", "api_event_cleanup", kwargs={"event_id": event.id}, body={"action": "cancel"})
         assert resp.status_code == 409
 
+    def test_service_cleanup_admits_before_atomic_mutation_and_audits_principal(self, scheduled, settings, monkeypatch):
+        """Service cleanup keeps provider calls outside its atomic mutation and audit."""
+        from types import SimpleNamespace
+
+        from django.db import connection
+        from rest_framework.test import APIClient
+
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
+        from shared.models import AuditLog
+        from tests.cms._warm_pool_fixtures import service_credential
+
+        event, _ = scheduled
+        credential = service_credential(settings, scopes=["authorization:event.manage_lifecycle", "ctf:event:write"])
+        # The rollback fixture owns an outer transaction; the request must not
+        # add its mutation transaction until provider admission is complete.
+        outer_transactions = tuple(connection.atomic_blocks)
+
+        def check(request):
+            assert tuple(connection.atomic_blocks) == outer_transactions
+            assert request.principal == credential.principal
+            return AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")
+
+        monkeypatch.setattr(port, "_provider_factory", lambda: SimpleNamespace(check=check))
+        client = APIClient()
+        client.force_authenticate(user=None, token=credential)
+        response = call_json(
+            client, "post", "api_event_cleanup", kwargs={"event_id": event.pk}, body={"action": "cancel"}
+        )
+        assert response.status_code == 200, response.content
+        assert CTFScheduledTask.objects.get(event=event, task_type="cleanup_ranges").status == "cancelled"
+        row = AuditLog.objects.get(context="ctf_event_action", new_state__operation="event.cleanup.cancel")
+        assert row.actor_type == "principal" and row.actor_id is None
+        assert row.actor_principal_uuid == credential.principal.uuid
+        assert row.new_state["authority_source"] == "policy"
+
 
 class TestSchedulerRetry:
     def test_retry_backs_off_then_fails(self, ctf_event):

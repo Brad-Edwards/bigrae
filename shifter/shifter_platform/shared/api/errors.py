@@ -7,6 +7,7 @@ from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
+from shared.audit import accepted_request_id
 from shared.errors import classify_user_message, safe_user_message
 
 _REQUIRED_FIELD_MESSAGE = "This field is required."
@@ -185,9 +186,8 @@ def _request_id(request: object | None) -> str | None:
     """Return a request correlation ID when middleware or headers provide one."""
     if request is None:
         return None
-    request_id = getattr(request, "request_id", None)
+    request_id = accepted_request_id(getattr(request, "request_id", None))
     if request_id:
-        return str(request_id)
+        return request_id
     meta = getattr(request, "META", {})
-    request_id = meta.get("HTTP_X_REQUEST_ID") if isinstance(meta, dict) else None
-    return str(request_id) if request_id else None
+    return accepted_request_id(meta.get("HTTP_X_REQUEST_ID")) if isinstance(meta, dict) else None

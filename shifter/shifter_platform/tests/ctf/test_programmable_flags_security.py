@@ -222,6 +222,19 @@ class TestDNSRebindingProtection:
         ):
             _resolve_and_validate("mixed.example.com", 443)
 
+    @pytest.mark.parametrize("answer", ["100.64.0.10", "100.127.255.254", "192.0.0.8"])
+    def test_resolve_and_validate_rejects_non_global_special_ranges(self, answer):
+        """Shared address space and other non-global ranges are blocked, not only RFC 1918 (#2617)."""
+        with (
+            patch(
+                "ctf.validators.socket.getaddrinfo",
+                return_value=_fake_addrinfo(answer),
+            ),
+            pytest.raises(_BlockedDestinationError),
+        ):
+            _resolve_and_validate("cgnat.example.com", 443)
+        assert is_blocked_url(f"https://{answer}/validate") is True
+
     def test_resolve_and_validate_rejects_multicast(self):
         with (
             patch(

@@ -310,3 +310,35 @@ def test_collection_authority_query_matches_live_staff_resolver(ctf_event, secon
     CTFEventStaff.all_objects.filter(pk=staff.pk).update(deleted_at=timezone.now())
     assert not visible()
     assert resolve_event_authority(second_organizer_user, ctf_event, capability="notifications") is None
+
+
+def test_demoted_event_owner_loses_communications(organizer_user, ctf_event, monkeypatch):
+    """The same live proof loses read/write access when native communication policy is revoked (#2617)."""
+    from shared.authorization import AuthorizationDecision, DecisionKind, configured_authorization_provider
+
+    client, _ = token_client(organizer_user, ["ctf:communication:write", "ctf:communication:read"])
+    created = client.post(URL, body(ctf_event, organizer_user), format="json")
+    assert created.status_code == 201
+    detail_url = f"{URL}{created.json()['id']}/"
+    assert client.get(detail_url).status_code == 200
+    provider = configured_authorization_provider()
+    check = provider.check
+    checked = []
+
+    def deny_current_grant(request):
+        if request.action == "event.manage_communications":
+            checked.append(request)
+            return AuthorizationDecision(DecisionKind.DENIED, "policy_denied")
+        return check(request)
+
+    monkeypatch.setattr(provider, "check", deny_current_grant)
+
+    denied_read = client.get(detail_url)
+    assert denied_read.status_code == 404
+    assert denied_read.json()["error"]["code"] == "not_found"
+    checks_after_read = len(checked)
+    denied_write = client.post(URL, body(ctf_event, organizer_user), format="json")
+    assert denied_write.status_code == 404
+    assert denied_write.json()["error"]["code"] == "not_found"
+    assert len(checked) > checks_after_read > 0
+    assert CommunicationCampaign.objects.count() == 1

@@ -263,9 +263,26 @@ class TestStaffAssignment:
         listing = call_json(authenticated_organizer_client, "get", "api_event_staff", kwargs={"event_id": ctf_event.id})
         assert [s["role"] for s in listing.json()["staff"]] == ["judge"]
 
-    def test_assign_rejects_unknown_email_and_bad_role(self, ctf_event, authenticated_organizer_client):
+    def test_assign_rejects_unknown_principal_and_bad_role(self, ctf_event, authenticated_organizer_client):
         assert _assign(authenticated_organizer_client, ctf_event, "nobody@test.com", "moderator").status_code == 404
         assert _assign(authenticated_organizer_client, ctf_event, "organizer@test.com", "sheriff").status_code == 400
+
+    def test_legacy_email_selector_reveals_no_account_presence(self, ctf_event, authenticated_organizer_client):
+        """The UUID-only endpoint gives identical errors for known and unknown email selectors (#2617)."""
+        errors = []
+        for email in ("organizer@test.com", "nobody@test.com"):
+            response = call_json(
+                authenticated_organizer_client,
+                "post",
+                "api_event_staff",
+                kwargs={"event_id": ctf_event.pk},
+                body={"email": email, "role": "moderator"},
+            )
+            assert response.status_code == 400
+            error = response.json()["error"]
+            errors.append({key: error.get(key) for key in ("code", "message", "details")})
+            assert email not in response.content.decode()
+        assert errors[0] == errors[1]
 
     def test_assign_rejects_owner_and_accepts_active_human_principal(
         self, ctf_event, authenticated_organizer_client, participant_user

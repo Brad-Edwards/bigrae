@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 import workspaces.services as ws
-from ctf.api._base import HasActiveCTFActor, ctf_error_response
+from ctf.api._base import HasActiveCTFActor, HasCTFEventAdminAccess, ctf_error_response
 from ctf.api.communication_schema import CommunicationSchema
 from ctf.api.serializers.communication import (
     CommunicationCampaignSummarySerializer,
@@ -103,9 +103,12 @@ class CommunicationView(APIView):
     """Bearer-first auth, closed JSON and canonical domain error translation."""
 
     schema = CommunicationSchema()
+    # Admit current non-temporary credentials. Owning services recheck exact
+    # native policy on every command/read; event ownership alone grants no access.
     permission_classes = [
         IsAuthenticatedSessionOrApiToken,
         HasActiveCTFActor,
+        HasCTFEventAdminAccess,
         require_scope(CTF_COMMUNICATION_READ, CTF_COMMUNICATION_WRITE),
     ]
     parser_classes = [CommunicationJSONParser]

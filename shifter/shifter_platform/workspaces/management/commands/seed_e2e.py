@@ -8,6 +8,9 @@ The browser suite uses native principals, account hierarchy and explicit policy
 relationships against the same released OpenFGA server as other integration
 tests. Django flags and groups remain presentation fixtures only. Re-running
 this command repairs only these named synthetic fixtures in a dev/test stack.
+The staff actor administers a team account and its default organization and
+workspace through native policy. Shared workspace journeys do not use an
+individual account or legacy membership rows (#2617).
 """
 
 from __future__ import annotations

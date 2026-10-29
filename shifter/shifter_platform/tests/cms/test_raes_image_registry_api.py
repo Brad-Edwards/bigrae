@@ -414,3 +414,52 @@ def test_registry_validation_response_uses_public_message(api_client, staff_user
     assert response.status_code == 400
     assert response.json()["error"]["message"] == "Unsupported image provider"
     assert "internal-storage-diagnostic" not in response.content.decode()
+
+
+def test_registry_changes_are_audited_with_actor_and_previous_image(api_client, threat_research_user):
+    """Each boot-image change names the actor and the old and new image (#2617)."""
+    from shared.audit import AuditAction, AuditEntityType
+    from shared.models import AuditLog
+
+    api_client.force_authenticate(user=threat_research_user)
+    payload = {"provider": "gce", "source_name": "kali", "image_ref": "img-a"}
+
+    assert api_client.post(LIST_CREATE_URL, payload, format="json").status_code == 200
+    assert api_client.post(LIST_CREATE_URL, {**payload, "image_ref": "img-b"}, format="json").status_code == 200
+    assert api_client.post(DISABLE_URL, {"provider": "gce", "source_name": "kali"}, format="json").status_code == 200
+
+    rows = list(AuditLog.objects.filter(entity_type=AuditEntityType.CONFIG).order_by("sequence"))
+    assert [row.action for row in rows] == [AuditAction.CREATE, AuditAction.UPDATE, AuditAction.UPDATE]
+    assert {row.actor_id for row in rows} == {None}
+    assert {row.actor_principal_uuid for row in rows} == {threat_research_user.identity_principal.uuid}
+    assert rows[0].previous_state is None
+    assert rows[0].new_state["image_ref"] == "img-a"
+    assert rows[1].previous_state["image_ref"] == "img-a"
+    assert rows[1].new_state["image_ref"] == "img-b"
+    assert rows[2].previous_state["enabled"] is True
+    assert rows[2].new_state["enabled"] is False
+    assert rows[0].entity_ref == "raes-image-mapping:gce:kali@*"
+
+
+@pytest.mark.parametrize("operation", ["replace", "disable"])
+def test_registry_change_rolls_back_when_audit_fails(api_client, threat_research_user, monkeypatch, operation):
+    """The owning audit and boot-image change commit together for both HTTP writes."""
+    api_client.force_authenticate(user=threat_research_user)
+    payload = {"provider": "gce", "source_name": "synthetic-image", "image_ref": "img-before"}
+    assert api_client.post(LIST_CREATE_URL, payload, format="json").status_code == 200
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("Synthetic audit outage")
+
+    monkeypatch.setattr("engine.services._principal_image_registry.audit_log", fail_audit)
+    url = LIST_CREATE_URL if operation == "replace" else DISABLE_URL
+    data = (
+        {**payload, "image_ref": "img-after"}
+        if operation == "replace"
+        else {"provider": "gce", "source_name": "synthetic-image"}
+    )
+    with pytest.raises(RuntimeError, match="Synthetic audit outage"):
+        api_client.post(url, data, format="json")
+    row = RaesImageMapping.objects.get(source_name="synthetic-image")
+    assert row.image_ref == "img-before"
+    assert row.enabled is True

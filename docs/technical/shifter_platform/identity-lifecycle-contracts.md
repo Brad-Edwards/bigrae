@@ -531,3 +531,15 @@ admission steps where a function combines unrelated decisions. Do not move an
 authorization check across a lock or replace owning-service admission with a
 view check. The focused behavior tests, import rules, type checks and hosted
 quality gate validate the resulting layout.
+
+### Portal security integration (#2617)
+
+Incoming portal controls use the native boundaries above. Organizer range audit
+retains the original credential, including service principals, and cleanup
+policy preflight stays outside its mutation transaction. Campaign reads,
+release and notification delivery require current native event policy. Staff
+assignment accepts principal UUIDs and does not disclose email-directory hits.
+The Engine image registry commits one strict before/after audit under its owning
+lock. The provider-login route mounts the read-only native admin site; legacy
+superuser flags cannot reopen identity or password writes. See the
+[portal auth and audit trust model](../../architecture/portal-auth-audit-trust-model.md).

@@ -255,6 +255,34 @@ def test_service_admin_password_reset_http_adapter(settings, monkeypatch):
     ).exists()
 
 
+@pytest.mark.parametrize(
+    "backend",
+    ["django.core.mail.backends.console.EmailBackend", "django.core.mail.backends.filebased.EmailBackend"],
+)
+def test_native_reset_refuses_mail_backends_that_record_credentials(
+    settings, monkeypatch, backend, mailoutbox, django_capture_on_commit_callbacks
+):
+    from management.api.policy_views import PolicyAdminUserResetPasswordView
+
+    settings.SITE_URL = "https://portal.example.test"
+    settings.EMAIL_BACKEND = backend
+    target = get_user_model().objects.create_user(username="logged-reset", email="owner@example.test", password="pw")
+    actor = _service_actor()
+    monkeypatch.setattr("management.api.policy_views.configured_authorization_provider", Provider)
+    request = APIRequestFactory().post(f"/api/v1/administer/users/{target.pk}/reset-password/", {}, format="json")
+    request.credential_context = actor
+    force_authenticate(request, token=actor)
+
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        response = PolicyAdminUserResetPasswordView.as_view()(request, pk=target.pk)
+
+    assert response.status_code == 400
+    assert response.data["error"]["code"] == "reset_delivery_unavailable"
+    assert callbacks == []
+    assert not mailoutbox
+    assert not AuditLog.objects.filter(context="administrator password reset requested", entity_id=target.pk).exists()
+
+
 def test_service_admin_compatibility_lifecycle_commands(monkeypatch):
     from management.api.policy_views import PolicyAdminUserDeleteView, PolicyAdminUserSetActiveView
 

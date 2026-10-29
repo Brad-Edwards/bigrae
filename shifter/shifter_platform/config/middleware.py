@@ -9,6 +9,7 @@ from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 from django.conf import settings
 
 from config.capacity_metrics import inflight_requests
+from shared.audit import accepted_request_id
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -72,17 +73,19 @@ def _is_ctf_participant_surface(path: str) -> bool:
 class RequestIDMiddleware:
     """Add request ID to all requests for trace correlation.
 
-    Preserves incoming X-Request-ID header if present, otherwise generates
-    a new UUID. The request ID is available on the request object and
-    included in the response header.
+    Preserves an incoming X-Request-ID header when it is a bounded correlation
+    token (``shared.audit.accepted_request_id``), otherwise generates a new
+    UUID. An over-long or malformed client value is replaced, because the audit
+    writer rejects it and the request's audit row would be lost. The request ID
+    is available on the request object and included in the response header.
     """
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        # Get existing request ID or generate new one
-        request_id = request.META.get("HTTP_X_REQUEST_ID")
+        # Get an acceptable existing request ID or generate a new one
+        request_id = accepted_request_id(request.META.get("HTTP_X_REQUEST_ID"))
         if not request_id:
             request_id = str(uuid.uuid4())[:8]
 

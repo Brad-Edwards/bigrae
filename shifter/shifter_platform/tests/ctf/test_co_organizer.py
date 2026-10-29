@@ -78,6 +78,20 @@ class TestCoOrganizerAssignment:
 
         assert EventStaffRole.CO_ORGANIZER.value == "co_organizer"
 
+    def test_assignment_does_not_reveal_whether_an_email_has_an_account(
+        self, ctf_event, authenticated_organizer_client, django_user_model
+    ):
+        """No account and an account without the organizer role get one answer (#2617)."""
+        django_user_model.objects.create_user(username="standard@test.com", email="standard@test.com")
+
+        missing = _assign(authenticated_organizer_client, ctf_event, "nobody@test.com", "moderator")
+        standard = _assign(authenticated_organizer_client, ctf_event, "standard@test.com", "moderator")
+
+        assert missing.status_code == standard.status_code == 400
+        missing_error = {k: v for k, v in missing.json()["error"].items() if k != "request_id"}
+        standard_error = {k: v for k, v in standard.json()["error"].items() if k != "request_id"}
+        assert missing_error == standard_error
+
 
 class TestCoOrganizerCapabilities:
     """A co-organizer exercises the full operational surface the owner has."""

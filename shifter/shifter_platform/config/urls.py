@@ -6,6 +6,7 @@ from django.urls import include, path, re_path
 from django.views.decorators.http import require_safe
 
 from config import api_urls
+from config.admin_login import admin_login
 from config.csp_report import csp_report
 from config.dev_auth import dev_login, dev_logout
 from config.health import CoarseHealthCheckView
@@ -82,6 +83,10 @@ urlpatterns = [
     re_path(r"^administer/.*$", _administer_page),
     path("api/v1/", include((api_urls.urlpatterns, api_urls.app_name), namespace="v1")),
     path("ctf/", include("ctf.urls")),
+    # Django admin sign-in uses the MFA-backed provider login, never the stock
+    # password form (#2617). Listed before the admin site so this view serves
+    # /admin/login/, the target of admin:login.
+    path("admin/login/", admin_login, name="admin_login_provider"),
     path("admin/", policy_admin_site.urls),
     # /health and /health/ both resolve to the same dependency-aware probe
     # view. The no-trailing-slash variant is for the AWS ALB target group
