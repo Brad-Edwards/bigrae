@@ -79,6 +79,15 @@ def _emit_step_summary(line: str) -> None:
         pass
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the ``apiserver`` marker; only the admission CI job selects it (#2651)."""
+    config.addinivalue_line(
+        "markers",
+        "apiserver: chart admission policies on a real kube-apiserver "
+        "(run with -m apiserver; needs ADMISSION_KUBECONFIG from scripts/admission_apiserver/start.sh)",
+    )
+
+
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     """Track postgres-marked tests that ran (and which were skipped) (#1524)."""
     if not _postgres_lane():
