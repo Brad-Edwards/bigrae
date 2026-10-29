@@ -58,9 +58,10 @@ AWS_DEV_WAF_ACL_ARN = (
 # portal-to-Guacamole token API policies moved from the retired base to the chart.
 # Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress.
 # Regenerated for #2622: the provisioner Job policy compiles on the API server.
+# Regenerated for #2633: the provisioner Job policy inlines the platform-runtime map.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "da9f94af4a642c28eae8480577efcac1892e5667a4fa5d375a0854a6a80c47e3",
-    "gcp-prod": "332fc5beac54f9eeff473ba27faafca07625327027f4528ae8d09e736e856882",
+    "gcp-dev": "35c6d78f3e902d81fd6934defc4190c37f8ede638a7f33145f765bfed74f8af0",
+    "gcp-prod": "d10cb0439323eac0be5885da8c3753a0672d80e759f505d2409206a598e4b34a",
 }
 
 

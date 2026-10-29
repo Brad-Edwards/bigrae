@@ -168,3 +168,30 @@ initContainers:
   value: ""
 {{- end }}
 {{- end }}
+
+{{/*
+The platform-runtime environment as a JSON object. configmap-runtime.yaml renders
+it, and restrict-provisioner-jobs inlines the same map as its params (#2633), so
+the admission policy and the ConfigMap can not drift.
+*/}}
+{{- define "shifter.platformRuntimeEnv" -}}
+{{- $runtimeEnv := deepCopy .Values.runtimeEnv -}}
+{{- if .Values.capabilities.kubernetesJobLauncher -}}
+{{- $_ := set $runtimeEnv "ENGINE_TASK_NAMESPACE" .Values.namespaces.jobs -}}
+{{- $_ = set $runtimeEnv "ENGINE_TASK_SERVICE_ACCOUNT_NAME" .Values.serviceAccounts.provisioner.name -}}
+{{- end -}}
+{{- /* CTF image copies and webhooks reach public hosts only through content-egress (#2090). */ -}}
+{{- $_ := set $runtimeEnv "CTF_EGRESS_PROXY" "content-egress:3128" -}}
+{{- with .Values.runtime.secretReferences.app -}}
+{{- $_ := set $runtimeEnv "APP_SECRET_ID" . -}}
+{{- end -}}
+{{- with .Values.runtime.secretReferences.database -}}
+{{- $_ := set $runtimeEnv "DB_SECRET_ID" . -}}
+{{- end -}}
+{{- if and .Values.modelBroker.enabled (eq (get (default dict .Values.modelBroker.control_env) "MODEL_ACCESS_ENABLED") "true") -}}
+{{- range $key, $value := .Values.modelBroker.enrollment_env -}}
+{{- $_ := set $runtimeEnv $key $value -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $runtimeEnv -}}
+{{- end -}}
