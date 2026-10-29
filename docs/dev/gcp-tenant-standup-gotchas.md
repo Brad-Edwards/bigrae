@@ -206,6 +206,39 @@ destroy. Pin the account for the run instead of relying on the global setting:
 CLOUDSDK_CORE_ACCOUNT=<operator> uv run --project scripts/bootstrap scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket>
 ```
 
+## Credentials expire during a long run
+
+A test cycle can run for several hours. The gcloud user credentials and the
+Application Default Credentials (ADC) can expire during that time. Then the
+next gcloud call fails with `Reauthentication failed. cannot prompt during
+non-interactive execution`. Before each deploy or destroy, check both
+credentials:
+
+```bash
+CLOUDSDK_CORE_ACCOUNT=<operator> gcloud auth print-access-token > /dev/null
+gcloud auth application-default print-access-token > /dev/null
+```
+
+If a check fails, run `gcloud auth login` or `gcloud auth application-default
+login` again. Then run the stopped command again. Use `--break-lock` only if
+the stopped run held the deployment lock.
+
+## Deploy from a checkout without Docker
+
+Without Docker, run the commands from a worktree of the release revision.
+`gcp-deploy` stops when `HEAD` is not the release revision or when tracked
+files have changes. Use a separate worktree for each release, so that other
+work does not change it:
+
+```bash
+git worktree add --detach <path> <release revision>
+cd <path>
+uv run --project scripts/bootstrap scripts/bootstrap/deploy.py gcp-deploy \
+  --store gs://<bucket> --release-manifest release.json
+```
+
+Install the tool versions that `platform/deployer/gcp/Dockerfile` pins.
+
 ## Never commit a deployment identity
 
 Do not put a real project ID or service-account email into the chart values

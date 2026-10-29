@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T07:23:03.277450Z
-updated_at: 2026-10-28T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-115: Per-Challenge Connection Info
@@ -21,8 +21,10 @@ Range-integrated challenges often target specific services on specific VMs. Part
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFChallenge model - NO connection_info field found)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/bridges.py` (cms_get_target_instances() bridge function)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (challenge_detail() connection info resolution)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (_CHALLENGE_MUTABLE_FIELDS includes connection fields)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/challenge.py` (CTFChallenge.target_instance_name and target_port)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/participant/play.py` (resolve_target_connection_info resolves the participant's own target connection details)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/bridges.py` (cms_get_range_target_instances bridge to CMS)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/` (_CHALLENGE_MUTABLE_FIELDS includes target_instance_name and target_port)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/ctf/ChallengeDetailPage.tsx` (The participant challenge page shows connection_info)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_range_target_instances.py` (Participant challenge connection_info uses the exact assigned range targets)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#548` (CTF-115: Per-Challenge Connection Info)

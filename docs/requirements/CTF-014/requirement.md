@@ -13,11 +13,11 @@ updated_at: 2026-10-29T00:00:00Z
 
 ## Statement
 
-The platform could support extensibility and customization for CTF functionality including: custom challenge types and scoring modes registered as Django apps, configurable event branding (logo, colors, description) via Django's template system, and multi-language support via Django's built-in i18n framework. The CTF layer shall not build a standalone plugin system, theming engine, or translation infrastructure.
+The platform could support extensibility and customization for CTF functionality including: custom challenge types and scoring modes registered as Django apps, configurable event branding (logo, colors, description) in the platform user interface, and multi-language support through the platform's language support. The CTF layer shall not build a standalone plugin system, theming engine, or translation infrastructure.
 
 ## Rationale
 
-Extensibility enables the platform to serve diverse use cases without core code changes. Django's app architecture, template system, and i18n framework already provide these extension points. Custom challenge types are Django apps registered with CTF. Event branding is template configuration. Translations use Django's standard gettext workflow.
+Extensibility enables the platform to serve diverse use cases without core code changes. Custom challenge types are Django apps registered with CTF. Event branding is per-event data that the React SPA applies (ADR-029). Django gettext covers server-rendered text (ADR-016); the SPA has no translation layer yet (#91).
 
 ## Traceability
 
