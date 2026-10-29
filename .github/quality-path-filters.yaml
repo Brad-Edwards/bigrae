@@ -443,7 +443,6 @@ exclusions:
       # new script package under scripts/ still fails closed as unclassified.
       - scripts/ami.sh
       - scripts/bump-version.sh
-      - scripts/check-ngfw.sh
       - scripts/config-claude.sh
       - scripts/count-loc.sh
       - scripts/delete-user.sh

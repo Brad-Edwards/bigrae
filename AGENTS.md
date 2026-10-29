@@ -166,3 +166,11 @@ Tenant organization administrators may install their own conforming adapters and
 packs through the tenant UI. Executable adapters run through the isolated plugin
 worker boundary; core must not import pack code or install it into the portal or
 provisioner process. A compatibility probe alone does not qualify a live range.
+
+## GCP tenant operation
+
+To deploy, update, destroy, or debug a GitHub-less GCP deployment, follow
+`.claude/skills/gcp-tenant-operate/SKILL.md`. To publish the release that it
+deploys, follow `.claude/skills/gcp-release/SKILL.md`. These files are the
+agent workflow for Codex and Claude. They link the handbook, RB023, and the
+standup gotchas, which hold the procedure.

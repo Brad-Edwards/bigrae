@@ -1,5 +1,6 @@
 """Tests for OIDC utilities."""
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -88,14 +89,17 @@ class TestGenerateUsername:
         assert "150 characters" in str(exc_info.value)
 
     # Sad path tests - character violations
-    def test_email_with_exclamation_raises(self):
-        """Email with ! (valid RFC 5321, invalid Django) raises ValueError."""
+    def test_email_with_exclamation_raises(self, caplog):
+        """Email with ! (valid RFC 5321, invalid Django) raises ValueError; the log omits the email."""
         email = "jane!doe@paloaltonetworks.com"
 
-        with pytest.raises(ValueError) as exc_info:
+        username_logger = logging.getLogger("config.username")
+        with caplog.at_level(logging.ERROR, logger=username_logger.name), pytest.raises(ValueError) as exc_info:
             generate_username(email)
 
         assert "not allowed in Django usernames" in str(exc_info.value)
+        assert "reason=invalid_characters" in caplog.text
+        assert email not in caplog.text
 
     def test_email_with_hash_raises(self):
         """Email with # raises ValueError."""

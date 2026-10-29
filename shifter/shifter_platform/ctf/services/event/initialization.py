@@ -69,7 +69,7 @@ def _initialization_authority(
             raise ValueError("initialization credential changed")
         if intent.authority.principal_uuid != event.owner_principal_uuid:
             raise ValueError("initialization owner changed")
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise CTFStateError("Event initialization authority is unavailable") from None
     return intent, credential
 

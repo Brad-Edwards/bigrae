@@ -285,6 +285,12 @@ def test_absolute_time_rejects_naive_and_malformed_due_at():
         validate_trigger_spec({"kind": "absolute_time", "due_at": "2026-10-01T00:00:00"})
     with pytest.raises(CTFCommunicationError):
         validate_trigger_spec({"kind": "absolute_time", "due_at": "not-a-timestamp"})
+    # An offset instant at the datetime range edge has no UTC form: a bounded domain
+    # rejection, never an uncaught OverflowError.
+    for edge in ("0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-14:00"):
+        with pytest.raises(CTFCommunicationError) as caught:
+            validate_trigger_spec({"kind": "absolute_time", "due_at": edge})
+        assert caught.value.code == "CTF_COMMUNICATION_TRIGGER_INVALID"
 
 
 def test_event_lifecycle_requires_a_known_event_status():

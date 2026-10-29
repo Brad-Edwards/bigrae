@@ -806,7 +806,7 @@ class TestMainInProcess:
 
 
 class TestGetImportsEdgeCases:
-    def test_skips_unreadable_python_files(self, tmp_path):
+    def test_skips_unreadable_python_files(self, tmp_path, capsys):
         layer = tmp_path / "cms"
         layer.mkdir()
         unreadable = layer / "secret.py"
@@ -817,3 +817,15 @@ class TestGetImportsEdgeCases:
             assert get_imports(layer) == {}
         finally:
             unreadable.chmod(0o644)
+        # The skip is reported, so a file the checker could not read is never a silent pass.
+        assert capsys.readouterr().err.count(f"skipped unreadable file {unreadable}") == 2
+
+    def test_reports_unparseable_python_files_skipped_by_ast_passes(self, tmp_path, capsys):
+        layer = tmp_path / "mission_control"
+        layer.mkdir()
+        broken = layer / "broken.py"
+        broken.write_text("from engine.services import (\n")
+
+        assert get_private_facade_imports(layer) == set()
+        assert get_facade_symbol_imports(layer, {"engine.services"}) == ({}, set())
+        assert capsys.readouterr().err.count(f"skipped unreadable or unparseable file {broken}") == 2

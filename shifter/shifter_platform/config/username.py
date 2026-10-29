@@ -33,10 +33,9 @@ def generate_username(email: str) -> str:
     """
     if len(email) > DJANGO_USERNAME_MAX_LENGTH:
         logger.error(
-            "OIDC username rejected: email exceeds %d chars (got %d): %s",
-            DJANGO_USERNAME_MAX_LENGTH,
+            "OIDC username rejected: reason=email_too_long length=%s max_length=%s",
             len(email),
-            email[:50] + "...",
+            DJANGO_USERNAME_MAX_LENGTH,
         )
         raise ValueError(
             f"Email exceeds Django username limit of {DJANGO_USERNAME_MAX_LENGTH} characters. "
@@ -44,10 +43,7 @@ def generate_username(email: str) -> str:
         )
 
     if not DJANGO_USERNAME_PATTERN.match(email):
-        logger.error(
-            "OIDC username rejected: email contains invalid characters: %s",
-            email,
-        )
+        logger.error("OIDC username rejected: reason=invalid_characters")
         raise ValueError(
             "Email contains characters not allowed in Django usernames. Fix the Cognito pre-signup Lambda allow-list."
         )

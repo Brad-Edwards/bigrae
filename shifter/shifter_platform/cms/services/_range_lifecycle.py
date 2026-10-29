@@ -219,7 +219,7 @@ def run_by_instance_pk(user: User | CredentialContext, range_instance_pk: int, o
         raise CMSError(f"Range {range_instance_pk} not found") from None
 
     if instance.user_id != user.id:
-        logger.error(
+        logger.warning(
             "%s: access denied - range_instance_pk=%s owned by user_id=%s, requested by user_id=%s",
             label,
             range_instance_pk,

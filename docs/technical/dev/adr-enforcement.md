@@ -819,7 +819,9 @@ The first slice intentionally stays small:
   `public_key_password` (which has the public-key fragment AND a
   secret suffix) stays flagged. `*.tfvars.example` files are skipped. Both `#` and `//` line comments and `/* ... */`
   block comments are stripped before matching, matching Terraform's
-  HCL grammar. Enforces ADR-004-R7. Complements gitleaks, which
+  HCL grammar. A file that the check cannot read or decode as UTF-8
+  fails closed: the check reports it as a violation. Enforces ADR-004-R7.
+  Complements gitleaks, which
   matches high-entropy random strings; this catches low-entropy
   committed credentials gitleaks ignores. Implementation note: the
   check is decomposed into focused helpers (`_collect_tfvars_candidates`,

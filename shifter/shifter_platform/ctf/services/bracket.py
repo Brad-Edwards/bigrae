@@ -42,7 +42,7 @@ def create_bracket(
         display_order=display_order,
     )
     bracket.save()
-    logger.info("Created bracket '%s' for event %s", name, event_id)
+    logger.info("Created bracket '%s' for event %s", safe_log_value(name), event_id)
     return bracket
 
 

@@ -122,7 +122,7 @@ def project_event_model_sources(event: CTFEvent) -> ModelSourceSponsorship | Non
     try:
         reference = ModelSourceCredentialReference.model_validate(event.model_source_authority)
         actor = resolve_current_credential(reference.credential())
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise ContractError(SPONSOR_UNAVAILABLE) from None
     require_event_action(actor, event.pk, _EVENT_MANAGE_CONFIG)
     return cms_resolve_model_source_sponsorship(actor, event.workspace_id, selection)

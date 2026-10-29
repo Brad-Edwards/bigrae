@@ -30,6 +30,7 @@ class FakeGcloud:
     def __init__(self) -> None:
         self.versions: dict[str, list[tuple[str, str]]] = {"issuer": [], "server": []}
         self.calls: list[list[str]] = []
+        self.destroy_denied = False
 
     def __call__(self, args: list[str], stdin: str | None) -> subprocess.CompletedProcess[str]:
         self.calls.append(args)
@@ -48,6 +49,8 @@ class FakeGcloud:
             names = [name for name, payload in reversed(self.versions[secret]) if payload is not None]
             return subprocess.CompletedProcess(args, 0, "\n".join(names), "")
         if verb == "destroy":
+            if self.destroy_denied:
+                return subprocess.CompletedProcess(args, 1, "", "ERROR: PERMISSION_DENIED")
             number = args[3]
             self.versions[secret] = [
                 (name, None if name.endswith(f"/{number}") else payload) for name, payload in self.versions[secret]
@@ -104,6 +107,22 @@ def test_the_server_identity_is_renewed_before_expiry_and_old_versions_destroyed
     assert actions == ["issued pool server certificate"]
     enabled = [name for name, payload in fake.versions["server"] if payload is not None]
     assert enabled == ["projects/p/secrets/server/versions/2"]
+
+
+def test_a_failed_destroy_of_a_superseded_version_is_reported_without_key_material(capsys):
+    fake = FakeGcloud()
+    pki.ensure(_store(fake), "issuer", "server", _NOW)
+    fake.destroy_denied = True
+
+    actions = pki.ensure(_store(fake), "issuer", "server", _NOW + timedelta(days=340))
+
+    assert actions == ["issued pool server certificate"]
+    enabled = [name for name, payload in fake.versions["server"] if payload is not None]
+    assert enabled == ["projects/p/secrets/server/versions/1", "projects/p/secrets/server/versions/2"]
+    err = capsys.readouterr().err
+    assert "::warning::cannot destroy superseded secret version 1: gcloud exited 1" in err
+    assert "server" not in err
+    assert "PRIVATE KEY" not in err
 
 
 def test_a_ca_too_close_to_expiry_refuses_to_continue():

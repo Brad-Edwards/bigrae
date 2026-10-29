@@ -626,6 +626,20 @@ class TestRunCmd:
             captured = capsys.readouterr()
             assert "Permission denied" in captured.out
 
+    def test_failure_report_keeps_secret_argv_tokens_redacted(self, capsys):
+        """A failed command is reported with the redacted argv, never the raw one."""
+        secret_body = '{"commands":["synthetic-registration-token"]}'
+        argv = ["aws", "ssm", "send-command", "--parameters", secret_body, "--password", "synthetic-password"]
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(returncode=254, cmd=argv)
+
+            deploy.run_cmd(argv, check=False)
+
+            captured = capsys.readouterr()
+            assert "Command failed (exit 254): aws ssm send-command --parameters *** --password ***" in captured.out
+            assert "synthetic-registration-token" not in captured.out + captured.err
+            assert "synthetic-password" not in captured.out + captured.err
+
 
 class TestGetAwsAccountId:
     """Tests for deploy.get_aws_account_id."""

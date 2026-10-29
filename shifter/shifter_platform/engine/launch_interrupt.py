@@ -213,6 +213,11 @@ def _stop_and_converge(claimed: ProvisionerLaunchIntent) -> None:
             **({"expected_workload": claimed.executing_workload} if claimed.authority_kind else {}),
         )
     except CloudTaskError as exc:
+        logger.warning(
+            "interrupt: provider interrupt failed intent_id=%s exc_type=%s",
+            claimed.intent_id,
+            type(exc).__name__,
+        )
         _reschedule(claimed, InterruptState.UNKNOWN, error=type(exc).__name__)
         return
 

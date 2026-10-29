@@ -284,7 +284,7 @@ class MessagesProvider(ModelProviderAdapter):
             deadline = datetime.fromisoformat(await before_transport())
             if datetime.now(UTC) + timedelta(seconds=4) >= deadline:
                 raise ValueError("transport lease expired")
-        except Exception:
+        except Exception:  # noqa: BLE001  # signing and lease errors can carry credentials; closed code only
             raise NoBillableEffect("provider.transport_lease_unavailable", count_only=count_only) from None
         async with self.client.stream("POST", url, content=raw, headers=headers) as response:
             if response.status_code != 200:
@@ -330,7 +330,7 @@ class MessagesProvider(ModelProviderAdapter):
         # It cannot mint a second grant or bypass rate/concurrency admission.
         try:
             tokens = await self._count(message, before_transport)
-        except Exception:
+        except Exception:  # noqa: BLE001  # provider transport errors can carry payloads; closed code only
             # The fixed count endpoint is free, and no invocation was attempted.
             raise NoBillableEffect("provider.count_unavailable", count_only=count_only) from None
         if tokens > self.limits.max_input_tokens:

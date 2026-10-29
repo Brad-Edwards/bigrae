@@ -6,11 +6,12 @@ is patched to return a fake S3 client, instead of patching the first-party
 ``_get_client`` method directly.
 """
 
+import logging
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 
 from shared.cloud.aws.storage import AWSObjectStorage
 from shared.cloud.exceptions import CloudStorageError, ObjectPreconditionError
@@ -177,6 +178,45 @@ class TestHeadObjectIdentity:
             identity = storage.head_object("b", "k")
 
         assert identity == {"content_length": 42, "etag": "deadbeef"}
+
+    def test_missing_object_raises_without_an_error_traceback(self, caplog):
+        storage = AWSObjectStorage()
+        fake_client = MagicMock()
+        fake_client.head_object.side_effect = ClientError(
+            {"Error": {"Code": "404", "Message": "Not Found"}, "ResponseMetadata": {"HTTPStatusCode": 404}},
+            "HeadObject",
+        )
+
+        with (
+            patch("boto3.client", return_value=fake_client),
+            caplog.at_level(logging.ERROR, logger="shared.cloud.aws.storage"),
+            pytest.raises(CloudStorageError, match="S3 object not found"),
+        ):
+            storage.head_object("b", "k")
+
+        assert not caplog.records
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            _make_client_error("AccessDenied", "HeadObject"),
+            EndpointConnectionError(endpoint_url="https://storage.example.test"),
+        ],
+    )
+    def test_provider_failures_remain_errors_instead_of_missing_objects(self, failure, caplog):
+        client = MagicMock()
+        client.head_object.side_effect = failure
+        with (
+            patch("boto3.client", return_value=client),
+            caplog.at_level(logging.ERROR, logger="shared.cloud.aws.storage"),
+            pytest.raises(CloudStorageError, match="Failed to head S3 object") as raised,
+        ):
+            AWSObjectStorage().head_object("synthetic-bucket", "synthetic-object")
+
+        assert raised.value.__cause__ is failure
+        [record] = [record for record in caplog.records if record.name == "shared.cloud.aws.storage"]
+        assert record.levelno == logging.ERROR
+        assert record.exc_info[1] is failure
 
 
 class TestDownloadObject:

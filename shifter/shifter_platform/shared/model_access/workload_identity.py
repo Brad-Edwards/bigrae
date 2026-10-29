@@ -45,5 +45,5 @@ def workload_assertion(*, provider: str, region: str, audience: str) -> str:
         if credential is None:
             raise ValueError
         return aws_control_assertion(credentials=credential.get_frozen_credentials(), region=region, audience=audience)
-    except Exception:
+    except Exception:  # noqa: BLE001  # cloud identity errors can carry credential detail; closed code only
         raise ContractError("control.identity_unavailable") from None

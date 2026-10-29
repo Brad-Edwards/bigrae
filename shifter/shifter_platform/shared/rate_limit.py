@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from django.core.cache.backends.base import BaseCache
+
+logger = logging.getLogger(__name__)
 
 _LUA_INCR_EXPIRE = (
     "local c = redis.call('INCR', KEYS[1])\n"
@@ -22,7 +25,10 @@ def _redis_client(cache: BaseCache, made_key: str) -> Any | None:
         return None
     try:
         return get_client(made_key, write=True)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001  # cache client errors can carry the connection URL; log the class only
+        logger.warning(
+            "rate limit: native Redis client unavailable; counter is not atomic exc_type=%s", type(exc).__name__
+        )
         return None
 
 

@@ -294,7 +294,7 @@ def read_agent_header(s3_key: str, max_bytes: int, *, expected_identity: dict[st
             expected_identity=expected_identity,
         )
     except CloudStorageError as e:
-        logger.exception("read_agent_header: failed s3_key=%s error=%s", safe_log_value(s3_key), safe_log_value(e))
+        logger.exception("read_agent_header: failed s3_key=%s", safe_log_value(s3_key))
         raise S3Error(str(e)) from e
 
 

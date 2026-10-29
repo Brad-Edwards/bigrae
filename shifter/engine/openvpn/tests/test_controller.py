@@ -80,7 +80,7 @@ class Clock:
 @pytest.fixture
 def parts():
     management, portal, firewall, clock = FakeManagement(), FakePortal(), FakeFirewall(), Clock()
-    controller = Controller(management, portal, firewall, grace_seconds=90, clock=clock, log=lambda _m: None)
+    controller = Controller(management, portal, firewall, grace_seconds=90, clock=clock)
     # Authorization normally runs on a pool; run it inline so the test is deterministic.
     controller._authorizers.submit = lambda fn, *args: fn(*args)  # type: ignore[method-assign]
     return controller, management, portal, firewall, clock

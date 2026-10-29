@@ -98,7 +98,7 @@ def totp_code(secret_base32: str, *, at_time: float | None = None) -> str:
     normalized += "=" * (-len(normalized) % 8)
     try:
         key = base64.b32decode(normalized, casefold=True)
-    except Exception as exc:
+    except ValueError as exc:  # binascii.Error and non-ASCII input are both ValueError
         raise SessionError("TOTP secret is not valid base32") from exc
 
     counter = int((time.time() if at_time is None else at_time) // _TOTP_PERIOD)

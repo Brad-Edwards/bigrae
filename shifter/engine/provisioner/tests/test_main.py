@@ -585,6 +585,40 @@ class TestRangeStatePayloads:
         assert any("vpn_access_binding = NULL" in call.args[0] for call in mock_cursor.execute.call_args_list)
 
 
+class TestAuthoredFailureMessage:
+    """Only authored failure text may become range error text or a diagnostic (ADR-043-R5)."""
+
+    def test_only_authored_failure_text_is_persisted(self):
+        from shared.range_cells import RangeCellContractError
+
+        from cloud.exceptions import CloudStorageError
+        from executors.base import GuestReadinessTimeoutError
+        from range_backend_resolution import prerequisite_error
+        from state_helpers import _authored_failure_message
+        from terraform_base import TerraformCommandError
+
+        authored = [
+            TerraformCommandError("Terraform apply failed (exit_code=1)"),
+            prerequisite_error("Back-fill the range backend binding, then retry."),
+            GuestReadinessTimeoutError("guest SSH did not become ready within 600s: connection refused"),
+        ]
+        for failure in authored:
+            assert _authored_failure_message(failure, "Range provision") == str(failure)
+
+        contract = RangeCellContractError("Unsupported spec_version: synthetic-artifact-detail")
+        assert _authored_failure_message(contract, "Range provision") == "Range-cell contract validation failed"
+
+        # Provider, driver, and generic exception text never crosses; the class name does.
+        unauthored = [
+            CloudStorageError("Failed to delete object: synthetic-provider-detail"),
+            RuntimeError("Terraform command failed: synthetic-provider-detail"),
+            ValueError("synthetic-provider-detail"),
+        ]
+        for failure in unauthored:
+            message = _authored_failure_message(failure, "NGFW start")
+            assert message == f"NGFW start failed ({type(failure).__name__})"
+
+
 class TestGdcProvisioning:
     """Tests for the active GDC VM Runtime range path."""
 

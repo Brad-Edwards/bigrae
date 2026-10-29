@@ -97,12 +97,8 @@ def test_rdp_url_build_leaves_kali_security_on_negotiate(monkeypatch, caplog):
     client = _CapturingGuacClient()
 
     builder_logger = logging.getLogger("mission_control._guacamole_session_builders")
-    builder_logger.addHandler(caplog.handler)
-    try:
-        with caplog.at_level(logging.INFO, logger=builder_logger.name):
-            _build_rdp_url(user=user, instance_uuid="inst-uuid", guac_client=client)
-    finally:
-        builder_logger.removeHandler(caplog.handler)
+    with caplog.at_level(logging.INFO, logger=builder_logger.name):
+        _build_rdp_url(user=user, instance_uuid="inst-uuid", guac_client=client)
 
     assert client.rdp_request.security == "any"
     assert user.email not in caplog.text

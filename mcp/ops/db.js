@@ -82,7 +82,16 @@ async function fetchCredentials(env) {
     { timeoutMs: 30000 }
   );
 
-  credentials[env] = JSON.parse(result);
+  let parsed;
+  try {
+    parsed = JSON.parse(result);
+  } catch {
+    // The SyntaxError message quotes part of its input, which here is the raw
+    // DB credential secret. Report a fixed message and drop the cause so no
+    // secret text reaches an MCP error envelope (ADR-014-R4).
+    throw new Error(`DB credentials secret for ${env} is not valid JSON`);
+  }
+  credentials[env] = parsed;
   return credentials[env];
 }
 
@@ -219,13 +228,19 @@ async function getPool(env) {
 
   if (!pools[env]) {
     const rdsHost = tunnels[env]?.rdsHost;
-    pools[env] = new Pool(
+    const pool = new Pool(
       buildPoolConfig({ rdsHost, creds, port: LOCAL_PORTS[env] }),
     );
-    pools[env].on("error", () => {
-      pools[env]?.end().catch(() => {});
-      delete pools[env];
+    // An idle-client error (tunnel drop, server restart) only invalidates
+    // this pool. Discard it: the next withClient() call rebuilds the tunnel
+    // and the pool, and reports a persistent failure to its caller. Act on
+    // the pool that emitted the error, never on a replacement pool, and
+    // treat end() as best-effort because the pool is already broken.
+    pool.on("error", () => {
+      if (pools[env] === pool) delete pools[env];
+      pool.end().catch(() => {});
     });
+    pools[env] = pool;
   }
 
   return pools[env];
@@ -240,12 +255,18 @@ export async function withClient(env, { readOnly = true } = {}, fn) {
     }
     return await fn(client);
   } finally {
+    // A client whose session reset fails can still be read-only or inside an
+    // aborted transaction. release(err) makes the pool destroy it instead of
+    // handing it to the next caller.
+    let resetError;
     if (readOnly) {
-      await client
-        .query("SET default_transaction_read_only = OFF")
-        .catch(() => {});
+      try {
+        await client.query("SET default_transaction_read_only = OFF");
+      } catch (e) {
+        resetError = e;
+      }
     }
-    client.release();
+    client.release(resetError);
   }
 }
 
@@ -278,6 +299,7 @@ export async function startPortalTestTunnel(env, localPort = 8000) {
   }
 
   const profile = getProfile(env);
+  let tunnelProc = null;
   try {
     const instanceId = awsTextLib(
       profile,
@@ -299,7 +321,7 @@ export async function startPortalTestTunnel(env, localPort = 8000) {
       throw new Error(`Could not find running ${env} portal EC2 instance`);
     }
 
-    const tunnelProc = spawnAws(
+    tunnelProc = spawnAws(
       profile,
       [
         "ssm",
@@ -357,10 +379,10 @@ export async function startPortalTestTunnel(env, localPort = 8000) {
     portalTunnels[env] = { process: tunnelProc, port: safeLocalPort };
     return { kind: "started", port: safeLocalPort };
   } catch (e) {
-    if (portalTunnels[env]) {
-      portalTunnels[env].process.kill();
-      delete portalTunnels[env];
-    }
+    // Stop the process this call spawned. portalTunnels[env] is set only after
+    // a successful start, so on this path it can only name another call's
+    // tunnel, which must stay up.
+    tunnelProc?.kill();
     throw e;
   }
 }
@@ -381,6 +403,8 @@ export function stopPortalTestTunnel(env) {
 
 export function cleanup() {
   for (const env of Object.keys(pools)) {
+    // Shutdown is best-effort: the process exits right after cleanup(), so a
+    // pool that fails to close has no consequence.
     pools[env]?.end().catch(() => {});
     delete pools[env];
   }

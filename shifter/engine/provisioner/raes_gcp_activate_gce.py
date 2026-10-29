@@ -122,7 +122,12 @@ class GceActivationOps:
             if ops.profile_present(range_id, prepared_generation):
                 logger.error("warm activation negative-verify: pre-claim VPN generation still present")
                 return False
-        except Exception:
-            logger.exception("warm activation negative-verify could not prove revocation")
+        # fail closed; secret-store text names the VPN secret, so class only
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "warm activation negative-verify could not prove revocation exc_type=%s",
+                type(exc).__name__,
+                exc_info=False,
+            )
             return False
         return True

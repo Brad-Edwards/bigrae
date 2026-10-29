@@ -1,5 +1,6 @@
 """Interrupted native launches are removed only after complete ownership inventory."""
 
+import logging
 from copy import deepcopy
 from unittest.mock import Mock
 from uuid import UUID
@@ -124,11 +125,15 @@ def test_destroy_refuses_foreign_or_ambiguous_ownership_before_any_mutation(drif
 
 
 @pytest.mark.parametrize("failure", ["pagination", "provider_error"])
-def test_inventory_errors_are_incomplete_and_never_empty_success(failure):
+def test_inventory_errors_are_incomplete_and_never_empty_success(failure, caplog):
     scope, ec2, _ = fixture()
     ec2.describe_subnets.side_effect = RuntimeError("provider unavailable") if failure == "provider_error" else None
     ec2.describe_subnets.return_value = {"Subnets": [], "NextToken": "more"}
-    assert inventory_ec2_resources(scope, ec2)["outcome"] == "INCOMPLETE"
+    with caplog.at_level(logging.WARNING, logger="ec2_range_cleanup"):
+        assert inventory_ec2_resources(scope, ec2)["outcome"] == "INCOMPLETE"
+    # The incomplete inventory is logged, value-free: class name only, no provider text.
+    assert "EC2 cleanup inventory incomplete" in caplog.text
+    assert "provider unavailable" not in caplog.text
     with pytest.raises(Ec2CleanupError):
         destroy_ec2_resources(scope, ec2)
     ec2.terminate_instances.assert_not_called()

@@ -155,7 +155,7 @@ def create_event_for_credential(
         _admitted_credential=credential,
         _admitted_actor=_compatibility_actor,
     )
-    logger.info("Created CTF event %s: %s", event.id, event.name)
+    logger.info("Created CTF event %s: %s", event.id, safe_log_value(event.name))
     return event
 
 

@@ -272,8 +272,9 @@ def _resolve_non_dc_rdp_password(instance: dict[str, Any]) -> str | None:
     envelope only converts ``ValueError`` into a non-sensitive 400, so
     re-raising here keeps the user-facing failure shape identical to
     "no reference recorded" instead of bubbling up as an unhandled 500.
-    The operational details (secret reference, provider error chain)
-    stay in the warning log, never in the response.
+    The warning log records the instance and the secret-store failure; the
+    secrets adapter logs the fingerprinted secret reference and keeps the
+    provider error text out of the chain. None of it reaches the response.
     """
     secret_ref = _resolve_instance_rdp_password_secret_ref(instance)
     if not secret_ref:

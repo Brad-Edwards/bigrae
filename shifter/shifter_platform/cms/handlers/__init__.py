@@ -22,6 +22,7 @@ import logging
 
 from cms.handlers.ngfw_events import process_ngfw_event
 from cms.handlers.range_events import process_range_event
+from shared.log_sanitize import safe_log_value
 from shared.messages.envelope import parse_sns_message
 
 logger = logging.getLogger(__name__)
@@ -52,10 +53,14 @@ def process_event(message: str | dict) -> None:
     # (`cms.handlers.process_range_event`, `cms.handlers.process_ngfw_event`)
     # still intercept worker dispatch — same behavior as the pre-split module.
     if event_type.startswith("range."):
-        logger.debug("Routing to range handler: event_type=%s event_id=%s", event_type, event_id)
+        logger.debug(
+            "Routing to range handler: event_type=%s event_id=%s", safe_log_value(event_type), safe_log_value(event_id)
+        )
         process_range_event(message)
     elif event_type.startswith("ngfw."):
-        logger.debug("Routing to NGFW handler: event_type=%s event_id=%s", event_type, event_id)
+        logger.debug(
+            "Routing to NGFW handler: event_type=%s event_id=%s", safe_log_value(event_type), safe_log_value(event_id)
+        )
         process_ngfw_event(message)
     else:
-        logger.debug("Ignoring unknown event_type=%s event_id=%s", event_type, event_id)
+        logger.debug("Ignoring unknown event_type=%s event_id=%s", safe_log_value(event_type), safe_log_value(event_id))

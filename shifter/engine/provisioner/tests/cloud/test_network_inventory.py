@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import traceback
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -123,6 +125,24 @@ class TestGCPNetworkInventory:
             version="v1",
             plural="networks",
         )
+
+    def test_gdc_client_failure_keeps_kubeconfig_text_out_of_logs_and_errors(self, caplog):
+        # A kubeconfig parse error quotes the offending line, which can hold credentials.
+        marker = "client-key-data: synthetic-credential-line"
+
+        def failing_factory(_kubeconfig: str) -> object:
+            raise ValueError(marker)
+
+        inventory = GCPNetworkInventory(gdc_custom_objects_api_factory=failing_factory)
+        with (
+            caplog.at_level(logging.DEBUG),
+            pytest.raises(CloudNetworkInventoryError, match="Failed to read GDC network inventory") as error,
+        ):
+            inventory._list_gdc_network_cidrs("cluster1", "apiVersion: v1\n")
+
+        assert "exc_type=ValueError" in caplog.text
+        assert marker not in caplog.text
+        assert marker not in "".join(traceback.format_exception(error.value))
 
     def test_list_subnet_cidrs_reads_all_gce_subnetworks_when_backend_is_gce(self):
         mock_client = MagicMock()

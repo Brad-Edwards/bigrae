@@ -116,6 +116,19 @@ describe("CtfWorkspaceLayout", () => {
     expect(inboxCalls()).toHaveLength(2);
   });
 
+  it.each(["null", "5", "true", '"notification"', "[]"])(
+    "ignores JSON value %s without refetching or rendering content",
+    async (data) => {
+      const socket = await openSocket();
+
+      await act(async () => socket.onmessage?.({ data }));
+
+      expect(inboxCalls()).toHaveLength(1);
+      expect(screen.queryByText("New message")).not.toBeInTheDocument();
+      expect(screen.queryByText("First blood!")).not.toBeInTheDocument();
+    },
+  );
+
   it("announces open obligations without moving focus or blocking navigation", async () => {
     actionRequired = 2;
     renderRoute(<CtfWorkspaceLayout />);

@@ -58,7 +58,7 @@ def test_removal_never_waits_behind_a_reference_writer_and_then_wins(tenant_pack
                 fence_pack_reference(source.scenario_id, expected_digest=source.package_digest)
                 fenced.set()
                 release.wait(timeout=30)
-        except BaseException as exc:  # pragma: no cover - surfaced below
+        except BaseException as exc:  # noqa: BLE001  # thread target surfaces failures  # pragma: no cover
             failures.append(exc)
         finally:
             connection.close()

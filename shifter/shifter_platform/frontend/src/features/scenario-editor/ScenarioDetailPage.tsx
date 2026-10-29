@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router";
 
+import { describeMutationError } from "@/api/errors";
 import { useScenario, useUpdateScenarioMetadata } from "@/api/scenarios";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -60,7 +61,9 @@ export function ScenarioDetailPage() {
       {metadata.isError ? (
         <Alert variant="destructive" className="mb-4">
           <AlertTitle>Could not update availability</AlertTitle>
-          <AlertDescription>{metadata.error.message}</AlertDescription>
+          <AlertDescription>
+            {describeMutationError(metadata.error, "The scenario availability could not be changed.")}
+          </AlertDescription>
         </Alert>
       ) : null}
 

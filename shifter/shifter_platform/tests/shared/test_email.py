@@ -49,15 +49,19 @@ class TestSendEmail:
         mock_msg.send.assert_called_once()
 
     @patch("django.core.mail.EmailMultiAlternatives")
-    def test_send_failure_returns_false(self, mock_cls):
-        """Returns False and logs on failure without raising."""
+    def test_send_failure_returns_false(self, mock_cls, caplog):
+        """Returns False and logs the class only: provider text can echo the address."""
         mock_msg = MagicMock()
-        mock_msg.send.side_effect = RuntimeError("SMTP down")
+        mock_msg.send.side_effect = RuntimeError("recipient a@b.com refused")
         mock_cls.return_value = mock_msg
 
-        result = email.send_email("a@b.com", "Subject", "<html>", "text")
+        with caplog.at_level("DEBUG", logger="shared.email"):
+            result = email.send_email("a@b.com", "Subject", "<html>", "text")
 
         assert result is False
+        assert "exc_type=RuntimeError" in caplog.text
+        assert "a@b.com" not in caplog.text
+        assert all(not record.exc_info for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------

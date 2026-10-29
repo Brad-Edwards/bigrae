@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from cms.models import App, Instance
 from shared.enums import ResourceStatus
+from shared.log_sanitize import safe_log_value
 from shared.messages.envelope import parse_sns_message
 from shared.messages.events import EVENT_TYPE_NGFW
 from shared.messages.payloads import NGFWEventPayload
@@ -45,7 +46,7 @@ def process_ngfw_event(message: str | dict) -> None:
     event_type = event.get("event_type")
 
     if event_type != EVENT_TYPE_NGFW:
-        logger.debug("Ignoring NGFW event_type=%s", event_type)
+        logger.debug("Ignoring NGFW event_type=%s", safe_log_value(event_type))
         return
 
     # event_type confirmed; narrow to the typed payload. Required-field and
@@ -75,6 +76,7 @@ def _principal_device_event(payload: NGFWEventPayload) -> bool:
 
     from engine.services import verified_device_status_projection
 
+    event_id = safe_log_value(payload.get("event_id", "unknown"))
     try:
         if not payload.get("instance_id") or not payload.get("app_id"):
             raise ValueError("Device callback identity unavailable")
@@ -89,7 +91,7 @@ def _principal_device_event(payload: NGFWEventPayload) -> bool:
         if proof is not None:
             _mirror_principal_device(candidates, payload, proof)
     except Exception:
-        logger.debug("Principal device callback could not be mirrored")
+        logger.exception("Principal device callback could not be mirrored: event_id=%s", event_id)
     return True
 
 
@@ -99,9 +101,9 @@ def _validate_required_fields(event_id: str, instance_id: str | None, app_id: st
         return True
     logger.warning(
         "NGFW event missing required fields: instance_id=%s app_id=%s event_id=%s",
-        instance_id,
-        app_id,
-        event_id,
+        safe_log_value(instance_id),
+        safe_log_value(app_id),
+        safe_log_value(event_id),
     )
     return False
 
@@ -113,7 +115,7 @@ def _validate_status(event_id: str, status: str | None) -> bool:
     try:
         ResourceStatus(status)
     except ValueError:
-        logger.error("Invalid status value: %s event_id=%s", status, event_id)
+        logger.warning("Invalid status value: %s event_id=%s", safe_log_value(status), safe_log_value(event_id))
         return False
     return True
 
@@ -126,15 +128,15 @@ def _update_instance(event_id: str, instance_id: str, status: str | None) -> str
     except Instance.DoesNotExist:
         logger.warning(
             "CMS Instance not found: instance_id=%s event_id=%s",
-            instance_id,
-            event_id,
+            safe_log_value(instance_id),
+            safe_log_value(event_id),
         )
         return None
     except Exception as exc:
         logger.exception(
             "DB error loading CMS Instance: instance_id=%s event_id=%s",
-            instance_id,
-            event_id,
+            safe_log_value(instance_id),
+            safe_log_value(event_id),
         )
         raise _NgfwAbort from exc
 
@@ -148,8 +150,8 @@ def _update_instance(event_id: str, instance_id: str, status: str | None) -> str
     except Exception as exc:
         logger.exception(
             "DB error saving CMS Instance: instance_id=%s event_id=%s",
-            instance_id,
-            event_id,
+            safe_log_value(instance_id),
+            safe_log_value(event_id),
         )
         raise _NgfwAbort from exc
     return previous
@@ -166,10 +168,12 @@ def _update_app(
     try:
         app = App.objects.get(id=app_id)
     except App.DoesNotExist:
-        logger.warning("CMS App not found: app_id=%s event_id=%s", app_id, event_id)
+        logger.warning("CMS App not found: app_id=%s event_id=%s", safe_log_value(app_id), safe_log_value(event_id))
         return None
     except Exception as exc:
-        logger.exception("DB error loading CMS App: app_id=%s event_id=%s", app_id, event_id)
+        logger.exception(
+            "DB error loading CMS App: app_id=%s event_id=%s", safe_log_value(app_id), safe_log_value(event_id)
+        )
         raise _NgfwAbort from exc
 
     previous = app.status
@@ -189,7 +193,9 @@ def _update_app(
     try:
         app.save(update_fields=update_fields)
     except Exception as exc:
-        logger.exception("DB error saving CMS App: app_id=%s event_id=%s", app_id, event_id)
+        logger.exception(
+            "DB error saving CMS App: app_id=%s event_id=%s", safe_log_value(app_id), safe_log_value(event_id)
+        )
         raise _NgfwAbort from exc
     return previous
 
@@ -210,14 +216,14 @@ def _process_legacy_device_event(
 
     logger.info(
         "CMS processed NGFW event: instance_id=%s (%s->%s) app_id=%s (%s->%s) serial=%s event_id=%s",
-        instance_id,
+        safe_log_value(instance_id),
         previous_instance_status,
         status or previous_instance_status,
-        app_id,
+        safe_log_value(app_id),
         previous_app_status,
         status or previous_app_status,
-        serial_number or "N/A",
-        event_id,
+        safe_log_value(serial_number or "N/A"),
+        safe_log_value(event_id),
     )
 
 

@@ -3,6 +3,7 @@
 import json
 from unittest.mock import patch
 
+import psycopg
 import pytest
 from shared.operation_results import ResultStep
 
@@ -14,7 +15,7 @@ _OPERATION_ID = "44444444-4444-4444-4444-444444444444"
 
 def _assert_terminal_failure_reported(
     mock_cursor, *, operation: str, reason_code: str = "cloud_operation_failed"
-) -> None:
+) -> dict:
     """Assert the operation reported a terminal failure to the result inbox.
 
     ADR-043 phase 4 (#1836): the applier is the authoritative writer, so a failed
@@ -35,6 +36,41 @@ def _assert_terminal_failure_reported(
     assert params[6] == ResultStep.RANGE_TERMINAL_FAILED
     payload = json.loads(params[9])["payload"]
     assert payload["reason_code"] == reason_code
+    return payload
+
+
+class TestResumeNgfwStartFailure:
+    """A failed NGFW start reports authored text, never the raw exception text (ADR-043-R5)."""
+
+    def test_driver_error_text_stays_out_of_the_terminal_diagnostic(self, mock_psycopg_connect, monkeypatch):
+        for key, value in {
+            "DB_HOST": "test-db",
+            "DB_USER": "shifter_app",
+            "DB_NAME": "shifter",
+            "DB_PASSWORD": "local-dev-password",
+            "CLOUD_REGION": "us-east-2",
+        }.items():
+            monkeypatch.setenv(key, value)
+        _connect, _conn, cursor = mock_psycopg_connect
+        request_id = "88888888-8888-4888-8888-888888888888"
+        vm_state = {
+            "cloud_provider": "gcp",
+            "asset_type": "vm_runtime_vm",
+            "instance_id": "range-42-vm-123",
+            "provider_metadata": {"gcp": {"namespace": "range-42", "vm_name": "range-42-vm-123"}},
+        }
+        # Range row, then the NGFW lookup fails at the database driver.
+        cursor.fetchone.side_effect = [
+            (request_id, 42, 7, {}, None, "paused", "gdc", "live_fire", None, ""),
+            psycopg.OperationalError("synthetic-driver-detail"),
+        ]
+        cursor.fetchall.return_value = [("vm-instance-uuid-123", vm_state, "victim", "win-target")]
+
+        with pytest.raises(RuntimeError, match=r"^NGFW start failed \(OperationalError\)$"):
+            run_range_resume(request_id, operation_id=_OPERATION_ID)
+
+        payload = _assert_terminal_failure_reported(cursor, operation="resume")
+        assert payload["diagnostic"] == "NGFW start failed (OperationalError)"
 
 
 class TestRangeInstanceClassification:

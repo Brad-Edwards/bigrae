@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from urllib.parse import urlencode
 
 import pytest
@@ -338,6 +339,37 @@ def test_reset_api_rate_limit_fails_without_mutating_password(
     participant.user.refresh_from_db()
     assert response.status_code == 429
     assert participant.user.check_password(_SUPPLIED_PASSWORD)
+
+
+def test_reset_api_rate_limiter_outage_fails_closed_and_is_logged(
+    authenticated_organizer_client,
+    ctf_event,
+    organizer_credential,
+    monkeypatch,
+    caplog,
+):
+    participant = _create_participant(ctf_event, organizer_credential)
+    participant.user.set_password(_SUPPLIED_PASSWORD)
+    participant.user.save(update_fields=["password"])
+
+    def _cache_down(*_args, **_kwargs):
+        raise ConnectionError("rate limit backend unavailable")
+
+    # Fail the shared rate-limit cache backend, not a first-party helper (ADR-019-R1).
+    monkeypatch.setattr(caches["launch_rate_limit"], "add", _cache_down)
+    api_logger = logging.getLogger("ctf.api.organizer.participants")
+    response = authenticated_organizer_client.post(
+        reverse("v1:ctf:api_participant_password_reset", kwargs={"participant_id": participant.id}),
+        data=json.dumps({"kind": "generated"}),
+        content_type="application/json",
+    )
+
+    participant.user.refresh_from_db()
+    assert response.status_code == 503
+    assert participant.user.check_password(_SUPPLIED_PASSWORD)
+    failures = [record for record in caplog.records if record.name == api_logger.name]
+    assert [record.levelno for record in failures] == [logging.ERROR]
+    assert failures[0].exc_info is not None
 
 
 def test_legacy_resend_no_longer_mutates_or_emails_password(

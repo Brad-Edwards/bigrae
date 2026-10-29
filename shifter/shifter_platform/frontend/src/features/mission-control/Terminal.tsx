@@ -100,6 +100,9 @@ function createTerminal(container: HTMLElement): { term: XTerm; fitAddon: FitAdd
  */
 function attachClipboardAndKeys(term: XTerm): () => void {
   const terminalElement = term.element;
+  // Clipboard access is best-effort: the browser rejects the call when
+  // permission is denied or the page does not have focus, and the copy or
+  // paste is then skipped. There is nothing to recover or report.
   const copySelection = () => {
     const selection = term.getSelection();
     if (selection && navigator.clipboard) {

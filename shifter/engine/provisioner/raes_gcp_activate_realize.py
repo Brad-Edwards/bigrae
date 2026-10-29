@@ -90,7 +90,7 @@ def realize_claimant_access_on_cell(
         vpn_access = result.get("vpn_access")
         if vpn_access is not None and not isinstance(vpn_access, dict):
             raise ActivationRealizationError("warm activation OpenVPN realization is invalid")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # value-free boundary: only the cause's class name crosses
         raise ActivationRealizationError(
             f"warm activation could not realize claimant access: {type(exc).__name__}"
         ) from None

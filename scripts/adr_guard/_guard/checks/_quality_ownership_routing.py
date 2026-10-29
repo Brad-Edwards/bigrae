@@ -258,8 +258,7 @@ def _quality_unit_routing_violations(
     path = _quality_probe_path(unit.paths[0])
     try:
         outputs = module.compute_outputs(contract, [path])
-    # UnknownPathError / ContractError
-    except Exception as exc:
+    except (module.UnknownPathError, module.ContractError) as exc:
         return [
             viol(
                 _QUALITY_CONTRACT_REL,
@@ -284,7 +283,9 @@ def _quality_docs_only_violations(
     docs_probe = "docs/__probe__.md"
     try:
         neg = module.compute_outputs(contract, [docs_probe])
-    except Exception:
+    except (module.UnknownPathError, module.ContractError):
+        # The classifier fails closed on this path, so a docs-only change
+        # cannot select production jobs and there is nothing to evaluate.
         return []
     declared_jobs = {
         ref.job for unit in contract.units for refs in unit.responsibilities.values() for ref in refs if ref.job in jobs

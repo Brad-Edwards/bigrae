@@ -290,11 +290,11 @@ class RangePodSSHExecutor(GuestSSHExecutor):
         # umask 077 so the decoded key is private; written via base64 so the key
         # never appears verbatim in the pod filesystem write path.
         script = f"umask 077; printf %s {shlex.quote(key_b64)} | base64 -d > {shlex.quote(self._key_path)}"
-        rc, _out, err = self._exec([_SHELL, "-c", script], timeout_seconds=30)
+        rc, _out, _err = self._exec([_SHELL, "-c", script], timeout_seconds=30)
         if rc != 0:
-            raise GuestSSHConnectionError(
-                f"Failed to plant guest SSH key on runner pod (rc={rc}): {err.decode('utf-8', 'replace')}"
-            )
+            # The planting command carries the private key in its argv, so its
+            # stderr stays out of the error text.
+            raise GuestSSHConnectionError(f"Failed to plant guest SSH key on runner pod (rc={rc})")
         self._key_planted = True
 
     def _ensure_known_hosts_planted(self) -> None:
@@ -379,7 +379,8 @@ class RangePodSSHExecutor(GuestSSHExecutor):
             from kubernetes.stream.ws_client import ERROR_CHANNEL
 
             raw = resp.read_channel(ERROR_CHANNEL)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001  # an unreadable exec status fails closed as exit code 1
+            logger.warning("runner exec status unreadable; reporting exit code 1 exc_type=%s", type(exc).__name__)
             return 1
         return RangePodSSHExecutor._exit_code_from_error_status(raw)
 

@@ -27,6 +27,7 @@ feedback in front of them.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -35,6 +36,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 from raes.scenarios import ScenarioError, load_scenario
 from raes_env_packs.publication import authored_artifact_requirements
 
+from shared.log_sanitize import safe_log_value
 from shared.raes.artifact_inventory import ArtifactSupply
 from shared.raes.artifact_resolution import ArtifactResolutionStatus, resolve_artifact_requirement
 from shared.raes.manifest import shifter_artifact_mechanism_capabilities, shifter_backend_apparatus
@@ -58,6 +60,8 @@ if TYPE_CHECKING:
         [Mapping[str, ArtifactRequirement | None]],
         Mapping[str, ArtifactRequirementAvailability] | ArtifactSupply,
     ]
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "CapabilityAssessment",
@@ -224,7 +228,12 @@ def assess_scenario_capability(
         manager_plan = _plan(scenario, parameters, artifact_availability_provider)
     # Any planner failure means "cannot assess", not a crash: the editor must
     # render INDETERMINATE rather than 500, and must never call it realizable.
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # planner text can echo SDL fragments; log and return the class only
+        logger.warning(
+            "raes realizability: planning failed scenario_path=%s exc_type=%s",
+            safe_log_value(scenario_path),
+            type(exc).__name__,
+        )
         return _indeterminate("scenario could not be planned", exc)
 
     diagnostics = [*manager_plan.diagnostics, *ShifterProvisioner.validate(manager_plan.provisioning)]

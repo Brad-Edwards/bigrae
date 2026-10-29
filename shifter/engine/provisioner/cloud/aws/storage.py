@@ -84,7 +84,7 @@ class AWSObjectStorage(BaseAWSAdapter):
             )
             return url
         except (ClientError, BotoCoreError) as e:
-            logger.exception("generate_presigned_download_url: failed bucket=%s key=%s error=%s", bucket, key, e)
+            logger.exception("generate_presigned_download_url: failed bucket=%s key=%s", bucket, key)
             raise CloudStorageError(f"Failed to generate presigned URL: {e}") from e
 
     def object_exists(self, bucket: str, key: str) -> bool:
@@ -96,10 +96,10 @@ class AWSObjectStorage(BaseAWSAdapter):
         except ClientError as e:
             if e.response.get("Error", {}).get("Code") == "404":
                 return False
-            logger.exception("object_exists: failed bucket=%s key=%s error=%s", bucket, key, e)
+            logger.exception("object_exists: failed bucket=%s key=%s", bucket, key)
             raise CloudStorageError(f"Failed to check object existence: {e}") from e
         except BotoCoreError as e:
-            logger.exception("object_exists: failed bucket=%s key=%s error=%s", bucket, key, e)
+            logger.exception("object_exists: failed bucket=%s key=%s", bucket, key)
             raise CloudStorageError(f"Failed to check object existence: {e}") from e
 
     def delete_object(self, bucket: str, key: str) -> None:
@@ -108,7 +108,7 @@ class AWSObjectStorage(BaseAWSAdapter):
             client = self._get_client()
             client.delete_object(Bucket=bucket, Key=key, **self._owner_kwargs())
         except (ClientError, BotoCoreError) as e:
-            logger.exception("delete_object: failed bucket=%s key=%s error=%s", bucket, key, e)
+            logger.exception("delete_object: failed bucket=%s key=%s", bucket, key)
             raise CloudStorageError(f"Failed to delete object: {e}") from e
 
     def head_object(self, bucket: str, key: str) -> dict[str, Any]:

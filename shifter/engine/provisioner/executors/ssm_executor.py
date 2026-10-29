@@ -121,7 +121,9 @@ class SSMExecutor:
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code == "InvalidInstanceId":
                 raise InstanceNotFoundError(f"Instance {instance_id} not found") from e
-            raise SSMExecutorError(f"Failed to send command: {e}") from e
+            # The command parameter can carry rendered secrets, and provider
+            # validation messages can quote request values: keep the error code only.
+            raise SSMExecutorError(f"Failed to send command ({error_code or type(e).__name__})") from None
 
         # Poll for completion
         start_time = time.time()
@@ -149,7 +151,7 @@ class SSMExecutor:
                 continue
 
             status = result.get("Status", "")
-            logger.info("Command %s status: %s (elapsed=%.1fs)", command_id, status, elapsed)
+            logger.debug("Command %s status: %s (elapsed=%.1fs)", command_id, status, elapsed)
 
             if status in self.TERMINAL_STATUSES:
                 return self._build_terminal_result(instance_id, result, start_time)

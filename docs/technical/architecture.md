@@ -312,6 +312,10 @@ image recipes, answers and acceptance evidence stay in their owner's repository.
 A compatibility probe, buildable SDK, or accepted manifest proves neither a
 published package release nor a qualified live range.
 
+The 2026-10-28 logging and exception-handling cleanup (#2569) changed only the
+Ruff lint rules in the SDK package manifest. It did not change the adapter ABI,
+the public contracts, or the installation boundary on this page.
+
 ## Install, exercise and maintain
 
 Start with the [GCP installation and first exercise](handbook/gcp-first-run.md).

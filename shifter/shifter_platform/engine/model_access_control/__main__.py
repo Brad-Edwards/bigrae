@@ -32,7 +32,7 @@ def main() -> None:
     isolate_transport_diagnostics()
     try:
         _main()
-    except Exception:
+    except Exception:  # noqa: BLE001  # startup errors can carry credential configuration; exit with a fixed message
         raise SystemExit("model control configuration is invalid") from None
 
 
@@ -100,7 +100,7 @@ def _main() -> None:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
                 return cursor.fetchone() == (1,)
-        except Exception:
+        except Exception:  # noqa: BLE001  # any database failure reports not ready; this listener emits no logs
             return False
 
     try:

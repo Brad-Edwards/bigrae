@@ -181,10 +181,11 @@ def test_platform_login_includes_session_exchange_config(client):
     DEBUG=False,
     IDENTITY_ALLOWED_EMAIL_DOMAIN="paloaltonetworks.com",
 )
-def test_identity_platform_session_rejects_non_json(client):
+@pytest.mark.parametrize("body", ["not-json", "[]"])
+def test_identity_platform_session_rejects_non_json(client, body):
     response = client.post(
         reverse("identity_platform_session"),
-        data="not-json",
+        data=body,
         content_type="application/json",
     )
 
@@ -368,16 +369,12 @@ def test_identity_platform_session_does_not_leak_exception_detail(client, monkey
     )
 
     view_logger = logging.getLogger("config.views")
-    view_logger.addHandler(caplog.handler)
-    try:
-        with caplog.at_level(logging.WARNING, logger=view_logger.name):
-            response = client.post(
-                reverse("identity_platform_session"),
-                data=json.dumps({"idToken": "boom"}),
-                content_type="application/json",
-            )
-    finally:
-        view_logger.removeHandler(caplog.handler)
+    with caplog.at_level(logging.WARNING, logger=view_logger.name):
+        response = client.post(
+            reverse("identity_platform_session"),
+            data=json.dumps({"idToken": "boom"}),
+            content_type="application/json",
+        )
 
     assert response.status_code == 403
     body = response.json()

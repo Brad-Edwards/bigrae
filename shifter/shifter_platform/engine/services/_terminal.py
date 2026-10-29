@@ -102,7 +102,11 @@ def _fetch_sftp_ssh_key(instance: dict[str, Any], os_type: str) -> str | None:
     try:
         result = _get_ssh_key(ssh_key_ref)
     except SecretsError as e:
-        logger.warning("Failed to get SSH key for SFTP: %s", e)
+        logger.warning(
+            "Failed to get SSH key for SFTP; continuing without SFTP instance_uuid=%s exc_type=%s",
+            safe_log_value(instance.get("uuid")),
+            type(e).__name__,
+        )
         result = None
     return result
 
@@ -264,32 +268,32 @@ def get_ssh_connection_info(
             raise PermissionError(_INSTANCE_UNAVAILABLE)
         range_obj = Range.get_active_for_user(user)
         if range_obj is None:
-            logger.error(
+            logger.warning(
                 "No active range for user: user_id=%s instance_uuid=%s", user.id, safe_log_value(instance_uuid)
             )
             raise ValueError("No active range found")
 
     if range_obj.status != Range.Status.READY:
-        logger.error("Range not ready: range_id=%s status=%s", range_obj.id, range_obj.status)
+        logger.warning("Range not ready: range_id=%s status=%s", range_obj.id, range_obj.status)
         raise ValueError(f"Range is not ready (status: {range_obj.status})")
 
     instance = find_instance_by_uuid(range_obj.provisioned_instances, instance_uuid)
     if instance is None:
-        logger.error("Instance not found: range_id=%s instance_uuid=%s", range_obj.id, safe_log_value(instance_uuid))
+        logger.warning("Instance not found: range_id=%s instance_uuid=%s", range_obj.id, safe_log_value(instance_uuid))
         raise ValueError(f"Instance {instance_uuid} not found in range")
 
     _require_declared_participant_channel(instance, "ssh")
 
     ssh_key_ref = _resolve_instance_ssh_key_secret_ref(instance)
     if not ssh_key_ref:
-        logger.error("No SSH key reference for instance: %s", safe_log_value(instance_uuid))
+        logger.error("No SSH key reference for instance: instance_uuid=%s", safe_log_value(instance_uuid))
         raise ValueError(f"Instance {instance_uuid} has no SSH key configured")
 
     ssh_key = _get_ssh_key(ssh_key_ref)
 
     host = _resolve_instance_host(instance)
     if not host:
-        logger.error("No IP address for instance: %s", safe_log_value(instance_uuid))
+        logger.error("No IP address for instance: instance_uuid=%s", safe_log_value(instance_uuid))
         raise ValueError(f"Instance {instance_uuid} has no IP address")
 
     os_type = _first_connection_value(instance.get("os_type"), instance.get("os")).lower()
@@ -438,7 +442,7 @@ def _legacy_terminal_device(user: User, ngfw_uuid: str) -> Instance:
             role=Instance.Role.NGFW,
         )
     except Instance.DoesNotExist:
-        logger.error("NGFW instance not found: user_id=%s ngfw_uuid=%s", user.id, safe_log_value(ngfw_uuid))
+        logger.warning("NGFW instance not found: user_id=%s ngfw_uuid=%s", user.id, safe_log_value(ngfw_uuid))
         raise ValueError(f"NGFW instance {ngfw_uuid} not found") from None
 
     if ngfw_instance.request is None:
@@ -449,7 +453,7 @@ def _legacy_terminal_device(user: User, ngfw_uuid: str) -> Instance:
         raise PrincipalCredentialRequired("Device unavailable")
 
     if ngfw_instance.request.user != user:
-        logger.error(
+        logger.warning(
             "Permission denied: user_id=%s does not own ngfw_uuid=%s (owner=%s)",
             user.id,
             safe_log_value(ngfw_uuid),
@@ -458,7 +462,7 @@ def _legacy_terminal_device(user: User, ngfw_uuid: str) -> Instance:
         raise PermissionError(f"You do not have permission to access NGFW {ngfw_uuid}")
 
     if ngfw_instance.status != ResourceStatus.READY.value:
-        logger.error(
+        logger.warning(
             "NGFW not accessible: ngfw_uuid=%s status=%s (expected ready)",
             safe_log_value(ngfw_uuid),
             ngfw_instance.status,

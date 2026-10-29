@@ -67,7 +67,7 @@ def _changed(instance: Model, fields: tuple[str, ...]) -> bool:
     return before is None or any(before[field] != getattr(instance, field) for field in fields)
 
 
-from ctf.models import (  # noqa: E402 - Django signal senders are imported after setup
+from ctf.models import (  # noqa: E402  # Django signal senders are imported after setup
     CTFChallenge,
     CTFCohort,
     CTFEvent,
@@ -310,11 +310,11 @@ def sync_ctf_participant_range_status(
     for participant in participants:
         if new_status == ResourceStatus.DESTROYED.value and cleanup_verified:
             # Verified terminal cleanup: the range's resources are confirmed gone,
-            # so return its capacity draw BEFORE dropping the linkage. Idempotent;
-            # never raises.
-            from ctf.services.range.capacity import release_range
+            # so return its capacity draw BEFORE dropping the linkage. Propagate
+            # failure so durable delivery retries instead of losing the draw key.
+            from ctf.bridges import cms_release_range_capacity
 
-            release_range(participant.pk)
+            cms_release_range_capacity(participant.pk)
             participant.range_instance_id = None
             participant.range_status = ""
             participant.save(update_fields=["range_instance_id", "range_status", "updated_at"])

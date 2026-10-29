@@ -101,7 +101,7 @@ def _run_local_provisioner(command: list[str]) -> str | None:
         return f"local-{process.pid}"
 
     except Exception as e:
-        logger.exception("Failed to start local provisioner: %s", e)
+        logger.exception("Failed to start local provisioner")
         raise RuntimeError(f"Local provisioner failed: {e}") from e
 
 

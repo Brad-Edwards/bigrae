@@ -81,7 +81,7 @@ def parse_event_model_demand(event: CTFEvent) -> tuple[EventModelDemand, ...]:
         try:
             demands.append(EventModelDemand.model_validate(entry))
         except ValidationError:
-            logger.warning("capacity: dropping malformed model demand entry")
+            logger.warning("capacity: dropping malformed model demand entry event=%s", event.pk)
     return tuple(demands)
 
 
@@ -97,7 +97,9 @@ def _project_images(scenario_id: str) -> dict[str, Any]:
 
         return cms_project_scenario_images(scenario_id)
     except Exception:
-        logger.exception("Failed to project scenario images for capacity declaration")
+        logger.exception(
+            "Failed to project scenario images for capacity declaration scenario=%s", safe_log_value(scenario_id)
+        )
         return {"resolved": False, "per_range": [], "shared": []}
 
 
@@ -195,6 +197,6 @@ def release_range(draw_key: UUID, *, strict: bool = False) -> None:
     try:
         cms_release_range_capacity(draw_key)
     except Exception:
-        logger.exception("Failed to release range capacity draw")
+        logger.exception("Failed to release range capacity draw draw_key=%s", draw_key)
         if strict:
             raise

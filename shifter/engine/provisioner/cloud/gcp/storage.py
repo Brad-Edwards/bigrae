@@ -98,9 +98,16 @@ class GCPObjectStorage:
                 method="GET",
                 **self._iam_signing_kwargs(),
             )
-        except Exception as e:
-            logger.exception("generate_presigned_download_url: failed bucket=%s key=%s error=%s", bucket, key, e)
-            raise CloudStorageError(f"Failed to generate GCS download URL: {e}") from e
+        # signing refreshes credentials; their errors can carry proof
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "generate_presigned_download_url: failed bucket=%s key=%s exc_type=%s",
+                bucket,
+                key,
+                type(e).__name__,
+                exc_info=False,
+            )
+            raise CloudStorageError("Failed to generate GCS download URL") from None
 
     def object_exists(self, bucket: str, key: str) -> bool:
         logger.debug("object_exists: bucket=%s key=%s", bucket, key)
@@ -108,7 +115,7 @@ class GCPObjectStorage:
             client = self._get_client()
             return client.bucket(bucket).blob(key).exists(client)
         except Exception as e:
-            logger.exception("object_exists: failed bucket=%s key=%s error=%s", bucket, key, e)
+            logger.exception("object_exists: failed bucket=%s key=%s", bucket, key)
             raise CloudStorageError(f"Failed to check GCS object existence: {e}") from e
 
     def delete_object(self, bucket: str, key: str) -> None:
@@ -117,7 +124,7 @@ class GCPObjectStorage:
             client = self._get_client()
             client.bucket(bucket).blob(key).delete()
         except Exception as e:
-            logger.exception("delete_object: failed bucket=%s key=%s error=%s", bucket, key, e)
+            logger.exception("delete_object: failed bucket=%s key=%s", bucket, key)
             raise CloudStorageError(f"Failed to delete GCS object: {e}") from e
 
     def head_object(self, bucket: str, key: str) -> dict[str, Any]:

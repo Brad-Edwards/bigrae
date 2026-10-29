@@ -204,6 +204,14 @@ class TestMalformedEvent:
             handler(event, None)
         assert "Invalid email" in str(exc.value) or "Signup failed" in str(exc.value)
 
+    def test_unexpected_error_is_generic_and_keeps_cause(self):
+        """An unexpected error gives the generic failure and keeps its cause."""
+        event = {"request": {"userAttributes": {"email": 42}}}
+        with pytest.raises(RuntimeError) as exc:
+            handler(event, None)
+        assert "Signup failed" in str(exc.value)
+        assert isinstance(exc.value.__cause__, AttributeError)
+
 
 class TestEnvVarParsing:
     """Tests for environment variable parsing edge cases."""

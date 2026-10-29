@@ -240,7 +240,7 @@ def _write_relationship(provider: AuthorizationProvider, change: CutoverRelation
     """Recover a lost write acknowledgement by reading the exact retained grant."""
     try:
         provider.write_relationships(change)
-    except Exception:
+    except Exception:  # noqa: BLE001  # recover a lost write acknowledgement by readback
         try:
             recovered = provider.read_relationships(change).grant_present
         except Exception as exc:

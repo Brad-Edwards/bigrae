@@ -26,7 +26,7 @@ from django.utils import timezone
 from shared.cloud.exceptions import CloudStorageError
 from shared.feature_artifacts.job import AcquisitionResult
 from shared.feature_artifacts.recipes import NpmBinaryRecipe, RecipeError, recipe_for
-from shared.raes.content_delivery import normalized_storage_key
+from shared.raes.content_delivery import ContentDeliveryError, normalized_storage_key
 
 if TYPE_CHECKING:
     from engine.models import AcquiredFeatureArtifact
@@ -156,7 +156,7 @@ def finalize_attempt(row_id: UUID, attempt: UUID, result: AcquisitionResult, *, 
     if result.ok:
         try:
             expected_key = normalized_storage_key(target.prefix, result.sha256)
-        except Exception:
+        except ContentDeliveryError:
             expected_key = ""
         if (
             result.storage_key == expected_key

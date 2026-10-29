@@ -102,6 +102,22 @@ describe("apiFetch", () => {
     expect(apiError.fieldErrors()).toEqual({ title: ["Required"] });
   });
 
+  it("maps a non-JSON error body to an ApiError without exposing the body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 502,
+      ok: false,
+      text: async () => "<html><body>Bad Gateway</body></html>",
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await apiFetch("/risks/").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    const apiError = error as ApiError;
+    expect(apiError.status).toBe(502);
+    expect(apiError.code).toBe("error");
+    expect(apiError.message).toBe("Request failed (502)");
+  });
+
   it("returns undefined on 204 No Content", async () => {
     const fetchMock = mockFetch(204);
     vi.stubGlobal("fetch", fetchMock);

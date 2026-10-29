@@ -124,8 +124,10 @@ class TestEnsureNgfwRunningRetries:
             dict(SAMPLE_NGFW_INFO),  # re-query after attempt 2
         ]
 
-        with pytest.raises(RuntimeError, match="persistent AWS error"):
+        with pytest.raises(RuntimeError, match="NGFW start failed") as exc_info:
             ensure_ngfw_running("req-uuid-123")
+        # Provider stderr stays out of the raised error text.
+        assert "persistent AWS error" not in str(exc_info.value)
 
         assert mocks["orch"].orchestrate.call_count == NGFW_START_MAX_RETRIES
         # time.sleep called for 2 inter-attempt delays (not after the last)

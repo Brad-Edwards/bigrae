@@ -335,7 +335,11 @@ def _normalize_utc_instant(value: str) -> str:
         raise _reject("trigger due_at must be an ISO-8601 timestamp", code="CTF_COMMUNICATION_TRIGGER_INVALID") from exc
     if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
         raise _reject("trigger due_at must be timezone-aware", code="CTF_COMMUNICATION_TRIGGER_INVALID")
-    return parsed.astimezone(UTC).isoformat()
+    try:
+        return parsed.astimezone(UTC).isoformat()
+    except OverflowError as exc:
+        # An offset instant at the datetime range edge has no UTC form.
+        raise _reject("trigger due_at is out of range", code="CTF_COMMUNICATION_TRIGGER_INVALID") from exc
 
 
 def _validate_event_status(value: str) -> str:

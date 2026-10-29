@@ -5,7 +5,7 @@ import { useMutation } from "@tanstack/react-query";
 import { CheckCircle2, Download, Loader2 } from "lucide-react";
 
 import { fetchCtfFileDownload, useCtfChallenge, useRateChallenge, useSubmitFlag, useUseHint } from "@/api/ctf";
-import { ApiError } from "@/api/errors";
+import { ApiError, describeMutationError } from "@/api/errors";
 import type { CtfChallengeDetail, CtfChallengeFile, CtfHint } from "@/api/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -101,6 +101,11 @@ function AttachmentRow({ file }: Readonly<{ file: CtfChallengeFile }>) {
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">{file.display_name || file.filename}</span>
         <span className="text-xs text-muted-foreground">{file.filename}</span>
+        {download.isError ? (
+          <span className="block text-xs text-destructive">
+            {describeMutationError(download.error, "Could not download the file. Try again.")}
+          </span>
+        ) : null}
       </span>
       <Button variant="outline" size="sm" onClick={() => download.mutate()} disabled={download.isPending}>
         {download.isPending ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
@@ -208,13 +213,15 @@ function submissionFeedback(submit: ReturnType<typeof useSubmitFlag>) {
       </Alert>
     );
   }
-  if (submit.error instanceof ApiError) {
-    const throttled = submit.error.status === 429;
+  if (submit.error) {
+    const throttled = submit.error instanceof ApiError && submit.error.status === 429;
     return (
       <Alert variant="destructive" className="mt-3">
         <AlertTitle>{throttled ? "Too many attempts" : "Could not submit"}</AlertTitle>
         <AlertDescription>
-          {throttled ? "Rate limit exceeded. Please wait a moment before trying again." : submit.error.message}
+          {throttled
+            ? "Rate limit exceeded. Please wait a moment before trying again."
+            : describeMutationError(submit.error, "The flag could not be submitted. Please try again.")}
         </AlertDescription>
       </Alert>
     );

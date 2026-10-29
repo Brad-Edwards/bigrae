@@ -17,14 +17,11 @@ Two independent contributors produce one ordered answer:
 
 Boundaries:
 
-- **Detail seam, not the hot path.** ``list_all_scenarios`` stays DB-only; this
-  reads pack files and compiles SDL, so it is called for one entry (or a bounded
-  set), never fanned out across catalog list rendering. The registry read is one
-  bulk query for every demanded name, never one query per node.
-- **Derived data.** Nothing is persisted. Realizability is recomputed from
-  package identity, target identity, and the current registry, so there is no
-  truth column, JSON blob, or migration that could go stale and authorize a
-  publication it should not.
+- **Detail seam.** ``list_all_scenarios`` stays DB-only. File reads and SDL
+  compilation run for one entry or a bounded set, never across catalog lists.
+  One bulk registry query covers every demanded name.
+- **Derived data.** Nothing is persisted. Each assessment uses current package
+  identity, target identity, and registry state, preventing stale authorization.
 - **Fail closed, but honestly.** Inability to assess (untrusted pack, unreadable
   SDL, unsupported target) is ``indeterminate`` -- distinct from a proven
   ``not_realizable`` and never rendered as realizable. Legacy YAML/DB scenarios
@@ -169,14 +166,12 @@ def _assess_trusted_path(
     gaps = tuple(sorted({*capability.gaps, *supply_gaps}))
     outcome = worst_outcome((capability.outcome, supply_outcome))
     logger.info(
-        "raes realizability assessed",
-        extra={
-            "scenario_id": safe_log_value(scenario_id),
-            "target_id": target_id,
-            "outcome": str(outcome),
-            "gap_codes": sorted({gap.code for gap in gaps}),
-            "gap_count": len(gaps),
-        },
+        "raes realizability assessed scenario_id=%s target_id=%s outcome=%s gap_count=%d gap_codes=%s",
+        safe_log_value(scenario_id),
+        safe_log_value(target_id),
+        outcome,
+        len(gaps),
+        ",".join(sorted({gap.code for gap in gaps})),
     )
     return _result(scenario_id, target_id, outcome, gaps)
 
@@ -242,8 +237,8 @@ def _staged_object_scenario_path(stack: ExitStack, source: RaesPackageSource) ->
     """Stage the object pack into ``stack`` and resolve its verified SDL path."""
     try:
         pack_root = stack.enter_context(_stage_object_pack(source))
-    except Exception as exc:
-        logger.info("raes realizability could not stage object pack (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001  # fail closed to indeterminate; pack and storage errors embed paths
+        _log_resolution_failure(source.scenario_id, exc)
         return None, _gap_pack_unresolvable()
     return _verified_object_scenario_path(pack_root, source)
 
@@ -258,10 +253,8 @@ def _repo_scenario_path(source: RaesPackageSource) -> tuple[Path | None, Realiza
         if source.package_digest and not verify_pack_digest(pack_root, source.package_digest):
             return None, _gap_untrusted()
         return resolve_pack_scenario_path(pack_root), _gap_untrusted()
-    except Exception as exc:
-        # Any resolution failure means "cannot assess", never "realizable". Only
-        # the failure class is surfaced: RAES/pack errors embed absolute paths.
-        logger.info("raes realizability could not resolve pack (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001  # fail closed to indeterminate; RAES/pack errors embed absolute paths
+        _log_resolution_failure(source.scenario_id, exc)
         return None, _gap_pack_unresolvable()
 
 
@@ -310,8 +303,8 @@ def _verified_object_scenario_path(pack_root: Path, source: RaesPackageSource) -
         if not trusted:
             return None, _gap_untrusted()
         return resolve_pack_scenario_path(pack_root), _gap_untrusted()
-    except Exception as exc:
-        logger.info("raes realizability could not verify object pack (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001  # fail closed to indeterminate; RAES/pack errors embed absolute paths
+        _log_resolution_failure(source.scenario_id, exc)
         return None, _gap_pack_unresolvable()
 
 
@@ -493,4 +486,13 @@ def _gap_pack_unresolvable() -> RealizabilityGap:
         _PLAN_ADDRESS,
         GapCategory.SOURCE_INTEGRITY,
         "the registered pack could not be resolved, so realizability cannot be assessed",
+    )
+
+
+def _log_resolution_failure(scenario_id: str, exc: Exception) -> None:
+    """Log the failure class without private pack paths or provider details."""
+    logger.warning(
+        "raes realizability could not resolve pack scenario_id=%s exc_type=%s",
+        safe_log_value(scenario_id),
+        type(exc).__name__,
     )

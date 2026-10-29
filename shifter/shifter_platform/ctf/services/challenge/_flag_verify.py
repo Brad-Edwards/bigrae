@@ -94,9 +94,12 @@ def _invoke_programmable_validator(
         else:
             legacy = cast("Callable[[str, dict[str, Any]], bool]", validator_func)
             is_valid = legacy(submitted_flag, config.get("params", {}))
-    except Exception:
+    except Exception as exc:
         if context_capable:
-            logger.warning("Context-capable validator failed closed for flag %s", flag_obj.id)
+            # These validators receive the sensitive receipt submission: log the exception type only.
+            logger.warning(
+                "Context-capable validator failed closed for flag %s exc_type=%s", flag_obj.id, type(exc).__name__
+            )
         else:
             logger.exception("Validator failed for flag %s", flag_obj.id)
     return is_valid
@@ -126,10 +129,9 @@ def _verify_http_flag(
             )
         else:
             is_valid = validate_http(submitted_flag, config, flag_obj.challenge_id)
-    except Exception:
-        # Receipt/provider exceptions may carry URLs, claims, or credentials.
+    except Exception as exc:  # noqa: BLE001  # receipt/provider errors may carry URLs, claims, or credentials
         # Preserve correlation by flag id and expose no nested exception text.
-        logger.warning("HTTP validator failed closed for flag %s", flag_obj.id)
+        logger.warning("HTTP validator failed closed for flag %s exc_type=%s", flag_obj.id, type(exc).__name__)
         is_valid = False
     return is_valid
 
@@ -285,8 +287,10 @@ def _verify_installed_flag(
         else:
             legacy = cast("Callable[[CTFFlag, str], bool]", custom)
             is_valid = bool(legacy(flag_obj, submitted_flag))
-    except Exception:
-        logger.warning("Installed flag validator failed closed for flag %s", flag_obj.id)
+    except Exception as exc:  # noqa: BLE001  # extension validator errors may carry flag values or receipt claims
+        logger.warning(
+            "Installed flag validator failed closed for flag %s exc_type=%s", flag_obj.id, type(exc).__name__
+        )
     return is_valid
 
 

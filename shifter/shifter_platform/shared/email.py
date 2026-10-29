@@ -102,8 +102,14 @@ def send_email(
         msg.attach_alternative(html_content, "text/html")
         msg.send()
         return True
-    except Exception:
-        logger.exception("Failed to send email recipient=%s", safe_log_fingerprint(recipient))
+    # provider errors can echo the address and API responses; class only
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Failed to send email recipient=%s exc_type=%s",
+            safe_log_fingerprint(recipient),
+            type(exc).__name__,
+            exc_info=False,
+        )
         return False
 
 

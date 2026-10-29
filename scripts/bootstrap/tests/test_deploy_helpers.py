@@ -31,6 +31,10 @@ class TestRedactArgvForLog:
         out = deploy._redact_argv_for_log(["gcloud", "--password", "SuperSecret123!"])
         assert out == "gcloud --password ***"
 
+    def test_masks_inline_value_of_sensitive_flag_only(self):
+        out = deploy._redact_argv_for_log(["tool", "--password=SuperSecret123!", "--project", "demo"])
+        assert out == "tool --password=*** --project demo"
+
     def test_masks_inline_json_document(self):
         out = deploy._redact_argv_for_log(["aws", "iam", "--policy-document", '{"Version":"2012"}'])
         assert out == "aws iam --policy-document ***"

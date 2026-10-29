@@ -131,8 +131,9 @@ class GcpMetricsAdapter:
         for signal in _SIGNALS:
             try:
                 value = self._reader.read(signal, window_start, window_end, self.targets)
-            except Exception:
-                value = None
+            except Exception as exc:  # noqa: BLE001  # best-effort evidence: a failed read becomes a named report gap
+                gaps.append(f"{signal.name} (read failed: {type(exc).__name__})")
+                continue
             if value is None:
                 gaps.append(f"{signal.name} (no parseable datapoints in window)")
                 continue

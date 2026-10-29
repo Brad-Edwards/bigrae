@@ -1,5 +1,6 @@
 """Retained installer cleanup, independent of the initiating proof's liveness."""
 
+import logging
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -13,6 +14,8 @@ from shared.cloud import get_object_storage
 from shared.operation_authority import authority_resource_scope
 
 from ._upload_scope import _scope_digest
+
+logger = logging.getLogger(__name__)
 
 
 def _cleanup_upload(row: AgentUpload) -> bool:
@@ -85,9 +88,12 @@ def reconcile_upload_cleanup(*, limit: int = 100) -> int:
             if row is None:
                 continue
             cleaned += _cleanup_upload(row)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001  # retain durable cleanup evidence on any failure
             # Retain the original resource evidence and reservation on uncertainty.
             AgentUpload.objects.filter(pk=candidate.pk).update(updated_at=now)
+            logger.warning(
+                "Upload cleanup retained for retry upload_id=%s exc_type=%s", candidate.pk, type(exc).__name__
+            )
     return cleaned
 
 

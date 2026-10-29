@@ -81,18 +81,28 @@ class SecretStore:
         if listed.returncode != 0:
             raise RuntimeError(f"cannot list {secret}: gcloud exited {listed.returncode}")
         for version in listed.stdout.split()[1:]:
-            self.run(
+            number = version.rsplit("/", 1)[-1]
+            destroyed = self.run(
                 [
                     "secrets",
                     "versions",
                     "destroy",
-                    version.rsplit("/", 1)[-1],
+                    number,
                     f"--secret={secret}",
                     f"--project={self.project}",
                     "--quiet",
                 ],
                 None,
             )
+            if destroyed.returncode != 0:
+                # The new version is already stored and the pool must still reload it,
+                # so report the superseded version that stays enabled instead of failing.
+                # The version number identifies it; the secret name stays out of the log.
+                print(
+                    f"::warning::cannot destroy superseded secret version {number}: "
+                    f"gcloud exited {destroyed.returncode}",
+                    file=sys.stderr,
+                )
 
 
 def _pem_key(key: ec.EllipticCurvePrivateKey) -> str:

@@ -89,7 +89,7 @@ def resolve_sponsored_sources(
 
         actor = resolve_current_credential(sponsorship.credential_reference.credential())
         workspace_id = workspace_id_for_uuid(sponsorship.workspace_uuid)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise ContractError(SPONSOR_UNAVAILABLE) from None
     current = resolve_model_source_sponsorship(actor, workspace_id, sponsorship.selection)
     if current != sponsorship:
@@ -115,7 +115,7 @@ def _source_use_scope(actor: CredentialContext, organization_uuid: UUID | None) 
         scope = hierarchy_target_scope("organization", organization_uuid)
         if scope.organization_uuid != organization_uuid:
             raise ValueError
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise OrganizationAuthorizationError("Organization access denied") from None
     return ModelSourceUseScope(credential=actor, organization_uuid=organization_uuid)
 
