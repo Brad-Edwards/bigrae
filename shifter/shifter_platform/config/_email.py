@@ -33,13 +33,24 @@ from config._runtime_env import required_runtime_env, runtime_allows_dev_default
 
 __all__ = [
     "ANYMAIL",
+    "AWS_SES_AUTO_THROTTLE",
     "AWS_SES_REGION_ENDPOINT",
     "AWS_SES_REGION_NAME",
     "DEFAULT_FROM_EMAIL",
     "EMAIL_BACKEND",
+    "EMAIL_DELIVERY_AVAILABLE",
 ]
 
 _CONSOLE_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# Django's development conveniences: they log, write, or drop mail instead of
+# handing it to a mail transport (ADR-071).
+_NON_DELIVERING_BACKENDS = frozenset(
+    {
+        _CONSOLE_BACKEND,
+        "django.core.mail.backends.filebased.EmailBackend",
+        "django.core.mail.backends.dummy.EmailBackend",
+    }
+)
 _MAILGUN_BACKEND = "anymail.backends.mailgun.EmailBackend"
 
 # Maps an anymail ``EMAIL_BACKEND`` to the ``ANYMAIL`` settings key that carries
@@ -76,10 +87,18 @@ if _ANYMAIL_API_KEY_NAMES.get(EMAIL_BACKEND) and not _EMAIL_API_KEY and not runt
 if EMAIL_BACKEND == _MAILGUN_BACKEND and not _MAILGUN_SENDER_DOMAIN and not runtime_allows_dev_defaults():
     raise ImproperlyConfigured("MAILGUN_SENDER_DOMAIN environment variable is required when EMAIL_BACKEND is Mailgun")
 
+# A deployed runtime with a non-delivering backend has no email transport: it must
+# report delivery as unavailable and never print signed links to process logs.
+# Development and test runtimes keep the console/locmem conveniences (ADR-071).
+EMAIL_DELIVERY_AVAILABLE = EMAIL_BACKEND not in _NON_DELIVERING_BACKENDS or runtime_allows_dev_defaults()
+
 # django-ses (AWS path) reads these; inert under any non-SES backend. Defaults
 # preserve the prior hardcoded us-east-2 values so AWS delivery is unchanged.
 AWS_SES_REGION_NAME = os.environ.get("AWS_SES_REGION_NAME", "us-east-2")
 AWS_SES_REGION_ENDPOINT = os.environ.get("AWS_SES_REGION_ENDPOINT", "email.us-east-2.amazonaws.com")
+# Off: django-ses would otherwise sleep inside a send to pace itself. The
+# communication worker owns retry and backoff, and each attempt stays bounded.
+AWS_SES_AUTO_THROTTLE = None
 
 # The ESP API key is hydrated from the secret store into ``EMAIL_API_KEY`` at
 # runtime (entrypoint secret hydration); it is never a checked-in value.

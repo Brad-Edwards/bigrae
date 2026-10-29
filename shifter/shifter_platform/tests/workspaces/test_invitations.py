@@ -417,3 +417,85 @@ def test_acceptance_audits_invitation_and_canonical_membership_create(settings, 
     )
     assert invitee.email not in serialized
     assert token not in serialized
+
+
+# ---------------------------------------------------------------------------
+# Delivery outcome (ADR-071, #1525)
+# ---------------------------------------------------------------------------
+
+
+def test_issue_reports_backend_acceptance_after_commit(settings, recorded_workspace_email):
+    settings.SITE_URL = "https://shifter.example.test"
+    owner, workspace = _shared_workspace()
+
+    projection, _token = _issue(owner, workspace, "accepted@example.com", recorded_workspace_email)
+
+    invitation = WorkspaceInvitation.objects.get(public_id=projection.invitation_uuid)
+    assert projection.delivery_status == "accepted"
+    assert (invitation.delivery_status, invitation.delivery_reason) == ("accepted", "backend_accepted")
+    assert invitation.delivery_observed_at is not None
+
+
+def test_refused_delivery_is_recorded_without_undoing_the_invitation(settings, refused_workspace_email):
+    settings.SITE_URL = "https://shifter.example.test"
+    owner, workspace = _shared_workspace()
+
+    projection = services.issue_workspace_invitation(
+        owner, workspace.uuid, "refused@example.com", WorkspaceRole.MEMBER, audit=_audit(owner)
+    )
+
+    invitation = WorkspaceInvitation.objects.get(public_id=projection.invitation_uuid)
+    assert len(refused_workspace_email) == 1
+    assert projection.status == "pending"
+    assert projection.delivery_status == "failed"
+    assert invitation.delivery_reason == "recipient_rejected"
+
+
+def test_unavailable_transport_sends_nothing_and_says_so(settings, recorded_workspace_email):
+    settings.SITE_URL = "https://shifter.example.test"
+    settings.EMAIL_DELIVERY_AVAILABLE = False
+    owner, workspace = _shared_workspace()
+
+    projection = services.issue_workspace_invitation(
+        owner, workspace.uuid, "nowhere@example.com", WorkspaceRole.MEMBER, audit=_audit(owner)
+    )
+
+    assert recorded_workspace_email.empty()
+    assert projection.delivery_status == "unavailable"
+
+
+def test_resend_fences_the_superseded_generation_send(settings, recorded_workspace_email):
+    """Issue and resend commit together: only the current generation is sent."""
+    from django.db import transaction
+
+    settings.SITE_URL = "https://shifter.example.test"
+    owner, workspace = _shared_workspace()
+
+    with transaction.atomic():
+        issued = services.issue_workspace_invitation(
+            owner, workspace.uuid, "fenced@example.com", WorkspaceRole.MEMBER, audit=_audit(owner)
+        )
+        services.resend_workspace_invitation(owner, workspace.uuid, issued.invitation_uuid, audit=_audit(owner))
+
+    message = recorded_workspace_email.get(timeout=2)
+    assert recorded_workspace_email.empty()
+    token = unquote(_TOKEN_RE.search(message.body).group(1))
+    invitation = WorkspaceInvitation.objects.get(public_id=issued.invitation_uuid)
+    assert services.stage_workspace_invitation_token(token).generation == invitation.generation
+    assert invitation.delivery_status == "accepted"
+
+
+def test_revoke_in_the_same_transaction_suppresses_the_send(settings, recorded_workspace_email):
+    from django.db import transaction
+
+    settings.SITE_URL = "https://shifter.example.test"
+    owner, workspace = _shared_workspace()
+
+    with transaction.atomic():
+        issued = services.issue_workspace_invitation(
+            owner, workspace.uuid, "revoked@example.com", WorkspaceRole.MEMBER, audit=_audit(owner)
+        )
+        services.revoke_workspace_invitation(owner, workspace.uuid, issued.invitation_uuid, audit=_audit(owner))
+
+    assert recorded_workspace_email.empty()
+    assert WorkspaceInvitation.objects.get(public_id=issued.invitation_uuid).delivery_status == "pending"

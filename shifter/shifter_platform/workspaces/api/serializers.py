@@ -8,6 +8,7 @@ from workspaces.models import (
     QUOTA_MODE_CHOICES,
     QUOTA_OUTCOME_CHOICES,
     QUOTA_RESOURCE_CHOICES,
+    InvitationDeliveryStatus,
 )
 from workspaces.roles import WorkspaceRole
 
@@ -112,6 +113,11 @@ class WorkspaceInvitationSerializer(serializers.Serializer):
     email = serializers.EmailField(read_only=True)
     role = serializers.ChoiceField(read_only=True, choices=WorkspaceRole.choices)
     status = serializers.ChoiceField(read_only=True, choices=("pending", "expired", "accepted", "revoked"))
+    delivery_status = serializers.ChoiceField(
+        read_only=True,
+        choices=InvitationDeliveryStatus.choices,
+        help_text="Observed outcome of the latest send; accepted means the mail backend took it, not that it was read.",
+    )
     expires_at = serializers.DateTimeField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)

@@ -14,7 +14,7 @@ from ._authorization import (
 )
 from ._hierarchy_publication import HierarchyPublication
 from ._identity_cutover import IdentityCutoverState
-from ._invitation import WorkspaceInvitation
+from ._invitation import InvitationDeliveryStatus, WorkspaceInvitation
 from ._membership import WorkspaceMembership
 from ._organization import Organization
 from ._organization_membership import OrganizationMembership
@@ -67,6 +67,7 @@ __all__ = [
     "AuthorizationPolicy",
     "HierarchyPublication",
     "IdentityCutoverState",
+    "InvitationDeliveryStatus",
     "Organization",
     "OrganizationMembership",
     "Workspace",

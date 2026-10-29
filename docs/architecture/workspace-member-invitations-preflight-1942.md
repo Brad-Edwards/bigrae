@@ -202,8 +202,11 @@ email itself as a metric/cache/log label.
 
 ## Email delivery and audit boundary
 
-Trusted filesystem template pairs render through `shared.email.render_template`
-and dispatch through `shared.email.send_email_async`. Provider selection,
+Trusted filesystem template pairs render through `shared.email.render_template`.
+ADR-071 (#1525) replaced the original `send_email_async` dispatch with one
+bounded synchronous `shared.email.attempt_email()` call after commit and a
+persisted, generation-fenced delivery status. The paragraphs below that forbid a
+delivery status record the original #1942 baseline. Provider selection,
 credentials, sender behavior, MIME assembly, and delivery error handling remain
 in `config/_email.py` and the Django email backends:
 

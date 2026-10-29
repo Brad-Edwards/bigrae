@@ -178,6 +178,35 @@ class IntentStatus(StrEnum):
         return [(s.value, s.name.title()) for s in cls]
 
 
+class IntentDeliveryState(StrEnum):
+    """Persisted aggregate delivery outcome of one occurrence (ADR-071, #1525).
+
+    Separate from ``IntentStatus`` (release lifecycle). It is derived from
+    committed per-recipient rows: in-app success is the committed inbox receipt,
+    and a transport channel uses its ``DeliveryAttempt`` status. ACCEPTED means
+    every recipient channel was accepted by its transport, never read. PARTIAL,
+    FAILED, and WITHDRAWN keep partial failure, terminal failure, and
+    cancellation/suppression distinct; EMPTY is a release with no recipients.
+    """
+
+    NOT_RELEASED = "not_released"
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    WITHDRAWN = "withdrawn"
+    EMPTY = "empty"
+
+    def __str__(self) -> str:
+        """Return the string value for database storage."""
+        return self.value
+
+    @classmethod
+    def choices(cls) -> list[tuple[str, str]]:
+        """Return choices for Django model field."""
+        return [(s.value, s.name.replace("_", " ").title()) for s in cls]
+
+
 class DeliveryStatus(StrEnum):
     """Truthful, transport-specific delivery-attempt status (ADR-051, #2048; engine #2098).
 
