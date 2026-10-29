@@ -60,7 +60,10 @@ its verified terminal state. There is no legacy authorization fallback or mixed
 runtime mode. The one-time converter preserves stable resource identifiers,
 stops on ambiguous ownership/provider facts, verifies relationship readback,
 bootstraps one exact provider-bound administrator, and invalidates pre-cutover
-sessions and API tokens before activation. No live deployment currently exists,
+sessions and API tokens before activation. On an empty database, a preparation
+step before the plan creates that administrator's user, principal, and provider
+binding from the bootstrap facts (#2671). It creates nothing when any user
+already exists. No live deployment currently exists,
 so repository and clean/legacy fixture evidence is not live-cloud acceptance.
 [Content/range authority](shifter_platform/content-range-authority.md) and
 [account administration](shifter_platform/account-administration.md) explain the

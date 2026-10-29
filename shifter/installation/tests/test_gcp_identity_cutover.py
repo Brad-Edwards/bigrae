@@ -74,8 +74,11 @@ def test_cutover_job_reuses_exact_runtime_binding_and_mounts_facts_as_files() ->
     assert "identity_cutover apply" in script
     assert "identity_cutover_bootstrap" in script
     assert "identity_cutover verify" in script
-    assert script.index("identity_cutover apply") < script.index("identity_cutover_bootstrap")
-    assert script.index("identity_cutover_bootstrap") < script.index("identity_cutover verify")
+    # #2671: preparation binds an empty installation's first administrator before the plan.
+    prepare = script.index("identity_cutover_bootstrap --facts /run/identity-bootstrap/bootstrap.json --prepare")
+    assert script.index('if [ -z "$digest" ]') < prepare < script.index("identity_cutover plan")
+    grant = script.index("identity_cutover_bootstrap --facts /run/identity-bootstrap/bootstrap.json --plan-digest")
+    assert script.index("identity_cutover apply") < grant < script.index("identity_cutover verify")
     assert "identity_runtime_check" in script
     assert "readinessProbe" not in container
 
