@@ -142,7 +142,9 @@ _PROBE_KINDS = frozenset({"Namespace", "ServiceAccount", "ConfigMap", "Secret"})
 _PROBE_NETWORK_POLICIES = frozenset(
     f"allow-{lane}-{purpose}-egress"
     for lane in ("platform", "jobs")
-    for purpose in ("dns", "metadata-server", "google-apis", "provider-apis", "native-sql")
+    # native-sql is the IAM database path (TCP 3307); private-service is the
+    # password-authentication database path (TCP 5432, #2669).
+    for purpose in ("dns", "metadata-server", "google-apis", "provider-apis", "native-sql", "private-service")
 )
 
 

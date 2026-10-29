@@ -85,6 +85,35 @@ def chart(tmp_path):
     return [doc for doc in yaml.safe_load_all(rendered) if doc]
 
 
+def test_real_chart_probe_reaches_password_auth_database(tmp_path):
+    """#2669: without native identity the probe needs the private-service SQL path (TCP 5432)."""
+    root = get_repo_root()
+    path = tmp_path / "values.json"
+    path.write_text(json.dumps({"network": {"privateServiceCidrs": ["10.60.0.0/24"]}}))
+    rendered = subprocess.run(
+        [
+            "helm",
+            "template",
+            "password-contract",
+            str(root / "platform/charts/shifter"),
+            "-f",
+            str(root / "platform/charts/shifter/values-gcp-dev.yaml"),
+            "-f",
+            str(path),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout
+    manifest = yaml.safe_dump_all([doc for doc in yaml.safe_load_all(rendered) if doc])
+    prerequisites = list(yaml.safe_load_all(probe_prerequisites(manifest)))
+    policies = {doc["metadata"]["name"]: doc["spec"] for doc in prerequisites if doc["kind"] == "NetworkPolicy"}
+    assert "allow-platform-native-sql-egress" not in policies
+    sql = policies["allow-platform-private-service-egress"]
+    assert 5432 in {port["port"] for rule in sql["egress"] for port in rule["ports"]}
+    assert {"cidr": "10.60.0.0/24"} in [peer["ipBlock"] for rule in sql["egress"] for peer in rule["to"]]
+
+
 @pytest.fixture
 def cluster(tmp_path, monkeypatch):
     state, calls = tmp_path / "cluster.json", tmp_path / "calls.jsonl"
