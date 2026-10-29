@@ -14,7 +14,7 @@ from workspaces.management.commands.seed_e2e import (
     STANDARD_EMAIL,
     THREAT_EMAIL,
 )
-from workspaces.models import OrganizationMembership, Workspace
+from workspaces.models import OrganizationMembership, Workspace, WorkspaceMembership
 from workspaces.roles import OrganizationRole
 
 User = get_user_model()
@@ -35,6 +35,10 @@ def test_seed_creates_synthetic_actors_and_org_authority():
     assert not Workspace.objects.filter(
         organization__in=memberships.values("organization"), personal_for_user__isnull=False
     ).exists()
+    # The organization console renders only for a workspace member.
+    assert WorkspaceMembership.objects.filter(
+        user=staff, workspace__organization__in=memberships.values("organization")
+    ).exists()
 
     threat = User.objects.get(username=THREAT_EMAIL)
     assert threat.groups.filter(name="Threat Research").exists()
@@ -51,8 +55,9 @@ def test_seed_is_idempotent():
 
     assert User.objects.filter(username=STAFF_EMAIL).count() == 1
     staff = User.objects.get(username=STAFF_EMAIL)
-    # The admin membership is not duplicated on re-run.
+    # The admin and workspace memberships are not duplicated on re-run.
     assert OrganizationMembership.objects.filter(user=staff, role=OrganizationRole.ADMIN.value).count() == 1
+    assert WorkspaceMembership.objects.filter(user=staff).count() == 1
     assert Group.objects.filter(name="Threat Research").count() == 1
 
 

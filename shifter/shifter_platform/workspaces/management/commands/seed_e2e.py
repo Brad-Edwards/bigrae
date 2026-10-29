@@ -10,8 +10,9 @@ organization the staff actor administers. That organization is the default
 organization of a synthetic team account, created through the real account
 service. A personal organization cannot hold shared workspaces (#2617), so the
 workspace-console journey needs this non-personal one. The admin
-``OrganizationMembership`` row is persisted here: outside the personal
-bootstrap, no service grants the legacy organization-admin role. CTF
+``OrganizationMembership`` row and an owner membership of the organization's
+default workspace (the console renders only for a workspace member) are
+persisted here: outside the personal bootstrap, no service grants them. CTF
 organizer/participant sessions are established through ``dev_login`` at test
 time and need no seeding here.
 
@@ -30,8 +31,8 @@ from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand, CommandError
 
 from shared.auth import THREAT_RESEARCH_GROUP
-from workspaces.models import Account, Organization, OrganizationMembership
-from workspaces.roles import OrganizationRole
+from workspaces.models import Account, Organization, OrganizationMembership, Workspace, WorkspaceMembership
+from workspaces.roles import OrganizationRole, WorkspaceRole
 from workspaces.services import create_account
 
 if TYPE_CHECKING:
@@ -86,7 +87,11 @@ class Command(BaseCommand):
 
     @staticmethod
     def _ensure_staff_organization(staff: DjangoUser) -> None:
-        """Make ``staff`` the admin of a synthetic team account's default organization."""
+        """Make ``staff`` the admin of a synthetic team account's default organization.
+
+        Also make ``staff`` the owner of that organization's default workspace:
+        the organization console renders only for a workspace member.
+        """
         account = Account.objects.filter(kind=Account.Kind.TEAM, name=STAFF_ACCOUNT_NAME).first()
         if account is None:
             account_uuid = create_account(kind=Account.Kind.TEAM, name=STAFF_ACCOUNT_NAME).uuid
@@ -97,6 +102,11 @@ class Command(BaseCommand):
             organization=organization,
             user=staff,
             defaults={"role": OrganizationRole.ADMIN.value},
+        )
+        WorkspaceMembership.objects.get_or_create(
+            workspace=Workspace.objects.get(organization=organization, is_default=True),
+            user=staff,
+            defaults={"role": WorkspaceRole.OWNER.value},
         )
 
     @staticmethod
