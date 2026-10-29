@@ -153,6 +153,36 @@ class TestDetailAndMutation:
             new_state__operation="event.lifecycle.activate",
         ).exists()
 
+    def test_superuser_participant_range_action_records_intent_and_outcome(self, superuser_client, other_event):
+        """A per-participant range action through the override gets the ADR-052-R4 audit (#2617).
+
+        The participant has no range, so the real range service refuses the stop:
+        the intent is recorded before the attempt and the failure after it.
+        """
+        from django.utils import timezone
+
+        from ctf.models import CTFParticipant
+
+        participant = CTFParticipant.objects.create(
+            event=other_event, email="p@test.com", name="p", status="active", registered_at=timezone.now()
+        )
+
+        resp = call_json(
+            superuser_client, "post", "api_stop_participant_range", kwargs={"participant_id": participant.id}
+        )
+
+        assert resp.status_code == 400
+        outcomes = list(
+            AuditLog.objects.filter(
+                context="ctf_platform_admin_event_action", new_state__operation="range.participant.stop"
+            )
+            .order_by("sequence")
+            .values_list("new_state__outcome", flat=True)
+        )
+        assert outcomes == ["intent", "failed"]
+        organizer_row = AuditLog.objects.get(context="ctf_organizer_participant_range_action")
+        assert organizer_row.new_state["authority_source"] == "platform_admin"
+
 
 class TestNestedMutationOverrideAudit:
     """Nested event-derived mutations via the override capture the source and audit (ADR-052-R4)."""

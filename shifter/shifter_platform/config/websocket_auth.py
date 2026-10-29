@@ -195,11 +195,6 @@ class CTFAccountWebSocketBoundary:
     @database_sync_to_async
     def _may_access_terminal(self, user: User | AnonymousUser) -> bool:
         """Mirror the HTTP participant boundary for the terminal WebSocket."""
-        from ctf.services.participant.accounts import live_participant_for_user
-        from management.services import is_ctf_password_change_required
+        from config.socket_authority import ctf_account_socket_standing
 
-        return (
-            isinstance(user, User)
-            and live_participant_for_user(user) is not None
-            and not is_ctf_password_change_required(user)
-        )
+        return isinstance(user, User) and ctf_account_socket_standing(user)
