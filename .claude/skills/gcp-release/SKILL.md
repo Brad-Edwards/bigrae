@@ -39,7 +39,7 @@ deploy-test branch" section of the
 3. Wait for the run. The deployer image build is the longest step, about 35
    minutes.
 4. Read the deployer digest from the run log line
-   `Attestation created for <registry>/deployer@sha256:<digest>`.
+   `Attestation created for <registry>/deployer-gcp@sha256:<digest>`.
 5. Read the release manifest from the deployer image (gotchas: "Read the
    release manifest without Docker"). Check that `source_revision` equals the
    commit that you released.

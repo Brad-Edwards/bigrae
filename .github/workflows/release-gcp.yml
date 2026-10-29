@@ -14,7 +14,8 @@ name: Release (GCP)
 # manifest, the source revision, the deploy tooling, and the pinned tools. The
 # deployer image is attested the same way.
 #
-# The release registry is ghcr.io/<owner>/<repository>, in lower case. The job
+# The release registry is ghcr.io/<owner>/<repository>, in lower case. The
+# deployer image is deployer-gcp, because it holds only the GCP tooling. The job
 # publishes with the workflow GITHUB_TOKEN and needs no cloud identity. A
 # deployment trusts a release through settings.release_trust, not through the
 # registry, and copies each image by digest into its own Artifact Registry.
@@ -230,7 +231,7 @@ jobs:
             SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
-            ${{ env.RELEASE_REGISTRY }}/deployer:${{ github.sha }}
+            ${{ env.RELEASE_REGISTRY }}/deployer-gcp:${{ github.sha }}
           no-cache: true
           provenance: mode=max
           sbom: true
@@ -256,11 +257,11 @@ jobs:
             --ignorefile platform/deployer/gcp/trivyignore.yaml \
             --db-repository mirror.gcr.io/aquasec/trivy-db \
             --java-db-repository mirror.gcr.io/aquasec/trivy-java-db \
-            --exit-code 1 "${RELEASE_REGISTRY}/deployer@${DEPLOYER_DIGEST}"
+            --exit-code 1 "${RELEASE_REGISTRY}/deployer-gcp@${DEPLOYER_DIGEST}"
       - name: Attest build provenance (deployer)
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-name: ${{ env.RELEASE_REGISTRY }}/deployer
+          subject-name: ${{ env.RELEASE_REGISTRY }}/deployer-gcp
           subject-digest: ${{ steps.build-deployer.outputs.digest }}
           push-to-registry: true
 
@@ -272,7 +273,7 @@ jobs:
           {
             echo "## GCP release ${RELEASE_VERSION}"
             echo "- **Source revision:** \`${GITHUB_SHA}\`"
-            echo "- **Deployer image:** \`${RELEASE_REGISTRY}/deployer@${DEPLOYER_DIGEST}\`"
+            echo "- **Deployer image:** \`${RELEASE_REGISTRY}/deployer-gcp@${DEPLOYER_DIGEST}\`"
             echo "- **Release manifest:** \`/opt/bigrae/release.json\` in the deployer image"
             echo ""
             echo '```json'
