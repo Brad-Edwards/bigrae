@@ -15,6 +15,8 @@ import { ctfAdminCommunicationPath } from "@/features/ctf/routes";
 
 import { ComposeCommunication } from "./ComposeCommunication";
 
+const WRAP = "whitespace-normal [overflow-wrap:anywhere]";
+
 function CampaignList({ parent }: Readonly<{ parent: CommunicationParent }>) {
   const campaigns = useParentCommunications(parent);
   const rows = campaigns.data?.pages.flatMap((page) => page.results) ?? [];
@@ -39,28 +41,30 @@ function CampaignList({ parent }: Readonly<{ parent: CommunicationParent }>) {
           <p className="text-sm text-muted-foreground">No communications yet.</p>
         ) : null}
         {rows.length > 0 ? (
+          // Cells wrap so the table fits a narrow viewport; clipped columns in
+          // the scroll container would hide text from sighted and axe readers.
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Events</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead className={WRAP}>Title</TableHead>
+                <TableHead className={WRAP}>Status</TableHead>
+                <TableHead className={WRAP}>Events</TableHead>
+                <TableHead className={WRAP}>Created</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((campaign) => (
                 <TableRow key={campaign.id}>
-                  <TableCell>
+                  <TableCell className={WRAP}>
                     <Link className="underline-offset-4 hover:underline" to={ctfAdminCommunicationPath(campaign.id)}>
                       {campaign.title}
                     </Link>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className={WRAP}>
                     <Badge variant="secondary">{campaign.status}</Badge>
                   </TableCell>
-                  <TableCell>{campaign.target_events.map((event) => event.name).join(", ")}</TableCell>
-                  <TableCell>{new Date(campaign.created_at).toLocaleString()}</TableCell>
+                  <TableCell className={WRAP}>{campaign.target_events.map((event) => event.name).join(", ")}</TableCell>
+                  <TableCell className={WRAP}>{new Date(campaign.created_at).toLocaleString()}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
