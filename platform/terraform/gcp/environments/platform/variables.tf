@@ -491,9 +491,3 @@ variable "gcs_force_destroy" {
   type        = bool
   default     = false
 }
-
-variable "adopt_artifact_registry_kms" {
-  description = "Adopt an existing Artifact Registry key ring and key that a previous gcp-destroy left in place. gcp-deploy sets this value."
-  type        = bool
-  default     = false
-}

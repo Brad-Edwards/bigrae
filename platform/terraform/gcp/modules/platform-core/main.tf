@@ -223,11 +223,6 @@ resource "google_compute_network_peering" "platform_to_range" {
   name         = "${local.name_prefix}-platform-to-range"
   network      = module.portal_vpc.platform_network_id
   peer_network = module.range_vpc.range_network_id
-
-  # The Service Networking connection in portal_vpc also adds a peering to the
-  # platform network. GCP runs one peering operation per network at a time, so
-  # a concurrent create fails with "peering operation in progress" (#2643).
-  depends_on = [module.portal_vpc]
 }
 
 resource "google_compute_network_peering" "range_to_platform" {
