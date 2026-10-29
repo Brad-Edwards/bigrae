@@ -3,5 +3,5 @@
 # committed baseline stays a loud placeholder.
 project_id  = "REPLACE_WITH_YOUR_GCP_PROJECT_ID"
 environment = "sauron"
-github_org  = "OpenRAE"
+github_org  = "Brad-Edwards"
 github_repo = "bigrae"
