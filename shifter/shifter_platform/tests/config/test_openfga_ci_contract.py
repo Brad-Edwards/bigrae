@@ -9,7 +9,7 @@ import yaml
 
 _ROOT = Path(__file__).resolve().parents[4]
 _QUALITY = yaml.safe_load((_ROOT / ".github/workflows/_quality.yml").read_text())
-_POSTGRES_SELECTION = '-m "not redis and not openfga"'
+_POSTGRES_SELECTION = '-m "not redis and not openfga and not apiserver"'
 
 
 def test_bare_postgres_lane_selects_only_its_service_posture() -> None:
