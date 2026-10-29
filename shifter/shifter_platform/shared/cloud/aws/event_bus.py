@@ -43,7 +43,7 @@ class AWSEventBus:
                     k: {"DataType": "String", "StringValue": v} for k, v in attributes.items()
                 }
             client.publish(**kwargs)
-            logger.info("publish: success topic_id=%s", topic_id)
+            logger.debug("publish: success topic_id=%s", topic_id)
         except (ClientError, BotoCoreError) as e:
-            logger.exception("publish: failed topic_id=%s error=%s", topic_id, e)
+            logger.exception("publish: failed topic_id=%s", topic_id)
             raise CloudEventBusError(f"Failed to publish to SNS: {e}") from e

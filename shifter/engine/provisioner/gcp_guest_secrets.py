@@ -308,6 +308,7 @@ def _delete_secret_locations(legacy_secret_id: str, canonical_id: str) -> None:
     try:
         client, google_exceptions, platform_project_id = _secret_client()
     except RuntimeError:
+        logger.warning("Skipping GCP dynamic secret deletion: GCP project ID is not configured")
         return
     locations = secret_locations(
         platform_project_id=platform_project_id,

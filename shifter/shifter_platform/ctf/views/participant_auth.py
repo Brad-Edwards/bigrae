@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import TYPE_CHECKING, cast
 
 from django.contrib.auth.decorators import login_required
@@ -17,6 +18,8 @@ from shared.rate_limit import consume_fixed_window
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.http import HttpRequest
+
+logger = logging.getLogger(__name__)
 
 _CTF_LOGIN_TEMPLATE = "ctf/participant/login.html"
 _CTF_CHANGE_CREDENTIAL_TEMPLATE = "ctf/participant/change_password.html"
@@ -47,6 +50,7 @@ def _login_throttle_response(request: HttpRequest, username: str) -> HttpRespons
     try:
         limited, window = _ctf_login_rate_limited(request, username)
     except Exception:
+        logger.exception("CTF login rate limiter unavailable")
         response = render(
             request,
             _CTF_LOGIN_TEMPLATE,

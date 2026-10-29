@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { axe } from "vitest-axe";
 
 import { renderRoute } from "@/test/utils";
@@ -50,6 +50,17 @@ describe("ChallengesAdminPage", () => {
     mockApi.mockResolvedValue({ challenges: [] });
     render();
     expect(await screen.findByText("No challenges yet")).toBeInTheDocument();
+  });
+
+  it("reports a challenge export that fails", async () => {
+    mockApi.mockImplementation(async (path: string) => {
+      if (path.includes("/challenges/export/")) throw new TypeError("Failed to fetch");
+      return { challenges: [challenge()] };
+    });
+    render();
+    fireEvent.click(await screen.findByRole("button", { name: "Export" }));
+    expect(await screen.findByText("Could not export the challenges.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
   });
 
   it("has no axe violations when loaded", async () => {

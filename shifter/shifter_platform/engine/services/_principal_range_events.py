@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -10,11 +11,17 @@ if TYPE_CHECKING:
 from collections.abc import Mapping
 from uuid import UUID
 
+from django.core.exceptions import ObjectDoesNotExist
+
+from shared.log_sanitize import safe_log_value
 from shared.messages.events import EVENT_TYPE_STATUS_UPDATED
 from shared.operation_envelope import canonical_payload_digest
 
+from ._common import EngineError
 from ._launch_authority import range_runtime_binding_digest
 from ._range_authority import RangeAuthorityProjection, project_range_authority
+
+logger = logging.getLogger(__name__)
 
 _RANGE_CALLBACK_UNAVAILABLE = "Range callback unavailable"
 
@@ -48,7 +55,17 @@ def verified_range_status_projection(event: Mapping[str, object]) -> RangeAuthor
         if event["request_id"] != str(row.request.request_id):
             raise ValueError(_RANGE_CALLBACK_UNAVAILABLE)
         return project_range_authority(row.request.request_id)
+    except (KeyError, TypeError, ValueError, ObjectDoesNotExist, EngineError) as exc:
+        # The callback does not match accepted native state: fail closed.
+        logger.warning(
+            "range status callback not verified event_id=%s exc_type=%s",
+            safe_log_value(event.get("event_id")),
+            type(exc).__name__,
+        )
+        return None
     except Exception:
+        # An unexpected failure still fails closed; keep its traceback.
+        logger.exception("range status callback verification failed event_id=%s", safe_log_value(event.get("event_id")))
         return None
 
 

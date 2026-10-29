@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from ctf.enums import ParticipantStatus, ScheduledTaskStatus, ScheduledTaskType
 from ctf.enums_communication import DeliveryStatus, IntentStatus
+from ctf.exceptions import CTFCommunicationError
 from ctf.models import (
     CommunicationIntent,
     CTFParticipant,
@@ -105,7 +106,7 @@ def test_release_and_cancel_never_leave_deliverable_work(organizer_user, ctf_eve
         barrier.wait(timeout=10)
         try:
             release_campaign(campaign, occurrence_key="occ", actor_user_id=organizer_user.id)
-        except Exception as exc:  # a cancelled-first race legitimately refuses release
+        except CTFCommunicationError as exc:  # a cancelled-first race legitimately refuses release
             errors["release"] = exc
         finally:
             connection.close()

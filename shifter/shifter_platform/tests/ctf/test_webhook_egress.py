@@ -89,6 +89,39 @@ def test_webhook_creation_rejects_private_destination(ctf_event):
 
 
 @pytest.mark.django_db
+def test_non_ascii_secret_is_compared_in_constant_time_without_error(ctf_event):
+    from ctf.models import CTFWebhook
+    from ctf.services import webhook
+
+    hook = CTFWebhook.objects.create(
+        event=ctf_event,
+        url="https://hooks.example.test/hook",
+        secret="synthétique-clé",
+        subscribed_events=["flag_solve"],
+    )
+
+    assert webhook._delivery_is_current(hook.pk, hook.url, "synthétique-clé", "flag_solve") is True
+    assert webhook._delivery_is_current(hook.pk, hook.url, "synthétique-autre", "flag_solve") is False
+
+
+@pytest.mark.django_db
+def test_unexpected_delivery_error_is_recorded_on_the_webhook(ctf_event):
+    from ctf.models import CTFWebhook
+    from ctf.services import webhook
+
+    hook = CTFWebhook.objects.create(event=ctf_event, url="https://hooks.example.test/hook", subscribed_events=[])
+    # A stored host with a DNS label longer than 63 characters makes socket.getaddrinfo
+    # raise UnicodeError (IDNA encoding). That error is not a transport error.
+    unusable_url = f"https://{'a' * 64}.example.test/hook"
+    CTFWebhook.objects.filter(pk=hook.pk).update(url=unusable_url)
+
+    webhook._deliver_with_retries(hook.pk, unusable_url, "", b"{}")
+
+    hook.refresh_from_db()
+    assert hook.last_status == "failed"
+
+
+@pytest.mark.django_db
 def test_revoked_or_changed_webhook_cancels_queued_delivery(ctf_event, monkeypatch):
     from ctf.models import CTFWebhook
     from ctf.services import webhook

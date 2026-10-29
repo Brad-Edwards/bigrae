@@ -1,6 +1,7 @@
 """WebSocket account-origin authorization boundary."""
 
 import asyncio
+import logging
 import math
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -10,7 +11,11 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser, User
 
 from shared.enums import WebSocketCloseCode
+from shared.exceptions import CMSError
+from shared.log_sanitize import safe_log_value
 from shared.remote_access import TERMINAL_TARGET_PATH_RE
+
+logger = logging.getLogger(__name__)
 
 type ASGIMessage = dict[str, object]
 type ASGIScope = dict[str, object]
@@ -80,8 +85,16 @@ class CredentialSessionWebSocketBoundary:
                     return False
                 scope.update(checked_scope)
                 return True
+        except (TimeoutError, ValueError, PermissionError, CMSError) as exc:
+            # Expected denial: a provider timeout or a resource the socket may no longer use.
+            logger.warning(
+                "WebSocket revalidation denied: path=%s exc_type=%s",
+                safe_log_value(scope.get("path")),
+                type(exc).__name__,
+            )
         except Exception:
-            return False
+            logger.exception("WebSocket revalidation failed closed: path=%s", safe_log_value(scope.get("path")))
+        return False
 
     async def _resource_allowed(self, scope: ASGIScope) -> bool:
         """Use the configured resource check or the owning service composition."""

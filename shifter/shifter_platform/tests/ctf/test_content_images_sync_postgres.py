@@ -26,7 +26,8 @@ def _sync_in_thread(event_id, name: str, errors: list[BaseException]) -> threadi
     def run() -> None:
         try:
             svc.sync_event_content_images(event_id)
-        except BaseException as exc:  # pragma: no cover - surfaced by the assertion below
+        # pragma: no cover - surfaced by the assertion below
+        except BaseException as exc:  # noqa: BLE001
             errors.append(exc)
         finally:
             connection.close()

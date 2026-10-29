@@ -391,13 +391,16 @@ def _cleanup_failed_apply_attempt(
     runtime: RaesGceApplyRuntime | None,
     mutation_started: bool,
     options: RaesGceApplyOptions,
+    error: BaseException,
 ) -> None:
     """Reconstructively clean up after a provider mutation, or release preflight state."""
     if mutation_started and runtime is not None:
-        logger.exception("RAES GCE range-cell apply failed; attempting cleanup request_id=%s", request_uuid)
+        logger.error("RAES GCE range-cell apply failed; attempting cleanup request_id=%s", request_uuid, exc_info=error)
         _cleanup_failed_apply(request_uuid, range_id, raes_plan, runtime)
     else:
-        logger.exception("RAES GCE range-cell apply failed before provider mutation request_id=%s", request_uuid)
+        logger.error(
+            "RAES GCE range-cell apply failed before provider mutation request_id=%s", request_uuid, exc_info=error
+        )
         if options.on_pre_mutation_failure is not None:
             options.on_pre_mutation_failure()
 
@@ -458,8 +461,10 @@ def apply_raes_range_cell(
         logger.exception("RAES GCE range-cell apply found a conflicting deterministic VM request_id=%s", request_uuid)
         _cleanup_conflicting_apply(plan, raes_plan, runtime, created, mutation_started, resolved_options)
         raise
-    except Exception:
-        _cleanup_failed_apply_attempt(request_uuid, range_id, raes_plan, runtime, mutation_started, resolved_options)
+    except Exception as exc:
+        _cleanup_failed_apply_attempt(
+            request_uuid, range_id, raes_plan, runtime, mutation_started, resolved_options, exc
+        )
         raise
     return {
         "subnets": subnet_outputs(plan),

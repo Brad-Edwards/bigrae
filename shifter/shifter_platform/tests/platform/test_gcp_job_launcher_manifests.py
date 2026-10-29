@@ -339,6 +339,8 @@ def _malformed_admission_job(canonical: dict[str, Any], mutation: str) -> dict[s
         "operation-id-flag": lambda: container["args"].__setitem__(4, "--other-id"),
         "operation-id-value": lambda: container["args"].__setitem__(5, "not-a-uuid"),
         "task-identity": lambda: job["metadata"]["annotations"].pop("shifter.dev/task-identity"),
+        "image": lambda: container.__setitem__("image", "registry.example/other:sha"),
+        "task-image": lambda: job["metadata"]["annotations"].__setitem__("shifter.dev/task-image", "other"),
         "image-pull-policy": lambda: container.__setitem__("imagePullPolicy", "IfNotPresent"),
         "literal-tamper": lambda: next(entry for entry in env if entry["name"] == "ENVIRONMENT").__setitem__(
             "value", "attacker"
@@ -589,6 +591,8 @@ def test_admission_policy_semantically_denies_spoofed_and_malformed_launches(inl
         "operation-id-flag",
         "operation-id-value",
         "task-identity",
+        "image",
+        "task-image",
         "image-pull-policy",
         "literal-tamper",
         "database-user",

@@ -261,7 +261,7 @@ def recover_participant_range(
             raise
         logger.exception("recover_participant_range: unexpected failure recovery=%s", recovery.pk)
         raise CTFRangeError(
-            f"Range recovery failed: {exc}",
+            "Range recovery failed",
             details={
                 "participant_id": str(participant_id),
                 "failure_category": RecoveryFailureCategory.INTERNAL_ERROR.value,

@@ -23,6 +23,7 @@ from django.conf import settings
 from cms.models import RaesPackageSource
 from cms.scenarios.pack_validation import verify_pack_digest
 from shared.capacity import ImageCount
+from shared.log_sanitize import safe_log_value
 from shared.raes.package_loader import load_pack_scenario, resolve_pack_root
 
 logger = logging.getLogger(__name__)
@@ -73,8 +74,12 @@ def project_scenario_images(scenario_id: str) -> ScenarioImageProjection:
         if not verify_pack_digest(pack_root, source.package_digest):
             raise ValueError("pack digest mismatch")
         scenario = load_pack_scenario(pack_root)
-    except Exception:
-        logger.warning("capacity: could not load scenario for image projection")
+    except Exception as exc:  # noqa: BLE001  # degrades to an unresolved projection; pack errors embed absolute paths
+        logger.warning(
+            "capacity: could not load scenario for image projection scenario_id=%s exc_type=%s",
+            safe_log_value(scenario_id),
+            type(exc).__name__,
+        )
         return ScenarioImageProjection()
 
     tally: dict[tuple[str, str, str], int] = {}

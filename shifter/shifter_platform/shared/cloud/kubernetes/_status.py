@@ -24,7 +24,7 @@ def _extract_stopped_reason(core_api: object, namespace: str, job_name: str) -> 
             label_selector=f"job-name={job_name}",
             _request_timeout=_KUBERNETES_REQUEST_TIMEOUT_SECONDS,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # optional status detail; polling logs the traceback at DEBUG
         logger.debug("get_task_status: failed to list pods for job=%s", job_name, exc_info=True)
         return None
 

@@ -46,7 +46,7 @@ line-length = 120
 exclude = [".venv", "__pycache__"]
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "S", "T20", "SIM", "RUF", "C901"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "S", "T20", "SIM", "RUF", "C901", "BLE", "G", "LOG", "TRY401"]
 # T201: print allowed (CLI tool)
 # S603/S607: subprocess allowed (AWS CLI/terraform calls)
 # SIM108: ternary operator not always clearer

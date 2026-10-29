@@ -332,7 +332,7 @@ def _profile_permanently_invalid(row: VpnAccessProfile) -> bool | None:
         resolve_current_credential(credential_reference_from_record(row))
     except CredentialRevoked:
         invalid = True
-    except Exception:
+    except Exception:  # noqa: BLE001  # an outage or reversible denial defers revocation; the next pass retries
         # Admission still fails closed. A dependency outage or reversible
         # policy denial does not irreversibly revoke an issued certificate.
         if not invalid:

@@ -46,7 +46,7 @@ def _authorize_preparation(
         if system is not None and not _system_preparation_matches(instance, owner, system, current):
             raise ContractError("allocation.system_owner_unavailable")
         return current
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise ContractError(_AUTHORITY_UNAVAILABLE) from None
 
 

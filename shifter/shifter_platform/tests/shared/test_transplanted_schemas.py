@@ -342,6 +342,14 @@ class TestExceptionTypes:
         assert "field=user_id" in str(error)
         assert "value=-1" in str(error)
 
+    def test_validation_error_without_value_omits_value(self):
+        """ValidationError reports no value when none was given."""
+        from shared.exceptions import ValidationError
+
+        error = ValidationError("Range cell is invalid", field="cidr")
+        assert error.value is None
+        assert str(error) == "Range cell is invalid field=cidr"
+
     def test_validation_error_truncates_long_values(self):
         """ValidationError truncates long values."""
         from shared.exceptions import ValidationError

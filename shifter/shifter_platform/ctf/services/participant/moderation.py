@@ -15,6 +15,7 @@ from django.db import transaction
 from ctf.enums import ParticipantRole, ParticipantStatus
 from ctf.exceptions import CTFNotFoundError, CTFStateError, CTFValidationError
 from ctf.models import CTFParticipant
+from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -108,7 +109,7 @@ def disqualify_participant(participant_id: UUID, reason: str | None = None) -> C
         participant.status_reason = (reason or "").strip()
         participant.save(update_fields=["status", "status_reason", "updated_at"])
         _recompute_team(participant)
-    logger.info("Disqualified participant %s: %s", participant_id, reason or "No reason provided")
+    logger.info("Disqualified participant %s: %s", participant_id, safe_log_value(reason or "No reason provided"))
     return participant
 
 

@@ -202,7 +202,7 @@ class GuacamoleGateExecutor:
             return _failure(started, "peer_failed")
         try:
             client = await self._authenticator(self.base_url, actor)
-        except Exception:
+        except Exception:  # noqa: BLE001  # participant boundary: the result records authentication_error
             return await self._fail(started, "authentication_error")
         self._active_clients[actor.label] = client
         try:
@@ -211,7 +211,7 @@ class GuacamoleGateExecutor:
                 if response.status_code >= 400:
                     raise targets.TargetError("range projection was refused")
                 target = targets.select_target(_safe_json(response), role=self.target_role)
-            except Exception:
+            except Exception:  # noqa: BLE001  # participant boundary: the result records target_discovery_error
                 return await self._fail(started, "target_discovery_error")
             status_url = await self._start_bootstrap(client, target)
             delivered_url = await self._await_delivery(client, status_url)
@@ -233,10 +233,11 @@ class GuacamoleGateExecutor:
                 )
         except _GateFailure as exc:
             return await self._fail(started, exc.category)
-        except Exception:
+        except Exception:  # noqa: BLE001  # participant boundary: the result records tunnel_error
             return await self._fail(started, "tunnel_error")
         finally:
             self._active_clients.pop(actor.label, None)
+            # Best-effort close: a close failure must not replace the recorded result.
             with contextlib.suppress(Exception):
                 await client.aclose()
 
@@ -287,6 +288,7 @@ class GuacamoleGateExecutor:
 
     async def aclose(self) -> None:
         for client in tuple(self._active_clients.values()):
+            # Best-effort shutdown: one failed close must not stop the others.
             with contextlib.suppress(Exception):
                 await client.aclose()
         self._active_clients.clear()
@@ -327,6 +329,7 @@ def _failure(started: float, category: str) -> RouteResult:
 
 async def _csrf_headers(client, base_url: str) -> dict[str, str]:
     if not client.cookies.get("csrftoken"):
+        # Best-effort CSRF priming: without the cookie the bootstrap POST fails and records its own category.
         with contextlib.suppress(Exception):
             await client.get("/dashboard/", headers={"Accept": "text/html"})
     headers = {"Referer": f"{base_url}/"}

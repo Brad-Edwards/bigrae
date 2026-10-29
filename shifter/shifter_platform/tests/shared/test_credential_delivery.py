@@ -37,10 +37,14 @@ class _MissingCounterCache(_FallbackCache):
         self.value = value
 
 
-def test_counter_falls_back_when_native_redis_client_is_unavailable():
+def test_counter_falls_back_when_native_redis_client_is_unavailable(caplog):
     cache = _FallbackCache()
 
-    assert consume_fixed_window(cache, "credential-delivery:1", 60) == 1
+    with caplog.at_level("WARNING", logger="shared.rate_limit"):
+        assert consume_fixed_window(cache, "credential-delivery:1", 60) == 1
+
+    assert "counter is not atomic exc_type=RuntimeError" in caplog.text
+    assert "redis unavailable" not in caplog.text
 
 
 def test_counter_initializes_when_backend_reports_a_missing_key():

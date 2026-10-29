@@ -15,6 +15,7 @@ from channels.layers import get_channel_layer
 from shared.channels.groups import ngfw_event_group, range_event_group
 from shared.channels.payloads import NGFWStatusChannelEvent, RangeStatusChannelEvent
 from shared.enums import ResourceStatus
+from shared.log_sanitize import safe_log_value
 from shared.messages.envelope import parse_sns_message
 from shared.messages.events import EVENT_TYPE_NGFW
 from shared.messages.payloads import NGFWEventPayload, RangeStatusUpdatedPayload
@@ -37,10 +38,10 @@ def _range_ref_from_status_event(event: RangeStatusUpdatedPayload) -> RangeRef |
     if not isinstance(request_id, str) or not request_id or new_status is None or user_id is None:
         logger.error(
             "Invalid range status event payload: event_id=%s request_id=%s new_status=%s user_id=%s",
-            event_id,
-            request_id,
-            new_status,
-            user_id,
+            safe_log_value(event_id),
+            safe_log_value(request_id),
+            safe_log_value(new_status),
+            safe_log_value(user_id),
         )
         return None
 
@@ -54,8 +55,8 @@ def _range_ref_from_status_event(event: RangeStatusUpdatedPayload) -> RangeRef |
     except (ValueError, TypeError):
         logger.error(
             "Invalid range status event payload: event_id=%s request_id=%s",
-            event_id,
-            request_id,
+            safe_log_value(event_id),
+            safe_log_value(request_id),
         )
         return None
 
@@ -74,13 +75,17 @@ def process_event(message: str | dict) -> None:
     event_id = event.get("event_id", "unknown")
 
     if event_type.startswith("range."):
-        logger.debug("Routing to range handler: event_type=%s event_id=%s", event_type, event_id)
+        logger.debug(
+            "Routing to range handler: event_type=%s event_id=%s", safe_log_value(event_type), safe_log_value(event_id)
+        )
         process_range_event(message)
     elif event_type.startswith("ngfw."):
-        logger.debug("Routing to NGFW handler: event_type=%s event_id=%s", event_type, event_id)
+        logger.debug(
+            "Routing to NGFW handler: event_type=%s event_id=%s", safe_log_value(event_type), safe_log_value(event_id)
+        )
         process_ngfw_event(message)
     else:
-        logger.debug("Ignoring unknown event_type=%s event_id=%s", event_type, event_id)
+        logger.debug("Ignoring unknown event_type=%s event_id=%s", safe_log_value(event_type), safe_log_value(event_id))
 
 
 def process_range_event(message: str | dict) -> None:
@@ -111,7 +116,7 @@ def process_range_event(message: str | dict) -> None:
 
     event_type = event.get("event_type")
     if event_type != "range.status.updated":
-        logger.debug("Ignoring event_type=%s", event_type)
+        logger.debug("Ignoring event_type=%s", safe_log_value(event_type))
         return
 
     payload = cast(RangeStatusUpdatedPayload, event)
@@ -127,7 +132,7 @@ def process_range_event(message: str | dict) -> None:
         logger.warning(
             "MC range event: channel layer not configured — acking without broadcast (request_id=%s event_id=%s)",
             range_ref.request_id,
-            event_id,
+            safe_log_value(event_id),
         )
         return
     group_name = range_event_group(str(range_ref.request_id))
@@ -146,7 +151,7 @@ def process_range_event(message: str | dict) -> None:
         group_name,
         range_ref.request_id,
         range_ref.status.value,
-        event_id,
+        safe_log_value(event_id),
     )
 
 
@@ -183,7 +188,7 @@ def process_ngfw_event(message: str | dict) -> None:
 
     event_type = event.get("event_type")
     if event_type != EVENT_TYPE_NGFW:
-        logger.debug("Ignoring NGFW event_type=%s", event_type)
+        logger.debug("Ignoring NGFW event_type=%s", safe_log_value(event_type))
         return
 
     payload = cast(NGFWEventPayload, event)
@@ -194,15 +199,15 @@ def process_ngfw_event(message: str | dict) -> None:
     event_id = payload.get("event_id", "unknown")
 
     if not app_id or not isinstance(app_id, str):
-        logger.warning("Invalid app_id: %s", app_id)
+        logger.warning("Invalid app_id: %s", safe_log_value(app_id))
         return
 
     channel_layer = get_channel_layer()
     if channel_layer is None:
         logger.warning(
             "MC ngfw event: channel layer not configured — acking without broadcast (app_id=%s event_id=%s)",
-            app_id,
-            event_id,
+            safe_log_value(app_id),
+            safe_log_value(event_id),
         )
         return
     group_name = ngfw_event_group(app_id)
@@ -220,6 +225,6 @@ def process_ngfw_event(message: str | dict) -> None:
         "MC broadcast to group %s: app_id=%s status=%s event_id=%s",
         group_name,
         app_id,
-        status,
-        event_id,
+        safe_log_value(status),
+        safe_log_value(event_id),
     )

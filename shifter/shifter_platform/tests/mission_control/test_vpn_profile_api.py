@@ -1,5 +1,6 @@
 """Mission Control OpenVPN delivery security and response-contract tests (#1696)."""
 
+import logging
 from datetime import timedelta
 from uuid import uuid4
 
@@ -273,7 +274,7 @@ def test_rate_limit_blocks_before_secret_resolution(settings, standard_user):
     secrets.get_secret_value.assert_not_called()
 
 
-def test_rate_limit_backend_failure_fails_closed(monkeypatch, standard_user):
+def test_rate_limit_backend_failure_fails_closed(monkeypatch, caplog, standard_user):
     _ready_range(standard_user)
     raw = _token(standard_user, scopes.MISSION_CONTROL_VPN_PROFILE_READ)
     client = APIClient()
@@ -284,10 +285,12 @@ def test_rate_limit_backend_failure_fails_closed(monkeypatch, standard_user):
 
     monkeypatch.setattr(caches["launch_rate_limit"], "add", fail_add)
 
-    response = client.post(URL)
+    with caplog.at_level(logging.ERROR, logger="mission_control.api._vpn"):
+        response = client.post(URL)
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "vpn_profile_unavailable"
+    assert "VPN profile delivery budget check failed" in caplog.text
 
 
 def test_profile_conflict_is_reported_without_provider_resolution(settings, standard_user):

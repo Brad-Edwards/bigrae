@@ -101,7 +101,7 @@ def parse_vpn_pki_input(value: object) -> VpnPkiInput:
     """Validate native PKI input and map foreign parser details to an opaque failure."""
     try:
         return VpnPkiInput.model_validate(value)
-    except Exception:
+    except Exception:  # noqa: BLE001  # parser errors echo secret references; one opaque failure
         raise ValueError("VPN operation input unavailable") from None
 
 
@@ -109,5 +109,5 @@ def parse_vpn_pki_receipt(value: object) -> dict[str, Any]:
     """Return the validated public PKI receipt as JSON-compatible fields."""
     try:
         return VpnPkiReceipt.model_validate(value).model_dump(mode="json")
-    except Exception:
+    except Exception:  # noqa: BLE001  # parser errors echo secret references; one opaque failure
         raise ValueError("VPN operation receipt unavailable") from None

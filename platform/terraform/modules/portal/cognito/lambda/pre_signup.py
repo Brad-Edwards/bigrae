@@ -79,17 +79,17 @@ def handler(event, context):
         if email:
             email = email.lower().strip()
 
-        logger.info(f"Pre-signup check for email domain: {email.split('@')[-1] if '@' in email else 'invalid'}")
+        logger.info("Pre-signup check email_domain=%s", email.split("@")[-1] if "@" in email else "invalid")
 
         # Basic email validation
         if not email or "@" not in email:
             logger.warning("Signup rejected: invalid email format (missing or no @)")
-            raise Exception("Invalid email format")
+            raise ValueError("Invalid email format")
 
         parts = email.split("@")
         if len(parts) != 2 or not parts[0] or not parts[1]:
             logger.warning("Signup rejected: invalid email format (malformed)")
-            raise Exception("Invalid email format")
+            raise ValueError("Invalid email format")
 
         local_part, domain = parts
 
@@ -104,16 +104,16 @@ def handler(event, context):
 
         # Check if email domain is allowed
         if domain in allowed_domains:
-            logger.info(f"Signup allowed: domain {domain} in allowed domains")
+            logger.info("Signup allowed: domain in allowed domains email_domain=%s", domain)
             return event
 
         # Deny signup
-        logger.warning(f"Signup rejected: domain {domain} not in allowed list")
-        raise Exception("Email domain not allowed. Contact administrator for access.")
+        logger.warning("Signup rejected: domain not in allowed list email_domain=%s", domain)
+        raise PermissionError("Email domain not allowed. Contact administrator for access.")
 
+    except (ValueError, PermissionError):
+        # Rejections carry authored messages that Cognito shows to the registrant.
+        raise
     except Exception as e:
-        # Re-raise known exceptions, log unexpected ones
-        if "Invalid email" in str(e) or "not allowed" in str(e):
-            raise
-        logger.error(f"Unexpected error during pre-signup: {e}")
-        raise Exception("Signup failed. Please try again or contact administrator.")
+        logger.exception("Unexpected error during pre-signup")
+        raise RuntimeError("Signup failed. Please try again or contact administrator.") from e

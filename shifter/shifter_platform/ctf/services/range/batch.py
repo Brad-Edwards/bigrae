@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from ctf.exceptions import CTFNotFoundError
+from ctf.exceptions import CTFError, CTFNotFoundError
 from ctf.models import CTFEvent, CTFParticipant
 from ctf.services.range.provision import (
     _interruptible_sleep,
@@ -82,7 +82,9 @@ def _record_provision_attempt(
             logger.info("Participant %s already has a range; skipping", participant.pk)
         else:
             tallies["failed"] += 1
-            errors.append({"participant_id": str(participant.pk), "error": str(e)})
+            # Authored text only: the exception log below carries the full detail.
+            error_text = e.message if isinstance(e, CTFError) else "Range provisioning failed"
+            errors.append({"participant_id": str(participant.pk), "error": error_text})
             logger.exception("Failed to provision range for participant %s", participant.pk)
 
 
@@ -225,7 +227,7 @@ def _provision_participants_paced(
         _safe_heartbeat(heartbeat, event_id)
         _record_provision_attempt(participant, progress.tallies, progress.errors, heartbeat=heartbeat, actor=actor)
 
-        logger.info(
+        logger.debug(
             "Throttled provisioning progress for event %s: %d/%d (%d ready, %d failed, %d skipped)",
             event_id,
             i + 1,
@@ -304,7 +306,11 @@ def _empty_batch_result(event_id: UUID, capacity: dict[str, Any] | None = None) 
 
 
 def _notify_provision_failures(event_id: UUID, errors: list[dict[str, str]]) -> None:
-    """Notify the organizer and each affected participant of failures (CTF-801)."""
+    """Notify the organizer and each affected participant of failures (CTF-801).
+
+    Best-effort, like :func:`_notify_capacity_outcome`: a failed notice is logged
+    and never fails the spin-up whose result is already settled.
+    """
     if not errors:
         return
     from ctf.services.notification import (
@@ -312,8 +318,16 @@ def _notify_provision_failures(event_id: UUID, errors: list[dict[str, str]]) -> 
         notify_participant_provision_failure,
     )
 
-    notify_organizer_provision_failure(event_id, errors)
+    try:
+        notify_organizer_provision_failure(event_id, errors)
+    except Exception:
+        logger.exception("Failed to notify organizer of provisioning failures for event %s", event_id)
     for error in errors:
         participant_id = error.get("participant_id") if isinstance(error, dict) else None
         if participant_id:
-            notify_participant_provision_failure(UUID(str(participant_id)))
+            try:
+                notify_participant_provision_failure(UUID(str(participant_id)))
+            except Exception:
+                logger.exception(
+                    "Failed to notify participant %s of provisioning failure for event %s", participant_id, event_id
+                )

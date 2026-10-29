@@ -249,6 +249,18 @@ describe("RaesImageRegistryPage", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("reports a mapping that fails to disable", async () => {
+    mockApi.mockImplementation((_path: string, options?: { method?: string }) =>
+      options?.method === "POST"
+        ? Promise.reject(new ApiError(409, { code: "conflict", message: "The mapping is in use." }))
+        : Promise.resolve([mapping()]),
+    );
+    renderRoute(<RaesImageRegistryPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disable" }));
+    expect(await screen.findByText("Could not disable mapping")).toBeInTheDocument();
+    expect(screen.getByText("The mapping is in use.")).toBeInTheDocument();
+  });
+
   it("has no axe violations when loaded", async () => {
     mockApi.mockResolvedValue([mapping()]);
     const { container } = renderRoute(<RaesImageRegistryPage />);

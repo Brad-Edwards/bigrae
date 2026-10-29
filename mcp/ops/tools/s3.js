@@ -217,7 +217,15 @@ function terraformStateTool({ getProfile, awsText }) {
           `s3://${b}/${k}`,
           "-",
         ]);
-        const state = JSON.parse(content);
+        let state;
+        try {
+          state = JSON.parse(content);
+        } catch {
+          // The SyntaxError message quotes the state text around the error,
+          // and Terraform state stores sensitive attribute values in plain
+          // text. Report a fixed message instead (ADR-014-R4).
+          return err(new Error("Terraform state object is not valid JSON"));
+        }
         const resources = (state.resources || []).map((r) => ({
           module: r.module || "(root)",
           type: r.type,

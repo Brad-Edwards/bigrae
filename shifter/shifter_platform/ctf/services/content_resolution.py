@@ -145,12 +145,25 @@ def resolve_scenario_ctf_content(scenario_id: str) -> ResolvedCtfContent | None:
     if reference is None:
         return None
     logger.info("Resolving native CTF content for scenario %s", safe_log_value(scenario_id))
-    resolved = _resolve_reference(reference)
-    if resolved.bundle.scenario_id != scenario_id:
-        raise CTFValidationError(
-            "Scenario CTF content does not match the selected scenario.",
-            code="CTF_CONTENT_SCENARIO_MISMATCH",
+    try:
+        resolved = _resolve_reference(reference)
+        if resolved.bundle.scenario_id != scenario_id:
+            raise CTFValidationError(
+                "Scenario CTF content does not match the selected scenario.",
+                code="CTF_CONTENT_SCENARIO_MISMATCH",
+            )
+    except CTFValidationError as exc:
+        # Callers map this error to a bounded response and do not log it. Storage
+        # errors can carry provider detail, so log only the cause type.
+        cause = exc.__cause__
+        logger.error(
+            "Native CTF content resolution failed scenario=%s code=%s cause_type=%s",
+            safe_log_value(scenario_id),
+            exc.code,
+            type(cause).__name__ if cause is not None else "none",
+            exc_info=False,
         )
+        raise
     return resolved
 
 

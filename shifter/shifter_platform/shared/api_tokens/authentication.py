@@ -126,7 +126,7 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
                 if raw_token.count(".") != 2:
                     raise ValueError("Unknown credential shape")
                 credential = verify_service_credential(raw_token)
-            except Exception:
+            except Exception:  # noqa: BLE001  # fail closed; verifier errors can echo the bearer token
                 raise _rejected(request, _invalid_token_message(), reason="Service credential rejected") from None
             request.credential_context = credential
             return None, credential
@@ -138,7 +138,7 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
         self._reject_ineligible_owner(request, token)
         try:
             request.credential_context = personal_credential_for_token(token)
-        except Exception:
+        except Exception:  # noqa: BLE001  # fail-closed token boundary; the cause stays out of the chain
             raise _rejected(
                 request,
                 _invalid_token_message(),

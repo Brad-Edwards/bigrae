@@ -49,7 +49,6 @@ class AWSQueueConsumer:
             logger.debug("receive_messages: received %d messages from %s", len(messages), queue_id)
             return messages
         except (ClientError, BotoCoreError) as e:
-            logger.exception("receive_messages: failed queue=%s error=%s", queue_id, e)
             raise CloudQueueError(f"Failed to receive SQS messages: {e}") from e
 
     def delete_message(self, queue_id: str, receipt_handle: str) -> None:
@@ -58,7 +57,6 @@ class AWSQueueConsumer:
             client.delete_message(QueueUrl=queue_id, ReceiptHandle=receipt_handle)
             logger.debug("delete_message: success queue=%s", queue_id)
         except (ClientError, BotoCoreError) as e:
-            logger.exception("delete_message: failed queue=%s error=%s", queue_id, e)
             raise CloudQueueError(f"Failed to delete SQS message: {e}") from e
 
 
@@ -78,5 +76,5 @@ class AWSQueuePublisher:
             client.send_message(QueueUrl=queue_id, MessageBody=body)
             logger.info("send_message: success queue=%s", queue_id)
         except (ClientError, BotoCoreError) as e:
-            logger.exception("send_message: failed queue=%s error=%s", queue_id, e)
+            logger.exception("send_message: failed queue=%s", queue_id)
             raise CloudQueueError(f"Failed to send SQS message: {e}") from e

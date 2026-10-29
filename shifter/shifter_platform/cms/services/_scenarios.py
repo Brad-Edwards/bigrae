@@ -9,6 +9,7 @@ from cms.exceptions import CMSError
 from cms.models import AgentConfig
 from shared.credentials import CredentialContext
 from shared.identity_scope import ResourceScope
+from shared.log_sanitize import safe_log_value
 
 from ._common import _validate_caller_user
 
@@ -129,18 +130,18 @@ def get_scenario(
         except ValueError:
             raise CMSError("Scenario unavailable") from None
 
-    logger.debug("get_scenario called for scenario_id=%s", scenario_id)
+    logger.debug("get_scenario called for scenario_id=%s", safe_log_value(scenario_id))
 
     try:
         return get_scenario_detail(scenario_id)
 
     except ValueError as e:
-        logger.error("get_scenario: scenario '%s' not found", scenario_id)
+        logger.warning("get_scenario: scenario '%s' not found", safe_log_value(scenario_id))
         raise CMSError(f"Scenario '{scenario_id}' not found") from e
     except Exception:
         logger.exception(
             "Error in get_scenario for scenario_id=%s",
-            scenario_id,
+            safe_log_value(scenario_id),
         )
         raise
 
@@ -164,17 +165,17 @@ def validate_scenario_requirements(scenario_id: str, agent: AgentConfig | None) 
 
     logger.debug(
         "validate_scenario_requirements called for scenario_id=%s",
-        scenario_id,
+        safe_log_value(scenario_id),
     )
 
     if not is_scenario_launchable(scenario_id):
-        logger.error(
+        logger.warning(
             "validate_scenario_requirements: scenario '%s' is not launchable",
-            scenario_id,
+            safe_log_value(scenario_id),
         )
         raise CMSError(f"Scenario '{scenario_id}' is not available for launch")
 
     logger.debug(
         "validate_scenario_requirements: validation passed for scenario_id=%s",
-        scenario_id,
+        safe_log_value(scenario_id),
     )

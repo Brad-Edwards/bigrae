@@ -157,8 +157,8 @@ def get_imports(layer_path: Path) -> dict[str, set[str]]:
     for py_file in layer_path.rglob("*.py"):
         try:
             content = py_file.resolve().read_text()
-        except Exception:
-            # nosec B112 - skip unreadable files
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"WARNING: skipped unreadable file {py_file}: {exc}", file=sys.stderr)
             continue
 
         for match in set(IMPORT_PATTERN.findall(content)):
@@ -179,8 +179,8 @@ def get_cyberscript_imports(layer_path: Path) -> set[str]:
     for py_file in layer_path.rglob("*.py"):
         try:
             content = py_file.resolve().read_text()
-        except Exception:
-            # nosec B112 - skip unreadable files
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"WARNING: skipped unreadable file {py_file}: {exc}", file=sys.stderr)
             continue
 
         imports.update(CYBERSCRIPT_IMPORT_PATTERN.findall(content))
@@ -237,8 +237,8 @@ def get_private_facade_imports(layer_path: Path) -> set[str]:
     for py_file in layer_path.rglob("*.py"):
         try:
             tree = ast.parse(py_file.resolve().read_text())
-        except (OSError, SyntaxError):
-            # nosec B112 - skip unreadable / unparseable files
+        except (OSError, SyntaxError) as exc:
+            print(f"WARNING: skipped unreadable or unparseable file {py_file}: {exc}", file=sys.stderr)
             continue
 
         imports.update(_private_facade_imports_in_tree(tree))

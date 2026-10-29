@@ -117,12 +117,9 @@ def reconcile_model_allocations(*, now: datetime | None = None, limit: int = 100
             expired.filter(quota_id=quota_id).update(released_at=now)
     lag = max((max(0, (now - item.deadline).total_seconds()) for item in candidates), default=0)
     logger.info(
-        "model-access reconciliation",
-        extra={
-            "model_access_namespace": "Shifter/ModelAccess",
-            "model_access_released": released,
-            "model_access_expiry_lag_seconds": lag,
-        },
+        "model-access reconciliation namespace=Shifter/ModelAccess released=%d expiry_lag_seconds=%.1f",
+        released,
+        lag,
     )
     _reconcile_requests_isolated(now=now, limit=limit)
     return released

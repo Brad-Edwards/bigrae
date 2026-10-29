@@ -204,6 +204,8 @@ class BrokerInvocation:
         """Cancel sibling tasks and preserve uncertain provider liability."""
         await self._cancel_transport()
         if self.reserved and not self.settled:
+            # Best effort; the broker logs nothing by design. Engine reconciliation
+            # closes an expired reservation when this terminal call fails.
             with suppress(Exception):
                 await self.control.call(
                     "finish", {"request_uuid": self.request_uuid, "action": "unknown" if self.dispatched else "release"}
@@ -214,6 +216,7 @@ class BrokerInvocation:
         for task in self.tasks:
             task.cancel()
         for task in self.tasks:
+            # A cancelled sibling's own failure cannot change this request's outcome.
             with suppress(asyncio.CancelledError, Exception):
                 await task
 

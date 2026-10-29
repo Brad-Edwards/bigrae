@@ -455,7 +455,8 @@ def test_gcp_ngfw_operation_marks_failed_on_power_error(monkeypatch: pytest.Monk
     assert failure.args[:2] == ("ngfw-req", "failed")
     assert failure.kwargs["step"] == ResultStep.NGFW_TERMINAL_FAILED
     assert failure.kwargs["operation"] == "start"
-    assert failure.kwargs["error_message"] == "power failed"
+    # The diagnostic is durable: authored text only, never the raw exception text (ADR-043-R5).
+    assert failure.kwargs["error_message"] == "NGFW start failed (RuntimeError)"
 
 
 def test_aws_ngfw_operation_marks_failed_when_plan_fails(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -484,7 +485,7 @@ def test_aws_ngfw_operation_marks_failed_when_plan_fails(monkeypatch: pytest.Mon
     assert failure.args[:2] == ("ngfw-req", "failed")
     assert failure.kwargs["step"] == ResultStep.NGFW_TERMINAL_FAILED
     assert failure.kwargs["operation"] == "stop"
-    assert failure.kwargs["error_message"] == "Operation stop failed"
+    assert failure.kwargs["error_message"] == "NGFW stop failed (RuntimeError)"
 
 
 def test_provisioner_db_status_helpers_use_owning_module_connection(monkeypatch: pytest.MonkeyPatch) -> None:

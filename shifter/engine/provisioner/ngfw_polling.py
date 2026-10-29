@@ -11,6 +11,7 @@ import logging
 import re
 import time
 
+from executors.base import ExecutorError
 from executors.ngfw_executor import NGFWExecutor
 
 logger = logging.getLogger(__name__)
@@ -24,16 +25,16 @@ def parse_serial_number(system_info_output: str) -> str | None:
     """Extract serial number from PAN-OS 'show system info' output."""
     match = re.search(r"serial:\s*(\S+)", system_info_output, re.IGNORECASE)
     if not match:
-        logger.warning("Serial number not found in system info output")
+        logger.debug("Serial number not found in system info output")
         return None
 
     serial = match.group(1).strip()
 
     if not serial or serial.lower() in ("unknown", "none", "n/a", ""):
-        logger.warning("Serial number is placeholder value: %s", serial)
+        logger.debug("Serial number is placeholder value: %s", serial)
         return None
 
-    logger.info("Extracted NGFW serial number: %s", serial)
+    logger.debug("Extracted NGFW serial number: %s", serial)
     return serial
 
 
@@ -53,7 +54,7 @@ def poll_for_serial_number(
                 f"NGFW serial number not found after {timeout_seconds}s - license registration may have failed"
             )
 
-        logger.info(
+        logger.debug(
             "Polling for NGFW serial number... (%.0fs / %ds)",
             elapsed,
             timeout_seconds,
@@ -74,9 +75,9 @@ def poll_for_serial_number(
                 )
                 return serial
 
-            logger.info("Serial not yet available, retrying in %ds...", poll_interval)
+            logger.debug("Serial not yet available, retrying in %ds...", poll_interval)
 
-        except Exception as e:
+        except ExecutorError as e:
             logger.warning("Error polling for serial (will retry): %s", e)
 
         time.sleep(poll_interval)
@@ -124,7 +125,7 @@ def poll_for_serial_and_cert(
         if elapsed > timeout_seconds:
             _raise_serial_cert_timeout(timeout_seconds, serial_value, cert_status)
 
-        logger.info(
+        logger.debug(
             "Polling for NGFW serial and certificate... (%.0fs / %ds)",
             elapsed,
             timeout_seconds,
@@ -151,13 +152,13 @@ def poll_for_serial_and_cert(
                 )
                 return serial_value
 
-            logger.info(
+            logger.debug(
                 "NGFW not ready (%s), retrying in %ds...",
                 _format_serial_cert_status(serial_value, cert_status),
                 poll_interval,
             )
 
-        except Exception as e:
+        except ExecutorError as e:
             logger.warning("Error polling NGFW (will retry): %s", e)
 
         time.sleep(poll_interval)
@@ -179,7 +180,7 @@ def wait_for_autocommit(
                 f"NGFW autocommit did not complete after {timeout_seconds}s - management plane may be stuck"
             )
 
-        logger.info(
+        logger.debug(
             "Checking for active NGFW jobs... (%.0fs / %ds)",
             elapsed,
             timeout_seconds,
@@ -203,7 +204,7 @@ def wait_for_autocommit(
                 return
 
             active_lines = [line.strip() for line in output.split("\n") if "ACT" in line]
-            logger.info(
+            logger.debug(
                 "Found %d active job(s), waiting %ds: %s",
                 len(active_lines),
                 poll_interval,
@@ -211,7 +212,7 @@ def wait_for_autocommit(
                 active_lines[:3],
             )
 
-        except Exception as e:
+        except ExecutorError as e:
             logger.warning("Error checking NGFW jobs (will retry): %s", e)
 
         time.sleep(poll_interval)

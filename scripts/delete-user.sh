@@ -139,13 +139,13 @@ else
   get_status=$?
   set -e
   if [[ "${get_status}" -eq 0 ]]; then
-    echo "Error: Cognito delete failed (exit ${delete_status})" >&2
+    echo "Error: Cognito delete failed (exit ${delete_status}): ${delete_err}" >&2
     exit "${delete_status}"
   fi
   if [[ "${get_err}" == *"UserNotFoundException"* ]]; then
     echo "Cognito user not found; continuing"
   else
-    echo "Error: Cognito delete failed (exit ${delete_status})" >&2
+    echo "Error: Cognito delete failed (exit ${delete_status}): ${delete_err}" >&2
     exit "${delete_status}"
   fi
 fi

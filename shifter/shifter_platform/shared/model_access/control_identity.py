@@ -140,7 +140,7 @@ def verify_aws_control_assertion(
             rf"arn:aws:sts::{role.group(1)}:assumed-role/{re.escape(role.group(2))}/[A-Za-z0-9+=,.@_-]+", arn
         ):
             raise ValueError
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed check; the cause can carry the signed assertion
         # Never include a signed assertion, credential, upstream body or URL in
         # an auth exception. The caller exposes this closed code only.
         raise ContractError("control.unauthorized") from None
@@ -166,5 +166,5 @@ def verify_google_control_assertion(
             or claims.get("sub") != expected_subject_id
         ):
             raise ValueError
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed check; token errors can echo the bearer assertion
         raise ContractError("control.unauthorized") from None

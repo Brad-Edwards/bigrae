@@ -86,7 +86,7 @@ def destroy_range(user: User | CredentialContext, range_instance_pk: int) -> Non
         raise CMSError(f"Range {range_instance_pk} not found") from None
 
     if instance.user_id != user.id:
-        logger.error(
+        logger.warning(
             "destroy_range: access denied - range_instance_pk=%s owned by user_id=%s, requested by user_id=%s",
             range_instance_pk,
             instance.user_id,
@@ -204,7 +204,7 @@ def cancel_range(user: User | CredentialContext, range_id: int) -> None:
             )
             raise CMSError(_RANGE_NOT_FOUND_MSG)
     except (TypeError, ValueError, CMSError):
-        logger.error(
+        logger.warning(
             "cancel_range: user and range mismatch for user_id=%s, range_id=%s",
             user.id,
             range_id,

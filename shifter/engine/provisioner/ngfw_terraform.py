@@ -41,6 +41,7 @@ from orchestrators.setup_orchestrator import SetupOrchestrator
 from plans.base import SetupPlan
 from plans.ngfw_provision import NGFWProvisionPlan
 from provisioner_db_ngfw import get_ngfw_data_by_request_id
+from state_helpers import _authored_failure_message
 
 logger = logging.getLogger(__name__)
 
@@ -173,14 +174,20 @@ def run_ngfw_terraform(operation: str, request_id: str, *, operation_id: str | N
         )
 
     except Exception as e:
-        error_msg = str(e)[:1000]
-        logger.exception("NGFW Terraform operation failed: %s", error_msg)
+        canonical_operation = _NGFW_TF_OP_TO_CANONICAL_OPERATION.get(operation)
+        # The diagnostic is durable: authored text only (ADR-043-R5). The log keeps the detail.
+        error_msg = _authored_failure_message(e, f"NGFW {canonical_operation or operation}")
+        logger.exception("NGFW Terraform operation failed operation=%s request_id=%s", operation, request_id)
 
         if operation == "up":
             try:
                 _cleanup_failed_ngfw_provision(request_id, instance_id, app_spec)
-            except Exception as cleanup_error:
-                logger.warning("Auto-cleanup failed: %s", cleanup_error)
+            # best-effort cleanup must not mask the provision failure
+            except Exception as cleanup_error:  # noqa: BLE001
+                # Class name only: cleanup errors can carry Terraform/provider output (ADR-043-R5).
+                logger.warning(
+                    "NGFW auto-cleanup failed request_id=%s exc_type=%s", request_id, type(cleanup_error).__name__
+                )
 
         # Update DB and emit failure event
         update_instance_state(
@@ -188,7 +195,7 @@ def run_ngfw_terraform(operation: str, request_id: str, *, operation_id: str | N
             STATUS_FAILED,
             step=ResultStep.NGFW_TERMINAL_FAILED,
             operation_id=operation_id,
-            operation=_NGFW_TF_OP_TO_CANONICAL_OPERATION.get(operation),
+            operation=canonical_operation,
             error_message=error_msg,
         )
         raise
@@ -291,11 +298,13 @@ def _fetch_ngfw_license_and_certificate_serial(
         timeout_seconds=120,
     )
     if not license_result.success:
-        logger.warning("License fetch returned non-success: %s", license_result.stderr)
-    logger.info(
-        "License fetch output: %s",
-        license_result.stdout[:500] if license_result.stdout else "(empty)",
-    )
+        logger.warning(
+            "License fetch returned non-success exit_code=%s stderr=%s",
+            license_result.exit_code,
+            safe_log_value(license_result.stderr),
+        )
+    # PAN-OS license output lists each license's authcode: log its size, not its text.
+    logger.info("License fetch output received (%d bytes)", len(license_result.stdout or ""))
 
     logger.info("Polling for valid device certificate: request_id=%s", request_id)
     poll_timeout = int(os.environ.get("NGFW_CERT_POLL_TIMEOUT", 2400))
@@ -319,10 +328,11 @@ def _auto_stop_ngfw(request_id: str, *, operation_id: str | None = None) -> None
     try:
         run_ngfw_operation("stop", request_id, operation_id=operation_id, owning_operation="provision")
         logger.info("Auto-stop completed: request_id=%s", request_id)
-    except Exception:
-        logger.exception(
-            "Auto-stop failed (non-fatal) - NGFW remains running: request_id=%s",
+    except Exception as exc:  # noqa: BLE001  # non-fatal auto-stop; run_ngfw_operation logs the operation traceback
+        logger.warning(
+            "Auto-stop failed (non-fatal) - NGFW remains running: request_id=%s exc_type=%s",
             request_id,
+            type(exc).__name__,
         )
 
 
@@ -374,8 +384,8 @@ def _run_pan_os_post_provision(
     bootstrap_cleanup_error = None
     try:
         _cleanup_ngfw_bootstrap_objects(instance_id)
-    except Exception as e:
-        logger.exception("NGFW bootstrap object cleanup failed: request_id=%s", request_id)
+    except Exception as e:  # noqa: BLE001  # deferred: re-raised after auto-stop, where the caller logs the traceback
+        logger.warning("NGFW bootstrap object cleanup failed; failing after auto-stop: request_id=%s", request_id)
         bootstrap_cleanup_error = e
     logger.info(
         "NGFW provisioning complete, serial=%s: request_id=%s",

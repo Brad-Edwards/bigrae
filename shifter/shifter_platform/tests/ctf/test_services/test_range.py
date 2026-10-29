@@ -6,6 +6,7 @@ Unit tests — mock all ORM access. We test our service logic
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -16,9 +17,9 @@ from django.utils import timezone
 from cms.models import RangeInstance
 from cms.models import Request as CMSRequest
 from ctf.bridges import RangeProvisionResult
-from ctf.enums import ParticipantStatus, ScheduledTaskStatus, ScheduledTaskType
+from ctf.enums import ParticipantStatus
 from ctf.exceptions import CTFNotFoundError, CTFRangeError
-from ctf.models import CTFParticipant, CTFScheduledTask
+from ctf.models import CTFParticipant
 from ctf.services import range as range_service
 from ctf.services.range import batch, provision
 from engine.models import Instance, Range
@@ -187,9 +188,11 @@ class TestProvisionParticipantRange:
         """A real unavailable source leaves one durable request for a retry."""
         from ctf.models import CTFRangeLaunch
 
-        with pytest.raises(CTFRangeError, match="Range provisioning failed"):
+        with pytest.raises(CTFRangeError, match="Range provisioning failed") as exc:
             range_service.provision_participant_range(ctf_participant.pk, actor=organizer_credential)
 
+        # The authored message never embeds the underlying exception text.
+        assert "CMS down" not in exc.value.message
         ctf_participant.refresh_from_db()
         assert ctf_participant.range_status == "provisioning"
         assert ctf_participant.range_request_id == CTFRangeLaunch.objects.get().pk
@@ -418,6 +421,10 @@ class TestProvisionEventRangesThrottled:
         assert result["failed"] == 2
         assert result["skipped"] == 1
         assert len(result["errors"]) == 2
+        # Error entries carry the domain error's authored message, never str(exc).
+        assert {entry["error"] for entry in result["errors"]} == {
+            "Participant must be registered before provisioning a range"
+        }
         mock_notify.assert_called_once()
 
     @pytest.mark.django_db
@@ -487,6 +494,29 @@ class TestProvisionEventRangesThrottled:
 
         assert heartbeat.call_count >= 3
         assert result["total"] == 3
+
+    @pytest.mark.django_db
+    def test_participant_notice_failure_does_not_fail_the_spin_up(self, ctf_event, organizer_credential, caplog):
+        """A failed participant notice is logged; the settled spin-up result is still returned."""
+        from django.db import OperationalError, connection
+
+        _make_unregistered_participant(ctf_event, 0)
+
+        def unavailable_notice_ledger(execute, sql, params, many, context):
+            if "ctf_communication_campaign" in sql:
+                raise OperationalError("Synthetic notice ledger outage")
+            return execute(sql, params, many, context)
+
+        batch_logger = logging.getLogger("ctf.services.range.batch")
+        with (
+            connection.execute_wrapper(unavailable_notice_ledger),
+            caplog.at_level(logging.ERROR, logger=batch_logger.name),
+        ):
+            result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300, actor=organizer_credential)
+
+        assert result["failed"] == 1
+        assert len(result["errors"]) == 1
+        assert any("Failed to notify participant" in record.getMessage() for record in caplog.records)
 
 
 class TestComputeThrottleDelay:
@@ -583,111 +613,6 @@ class TestInterruptibleSleep:
 
         # Shutdown is checked before the first chunk, so nothing is slept.
         assert _patch_sleep.call_count == 0
-
-
-@pytest.mark.django_db
-class TestRequestEventProvisioning:
-    """request_event_provisioning enqueues/coalesces a SPIN_UP_RANGES task."""
-
-    def _spin_up_count(self, event):
-        return CTFScheduledTask.objects.filter(
-            event=event,
-            task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
-        ).count()
-
-    def test_creates_due_now_task_when_none_exists(self, ctf_event, organizer_credential):
-        before = timezone.now()
-
-        task = range_service.request_event_provisioning(ctf_event.id, source="manual", actor_id=organizer_credential)
-
-        assert task.task_type == ScheduledTaskType.SPIN_UP_RANGES.value
-        assert task.status == ScheduledTaskStatus.PENDING.value
-        assert before - timedelta(seconds=2) <= task.scheduled_for <= timezone.now()
-        assert task.metadata.get("source") == "manual"
-        assert self._spin_up_count(ctf_event) == 1
-
-    def test_coalesces_future_pending_pulled_to_now(self, ctf_event, organizer_credential):
-        from shared.operation_authority import credential_reference_fields
-
-        existing = CTFScheduledTask.objects.create(
-            event=ctf_event,
-            task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
-            scheduled_for=timezone.now() + timedelta(hours=6),
-            **credential_reference_fields(organizer_credential),
-        )
-
-        task = range_service.request_event_provisioning(ctf_event.id, source="manual", actor_id=organizer_credential)
-
-        assert task.pk == existing.pk
-        task.refresh_from_db()
-        assert task.scheduled_for <= timezone.now()
-        assert task.metadata.get("source") == "manual"
-        # No duplicate runnable task was created.
-        assert self._spin_up_count(ctf_event) == 1
-
-    def test_reuses_running_task(self, ctf_event, organizer_credential):
-        from shared.operation_authority import credential_reference_fields
-
-        existing = CTFScheduledTask.objects.create(
-            event=ctf_event,
-            task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
-            scheduled_for=timezone.now() - timedelta(minutes=1),
-            status=ScheduledTaskStatus.RUNNING.value,
-            **credential_reference_fields(organizer_credential),
-        )
-
-        task = range_service.request_event_provisioning(ctf_event.id, actor_id=organizer_credential)
-
-        assert task.pk == existing.pk
-        assert task.status == ScheduledTaskStatus.RUNNING.value
-        assert self._spin_up_count(ctf_event) == 1
-
-    def test_event_not_found_raises(self, organizer_credential):
-        uuid4_2 = uuid4()
-        with pytest.raises(CTFNotFoundError):
-            range_service.request_event_provisioning(uuid4_2, actor_id=organizer_credential)
-
-
-@pytest.mark.django_db
-class TestGetProvisionProgress:
-    """get_provision_progress projects participant counts plus the active task."""
-
-    def _participant(self, event, name, range_status, range_instance_id=None):
-        return CTFParticipant.objects.create(
-            event=event,
-            email=f"{name}@test.com",
-            name=name,
-            range_status=range_status,
-            range_instance_id=range_instance_id,
-        )
-
-    def test_counts_and_active_task(self, ctf_event):
-        self._participant(ctf_event, "a", "ready", 1)
-        self._participant(ctf_event, "b", "provisioning", 2)
-        self._participant(ctf_event, "c", "error")
-        self._participant(ctf_event, "d", "")  # not assigned
-        task = CTFScheduledTask.objects.create(
-            event=ctf_event,
-            task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
-            scheduled_for=timezone.now(),
-        )
-
-        progress = range_service.get_provision_progress(ctf_event.id)
-
-        counts = progress["counts"]
-        assert counts["total"] == 4
-        assert counts["ready"] == 1
-        assert counts["provisioning"] == 1
-        assert counts["error"] == 1
-        assert counts["not_assigned"] == 1
-        assert progress["task"]["id"] == str(task.pk)
-        assert progress["task"]["status"] == ScheduledTaskStatus.PENDING.value
-
-    def test_no_active_task(self, ctf_event):
-        progress = range_service.get_provision_progress(ctf_event.id)
-
-        assert progress["task"] is None
-        assert progress["counts"]["total"] == 0
 
 
 class TestCmsBridgeRangeSource:

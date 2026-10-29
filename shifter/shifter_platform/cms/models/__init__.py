@@ -44,6 +44,7 @@ from cms.models.provisioning import (
     Subnet,
 )
 from cms.models.range import ACTIVE_RANGE_UNIQUE_CONSTRAINT, RangeInstance
+from cms.models.range_status_delivery import RangeStatusDelivery
 from cms.models.scenarios import RaesPackageSource, ScenarioMetadata, ScenarioModelNeeds
 from cms.models.uploads import AgentUpload, AgentUploadBudget
 
@@ -71,6 +72,7 @@ __all__ = [
     "OperatingSystem",
     "RaesPackageSource",
     "RangeInstance",
+    "RangeStatusDelivery",
     "Request",
     "ScenarioMetadata",
     "ScenarioModelNeeds",

@@ -17,6 +17,7 @@ import threading
 import time
 from typing import IO, BinaryIO, cast
 
+from executors._ssh_readiness import _probe_failure_category
 from executors.base import (
     CommandResult,
     ExecutorCommandError,
@@ -25,6 +26,7 @@ from executors.base import (
     ExecutorTimeoutError,
     GuestReadinessTimeoutError,
 )
+from log_redact import safe_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -43,30 +45,6 @@ class GuestSSHConnectionError(ExecutorConnectionError):
 _STREAM_CHUNK_BYTES = 1024 * 1024
 #: Bound on captured stdout/stderr of a streamed run (setup scripts print markers).
 _MAX_STREAMED_OUTPUT_BYTES = 1024 * 1024
-
-
-#: Authored categories for a failed readiness probe, matched against the ssh
-#: client's own diagnostics in order. Only the category leaves this module.
-_PROBE_FAILURE_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
-    (
-        ("Host key verification failed", "REMOTE HOST IDENTIFICATION HAS CHANGED", "host key is known"),
-        "host key not verifiable",
-    ),
-    (("Permission denied",), "authentication refused"),
-    (("a password is required", "sudo:"), "privilege escalation refused"),
-    (("Connection refused",), "connection refused"),
-    (("timed out", "TimeoutError"), "connection timed out"),
-    (("No route to host",), "no route to host"),
-    (("exit=0",), "unexpected probe output"),
-)
-
-
-def _probe_failure_category(detail: str) -> str:
-    """Map a probe's raw diagnostic onto one authored category."""
-    for markers, category in _PROBE_FAILURE_CATEGORIES:
-        if any(marker in detail for marker in markers):
-            return category
-    return "unavailable"
 
 
 def _command_result(returncode: int, stdout_bytes: bytes, stderr_bytes: bytes) -> CommandResult:
@@ -428,7 +406,10 @@ class GuestSSHExecutor:
             if elapsed > timeout_seconds:
                 detail = self._last_probe_detail or "no probe diagnostic captured"
                 logger.warning(
-                    "SSH on %s did not become available within %ss (last probe: %s)", target, timeout_seconds, detail
+                    "SSH on %s did not become available within %ss (last probe: %s)",
+                    target,
+                    timeout_seconds,
+                    safe_log_value(detail),
                 )
                 raise GuestReadinessTimeoutError(
                     f"guest SSH did not become ready within {timeout_seconds}s: {_probe_failure_category(detail)}"
@@ -438,12 +419,12 @@ class GuestSSHExecutor:
                 logger.info("SSH ready on %s after %.1fs", target, elapsed)
                 return True
 
-            logger.info(
+            logger.debug(
                 "Waiting for SSH on %s... (%.1fs / %ds) last_probe=%s",
                 target,
                 elapsed,
                 timeout_seconds,
-                self._last_probe_detail or "(pending)",
+                safe_log_value(self._last_probe_detail or "(pending)"),
             )
             time.sleep(self._poll_interval)
 

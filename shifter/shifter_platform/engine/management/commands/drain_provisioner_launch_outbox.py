@@ -182,7 +182,7 @@ class Command(BaseCommand):
                 )
             if not task_ref:
                 raise RuntimeError("provisioner task runner is not configured")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # dispatch errors can echo the Job spec; record the type only
             self._record_failure(row, exc)
             return
         self._record_success(row, task_ref)
@@ -212,6 +212,14 @@ class Command(BaseCommand):
                     seconds=min(60 * 2 ** (current.attempts - 1), 3600)
                 )
             current.save(update_fields=["status", "attempts", "last_error", "next_attempt_at"])
+        if current.status == ProvisionerLaunchStatus.DLQ:
+            logger.error(
+                "provisioner launch moved to DLQ intent_id=%s error_type=%s attempts=%s",
+                current.intent_id,
+                current.last_error,
+                current.attempts,
+            )
+            return
         logger.warning(
             "provisioner launch failed intent_id=%s error_type=%s",
             current.intent_id,

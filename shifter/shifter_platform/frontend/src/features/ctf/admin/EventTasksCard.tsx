@@ -52,6 +52,9 @@ function TaskRow({
             Run now
           </Button>
         ) : null}
+        {runNow.error ? (
+          <p className="text-xs text-destructive">{describeMutationError(runNow.error, "Could not run the task.")}</p>
+        ) : null}
       </TableCell>
     </TableRow>
   );

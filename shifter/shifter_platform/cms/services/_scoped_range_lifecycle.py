@@ -122,7 +122,7 @@ def run_scoped_range_lifecycle(
             )
     except CMSError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise CMSError(_RANGE_OPERATION_UNAVAILABLE) from None
 
 
@@ -229,7 +229,7 @@ def destroy_expired_scoped_range(range_uuid: UUID) -> None:
             )
     except CMSError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise CMSError("Range cleanup unavailable") from None
 
 
@@ -282,7 +282,7 @@ def _destroy_event_range_with_native_cleanup(
         verified_absent = snapshot.status == "destroyed" and is_cleanup_verified_absent(snapshot.request.request_id)
         prepared = None if verified_absent else prepare_system_range_cleanup(snapshot.request.request_id)
         return _commit_event_cleanup(current, snapshot, prepared, authority_action)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise CMSError("Event range cleanup unavailable") from None
 
 

@@ -64,14 +64,16 @@ class NGFWCreateView(MissionControlAPIView):
         try:
             ngfw_ref = cms_create_ngfw(user=user, scope=resource_placement(user, data), **payload)
         except (TypeError, ValueError, CMSError) as exc:
-            logger.exception(
-                "NGFW creation failed: user=%s name=%s", user.principal.uuid, safe_log_value(payload.get("name", ""))
+            # Type only: hydration errors can carry NGFW registration secrets.
+            logger.warning(
+                "NGFW creation failed: principal_uuid=%s name=%s exc_type=%s",
+                user.principal.uuid,
+                safe_log_value(payload.get("name", "")),
+                type(exc).__name__,
             )
             return self.bad_request(classify_user_message(str(exc), default="NGFW could not be created"))
 
-        logger.info(
-            "NGFW provisioning started: user=%s app_id=%s", safe_log_value(str(user.principal.uuid)), ngfw_ref.app_id
-        )
+        logger.info("NGFW provisioning started: principal_uuid=%s app_id=%s", user.principal.uuid, ngfw_ref.app_id)
         return Response({"id": str(ngfw_ref.app_id), "name": payload["name"], "status": "provisioning"}, status=201)
 
 

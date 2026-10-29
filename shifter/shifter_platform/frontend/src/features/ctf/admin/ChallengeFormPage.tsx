@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 
 import { useCreateCtfChallenge, useCtfOrganizerChallenge, useUpdateCtfChallenge } from "@/api/ctfAdmin";
-import { ApiError } from "@/api/errors";
+import { ApiError, describeMutationError } from "@/api/errors";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
@@ -96,7 +96,9 @@ export function ChallengeFormPage({ mode }: Readonly<{ mode: "create" | "edit" }
   }, [fieldErrors]);
 
   const nonFieldError =
-    mutation.error instanceof ApiError && Object.keys(fieldErrors).length === 0 ? mutation.error.message : null;
+    Object.keys(fieldErrors).length === 0
+      ? describeMutationError(mutation.error, "The challenge could not be saved.")
+      : null;
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setState((prev) => ({ ...prev, [key]: value }));

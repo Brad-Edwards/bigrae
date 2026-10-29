@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 import { useCreateCtfEvent, useCtfEvent, useCtfScenarios, useUpdateCtfEvent } from "@/api/ctfAdmin";
 import type { ModelSourceSelection } from "@/api/model-sources";
-import { ApiError } from "@/api/errors";
+import { ApiError, describeMutationError } from "@/api/errors";
 import type { ContentScopeOption, CtfEventDetail, CtfEventWrite } from "@/api/types";
 import { contentScopeKey, useContentScopes } from "@/api/scenarios";
 
@@ -275,7 +275,9 @@ export function useEventFormState(mode: "create" | "edit") {
   }, [fieldErrors]);
 
   const nonFieldError =
-    mutation.error instanceof ApiError && Object.keys(fieldErrors).length === 0 ? mutation.error.message : null;
+    Object.keys(fieldErrors).length === 0
+      ? describeMutationError(mutation.error, "The event could not be saved.")
+      : null;
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setState((prev) => ({ ...prev, [key]: value }));

@@ -148,7 +148,7 @@ def event_actor_user_id(actor: object) -> int | None:
             from management.services import human_principal_user_id
 
             user_id = human_principal_user_id(actor.principal)
-        except Exception:
+        except Exception:  # noqa: BLE001  # optional human attribution never grants authority
             user_id = None
     return user_id
 

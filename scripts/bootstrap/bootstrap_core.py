@@ -252,8 +252,13 @@ def _redact_argv_for_log(cmd: list[str]) -> str:
             continue
         lowered = token.lower()
         if token.startswith("-") and any(hint in lowered for hint in _SENSITIVE_FLAG_HINTS):
-            redacted.append(token)
-            mask_next = True
+            # `--flag=value` carries its value in the same token; mask it there.
+            flag, separator, _value = token.partition("=")
+            if separator:
+                redacted.append(f"{flag}=***")
+            else:
+                redacted.append(token)
+                mask_next = True
         elif _looks_like_inline_secret(token):
             redacted.append("***")
         else:
@@ -316,18 +321,22 @@ def run_cmd(
             result = subprocess.run(cmd, check=check, text=True, env=_subprocess_env())  # nosec B603 B607
         return result
     except subprocess.CalledProcessError as e:
-        _report_command_failure(e)
+        _report_command_failure(e, cmd_str)
         if check:
             raise SystemExit(1) from None
         return None
 
 
-def _report_command_failure(exc: subprocess.CalledProcessError) -> None:
-    """Keep private child failures out of logs when using verified credentials."""
+def _report_command_failure(exc: subprocess.CalledProcessError, cmd_str: str) -> None:
+    """Keep private child failures out of logs when using verified credentials.
+
+    ``cmd_str`` is the redacted argv. ``str(exc)`` renders the raw argv, which can
+    carry a secret-bearing token, so it is never logged.
+    """
     if _verified_environment.get() is not None:
         error("Verified bootstrap command failed; private child output suppressed")
         return
-    error(f"Command failed: {exc}")
+    error(f"Command failed (exit {exc.returncode}): {cmd_str}")
     if exc.stderr:
         print(exc.stderr)
 

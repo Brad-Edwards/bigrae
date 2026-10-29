@@ -131,8 +131,12 @@ def test_upload_proof_and_storage_identity_cannot_be_rewritten(content_administr
         AgentUpload.objects.filter(pk=upload.pk).update(credential_uuid=uuid4())
 
 
-def test_cancel_retains_reservation_until_url_expiry_and_cleanup(content_administrator, storage_client, monkeypatch):
+def test_cancel_retains_reservation_until_url_expiry_and_cleanup(
+    content_administrator, storage_client, monkeypatch, caplog
+):
     from datetime import timedelta
+
+    from botocore.exceptions import ClientError
 
     from cms.models import AgentUpload
     from cms.services import cancel_upload, initiate_upload
@@ -149,6 +153,16 @@ def test_cancel_retains_reservation_until_url_expiry_and_cleanup(content_adminis
     with pytest.raises(CMSError):
         initiate_upload(fixture.credential, "Second", "installer.msi", 600_000, scope=fixture.scope)
     monkeypatch.setattr("cms.services._scoped_uploads.timezone.now", lambda: row.expires_at + timedelta(seconds=1))
+    # A storage failure keeps the row pending for the next pass and is logged, not swallowed.
+    storage_client.delete_object.side_effect = ClientError({"Error": {"Code": "500"}}, "DeleteObject")
+    with caplog.at_level("WARNING", logger="cms.services._upload_cleanup"):
+        assert reconcile_upload_cleanup() == 0
+    row.refresh_from_db()
+    assert row.cleanup_pending
+    assert "Upload cleanup retained for retry" in caplog.text
+    assert "exc_type=CloudStorageError" in caplog.text
+    storage_client.delete_object.side_effect = None
+    storage_client.delete_object.reset_mock()
     assert reconcile_upload_cleanup() == 1
     row.refresh_from_db()
     assert not row.cleanup_pending
@@ -245,7 +259,7 @@ def test_cleanup_preserves_deletion_that_commits_after_its_retirement_snapshot(
                 _cleanup_upload(upload)
         except CMSError:
             pass
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001  # thread target; the main thread asserts no failures
             failures.append(type(error).__name__)
         finally:
             connection.close()

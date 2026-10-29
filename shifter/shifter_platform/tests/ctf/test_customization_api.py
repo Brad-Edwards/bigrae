@@ -74,6 +74,7 @@ class TestCustomPages:
             body={"title": "Getting Started", "body": "again"},
         )
         assert dup.status_code == 400
+        assert dup.json()["error"]["message"] == "A page with this slug already exists."
 
         updated = call_json(
             authenticated_organizer_client,

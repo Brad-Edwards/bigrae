@@ -19,6 +19,7 @@ here keep the module importable and unit-testable.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -30,6 +31,8 @@ from django.db.models import Count
 from ctf.enums_communication import DeliveryStatus
 from ctf.exceptions import CTFCommunicationError
 from ctf.services.communication import metrics
+
+logger = logging.getLogger(__name__)
 
 # Namespace for per-workspace advisory locks so communication admission cannot
 # collide with any other advisory-lock user.
@@ -90,7 +93,16 @@ def _consume(scope_class: str, key: str, limit: int, window: int, code: str, mes
 
     try:
         used = consume_fixed_window(cache, f"ctf:comm:admit:{key}", window)
-    except Exception:
+    # cache client errors can carry the connection URL; log the class only
+    except Exception as exc:  # noqa: BLE001
+        # Fail closed: deny admission when the shared rate counter is unavailable.
+        # ``from None`` keeps the cache client cause out of later tracebacks.
+        logger.error(
+            "Communication admission rate counter unavailable scope=%s exc_type=%s",
+            scope_class,
+            type(exc).__name__,
+            exc_info=False,
+        )
         raise CTFCommunicationError(
             "Communication admission unavailable", code="CTF_COMMUNICATION_ADMISSION_UNAVAILABLE"
         ) from None
@@ -125,11 +137,18 @@ def _serialize_admission() -> None:
         cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_ADVISORY_LOCK_NAMESPACE, _GLOBAL_ADMISSION_KEY])
 
 
-# Admission-denial codes that are transient (clearing the rate window or draining
-# the backlog recovers the occurrence). Every other admission/authorization denial
-# is permanent for this occurrence. Callers that run at due time use this to retry
-# transient pressure within the grace window instead of discarding the occurrence.
-RETRYABLE_ADMISSION_CODES = frozenset({"CTF_COMMUNICATION_RATE_LIMITED", "CTF_COMMUNICATION_BACKLOG_FULL"})
+# Admission-denial codes that are transient (clearing the rate window, draining the
+# backlog, or recovery of the shared rate counter recovers the occurrence). Every
+# other admission/authorization denial is permanent for this occurrence. Callers
+# that run at due time use this to retry transient pressure within the grace window
+# instead of discarding the occurrence.
+RETRYABLE_ADMISSION_CODES = frozenset(
+    {
+        "CTF_COMMUNICATION_RATE_LIMITED",
+        "CTF_COMMUNICATION_BACKLOG_FULL",
+        "CTF_COMMUNICATION_ADMISSION_UNAVAILABLE",
+    }
+)
 
 
 def enforce_admission(request: AdmissionRequest) -> None:

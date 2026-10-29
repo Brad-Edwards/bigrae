@@ -33,6 +33,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from cms.handlers.ctf_bridge import drain_ctf_status_deliveries
 from cms.handlers.range_events import apply_range_status
 from cms.models import RangeInstance
 from engine.services import get_authoritative_range_status
@@ -365,6 +366,7 @@ class Command(BaseCommand):
 
     def _run_once(self, stale_seconds: int, batch_size: int) -> None:
         """Execute one reconciliation pass and log the summary."""
+        ctf_delivered = drain_ctf_status_deliveries(limit=batch_size)
         ri_counts = reconcile_range_instances(stale_seconds, batch_size)
         from cms import services as cms_services
 
@@ -381,13 +383,14 @@ class Command(BaseCommand):
         log_fn(
             "reconcile_range_events: pass complete — "
             "reconciled=%d converged=%d skipped=%d no_engine_range=%d "
-            "expired=%d expiry_failed=%d (range_instances: %r)",
+            "expired=%d expiry_failed=%d ctf_delivered=%d (range_instances: %r)",
             total_reconciled,
             total_converged,
             total_skipped,
             total_no_engine,
             lease_counts["expired"],
             lease_counts["failed"],
+            ctf_delivered,
             ri_counts,
         )
 

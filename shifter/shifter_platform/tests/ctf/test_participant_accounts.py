@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 
 import pytest
@@ -610,6 +611,27 @@ def test_post_event_retention_purge_anonymizes_accounts(ctf_event_active, organi
     assert participant.user.is_active is False
 
 
+def test_scheduler_retention_maintenance_logs_purge_counts(
+    ctf_event_active, organizer_credential, monkeypatch, settings, caplog
+):
+    from ctf.management.commands.run_ctf_scheduler import _run_retention_maintenance
+
+    monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
+    create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)
+    ctf_event_active.event_start = timezone.now() - timedelta(hours=2)
+    ctf_event_active.event_end = timezone.now() - timedelta(hours=1)
+    ctf_event_active.save(update_fields=["event_start", "event_end", "updated_at"])
+    settings.CTF_PARTICIPANT_ACCOUNT_RETENTION_HOURS = 0
+
+    with caplog.at_level(logging.INFO, logger="ctf.management.commands.run_ctf_scheduler"):
+        _run_retention_maintenance()
+
+    assert any(
+        "purged participant_accounts=1 public_registration_requests=0" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_ctf_login_rate_limits_repeated_failures(client, standard_user, settings):
     settings.CTF_LOGIN_RATE_LIMIT_MAX = 2
     settings.CTF_LOGIN_SOURCE_RATE_LIMIT_MAX = 20
@@ -645,6 +667,23 @@ def test_ctf_login_allows_event_users_behind_shared_source(client, settings):
 
     assert response.status_code == 429
     assert response["Retry-After"] == "300"
+
+
+def test_ctf_login_limiter_outage_fails_closed_and_is_logged(client, standard_user, monkeypatch, caplog):
+    from ctf.views import participant_auth
+
+    def _cache_down(*_args, **_kwargs):
+        raise ConnectionError("rate limit backend unavailable")
+
+    # Fail the shared rate-limit cache backend, not a first-party helper (ADR-019-R1).
+    monkeypatch.setattr(caches["launch_rate_limit"], "add", _cache_down)
+    response = client.post(reverse("ctf:ctf_login"), {"username": standard_user.username, "password": "wrong"})
+
+    assert response.status_code == 503
+    assert response["Retry-After"] == "60"
+    failures = [record for record in caplog.records if record.name == participant_auth.logger.name]
+    assert [record.levelno for record in failures] == [logging.ERROR]
+    assert failures[0].exc_info is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -748,3 +787,7 @@ def test_public_registration_form_rejects_invalid_username():
     form = PublicRegistrationForm(data={"username": "has a space", "email": "someone@example.com"})
     assert not form.is_valid()
     assert "username" in form.errors
+    # The public visitor sees the authored policy text, never the "[CODE] message" form.
+    message = form.errors["username"][0]
+    assert message.startswith("Username must be")
+    assert "[CTF_" not in message

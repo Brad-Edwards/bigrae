@@ -58,12 +58,12 @@ def _run_ngfw_destroy(user: User, app_id: str, confirm_name: str) -> None:
     except CMSError as e:
         if "not found" in str(e).lower():
             raise Http404(NGFW_NOT_FOUND) from None
-        logger.exception("NGFW destroy failed (CMSError): user=%s app_id=%s", user.pk, safe_log_value(app_id))
+        logger.exception("NGFW destroy failed (CMSError): user_id=%s app_id=%s", user.pk, safe_log_value(app_id))
         raise _NgfwError(
             JsonResponse({"error": classify_user_message(str(e), default="NGFW could not be destroyed")}, status=400)
         ) from e
     except ValueError as e:
-        logger.exception("NGFW destroy failed (ValueError): user=%s app_id=%s", user.pk, safe_log_value(app_id))
+        logger.warning("NGFW destroy rejected: user_id=%s app_id=%s", user.pk, safe_log_value(app_id))
         raise _NgfwError(
             JsonResponse({"error": classify_user_message(str(e), default="Invalid destroy request")}, status=400)
         ) from e

@@ -63,4 +63,8 @@ foreach ($p in @(
 )) {
     Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue
 }
+# Fail closed: the secret-bearing content seed must not survive into the image.
+if (Test-Path "C:\shifter-build\content-seed.ps1") {
+    throw "cleanup failed: content seed C:\shifter-build\content-seed.ps1 still present before capture"
+}
 Write-Host "=== finalize complete ==="

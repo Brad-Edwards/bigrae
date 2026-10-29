@@ -66,13 +66,11 @@ class ECSFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format a log record as ECS-compliant JSON."""
-        # Import settings lazily to avoid circular imports
-        try:
-            from django.conf import settings
+        # Import settings lazily to avoid circular imports. Standalone
+        # processes (no DJANGO_SETTINGS_MODULE) keep the constructor value.
+        from django.conf import settings
 
-            environment = getattr(settings, "ENVIRONMENT", self._environment)
-        except Exception:
-            environment = self._environment
+        environment = getattr(settings, "ENVIRONMENT", self._environment) if settings.configured else self._environment
 
         # Core ECS fields (order matters per spec: @timestamp, log.level, message)
         log_obj = {
@@ -99,8 +97,9 @@ class ECSFormatter(logging.Formatter):
                     log_obj["url.path"] = req.path
                 if hasattr(req, "user") and req.user.is_authenticated:
                     log_obj["user.id"] = str(req.user.id)
-            except Exception:  # noqa: S110  # nosec B110
-                # Intentional: don't fail logging if request context is malformed
+            except Exception:  # noqa: BLE001, S110  # nosec B110
+                # Intentional: a formatter must never raise, so a malformed
+                # request context leaves the HTTP fields out of the record.
                 pass
 
         # Add custom fields as labels (ECS convention for custom data)

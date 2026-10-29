@@ -242,20 +242,16 @@ class TestAddChallengeFile:
         secret = "attacker-content-not-for-logs"
         bogus_png = io.BytesIO(b"%PDF-1.7\n" + secret.encode() + b"\x00" * 32)
         service_logger = logging.getLogger("ctf.services.attachment")
-        service_logger.addHandler(caplog.handler)
-        try:
-            with (
-                caplog.at_level(logging.WARNING, logger=service_logger.name),
-                pytest.raises(CTFValidationError, match="inspection") as caught,
-            ):
-                add_challenge_file(
-                    challenge.id,
-                    bogus_png,
-                    "fake.png",
-                    actor_id=challenge.event.created_by_id,
-                )
-        finally:
-            service_logger.removeHandler(caplog.handler)
+        with (
+            caplog.at_level(logging.WARNING, logger=service_logger.name),
+            pytest.raises(CTFValidationError, match="inspection") as caught,
+        ):
+            add_challenge_file(
+                challenge.id,
+                bogus_png,
+                "fake.png",
+                actor_id=challenge.event.created_by_id,
+            )
 
         assert secret not in str(caught.value)
         assert secret not in caplog.text

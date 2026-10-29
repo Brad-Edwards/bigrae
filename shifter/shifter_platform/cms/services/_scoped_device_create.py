@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -22,6 +23,8 @@ from ._scoped_credentials import _authorized_row
 if TYPE_CHECKING:
     from shared.credentials import CredentialContext
     from shared.identity_scope import ResourceScope
+
+logger = logging.getLogger(__name__)
 
 
 def _source(
@@ -120,7 +123,8 @@ def create_scoped_device(
             instance.save(update_fields=["data"])
             create_ngfw(spec, credential=current, resource_scope=scope, prepared_creation=prepared)
         return NGFWAppRef(app_id=app.pk, instance_id=instance.pk, is_deleted=False)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001  # causes can carry NGFW registration secrets (authcode, OTP, PIN)
+        logger.warning("create_scoped_device: device creation refused exc_type=%s", type(exc).__name__)
         raise CMSError("Device creation unavailable") from None
 
 

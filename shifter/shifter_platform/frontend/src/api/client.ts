@@ -99,6 +99,19 @@ function errorFromPayload(status: number, payload: unknown): ApiError {
   return new ApiError(status, envelope);
 }
 
+/**
+ * Parse an error response body. A non-JSON body (for example a proxy or HTML
+ * error page) has no envelope, so the caller still gets a typed `ApiError`
+ * and the body text never reaches an error message.
+ */
+function parseErrorPayload(text: string): unknown {
+  try {
+    return text ? JSON.parse(text) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { init } = buildRequest(options);
   const response = await fetch(buildUrl(path, options.query), init);
@@ -108,13 +121,12 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   }
 
   const text = await response.text();
-  const payload: unknown = text ? JSON.parse(text) : undefined;
 
   if (!response.ok) {
-    throw errorFromPayload(response.status, payload);
+    throw errorFromPayload(response.status, parseErrorPayload(text));
   }
 
-  return payload as T;
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 /** Fetch a bounded binary response while retaining the canonical JSON error path. */
@@ -124,14 +136,7 @@ export async function apiDownload(path: string, options: DownloadOptions): Promi
   const mediaType = response.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
 
   if (!response.ok || response.status === 202) {
-    const text = await response.text();
-    let payload: unknown;
-    try {
-      payload = text ? JSON.parse(text) : undefined;
-    } catch {
-      payload = undefined;
-    }
-    throw errorFromPayload(response.status, payload);
+    throw errorFromPayload(response.status, parseErrorPayload(await response.text()));
   }
   if (mediaType !== options.expectedMediaType.toLowerCase()) {
     throw new ApiError(502, { code: "unexpected_response", message: "The server returned an invalid download." });
