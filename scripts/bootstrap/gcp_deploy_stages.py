@@ -206,7 +206,8 @@ def infrastructure_stage(
             cluster=cluster,
             kube_env=early_kube,
         )
-    terraform_apply(runner, ctx, extra_args=artifact_registry_kms_adoption(runner, ctx, inputs))
+    adopt_kms = artifact_registry_kms_adoption(runner, ctx, inputs)
+    terraform_apply(runner, ctx, variables={"adopt_artifact_registry_kms": "true"} if adopt_kms else None)
     outputs = terraform_outputs(runner, ctx)
     verify_range_telemetry(runner, inputs, outputs)
     kube = kube_env(

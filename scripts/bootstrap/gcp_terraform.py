@@ -227,10 +227,14 @@ def terraform_apply(
     max_attempts: int = 12,
     sleep_seconds: int = 10,
     sleep: Callable[[float], None] = time.sleep,
-    extra_args: tuple[str, ...] = (),
+    variables: Mapping[str, str] | None = None,
 ) -> None:
-    """Apply the platform root, retrying only IAM propagation failures."""
-    argv = ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), *extra_args)
+    """Apply the platform root, retrying only IAM propagation failures.
+
+    ``variables`` are command-owned values that the command decides at apply time.
+    """
+    extra = [f"-var={name}={value}" for name, value in (variables or {}).items()]
+    argv = ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), *extra)
     for attempt in range(1, max_attempts + 1):
         result = runner.run(argv, env=ctx.env, check=False)
         if result.stdout:
@@ -291,32 +295,21 @@ def apply_destroy_settings(runner: ProcessRunner, ctx: TerraformContext) -> None
     )
 
 
-def artifact_registry_kms_adoption(
-    runner: ProcessRunner, ctx: TerraformContext, inputs: DeploymentInputs
-) -> tuple[str, ...]:
-    """Return the apply arguments that adopt a key ring that a previous destroy left behind (#2643)."""
+def artifact_registry_kms_adoption(runner: ProcessRunner, ctx: TerraformContext, inputs: DeploymentInputs) -> bool:
+    """Return whether the install must adopt a key ring that a previous destroy left behind (#2643)."""
     if any(address.endswith(suffix) for address in state_addresses(runner, ctx) for suffix in KMS_KEY_SUFFIXES):
-        return ()
+        return False
     key_ring = f"shifter-{inputs.environment}-ar"
     exists = runner.run(
-        [
-            "gcloud",
-            "kms",
-            "keyrings",
-            "describe",
-            key_ring,
-            "--location",
-            inputs.region,
-            "--project",
-            inputs.project_id,
-        ],
+        ["gcloud", "kms", "keyrings", "describe", key_ring]
+        + ["--location", inputs.region, "--project", inputs.project_id],
         env=ctx.env,
         check=False,
     )
     if exists.returncode != 0:
-        return ()
+        return False
     info(f"Adopting the existing Artifact Registry key ring {key_ring} and its key")
-    return ("-var=adopt_artifact_registry_kms=true",)
+    return True
 
 
 def drop_unremovable_kms_resources(runner: ProcessRunner, ctx: TerraformContext) -> None:
