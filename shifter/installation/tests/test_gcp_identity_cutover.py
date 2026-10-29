@@ -152,6 +152,8 @@ def test_probe_includes_only_existing_network_prerequisites_before_starting_job(
             _document("NetworkPolicy", "allow-platform-metadata-server-egress"),
             _document("NetworkPolicy", "allow-platform-google-apis-egress"),
             _document("NetworkPolicy", "allow-platform-provider-apis-egress"),
+            _document("NetworkPolicy", "allow-platform-private-service-egress"),
+            _document("NetworkPolicy", "allow-jobs-private-service-egress", "shifter-jobs"),
             _document("NetworkPolicy", "unrelated-policy"),
             _document("NetworkPolicy", "allow-platform-native-sql-egress", "unrelated-namespace"),
             _document("Deployment", "portal-web"),
@@ -165,6 +167,8 @@ def test_probe_includes_only_existing_network_prerequisites_before_starting_job(
         ("shifter-platform", "allow-platform-metadata-server-egress"),
         ("shifter-platform", "allow-platform-google-apis-egress"),
         ("shifter-platform", "allow-platform-provider-apis-egress"),
+        ("shifter-platform", "allow-platform-private-service-egress"),
+        ("shifter-jobs", "allow-jobs-private-service-egress"),
     ]
 
 
