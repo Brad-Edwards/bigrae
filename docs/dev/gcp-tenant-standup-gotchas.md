@@ -181,7 +181,12 @@ the certificate challenge. Run the first deploy with `--first-install`; it
 finishes when the certificate covers the hostname, before the certificate is
 `ACTIVE`. First issuance can take longer than one deploy run. After the
 certificate is `ACTIVE`, run `gcp-deploy` again without `--first-install`; a
-normal deploy waits up to 60 minutes for an `ACTIVE` certificate.
+normal deploy waits up to 60 minutes for an `ACTIVE` certificate. The domain
+status can show `FailedNotVisible` for a while after the A record resolves,
+because Google checks the record again on its own schedule. In one standup it
+changed to `ACTIVE` about 45 minutes after the record resolved. No action is
+needed while the hostname resolves to the ingress address and the load balancer
+answers on port 80.
 
 ## Never commit a deployment identity
 
