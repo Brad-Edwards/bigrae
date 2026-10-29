@@ -221,9 +221,8 @@ spec:
   validationActions: ["Deny"]
   {{- if not .Values.provisionerAdmission.inlineParams }}
   # platform-runtime is a hard dependency of every platform workload; a missing
-  # ConfigMap denies provisioner Job creation rather than failing open. (The default
-  # inlines the params into the policy instead, since neither EKS nor GKE 1.36
-  # resolves ConfigMap params, #2633.)
+  # ConfigMap denies provisioner Job creation rather than failing open. (AWS inlines
+  # the params into the policy instead, since EKS cannot resolve ConfigMap params.)
   paramRef:
     name: platform-runtime
     namespace: {{ .Values.namespaces.platform }}
