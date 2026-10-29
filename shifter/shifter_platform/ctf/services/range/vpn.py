@@ -22,19 +22,9 @@ _PARTICIPATION_DENIED = "Participation denied"
 
 def admit_assigned_range_vpn(credential: CredentialContext, request_id: UUID, event_uuid: UUID | None) -> None:
     """Require current event participation and the exact assigned range."""
-    from ctf.bridges import cms_find_range_instance_id
-    from ctf.services.principal_participation import participant_for_credential
+    from .participation import require_assigned_range_participation
 
-    if event_uuid is None:
-        raise ValueError(_PARTICIPATION_DENIED)
-    participant = participant_for_credential(credential, event_uuid)
-    instance_id = cms_find_range_instance_id(request_id)
-    if (
-        instance_id is None
-        or participant.range_instance_id != instance_id
-        or participant.range_request_id != request_id
-    ):
-        raise ValueError(_PARTICIPATION_DENIED)
+    require_assigned_range_participation(credential, request_id, event_uuid)
 
 
 def vpn_participant_for_credential(credential: CredentialContext, *, event_uuid: UUID | None = None) -> CTFParticipant:

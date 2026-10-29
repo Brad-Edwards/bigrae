@@ -463,6 +463,15 @@ original credential remains valid. Cleanup retains its encrypted native token
 until termination is confirmed and checks delivery atomically before claiming
 expiry cleanup. Delivered sessions continue under the live authority lifecycle.
 
+For an assigned CTF range, the CMS remote-access admission also asks the CTF
+owning service to check the owner's retained participation and exact range
+assignment. A ban, deleted participation or event end denies admission and
+renewal even when the original credential and range policy remain valid. The
+check uses the shared range service port. Independent operator access to
+another owner's range remains subject to its own range policy; a participant's
+ban cannot remove that operator grant. Temporary event credentials gain no new
+range permission through this check.
+
 OpenVPN follows its existing Community 2.6 PKI and management boundaries:
 each admitted credential/range generation receives a distinct certificate/key
 and opaque common name. The issuer retains the CA key. Signed CRLs reject

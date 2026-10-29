@@ -50,6 +50,14 @@ def admit_range_remote_authority(
     projection = project_range_authority(row.request.request_id)
     if projection.resource_generation is None:
         raise ValueError(_INSTANCE_NOT_FOUND)
+    if projection.parent.type == "event":
+        from shared.range_workspace_aggregate import require_range_remote_participation
+
+        if projection.parent.uuid is None:
+            raise ValueError(_INSTANCE_NOT_FOUND)
+        require_range_remote_participation(
+            current, projection.request_uuid, projection.parent.uuid, projection.owner_principal_uuid
+        )
     return {**credential_reference_fields(current), **_range_remote_authority_fields(projection, instance_uuid)}
 
 

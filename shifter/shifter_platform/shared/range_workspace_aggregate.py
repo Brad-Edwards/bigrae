@@ -53,6 +53,25 @@ class RangeAssociationValidator(Protocol):
 _event_association_validator: RangeAssociationValidator | None = None
 _event_launch_validator: Callable[[UUID, UUID], None] | None = None
 _vpn_participation = None
+RangeRemoteParticipation = Callable[["CredentialContext", "UUID", "UUID", "UUID"], None]
+_remote_participation: RangeRemoteParticipation | None = None
+
+
+def register_range_remote_participation(resolver: RangeRemoteParticipation) -> None:
+    """Bind the aggregate owner's standing check for participant-owned remote access."""
+    global _remote_participation
+    if not callable(resolver) or (_remote_participation is not None and _remote_participation is not resolver):
+        raise ValueError("Range remote participation resolver already bound")
+    _remote_participation = resolver
+
+
+def require_range_remote_participation(
+    credential: CredentialContext, request_id: UUID, event_uuid: UUID, owner_uuid: UUID
+) -> None:
+    """Recheck event-local standing without granting access or importing its owner."""
+    if _remote_participation is None:
+        raise ValueError("Range remote participation unavailable")
+    _remote_participation(credential, request_id, event_uuid, owner_uuid)
 
 
 def register_range_vpn_participation(resolver: Callable[[CredentialContext, UUID, UUID | None], None]) -> None:
