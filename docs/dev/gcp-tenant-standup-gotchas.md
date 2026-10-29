@@ -66,6 +66,46 @@ make the `portal`, `provisioner`, `guacd`, `guacamole-client`, `openvpn`, and
 `deployer-gcp` packages public in the GitHub package settings. Until then, a
 deploy cannot pull the release images.
 
+## The foundation needs project IAM administration
+
+`roles/editor` is not enough for `gcp-foundation`. Editor creates the service
+accounts and buckets, but it cannot set IAM policy, create custom roles, or
+change the audit configuration. The apply then stops partway with `403`
+errors. Get `roles/owner`, or `roles/resourcemanager.projectIamAdmin`,
+`roles/iam.roleAdmin`, and `roles/iam.serviceAccountAdmin`, and run the same
+command again. It continues from the resources that it created.
+
+## A foundation with release purpose contexts
+
+Releases publish to the public registry with the workflow token, so the
+`cicd-oidc` root no longer accepts a `release` purpose context. A foundation
+applied before that change must remove its `release` contexts from
+`purpose_contexts` before its next `gcp-foundation` run.
+
+## Write the identity facts for a first install
+
+A first install needs two owner-only files (mode `0600`) outside the bundle.
+On an empty database, the cutover facts have empty maps:
+
+```json
+{"schema": "shifter.identity-cutover-facts/v1", "account_types_by_organization": {}, "bootstrap_personal_token_eligibility": true, "owner_user_ids_by_workspace": {}}
+```
+
+The bootstrap facts name the Identity Platform account of the first
+administrator. The issuer is `https://securetoken.google.com/<project>`. The
+subject is the `localId` of the account that the infrastructure stage creates
+for `settings.operator_bootstrap.admin_email`:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "x-goog-user-project: <project>" -H 'Content-Type: application/json' \
+  https://identitytoolkit.googleapis.com/v1/projects/<project>/accounts:lookup \
+  -d '{"email":["<admin email>"]}' | jq -r '.users[0].localId'
+```
+
+Run the first deploy without the files once to create the account, or write
+the files after the infrastructure stage. Do not commit or publish the subject.
+
 ## Manual Terraform runs and a stale ADC quota project
 
 `gcp-foundation` sets the quota project of its child processes. A manual
@@ -191,8 +231,8 @@ answers on port 80.
 ## A destroy releases the ingress address
 
 The `shifter-<environment>-platform-ip` global address is part of the platform
-Terraform, so `gcp-destroy` releases it. A fresh install after a destroy gets a
-new address. Update the DNS A record to the address that the `--first-install`
+Terraform, so `gcp-destroy` releases it. A fresh install after a destroy can get
+a different address; one reinstall got the same address again. Update the DNS A record to the address that the `--first-install`
 run prints before you run the deploy again.
 
 ## Pin the gcloud account for a long run
