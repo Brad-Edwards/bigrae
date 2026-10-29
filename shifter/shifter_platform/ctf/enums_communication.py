@@ -241,3 +241,33 @@ class DeliveryStatus(StrEnum):
     def choices(cls) -> list[tuple[str, str]]:
         """Return choices for Django model field."""
         return [(s.value, s.name.replace("_", " ").title()) for s in cls]
+
+
+class ReceiptAction(StrEnum):
+    """Closed participant receipt actions (ADR-051-R13, #2053).
+
+    Each action sets one independent first-write timestamp on the recipient's
+    receipt. No action implies, clears, or changes another.
+    """
+
+    READ = "read"
+    DISMISS = "dismiss"
+    ACKNOWLEDGE = "acknowledge"
+
+    @property
+    def receipt_field(self) -> str:
+        """Return the ``ParticipantReceipt`` timestamp this action sets."""
+        return {"read": "read_at", "dismiss": "dismissed_at", "acknowledge": "acknowledged_at"}[self.value]
+
+
+class InboxFilter(StrEnum):
+    """Closed participant inbox selections (ADR-051-R13, #2053).
+
+    INBOX hides a dismissed message only when its pinned policy has no open
+    obligation; ACTION_REQUIRED lists open obligations; DISMISSED lists dismissed
+    messages.
+    """
+
+    INBOX = "inbox"
+    ACTION_REQUIRED = "action_required"
+    DISMISSED = "dismissed"

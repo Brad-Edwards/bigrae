@@ -62,7 +62,7 @@ def backfill_delivery_state(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ctf", "0079_merge_content_images"),
+        ("ctf", "0080_participant_receipt_dismissed_at"),
     ]
 
     operations = [

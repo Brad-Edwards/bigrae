@@ -1,4 +1,4 @@
-"""Email channel adapter (ADR-051-R13, ADR-071, #1525).
+"""Email channel adapter (ADR-051-R14, ADR-071, #1525).
 
 The adapter is the only code that decrypts a recipient coordinate. It reads the
 one snapshot named by its command, renders the pinned revision through a trusted

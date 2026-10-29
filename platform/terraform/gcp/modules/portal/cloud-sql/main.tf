@@ -122,23 +122,30 @@ resource "google_sql_database_instance" "platform" {
   }
 }
 
+# deletion_policy = "ABANDON": the Cloud SQL API deletes only a database that
+# cloudsqlsuperuser owns. The duty reconciler gives the guacamole and openfga
+# databases their own owners, so a DROP DATABASE through the API fails during
+# `terraform destroy` (#2640). The instance deletion removes the databases.
 resource "google_sql_database" "platform" {
-  name     = var.cloud_sql_database_name
-  project  = var.project_id
-  instance = google_sql_database_instance.platform.name
+  name            = var.cloud_sql_database_name
+  project         = var.project_id
+  instance        = google_sql_database_instance.platform.name
+  deletion_policy = "ABANDON"
 }
 
 resource "google_sql_database" "guacamole" {
-  name     = "guacamole"
-  project  = var.project_id
-  instance = google_sql_database_instance.platform.name
+  name            = "guacamole"
+  project         = var.project_id
+  instance        = google_sql_database_instance.platform.name
+  deletion_policy = "ABANDON"
 }
 
 resource "google_sql_database" "openfga" {
-  count    = var.openfga_enabled ? 1 : 0
-  name     = "openfga"
-  project  = var.project_id
-  instance = google_sql_database_instance.platform.name
+  count           = var.openfga_enabled ? 1 : 0
+  name            = "openfga"
+  project         = var.project_id
+  instance        = google_sql_database_instance.platform.name
+  deletion_policy = "ABANDON"
 }
 
 # deletion_policy = "ABANDON": on PostgreSQL a role that owns objects cannot be

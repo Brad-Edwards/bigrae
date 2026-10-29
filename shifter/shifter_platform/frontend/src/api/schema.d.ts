@@ -2848,6 +2848,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ctf/me/events/{event_id}/communications/{snapshot_id}/dismiss/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Hide a message from the default view without reading or acknowledging it. */
+        post: operations["ctf_me_events_communications_dismiss_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ctf/me/events/{event_id}/communications/{snapshot_id}/read/": {
         parameters: {
             query?: never;
@@ -5370,6 +5387,10 @@ export interface components {
             /** Format: date-time */
             readonly acknowledged_at: string | null;
             /** Format: date-time */
+            readonly dismissed_at: string | null;
+            /** @description True while the pinned policy still needs a read or an explicit acknowledgement */
+            readonly action_required: boolean;
+            /** Format: date-time */
             readonly created_at: string | null;
         };
         /** @description Acceptance is distinct from channel delivery or participant interaction. */
@@ -5422,6 +5443,8 @@ export interface components {
             readonly exceeds_audience_cap: boolean;
             /** Format: date-time */
             readonly observed_at: string;
+            /** @description Deployment HTTPS link hosts the renderer may link to, as in the participant inbox */
+            readonly allowed_link_hosts: string[];
         };
         /** @description Current audience estimate and local due time for one target event. */
         CommunicationPreviewEvent: {
@@ -6297,10 +6320,16 @@ export interface components {
          * @enum {string}
          */
         ImageKindEnum: "image" | "machine-image";
-        /** @description Project one inbox page and its continuation offset. */
+        /** @description Project one inbox page, its continuation offset, and inbox-wide counts. */
         InboxPage: {
             results: components["schemas"]["CommunicationInboxItem"][];
             next_offset: number | null;
+            /** @description Unread messages in the default view */
+            unread_count: number;
+            /** @description Messages whose pinned policy needs an action */
+            action_required_count: number;
+            /** @description Deployment HTTPS link hosts the renderer may link to */
+            allowed_link_hosts: string[];
         };
         /** @description Response-only projection of ``shared.schemas.InstanceContext``. */
         InstancePresentation: {
@@ -17777,6 +17806,12 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                /**
+                 * @description * `inbox` - inbox
+                 *     * `action_required` - action_required
+                 *     * `dismissed` - dismissed
+                 */
+                view?: "inbox" | "action_required" | "dismissed";
             };
             header?: never;
             path: {
@@ -17945,6 +17980,95 @@ export interface operations {
         };
     };
     ctf_me_events_communications_acknowledge_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                snapshot_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CommunicationEmpty"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationInboxItem"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Authentication failed. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request conflicts with current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Request was throttled */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    ctf_me_events_communications_dismiss_create: {
         parameters: {
             query?: never;
             header?: never;

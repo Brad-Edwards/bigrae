@@ -34,7 +34,6 @@ interface RouteNode {
 // new group without coverage OR an entry here fails reconciliation.
 const EXCLUDED_GROUPS: Record<string, string> = {
   "": "Home renders a per-user greeting (dynamic heading); covered by component/vitest-axe tests.",
-  ctf: "Participant CTF surfaces require a seeded active event; deferred to event-seeding follow-up.",
   "raes-image-registry": "Single authoring surface; enroll in a follow-up (extends this matrix).",
 };
 

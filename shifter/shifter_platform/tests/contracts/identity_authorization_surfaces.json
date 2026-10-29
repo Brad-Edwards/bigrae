@@ -1,5 +1,5 @@
 {
-  "current_operation_count": 316,
+  "current_operation_count": 317,
   "historical_baseline": {
     "commit": "8aee758331286293cdc837d94eb95fafa5674ae0",
     "operation_count": 220
@@ -2354,6 +2354,17 @@
         "scope": "sql:event",
         "target": "event"
       },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "ctf_me_events_communications_dismiss_create",
+      "path": "/api/v1/ctf/me/events/{event_id}/communications/{snapshot_id}/dismiss/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:event",
+        "target": "event"
+      },
       "disposition": "retained",
       "method": "POST",
       "operation_id": "ctf_me_events_communications_read_create",
@@ -4032,6 +4043,14 @@
       "kind": "management-command",
       "scope": "deployment-operator",
       "surface": "ctf:run_ctf_scheduler",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "ctf:seed_e2e_ctf",
       "target": "installation"
     },
     {

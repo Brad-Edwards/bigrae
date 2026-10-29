@@ -142,22 +142,58 @@ Changing event times keeps a scheduled communication at its own due time.
 
 ## Participant inbox
 
-The inbox is session-only and is scoped to the parent event:
+Open **Participate > Inbox** (`/ctf/inbox/`). The inbox shows the messages for
+your active event only.
+
+1. Select a message to open it. The page records a read when the message opens.
+   If the page cannot record the read, select **Try again**.
+2. If the message shows **Needs acknowledgement**, select **Acknowledge**.
+3. To hide a message, select **Dismiss**. Dismiss does not mark the message read
+   or acknowledged.
+4. Use **Needs action** to find messages that still need a read or an
+   acknowledgement. Use **Dismissed** to find hidden messages.
+
+A message that still needs an action stays in **Inbox**, also after you dismiss
+it. A notice above each workspace page shows the number of these messages. The
+notice does not block other pages, help, the range, or the terminal.
+
+The page refreshes when you return to the tab, when the network returns, and
+every 60 seconds. A socket notice only starts a refresh. It never marks a
+message read. Other open tabs refresh after an action. When the browser is
+offline, the page shows that the messages can be out of date, and actions are
+not available.
+
+Messages use a safe Markdown format. Links open only same-site paths or the
+HTTPS hosts that the deployment allows. Other links show as plain text. Images,
+raw HTML and embedded media are not accepted.
+
+### Inbox API
+
+The API is session-only. It is scoped to the parent event:
 `/api/v1/ctf/me/events/<event_id>/communications/`.
-GET the collection or `<message_id>/` to view content without changing a receipt.
-POST an empty object to `<message_id>/read/` or `<message_id>/acknowledge/` for a
-deliberate action. Browser writes require CSRF. Repeating an action preserves its
-first timestamp; acknowledgement requires the message's pinned `explicit` policy.
 
-Banned or removed participants cannot fetch messages or change receipts. A
-participant eligible to view an event may interact with their own receipts even
-if disqualified from competition. Temporary accounts must satisfy their live
-participation and password-change requirements. Email-only declarations do not
-appear in the inbox.
+| Operation | Route | Effect |
+| --- | --- | --- |
+| List | `GET ?view=inbox\|action_required\|dismissed&limit=&offset=` | No receipt change. Adds `unread_count`, `action_required_count` and `allowed_link_hosts`. |
+| Read one message | `GET <message_id>/` | No receipt change. |
+| Read | `POST <message_id>/read/` | Sets `read_at` once. |
+| Dismiss | `POST <message_id>/dismiss/` | Sets `dismissed_at` once. |
+| Acknowledge | `POST <message_id>/acknowledge/` | Sets `acknowledged_at` once. Needs the pinned `explicit` policy. |
 
-WebSocket notifications are hints to fetch the durable inbox. Reconnect and
-polling recover committed messages; socket writes never mark them read. Retained
-legacy notification bodies are not replayed through the CTF notification socket.
+POST an empty object. Browser writes need CSRF. A repeated action keeps the
+first timestamp. No action changes another action's timestamp. Each item shows
+`action_required` while its pinned policy needs a read or an acknowledgement.
+Responses are private and the browser does not store them. An invalid request
+returns a generic error that does not repeat the input.
+
+Banned or removed participants cannot read messages or change receipts. A
+disqualified participant who can view the event can manage their own receipts.
+Temporary accounts must satisfy their live participation and password-change
+requirements. Email-only declarations do not appear in the inbox. A message is
+not available after the retention window, also before the purge job deletes it.
+
+Retained legacy notification bodies are not replayed through the CTF
+notification socket.
 
 ## Legacy migration
 

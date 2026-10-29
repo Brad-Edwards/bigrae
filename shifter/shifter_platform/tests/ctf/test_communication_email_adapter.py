@@ -1,4 +1,4 @@
-"""Email channel on the communication ledger (ADR-051-R13, ADR-071, #1525).
+"""Email channel on the communication ledger (ADR-051-R14, ADR-071, #1525).
 
 Drives real admission, the real worker, the real adapter, and the real
 ``shared.email`` seam. Only the external mail transport is replaced: Django's

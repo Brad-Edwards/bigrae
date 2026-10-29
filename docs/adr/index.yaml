@@ -3313,7 +3313,7 @@
       },
       {
         "id": "ADR-051-R11",
-        "description": "CTF communications must not register triggers, audiences, channels, content renderers, RAES handlers, or workload ingress through ctf.extensions or AppConfig.ready. Existing trusted-Django-app flag/scoring extensions, CTFEvent branding projection, and Django LocaleMiddleware/gettext catalogs remain their separate CTF-014 incumbents. Authored message locale variants are immutable campaign data, not UI translation catalogs or a custom translation workflow; event branding never supplies content, link-host, email-template, or authorization policy.",
+        "description": "CTF communications must not register triggers, audiences, channels, content renderers, RAES handlers, or workload ingress through ctf.extensions or AppConfig.ready. Existing trusted-Django-app flag/scoring extensions, CTFEvent branding projection, and Django LocaleMiddleware/gettext catalogs remain their separate CTF-014 incumbents. Authored message locale variants are immutable campaign data, not UI translation catalogs or a custom translation workflow; event branding never supplies content, link-host, email-template, or authorization policy. The #2053 participant boundary note specializes these constraints: organizer content never becomes Django template source, unknown runtime profiles fail closed, Django middleware alone does not translate SPA literals, and any future authored locale selection preserves the pinned revision and recipient/receipt identity.",
         "checks": []
       },
       {
@@ -3323,6 +3323,11 @@
       },
       {
         "id": "ADR-051-R13",
+        "description": "The #2053 participant inbox extends the existing event-scoped inbox service and ledger. Its message identity is the recipient snapshot UUID; distinct occurrences remain distinct while retries converge on that snapshot. Read, dismiss and explicit acknowledgement are separate idempotent monotonic receipt facts, never inferred from GET, prefetch, toast display, socket delivery or one another. Dismissal preserves access to unmet required acknowledgement, which never traps emergency navigation or becomes play authority. Every read, page and action reauthorizes the exact live participation; retention, authorization loss and browser context changes cannot preserve unauthorized content. The existing versioned content validator and MarkdownContent profile own bounded admission/rendering, including media rejection and deployment-owned link policy under enforced CSP. Reference-only wake-ups are optional accelerators; offline, reconnect and cross-tab reconciliation use the authenticated durable API. The participant inbox boundary note records the cross-cutting gates and current gaps; this rule adds no workflow owner or ADR-066 activation and passing registry checks does not prove implementation.",
+        "checks": []
+      },
+      {
+        "id": "ADR-051-R14",
         "description": "Issue #1525 activates email only through the existing communication ChannelAdapter and DeliveryAttempt outbox, with MIME/backend execution owned by shared.email and no parallel fan-out or retry owner. Requests report committed ledger acceptance; release remains distinct from delivery completion. Persist the occurrence delivery disposition within the canonical intent owner, derived consistently from per-recipient/channel outcomes without rewriting authored intent or legacy aggregates. Provider acceptance is not mailbox delivery/read/acknowledgement; stable Message-ID and lease fencing do not prove provider deduplication after an uncertain send. The email preflight records required backend capability evidence, pre-I/O retry ceilings, real transport deadlines and shutdown bounds, isolated coordinate decryption, safe rendering/header handling, closed error/log outcomes, deployment config and least-privilege worker wiring, and restart/concurrency proofs. Preserve ADR-065 retirement and explicit recovery of mapped schedules. ADR-071 and the #1525 email delivery design record the implemented transport seam and the closed delivery_state values (not_released, empty, pending, accepted, partial, failed, withdrawn). Registry validation alone does not prove runtime delivery.",
         "checks": []
       }
@@ -3333,6 +3338,8 @@
       "ci"
     ],
     "evidence": [
+      "docs/design/ctf-participant-inbox-boundaries-2053.md",
+      "docs/architecture/ctf-participant-inbox-design-2053.md",
       "https://github.com/Brad-Edwards/bigrae/issues/2047",
       "https://github.com/Brad-Edwards/bigrae/issues/2048",
       "docs/architecture/ctf-communications-raes-inject-preflight-2047.md",

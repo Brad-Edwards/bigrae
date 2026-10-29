@@ -161,6 +161,50 @@ def test_image_destination_to_disallowed_host_is_rejected():
     _assert_content_rejected(body="![logo](https://attacker.example/x.png)")
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "![logo](/static/logo.png)",
+        "![logo](https://docs.example.com/x.png)",
+        "![logo][ref]\n\n[ref]: /static/logo.png",
+        "![logo]\n\n[logo]: https://docs.example.com/x.png",
+        "> ![nested](/x.png)",
+        "| a |\n| - |\n| ![cell](/y.png) |",
+        # Balanced brackets in the link text defeat the regex scan; the token scan
+        # still sees the protocol-relative destination the browser would follow.
+        "[a [b] c](//attacker.example)",
+        "Visit www.attacker.example today",
+        "*www.docs.example.com/guide*",
+    ],
+)
+def test_media_and_non_https_link_syntax_are_rejected_at_admission(body):
+    # Media and links are judged by the parsed Markdown, not by the presentation
+    # layer dropping them: admission is the first control (ADR-051-R5, #2053).
+    _assert_content_rejected(body=body)
+
+
+def test_rendered_output_bound_is_enforced_below_the_source_bound():
+    body = "*a* " * 16_000
+    assert len(body.encode("utf-8")) < MAX_BODY_BYTES
+    _assert_content_rejected(body=body)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Use `![x](/y.png)` to embed an image elsewhere.",
+        "The host `www.attacker.example` stays code.",
+        "Hello {{ request.user }} {% debug %} ${settings}",
+        "Contact the organizers at help@example.com.",
+    ],
+)
+def test_inert_code_template_and_plain_text_are_accepted_verbatim(body):
+    # Code spans stay text, and template-like expressions stay data; the
+    # communication body is never compiled as template source (ADR-051-R11).
+    result = validate_message_content(_content(body=body), allowed_link_hosts=ALLOWED_HOSTS)
+    assert result["body"] == body
+
+
 # ---------------------------------------------------------------------------
 # Audience spec (closed selector)
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ Status: implementation design. Date: 2026-10-29.
 This design records the decisions for issue #1525. Email outcomes are observed
 and persisted. No path reports success before a mail backend accepts a message.
 [ADR-071](../adr/071-observed-email-delivery-outcomes.md) records the binding
-decisions. ADR-051-R13 and the
+decisions. ADR-051-R14 and the
 [email preflight](ctf-email-durable-delivery-preflight-1525.md) constrain the
 CTF channel.
 
@@ -331,7 +331,7 @@ No new adr_guard check is needed. Existing gates apply:
 | ADR | Change |
 | --- | --- |
 | ADR-071 (new) | Observed email delivery outcomes for CTF, invitation, and reset messages |
-| ADR-051-R13 | Points at this design and the delivery state values |
+| ADR-051-R14 | Points at this design and the delivery state values |
 | PLAT-103 | Statement amended for durable CTF delivery and bounded interactive delivery |
 
 ## Document review
