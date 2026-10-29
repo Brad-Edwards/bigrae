@@ -230,13 +230,22 @@ def test_cross_account_and_exact_ceiling_deny_before_private_projection(content_
         {"authcode": {"nested": "SECRET_MARKER"}},
     ],
 )
-def test_human_credential_input_uses_the_same_closed_spec(content_actor, django_user_model, values, caplog):
+def test_human_credential_input_uses_the_same_closed_spec(
+    content_actor, django_user_model, live_session_credential, values, caplog
+):
     from cms.models import Credential
     from cms.services import create_credential
 
     user = django_user_model.objects.create_user(username="human-credential-validator")
-    with pytest.raises((CMSError, ValueError)) as caught:
-        create_credential(user, "deployment_profile", name="Invalid human credential", **values)
+    credential = live_session_credential(user)
+    with pytest.raises(CMSError, match="Invalid credential input") as caught:
+        create_credential(
+            credential,
+            "deployment_profile",
+            scope=content_actor.scope,
+            name="Invalid human credential",
+            **values,
+        )
     assert not Credential.objects.filter(name="Invalid human credential").exists()
     assert "SECRET_MARKER" not in str(caught.value)
     assert "SECRET_MARKER" not in caplog.text
