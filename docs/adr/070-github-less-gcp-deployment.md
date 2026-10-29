@@ -47,12 +47,10 @@ tracks the AWS path.
    Trivy gate. The only accepted exposures are time-boxed vendor-binary entries
    in `platform/deployer/gcp/trivyignore.yaml`. Each entry stops applying on its
    expiry date.
-   The exact `gke-gcloud-auth-plugin` Linux binary has a reviewed false positive
-   for [CVE-2026-56857](https://pkg.go.dev/vuln/GO-2026-6604): the official Go
-   advisory limits both affected imports to Windows, while the verified Google
-   archive reports `GOOS=linux`. The entry names only that CVE and binary path,
-   is owned by `@Brad-Edwards`, and expires on 2026-11-30. The vendor manifest and
-   archive checksum remain pinned; other findings still block the image gate.
+   The deployer builds `gke-gcloud-auth-plugin` from a pinned upstream commit
+   with a digest-pinned Go toolchain. Go verifies the module checksums. The
+   plugin has no scan exceptions. Return to the Google binary when it passes
+   the blocking deployer scan without plugin-specific exceptions.
 2. **One deploy implementation serves every deploy.** `deploy.py gcp-deploy` is
    the deploy for the first install and for each update. An operator runs it from
    the deployer image or from a clean checkout of the release revision. The GCP
