@@ -188,6 +188,24 @@ changed to `ACTIVE` about 45 minutes after the record resolved. No action is
 needed while the hostname resolves to the ingress address and the load balancer
 answers on port 80.
 
+## A destroy releases the ingress address
+
+The `shifter-<environment>-platform-ip` global address is part of the platform
+Terraform, so `gcp-destroy` releases it. A fresh install after a destroy gets a
+new address. Update the DNS A record to the address that the `--first-install`
+run prints before you run the deploy again.
+
+## Pin the gcloud account for a long run
+
+The commands use the active gcloud account to impersonate the purpose
+identities. If another shell changes the active account during a run, the next
+gcloud call in the run fails, for example the lock release at the end of a
+destroy. Pin the account for the run instead of relying on the global setting:
+
+```bash
+CLOUDSDK_CORE_ACCOUNT=<operator> uv run --project scripts/bootstrap scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket>
+```
+
 ## Never commit a deployment identity
 
 Do not put a real project ID or service-account email into the chart values
