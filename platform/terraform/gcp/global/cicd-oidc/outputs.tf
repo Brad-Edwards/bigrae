@@ -38,10 +38,6 @@ output "destroy_service_account_email" {
   value       = module.cicd_oidc_identity.destroy_service_account_email
 }
 
-output "release_service_account_email" {
-  description = "Release publisher service account email; set as GCP_RELEASE_SERVICE_ACCOUNT in the gcp-release Environment."
-  value       = module.cicd_oidc_identity.release_service_account_email
-}
 
 output "deployment_config_bucket_name" {
   description = "Deployment config bucket for the GitHub-less input bundle (gcp-deploy --store gs://<name>)."

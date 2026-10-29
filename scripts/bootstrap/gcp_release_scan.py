@@ -18,6 +18,7 @@ from pathlib import Path
 from bootstrap_core import error, info, success
 from gcp_evidence import EvidenceRecord, EvidenceRun, store_evidence_set
 from gcp_inputs import private_workdir, write_private_file
+from gcp_oci import is_artifact_registry_host
 from gcp_process import GcpCommandError, ProcessRunner
 
 TRIVY_DB_REPOSITORY = "mirror.gcr.io/aquasec/trivy-db"
@@ -92,12 +93,15 @@ def scan_release(
     files = [
         write_private_file(results / "release-manifest.json", json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     ]
-    token = registry_access_token(runner, scan_env)
-    trivy_env = {**scan_env, "TRIVY_USERNAME": "oauth2accesstoken", "TRIVY_PASSWORD": token}
+    # Only an Artifact Registry image gets the Google token; a public registry pull is anonymous.
+    google = any(is_artifact_registry_host(identity.split("/", 1)[0]) for identity in identities.values())
+    token = registry_access_token(runner, scan_env) if google else ""
+    google_env = {**scan_env, "TRIVY_USERNAME": "oauth2accesstoken", "TRIVY_PASSWORD": token}
     failed: list[str] = []
     for name, identity in identities.items():
         report = results / f"{name}-trivy.json"
         info(f"Scanning {name} for {SEVERITIES} findings")
+        trivy_env = google_env if is_artifact_registry_host(identity.split("/", 1)[0]) else scan_env
         result = runner.run(
             trivy_argv(trivy, identity, report, ignore_file), env=trivy_env, check=False, sensitive=True
         )

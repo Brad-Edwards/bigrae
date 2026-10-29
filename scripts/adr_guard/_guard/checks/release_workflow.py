@@ -7,11 +7,13 @@ through the provenance that this workflow signs, so the workflow must keep these
 properties. The check reads the workflow as data and fails closed:
 
 - only ``workflow_dispatch`` starts the workflow (ADR-004-R23);
-- every job that authenticates to GCP binds the ``gcp-release`` Environment
-  (ADR-004-R23) and runs on a GitHub-hosted runner (ADR-003-R5);
-- in that job, a step before the authentication step rejects every ref except
+- every job that publishes (it logs in to a registry, authenticates to a cloud,
+  or pushes an image) binds the ``gcp-release`` Environment (ADR-004-R23) and
+  runs on a GitHub-hosted runner (ADR-003-R5);
+- in that job, a step before the first publishing step rejects every ref except
   ``refs/heads/main``, ``refs/heads/dev``, and ``refs/heads/deploy-test``
-  (ADR-037-R7);
+  (ADR-037-R7). The release registry is public (#2659), so the registry login
+  is the credential that the guard protects;
 - every non-local action is pinned to a full commit SHA (ADR-037-R1);
 - every pushed image build produces an SBOM and maximum provenance, and an
   ``actions/attest-build-provenance`` step in the same job signs the exact
@@ -42,6 +44,7 @@ RELEASE_ENVIRONMENT = "gcp-release"
 _CHECK = "release-workflow-provenance"
 _BUILD_ACTION = "docker/build-push-action@"
 _ATTEST_ACTION = "actions/attest-build-provenance@"
+_LOGIN_ACTION = "docker/login-action@"
 # The ref guard is a shell `case` on GITHUB_REF whose only admitted branch
 # lists release refs and whose fallback branch exits non-zero.
 RELEASE_REFS = frozenset({"refs/heads/main", "refs/heads/dev", "refs/heads/deploy-test"})
@@ -129,26 +132,35 @@ def _subject_build_ids(step: object) -> list[str]:
     return _STEP_DIGEST_REF.findall(str(_step_with(step).get("subject-digest", "")))
 
 
-def _auth_job_violations(job_id: str, job: dict[str, object], steps: list[object]) -> list[Violation]:
-    """Environment, runner, and ref-guard rules for a job that authenticates to GCP."""
+def _publishes(step: object) -> bool:
+    """True when the step logs in to a registry, authenticates to a cloud, or pushes an image."""
+    return (
+        _dw_step_uses_cloud_auth(step)
+        or _uses_action(step, _LOGIN_ACTION)
+        or (_uses_action(step, _BUILD_ACTION) and _is_true(_step_with(step).get("push")))
+    )
+
+
+def _publish_job_violations(job_id: str, job: dict[str, object], steps: list[object]) -> list[Violation]:
+    """Environment, runner, and ref-guard rules for a job that publishes the release."""
     violations: list[Violation] = []
-    first_auth = next(index for index, step in enumerate(steps) if _dw_step_uses_cloud_auth(step))
+    first_publish = next(index for index, step in enumerate(steps) if _publishes(step))
     if _environment_name(job) != RELEASE_ENVIRONMENT:
         violations.append(
             _violation(
                 "ADR-004-R23",
-                f"job '{job_id}' authenticates to GCP but does not bind the '{RELEASE_ENVIRONMENT}' Environment",
+                f"job '{job_id}' publishes the release but does not bind the '{RELEASE_ENVIRONMENT}' Environment",
             )
         )
     if _dw_is_self_hosted(job):
         violations.append(
             _violation("ADR-003-R5", f"job '{job_id}' builds the release on a self-hosted runner; use GitHub-hosted")
         )
-    if not any(_rejects_non_release_refs(step) for step in steps[:first_auth]):
+    if not any(_rejects_non_release_refs(step) for step in steps[:first_publish]):
         violations.append(
             _violation(
                 "ADR-037-R7",
-                f"job '{job_id}' has no unconditional step before GCP authentication that rejects every ref "
+                f"job '{job_id}' has no unconditional step before its first publishing step that rejects every ref "
                 "except refs/heads/main, refs/heads/dev, and refs/heads/deploy-test",
             )
         )
@@ -262,8 +274,8 @@ def _job_violations(job_id: str, job: dict[str, object]) -> list[Violation]:
     """Every contract violation of one release workflow job."""
     steps = _dw_job_steps(job)
     violations: list[Violation] = []
-    if any(_dw_step_uses_cloud_auth(step) for step in steps):
-        violations.extend(_auth_job_violations(job_id, job, steps))
+    if any(_publishes(step) for step in steps):
+        violations.extend(_publish_job_violations(job_id, job, steps))
     violations.extend(_attestation_violations(job_id, steps))
     violations.extend(_deployer_scan_violations(job_id, steps))
     return violations

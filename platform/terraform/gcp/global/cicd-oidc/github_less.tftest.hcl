@@ -43,8 +43,8 @@ run "impersonation_only_foundation" {
     error_message = "Impersonation must enable the lifecycle identities with the naming contract that gcp-deploy derives."
   }
   assert {
-    condition     = length(google_service_account.release) == 0 && length(google_service_account.validate) == 0 && length(google_service_account.promote) == 0
-    error_message = "Impersonation must not enable the release or image purposes."
+    condition     = length(google_service_account.validate) == 0 && length(google_service_account.promote) == 0
+    error_message = "Impersonation must not enable the image purposes."
   }
   assert {
     condition     = length(google_service_account_iam_member.impersonation) == 3
@@ -172,44 +172,9 @@ run "config_bucket_differs_from_evidence" {
   expect_failures = [var.deployment_config_bucket_name]
 }
 
-run "release_purpose_on_release_refs" {
-  command = plan
-  module {
-    source = "../../modules/cicd-oidc-identity"
-  }
-  variables {
-    github_org           = "example"
-    github_repo          = "product"
-    github_repository_id = "123"
-    github_owner_id      = "456"
-    purpose_contexts = {
-      release = [for ref in ["refs/heads/main", "refs/heads/dev", "refs/heads/deploy-test"] : {
-        environment           = "gcp-release"
-        ref                   = ref
-        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@${ref}"
-        reusable_workflow_ref = ""
-      }]
-    }
-  }
-  assert {
-    condition     = google_service_account.release[0].account_id == "custunseen-release"
-    error_message = "The release purpose must create the release publisher identity."
-  }
-  assert {
-    condition     = google_service_account_iam_member.release_wif["repo:example@456/product@123:environment:gcp-release"].service_account_id == "projects/example-project/serviceAccounts/custunseen-release@example-project.iam.gserviceaccount.com"
-    error_message = "The release binding must use the exact immutable release subject."
-  }
-  assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.workflow_ref == 'example/product/.github/workflows/release-gcp.yml@refs/heads/main'")
-    error_message = "The provider must bind the release workflow on protected main."
-  }
-  assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.workflow_ref == 'example/product/.github/workflows/release-gcp.yml@refs/heads/deploy-test'")
-    error_message = "The provider must bind the release workflow on deploy-test."
-  }
-}
-
-run "release_purpose_off_release_refs_rejected" {
+# Releases publish to the public registry with the workflow token (#2659), so no
+# GCP release identity exists.
+run "release_purpose_is_retired" {
   command = plan
   module {
     source = "../../modules/cicd-oidc-identity"
@@ -222,8 +187,8 @@ run "release_purpose_off_release_refs_rejected" {
     purpose_contexts = {
       release = [{
         environment           = "gcp-release"
-        ref                   = "refs/heads/feature"
-        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@refs/heads/feature"
+        ref                   = "refs/heads/main"
+        workflow_ref          = "example/product/.github/workflows/release-gcp.yml@refs/heads/main"
         reusable_workflow_ref = ""
       }]
     }

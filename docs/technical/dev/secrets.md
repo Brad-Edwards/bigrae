@@ -24,7 +24,6 @@ These must be configured in repository Settings > Secrets and variables > Action
 | `GCP_PACKER_VALIDATE_SERVICE_ACCOUNT` | Image validation service account in `gcp-validate-dev` / `gcp-validate-proof` |
 | `GCP_PACKER_PROMOTE_SERVICE_ACCOUNT` | Image promotion service account in `gcp-promote-prod` |
 | `GCP_RELEASE_SCAN_SERVICE_ACCOUNT` | Exact-release scanner service account in `gcp-release-scan-<deployment suffix>` |
-| `GCP_RELEASE_SERVICE_ACCOUNT` | Release publisher service account in `gcp-release` |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub Actions workload identity provider resource for `gcp-dev` deploys |
 | `GCP_BOOTSTRAP_ADMIN_EMAIL` | Optional first GCP operator email for Identity Platform bootstrap |
 | `GCP_BOOTSTRAP_ADMIN_PASSWORD` | Optional first GCP operator password for Identity Platform bootstrap |

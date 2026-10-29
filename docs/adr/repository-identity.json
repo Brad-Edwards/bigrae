@@ -1,9 +1,10 @@
 {
-  "repository": "Brad-Edwards/bigrae",
+  "repository": "OpenRAE/bigrae",
   "repository_id": "1241599684",
-  "owner": "Brad-Edwards",
-  "owner_id": "56809295",
+  "owner": "OpenRAE",
+  "owner_id": "308592074",
   "former_repositories": [
-    "Brad-Edwards/shifter"
+    "Brad-Edwards/shifter",
+    "Brad-Edwards/bigrae"
   ]
 }

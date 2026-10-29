@@ -128,8 +128,8 @@ commands for each step:
    named `impersonation_principals` the right to impersonate the deploy,
    release-scan, and destroy identities. It creates no Workload Identity pool
    or provider.
-3. **Release access** - Add the deploy and destroy identities, and the
-   operators, to the `reader_members` of the release registry.
+3. **Release access** - The release registry is public. A deployment that
+   cannot reach it fills a mirror and passes `--release-source`.
 4. **Initial secrets** - Store the first operator password in Secret Manager.
    Name that secret in `settings.operator_bootstrap.admin_password_secret_ref`.
 5. **Deployment inputs** - Write `bigrae.yaml` and the Terraform values. Leave

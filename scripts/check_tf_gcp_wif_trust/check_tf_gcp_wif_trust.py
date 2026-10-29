@@ -17,11 +17,11 @@ if __package__:
 else:
     from _resolved_plan import check_resolved_plan as check_resolved_plan
 
-PURPOSES = ("build", "validate", "promote", "release_scan", "deploy", "destroy", "release")
+PURPOSES = ("build", "validate", "promote", "release_scan", "deploy", "destroy")
 # Purposes that operators may impersonate without GitHub (ADR-070).
 IMPERSONATION_PURPOSES = ("release_scan", "deploy", "destroy")
 # Purpose identities that must hold no project-wide IAM role.
-NO_PROJECT_ROLE_PURPOSES = ("release_scan", "release")
+NO_PROJECT_ROLE_PURPOSES = ("release_scan",)
 PROJECT_IAM_MEMBER_RE = re.compile(r'^\s*resource\s+"google_project_iam_member"\s+"([^\"]+)"\s*\{')
 VARIABLE_HEADER_RE = re.compile(r'^\s*variable\s+"([^\"]+)"\s*\{')
 DOUBLE_QUOTED_RE = re.compile(r'"([^\"]+)"')
@@ -30,7 +30,6 @@ REQUIRED_OUTPUTS = frozenset({
     "workload_identity_provider", "packer_build_service_account_email",
     "packer_validate_service_account_email", "packer_promote_service_account_email",
     "release_scan_service_account_email", "deploy_service_account_email", "destroy_service_account_email",
-    "release_service_account_email",
 })
 # The variables that keep the static CKV_GCP_125 grammar check meaningful. A
 # default would let the check evaluate a concrete value instead of the immutable
@@ -82,7 +81,7 @@ def check_generic_source(path: Path, text: str) -> list[Violation]:
     subject_prefix = 'subject_prefix = var.github_subject_format == "immutable" ? "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" : "repo:${var.github_org}/${var.github_repo}"'
     if _compact(subject_prefix) not in _compact(clean):
         errors.append("Subject prefix must derive from the reviewed format and immutable repository IDs")
-    subject_map = '''for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy", "release"] :
+    subject_map = '''for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy"] :
     purpose => distinct([for context in lookup(var.purpose_contexts, purpose, []) : "${local.subject_prefix}:environment:${context.environment}"])'''
     if _compact(subject_map) not in _compact(clean):
         errors.append("All purpose subjects must derive from the validated context mapping")
@@ -245,12 +244,11 @@ def check_role_boundaries(path: Path, lines: list[str]) -> list[Violation]:
     for line_no, block in _iter_resource_blocks(stripped_lines, PROJECT_IAM_MEMBER_RE):
         for purpose in NO_PROJECT_ROLE_PURPOSES:
             if re.search(rf"member\s*=.*local\.service_account_emails\.{purpose}\b", "\n".join(block)):
-                label = "release-scan" if purpose == "release_scan" else "release publisher"
                 violations.append(
                     Violation(
                         path,
                         line_no,
-                        f"{label} identity must have no project-wide IAM role; use repository-scoped grants (#2084, ADR-070)",
+                        "release-scan identity must have no project-wide IAM role; use repository-scoped grants (#2084, ADR-070)",
                     )
                 )
     platform_roles = _variable_values(stripped_lines, "platform_roles")

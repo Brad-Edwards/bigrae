@@ -58,11 +58,11 @@ Kustomize, and it built images on the operator workstation.
 | Component | Location | Responsibility |
 | --- | --- | --- |
 | Release workflow | `.github/workflows/release-gcp.yml` | Builds, attests, and publishes the five control-plane images and the deployer image for one source revision. Development surface. |
-| Release registry | `platform/terraform/gcp/global/release-registry` | Artifact Registry repository for release artifacts. It gives write access to `writer_members` (service accounts only) and read access to `reader_members`. |
+| Release registry | `ghcr.io/<owner>/<repository>` | Public registry for release artifacts (#2659). The release workflow writes it with the workflow `GITHUB_TOKEN`. Every deployment reads it, or reads an operator mirror of the same digests. |
 | Deployer image | `platform/deployer/gcp/Dockerfile` | The bootstrap CLI, the installation package, the GCP scripts, the Terraform roots and modules, a Terraform provider mirror, the Helm chart, the smoke script, and pinned tools. It embeds the release manifest. |
 | Release manifest | `/opt/bigrae/release.json` in the deployer image, or a file | Schema `bigrae.gcp-release.v1`: version, source revision, exact image identities, and chart version. |
 | Deployment input bundle | The deployment config bucket (`deployment_config_bucket_name`, for example `gs://<project>-deployment-config/`) or a local directory | `bigrae.yaml`, `terraform.tfvars` or `terraform.tfvars.json` or both, generated `range-images.json`, and optional inputs. |
-| Purpose identities | `platform/terraform/gcp/global/cicd-oidc` (`cicd-oidc-identity` module) | Deploy, release-scan, and destroy service accounts, with impersonation grants to named principals, the deployment config bucket, and optional GitHub federation. A `release` purpose context adds the release publisher identity. |
+| Purpose identities | `platform/terraform/gcp/global/cicd-oidc` (`cicd-oidc-identity` module) | Deploy, release-scan, and destroy service accounts, with impersonation grants to named principals, the deployment config bucket, and optional GitHub federation. |
 | Deploy commands | `scripts/bootstrap/gcp_deploy.py` and its focused modules | `gcp-deploy`, `gcp-release-scan`, `gcp-smoke`, `gcp-destroy`, and `gcp-config`. |
 | Kubernetes renderer | `platform/charts/shifter` | The only GCP renderer, with `values-gcp-<profile>.yaml` and generated values. |
 | CI adapter | `scripts/gcp/render_ci_deployment_inputs.py` | Renders GitHub secrets and variables into the same input bundle for CI deploys (`--purpose deploy`) and teardowns (`--purpose destroy`). |
@@ -70,16 +70,17 @@ Kustomize, and it built images on the operator workstation.
 ### Release
 
 The release workflow runs only from protected `refs/heads/main`,
-`refs/heads/dev`, or `refs/heads/deploy-test` through `workflow_dispatch`. Its `gcp-release` Environment holds the release publisher
-identity. The first step of the job rejects every other ref before checkout
-and cloud authentication. The WIF provider admits only the exact repository
-IDs, Environment, ref, and workflow (ADR-004-R23).
+`refs/heads/dev`, or `refs/heads/deploy-test` through `workflow_dispatch`. Its
+`gcp-release` Environment admits only those branches. The first step of the
+job rejects every other ref before checkout and the registry login. The job
+publishes to the public release registry `ghcr.io/<owner>/<repository>` with
+the workflow `GITHUB_TOKEN` and uses no cloud identity (#2659).
 
 The workflow does these steps:
 
 1. Build the portal, provisioner, guacd, guacamole-client, and openvpn images
    on GitHub-hosted runners, with no cache, a BuildKit SBOM, and maximum
-   BuildKit provenance. Push each image to the release repository with the
+   BuildKit provenance. Push each image to the release registry with the
    full source revision as its tag.
 2. Sign the build provenance of each digest with
    `actions/attest-build-provenance` and `push-to-registry: true`. The
@@ -235,16 +236,18 @@ The `cicd-oidc-identity` module grants
 `roles/iam.serviceAccountTokenCreator` on each purpose identity only to the
 principals in `impersonation_principals`. GitHub federation is optional. The
 module creates the WIF pool and provider only when `purpose_contexts` is not
-empty, and the GitHub repository and owner IDs are then mandatory. A
-`release` purpose adds the release publisher identity. The release-registry
-root gives it write access to the release repository.
+empty, and the GitHub repository and owner IDs are then mandatory. No release
+identity exists: the release workflow publishes to the public registry with
+the workflow token (#2659).
 
 ### Provenance verification
 
 For each image digest, a minimal OCI distribution client (`gcp_oci.py`) lists
 the Sigstore bundle referrers through the referrers API or its tag fallback. It
-fetches the bundles with digest checks from the image registry only. The
-command verifies them with sigstore-python against the public-good trust root.
+fetches the bundles with digest checks from the image registry only. It sends
+the Google access token only to an Artifact Registry host. For any other
+registry, such as the public release registry, it uses the anonymous bearer
+token flow of the distribution specification. The command verifies them with sigstore-python against the public-good trust root.
 The policy requires all of these:
 
 - the GitHub Actions OIDC issuer;
@@ -254,6 +257,15 @@ The policy requires all of these:
 The in-toto statement must name the exact image digest as its subject and use
 the SLSA provenance v1 predicate. Any failure stops the deploy. There is no
 bypass mode (ADR-037-R6).
+
+### Mirror
+
+A deployment that cannot reach the public release registry uses a mirror. The
+operator copies each release image by digest, with its referrers, to
+`<mirror>/<image name>`. Then the operator passes `--release-source <mirror>`
+to `gcp-deploy`, `gcp-destroy`, or `gcp-release-scan`. The commands verify,
+scan, and import `<mirror>/<image name>@<release digest>`. The provenance
+policy binds the digest, so a mirror cannot change the release (ADR-070-R9).
 
 ### Lock
 
@@ -297,10 +309,8 @@ equals that revision: the deployer image or a clean checkout.
 
 ### Base guest images
 
-When the `GCP_RELEASE_REGISTRY` variable is set, `packer-gcp.yml` also copies
-each published base image artifact with ORAS to `shifter-gce-<role>` in the
-release repository. It checks that the copy has the same digest.
-`gcp-images` takes an explicit `--source` registry prefix. It no longer
+`packer-gcp.yml` publishes each base image artifact to the public GHCR package
+`shifter-gce-<role>`. `gcp-images` takes an explicit `--source` registry prefix. It no longer
 derives a source from the GitHub repository owner. It keeps the digest pins and the OCI contract checks.
 It writes the imported references to `range-images.json` in the input bundle.
 
@@ -356,8 +366,7 @@ Trust boundaries:
 ```mermaid
 flowchart LR
   src[Protected main revision] --> wf[release-gcp.yml on GitHub-hosted runners]
-  wf -->|WIF exact subject| pub[Release publisher identity]
-  pub -->|push by digest| reg[(Release registry)]
+  wf -->|GITHUB_TOKEN, push by digest| reg[(Public release registry)]
   wf -->|attest, push-to-registry| sig[Sigstore public-good]
   sig -->|bundle as OCI referrer| reg
   wf -->|manifest embedded| dep[Deployer image]
@@ -477,7 +486,7 @@ sequenceDiagram
   build. It also requires the blocking scan of the deployer image digest
   before the deployer attestation (ADR-070-R1).
 - The GCP WIF trust guard (`scripts/check_tf_gcp_wif_trust`) covers the
-  optional provider, the `release` purpose, and the impersonation bindings.
+  optional provider and the impersonation bindings.
 - Kubernetes security checks read the rendered Helm chart instead of the
   Kustomize base. The Checkov exceptions CKV_K8S_35 (guacamole-client) and
   CKV_K8S_38 (provisioner launcher) sit on the chart Deployments.
@@ -492,9 +501,8 @@ sequenceDiagram
 
 | Artifact | Change |
 | --- | --- |
-| `platform/terraform/gcp/modules/cicd-oidc-identity` | Optional GitHub federation, impersonation grants, the deployment config bucket and its IAM, `release` purpose |
+| `platform/terraform/gcp/modules/cicd-oidc-identity` | Optional GitHub federation, impersonation grants, the deployment config bucket and its IAM |
 | `platform/terraform/gcp/global/cicd-oidc` | New inputs, outputs, and native tests |
-| `platform/terraform/gcp/global/release-registry` | New root: release repository, writer members, reader members |
 | `platform/charts/shifter` | Sole GCP renderer |
 | `platform/k8s/gcp` | Removed |
 | `platform/deployer/gcp` | New deployer image |
@@ -506,7 +514,7 @@ sequenceDiagram
 | --- | --- |
 | ADR-070 (new) | GitHub-less GCP deployment from published releases |
 | ADR-037 decision, R5, R6, R8 | Attestations stored with the image; verification without GitHub, bound to the deployment trust anchor; the gates run in the deploy command |
-| ADR-004-R23 | Impersonation-only purpose identities; optional federation; `release` purpose |
+| ADR-004-R23 | Impersonation-only purpose identities; optional federation |
 | ADR-069-R3 | The repository IDs are mandatory when federation exists; `settings.release_trust` is the provenance anchor |
 | ADR-033-R2, ADR-053-R3 | The product deployment model is the release-driven bootstrap CLI |
 | ADR-007-R1, R2 | The Helm chart is the only GCP renderer; first install and update share one entrypoint |

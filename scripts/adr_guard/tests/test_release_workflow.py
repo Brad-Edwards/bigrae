@@ -41,11 +41,17 @@ REF_GUARD = """      - name: Reject non-protected dispatch refs
           esac
 """
 CHECKOUT = f"      - uses: actions/checkout@{SHA} # v6.0.3\n"
-AUTH = f"""      - id: auth
+AUTH = f"""      - name: Login to the release registry
+        uses: docker/login-action@{SHA} # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{{{ github.actor }}}}
+          password: ${{{{ secrets.GITHUB_TOKEN }}}}
+"""
+CLOUD_AUTH = f"""      - id: auth
         uses: google-github-actions/auth@{SHA} # v3.0.0
         with:
           workload_identity_provider: ${{{{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}}}
-          service_account: ${{{{ secrets.GCP_RELEASE_SERVICE_ACCOUNT }}}}
 """
 BUILD = f"""      - id: build-portal
         uses: docker/build-push-action@{SHA} # v5.4.0
@@ -126,6 +132,13 @@ class ReleaseWorkflowProvenanceTests(unittest.TestCase):
     def test_a_build_step_without_inputs_pushes_nothing(self) -> None:
         bare_build = f"      - uses: docker/build-push-action@{SHA} # v5.4.0\n"
         self.assertEqual(self.run_check(workflow(steps=REF_GUARD + CHECKOUT + AUTH + bare_build)), [])
+        self.assertEqual(self.run_check(workflow(environment="", steps=CHECKOUT + bare_build)), [])
+
+    def test_a_push_or_cloud_auth_without_a_login_is_still_a_publishing_job(self) -> None:
+        for publish in (BUILD + ATTEST, CLOUD_AUTH + BUILD + ATTEST):
+            with self.subTest(publish=publish[:40]):
+                self.assert_one(workflow(steps=CHECKOUT + publish), "ADR-037-R7", "refs/heads/main")
+                self.assert_one(workflow(environment="", steps=REF_GUARD + publish), "ADR-004-R23", "gcp-release")
 
     def test_the_authenticating_job_binds_the_release_environment_on_a_hosted_runner(self) -> None:
         self.assert_one(workflow(environment=""), "ADR-004-R23", "gcp-release")
