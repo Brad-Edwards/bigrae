@@ -122,10 +122,13 @@ COPY --from=bundled-jars /archives/json/guacamole-auth-json.jar /opt/guacamole/e
 COPY --from=bundled-jars /archives/postgresql/guacamole-auth-jdbc-postgresql.jar /opt/guacamole/extensions/guacamole-auth-jdbc/postgresql/guacamole-auth-jdbc-postgresql.jar
 COPY --from=bundled-jars /patch/postgresql-42.7.14.jar /opt/guacamole/drivers/postgresql-jdbc.jar
 
-# The base image is pinned by digest. The client package version floats so a
-# rebuild gets the current Ubuntu security fixes.
+# The base image is pinned by digest. `apt-get upgrade` applies the current
+# Ubuntu security updates to its OS packages, so the exact-release scan sees no
+# fixable base-OS finding (for example libbrotli1, #2610). The client package
+# version floats so a rebuild gets the current Ubuntu security fixes.
 # hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Add custom entrypoint for idempotent schema initialization
