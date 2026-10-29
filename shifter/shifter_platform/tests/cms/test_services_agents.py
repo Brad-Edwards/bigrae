@@ -1,231 +1,58 @@
-"""Behavior tests for the cms.services agent entrypoints.
-
-Drives ``list_agents`` / ``get_agent`` / ``create_agent`` / ``delete_agent``
-against real ``AgentConfig`` / ``OperatingSystem`` / ``AuditLog`` rows (delete
-runs the real S3 helper through the ``shared.cloud`` AWS adapter, mocked at the
-``boto3`` boundary), instead of patching ``AgentConfig.objects`` /
-``active_for_user`` / ``get_agent`` / ``assets_create_agent`` /
-``assets_delete_agent``.
-
-Impossible-state defensive tests from the old mock-coupled suite (model returns
-None / a non-AgentConfig / a list of dicts; "unexpected" DB exceptions) are
-dropped: the real ORM cannot produce those returns, and the generic re-raise
-path is not domain behavior.
-"""
-
-from unittest.mock import MagicMock, patch
+"""Installer services require native proof, scoped custody and a verified upload."""
 
 import pytest
-from botocore.exceptions import ClientError
-from django.contrib.auth import get_user_model
-from django.utils import timezone
 
-from cms import services
-from cms.assets.services import AssetError
 from cms.exceptions import CMSError
-from cms.models import AgentConfig
-from shared.schemas.cms_projections import AgentListItem
+from tests.cms._native_asset_fixtures import (
+    content_actor,
+    content_administrator,
+    installer_upload,
+    scoped_agents,
+    storage_client,
+)
 
+__all__ = ["content_actor", "content_administrator", "installer_upload", "scoped_agents", "storage_client"]
 pytestmark = pytest.mark.django_db
 
-User = get_user_model()
+
+def test_native_agent_projection_matches_the_public_contract(content_actor, scoped_agents):
+    from cms.services import get_agent, list_agents
+    from shared.schemas.cms_projections import AgentListItem
+
+    rows = list_agents(content_actor.credential, scope=content_actor.scope)
+    assert len(rows) == 1 and rows[0]["id"] == scoped_agents[0].pk
+    assert set(rows[0]) == set(AgentListItem.__annotations__)
+    assert get_agent(content_actor.credential, rows[0]["id"]).pk == rows[0]["id"]
+    assert "synthetic/customer" not in repr(rows)
+    with pytest.raises(CMSError):
+        get_agent(content_actor.credential, scoped_agents[1].pk)
 
 
-@pytest.fixture
-def user(db):
-    return User.objects.create_user(username="svc-agents@example.com", email="svc-agents@example.com")
+@pytest.mark.parametrize(
+    "values",
+    [{}, {"s3_key": "synthetic/claimed", "name": "Unverified"}, {"upload_token": "token", "name": "Unverified"}],
+)
+def test_native_agent_cannot_be_created_from_asserted_storage_metadata(content_administrator, values):
+    from cms.models import AgentConfig
+    from cms.services import create_agent
+
+    with pytest.raises(CMSError, match="verified upload"):
+        create_agent(content_administrator.credential, **values)
+    assert not AgentConfig.objects.exists()
 
 
-@pytest.fixture
-def other_user(db):
-    return User.objects.create_user(username="svc-agents-other@example.com", email="svc-agents-other@example.com")
+def test_native_create_and_retire_keep_exact_cleanup_custody(installer_upload):
+    from cms.models import AgentUpload
+    from cms.services import create_agent, delete_agent, get_agent, list_agents
 
-
-@pytest.fixture
-def s3_client(settings):
-    """Patch ``boto3.client`` at the boundary so the real delete helper proceeds."""
-    settings.AWS_S3_BUCKET_NAME = "test-bucket"
-    client = MagicMock()
-    with patch("boto3.client", return_value=client):
-        yield client
-
-
-class TestListAgents:
-    def test_returns_empty_when_no_agents(self, user):
-        assert services.list_agents(user) == []
-
-    def test_returns_projection_dicts(self, user, make_agent, windows_os):
-        make_agent(user, name="Agent A", file_size_bytes=10 * 1024 * 1024)
-        result = services.list_agents(user)
-
-        assert len(result) == 1
-        row = result[0]
-        assert row["name"] == "Agent A"
-        assert row["os_slug"] == "windows"
-        assert row["os_name"] == windows_os.name
-        assert row["original_filename"] == "agent.msi"
-        assert isinstance(row["file_size_mb"], (int, float))
-        assert row["created_at"] is not None
-
-    def test_row_keys_match_agent_list_item_contract(self, user, make_agent, windows_os):
-        # The projection builder and the AgentListItem TypedDict must stay in
-        # lockstep: a key added/removed on one but not the other trips here.
-        make_agent(user, name="Agent A")
-        row = services.list_agents(user)[0]
-        assert set(row) == set(AgentListItem.__annotations__)
-
-    def test_excludes_other_users_agents(self, user, other_user, make_agent):
-        make_agent(user, name="Mine")
-        make_agent(other_user, name="Theirs")
-        assert [r["name"] for r in services.list_agents(user)] == ["Mine"]
-
-    def test_excludes_soft_deleted_agents(self, user, make_agent):
-        make_agent(user, name="Active")
-        deleted = make_agent(user, name="Gone")
-        deleted.deleted_at = timezone.now()
-        deleted.save(update_fields=["deleted_at"])
-        assert [r["name"] for r in services.list_agents(user)] == ["Active"]
-
-    def test_raises_on_invalid_user(self):
-        with pytest.raises((TypeError, ValueError)):
-            services.list_agents(None)
-        user_2 = User(username="unsaved")
-        with pytest.raises((TypeError, ValueError)):
-            services.list_agents(user_2)
-
-
-class TestGetAgent:
-    def test_returns_agent_when_found_and_owned(self, user, make_agent):
-        agent = make_agent(user, name="Mine")
-        result = services.get_agent(user, agent.id)
-        assert result.pk == agent.pk
-        assert result.name == "Mine"
-
-    def test_raises_when_agent_not_found(self, user):
-        with pytest.raises(CMSError):
-            services.get_agent(user, 999999)
-
-    def test_raises_when_owned_by_other_user(self, user, other_user, make_agent):
-        agent = make_agent(other_user)
-        with pytest.raises(CMSError):
-            services.get_agent(user, agent.id)
-
-    def test_raises_when_agent_is_soft_deleted(self, user, make_agent):
-        agent = make_agent(user)
-        agent.deleted_at = timezone.now()
-        agent.save(update_fields=["deleted_at"])
-        with pytest.raises(CMSError):
-            services.get_agent(user, agent.id)
-
-    def test_validates_user(self):
-        with pytest.raises((TypeError, ValueError)):
-            services.get_agent(None, 42)
-        user_2 = User(username="unsaved")
-        with pytest.raises((TypeError, ValueError)):
-            services.get_agent(user_2, 42)
-
-    @pytest.mark.parametrize("agent_id", [None, "not-an-id", -1])
-    def test_validates_agent_id(self, user, agent_id):
-        with pytest.raises((TypeError, ValueError)):
-            services.get_agent(user, agent_id)
-
-
-class TestCreateAgent:
-    def test_creates_and_returns_persisted_agent(self, user, windows_os):
-        agent = services.create_agent(
-            user,
-            name="Created",
-            s3_key="agents/test/created.msi",
-            filename="created.msi",
-            os_slug="windows",
-            file_size=1000,
-            sha256="abc123",
-        )
-        assert isinstance(agent, AgentConfig)
-        persisted = AgentConfig.objects.get(pk=agent.pk)
-        assert persisted.name == "Created"
-        assert persisted.os == windows_os
-        assert persisted.user_id == user.id
-
-    def test_passes_upload_method_through(self, user, windows_os):
-        from shared.audit import AuditAction, AuditEntityType
-        from shared.models import AuditLog
-
-        agent = services.create_agent(
-            user,
-            name="Created",
-            s3_key="agents/test/created.msi",
-            filename="created.msi",
-            os_slug="windows",
-            file_size=1000,
-            sha256="abc123",
-            upload_method="presigned",
-        )
-        row = AuditLog.objects.get(entity_type=AuditEntityType.AGENT, entity_id=agent.id, action=AuditAction.CREATE)
-        assert row.new_state["upload_method"] == "presigned"
-
-    def test_propagates_asset_error_on_invalid_os(self, user):
-        with pytest.raises(AssetError, match="not found"):
-            services.create_agent(
-                user,
-                name="Bad OS",
-                s3_key="agents/test/bad.msi",
-                filename="bad.msi",
-                os_slug="nonexistent-os",
-                file_size=1000,
-                sha256="abc123",
-            )
-
-    def test_validates_user(self):
-        kwargs = {
-            "name": "Test",
-            "s3_key": "agents/test/agent.msi",
-            "filename": "agent.msi",
-            "os_slug": "windows",
-            "file_size": 1000,
-            "sha256": "abc123",
-        }
-        with pytest.raises((TypeError, ValueError)):
-            services.create_agent(None, **kwargs)
-        user_2 = User(username="unsaved")
-        with pytest.raises((TypeError, ValueError)):
-            services.create_agent(user_2, **kwargs)
-
-
-class TestDeleteAgent:
-    def test_soft_deletes_owned_agent(self, user, make_agent, s3_client):
-        agent = make_agent(user)
-        assert services.delete_agent(user, agent.id) is None
-
-        agent.refresh_from_db()
-        assert agent.deleted_at is not None
-
-    def test_raises_when_agent_not_found(self, user):
-        with pytest.raises(CMSError):
-            services.delete_agent(user, 999999)
-
-    def test_raises_when_not_owner(self, user, other_user, make_agent):
-        agent = make_agent(other_user)
-        with pytest.raises(CMSError):
-            services.delete_agent(user, agent.id)
-
-    def test_propagates_asset_error_when_s3_fails(self, user, make_agent, s3_client):
-        agent = make_agent(user)
-        s3_client.delete_object.side_effect = ClientError({"Error": {"Code": "500", "Message": "boom"}}, "DeleteObject")
-        with pytest.raises(AssetError):
-            services.delete_agent(user, agent.id)
-
-        agent.refresh_from_db()
-        assert agent.deleted_at is None
-
-    def test_validates_user(self):
-        with pytest.raises((TypeError, ValueError)):
-            services.delete_agent(None, 42)
-        user_2 = User(username="unsaved")
-        with pytest.raises((TypeError, ValueError)):
-            services.delete_agent(user_2, 42)
-
-    @pytest.mark.parametrize("agent_id", [None, "not-an-id", -1])
-    def test_validates_agent_id(self, user, agent_id):
-        with pytest.raises((TypeError, ValueError)):
-            services.delete_agent(user, agent_id)
+    case = installer_upload
+    agent = create_agent(case.actor.credential, upload_token=case.result["upload_token"])
+    assert agent.user_id is None and agent.owner_principal_uuid == case.actor.credential.principal.uuid
+    assert agent.s3_key == case.row.install_key
+    assert get_agent(case.actor.credential, agent.pk).pk == agent.pk
+    delete_agent(case.actor.credential, agent.pk)
+    assert not list_agents(case.actor.credential, scope=case.actor.scope)
+    with pytest.raises(CMSError):
+        get_agent(case.actor.credential, agent.pk)
+    assert AgentUpload.objects.get().cleanup_pending
+    case.client.delete_object.assert_not_called()

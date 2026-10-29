@@ -15,18 +15,21 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from cms.models import RangeInstance, Request
 from shared.api_tokens import scopes
 from shared.api_tokens.models import ApiToken
-from shared.enums import RequestType
 from shared.models import RaesOperationRecord, RaesParticipantRuntimeRecord
 from shared.raes.contracts import SHIFTER_BACKEND_PROFILE
 from shared.schemas.raes_operation import canonical_raes_payload_digest
 from shared.schemas.raes_participant_runtime import (
     canonical_raes_payload_digest as canonical_participant_payload_digest,
 )
+from tests._mission_control_fixtures import native_range_for_user as _owned_range
+from tests._mission_control_fixtures import native_scopes
 
-pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
+pytestmark = [
+    pytest.mark.django_db,
+    pytest.mark.usefixtures("personal_token_use_grant", "principal_owner_policy"),
+]
 
 _CONTRACT_VERSION = {
     RaesOperationRecord.RecordKind.OPERATION_RECEIPT: "operation-receipt-v1",
@@ -63,28 +66,17 @@ def other_user(django_user_model):
 
 
 @pytest.fixture
-def client():
-    return APIClient()
+def client(live_session_credential):
+    client = APIClient()
+    authenticate = client.force_authenticate
 
+    def force_authenticate(user=None, token=None):
+        if user is not None and token is None:
+            token = live_session_credential(user)
+        return authenticate(user=user, token=token)
 
-def _owned_range(user):
-    """Create a RangeInstance + Request owned by ``user``; return the request_id."""
-    from workspaces.services import resolve_personal_workspace
-
-    workspace_id = resolve_personal_workspace(user).workspace_id
-    request = Request.objects.create(
-        workspace_id=workspace_id, request_id=uuid4(), request_type=RequestType.RANGE.value, user=user
-    )
-    RangeInstance.objects.create(
-        workspace_id=workspace_id, scenario_id="basic", user_id=user.id, status="ready", request=request
-    )
-    return request.request_id
-
-
-def _revoke_workspace_membership(user) -> None:
-    from workspaces.models import WorkspaceMembership
-
-    WorkspaceMembership.objects.filter(user=user).delete()
+    client.force_authenticate = force_authenticate
+    return client
 
 
 def _seed_record(request_id, *, record_kind, payload, source_timestamp=None):
@@ -120,7 +112,7 @@ def _seed_participant_record(request_id, *, participant_ref, record_kind, payloa
 
 
 def _token(user, *granted_scopes: str) -> str:
-    _, raw = ApiToken.create_token(name="raes-mc", created_by=user, scopes=list(granted_scopes))
+    _, raw = ApiToken.create_token(name="raes-mc", created_by=user, scopes=native_scopes(list(granted_scopes)))
     return raw
 
 
@@ -153,7 +145,14 @@ class TestOperationStatusRead:
             record_kind=RaesOperationRecord.RecordKind.OPERATION_STATUS,
             payload={"operation_id": "op-1", "status": "ready"},
         )
-        _bearer(client, _token(user, scopes.MISSION_CONTROL_RANGE_READ))
+        _bearer(
+            client,
+            _token(
+                user,
+                scopes.MISSION_CONTROL_RANGE_READ,
+                scopes.AUTHORIZATION_ACTION_SCOPES["range.read"],
+            ),
+        )
         response = client.get(_status_url(request_id))
         assert response.status_code == 200
         assert response.json()["results"][0]["payload"]["status"] == "ready"
@@ -188,18 +187,6 @@ class TestOperationStatusRead:
         client.force_authenticate(user=user)
         response = client.get(_status_url(request_id))
         assert response.status_code == 404
-
-    def test_membership_removal_revokes_status_read(self, client, user):
-        request_id = _owned_range(user)
-        _seed_record(
-            request_id,
-            record_kind=RaesOperationRecord.RecordKind.OPERATION_STATUS,
-            payload={"operation_id": "op-1", "status": "running"},
-        )
-        _revoke_workspace_membership(user)
-        client.force_authenticate(user=user)
-
-        assert client.get(_status_url(request_id)).status_code == 404
 
     def test_unknown_request_id_is_not_found(self, client, user):
         client.force_authenticate(user=user)
@@ -277,13 +264,6 @@ class TestReceiptsAndSnapshotsRead:
     def test_snapshots_do_not_leak_other_users_range(self, client, user, other_user):
         request_id = _owned_range(other_user)
         client.force_authenticate(user=user)
-        assert client.get(_snapshots_url(request_id)).status_code == 404
-
-    def test_membership_removal_revokes_snapshot_read(self, client, user):
-        request_id = _owned_range(user)
-        _revoke_workspace_membership(user)
-        client.force_authenticate(user=user)
-
         assert client.get(_snapshots_url(request_id)).status_code == 404
 
 

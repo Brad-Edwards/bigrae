@@ -83,16 +83,18 @@ def test_solution_images_appear_after_the_event_ends(content, ctf_participant):
 
 
 @pytest.mark.django_db
-def test_image_read_authority(content, ctf_participant, organizer_user, second_participant_user):
+def test_image_read_authority(
+    content, ctf_participant, organizer_user, second_participant_user, live_session_credential
+):
     from ctf.models import CTFParticipant
 
     hidden = CTFContentImage.objects.get(event=content, source_url="https://img.example.test/hidden.png")
     logo = CTFContentImage.objects.get(event=content, source_url="https://img.example.test/logo.png")
 
-    assert svc.can_read_content_image(ctf_participant.user, logo)
-    assert not svc.can_read_content_image(ctf_participant.user, hidden)
+    assert svc.can_read_content_image(live_session_credential(ctf_participant.user), logo)
+    assert not svc.can_read_content_image(live_session_credential(ctf_participant.user), hidden)
     # Event staff (the owner) read every image of the event.
-    assert svc.can_read_content_image(organizer_user, hidden)
+    assert svc.can_read_content_image(live_session_credential(organizer_user), hidden)
     # A user with no participation in this event reads nothing.
     assert not CTFParticipant.objects.filter(user=second_participant_user, event=content).exists()
-    assert not svc.can_read_content_image(second_participant_user, logo)
+    assert not svc.can_read_content_image(live_session_credential(second_participant_user), logo)

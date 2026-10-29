@@ -22,4 +22,4 @@ Challenge export enables backup, sharing, and migration of challenge content bet
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/transfer.py` (export_challenges)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#630` (CTF-1102: Challenge Export)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#630` (CTF-1102: Challenge Export)

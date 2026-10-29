@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
 from ctf.enums_communication import DeliveryStatus, IntentStatus
 from ctf.models import (
@@ -29,12 +28,9 @@ from ctf.services.communication import (
 )
 from ctf.services.event import cancel_event
 from ctf.services.participant import delete_participant
+from tests.ctf._account_scope import individual_account_scope_fields, individual_account_uuid
 
 pytestmark = pytest.mark.django_db
-
-
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
 
 
 def _participant(event, email="a@test.com"):
@@ -50,7 +46,7 @@ def _participant(event, email="a@test.com"):
 def _campaign(organizer_user, ctf_event, *, channels=("in_app",)):
     return create_campaign(
         organizer_user,
-        _workspace_uuid(organizer_user),
+        individual_account_uuid(organizer_user),
         CampaignDraft(
             title="Kickoff",
             origin="organizer_staff",
@@ -61,10 +57,13 @@ def _campaign(organizer_user, ctf_event, *, channels=("in_app",)):
             subject="Welcome",
             body="Hello",
         ),
+        parent_type="account",
     )
 
 
-def test_cancel_event_fences_scheduled_and_stops_unclaimed_communications(organizer_user, ctf_event):
+def test_cancel_event_fences_scheduled_and_stops_unclaimed_communications(
+    organizer_user, organizer_credential, ctf_event
+):
     _participant(ctf_event)
     # A released campaign with queued (unclaimed) delivery work...
     released_campaign = _campaign(organizer_user, ctf_event)
@@ -78,7 +77,7 @@ def test_cancel_event_fences_scheduled_and_stops_unclaimed_communications(organi
         actor=AdmissionActor(user_id=organizer_user.id),
     )
 
-    assert cancel_event(ctf_event) is True
+    assert cancel_event(ctf_event, actor=organizer_credential) is True
 
     # The owning cancel path fenced the scheduled intent and stopped unclaimed work.
     assert CommunicationIntent.objects.get(pk=scheduled.pk).status == IntentStatus.FENCED.value
@@ -100,7 +99,7 @@ def test_account_purge_erases_coordinate_and_stops_unclaimed_communications(orga
     event = CTFEvent.objects.create(
         name="Ended",
         created_by=organizer_user,
-        workspace_id=workspace_services.resolve_personal_workspace(organizer_user).workspace_id,
+        **individual_account_scope_fields(organizer_user),
         status=EventStatus.ENDED.value,
         event_start=timezone.now() - timedelta(days=3),
         event_end=timezone.now() - timedelta(days=2),
@@ -165,7 +164,7 @@ def test_account_purge_rolls_back_anonymization_if_the_fence_fails(organizer_use
     event = CTFEvent.objects.create(
         name="Ended",
         created_by=organizer_user,
-        workspace_id=workspace_services.resolve_personal_workspace(organizer_user).workspace_id,
+        **individual_account_scope_fields(organizer_user),
         status=EventStatus.ENDED.value,
         event_start=timezone.now() - timedelta(days=3),
         event_end=timezone.now() - timedelta(days=2),

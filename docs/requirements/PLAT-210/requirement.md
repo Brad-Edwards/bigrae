@@ -21,6 +21,6 @@ Multiple future-facing DSL profiles would make migration correctness ambiguous a
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#676` (PLAT-007: Scenario Expressiveness Dependency)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#620` (Scenario expressiveness dependency)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#314` (Create CyberScript CLI tool and shared validation package)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#676` (PLAT-007: Scenario Expressiveness Dependency)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#620` (Scenario expressiveness dependency)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#314` (Create CyberScript CLI tool and shared validation package)

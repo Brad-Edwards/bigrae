@@ -33,11 +33,15 @@ from workspaces.models import (
 
 from ._authorization_commands import (
     AuthorizationMutationConflict,
+    EventOwnershipHandoffPolicyMutationRequest,
     MutationRequest,
     NativeRelationshipChange,
     PolicyMutationRequest,
     PolicyMutationResult,
+    RetainedEventAuthorityPolicyMutationRequest,
 )
+
+_AUTHORIZATION_PROVIDER_BINDING_CHANGED = "authorization provider binding changed"
 
 _RECONCILE_LEASE = timedelta(seconds=30)
 
@@ -86,6 +90,16 @@ def _request_payload(request: MutationRequest) -> dict[str, object]:
             "target_kind": request.target.type,
             "target": str(request.target.uuid) if request.target.uuid else None,
             "effect": request.effect.value,
+            "trusted_context": (
+                "event_ownership_handoff"
+                if isinstance(request, EventOwnershipHandoffPolicyMutationRequest)
+                or (
+                    isinstance(request, RetainedEventAuthorityPolicyMutationRequest)
+                    and request.plan.kind == "transfer"
+                    and request.subject.uuid == request.actor.uuid
+                )
+                else ""
+            ),
         }
     return {**common, **_native_payload(request.change)}
 
@@ -153,6 +167,7 @@ def _operation_fields(request: MutationRequest) -> dict[str, object]:
     payload = _request_payload(request)
     return {
         "relationship_kind": payload["relationship_kind"],
+        "trusted_context": payload.get("trusted_context", ""),
         "subject_kind": payload["subject_kind"],
         "subject_uuid": payload["subject"],
         "action": payload["action"],
@@ -370,7 +385,10 @@ def _change_from_operation(operation: AuthorizationOperation) -> VersionedRelati
 def _assert_request_provider(request: MutationRequest, provider: AuthorizationProvider) -> None:
     """Require the requested immutable model and an identified provider store."""
     if not provider.store_id or provider.model_id != request.model_id:
-        raise AuthorizationMutationConflict("authorization provider binding changed")
+        raise AuthorizationMutationConflict(_AUTHORIZATION_PROVIDER_BINDING_CHANGED)
+    plan = getattr(request, "plan", None)
+    if plan is not None and (plan.store_id, plan.model_id) != (provider.store_id, provider.model_id):
+        raise AuthorizationMutationConflict(_AUTHORIZATION_PROVIDER_BINDING_CHANGED)
 
 
 def _assert_operation_provider(operation: AuthorizationOperation, provider: AuthorizationProvider) -> None:
@@ -378,4 +396,4 @@ def _assert_operation_provider(operation: AuthorizationOperation, provider: Auth
     if not operation.provider_store_id or (
         operation.provider_store_id != provider.store_id or operation.model_id != provider.model_id
     ):
-        raise AuthorizationMutationConflict("authorization provider binding changed")
+        raise AuthorizationMutationConflict(_AUTHORIZATION_PROVIDER_BINDING_CHANGED)

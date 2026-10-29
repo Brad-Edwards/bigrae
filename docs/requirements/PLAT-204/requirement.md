@@ -21,8 +21,8 @@ Scenario catalog/editor code exists and is used by range, CTF, and experiment wo
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#402` (Smoke test: Scenario Editor end-to-end)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#403` (Create Scenario Editor documentation)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#402` (Smoke test: Scenario Editor end-to-end)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#403` (Create Scenario Editor documentation)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/scenarios/pack_validation.py` (Scenario pack validation: identity, containment, provenance, and schema checks)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/scenarios/registry.py` (Scenario registry and access filtering)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/models/scenarios.py` (Scenario and scenario metadata models)

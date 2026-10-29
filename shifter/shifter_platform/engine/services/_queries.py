@@ -76,6 +76,28 @@ def get_user_ready_range_instances(
     return list(range_obj.provisioned_instances)
 
 
+def get_principal_ready_range_instances(
+    owner_principal_uuid: UUID,
+    *,
+    request_id: UUID | str,
+    cms_range_uuid: UUID,
+    workspace_id: int | None,
+) -> list[dict[str, Any]]:
+    """Project one exact principal-owned ready range by both correlation keys."""
+    from engine.models import Range
+
+    range_obj = Range.objects.filter(
+        owner_principal_uuid=owner_principal_uuid,
+        request__request_id=request_id,
+        cms_range_uuid=cms_range_uuid,
+        workspace_id=workspace_id,
+        status=Range.Status.READY,
+    ).first()
+    if not range_obj or not range_obj.provisioned_instances:
+        return []
+    return list(range_obj.provisioned_instances)
+
+
 def get_ranges_for_ngfw(user_id: int, ngfw_request_id: UUID | str) -> list[LinkedRangeContext]:
     """Get active ranges linked to an NGFW, identified by its request_id.
 

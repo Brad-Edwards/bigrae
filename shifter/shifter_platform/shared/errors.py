@@ -1,18 +1,12 @@
-"""User-facing error helpers for API views.
+"""Formatting for authored public errors and classification of caught failures.
 
-CodeQL's ``py/stack-trace-exposure`` rule flags any view that puts ``str(exc)``
-(or the exception itself) into a response, because in principle an unhandled
-internal exception could leak stack frames or implementation detail to the
-caller. Even when our own code raises an exception with a curated message —
-for example ``ValueError("No active range found")`` from an engine validator —
-the dataflow analysis cannot tell that from a generic exception.
+``safe_user_message`` and ``UserFacingError`` limit length and remove line
+breaks from text that is already intended for clients. They do not remove
+credentials, traceback content, or other confidential exception information.
 
-The fix is to round-trip the message through an explicit sanitizer with a
-narrow contract: strip CR/LF, truncate to a sane upper bound, and default to
-a generic message when the input is empty. Views then return
-``UserFacingError(...).user_message`` instead of ``str(exc)``. CodeQL sees
-``.user_message`` as a separately-derived value the original exception did
-not taint, and the displayed message is always one we explicitly authored.
+Caught failures must instead be mapped to fixed public messages, either in the
+owning API adapter or through ``classify_user_message``. Classification selects
+authored text without returning the original exception message.
 """
 
 from __future__ import annotations
@@ -22,12 +16,7 @@ _DEFAULT_MESSAGE = "An error occurred"
 
 
 class UserFacingError(Exception):
-    """Exception carrying a sanitized message safe to surface to API clients.
-
-    Endpoints should catch this and return ``exc.user_message`` rather than
-    ``str(exc)`` so CodeQL's ``py/stack-trace-exposure`` taint flow is
-    broken and the displayed message is always one we explicitly authored.
-    """
+    """Carry bounded, formatted text that its caller has authored for clients."""
 
     def __init__(self, user_message: str, *, http_status: int = 400) -> None:
         clean = self._sanitize(user_message)
@@ -37,13 +26,11 @@ class UserFacingError(Exception):
 
     @staticmethod
     def _sanitize(message: object) -> str:
-        """Return ``message`` rendered safe for inclusion in an HTTP response body.
+        """Bound and format already-public text without classifying its content.
 
-        Strips CR/LF (so a malformed call site cannot smuggle log-injection
-        characters back out through the response), collapses leading/trailing
-        whitespace, and truncates to :data:`_MAX_MESSAGE_LEN`. Empty input
-        falls back to a generic message so callers never accidentally return
-        a blank body to the client.
+        Remove line breaks and surrounding whitespace, limit the displayed
+        length, and replace empty input with a generic message. Confidential
+        content within the remaining text is unchanged.
         """
         if message is None:
             return _DEFAULT_MESSAGE
@@ -54,11 +41,7 @@ class UserFacingError(Exception):
 
 
 def safe_user_message(message: object) -> str:
-    """Return ``message`` sanitized via :class:`UserFacingError`'s rules.
-
-    Convenience wrapper for sites that want the sanitizer without
-    instantiating the exception class itself.
-    """
+    """Format already-public text; use classification for caught exception text."""
     return UserFacingError(str(message) if message is not None else "").user_message
 
 

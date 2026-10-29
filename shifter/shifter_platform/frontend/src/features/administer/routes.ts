@@ -13,7 +13,7 @@ export const userPath = (id: number | string): string => `${ADMINISTER_BASE}/use
 export const costPath = (): string => `${ADMINISTER_BASE}/cost`;
 export const platformSettingsPath = (): string => `${ADMINISTER_BASE}/settings`;
 // Administrator audit / activity history (#1947, PLAT-240). Deployment-global and
-// staff-only; deliberately a top-level Administer surface, not workspace-scoped.
+// policy-gated; deliberately a top-level Administer surface, not workspace-scoped.
 export const auditPath = (): string => `${ADMINISTER_BASE}/audit`;
 
 /**

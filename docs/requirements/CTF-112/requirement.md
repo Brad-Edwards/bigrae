@@ -27,4 +27,4 @@ Attempt limits prevent brute-force flag guessing, which undermines the competiti
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (AttemptLimitMode enum (lockout/timeout))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (attempt_limit_mode and attempt_limit_cooldown_seconds in _EVENT_MUTABLE_FIELDS)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_submission.py` (TestAttemptLimits: lockout, timeout, cooldown reset, unlimited, default mode tests)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#549` (CTF-112: Challenge Attempt Limits)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#549` (CTF-112: Challenge Attempt Limits)

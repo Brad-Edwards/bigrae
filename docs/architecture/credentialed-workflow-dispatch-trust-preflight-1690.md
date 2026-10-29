@@ -33,7 +33,7 @@ framework, image registry, or general cloud-identity abstraction.
 
 - Verify the repository's live GitHub OIDC customization before choosing any
   subject string. The established check is
-  `gh api repos/Brad-Edwards/shifter/actions/oidc/customization/sub`; the
+  `gh api repos/Brad-Edwards/bigrae/actions/oidc/customization/sub`; the
   expected contract is `use_default: true` and `use_immutable_subject: false`.
   A different live result blocks rollout until the Terraform subjects are
   designed for that actual format. Do not guess or silently change the

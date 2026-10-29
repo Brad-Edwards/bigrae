@@ -1,11 +1,12 @@
 """Warm-pool reconciler worker command (#28).
 
 Drives :func:`cms.services.reconcile_warm_pool` on the managed-worker conventions
-this repo already uses for ``reconcile_range_events``: runs once by default
-(suitable for a CronJob) or continuously with ``--loop`` and a bounded interval,
+this repo already uses for ``reconcile_range_events``: runs one bounded page by
+default or continuously with ``--loop`` and a bounded interval,
 touching a liveness heartbeat each iteration. It performs no provider I/O in a
 transaction -- provision and destroy travel through the durable RAES intents the
-service enqueues -- and a disabled warm-pool policy makes each pass a fast no-op.
+service enqueues. Disabled policy stops replenishment but retains cleanup.
+Production uses ``--loop`` to retain the page cursor and cover all obligations.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ class Command(BaseCommand):
     help = (
         "Reconcile the range warm pool (#28): finalize retiring generations, retire "
         "expired/incompatible/excess ones, and replenish shortfalls. Runs once by "
-        "default (suitable for a CronJob); use --loop for persistent polling."
+        "default for one bounded recovery page; use --loop for complete periodic recovery."
     )
 
     def add_arguments(self, parser: ArgumentParser) -> None:
@@ -52,8 +53,10 @@ class Command(BaseCommand):
         loop: bool = options["loop"]
         interval: int = options["interval"]
         logger.info("reconcile_warm_pool: starting (loop=%s interval=%d)", loop, interval)
+        cleanup_cursor = 0
         while True:
-            summary = reconcile_warm_pool()
+            summary = reconcile_warm_pool(cleanup_cursor=cleanup_cursor)
+            cleanup_cursor = summary["cleanup_cursor"]
             logger.info(
                 "reconcile_warm_pool: pass complete buckets=%d provisioned=%d retired=%d finalized=%d",
                 summary["buckets"],

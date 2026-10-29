@@ -1,54 +1,37 @@
-"""Behavior tests for cms.services.get_storage_used.
-
-Drives the storage-quota service against real ``AgentConfig`` rows instead of
-patching ``cms.assets.services.get_storage_used``.
-"""
+"""Native installer byte accounting is scoped before aggregation."""
 
 import pytest
-from django.contrib.auth import get_user_model
 
-from cms import services
-from shared.constants import USER_CANNOT_BE_NONE
+from cms.exceptions import CMSError
+from tests.cms._native_asset_fixtures import (
+    content_actor,
+    content_administrator,
+    installer_upload,
+    scoped_agents,
+    storage_client,
+)
 
+__all__ = ["content_actor", "content_administrator", "installer_upload", "scoped_agents", "storage_client"]
 pytestmark = pytest.mark.django_db
 
-User = get_user_model()
 
-_MB = 1024 * 1024
+def test_native_storage_counts_only_live_installers_in_the_admitted_scope(content_actor, scoped_agents):
+    from django.utils import timezone
+
+    from cms.services import get_storage_used
+
+    actor = content_actor
+    assert get_storage_used(actor.credential, scope=actor.scope) == 100
+    with pytest.raises(CMSError):
+        get_storage_used(actor.credential, scope=actor.sibling)
+    scoped_agents[0].deleted_at = timezone.now()
+    scoped_agents[0].save(update_fields=["deleted_at"])
+    assert get_storage_used(actor.credential, scope=actor.scope) == 0
 
 
-@pytest.fixture
-def user(db):
-    return User.objects.create_user(username="storage@example.com", email="storage@example.com")
+def test_unproven_storage_lookup_is_a_denial_even_for_staff(django_user_model):
+    from cms.services import get_storage_used
 
-
-class TestGetStorageUsed:
-    def test_returns_zero_when_no_agents(self, user):
-        assert services.get_storage_used(user) == 0
-
-    def test_sums_active_agent_bytes(self, user, make_agent):
-        make_agent(user, file_size_bytes=5 * _MB)
-        make_agent(user, file_size_bytes=2 * _MB)
-        assert services.get_storage_used(user) == 7 * _MB
-
-    def test_excludes_other_users_agents(self, user, make_agent, django_user_model):
-        other = django_user_model.objects.create_user(username="storage-other@e.com", email="storage-other@e.com")
-        make_agent(user, file_size_bytes=3 * _MB)
-        make_agent(other, file_size_bytes=9 * _MB)
-        assert services.get_storage_used(user) == 3 * _MB
-
-    def test_returns_int(self, user, make_agent):
-        make_agent(user, file_size_bytes=1000)
-        assert isinstance(services.get_storage_used(user), int)
-
-    def test_raises_typeerror_when_user_is_none(self):
-        with pytest.raises(TypeError, match=USER_CANNOT_BE_NONE):
-            services.get_storage_used(None)
-
-    def test_raises_typeerror_when_user_is_wrong_type(self):
-        with pytest.raises(TypeError, match="user must be a User instance"):
-            services.get_storage_used("not_a_user")
-
-    def test_raises_valueerror_when_user_is_unsaved(self):
-        with pytest.raises(ValueError, match="user must be saved"):
-            services.get_storage_used(User(username="unsaved"))
+    user = django_user_model.objects.create_superuser(username="storage-staff", password="unused")
+    with pytest.raises(CMSError, match="Content unavailable"):
+        get_storage_used(user)

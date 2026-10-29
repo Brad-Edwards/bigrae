@@ -23,7 +23,7 @@ def assert_cleanup_origin(intent: ProvisionerLaunchIntent, runtime: Range) -> No
     if runtime.request is None or origin is None:
         raise ValueError(_CLEANUP_AUTHORITY_UNAVAILABLE)
     if (
-        origin.authority_kind != "principal"
+        origin.authority_kind not in {"principal", "warm_pool"}
         or intent.payload.get("operation") != "destroy"
         or intent.payload.get("resource") not in {"range", "raes-range"}
         or runtime.resource_generation is None
@@ -44,6 +44,9 @@ def assert_cleanup_origin(intent: ProvisionerLaunchIntent, runtime: Range) -> No
         or origin.authority_binding_digest != range_runtime_binding_digest(runtime)
     ):
         raise ValueError(_CLEANUP_AUTHORITY_UNAVAILABLE)
+    _assert_warm_origin(origin, runtime)
+    if any(getattr(intent, name) != value for name, value in _cleanup_fields(origin).items()):
+        raise ValueError(_CLEANUP_AUTHORITY_UNAVAILABLE)
 
 
 def prepare_cleanup_authority(payload: dict[str, object], origin_operation_uuid: UUID) -> dict[str, object]:
@@ -63,13 +66,20 @@ def prepare_cleanup_authority(payload: dict[str, object], origin_operation_uuid:
         runtime is None
         or runtime.request is None
         or origin is None
-        or (origin.authority_kind, origin.payload.get("resource"), origin.payload.get("request_id"))
-        != ("principal", payload.get("resource"), payload.get("request_id"))
+        or origin.authority_kind not in {"principal", "warm_pool"}
+        or (origin.payload.get("resource"), origin.payload.get("request_id"))
+        != (payload.get("resource"), payload.get("request_id"))
         or runtime.resource_generation is None
         or origin.authority_binding_digest != range_runtime_binding_digest(runtime)
     ):
         raise ValueError(_CLEANUP_AUTHORITY_UNAVAILABLE)
     _assert_cleanup_generation(origin, runtime, origin_operation_uuid)
+    _assert_warm_origin(origin, runtime)
+    return _cleanup_fields(origin)
+
+
+def _cleanup_fields(origin: ProvisionerLaunchIntent | RangeAuthorityChange) -> dict[str, object]:
+    """Copy only the retained operation's recorded proof into exact cleanup work."""
     fields = credential_reference_fields(credential_reference_from_record(origin))
     for name in (
         "authority_action",
@@ -88,6 +98,58 @@ def prepare_cleanup_authority(payload: dict[str, object], origin_operation_uuid:
         fields[name] = getattr(origin, name)
     fields.update({"authority_kind": "cleanup", "cleanup_origin_operation_uuid": origin.operation_id})
     return fields
+
+
+def _assert_warm_origin(origin: ProvisionerLaunchIntent | RangeAuthorityChange, runtime: Range) -> None:
+    """A warm cleanup consumes the recorded ledger and exact creation receipt only."""
+    if origin.authority_kind != "warm_pool":
+        return
+    from engine.models import RangeAuthorityChange
+
+    request_uuid, generation = _warm_cleanup_binding(origin, runtime)
+    receipts = list(
+        RangeAuthorityChange.objects.filter(
+            range=runtime,
+            request_uuid=request_uuid,
+            operation="create",
+            authority_kind="warm_pool",
+            resource_generation=generation,
+            authority_binding_digest=origin.authority_binding_digest,
+        )[:2]
+    )
+    if len(receipts) != 1 or any(
+        getattr(receipts[0], name) != value
+        for name, value in credential_reference_fields(credential_reference_from_record(origin)).items()
+    ):
+        raise ValueError(_CLEANUP_AUTHORITY_UNAVAILABLE)
+
+
+def _warm_cleanup_binding(origin: ProvisionerLaunchIntent | RangeAuthorityChange, runtime: Range) -> tuple[UUID, UUID]:
+    """Require installation custody and its unclaimed retiring ledger before receipt lookup."""
+    from engine.models import WarmRangeGeneration
+
+    if runtime.request is None or runtime.resource_generation is None:
+        raise ValueError(_CLEANUP_AUTHORITY_UNAVAILABLE)
+    custody = (
+        runtime.scope_kind,
+        runtime.user_id,
+        runtime.event_uuid,
+        runtime.account_id,
+        runtime.organization_id,
+        runtime.workspace_id,
+        origin.initiating_principal_kind,
+        origin.initiating_principal_uuid,
+    )
+    if custody != ("installation", None, None, None, None, None, "service", runtime.owner_principal_uuid):
+        raise ValueError(_CLEANUP_AUTHORITY_UNAVAILABLE)
+    if not WarmRangeGeneration.objects.filter(
+        request_id=runtime.request.request_id,
+        range=runtime,
+        state__in=["retiring", "terminal"],
+        claimed_by_request_id__isnull=True,
+    ).exists():
+        raise ValueError(_CLEANUP_AUTHORITY_UNAVAILABLE)
+    return runtime.request.request_id, runtime.resource_generation
 
 
 def _assert_cleanup_generation(

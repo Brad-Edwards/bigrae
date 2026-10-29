@@ -6,8 +6,8 @@ import pytest
 
 from cms.exceptions import CMSError
 from shared.schemas.app import NGFWOneTimeRegistration
+from tests.cms._device_fixtures import _ngfw_catalog
 from tests.cms.services.test_principal_content import content_actor
-from tests.cms.test_services_ngfws import _ngfw_catalog
 
 pytestmark = [pytest.mark.django_db]
 __all__ = ["_ngfw_catalog", "content_actor"]

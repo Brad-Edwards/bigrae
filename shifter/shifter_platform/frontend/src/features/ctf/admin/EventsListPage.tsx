@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Link } from "react-router";
 
 import { Plus } from "lucide-react";
@@ -6,8 +8,10 @@ import { useCtfEvents } from "@/api/ctfAdmin";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -89,8 +93,10 @@ function EventsListBody({ query }: Readonly<{ query: ReturnType<typeof useCtfEve
 }
 
 export function EventsListPage() {
-  const query = useCtfEvents();
-  const count = query.data?.events.length ?? 0;
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const query = useCtfEvents(page, search);
+  const count = query.data?.count ?? 0;
   const countNoun = count === 1 ? "event" : "events";
   const description = query.data ? `${count} ${countNoun}` : "CTF events";
 
@@ -106,9 +112,18 @@ export function EventsListPage() {
           </Link>
         }
       />
+      <div className="space-y-2">
+        <Label htmlFor="event-search">Search events</Label>
+        <Input id="event-search" maxLength={100} value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} />
+      </div>
       <Card className="overflow-hidden py-0" aria-busy={query.isFetching}>
         <EventsListBody query={query} />
       </Card>
+      <nav aria-label="Event pages" className="flex items-center gap-3">
+        <Button variant="outline" disabled={page === 1 || query.isFetching} onClick={() => setPage(current => current - 1)}>Previous events</Button>
+        <span>Page {page}</span>
+        <Button variant="outline" disabled={!query.data?.next_page || query.isFetching} onClick={() => setPage(query.data?.next_page ?? page)}>Next events</Button>
+      </nav>
     </>
   );
 }

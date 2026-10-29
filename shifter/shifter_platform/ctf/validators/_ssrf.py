@@ -38,15 +38,16 @@ class _BlockedDestinationError(Exception):
 
 
 def _is_blocked_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True if *addr* is in a range we never allow as a network target."""
-    return bool(
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_reserved
-        or addr.is_multicast
-        or addr.is_unspecified
-    )
+    """Return True if *addr* is in a range we never allow as a network target.
+
+    Only globally routable unicast addresses are admitted, the same non-global
+    rule the content egress proxy applies. ``is_global`` is false for private,
+    loopback, link-local, reserved, and unspecified addresses, and also for
+    special-purpose ranges that ``is_private`` misses, such as the RFC 6598
+    shared address space (100.64.0.0/10) (#2617). Some multicast ranges are
+    global, so multicast is refused explicitly.
+    """
+    return bool(not addr.is_global or addr.is_multicast)
 
 
 def _resolve_and_validate(hostname: str, port: int) -> list[str]:

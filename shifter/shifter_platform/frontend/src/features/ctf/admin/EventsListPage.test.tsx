@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { axe } from "vitest-axe";
 
-import { renderRoute } from "@/test/utils";
+import { renderRoute, setupUser } from "@/test/utils";
 
 vi.mock("@/api/client", () => ({ apiFetch: vi.fn() }));
 
@@ -34,6 +34,7 @@ beforeEach(() => {
 describe("EventsListPage", () => {
   it("renders events with status and mode", async () => {
     mockApi.mockResolvedValue({
+      count: 2, page: 1, page_size: 50, next_page: null,
       events: [event(), event({ id: "e2", name: "Fall CTF", status: "active", team_mode: true })],
     });
     renderRoute(<EventsListPage />);
@@ -74,4 +75,22 @@ describe("EventsListPage", () => {
     const results = await axe(container);
     expect(results.violations).toEqual([]);
   });
+});
+
+
+it("reaches later event pages without truncating the total count", async () => {
+  mockApi.mockImplementation((_path, options) => Promise.resolve({
+    events: [event({ id: options?.query?.page === 2 ? "late" : "first", name: options?.query?.page === 2 ? "Later event" : "First event" })],
+    count: 201, page: options?.query?.page, page_size: 50,
+    next_page: options?.query?.page === 2 ? null : 2,
+  }));
+  const user = setupUser(); renderRoute(<EventsListPage />);
+  await screen.findByRole("link", { name: "First event" });
+  expect(screen.getByText("201 events")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Next events" }));
+  await screen.findByRole("link", { name: "Later event" });
+  expect(mockApi).toHaveBeenCalledWith("/ctf/events/", expect.objectContaining({ query: { page: 2, page_size: 50, search: "" } }));
+  expect(screen.getByText("201 events")).toBeInTheDocument();
+  await user.type(screen.getByLabelText("Search events"), "Filtered");
+  await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/ctf/events/", expect.objectContaining({ query: { page: 1, page_size: 50, search: "Filtered" } })));
 });

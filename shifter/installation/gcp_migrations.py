@@ -86,7 +86,6 @@ def render_migration_job(
                                 "/bin/sh",
                                 "-c",
                                 "python manage.py reconcile_gcp_database_duties"
-                                " && python manage.py bootstrap_inbox_catalog"
                                 " && python manage.py seed_raes_image_registry"
                                 " && python manage.py acquire_feature_artifacts",
                             ],
@@ -121,6 +120,10 @@ def render_migration_job(
                                 {"name": "MODEL_ACCESS_CATALOG_PATH", "value": ""},
                                 {"name": "MODEL_ACCESS_CATALOG_DIGEST", "value": ""},
                                 {"name": "EMAIL_API_KEY_SECRET_ID", "value": ""},
+                                # The release migrator must prepare the database
+                                # before the identity cutover is activated. This
+                                # bypasses only the final runtime readiness check.
+                                {"name": "SHIFTER_IDENTITY_MAINTENANCE", "value": "true"},
                             ],
                             "securityContext": {
                                 "allowPrivilegeEscalation": False,

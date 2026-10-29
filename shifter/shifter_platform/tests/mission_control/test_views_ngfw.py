@@ -24,8 +24,15 @@ User = get_user_model()
 
 
 @pytest.fixture
-def user(db):
-    return User.objects.create_user(username="ngfw-views@example.com", email="ngfw-views@example.com")
+def user(db, settings):
+    from tests._mission_control_fixtures import individual_account
+
+    settings.CLOUD_PROVIDER = "aws"
+    settings.ENGINE_TASK_CLUSTER = "synthetic-namespace"
+    settings.ENGINE_TASK_DEFINITION = "example.test/synthetic@sha256:" + "1" * 64
+    user = User.objects.create_user(username="ngfw-views@example.com", email="ngfw-views@example.com")
+    individual_account(user)
+    return user
 
 
 @pytest.fixture
@@ -164,11 +171,11 @@ class TestApiNGFWDestroy:
         )
         assert response.status_code == 400
 
-    def test_returns_404_when_missing(self, user, client_for):
+    def test_missing_device_has_bounded_denial(self, user, client_for):
         from uuid import uuid4
 
         response = self._destroy(client_for(user), uuid4(), "anything")
-        assert response.status_code == 404
+        assert response.status_code == 400
 
     def test_returns_400_on_name_mismatch(self, user, client_for, cms_ngfw_app):
         app = cms_ngfw_app(user, name="RealName")

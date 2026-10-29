@@ -9,13 +9,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ctf.api._base import CTF_ORGANIZER_PERMISSIONS, CTF_ROLE_PERMISSIONS, _CtfApiError
+from ctf.api._base import CTF_AUTH_PERMISSIONS, CTF_ORGANIZER_PERMISSIONS, _CtfApiError
 from ctf.api.organizer._base import (
     _EVENT_OR_PLAY_READ,
     _EVENT_READ,
     _PARTICIPANT_NOT_FOUND,
-    _actor,
-    _actor_may_manage,
+    _credential,
+    _event_action_allowed,
     _raise_forbidden,
     _raise_not_found,
     _resolve_owned_event,
@@ -35,13 +35,13 @@ if TYPE_CHECKING:
 class ScoreTimelineView(APIView):
     """Return a participant's chronological score progression (role-based access)."""
 
-    permission_classes = CTF_ROLE_PERMISSIONS
+    permission_classes = CTF_AUTH_PERMISSIONS
     required_read_scopes = _EVENT_OR_PLAY_READ
 
     @extend_schema(responses=ScoreTimelineResponseSerializer)
     def get(self, request: Request, participant_id: UUID) -> Response:
         """Resolve the participant, authorize access, and return the timeline."""
-        from ctf.exceptions import CTFNotFoundError
+        from ctf.exceptions import CTFNotFoundError, CTFPermissionError
         from ctf.services import get_participant
         from ctf.services.scoring import get_score_timeline
 
@@ -59,6 +59,11 @@ class ScoreTimelineView(APIView):
                     "timeline": timeline,
                 }
             )
+        except CTFPermissionError:
+            try:
+                _raise_forbidden()
+            except _CtfApiError as exc:
+                return exc.to_response(request)
         except _CtfApiError as exc:
             return exc.to_response(request)
 
@@ -68,15 +73,18 @@ class ScoreTimelineView(APIView):
 
         Mirrors ``ctf.views.api.scoreboard._authorize_timeline_access``.
         """
-        from ctf.bridges import get_user_role
+        from ctf.exceptions import CTFPermissionError
 
-        actor = _actor(request)
-        role = get_user_role(actor)
-        if role.is_ctf_organizer:
-            if not _actor_may_manage(request, participant.event, EventCapability.SUBMISSIONS):
-                _raise_forbidden()
+        credential = _credential(request)
+        if _event_action_allowed(credential, participant.event_id, "event.manage_submissions"):
             return
-        if participant.user_id != actor.pk:
+        from ctf.services import participant_for_credential
+
+        try:
+            admitted = participant_for_credential(credential, participant.event_id)
+        except (ValueError, CTFPermissionError):
+            _raise_forbidden()
+        if admitted.pk != participant.pk:
             _raise_forbidden()
 
 

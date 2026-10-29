@@ -54,7 +54,7 @@ it("preserves explicit source ownership and confirms removal and transfer", asyn
   await waitFor(() => expect(mock).toHaveBeenCalledWith("/workspaces/workspace/owners/", expect.objectContaining({ body: { principal_uuid: "destination" } })));
   await user.click(screen.getByRole("button", { name: "Transfer ownership" }));
   await user.click(screen.getByRole("button", { name: "Confirm ownership transfer" }));
-  await waitFor(() => expect(mock).toHaveBeenCalledWith("/workspaces/workspace/transfer/", expect.objectContaining({ body: { source_principal_uuid: "owner-two", destination_principal_uuid: "destination" } })));
+  await waitFor(() => expect(mock).toHaveBeenCalledWith("/account-workspaces/workspace/ownership/transfer/", expect.objectContaining({ body: { source_principal_uuid: "owner-two", destination_principal_uuid: "destination" } })));
   await user.click(screen.getByRole("button", { name: "Remove owner owner-one" }));
   await user.click(screen.getByRole("button", { name: "Confirm owner removal" }));
   await waitFor(() => expect(mock).toHaveBeenCalledWith("/workspaces/workspace/owners/owner-one/", expect.objectContaining({ method: "DELETE" })));

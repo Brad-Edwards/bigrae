@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
+from shared.audit import accepted_request_id
 from shared.errors import classify_user_message, safe_user_message
 
 _REQUIRED_FIELD_MESSAGE = "This field is required."
+_INVALID_FIELD_MESSAGE = "Invalid value."
 
 _STATUS_MESSAGES = {
     status.HTTP_400_BAD_REQUEST: "Invalid request",
@@ -22,7 +24,7 @@ _STATUS_MESSAGES = {
 
 _VALIDATION_DETAIL_MESSAGES = {
     "blank": "This field may not be blank.",
-    "invalid": "Invalid value.",
+    "invalid": _INVALID_FIELD_MESSAGE,
     "max_length": "Value is too long.",
     "min_length": "Value is too short.",
     "null": "This field may not be null.",
@@ -60,7 +62,7 @@ def api_exception_handler(exc: Exception, context: dict[str, object]) -> Respons
         "message": _error_message(exc, response),
     }
     if isinstance(exc, ValidationError):
-        error["details"] = _normalize_detail(response.data)
+        error["details"] = _normalize_detail(response.data, _validation_serializer(context))
     request_id = _request_id(context.get("request"))
     if request_id:
         error["request_id"] = request_id
@@ -75,15 +77,20 @@ def api_error_response(
     message: str,
     status_code: int,
     details: object | None = None,
+    detail_serializer: serializers.BaseSerializer | None = None,
     request: object | None = None,
 ) -> Response:
-    """Return an explicit API error using the same envelope as DRF exceptions."""
+    """Render authored public text; validation keys require their owning serializer.
+
+    Exception messages must be classified by the calling adapter before entering
+    this function. Text formatting cannot remove confidential exception content.
+    """
     error: dict[str, object] = {
         "code": code,
         "message": safe_user_message(message),
     }
     if details is not None:
-        error["details"] = _normalize_detail(details)
+        error["details"] = _normalize_detail(details, detail_serializer)
     request_id = _request_id(request)
     if request_id:
         error["request_id"] = request_id
@@ -125,23 +132,53 @@ def _extract_detail(data: object) -> object:
     return data
 
 
-def _normalize_detail(data: object) -> object:
-    """Convert validation details without reflecting exception text.
+def _validation_serializer(context: dict[str, object]) -> serializers.BaseSerializer | None:
+    """Use a view's declared serializer as the source of public field names."""
+    serializer_class = getattr(context.get("view"), "serializer_class", None)
+    if isinstance(serializer_class, type) and issubclass(serializer_class, serializers.BaseSerializer):
+        return serializer_class(context=context)
+    return None
 
-    ``ErrorDetail`` text can originate in validators and integrations.  Map its
-    stable code to authored client text so an exception can never smuggle a
-    traceback, credential, or backend response into the API envelope.
-    """
-    normalized = data
+
+def _normalize_detail(data: object, field: serializers.Field | None = None) -> object:
+    """Select authored validation text and keys, retaining nested/indexed shape."""
     if isinstance(data, ErrorDetail):
-        normalized = _VALIDATION_DETAIL_TEXT_MESSAGES.get(
+        normalized: object = _VALIDATION_DETAIL_TEXT_MESSAGES.get(
             str(data),
-            _VALIDATION_DETAIL_MESSAGES.get(data.code, "Invalid value."),
+            _VALIDATION_DETAIL_MESSAGES.get(data.code, _INVALID_FIELD_MESSAGE),
         )
+    elif isinstance(data, str):
+        normalized = _VALIDATION_DETAIL_TEXT_MESSAGES.get(data, _INVALID_FIELD_MESSAGE)
     elif isinstance(data, dict):
-        normalized = {key: _normalize_detail(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        normalized = [_normalize_detail(item) for item in data]
+        normalized = _normalize_mapping_details(data, field)
+    elif isinstance(data, (list, tuple)):
+        child = field.child if isinstance(field, (serializers.ListSerializer, serializers.ListField)) else field
+        normalized = [_normalize_detail(item, child) for item in data]
+    else:
+        normalized = _INVALID_FIELD_MESSAGE
+    return normalized
+
+
+def _normalize_mapping_details(data: dict[object, object], field: serializers.Field | None) -> object:
+    """List fields expose numeric positions; serializers expose declared names."""
+    if isinstance(field, (serializers.ListSerializer, serializers.ListField)):
+        return {
+            key: _normalize_detail(value, field.child) for key, value in data.items() if type(key) is int and key >= 0
+        }
+    return _normalize_field_details(data, field)
+
+
+def _normalize_field_details(data: dict[object, object], field: serializers.Field | None) -> dict[str, object]:
+    """Unknown keys may contain exception text; group their errors under a constant."""
+    fields = field.fields if isinstance(field, serializers.Serializer) else {}
+    normalized = {name: _normalize_detail(data[name], child) for name, child in fields.items() if name in data}
+    unknown: list[object] = []
+    for key, value in data.items():
+        if key not in fields:
+            detail = _normalize_detail(value)
+            unknown.extend(detail if isinstance(detail, list) else [detail])
+    if unknown:
+        normalized["non_field_errors"] = unknown
     return normalized
 
 
@@ -149,9 +186,8 @@ def _request_id(request: object | None) -> str | None:
     """Return a request correlation ID when middleware or headers provide one."""
     if request is None:
         return None
-    request_id = getattr(request, "request_id", None)
+    request_id = accepted_request_id(getattr(request, "request_id", None))
     if request_id:
-        return str(request_id)
+        return request_id
     meta = getattr(request, "META", {})
-    request_id = meta.get("HTTP_X_REQUEST_ID") if isinstance(meta, dict) else None
-    return str(request_id) if request_id else None
+    return accepted_request_id(meta.get("HTTP_X_REQUEST_ID")) if isinstance(meta, dict) else None

@@ -47,6 +47,7 @@ def test_native_entrypoint_hydrates_app_secrets_without_fetching_database_passwo
             "DB_USER": "synthetic-portal@synthetic-project.iam",
             "APP_SECRET_ID": "projects/synthetic-project/secrets/app",
             "SKIP_MIGRATIONS": "1",
+            "SHIFTER_IDENTITY_MAINTENANCE": "true",
             "SHIFTER_PROVISIONER_LAUNCHER": "true",
             "PROVISIONER_DB_HOST": "127.0.0.1",
             "PROVISIONER_DB_PORT": "5432",

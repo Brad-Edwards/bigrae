@@ -1,4 +1,4 @@
-"""Dormant account/profile adapters; production routing remains unchanged."""
+"""Production account/profile adapters backed by policy-aware services."""
 
 from uuid import UUID
 
@@ -34,6 +34,7 @@ class AccountPrincipalContextSerializer(serializers.Serializer):
     accounts = AccountPageSerializer(read_only=True)
     individual_account = AccountViewSerializer(read_only=True, allow_null=True)
     installation_actions = serializers.ListField(child=serializers.CharField(), read_only=True)
+    has_descendant_scopes = serializers.BooleanField(read_only=True)
 
 
 class AccountPrincipalContextView(_AccountAPIView):
@@ -52,7 +53,17 @@ class AccountPrincipalContextView(_AccountAPIView):
 class PolicyAccountDetailView(AccountDetailView):
     """Read/update the canonical account name without altering account identity."""
 
-    @extend_schema(request=SubdivisionCommandSerializer, responses=AccountViewSerializer)
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name"],
+                "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 200}},
+            }
+        },
+        responses=AccountViewSerializer,
+    )
     def patch(self, request: Request, account_uuid: UUID) -> Response:
         command = SubdivisionCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
@@ -96,9 +107,47 @@ class PolicyOrganizationProfileView(_AccountAPIView):
 class PolicyWorkspaceQuotaView(_AccountAPIView):
     """Expose the same bounded quota projection to authorized humans/services."""
 
-    @extend_schema(responses=WorkspaceQuotaSerializer)
+    @extend_schema(responses=WorkspaceQuotaSerializer, operation_id="api_v1_workspace_quota")
     def get(self, request: Request, workspace_uuid: UUID) -> Response:
         result = services.admin_workspace_quota_usage(
             authenticated_credential(request), configured_authorization_provider(), workspace_uuid
         )
         return Response(WorkspaceQuotaSerializer(result).data)
+
+
+class AdministrationScopeQuerySerializer(AccountPageQuerySerializer):
+    """Select one bounded descendant collection."""
+
+    kind = serializers.ChoiceField(choices=("organization", "workspace"))
+
+
+class AdministrationScopeSerializer(serializers.Serializer):
+    """An independently authorized scope and non-secret routing ancestry."""
+
+    kind = serializers.ChoiceField(choices=("organization", "workspace"), read_only=True)
+    uuid = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    account_uuid = serializers.UUIDField(read_only=True)
+    organization_uuid = serializers.UUIDField(read_only=True)
+    is_default = serializers.BooleanField(read_only=True)
+
+
+class AdministrationScopePageSerializer(serializers.Serializer):
+    """Bounded policy-filtered scope discovery page for administration clients."""
+
+    count = serializers.IntegerField(read_only=True)
+    results = AdministrationScopeSerializer(many=True, read_only=True)
+
+
+class AdministrationScopeCollectionView(_AccountAPIView):
+    """Discover descendant administration without a parent account selector."""
+
+    @extend_schema(parameters=[AdministrationScopeQuerySerializer], responses=AdministrationScopePageSerializer)
+    def get(self, request: Request) -> Response:
+        """Page authorized descendant scopes without inferring a parent account."""
+        query = AdministrationScopeQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        page = services.admin_list_descendant_scopes(
+            authenticated_credential(request), configured_authorization_provider(), **query.validated_data
+        )
+        return Response(AdministrationScopePageSerializer(page).data)

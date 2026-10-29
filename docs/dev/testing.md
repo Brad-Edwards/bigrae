@@ -164,6 +164,16 @@ does not inherit the production HTTPS posture a fresh checkout would otherwise g
 
 These are covered by `tests/platform/test_clean_checkout_posture.py`.
 
+Keep cloud test doubles within the provider adapter boundary. The tenant-pack
+and event-content fixtures select AWS and patch its storage constructor. They
+keep the shared storage factory and content resolver intact, so a module imported
+during a fixture cannot retain a temporary replacement after teardown. Content
+tests exercise the real parser and digest checks against synthetic stored bytes.
+When fixing an order-dependent failure, run
+the suspected predecessor and failing case together in one process. Also check
+that the next operation uses its own adapter after the patch ends. This follows
+Python's [guidance on where to patch](https://docs.python.org/3.12/library/unittest.mock.html#where-to-patch).
+
 ## Coverage: two complementary floors
 
 Production coverage measures owned code only. Each publishing package sets

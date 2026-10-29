@@ -294,11 +294,16 @@ def _handle_spin_up_ranges(
         if heartbeat is not None:
             heartbeat()
 
+    from shared.credentials import resolve_current_credential
+    from shared.operation_authority import credential_reference_from_record
+
+    credential = resolve_current_credential(credential_reference_from_record(task))
     result = provision_event_ranges_throttled(
         event_id=event.pk,
         spinup_window_seconds=spinup_window,
         shutdown_check=shutdown_check,
         heartbeat=task_heartbeat,
+        actor=credential,
     )
     logger.info(
         "SPIN_UP_RANGES result for event %s: %s",

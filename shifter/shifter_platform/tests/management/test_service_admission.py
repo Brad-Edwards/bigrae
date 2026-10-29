@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from management import services
+from tests._credential_helpers import persisted_credential
 
 pytestmark = pytest.mark.django_db
 
@@ -58,12 +59,14 @@ def test_service_administration_audits_the_authorizing_principal(actor_kind, dja
     principal = (
         services.principal_for_user(user) if actor_kind == "session" else services.create_service_principal("Operator")
     )
-    actor = CredentialContext(
-        principal,
-        actor_kind,
-        uuid4(),
-        CredentialCeiling(frozenset({"installation.manage_service_credentials"})),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            principal,
+            actor_kind,
+            uuid4(),
+            CredentialCeiling(frozenset({"installation.manage_service_credentials"})),
+            frozenset(),
+        )
     )
     settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
     monkeypatch.setattr(

@@ -21,4 +21,4 @@ Event pacing alone cannot establish whether shared capacity can support an event
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#668` (CTF-908: Event Capacity Declaration)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#668` (CTF-908: Event Capacity Declaration)

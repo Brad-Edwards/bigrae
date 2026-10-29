@@ -1,19 +1,29 @@
 import { useState } from "react";
 
 import { useAdministrationMutation, useAdministrationQuery, type AdministrationSchemas } from "@/api/account-administration";
-import { INVITATION_DELIVERY_LABELS } from "@/api/invitations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { AdministrationError, AdministrationPages, AdministrationSection } from "./AdministrationForms";
 
+type PolicyInvitation = AdministrationSchemas["PolicyWorkspaceInvitation"];
+
+/** Operator text for the observed send outcome; "accepted" never means read. */
+const DELIVERY_LABELS: Record<PolicyInvitation["delivery_status"], string> = {
+  pending: "Email pending",
+  accepted: "Email accepted",
+  failed: "Email not delivered",
+  unavailable: "Email unavailable",
+  unknown: "Email outcome unknown",
+};
+
 function InvitationActions({ workspaceUuid, invitation }: Readonly<{ workspaceUuid: string; invitation: AdministrationSchemas["PolicyWorkspaceInvitation"] }>) {
-  const path = `/workspaces/${workspaceUuid}/invitations/${invitation.invitation_uuid}`;
+  const path = `/account-workspaces/${workspaceUuid}/invitations/${invitation.invitation_uuid}`;
   const resend = useAdministrationMutation(`${path}/resend/`);
   const revoke = useAdministrationMutation(`${path}/revoke/`);
   const [confirming, setConfirming] = useState(false);
-  return <li className="space-y-2 rounded border p-3"><p>{invitation.email} · {invitation.status} · {INVITATION_DELIVERY_LABELS[invitation.delivery_status]}</p>
+  return <li className="space-y-2 rounded border p-3"><p>{invitation.email} · {invitation.status} · {DELIVERY_LABELS[invitation.delivery_status]}</p>
     <AdministrationError error={resend.error ?? revoke.error} />
     {invitation.status === "pending" || invitation.status === "expired" ? <div className="flex gap-2">
       <Button variant="outline" disabled={resend.isPending || revoke.isPending} onClick={() => resend.mutate({})}>Resend invitation</Button>
@@ -26,7 +36,7 @@ function InvitationActions({ workspaceUuid, invitation }: Readonly<{ workspaceUu
 export function ScopeInvitationPanel({ workspaceUuid }: Readonly<{ workspaceUuid: string }>) {
   const [email, setEmail] = useState("");
   const [offset, setOffset] = useState(0);
-  const path = `/workspaces/${workspaceUuid}/invitations/`;
+  const path = `/account-workspaces/${workspaceUuid}/invitations/`;
   const list = useAdministrationQuery<AdministrationSchemas["PolicyInvitationPage"]>(path, { offset, limit: 50 });
   const issue = useAdministrationMutation(path);
   return <AdministrationSection title="Invitations">

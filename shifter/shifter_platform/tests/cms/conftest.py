@@ -53,28 +53,44 @@ def make_agent(db, windows_os) -> Callable[..., AgentConfig]:
 
 
 @pytest.fixture
-def hydratable_scenario(db, monkeypatch) -> RaesPackageSource:
+def hydratable_scenario(db, monkeypatch, settings) -> RaesPackageSource:
     """A conformance-passed RAES source with dispatch held at the cloud seam."""
     staff = User.objects.create_user(
         username="cms-scenario-author@example.com",
         email="cms-scenario-author@example.com",
         is_staff=True,
     )
+    settings.ENGINE_TASK_CLUSTER = "test-namespace"
+    settings.ENGINE_TASK_DEFINITION = "test-provisioner:latest"
     monkeypatch.setattr("engine.services._raes_range.start_raes_range_provisioning", lambda *_a, **_kw: None)
 
-    def dispatch(request_id, user, _source, backend_admission, workspace_id, egress_mode):
-        from engine.services import create_raes_range
+    def dispatch(request_id, actor, source, *dispatch_args):
+        from cms.raes.dispatch import CmsRaesDispatchPort
 
-        create_raes_range(
-            request_id=request_id,
-            user_id=user.id,
-            compiled_plan={"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": {}},
+        if len(dispatch_args) == 1:
+            options = dispatch_args[0]
+            backend_admission = options.backend_admission
+            workspace_id = options.workspace_id
+            egress_mode = options.egress_mode
+            principal_scope = options.principal_scope
+        else:
+            backend_admission, workspace_id, egress_mode = dispatch_args
+            principal_scope = None
+
+        CmsRaesDispatchPort(
+            user_id=getattr(actor, "id", None),
+            request_id=str(request_id),
             backend_admission=backend_admission,
             workspace_id=workspace_id,
             egress_mode=egress_mode,
-        )
+            credential=actor if not hasattr(actor, "id") else None,
+            scope=principal_scope,
+            source=source if principal_scope is not None else None,
+        ).realize({"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": {}})
 
     monkeypatch.setattr("cms.services._raes_range_create._dispatch_raes_package", dispatch)
+    monkeypatch.setattr("cms.services._raes_dispatch.dispatch_repo_raes_package", dispatch)
+    monkeypatch.setattr("cms.services._raes_dispatch.dispatch_object_raes_package", dispatch)
     return RaesPackageSource.objects.create(
         scenario_id="cms-behavior-test",
         contract_kind="raes",
@@ -84,6 +100,9 @@ def hydratable_scenario(db, monkeypatch) -> RaesPackageSource:
         package_digest="sha256:" + "a" * 64,
         conformance_status="passed",
         registered_by=staff,
+        owner_principal_uuid=staff.identity_principal.uuid,
+        scope_kind="installation",
+        is_operator_published=True,
     )
 
 

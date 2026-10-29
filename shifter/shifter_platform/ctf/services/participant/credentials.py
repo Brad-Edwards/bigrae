@@ -11,12 +11,13 @@ from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 from django.views.decorators.debug import sensitive_variables
 
-from ctf.exceptions import CTFNotFoundError, CTFValidationError
+from ctf.exceptions import CTFNotFoundError, CTFPermissionError, CTFValidationError
 from ctf.models import CTFParticipant
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+    from ctf.services.actors import EventActor
     from shared.audit import RequestAudit
 
 _PASSWORD_KINDS = frozenset({"generated", "set"})
@@ -51,14 +52,14 @@ def _locked_password_target(participant_id: UUID) -> tuple[CTFParticipant, User]
 def _audit_participant_password_issuance(
     participant: CTFParticipant,
     *,
-    actor: User,
+    actor: EventActor,
     kind: str,
     request_audit: RequestAudit | None,
 ) -> None:
     """Strict-audit the mutation with identifiers only."""
+    from ctf.services.audit import _actor_fields
     from shared.audit import (
         AuditAction,
-        AuditActorType,
         AuditEntityType,
         AuditEvent,
         RequestAudit,
@@ -74,8 +75,7 @@ def _audit_participant_password_issuance(
             entity_type=AuditEntityType.USER,
             entity_id=user_id,
             action=AuditAction.UPDATE,
-            actor_type=AuditActorType.USER,
-            actor_id=actor.pk,
+            **_actor_fields(actor),
             new_state={
                 "participant_id": str(participant.pk),
                 "event_id": str(participant.event_id),
@@ -94,7 +94,7 @@ def _audit_participant_password_issuance(
 def reset_participant_password(
     participant_id: UUID,
     *,
-    actor: User,
+    actor: EventActor,
     kind: str,
     password: str | None = None,
     request_audit: RequestAudit | None = None,
@@ -102,16 +102,25 @@ def reset_participant_password(
     """Issue one generated or organizer-supplied participant password."""
     if kind not in _PASSWORD_KINDS or (kind == "generated" and password is not None):
         raise CTFValidationError("Invalid participant password request", code="CTF_INVALID_PASSWORD_REQUEST")
+    from ctf.services.authorization import admit_event_actions
+
+    try:
+        candidate = CTFParticipant.objects.select_related("event").get(pk=participant_id)
+    except CTFParticipant.DoesNotExist:
+        raise CTFNotFoundError("Participant not found") from None
+    actor = admit_event_actions(actor, candidate.event, "event.manage_participants")
     with transaction.atomic():
         participant, user = _locked_password_target(participant_id)
-        from ctf.services.event import actor_has_event_capability
+        from ctf.services.authorization import assert_event_action
         from ctf.services.participant.accounts import generate_participant_password
 
-        if not actor_has_event_capability(actor, participant.event, "participants"):
+        try:
+            assert_event_action(actor, participant.event, "event.manage_participants")
+        except CTFPermissionError:
             raise CTFValidationError(
                 "Only an event participant manager may reset this account",
                 code="CTF_PERMISSION_DENIED",
-            )
+            ) from None
         if kind == "set":
             if password is None:
                 raise CTFValidationError("A new password is required", code="CTF_INVALID_PASSWORD_REQUEST")

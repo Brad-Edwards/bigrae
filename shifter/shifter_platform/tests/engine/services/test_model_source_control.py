@@ -13,7 +13,7 @@ from shared.model_access import ContractError
 from shared.model_access.sources import ModelSourceSelection
 
 from .test_model_credentials import _PEER, enrolled_allocation, exchange, issue
-from .test_model_sources import configuration, direct_source_catalog, source_tenant
+from .test_model_sources import configuration, direct_source_catalog, model_source_credential, source_tenant
 
 __all__ = ["enrolled_allocation", "source_tenant"]
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -22,10 +22,11 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 @pytest.fixture
 def source_control(source_tenant, enrolled_allocation):
     admin, _, org, store = source_tenant
+    credential = model_source_credential(admin)
     source = create_model_source(
-        admin,
+        credential,
         org.uuid,
-        configuration(region="provider-managed", allow_organization_members=True),
+        configuration(region="provider-managed"),
         credential={"api_key": "synthetic-secret"},
     )
     store.get_secret.return_value = json.dumps({"api_key": "synthetic-secret"})
@@ -34,7 +35,7 @@ def source_control(source_tenant, enrolled_allocation):
     )
     allocation = enrolled_allocation
     catalog, _ = resolve_model_source_selection(
-        admin, org.uuid, selection, catalog=direct_source_catalog(allocation.deployment_id)
+        credential, org.uuid, selection, catalog=direct_source_catalog(allocation.deployment_id)
     )
     shard = next(item for item in catalog.shards if item.shard_id == catalog.aliases[0].eligible_shard_ids[0])
     allocation.alias_shards = {"coding-main": shard.shard_id}

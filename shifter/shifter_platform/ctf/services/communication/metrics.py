@@ -41,7 +41,7 @@ _OUTCOMES = frozenset(
     {"accepted", "retried", "expired", "failed", "suppressed", "stale", "reclaimed", "claimed", "released"}
 )
 _CHANNELS = frozenset(c.value for c in CommunicationChannel)
-_SCOPE_CLASSES = frozenset({"actor", "event", "workspace", "global"})
+_SCOPE_CLASSES = frozenset({"actor", "event", "account", "workspace", "global"})
 
 # Non-terminal statuses form the durable backlog (pending + in-flight work).
 _BACKLOG_STATUSES = (

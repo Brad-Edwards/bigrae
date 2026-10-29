@@ -29,7 +29,7 @@ from ctf.api.organizer._base import (
     _RANGE_REQUEST_FAILED,
     _RECOVERY_REQUEST_FAILED,
     _SPARE_POOL_REQUEST_FAILED,
-    _actor,
+    _credential,
     _raise_bad_request,
     _raise_not_found,
     _resolve_active_participant,
@@ -49,6 +49,7 @@ from ctf.api.serializers import (
 )
 from ctf.enums import EventCapability
 from shared.api_tokens import scopes
+from shared.exceptions import CMSError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -99,21 +100,34 @@ def _parse_spare_pool_count(body: dict[str, object]) -> int:
 
 
 def _run_participant_range_action(
-    request: Request, participant_id: UUID, action_fn: Callable[[UUID], object]
+    request: Request, participant_id: UUID, action_fn: Callable[..., object], operation: str
 ) -> Response:
-    """Resolve+own the participant, run a range action, and map range errors to 400.
+    """Authorize the participant's event and map controlled range failures to 400.
 
-    Mirrors ``ctf.views.api.ranges._participant_range_action`` +
-    ``_run_participant_range_action``: 404 for an unknown participant, 403 when the
-    actor does not own the event, and 400 for ``CTFNotFoundError``/``CTFRangeError``
-    raised by the action itself.
+    Unknown participants return 404 and policy denials return 403. Owning-service
+    ``CTFNotFoundError``/``CTFRangeError`` failures return bounded 400 messages.
+    The native credential reaches the owning range
+    service unchanged. Event-scoped attribution and strict policy intent/outcome
+    records retain the requesting principal (ADR-052-R4, #2617).
     """
     from ctf.exceptions import CTFNotFoundError, CTFRangeError
+    from ctf.services.organizer_range_audit import audit_organizer_participant_range_action
 
     try:
-        _resolve_owned_participant(request, participant_id, capability=EventCapability.RANGES)
+        participant = _resolve_owned_participant(request, participant_id, capability=EventCapability.RANGES)
+        credential = _credential(request)
+        captured = getattr(request, "_ctf_admin_authority", None)
+        audit_organizer_participant_range_action(
+            request=request,
+            credential=credential,
+            event=participant.event,
+            participant_id=participant_id,
+            operation=operation,
+            authority_source=str(captured[1]) if captured is not None else "",
+        )
         try:
-            result = action_fn(participant_id)
+            with admin_external_audit(request, operation):
+                result = action_fn(participant_id, actor=credential)
         except (CTFNotFoundError, CTFRangeError):
             _raise_bad_request(_RANGE_REQUEST_FAILED)
         return Response(result)
@@ -144,9 +158,16 @@ class ParticipantRangeStatusView(APIView):
                     }
                 )
             try:
-                result = range_service.get_range_status(participant.pk)
+                result = range_service.get_range_status(participant.pk, credential=_credential(request))
             except CTFNotFoundError:
                 _raise_not_found(_PARTICIPANT_NOT_FOUND)
+            except CMSError as exc:
+                unavailable = exc.details.get("code") == "authority-unavailable"
+                raise _CtfApiError(
+                    code="dependency_unavailable" if unavailable else "forbidden",
+                    message="Service unavailable" if unavailable else "Permission denied",
+                    status_code=503 if unavailable else 403,
+                ) from None
             return Response(result)
         except _CtfApiError as exc:
             return exc.to_response(request)
@@ -233,7 +254,7 @@ class EventRangeProvisionView(APIView):
             return exc.to_response(request)
         # Non-rollbackable provisioning: override intent before the enqueue, then outcome.
         with admin_external_audit(request, "range.provision"):
-            task = range_service.request_event_provisioning(event_id, source="manual", actor_id=_actor(request).pk)
+            task = range_service.request_event_provisioning(event_id, source="manual", actor_id=_credential(request))
         return Response(
             {
                 "event_id": str(event_id),
@@ -277,7 +298,7 @@ class EventSpareProvisionView(APIView):
         try:
             # Non-rollbackable spare provisioning: override intent then outcome.
             with admin_external_audit(request, "range.spare_provision"):
-                result = provision_event_spares(event_id, count, operator=_actor(request))
+                result = provision_event_spares(event_id, count, operator=_credential(request))
         except CTFNotFoundError:
             _raise_not_found(_EVENT_NOT_FOUND)
         return Response(result)
@@ -294,7 +315,9 @@ class ParticipantRangeProvisionView(APIView):
         """Provision the participant's range via the range service."""
         from ctf.services import range as range_service
 
-        return _run_participant_range_action(request, participant_id, range_service.provision_participant_range)
+        return _run_participant_range_action(
+            request, participant_id, range_service.provision_participant_range, "range.participant.provision"
+        )
 
 
 class ParticipantRangeDestroyView(APIView):
@@ -308,7 +331,9 @@ class ParticipantRangeDestroyView(APIView):
         """Destroy the participant's range via the range service."""
         from ctf.services import range as range_service
 
-        return _run_participant_range_action(request, participant_id, range_service.destroy_participant_range)
+        return _run_participant_range_action(
+            request, participant_id, range_service.destroy_participant_range, "range.participant.destroy"
+        )
 
 
 class ParticipantRangeStopView(APIView):
@@ -322,7 +347,9 @@ class ParticipantRangeStopView(APIView):
         """Stop the participant's range via the range service."""
         from ctf.services import range as range_service
 
-        return _run_participant_range_action(request, participant_id, range_service.stop_participant_range)
+        return _run_participant_range_action(
+            request, participant_id, range_service.stop_participant_range, "range.participant.stop"
+        )
 
 
 class ParticipantRangeStartView(APIView):
@@ -336,7 +363,9 @@ class ParticipantRangeStartView(APIView):
         """Start the participant's range via the range service."""
         from ctf.services import range as range_service
 
-        return _run_participant_range_action(request, participant_id, range_service.start_participant_range)
+        return _run_participant_range_action(
+            request, participant_id, range_service.start_participant_range, "range.participant.start"
+        )
 
 
 class ParticipantRangeRestartView(APIView):
@@ -350,7 +379,9 @@ class ParticipantRangeRestartView(APIView):
         """Restart the participant's range via the range service."""
         from ctf.services import range as range_service
 
-        return _run_participant_range_action(request, participant_id, range_service.restart_participant_range)
+        return _run_participant_range_action(
+            request, participant_id, range_service.restart_participant_range, "range.participant.restart"
+        )
 
 
 class ParticipantRangeRecoverView(APIView):
@@ -386,12 +417,13 @@ class ParticipantRangeRecoverView(APIView):
                 raise _BodyParseError("Request body must be a JSON object")
             strategy = _get_body_str(body, "strategy", required=True)
             spare_range_instance_id = _parse_spare_range_instance_id(body)
-            result = recover_participant_range(
-                participant_id,
-                strategy=strategy,
-                operator=_actor(request),
-                spare_range_instance_id=spare_range_instance_id,
-            )
+            with admin_external_audit(request, "range.participant.recover"):
+                result = recover_participant_range(
+                    participant_id,
+                    strategy=strategy,
+                    operator=_credential(request),
+                    spare_range_instance_id=spare_range_instance_id,
+                )
         except _BodyParseError:
             _raise_bad_request(_RECOVERY_REQUEST_FAILED)
         except CTFNotFoundError:

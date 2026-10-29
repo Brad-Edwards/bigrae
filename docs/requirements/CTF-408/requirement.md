@@ -25,4 +25,4 @@ Score timelines help participants and organizers understand performance patterns
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (CTF URL patterns - score timeline API endpoint)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/__init__.py` (CTF services package - exports get_score_timeline)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring.py` (TestGetScoreTimeline - 8 tests for score timeline service)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#572` (CTF-408: Per-User Score Timeline)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#572` (CTF-408: Per-User Score Timeline)

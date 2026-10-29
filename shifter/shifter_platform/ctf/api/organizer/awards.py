@@ -67,7 +67,7 @@ class ParticipantAwardsView(APIView):
         awards = [_award_payload(award) for award in get_participant_awards(participant_id)]
         return Response({"awards": awards})
 
-    @extend_schema(request=AwardWriteSerializer, responses=AwardSerializer)
+    @extend_schema(request=AwardWriteSerializer, responses={200: AwardSerializer})
     @audit_admin_event_mutation("award.grant", action=AuditAction.CREATE)
     def post(self, request: Request, participant_id: UUID) -> Response:
         """Grant a bonus or deduction to the participant and recompute scores."""
@@ -86,7 +86,7 @@ class ParticipantAwardsView(APIView):
             reason=serializer.validated_data["reason"],
             granted_by=request.user,
         )
-        return Response(_award_payload(award), status=status.HTTP_201_CREATED)
+        return Response(_award_payload(award), status=status.HTTP_200_OK)
 
 
 class AwardRevokeView(APIView):

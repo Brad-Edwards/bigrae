@@ -24,7 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from cms.api.permissions import CMS_READ_PERMISSIONS, CMS_WRITE_PERMISSIONS
+from cms.api.permissions import CMS_READ_PERMISSIONS, CMS_WRITE_PERMISSIONS, cms_actor_credential
 from engine.services import (
     RaesImageMappingError,
     RaesImageMappingOptions,
@@ -136,6 +136,11 @@ def _domain_error(request: Request, exc: RaesImageMappingError) -> Response:
     )
 
 
+def _authority_error(request: Request) -> Response:
+    """Keep image-registry denial behind the bounded public error envelope."""
+    return api_error_response(code="forbidden", message="Image registry unavailable", status_code=403, request=request)
+
+
 class RaesImageMappingListCreateView(APIView):
     """List registry mappings, or register/upsert one, for CMS authoring actors."""
 
@@ -159,7 +164,11 @@ class RaesImageMappingListCreateView(APIView):
             rows = list_raes_image_mappings(
                 provider=query.validated_data.get("provider"),
                 include_disabled=query.validated_data["include_disabled"],
+                credential=cms_actor_credential(request),
+                for_administration=True,
             )
+        except PermissionError:
+            return _authority_error(request)
         except RaesImageMappingError as exc:
             return _domain_error(request, exc)
         return Response(RaesImageMappingViewSerializer(rows, many=True).data)
@@ -172,6 +181,7 @@ class RaesImageMappingListCreateView(APIView):
         data = body.validated_data
         try:
             mapping = upsert_raes_image_mapping(
+                credential=cms_actor_credential(request),
                 provider=data["provider"],
                 source_name=data["source_name"],
                 image_ref=data["image_ref"],
@@ -198,6 +208,8 @@ class RaesImageMappingListCreateView(APIView):
                     provenance_ref=data["provenance_ref"],
                 ),
             )
+        except PermissionError:
+            return _authority_error(request)
         except RaesImageMappingError as exc:
             return _domain_error(request, exc)
         logger.info(
@@ -222,10 +234,13 @@ class RaesImageMappingDisableView(APIView):
         data = body.validated_data
         try:
             view = disable_raes_image_mapping(
+                credential=cms_actor_credential(request),
                 provider=data["provider"],
                 source_name=data["source_name"],
                 source_version=data["source_version"],
             )
+        except PermissionError:
+            return _authority_error(request)
         except RaesImageMappingError as exc:
             return _domain_error(request, exc)
         logger.info(

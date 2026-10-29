@@ -19,7 +19,9 @@ from cms.scenarios.pack_validation import pack_digest
 from cms.scenarios.realizability import get_scenario_realizability
 from cms.services import PackRegistrationRequest, register_pack
 from engine.services import RaesImageMappingOptions, upsert_raes_image_mapping
+from shared.identity_scope import ResourceScope
 from shared.raes.realizability import GapCategory, RealizabilityOutcome
+from tests.cms._native_catalog import native_catalog as native_catalog
 from tests.cms.conftest import IMAGELESS_PACK_SDL
 
 User = get_user_model()
@@ -30,18 +32,11 @@ _GCE = "gce"
 
 
 @pytest.fixture
-def staff_user(db):
-    return User.objects.create_user(username="realizability-staff", password="pw", is_staff=True)
-
-
-@pytest.fixture(autouse=True)
-def _gcp_target(monkeypatch):
-    """Run assessment against the GCE RAES realization adapter.
-
-    ``CLOUD_PROVIDER`` dev-defaults to aws, which has no RAES adapter; without
-    this the whole suite would only ever exercise the target-gap path.
-    """
+def staff_user(native_catalog, live_session_credential, monkeypatch):
     monkeypatch.setattr(settings, "CLOUD_PROVIDER", "gcp")
+    monkeypatch.setenv("GCP_RANGE_BACKEND", "gce")
+    monkeypatch.delenv("GCP_RANGE_PLANE", raising=False)
+    return live_session_credential(native_catalog.user)
 
 
 def _register(staff_user, make_pack, tmp_path, monkeypatch, *, name, sdl=IMAGELESS_PACK_SDL):
@@ -58,13 +53,14 @@ def _register(staff_user, make_pack, tmp_path, monkeypatch, *, name, sdl=IMAGELE
         package_digest=pack_digest(root),
         provenance={"repo": "acme/example", "commit": "c" * 40},
     )
-    register_pack(user=staff_user, request=request)
+    register_pack(scope=ResourceScope("installation"), user=staff_user, request=request)
     return root
 
 
-def _map_base_os(os_family: str = "linux", image_ref: str = "projects/p/global/images/base-linux") -> None:
+def _map_base_os(staff_user, os_family: str = "linux", image_ref: str = "projects/p/global/images/base-linux") -> None:
     """Register the tenant base-OS mapping a source-less node needs."""
     upsert_raes_image_mapping(
+        credential=staff_user,
         provider=_GCE,
         source_name=os_family,
         image_ref=image_ref,
@@ -84,9 +80,9 @@ class TestRealizable:
 
     def test_imageless_pack_with_base_os_mapping_is_realizable(self, staff_user, make_pack, tmp_path, monkeypatch):
         _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
-        _map_base_os()
+        _map_base_os(staff_user)
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.REALIZABLE
         assert result["gaps"] == []
@@ -100,7 +96,7 @@ class TestImageSupplyGap:
         _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
         # Deliberately register no mapping.
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.NOT_REALIZABLE
         assert result["gaps"], "a missing image mapping must be reported"
@@ -109,20 +105,23 @@ class TestImageSupplyGap:
     def test_disabled_mapping_does_not_satisfy_supply(self, staff_user, make_pack, tmp_path, monkeypatch):
         _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
         upsert_raes_image_mapping(
+            credential=staff_user,
             provider=_GCE,
             source_name="linux",
             image_ref="projects/p/global/images/retired",
             options=RaesImageMappingOptions(source_version="", enabled=False),
         )
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.NOT_REALIZABLE
 
     def test_image_supply_gap_names_the_node_address(self, staff_user, make_pack, tmp_path, monkeypatch):
         _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
 
-        gaps = get_scenario_realizability("imageless")["gaps"]
+        gaps = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))[
+            "gaps"
+        ]
         supply = [gap for gap in gaps if gap["category"] == GapCategory.IMAGE_SUPPLY]
         assert supply
         assert all(gap["address"] for gap in supply)
@@ -133,23 +132,23 @@ class TestSourceIntegrity:
 
     def test_digest_mismatch_is_indeterminate(self, staff_user, make_pack, tmp_path, monkeypatch):
         root = _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
-        _map_base_os()
+        _map_base_os(staff_user)
         # Tamper after registration: the persisted digest no longer matches.
         (root / "sdl" / "scenario.sdl.yaml").write_text(
             IMAGELESS_PACK_SDL.replace("__PACK_NAME__", "imageless") + "\n# tampered\n", encoding="utf-8"
         )
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.INDETERMINATE
         assert any(gap["category"] == GapCategory.SOURCE_INTEGRITY for gap in result["gaps"])
 
     def test_missing_pack_on_disk_is_indeterminate(self, staff_user, make_pack, tmp_path, monkeypatch):
         _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
-        _map_base_os()
+        _map_base_os(staff_user)
         monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", str(tmp_path / "elsewhere"))
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.INDETERMINATE
         assert result["outcome"] != RealizabilityOutcome.REALIZABLE
@@ -182,6 +181,7 @@ class TestObjectBackedPacks:
 
     def _register_object(self, staff_user, digest):
         return register_pack(
+            scope=ResourceScope("installation"),
             user=staff_user,
             request=PackRegistrationRequest(
                 scenario_id="imageless",
@@ -197,9 +197,9 @@ class TestObjectBackedPacks:
 
     def test_object_pack_is_assessed_after_staging(self, staff_user, _object_storage):
         self._register_object(staff_user, pack_digest(_object_storage))
-        _map_base_os()
+        _map_base_os(staff_user)
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.REALIZABLE
 
@@ -207,16 +207,16 @@ class TestObjectBackedPacks:
         self._register_object(staff_user, pack_digest(_object_storage))
         # No image mapping registered.
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.NOT_REALIZABLE
         assert any(gap["category"] == GapCategory.IMAGE_SUPPLY for gap in result["gaps"])
 
     def test_object_pack_digest_mismatch_is_indeterminate(self, staff_user, _object_storage):
         self._register_object(staff_user, "sha256:" + "b" * 64)
-        _map_base_os()
+        _map_base_os(staff_user)
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.INDETERMINATE
         assert any(gap["category"] == GapCategory.SOURCE_INTEGRITY for gap in result["gaps"])
@@ -225,7 +225,7 @@ class TestObjectBackedPacks:
         self._register_object(staff_user, pack_digest(_object_storage))
         monkeypatch.setattr(settings, "RAES_PACKAGE_BUCKET", "")
 
-        result = get_scenario_realizability("imageless")
+        result = get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         assert result["outcome"] == RealizabilityOutcome.INDETERMINATE
 
@@ -237,10 +237,10 @@ class TestBoundedAndReadOnly:
         from cms.models import RaesPackageSource
 
         _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
-        _map_base_os()
+        _map_base_os(staff_user)
         before = RaesPackageSource.objects.get(scenario_id="imageless")
 
-        get_scenario_realizability("imageless")
+        get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
 
         after = RaesPackageSource.objects.get(scenario_id="imageless")
         assert after.package_digest == before.package_digest
@@ -250,16 +250,22 @@ class TestBoundedAndReadOnly:
         self, staff_user, make_pack, tmp_path, monkeypatch, django_assert_max_num_queries
     ):
         _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
-        _map_base_os()
+        _map_base_os(staff_user)
 
-        # Catalog entry + package source + one bulk registry read -- never one
-        # registry query per node.
-        with django_assert_max_num_queries(6):
-            get_scenario_realizability("imageless")
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        # Native proof and ancestry reads are separate from inventory batching.
+        with CaptureQueriesContext(connection) as queries:
+            get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))
+        image_reads = [query for query in queries if 'FROM "engine_raes_image_mapping"' in query["sql"]]
+        assert len(image_reads) == 1
 
     def test_gaps_are_bounded_dicts_without_payloads(self, staff_user, make_pack, tmp_path, monkeypatch):
         _register(staff_user, make_pack, tmp_path, monkeypatch, name="imageless")
 
-        for gap in get_scenario_realizability("imageless")["gaps"]:
+        for gap in get_scenario_realizability("imageless", credential=staff_user, scope=ResourceScope("installation"))[
+            "gaps"
+        ]:
             assert set(gap) == {"code", "address", "category", "message"}
             assert str(tmp_path) not in gap["message"]

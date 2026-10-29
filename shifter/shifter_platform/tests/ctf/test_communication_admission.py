@@ -10,27 +10,28 @@ the effect.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import CommunicationIntent, CTFParticipant
 from ctf.services.communication import AdmissionActor, CampaignDraft, create_campaign, release_campaign
+from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = pytest.mark.django_db
 
 
 def test_service_target_list_is_bounded_before_deduplication(organizer_user, ctf_event):
-    import workspaces.services as ws
     from ctf.services.communication import CampaignDraft, create_campaign
 
     with pytest.raises(CTFCommunicationError):
         create_campaign(
             organizer_user,
-            ws.resolve_personal_workspace(organizer_user).workspace_uuid,
+            individual_account_uuid(organizer_user),
             CampaignDraft(
                 title="Bounded",
                 origin="organizer_staff",
@@ -41,14 +42,11 @@ def test_service_target_list_is_bounded_before_deduplication(organizer_user, ctf
                 subject="Hello",
                 body="Rules",
             ),
+            parent_type="account",
         )
 
 
 User = get_user_model()
-
-
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
 
 
 def _campaign(organizer_user, ctf_event):
@@ -61,7 +59,7 @@ def _campaign(organizer_user, ctf_event):
     )
     return create_campaign(
         organizer_user,
-        _workspace_uuid(organizer_user),
+        individual_account_uuid(organizer_user),
         CampaignDraft(
             title="Kickoff",
             origin="organizer_staff",
@@ -72,6 +70,7 @@ def _campaign(organizer_user, ctf_event):
             subject="Welcome",
             body="Hello",
         ),
+        parent_type="account",
     )
 
 
@@ -121,6 +120,32 @@ def test_release_requires_an_explicit_actor(organizer_user, ctf_event):
     no_actor = AdmissionActor()
     with pytest.raises(CTFCommunicationError):
         release_campaign(campaign, occurrence_key="occ", admission=no_actor)
+    assert not CommunicationIntent.objects.filter(campaign=campaign).exists()
+
+
+def test_service_credential_requires_exact_communication_write_scope(organizer_user, ctf_event):
+    from django.conf import settings
+
+    from management.models import Principal, ProviderBinding, ServiceCredentialAdmission
+    from management.services import create_service_principal, resolve_service_credential
+
+    campaign = _campaign(organizer_user, ctf_event)
+    principal = create_service_principal("Read-only synthetic communications actor")
+    binding = ProviderBinding.objects.create(
+        principal=Principal.objects.get(uuid=principal.uuid),
+        issuer="https://accounts.google.com",
+        subject=str(uuid4()),
+    )
+    admission = ServiceCredentialAdmission.objects.create(
+        binding=binding,
+        audience=settings.GCP_SERVICE_TOKEN_AUDIENCE,
+        scopes=["ctf:communication:read"],
+    )
+    credential = resolve_service_credential(issuer=binding.issuer, subject=binding.subject, audience=admission.audience)
+
+    with pytest.raises(CTFCommunicationError) as denied:
+        release_campaign(campaign, occurrence_key="service-read-only", admission=AdmissionActor(credential=credential))
+    assert denied.value.code == "CTF_COMMUNICATION_TOKEN_DENIED"
     assert not CommunicationIntent.objects.filter(campaign=campaign).exists()
 
 
@@ -218,7 +243,7 @@ def test_each_target_authority_is_retained_without_content(organizer_user, ctf_e
     release_campaign(campaign, occurrence_key="audited", actor_user_id=organizer_user.pk)
     evidence = AuditLog.objects.filter(context="ctf_communication_authority").latest("timestamp")
     assert evidence.new_state["event_id"] == str(ctf_event.pk)
-    assert evidence.new_state["authority_source"] == "owner"
+    assert evidence.new_state["authority_source"] == "policy"
     assert "Hello" not in str(evidence.new_state)
 
 

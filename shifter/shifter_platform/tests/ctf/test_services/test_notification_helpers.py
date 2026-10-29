@@ -179,7 +179,15 @@ class TestInvitedAtNotSetAtCreation:
             scenario_id="basic",
         )
 
-    def test_invite_participant_does_not_set_invited_at(self, importable_event):
+    @pytest.fixture
+    def importable_actor(self, importable_event, client):
+        """Return the event owner's persisted browser-session credential."""
+        from config.session_credentials import session_credential
+
+        client.force_login(importable_event.created_by)
+        return session_credential(importable_event.created_by, client.session, provider_check=False)
+
+    def test_invite_participant_does_not_set_invited_at(self, importable_event, importable_actor):
         """add_participant() leaves login_info_sent_at unset on the created participant."""
         from ctf.services import participant as participant_service
 
@@ -187,16 +195,17 @@ class TestInvitedAtNotSetAtCreation:
             event_id=importable_event.pk,
             email="newinvite@test.com",
             name="New Invite",
+            actor=importable_actor,
         )
 
         assert participant.login_info_sent_at is None
 
-    def test_bulk_import_does_not_set_invited_at(self, importable_event):
+    def test_bulk_import_does_not_set_invited_at(self, importable_event, importable_actor):
         """bulk_import_participants() leaves login_info_sent_at unset on every created participant."""
         from ctf.services import participant as participant_service
 
         csv_content = "Alice,alice@test.com\nBob,bob@test.com"
-        result = participant_service.bulk_import_participants(importable_event.pk, csv_content)
+        result = participant_service.bulk_import_participants(importable_event.pk, csv_content, actor=importable_actor)
 
         assert len(result["created"]) == 2
         for participant in result["created"]:

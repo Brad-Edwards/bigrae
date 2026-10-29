@@ -47,7 +47,7 @@ export function drainBinding(sharingBindingId: string, expectedRevision: number)
 }
 
 export function revokeRangeModelAccess(requestId: string) {
-  return apiFetch<components["schemas"]["RangeModelSources"]>(`/cms/ranges/${requestId}/model-sources/revoke/`, {
+  return apiFetch<components["schemas"]["RangeModelSources"]>(`/cms/ranges/${requestId}/model-access/revoke/`, {
     method: "POST",
     body: {},
   });

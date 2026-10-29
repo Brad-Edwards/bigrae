@@ -11,7 +11,7 @@ from rest_framework.exceptions import ParseError
 def payload():
     event = str(uuid4())
     return {
-        "workspace_id": str(uuid4()),
+        "account": str(uuid4()),
         "title": "Welcome",
         "target_event_ids": [event],
         "audience_spec": {"kind": "event", "event_ids": [event]},

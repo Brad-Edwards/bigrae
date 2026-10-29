@@ -34,6 +34,7 @@ from django.utils import timezone
 
 from ctf.content_images import extract_image_urls, is_admissible_image_url
 from ctf.enums import EventCapability
+from ctf.services._content_image_authority import can_read_content_image as can_read_content_image
 from shared.cloud import get_object_storage
 from shared.cloud.exceptions import CloudStorageError
 from shared.log_sanitize import safe_log_fingerprint
@@ -41,8 +42,6 @@ from shared.uploads.inspection import MagicSignature
 
 if TYPE_CHECKING:
     from uuid import UUID
-
-    from django.contrib.auth.models import User
 
     from ctf.models import CTFContentImage, CTFParticipant
 
@@ -61,8 +60,8 @@ _CLAIM_LEASE = timedelta(minutes=2)
 _READ_CHUNK_BYTES = 64 * 1024
 STORAGE_PREFIX = "ctf-content-images"
 # The image collection includes hidden challenges and solutions, so staff need
-# the challenges capability to list or read it (owners, co-organizers and
-# platform admins today; not moderators or judges).
+# exact native event.manage_challenges permission to list or read it.
+# Legacy owner, staff and administrator flags grant no authority.
 CONTENT_IMAGE_STAFF_CAPABILITY = EventCapability.CHALLENGES.value
 # Event states in which participants see challenge solutions (detail projection).
 _SOLUTION_VISIBLE_STATUSES = frozenset({"ended", "archived"})
@@ -426,22 +425,6 @@ def participant_image_map(participant: CTFParticipant) -> dict[str, str]:
     return participant_image_state(participant)[0]
 
 
-def can_read_content_image(actor: User, image: CTFContentImage) -> bool:
-    """Return whether ``actor`` may read ``image``.
-
-    Staff holding :data:`CONTENT_IMAGE_STAFF_CAPABILITY` read every image of the
-    event. A participant reads an image only while it appears in content they
-    can read (:func:`participant_visible_image_urls`).
-    """
-    from ctf.services.authorization import resolve_event_authority
-    from ctf.services.participant import get_viewing_participant_by_user
-
-    if resolve_event_authority(actor, image.event, capability=CONTENT_IMAGE_STAFF_CAPABILITY) is not None:
-        return True
-    participant = get_viewing_participant_by_user(actor, event_id=image.event_id)
-    return participant is not None and image.source_url in participant_visible_image_urls(participant)
-
-
 def read_content_image(image: CTFContentImage) -> bytes | None:
     """Return the stored bytes of a ready copy, or ``None`` if they do not verify."""
     try:
@@ -456,3 +439,26 @@ def read_content_image(image: CTFContentImage) -> bytes | None:
         logger.warning("content image integrity mismatch image=%s", image.pk)
         return None
     return data
+
+
+__all__ = [
+    "CONTENT_IMAGE_STAFF_CAPABILITY",
+    "COPY_DEADLINE_SECONDS",
+    "FETCH_TIMEOUT_SECONDS",
+    "INGEST_BATCH_SIZE",
+    "INGEST_TIME_BUDGET_SECONDS",
+    "MAX_ATTEMPTS",
+    "MAX_IMAGE_BYTES",
+    "STORAGE_PREFIX",
+    "FailureCode",
+    "can_read_content_image",
+    "content_image_map",
+    "event_image_urls",
+    "image_url",
+    "ingest_pending_content_images",
+    "participant_image_map",
+    "participant_image_state",
+    "participant_visible_image_urls",
+    "read_content_image",
+    "sync_event_content_images",
+]

@@ -21,4 +21,4 @@ Events get cancelled due to insufficient registrations, scheduling conflicts, or
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#662` (CTF-706: Event Cancellation)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#662` (CTF-706: Event Cancellation)

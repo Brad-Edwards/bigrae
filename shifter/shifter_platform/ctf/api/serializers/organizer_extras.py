@@ -38,36 +38,41 @@ class ParticipantUsernameRequestSerializer(serializers.Serializer):
 class EventStaffMemberSerializer(serializers.Serializer):
     """One delegated staff assignment on an event (CTF-607)."""
 
-    user_id = serializers.IntegerField(read_only=True)
-    email = serializers.CharField(read_only=True)
+    principal_uuid = serializers.UUIDField(read_only=True)
     role = serializers.CharField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+
+class EventAuthorityPendingSerializer(serializers.Serializer):
+    """Observational receipt for an exact pending domain authority command."""
+
+    id = serializers.UUIDField(read_only=True)
+    kind = serializers.ChoiceField(choices=("assign", "revoke", "transfer"), read_only=True)
+    target_principal_uuid = serializers.UUIDField(read_only=True)
+    requested_role = serializers.CharField(read_only=True, allow_blank=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    total_effects = serializers.IntegerField(read_only=True)
+    completed_effects = serializers.IntegerField(read_only=True)
 
 
 class EventStaffListResponseSerializer(serializers.Serializer):
     """Envelope for the event staff listing."""
 
     staff = EventStaffMemberSerializer(many=True, read_only=True)
+    pending_transition = EventAuthorityPendingSerializer(read_only=True, allow_null=True)
 
 
 class EventStaffAssignRequestSerializer(serializers.Serializer):
-    """Assignment request: organizer-tier user email plus staff role.
+    """Assign one exact active human or service principal to an event role."""
 
-    ``role`` stays an unconstrained ``CharField`` at the HTTP boundary to keep the
-    v1 request contract backward-compatible (ADR-040 — a request enum is a
-    breaking change). The closed ``EventStaffRole`` vocabulary is still enforced
-    fail-closed in ``assign_event_staff``, which rejects an unknown role with a
-    400 (#1922).
-    """
-
-    email = serializers.EmailField()
+    principal_uuid = serializers.UUIDField()
     role = serializers.CharField(max_length=16)
 
 
 class EventOwnershipTransferRequestSerializer(serializers.Serializer):
-    """Ownership-transfer request: the target user's id (an existing co-organizer)."""
+    """Ownership-transfer request for an existing co-organizer principal."""
 
-    user_id = serializers.IntegerField(min_value=1)
+    principal_uuid = serializers.UUIDField()
 
 
 class ChallengeImportRequestSerializer(serializers.Serializer):

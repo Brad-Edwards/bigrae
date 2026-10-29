@@ -214,13 +214,13 @@ class TestEventStatusTransitions:
     """
 
     @pytest.mark.django_db
-    def test_schedule_draft_event(self, organizer_user):
+    def test_schedule_draft_event(self, organizer_user, organizer_credential):
         """Scheduling a draft event opens registration and creates its tasks."""
         from ctf.models import CTFScheduledTask
         from ctf.services import schedule_event
 
         event = _make_db_event(organizer_user, EventStatus.DRAFT.value)
-        result = schedule_event(event)
+        result = schedule_event(event, actor=organizer_credential)
 
         assert result is True
         event.refresh_from_db()
@@ -266,30 +266,30 @@ class TestEventStatusTransitions:
         assert event.status == EventStatus.ENDED.value
 
     @pytest.mark.django_db
-    def test_cancel_draft_event(self, organizer_user):
+    def test_cancel_draft_event(self, organizer_user, organizer_credential):
         """Should be able to cancel a draft event."""
         with patch("ctf.services.range.cleanup_event_ranges"):
             from ctf.services import cancel_event
 
             event = _make_db_event(organizer_user, EventStatus.DRAFT.value)
-            result = cancel_event(event)
+            result = cancel_event(event, actor=organizer_credential)
         assert result is True
         event.refresh_from_db()
         assert event.status == EventStatus.CANCELLED.value
 
     @pytest.mark.django_db
-    def test_cancel_scheduled_event(self, organizer_user):
+    def test_cancel_scheduled_event(self, organizer_user, organizer_credential):
         """Cancelling a scheduled event cancels its pending automation tasks."""
         from ctf.enums import ScheduledTaskStatus
         from ctf.models import CTFScheduledTask
         from ctf.services import cancel_event, schedule_event
 
         event = _make_db_event(organizer_user, EventStatus.DRAFT.value)
-        schedule_event(event)
+        schedule_event(event, actor=organizer_credential)
         assert CTFScheduledTask.objects.filter(event=event, status=ScheduledTaskStatus.PENDING.value).exists()
 
         with patch("ctf.services.range.cleanup_event_ranges"):
-            result = cancel_event(event)
+            result = cancel_event(event, actor=organizer_credential)
 
         assert result is True
         event.refresh_from_db()
@@ -307,11 +307,11 @@ class TestEventStatusTransitions:
         event.refresh_from_db()
         assert event.status == EventStatus.DRAFT.value
 
-    def test_cannot_schedule_active_event(self, mock_event_active):
+    def test_cannot_schedule_active_event(self, mock_event_active, mock_user):
         """Should not be able to schedule an active event."""
         from ctf.services import schedule_event
 
-        result = schedule_event(mock_event_active)
+        result = schedule_event(mock_event_active, actor=mock_user)
         assert result is False
 
     @pytest.mark.django_db
@@ -422,25 +422,25 @@ class TestEventStatusTransitions:
         assert archived_event.status == EventStatus.ARCHIVED.value
 
     @pytest.mark.django_db
-    def test_cancel_paused_event(self, organizer_user):
+    def test_cancel_paused_event(self, organizer_user, organizer_credential):
         """Should be able to cancel a paused event."""
         from ctf.services import cancel_event
 
         paused_event = _make_db_event(organizer_user, EventStatus.PAUSED.value)
         with patch("ctf.services.range.cleanup_event_ranges"):
-            result = cancel_event(paused_event)
+            result = cancel_event(paused_event, actor=organizer_credential)
         assert result is True
         paused_event.refresh_from_db()
         assert paused_event.status == EventStatus.CANCELLED.value
 
     @pytest.mark.django_db
-    def test_cancel_registration_event(self, organizer_user):
+    def test_cancel_registration_event(self, organizer_user, organizer_credential):
         """Should be able to cancel an event in registration."""
         from ctf.services import cancel_event
 
         reg_event = _make_db_event(organizer_user, EventStatus.REGISTRATION.value)
         with patch("ctf.services.range.cleanup_event_ranges"):
-            result = cancel_event(reg_event)
+            result = cancel_event(reg_event, actor=organizer_credential)
         assert result is True
         reg_event.refresh_from_db()
         assert reg_event.status == EventStatus.CANCELLED.value

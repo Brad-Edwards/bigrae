@@ -22,13 +22,12 @@ it("sends an explicit source choice and clears the transient credential after fa
   fireEvent.change(screen.getByLabelText("Input price per million tokens (micro-units)"), { target: { value: "1000000" } });
   fireEvent.change(screen.getByLabelText("Output price per million tokens (micro-units)"), { target: { value: "3000000" } });
   fireEvent.change(screen.getByLabelText("Price valid until"), { target: { value: "2027-10-01" } });
-  fireEvent.click(screen.getByLabelText("Allow organization members to use this source"));
   fireEvent.submit(screen.getByRole("form", { name: "Model source" }));
   expect(await screen.findByText("Credential could not be stored")).toBeInTheDocument();
   expect(screen.getByLabelText("API key")).toHaveValue("");
   await waitFor(() => expect(api).toHaveBeenCalledWith("/cms/organizations/org-1/model-sources/", expect.objectContaining({
     method: "POST", body: expect.objectContaining({ configuration: expect.objectContaining({
-      provider: "anthropic-v1", allow_organization_members: true,
+      provider: "anthropic-v1",
     }), credential: { api_key: "synthetic-key" } }),
   })));
   expect(api).toHaveBeenCalledTimes(1);
@@ -38,5 +37,5 @@ it("offers platform and external project placement without imposing a separate p
   renderRoute(<ModelSourceForm organization="org-1" onSaved={vi.fn()} />);
   expect(screen.getByLabelText("Google Cloud project")).toBeInTheDocument();
   expect(screen.getByText(/You may use the project hosting BigRAE/)).toBeInTheDocument();
-  expect(screen.getByLabelText("Allow organization members to use this source")).not.toBeChecked();
+  expect(screen.getByText(/access is granted through the organization authorization policy/)).toBeInTheDocument();
 });

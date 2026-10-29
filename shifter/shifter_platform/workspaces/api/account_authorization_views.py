@@ -23,7 +23,7 @@ from shared.authorization import (
     TargetRef,
     configured_authorization_provider,
 )
-from shared.credentials import CredentialContext
+from shared.credentials import CredentialContext, resolve_current_credential
 from shared.identity_scope import ResourceScope
 from shared.principal_port import PrincipalResolutionError
 from workspaces import services
@@ -70,7 +70,7 @@ def _context(
     if target_type not in {"installation", "account", "organization", "workspace"}:
         raise AuthorizationAPIError("authorization_denied", 403)
     try:
-        credential = authenticated_credential(request)
+        credential = resolve_current_credential(authenticated_credential(request))
         scope = (
             ResourceScope("installation")
             if target_type == "installation"

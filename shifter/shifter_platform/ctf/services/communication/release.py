@@ -47,8 +47,10 @@ from ctf.services.communication.admission import (
     AdmissionActor,
     assert_occurrence_ready,
     assert_source_realizable,
+    prepare_campaign_admission,
     reauthorize,
 )
+from ctf.services.communication.attribution import actor_attribution
 from ctf.services.communication.audience import resolve_recipients
 from ctf.services.communication.backpressure import AdmissionRequest, enforce_admission
 from ctf.services.communication.disposition import refresh_delivery_state
@@ -56,14 +58,16 @@ from ctf.services.communication.disposition import refresh_delivery_state
 logger = logging.getLogger(__name__)
 
 
-def _legacy_workspace_id(campaign: CommunicationCampaign) -> int:
-    """Reject campaign scopes unsupported by the workspace release service."""
-    if campaign.workspace_id is None:
-        raise CTFCommunicationError(
-            "Campaign is not available for workspace communications",
-            code="CTF_COMMUNICATION_WORKSPACE_DENIED",
-        )
-    return campaign.workspace_id
+def _campaign_scope(campaign: CommunicationCampaign) -> tuple[str, int]:
+    """Resolve the narrowest persisted scope for admission and audit."""
+    if campaign.workspace_id is not None:
+        return "workspace", campaign.workspace_id
+    if campaign.account_id is not None:
+        return "account", campaign.account_id
+    raise CTFCommunicationError(
+        "Campaign scope is unavailable",
+        code="CTF_COMMUNICATION_WORKSPACE_DENIED",
+    )
 
 
 def _idempotency_key(campaign_id: UUID, occurrence_key: str, range_generation_ref: str) -> str:
@@ -104,10 +108,7 @@ def _assert_replay_matches(
         conflicts.append("revision")
     if requested_due_at is not None and existing.due_at != requested_due_at:
         conflicts.append("due_at")
-    if actor.user_id is not None and existing.actor_user_id != actor.user_id:
-        conflicts.append("actor")
-    if actor.token_id is not None and existing.actor_token_id != actor.token_id:
-        conflicts.append("actor_token")
+    conflicts.extend(_actor_replay_conflicts(existing, actor))
     if conflicts:
         raise CTFCommunicationError(
             f"Replay conflicts with the released declaration ({', '.join(conflicts)})",
@@ -226,7 +227,12 @@ def release_campaign(
     now = timezone.now()
 
     # Target set is immutable after authoring, so the ids can be read before locking.
-    target_event_ids = list(campaign.target_events.values_list("id", flat=True))
+    actor = prepare_campaign_admission(campaign, actor)
+    target_event_ids = (
+        [admission.event_uuid for admission in actor.event_admissions]
+        if actor.credential is not None
+        else list(campaign.target_events.values_list("id", flat=True))
+    )
 
     with transaction.atomic():
         # 1. Lock the live target events in primary-key order (canonical order shared
@@ -235,10 +241,9 @@ def release_campaign(
 
         # 2. Re-check live authority inside the locked transaction -- on every caller,
         #    replay included -- so a revoked/unauthorized/token actor admits no work.
-        reauthorize(campaign, target_events, actor)
-
         # 3. Lock the campaign for the idempotency/replay decision.
         locked = CommunicationCampaign.objects.select_for_update().get(pk=campaign.pk)
+        actor = reauthorize(locked, target_events, actor)
         existing = CommunicationIntent.objects.filter(idempotency_key=key).first()
         if existing is not None:
             if existing.campaign_id != locked.pk:
@@ -256,16 +261,20 @@ def release_campaign(
         revision = _resolve_revision(locked, revision)
         recipients = resolve_recipients(set(target_event_ids), locked.audience_spec)
         channels = list(locked.channels)
-        attribution_user_id = actor.user_id if actor.user_id is not None else locked.created_by_id
-        attribution_token_id = actor.token_id if actor.token_id is not None else locked.actor_token_id
-        workspace_id = _legacy_workspace_id(locked)
+        attribution = actor_attribution(actor)
+        attribution_user_id = attribution.user_id
+        attribution_token_id = attribution.token_id
+        scope_kind, scope_id = _campaign_scope(locked)
 
         # Backpressure runs only on genuine (non-replay) admission -- the replay
         # check above already returned -- so a retry never double-reserves capacity.
         enforce_admission(
             AdmissionRequest(
-                actor_user_id=attribution_user_id,
-                workspace_id=workspace_id,
+                actor_user_id=(
+                    actor.credential.principal.uuid if actor.credential is not None else attribution_user_id
+                ),
+                scope_kind=scope_kind,
+                scope_id=scope_id,
                 event_ids=frozenset(target_event_ids),
                 audience_size=len(recipients),
                 channel_count=len(channels),
@@ -277,6 +286,9 @@ def release_campaign(
             # savepoint only, so the OUTER transaction stays usable to query the
             # winning row (never a query inside a broken atomic block).
             with transaction.atomic():
+                from shared.operation_authority import credential_reference_fields
+
+                authority_fields = credential_reference_fields(actor.credential) if actor.credential is not None else {}
                 intent = CommunicationIntent.objects.create(
                     campaign=locked,
                     revision=revision,
@@ -291,6 +303,7 @@ def release_campaign(
                     idempotency_key=key,
                     range_generation_ref=range_generation_ref,
                     released_at=now,
+                    **authority_fields,
                 )
         except IntegrityError:
             committed = CommunicationIntent.objects.filter(idempotency_key=key, campaign=locked).first()
@@ -305,10 +318,11 @@ def release_campaign(
         CommunicationCampaign.objects.filter(pk=locked.pk).update(status=CampaignStatus.RELEASED.value, updated_at=now)
         refresh_delivery_state([intent.pk])
         audit_communication_release(
-            actor_id=intent.actor_user_id,
+            actor_id=actor.credential or intent.actor_user_id,
             campaign_id=locked.id,
             intent_id=intent.id,
-            workspace_id=workspace_id,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
             recipient_count=len(recipients),
             channels=channels,
         )
@@ -378,15 +392,24 @@ def release_due_declaration(
     before the due time for an authorized organizer run-now. Returns one of the
     ``RELEASE_OUTCOME_*`` constants.
     """
+    if allow_early:
+        from ctf.services.communication.admission import admit_session_early_release
+
+        actor = admit_session_early_release(actor)
     now = now or timezone.now()
     campaign = intent.campaign
     assert_source_realizable(campaign.trigger_spec["kind"])
-    target_event_ids = list(campaign.target_events.values_list("id", flat=True))
+    actor = prepare_campaign_admission(campaign, actor)
+    target_event_ids = (
+        [admission.event_uuid for admission in actor.event_admissions]
+        if actor.credential is not None
+        else list(campaign.target_events.values_list("id", flat=True))
+    )
 
     with transaction.atomic():
         target_events = list(CTFEvent.objects.select_for_update().filter(id__in=target_event_ids).order_by("pk"))
-        reauthorize(campaign, target_events, actor)
         locked_campaign = CommunicationCampaign.objects.select_for_update().get(pk=campaign.pk)
+        actor = reauthorize(locked_campaign, target_events, actor)
         locked_intent = CommunicationIntent.objects.select_for_update().get(pk=intent.pk)
 
         disposition = _classify_due(locked_intent, now, allow_early)
@@ -401,13 +424,16 @@ def release_due_declaration(
         _assert_release_allowed(locked_campaign, target_events)
         recipients = resolve_recipients(set(target_event_ids), locked_campaign.audience_spec)
         channels = list(locked_intent.channels)
-        workspace_id = _legacy_workspace_id(locked_campaign)
+        scope_kind, scope_id = _campaign_scope(locked_campaign)
         enforce_admission(
             AdmissionRequest(
-                actor_user_id=locked_intent.actor_user_id
-                if locked_intent.actor_user_id is not None
-                else locked_campaign.created_by_id,
-                workspace_id=workspace_id,
+                actor_user_id=(
+                    actor.credential.principal.uuid
+                    if actor.credential is not None
+                    else locked_intent.actor_user_id or locked_campaign.created_by_id
+                ),
+                scope_kind=scope_kind,
+                scope_id=scope_id,
                 event_ids=frozenset(target_event_ids),
                 audience_size=len(recipients),
                 channel_count=len(channels),
@@ -422,12 +448,27 @@ def release_due_declaration(
             status=CampaignStatus.RELEASED.value, updated_at=now
         )
         audit_communication_release(
-            actor_id=locked_intent.actor_user_id,
+            actor_id=actor.credential or locked_intent.actor_user_id,
             campaign_id=locked_campaign.id,
             intent_id=locked_intent.id,
-            workspace_id=workspace_id,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
             recipient_count=len(recipients),
             channels=channels,
         )
     logger.info("Released scheduled communication intent %s at due time (%d recipients)", intent.id, len(recipients))
     return RELEASE_OUTCOME_RELEASED
+
+
+def _actor_replay_conflicts(existing: CommunicationIntent, actor: AdmissionActor) -> list[str]:
+    """Compare every supplied actor reference against the original released proof."""
+    conflicts: list[str] = []
+    if actor.user_id is not None and existing.actor_user_id != actor.user_id:
+        conflicts.append("actor")
+    if actor.token_id is not None and existing.actor_token_id != actor.token_id:
+        conflicts.append("actor_token")
+    if actor.credential is not None and existing.initiating_principal_uuid != actor.credential.principal.uuid:
+        conflicts.append("actor")
+    if actor.credential is not None and existing.credential_uuid != actor.credential.credential_uuid:
+        conflicts.append("credential")
+    return conflicts

@@ -3,11 +3,20 @@
 from uuid import UUID, uuid4
 
 import pytest
+from django.db import connection
 
 from tests.cms.services.test_principal_range_authority import principal_range
+from tests.cms.services.test_principal_range_scope import transferable_range
 
-pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.postgres]
-__all__ = ["principal_range"]
+pytestmark = [
+    pytest.mark.django_db(transaction=True),
+    pytest.mark.postgres,
+    pytest.mark.skipif(
+        not connection.features.supports_json_field_contains,
+        reason="Native range guest selection requires PostgreSQL JSON containment",
+    ),
+]
+__all__ = ["principal_range", "transferable_range"]
 
 
 class Gateway:
@@ -44,6 +53,144 @@ def test_signed_json_identity_binds_only_the_server_created_bootstrap(remote):
     _, _, gateway = remote
     submitted = launch(remote)
     assert gateway.last_identity == "access-" + str(submitted.bootstrap_id)
+
+
+@pytest.mark.parametrize("change", ["owner", "generation"])
+def test_range_rebound_after_handoff_decision_does_not_release_url(remote, monkeypatch, change):
+    from django.db.models import QuerySet
+
+    from cms.models import RangeInstance
+    from cms.models import Request as CMSRequest
+    from engine.models import Range
+    from engine.models import Request as EngineRequest
+    from management.services import create_service_principal
+    from mission_control.guacamole_bootstrap import consume_ready_url
+    from mission_control.models import GuacamoleBootstrapRequest
+
+    fixture, _, _ = remote
+    submitted = launch(remote)
+    lock = QuerySet.select_for_update
+    replacement = create_service_principal("Replacement range owner") if change == "owner" else None
+
+    def rebind_before_source_lock(query, *args, **kwargs):
+        if query.model is RangeInstance:
+            if change == "owner":
+                CMSRequest.objects.filter(pk=fixture.request.pk).update(owner_principal_uuid=replacement.uuid)
+                RangeInstance.objects.filter(pk=fixture.instance.pk).update(owner_principal_uuid=replacement.uuid)
+                EngineRequest.objects.filter(pk=fixture.realized.request_id).update(
+                    owner_principal_uuid=replacement.uuid
+                )
+                Range.objects.filter(pk=fixture.realized.pk).update(owner_principal_uuid=replacement.uuid)
+            else:
+                Range.objects.filter(pk=fixture.realized.pk).update(resource_generation=uuid4())
+        return lock(query, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", rebind_before_source_lock)
+    assert consume_ready_url(request_id=submitted.bootstrap_id, credential=fixture.credential) is None
+    row = GuacamoleBootstrapRequest.objects.get(pk=submitted.bootstrap_id)
+    assert row.delivered_at is None
+    assert row.result_url
+
+
+@pytest.mark.parametrize("operation", ["owner", "scope"])
+def test_remote_handoff_and_range_transfer_serialize_on_real_ancestry_lock(remote, transferable_range, operation):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from django.db import close_old_connections, connections
+
+    from cms.services import RangeScopeAuditContext, reassign_range_owner, rebind_range_workspace
+    from management.services import create_service_principal
+    from mission_control.guacamole_bootstrap import consume_ready_url
+    from mission_control.models import GuacamoleBootstrapRequest
+    from workspaces.services import add_account_member
+
+    fixture = transferable_range
+    # Both operations contend on the same real account. The scope destination
+    # is a workspace beneath that account, so account UUID ordering cannot hide
+    # an inversion behind a noncontended destination lock.
+    fixture.account = fixture.destination.account
+    fixture.request.account_id = fixture.instance.account_id = fixture.realized.account_id = fixture.account.id
+    fixture.request.save(update_fields=["account_id"])
+    fixture.instance.save(update_fields=["account_id"])
+    fixture.realized.save(update_fields=["account_id"])
+    submitted = launch(remote)
+    replacement = create_service_principal("Concurrent range transfer owner")
+    add_account_member(fixture.account.uuid, replacement)
+    account_locked = Event()
+    transfer_attempting_account = Event()
+
+    def source_account_lock(sql, params):
+        return (
+            '"workspaces_account"' in sql
+            and "FOR UPDATE" in sql.upper()
+            and any(str(value).replace("-", "") == fixture.account.uuid.hex for value in params or ())
+        )
+
+    def deliver():
+        close_old_connections()
+        connection = connections["default"]
+        observed = False
+
+        def observe(execute, sql, params, many, context):
+            nonlocal observed
+            result = execute(sql, params, many, context)
+            if not observed and source_account_lock(sql, params):
+                observed = True
+                account_locked.set()
+                assert transfer_attempting_account.wait(8), "Transfer never attempted the contended account lock"
+            return result
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '5s'")
+                cursor.execute("SET statement_timeout = '12s'")
+            with connection.execute_wrapper(observe):
+                return consume_ready_url(request_id=submitted.bootstrap_id, credential=fixture.credential)
+        finally:
+            connection.close()
+
+    def transfer():
+        close_old_connections()
+        connection = connections["default"]
+
+        def observe(execute, sql, params, many, context):
+            if source_account_lock(sql, params):
+                transfer_attempting_account.set()
+            return execute(sql, params, many, context)
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '5s'")
+                cursor.execute("SET statement_timeout = '12s'")
+            with connection.execute_wrapper(observe):
+                if operation == "owner":
+                    reassign_range_owner(fixture.instance.pk, replacement, credential=fixture.credential)
+                else:
+                    result = rebind_range_workspace(
+                        fixture.credential,
+                        request_id=fixture.request.request_id,
+                        target_workspace_uuid=fixture.destination.workspace.uuid,
+                        audit=RangeScopeAuditContext(actor_type="service", actor_id=None),
+                    )
+                    assert result.changed
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        handoff = workers.submit(deliver)
+        assert account_locked.wait(8), "Handoff never acquired the source account lock"
+        movement = workers.submit(transfer)
+        assert handoff.result(timeout=20)
+        movement.result(timeout=20)
+    row = GuacamoleBootstrapRequest.objects.get(pk=submitted.bootstrap_id)
+    assert row.delivered_at is not None
+    fixture.instance.refresh_from_db()
+    fixture.realized.refresh_from_db()
+    if operation == "owner":
+        assert fixture.instance.owner_principal_uuid == fixture.realized.owner_principal_uuid == replacement.uuid
+    else:
+        assert fixture.instance.workspace_id == fixture.realized.workspace_id == fixture.destination.workspace.id
 
 
 def test_gateway_renewal_denies_unknown_binding_and_pending_termination(remote):

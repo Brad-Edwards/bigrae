@@ -53,6 +53,7 @@ SPECTACULAR_SETTINGS = {
         "ParticipantPasswordKindEnum": ["generated", "set"],
         "CommunicationAudienceKindEnum": "ctf.enums_communication.AudienceKind",
         "CommunicationTriggerKindEnum": "ctf.enums_communication.TriggerKind",
+        "HierarchyParentKindEnum": ["account", "organization", "workspace"],
         "ResourceStatusEnum": "mission_control.api.serializers.RESOURCE_STATUS_VALUES",
         "WorkspaceRoleEnum": "workspaces.roles.WorkspaceRole",
         "AuthorizationOperationStateEnum": "workspaces.api.serializers.AUTHORIZATION_OPERATION_STATES",

@@ -1,5 +1,11 @@
 # CTF communications console design (#2052)
 
+S8 integration note (#2321): the historical legacy-user/workspace authority
+below is superseded by native credentials, exact account/organization/workspace
+parents and current event policy. The [current communication contracts](../technical/shifter_platform/ctf-communications.md)
+define the implemented authority and discovery boundaries. The console and
+receipt semantics remain; no legacy authority fallback is retained.
+
 Design for the multi-event communications API additions and console. The
 preflight notes record the boundaries:
 [console boundaries](../design/ctf-communications-console-boundaries-2052.md),

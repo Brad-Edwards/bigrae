@@ -8,6 +8,12 @@ defines qualification for the selected LiteLLM OSS gateway, including
 deployment-owned key rotation, automatic private TLS renewal and fresh bootstrap;
 it is not an installed service.
 
+ADR-066's identity cutover closes the retained sharing API and its composition
+entry points before membership reads or publication effects. They remain
+unavailable even when `MODEL_ACCESS_ENABLED` is set. This is enforcement of
+ADR-068, not gateway activation. Do not use these historical sharing procedures
+to enable the parked broker.
+
 Status: proposed for [#681](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/index.md),
 ADR-061, 2026-09-06. Procedures describe implementation requirements.
 Management endpoints and operational commands must be delivered and tested

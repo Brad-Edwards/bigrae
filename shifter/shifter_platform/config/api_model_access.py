@@ -1,11 +1,8 @@
-"""Scoped model-access sharing/catalog management API (M09, #2126 / PLAT-202).
+"""Retained sharing routes, unavailable under ADR-068.
 
-Thin DRF exposure of the existing Engine sharing validate/preview/publish/drain
-boundary and the cross-domain selector composition root. Catalog and deployment
-identity are resolved server-side from the mounted, digest-verified runtime
-envelope — a web request never supplies or rewrites the catalog. Every mutation
-enters the owning service, which re-derives the publisher, re-checks authority and
-compares the definition revision (management-preflight-2126.md).
+Authentication retains its normal API contract. Every authenticated request then
+stops at the mandatory parked boundary before parsing a draft or resolving data.
+The closed draft and accounting contracts remain available to their CI lane.
 """
 
 from __future__ import annotations
@@ -20,13 +17,14 @@ from cms.services import EngineSharingError
 from shared.api.errors import api_error_response
 from shared.api.model_access import ModelAccessAPIView
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
-from shared.api.principals import active_actor_user
+from shared.api.schema import ApiErrorSerializer
 from shared.api_tokens.permissions import require_scope
 from shared.api_tokens.scopes import (
     MODEL_ACCESS_OPERATOR_READ,
     MODEL_ACCESS_SHARING_READ,
     MODEL_ACCESS_SHARING_WRITE,
 )
+from shared.model_access.availability import ModelAccessParked, require_model_access_available
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -37,35 +35,38 @@ if TYPE_CHECKING:
     from shared.model_access import EffectivePolicy, ModelAccessCatalog, SharingBinding, SharingPool
 
 
-class IsPlatformOperatorActor(permissions.BasePermission):
-    """Require the resolved active actor to hold global deployment-operator authority.
-
-    Resolves the session user or token owner and applies the single canonical
-    operator predicate. An operator scope, staff status, or token possession does
-    not by itself satisfy this — the predicate is superuser-and-active only.
-    """
-
-    message = "This action requires platform-operator authority."
+class _ParkedSharing(permissions.BasePermission):
+    """Stop unsupported routes before body parsing, selectors or publication."""
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        from management.services import is_platform_operator
+        require_model_access_available()
+        return False
 
-        return is_platform_operator(active_actor_user(request))
+
+class _ParkedSharingAPIView(ModelAccessAPIView):
+    """Preserve the bounded API error contract at the mandatory parked boundary."""
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, ModelAccessParked):
+            return _error(self.request, _UNAVAILABLE)
+        return super().handle_exception(exc)
 
 
 # Session/CSRF + scoped-token parity per surface. ``require_scope`` also publishes
 # the exact scope into OpenAPI (shared.api.schema.PlatformAutoSchema).
 _SHARING_READ: list[type[permissions.BasePermission]] = [
     IsAuthenticatedSessionOrApiToken,
+    _ParkedSharing,
     require_scope(MODEL_ACCESS_SHARING_READ, MODEL_ACCESS_SHARING_READ),
 ]
 _SHARING_WRITE: list[type[permissions.BasePermission]] = [
     IsAuthenticatedSessionOrApiToken,
+    _ParkedSharing,
     require_scope(MODEL_ACCESS_SHARING_WRITE, MODEL_ACCESS_SHARING_WRITE),
 ]
 _OPERATOR_READ: list[type[permissions.BasePermission]] = [
     IsAuthenticatedSessionOrApiToken,
-    IsPlatformOperatorActor,
+    _ParkedSharing,
     require_scope(MODEL_ACCESS_OPERATOR_READ, MODEL_ACCESS_OPERATOR_READ),
 ]
 
@@ -76,6 +77,7 @@ _DENIED = ("model_access_denied", "Model access request denied.", 403)
 _STALE = ("model_access_revision_conflict", "Definition changed. Reload before saving.", 409)
 _NOT_FOUND = ("model_access_binding_not_found", "Binding not found.", 404)
 _INVALID = ("model_access_invalid", "Invalid model-access request.", 400)
+_PARKED_DESCRIPTION = "Unavailable under ADR-068, including when MODEL_ACCESS_ENABLED is true."
 
 
 def _current_envelope() -> tuple[ModelAccessCatalog, UUID] | None:
@@ -103,6 +105,7 @@ def _error(request: Request, mapped: tuple[str, str, int]) -> Response:
 # Stable owner-domain codes → bounded API category. SharingError carries a
 # ``sharing.*`` code; ContractError a ``*.*`` code.
 _ERROR_BY_CODE: dict[str, tuple[str, str, int]] = {
+    "runtime.model_access_parked": _UNAVAILABLE,
     "sharing.revision_conflict": _STALE,
     "source.revision_conflict": _STALE,
     "sharing.binding_not_found": _NOT_FOUND,
@@ -252,12 +255,17 @@ def _binding_and_pool(data: dict[str, object], deployment_id: UUID) -> tuple[Sha
     return seal_sharing_binding(draft), SharingPool.model_validate(data["pool"])
 
 
-class ModelAccessBindingValidateView(ModelAccessAPIView):
+class ModelAccessBindingValidateView(_ParkedSharingAPIView):
     """Validate a binding+pool draft against the pinned catalog. Confers no authority."""
 
     permission_classes = _SHARING_READ
 
-    @extend_schema(request=BindingDraftSerializer, responses=ValidResponseSerializer)
+    @extend_schema(
+        request=BindingDraftSerializer,
+        responses={200: ValidResponseSerializer, 503: ApiErrorSerializer},
+        deprecated=True,
+        description=_PARKED_DESCRIPTION,
+    )
     def post(self, request: Request) -> Response:
         from cms.services import engine_validate_sharing_binding
         from shared.model_access import ContractError
@@ -276,12 +284,17 @@ class ModelAccessBindingValidateView(ModelAccessAPIView):
         return Response({"valid": True})
 
 
-class ModelAccessSelectorPreviewView(ModelAccessAPIView):
+class ModelAccessSelectorPreviewView(_ParkedSharingAPIView):
     """Preview a selector's matched members and reason codes. Advisory, not authority."""
 
     permission_classes = _SHARING_READ
 
-    @extend_schema(request=SelectorSerializer, responses=SelectorPreviewResponseSerializer)
+    @extend_schema(
+        request=SelectorSerializer,
+        responses={200: SelectorPreviewResponseSerializer, 503: ApiErrorSerializer},
+        deprecated=True,
+        description=_PARKED_DESCRIPTION,
+    )
     def post(self, request: Request) -> Response:
         from config.model_access_sharing import ModelAccessCompositionError, resolve_model_access_selector
 
@@ -299,12 +312,17 @@ class ModelAccessSelectorPreviewView(ModelAccessAPIView):
         )
 
 
-class ModelAccessEffectivePolicyPreviewView(ModelAccessAPIView):
+class ModelAccessEffectivePolicyPreviewView(_ParkedSharingAPIView):
     """Preview the compiled effective policy for a subject: overlaps, conflicts, routings."""
 
     permission_classes = _OPERATOR_READ
 
-    @extend_schema(request=SubjectSerializer, responses=EffectivePolicyResponseSerializer)
+    @extend_schema(
+        request=SubjectSerializer,
+        responses={200: EffectivePolicyResponseSerializer, 503: ApiErrorSerializer},
+        deprecated=True,
+        description=_PARKED_DESCRIPTION,
+    )
     def post(self, request: Request) -> Response:
         from cms.services import engine_preview_effective_policy
         from shared.model_access import ContractError
@@ -324,12 +342,17 @@ class ModelAccessEffectivePolicyPreviewView(ModelAccessAPIView):
         return Response(_project_policy(policy))
 
 
-class ModelAccessBindingPublishView(ModelAccessAPIView):
+class ModelAccessBindingPublishView(_ParkedSharingAPIView):
     """Publish the next immutable binding revision under an optimistic CAS fence."""
 
     permission_classes = _SHARING_WRITE
 
-    @extend_schema(request=PublishSerializer, responses=RevisionResponseSerializer)
+    @extend_schema(
+        request=PublishSerializer,
+        responses={200: RevisionResponseSerializer, 503: ApiErrorSerializer},
+        deprecated=True,
+        description=_PARKED_DESCRIPTION,
+    )
     def post(self, request: Request) -> Response:
         from config.model_access_sharing import ModelAccessCompositionError, publish_model_access_binding
         from shared.model_access import ContractError
@@ -356,12 +379,17 @@ class ModelAccessBindingPublishView(ModelAccessAPIView):
         return Response(revision, status=201)
 
 
-class ModelAccessBindingDrainView(ModelAccessAPIView):
+class ModelAccessBindingDrainView(_ParkedSharingAPIView):
     """Withdraw a binding (terminal revision + membership fence) under a CAS fence."""
 
     permission_classes = _SHARING_WRITE
 
-    @extend_schema(request=DrainSerializer, responses=RevisionResponseSerializer)
+    @extend_schema(
+        request=DrainSerializer,
+        responses={200: RevisionResponseSerializer, 503: ApiErrorSerializer},
+        deprecated=True,
+        description=_PARKED_DESCRIPTION,
+    )
     def post(self, request: Request) -> Response:
         from config.model_access_sharing import ModelAccessCompositionError, drain_model_access_binding
         from shared.model_access import ContractError

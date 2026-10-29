@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[4]
@@ -47,3 +48,25 @@ def test_openfga_harness_requires_real_postgres_and_server_configuration() -> No
     assert "TEST_DB_BACKEND=postgres" in harness
     assert "OPENFGA_INTEGRATION_REQUIRED=1" in harness
     assert "tests/integration/authorization/test_openfga_released_server.py" in harness
+
+
+@pytest.mark.parametrize(
+    "workflow,job_id,command",
+    [
+        ("_quality.yml", "shifter-platform-e2e", "test:e2e"),
+        ("deploy.yml", "accessibility", "test:e2e:a11y"),
+    ],
+)
+def test_browser_gates_use_native_released_policy_stack(workflow, job_id, command):
+    """The real browser backend cannot run without its required policy service."""
+    job = yaml.safe_load((_ROOT / ".github/workflows" / workflow).read_text())["jobs"][job_id]
+    assert not job.get("continue-on-error", False)
+    runner = next(
+        step
+        for step in job["steps"]
+        if step.get("run", "").startswith("./scripts/run_openfga_integration.sh --browser")
+    )
+    assert runner["working-directory"] == "shifter/shifter_platform"
+    assert runner["run"] == f"./scripts/run_openfga_integration.sh --browser npm run {command}"
+    assert "if" not in runner
+    assert not runner.get("continue-on-error", False)

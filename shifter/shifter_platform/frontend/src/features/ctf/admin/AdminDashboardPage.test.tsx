@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { axe } from "vitest-axe";
 
 import { renderRoute } from "@/test/utils";
@@ -54,4 +54,14 @@ describe("AdminDashboardPage", () => {
     const results = await axe(container);
     expect(results.violations).toEqual([]);
   });
+});
+
+
+it("uses complete authorized aggregates even when the current page is smaller", async () => {
+  mockApi.mockResolvedValue({ events: [event()], count: 201, active_count: 150, team_mode_count: 75, next_page: 2 });
+  renderRoute(<AdminDashboardPage />);
+  await screen.findByRole("link", { name: "Spring CTF" });
+  for (const [label, value] of [["Total events", "201"], ["Active / open", "150"], ["Team-mode events", "75"]]) {
+    expect(within(screen.getByText(label).parentElement!).getByText(value)).toBeInTheDocument();
+  }
 });

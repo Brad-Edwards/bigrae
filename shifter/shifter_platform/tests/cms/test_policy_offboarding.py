@@ -97,6 +97,32 @@ def test_transfer_denial_and_projection_drift_preserve_ownership(owned_resources
     assert cms_request.user_id == instance.user_id == source.pk
 
 
+@pytest.mark.parametrize("during_policy", [False, True])
+def test_range_owner_transfer_fences_revoked_native_administrator(owned_resources, during_policy):
+    from cms.exceptions import CMSError
+    from management.models import ServiceCredentialAdmission
+
+    actor, source, destination, _workspace, cms_request, engine_range, engine_request, instance = owned_resources
+
+    def revoke():
+        ServiceCredentialAdmission.objects.filter(uuid=actor.credential_uuid).update(is_active=False)
+
+    class RevokingProvider(Provider):
+        def check(self, request):
+            decision = super().check(request)
+            if during_policy:
+                revoke()
+            return decision
+
+    if not during_policy:
+        revoke()
+    with pytest.raises((PermissionError, CMSError)):
+        services.policy_reassign_range_owner(actor, RevokingProvider(), instance.uuid, destination)
+    for row in (cms_request, engine_range, engine_request, instance):
+        row.refresh_from_db()
+        assert row.user_id == source.pk
+
+
 def test_offboarding_does_not_fabricate_destination_membership(owned_resources):
     actor, source, destination, workspace, *_ = owned_resources
     principal = identities.principal_for_user(destination)

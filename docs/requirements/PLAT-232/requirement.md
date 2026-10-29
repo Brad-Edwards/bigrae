@@ -21,6 +21,12 @@ prepared without replacing production routes or legacy authority. The coordinate
 S8 activation in #2321 binds these paths and maps historical facts. Prepared
 Django-admin writes are disabled in favor of the canonical validated commands.
 
+ADR-066 S8 supersession: The production organization profile and settings
+surface uses live principal policy, credential ceilings and owning-service
+commands. Legacy administrator roles and Django flags grant no runtime access.
+The browser binds profile, membership and creation state to the selected
+organization UUID. This supersedes the S1 and S4 coexistence boundary above.
+
 ## Rationale
 
 Organization profile management remains useful for shared team and enterprise accounts. ADR-066 places organizations beneath a typed account and removes the earlier assumption that every individual has a personal organization. The account schema and legacy settings runtime coexist only as dormant S1 structure and unchanged legacy authority; the S8 activation must converge account ancestry and principal membership across every access path.
@@ -37,11 +43,11 @@ Organization profile management remains useful for shared team and enterprise ac
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_organization.py` (Org profile read/update + authority seam (uuid-keyed, opaque denial, atomic locked update, strict audit))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/api/views.py` (GET/PATCH /organizations/<uuid>/ + administrable list; session-only; uuid-only wire)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/models/_organization_membership.py` (Persisted org-admin authority model (ADR-048))
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/administer/organization/OrganizationSettingsPage.tsx` (SPA organization settings chooser + editor (authority-driven, PATCH mask))
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/administer/accounts/AccountAdministrationPage.tsx` (Policy-filtered account and organization profile administration)
 - IMPLEMENTS → ADR `ADR-048` (Organization administrator authority (persisted org-admin role + superuser override))
 - TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_organization.py` (Service authority, opaque denial, PATCH mask, superuser override, strict audit, validation)
-- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_organization_api.py` (DRF boundary: uuid-only, 403 opaque, token rejected, unknown/invalid-field 400)
-- TESTS → TEST `shifter/shifter_platform/frontend/src/features/administer/organization/OrganizationSettingsPage.test.tsx` (SPA editor load/save/PATCH-mask/field-error/forbidden + chooser selection)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_account_policy_admin.py` (UUID-only policy-native organization profile boundary and opaque denial)
+- TESTS → TEST `shifter/shifter_platform/frontend/src/features/administer/accounts/AccountAdministrationPage.test.tsx` (Policy-filtered account and organization profile UI)
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_policy_profiles.py` (S4 prepared administration; activation remains coordinated)
 
@@ -49,4 +55,7 @@ Organization profile management remains useful for shared team and enterprise ac
 
 - TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_policy_profiles.py` (S4 prepared administration; activation remains coordinated)
 
-- TESTS → TEST `shifter/shifter_platform/frontend/src/features/administer/accounts/AccountAdministrationPage.test.tsx` (S4 prepared administration; activation remains coordinated)
+- IMPLEMENTS → GITHUB_ISSUE `2321` (S8 activation of the prepared policy-native organization profile)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/api/policy_profile_views.py` (Production organization profile adapter using principal policy authority)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/workspaces/services/_account_policy_reads.py` (Integration organization discovery without parent-read prerequisites)
+- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_prepared_admin_routes.py` (Organization and installation administrator discovery with credential ceilings)

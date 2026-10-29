@@ -21,7 +21,7 @@ from cms.models import (
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.auth import CTF_PARTICIPANT_GROUP
 from shared.authorization import AuthorizationRequest, TargetRef, configured_authorization_provider
-from shared.credentials import CredentialContext
+from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.identity_scope import ResourceScope
 from shared.mission_control_lease import MissionControlLeasePolicy
 from shared.principal_port import resolve_principal
@@ -120,36 +120,50 @@ def _error(kind: MissionControlLeasePolicyAdminError.Kind, message: str) -> Miss
     return MissionControlLeasePolicyAdminError(kind, message)
 
 
-def _assert_active_superuser(actor: User | CredentialContext) -> None:
-    """Require the service caller to be an authenticated active superuser."""
-    if isinstance(actor, CredentialContext):
-        try:
-            if actor.kind == "temporary":
-                raise ValueError("Temporary principal")
-            resolve_principal(actor.principal)
-            decision = configured_authorization_provider().check(
-                AuthorizationRequest(
-                    actor.principal,
-                    "installation.manage_lease_policy",
-                    TargetRef("installation"),
-                    ResourceScope("installation"),
-                    actor.ceiling,
-                )
+def _assert_active_superuser(actor: User | CredentialContext) -> User | CredentialContext:
+    """Use the same live policy for native proofs and explicit synchronous humans."""
+    from django.contrib.auth.models import User
+
+    from shared.api.principals import human_session_credential
+
+    try:
+        if isinstance(actor, CredentialContext):
+            current = resolve_current_credential(actor)
+        elif isinstance(actor, User):
+            current = human_session_credential(actor)
+            resolve_principal(current.principal)
+        else:
+            raise ValueError("Lease actor unavailable")
+        if current.kind == "temporary":
+            raise ValueError("Temporary principal")
+        decision = configured_authorization_provider().check(
+            AuthorizationRequest(
+                current.principal,
+                "installation.manage_lease_policy",
+                TargetRef("installation"),
+                ResourceScope("installation"),
+                current.ceiling,
             )
-            if decision.allowed:
-                return
-        except Exception as exc:
-            raise _error(MissionControlLeasePolicyAdminError.Kind.FORBIDDEN, "Lease administration denied") from exc
-        raise _error(MissionControlLeasePolicyAdminError.Kind.FORBIDDEN, "Lease administration denied")
-    if not (
-        getattr(actor, "is_authenticated", False)
-        and getattr(actor, "is_active", False)
-        and getattr(actor, "is_superuser", False)
-    ):
-        raise _error(
-            MissionControlLeasePolicyAdminError.Kind.FORBIDDEN,
-            "Only an active platform superuser may administer Mission Control lease policy",
         )
+        if not decision.allowed:
+            raise ValueError("Lease policy denied")
+        return current if isinstance(actor, CredentialContext) else actor
+    except Exception as exc:
+        raise _error(MissionControlLeasePolicyAdminError.Kind.FORBIDDEN, "Lease administration denied") from exc
+
+
+def _fence_lease_actor(actor: User | CredentialContext) -> None:
+    """Fence admitted local lifecycle after policy rows have been locked."""
+    from shared.api.principals import human_session_credential
+
+    try:
+        if isinstance(actor, CredentialContext):
+            if resolve_local_credential(actor) != actor:
+                raise ValueError("Lease credential changed")
+        else:
+            resolve_principal(human_session_credential(actor).principal)
+    except Exception as exc:
+        raise _error(MissionControlLeasePolicyAdminError.Kind.FORBIDDEN, "Lease administration denied") from exc
 
 
 def _deployment_policy() -> MissionControlLeasePolicy:

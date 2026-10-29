@@ -7,6 +7,7 @@ mapped HTTP status. DB fixtures from ``conftest.py``; services mocked at source.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -14,6 +15,7 @@ from uuid import uuid4
 import pytest
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.urls import reverse
+from django.utils import timezone
 
 from ctf.exceptions import (
     CTFNotFoundError,
@@ -474,6 +476,31 @@ class TestApiParticipantErrorPaths:
         # unavailable even to a registered participant.
         assert resp.status_code == 403
 
+    def test_file_download_live_policy_participation_denial_is_forbidden(
+        self, authenticated_organizer_client, ctf_challenge, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from ctf.models import CTFChallengeFile
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+        monkeypatch.setattr(
+            port,
+            "_provider_factory",
+            lambda: SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied")),
+        )
+        attachment = CTFChallengeFile.objects.create(
+            challenge=ctf_challenge,
+            filename="synthetic.txt",
+            file_size_bytes=4,
+            content_type="text/plain",
+            s3_key="synthetic-key",
+            sha256_hash="h",
+            order=0,
+        )
+        response = _json(authenticated_organizer_client, "get", "api_file_download", kwargs={"file_id": attachment.pk})
+        assert response.status_code == 403
+
     def test_participant_detail_not_found(self, authenticated_organizer_client: Client):
         resp = _json(
             authenticated_organizer_client, "get", "api_participant_detail", kwargs={"participant_id": uuid4()}
@@ -486,9 +513,33 @@ class TestApiParticipantErrorPaths:
         assert resp.status_code == 403
 
     def test_timeline_self(self, authenticated_participant_client: Client, ctf_participant: CTFParticipant):
+        ctf_participant.event.status = "active"
+        ctf_participant.event.event_start = timezone.now() - timedelta(minutes=1)
+        ctf_participant.event.event_end = timezone.now() + timedelta(hours=1)
+        ctf_participant.event.save(update_fields=["status", "event_start", "event_end"])
         resp = _json(
             authenticated_participant_client, "get", "api_score_timeline", kwargs={"participant_id": ctf_participant.id}
         )
+        assert resp.status_code == 200
+
+    def test_temporary_participant_reads_own_timeline(
+        self,
+        client: Client,
+        participant_user,
+        ctf_participant: CTFParticipant,
+    ):
+        from management.temporary_accounts import configure_temporary_ctf_account, set_ctf_password_change_required
+
+        ctf_participant.event.status = "active"
+        ctf_participant.event.event_start = timezone.now() - timedelta(minutes=1)
+        ctf_participant.event.event_end = timezone.now() + timedelta(hours=1)
+        ctf_participant.event.save(update_fields=["status", "event_start", "event_end"])
+        configure_temporary_ctf_account(participant_user, ctf_participant.event_id)
+        set_ctf_password_change_required(participant_user, False)
+        client.force_login(participant_user)
+
+        resp = _json(client, "get", "api_score_timeline", kwargs={"participant_id": ctf_participant.id})
+
         assert resp.status_code == 200
 
     def test_timeline_forbidden_other(

@@ -43,6 +43,8 @@ from ctf.api.serializers import (
 )
 from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
+from shared.api.principals import authenticated_credential
+from shared.api.schema import ApiErrorSerializer
 from shared.api_tokens import scopes
 from shared.api_tokens.permissions import require_scope
 
@@ -198,7 +200,7 @@ class ParticipantChallengeDetailView(APIView):
     permission_classes = CTF_PARTICIPANT_PERMISSIONS
     required_read_scopes = _PLAY_READ
 
-    @extend_schema(responses=ParticipantChallengeDetailSerializer)
+    @extend_schema(responses={200: ParticipantChallengeDetailSerializer, 503: ApiErrorSerializer})
     def get(self, request: Request, challenge_id: UUID) -> Response:
         """Return the challenge detail, or 404/403 per the read-availability policy."""
         # Boundary failures raise ``_CtfApiError``, which the single ``except``
@@ -206,6 +208,7 @@ class ParticipantChallengeDetailView(APIView):
         from ctf.exceptions import CTFNotFoundError, CTFStateError, CTFValidationError
         from ctf.services.challenge import assert_challenge_readable_for_participant, get_challenge
         from ctf.services.participant import get_participant_by_user
+        from shared.exceptions import CMSError
 
         try:
             actor = ctf_actor_user(request)
@@ -232,8 +235,17 @@ class ParticipantChallengeDetailView(APIView):
                 ) from exc
             return Response(
                 ParticipantChallengeDetailSerializer(
-                    projections.participant_challenge_detail(participant, challenge)
+                    projections.participant_challenge_detail(
+                        participant, challenge, credential=authenticated_credential(request)
+                    )
                 ).data
+            )
+        except CMSError as exc:
+            return api_error_response(
+                code="range_targets_unavailable",
+                message="Range targets are unavailable.",
+                status_code=503 if exc.details.get("code") == "authority-unavailable" else 403,
+                request=request,
             )
         except _CtfApiError as exc:
             return exc.to_response(request)
@@ -405,15 +417,30 @@ class ParticipantContentImagesView(APIView):
     @extend_schema(responses=ParticipantContentImagesSerializer)
     def get(self, request: Request) -> Response:
         """Return ready copies of images in content the participant can read now."""
+        from ctf.exceptions import CTFError, CTFPermissionError
+        from ctf.services._content_image_authority import require_content_image_participant
         from ctf.services.content_images import participant_image_state
 
         participant = _resolve_active_participant(request)
         if participant is None:
             return _no_active_event_response(request)
-        mapping, pending = participant_image_state(participant)
-        return Response(
-            {"images": [{"source_url": src, "url": url} for src, url in sorted(mapping.items())], "pending": pending}
-        )
+        try:
+            participant = require_content_image_participant(authenticated_credential(request), participant.event_id)
+        except (ValueError, CTFPermissionError):
+            response = _no_active_event_response(request)
+        except CTFError:
+            response = api_error_response(
+                code="dependency_unavailable", message="Service unavailable", status_code=503, request=request
+            )
+        else:
+            mapping, pending = participant_image_state(participant)
+            response = Response(
+                {
+                    "images": [{"source_url": src, "url": url} for src, url in sorted(mapping.items())],
+                    "pending": pending,
+                }
+            )
+        return response
 
 
 class ParticipantBriefingView(APIView):

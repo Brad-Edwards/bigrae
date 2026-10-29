@@ -25,4 +25,4 @@ Post-event cleanup is the most commonly forgotten manual task, leading to ranges
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/` (Destroys all ranges for an event - iterates participants with ranges, calls _destroy_single_range, tracks destroyed/failed counts)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py::_handle_cleanup_ranges` (CLEANUP_RANGES task handler - dispatches to cleanup_event_ranges)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (Schedules CLEANUP_RANGES task at get_cleanup_time() when auto_cleanup is enabled)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#628` (CTF-1003: Automated Range Cleanup)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#628` (CTF-1003: Automated Range Cleanup)

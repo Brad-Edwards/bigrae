@@ -27,6 +27,24 @@ from cms.models import AgentConfig, OperatingSystem, RaesPackageSource
 User = get_user_model()
 
 
+@pytest.fixture(autouse=True)
+def _mission_control_policy(monkeypatch):
+    """Exercise Mission Control through the post-cutover policy boundary."""
+    from types import SimpleNamespace
+
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+    decision = AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")
+    monkeypatch.setattr(
+        port,
+        "_provider_factory",
+        lambda: SimpleNamespace(
+            check=lambda _request: decision,
+            batch_check=lambda requests: tuple(decision for _ in requests),
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Cloud / network boundary helpers (SSH-key secret store + Guacamole HTTP)
 #
@@ -170,26 +188,24 @@ def range_ssh_instance(db):
         cloud_provider: str = "gcp",
         status=None,
     ):
-        from uuid import UUID, uuid4
+        from uuid import UUID
+
+        from django.db import connection
 
         from cms.models import Instance as CMSInstance
         from cms.models import InstanceType
         from cms.models import Request as CMSRequest
         from engine.models import Range
-        from shared.enums import RequestType
-        from workspaces.services import resolve_personal_workspace
+        from tests._mission_control_fixtures import native_range_for_user
 
-        workspace_id = resolve_personal_workspace(user).workspace_id
+        if not connection.features.supports_json_field_contains:
+            pytest.skip("Native range guest selection requires PostgreSQL JSON containment")
+        request_uuid = native_range_for_user(user)
         instance_type, _ = InstanceType.objects.get_or_create(
             slug="test-range-instance",
             defaults={"name": "Test Range Instance", "spec_slug": "instance.panw-ngfw"},
         )
-        cms_request = CMSRequest.objects.create(
-            workspace_id=workspace_id,
-            request_id=uuid4(),
-            request_type=RequestType.RANGE.value,
-            user=user,
-        )
+        cms_request = CMSRequest.objects.get(request_id=request_uuid)
         try:
             cms_instance_id = UUID(uuid)
         except ValueError:
@@ -216,12 +232,10 @@ def range_ssh_instance(db):
                 }
             },
         }
-        rng = Range.objects.create(
-            workspace_id=workspace_id,
-            user=user,
-            status=status or Range.Status.READY,
-            provisioned_instances=[instance],
-        )
+        rng = Range.objects.get(request__request_id=request_uuid)
+        rng.status = status or Range.Status.READY
+        rng.provisioned_instances = [instance]
+        rng.save(update_fields=["status", "provisioned_instances"])
         return rng, instance
 
     return _make
@@ -246,26 +260,24 @@ def range_rdp_instance(db):
         sftp_root_directory: str | None = None,
         status=None,
     ):
-        from uuid import UUID, uuid4
+        from uuid import UUID
+
+        from django.db import connection
 
         from cms.models import Instance as CMSInstance
         from cms.models import InstanceType
         from cms.models import Request as CMSRequest
         from engine.models import Range
-        from shared.enums import RequestType
-        from workspaces.services import resolve_personal_workspace
+        from tests._mission_control_fixtures import native_range_for_user
 
-        workspace_id = resolve_personal_workspace(user).workspace_id
+        if not connection.features.supports_json_field_contains:
+            pytest.skip("Native range guest selection requires PostgreSQL JSON containment")
+        request_uuid = native_range_for_user(user)
         instance_type, _ = InstanceType.objects.get_or_create(
             slug="test-range-instance",
             defaults={"name": "Test Range Instance", "spec_slug": "instance.panw-ngfw"},
         )
-        cms_request = CMSRequest.objects.create(
-            workspace_id=workspace_id,
-            request_id=uuid4(),
-            request_type=RequestType.RANGE.value,
-            user=user,
-        )
+        cms_request = CMSRequest.objects.get(request_id=request_uuid)
         CMSInstance.objects.create(
             id=UUID(uuid),
             request=cms_request,
@@ -284,12 +296,10 @@ def range_rdp_instance(db):
         }
         if sftp_root_directory is not None:
             instance["sftp_root_directory"] = sftp_root_directory
-        rng = Range.objects.create(
-            workspace_id=workspace_id,
-            user=user,
-            status=status or Range.Status.READY,
-            provisioned_instances=[instance],
-        )
+        rng = Range.objects.get(request__request_id=request_uuid)
+        rng.status = status or Range.Status.READY
+        rng.provisioned_instances = [instance]
+        rng.save(update_fields=["status", "provisioned_instances"])
         return rng, instance
 
     return _make
@@ -314,7 +324,7 @@ def _ensure_ngfw_catalog():
 
 
 @pytest.fixture
-def cms_ngfw_app(db):
+def cms_ngfw_app(db, settings, live_session_credential, ngfw_credentials):
     """Factory: a real CMS NGFW ``App`` (Request + Instance + App, panw-ngfw types).
 
     This is what ``cms.services.get_ngfw`` / ``list_ngfws`` resolve and project
@@ -322,33 +332,39 @@ def cms_ngfw_app(db):
     """
 
     def _make(user, *, name="DevNGFW", status=None, serial="X-1"):
-        from uuid import uuid4
-
-        from cms.models import App, AppType, Instance, InstanceType, Request
-        from shared.enums import RequestType, ResourceStatus
-        from workspaces.services import resolve_personal_workspace
+        from cms.models import App
+        from cms.services import create_ngfw
+        from engine.models import Instance
+        from shared.enums import ResourceStatus
+        from shared.identity_scope import ResourceScope
+        from shared.schemas.app import NGFWOneTimeRegistration
+        from tests._mission_control_fixtures import individual_account
 
         _ensure_ngfw_catalog()
+        settings.CLOUD_PROVIDER = "aws"
+        settings.ENGINE_TASK_CLUSTER = "synthetic-namespace"
+        settings.ENGINE_TASK_DEFINITION = "example.test/synthetic@sha256:" + "1" * 64
+        account = individual_account(user)
+        profile, _ = ngfw_credentials(user)
+        created = create_ngfw(
+            live_session_credential(user),
+            name,
+            profile.pk,
+            "otp",
+            scope=ResourceScope("account", account.uuid),
+            otp=NGFWOneTimeRegistration("synthetic-code", "synthetic-folder"),
+        )
+        app = App.objects.select_related("instance__request").get(pk=created.app_id)
         resolved_status = status or ResourceStatus.READY.value
-        request = Request.objects.create(
-            workspace_id=resolve_personal_workspace(user).workspace_id,
-            request_id=uuid4(),
-            request_type=RequestType.NGFW.value,
-            user=user,
-        )
-        instance = Instance.objects.create(
-            request=request,
-            name=name,
-            instance_type=InstanceType.objects.get(slug="panw-ngfw"),
-            status=resolved_status,
-        )
-        return App.objects.create(
-            name=name,
-            app_type=AppType.objects.get(slug="panw-ngfw"),
-            instance=instance,
-            status=resolved_status,
-            data={"serial_number": serial},
-        )
+        app.status = app.instance.status = resolved_status
+        app.data = {"serial_number": serial}
+        app.save(update_fields=["status", "data"])
+        app.instance.save(update_fields=["status"])
+        native = Instance.objects.get(request__request_id=app.instance.request.request_id)
+        native.status = resolved_status
+        native.save(update_fields=["status"])
+        native.apps.update(status=resolved_status)
+        return app
 
     return _make
 
@@ -369,6 +385,14 @@ def ngfw_credentials(db):
 
     def _make(user):
         from cms.models import Credential, CredentialType
+        from tests._mission_control_fixtures import individual_account
+
+        account = individual_account(user)
+        custody = {
+            "owner_principal_uuid": user.identity_principal.uuid,
+            "scope_kind": "account",
+            "account_uuid": account.uuid,
+        }
 
         dp_ct, _ = CredentialType.objects.get_or_create(
             slug="deployment_profile",
@@ -377,19 +401,26 @@ def ngfw_credentials(db):
         scm_ct, _ = CredentialType.objects.get_or_create(
             slug="scm", defaults={"name": "scm", "spec_slug": "credential.scm"}
         )
-        deployment_profile = Credential.objects.create(
-            user=user, credential_type=dp_ct, name="dp-cred", data={"name": "dp", "authcode": "AUTH-XYZ"}
-        )
-        scm_credential = Credential.objects.create(
+        deployment_profile, _ = Credential.objects.get_or_create(
             user=user,
+            credential_type=dp_ct,
+            name="dp-cred",
+            defaults={"data": {"name": "dp", "authcode": "AUTH-XYZ"}},
+            **custody,
+        )
+        scm_credential, _ = Credential.objects.get_or_create(
+            user=user,
+            **custody,
             credential_type=scm_ct,
             name="scm-cred",
-            data={
-                "name": "scm",
-                "scm_pin_id": "PIN1",
-                "scm_pin_value": "VAL1",
-                "scm_folder_name": "folder",
-                "sls_region": "us",
+            defaults={
+                "data": {
+                    "name": "scm",
+                    "scm_pin_id": "PIN1",
+                    "scm_pin_value": "VAL1",
+                    "scm_folder_name": "folder",
+                    "sls_region": "us",
+                }
             },
         )
         return deployment_profile, scm_credential
@@ -409,23 +440,36 @@ def make_ngfw(db):
     def _make(user, *, status=None, state=None, owner=None, with_request=True):
         from uuid import uuid4
 
-        from engine.models import Instance, Request
+        from cms.models import App as CMSApp
+        from cms.models import AppType, InstanceType
+        from cms.models import Instance as CMSInstance
+        from cms.models import Request as CMSRequest
+        from engine.models import App, Instance, Request
         from shared.enums import RequestType, ResourceStatus
+        from shared.principal_port import principal_for_user
+        from tests._mission_control_fixtures import individual_account
+
+        owner = owner or user
+        account = individual_account(owner)
+        custody = {
+            "owner_principal_uuid": principal_for_user(owner).uuid,
+            "scope_kind": "account",
+            "account_id": account.id,
+        }
 
         request = None
         if with_request:
-            # engine.models.Request (imported above) carries no workspace scope;
-            # tenancy lives on the CMS request and the engine Range.
             request = Request.objects.create(
                 request_id=uuid4(),
                 request_type=RequestType.NGFW.value,
-                user=owner or user,
+                user=owner,
+                **custody,
             )
         default_state = {
             "management_ip": "10.1.5.10",
             "ssh_key_secret_arn": "arn:aws:secretsmanager:us-east-2:123:secret:key",
         }
-        return Instance.objects.create(
+        runtime = Instance.objects.create(
             uuid=uuid4(),
             request=request,
             role=Instance.Role.NGFW,
@@ -433,8 +477,57 @@ def make_ngfw(db):
             status=status or ResourceStatus.READY.value,
             state=default_state if state is None else state,
         )
+        if request is not None:
+            _ensure_ngfw_catalog()
+            cms_request = CMSRequest.objects.create(
+                request_id=request.request_id, request_type="ngfw", user=owner, **custody
+            )
+            cms_instance = CMSInstance.objects.create(
+                id=runtime.uuid,
+                request=cms_request,
+                name="Synthetic device",
+                instance_type=InstanceType.objects.get(slug="panw-ngfw"),
+                status=runtime.status,
+            )
+            app = CMSApp.objects.create(
+                instance=cms_instance,
+                app_type=AppType.objects.get(slug="panw-ngfw"),
+                name=cms_instance.name,
+                status=runtime.status,
+            )
+            App.objects.create(uuid=app.pk, request=request, instance=runtime, app_type="ngfw", status=runtime.status)
+            runtime.test_app_uuid = app.pk
+        return runtime
 
     return _make
+
+
+@pytest.fixture
+def native_guacamole(django_user_model, live_session_credential, make_ngfw, settings):
+    """One real native device, credential and transport-backed bootstrap."""
+    from types import SimpleNamespace
+
+    from mission_control.guacamole_session import launch_guacamole_session
+    from mission_control.models import GuacamoleBootstrapRequest
+    from tests.mission_control.test_principal_guacamole import Gateway
+
+    settings.GUACAMOLE_BOOTSTRAP_INLINE = True
+    user = django_user_model.objects.create_user(username="native-guacamole-delivery")
+    credential = live_session_credential(user)
+    user.credential = credential
+    runtime = make_ngfw(user)
+    gateway = Gateway()
+    with _secrets_boundary_cm():
+        launch = launch_guacamole_session(
+            user=credential,
+            protocol="ngfw_ssh",
+            target_id=str(runtime.test_app_uuid),
+            guacamole_client=gateway,
+        )
+    row = GuacamoleBootstrapRequest.objects.get(pk=launch.bootstrap_id)
+    assert row.status == "succeeded"
+    user.native_bootstrap = row
+    return SimpleNamespace(user=user, credential=credential, runtime=runtime, row=row, gateway=gateway)
 
 
 @pytest.fixture
@@ -460,6 +553,16 @@ def make_agent(db, windows_os) -> Callable[..., AgentConfig]:
     """Factory creating a real AgentConfig owned by ``user``."""
 
     def _make(user, *, os=None, name="Test XDR Agent", **overrides) -> AgentConfig:
+        from shared.principal_port import principal_for_user
+        from workspaces.models import Account
+        from workspaces.services import individual_account_scope
+
+        principal = principal_for_user(user)
+        Account.objects.get_or_create(
+            individual_principal_uuid=principal.uuid,
+            defaults={"kind": Account.Kind.INDIVIDUAL, "name": f"Test account {user.pk}"},
+        )
+        scope = individual_account_scope(principal)
         fields: dict[str, Any] = {
             "name": name,
             "s3_key": "agents/test/agent.msi",
@@ -467,6 +570,11 @@ def make_agent(db, windows_os) -> Callable[..., AgentConfig]:
             "file_size_bytes": 50_000_000,
             "sha256_hash": "abc123",
             "user": user,
+            "owner_principal_uuid": principal.uuid,
+            "scope_kind": scope.kind,
+            "account_uuid": scope.account_uuid,
+            "organization_uuid": scope.organization_uuid,
+            "workspace_uuid": scope.workspace_uuid,
             "os": os or windows_os,
         }
         fields.update(overrides)
@@ -476,28 +584,44 @@ def make_agent(db, windows_os) -> Callable[..., AgentConfig]:
 
 
 @pytest.fixture
-def hydratable_scenario(db, monkeypatch) -> RaesPackageSource:
+def hydratable_scenario(db, monkeypatch, settings) -> RaesPackageSource:
     """A conformance-passed RAES source with dispatch held at the cloud seam."""
     staff = User.objects.create_user(
         username="scenario-author@example.com",
         email="scenario-author@example.com",
         is_staff=True,
     )
+    settings.ENGINE_TASK_CLUSTER = "test-namespace"
+    settings.ENGINE_TASK_DEFINITION = "test-provisioner:latest"
     monkeypatch.setattr("engine.services._raes_range.start_raes_range_provisioning", lambda *_a, **_kw: None)
 
-    def dispatch(request_id, user, _source, backend_admission, workspace_id, egress_mode):
-        from engine.services import create_raes_range
+    def dispatch(request_id, actor, source, *dispatch_args):
+        from cms.raes.dispatch import CmsRaesDispatchPort
 
-        create_raes_range(
-            request_id=request_id,
-            user_id=user.id,
-            compiled_plan={"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": []},
+        if len(dispatch_args) == 1:
+            options = dispatch_args[0]
+            backend_admission = options.backend_admission
+            workspace_id = options.workspace_id
+            egress_mode = options.egress_mode
+            principal_scope = options.principal_scope
+        else:
+            backend_admission, workspace_id, egress_mode = dispatch_args
+            principal_scope = None
+
+        CmsRaesDispatchPort(
+            user_id=getattr(actor, "id", None),
+            request_id=str(request_id),
             backend_admission=backend_admission,
             workspace_id=workspace_id,
             egress_mode=egress_mode,
-        )
+            credential=actor if not hasattr(actor, "id") else None,
+            scope=principal_scope,
+            source=source if principal_scope is not None else None,
+        ).realize({"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": {}})
 
     monkeypatch.setattr("cms.services._raes_range_create._dispatch_raes_package", dispatch)
+    monkeypatch.setattr("cms.services._raes_dispatch.dispatch_repo_raes_package", dispatch)
+    monkeypatch.setattr("cms.services._raes_dispatch.dispatch_object_raes_package", dispatch)
     return RaesPackageSource.objects.create(
         scenario_id="behavior-test",
         contract_kind="raes",
@@ -507,6 +631,9 @@ def hydratable_scenario(db, monkeypatch) -> RaesPackageSource:
         package_digest="sha256:" + "a" * 64,
         conformance_status="passed",
         registered_by=staff,
+        owner_principal_uuid=staff.identity_principal.uuid,
+        scope_kind="installation",
+        is_operator_published=True,
     )
 
 

@@ -22,11 +22,11 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
 from ctf.enums_communication import DeliveryStatus, IntentDeliveryState
 from ctf.models import CommunicationIntent, CTFParticipant, DeliveryAttempt
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
+from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = [pytest.mark.postgres, pytest.mark.django_db(transaction=True)]
 
@@ -53,8 +53,7 @@ def _release(owner, event, count):
         subject="Check-in",
         body="Report to the event desk.",
     )
-    workspace_uuid = str(workspace_services.resolve_personal_workspace(owner).workspace_uuid)
-    campaign = create_campaign(owner, workspace_uuid, draft)
+    campaign = create_campaign(owner, individual_account_uuid(owner), draft, parent_type="account")
     return release_campaign(campaign, occurrence_key="restart", actor_user_id=owner.id)
 
 

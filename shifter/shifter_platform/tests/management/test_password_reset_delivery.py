@@ -12,7 +12,6 @@ import smtplib
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.mail.backends.base import BaseEmailBackend
-from rest_framework.test import APIClient
 
 from management import password_reset
 from management.services import AuditContext
@@ -77,33 +76,21 @@ def test_unavailable_transport_refuses_before_audit_and_sends_nothing(reset_site
     assert not AuditLog.objects.filter(context=AUDIT_CONTEXT, entity_id=local_user.id).exists()
 
 
-def test_admin_api_returns_service_unavailable_for_a_refused_send(reset_site, local_user):
-    reset_site.EMAIL_BACKEND = "tests.management.test_password_reset_delivery.RefusingBackend"
-    admin = User.objects.create_superuser(username="reset-root", email="root@example.com", password="pw")
-    client = APIClient()
-    client.force_authenticate(user=admin)
-
-    response = client.post(f"/api/v1/administer/users/{local_user.id}/reset-password/", format="json")
-
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "reset_delivery_failed"
-    assert local_user.email not in response.content.decode()
-
-
-def test_policy_api_returns_service_unavailable_for_a_refused_send(reset_site, local_user, monkeypatch):
-    from rest_framework.test import APIRequestFactory, force_authenticate
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [("reset_delivery_failed", 503), ("reset_throttled", 409), ("reset_delivery_unavailable", 400)],
+)
+def test_policy_api_maps_reset_errors_to_http_status(code, status):
+    from rest_framework.request import Request
+    from rest_framework.test import APIRequestFactory
 
     from management.api.policy_views import PolicyAdminUserResetPasswordView
-    from tests.management.test_policy_lifecycle import Provider, _service_actor
 
-    reset_site.EMAIL_BACKEND = "tests.management.test_password_reset_delivery.RefusingBackend"
-    actor = _service_actor()
-    monkeypatch.setattr("management.api.policy_views.configured_authorization_provider", Provider)
-    request = APIRequestFactory().post(f"/api/v1/administer/users/{local_user.pk}/reset-password/", {}, format="json")
-    request.credential_context = actor
-    force_authenticate(request, token=actor)
+    view = PolicyAdminUserResetPasswordView()
+    view.request = Request(APIRequestFactory().post("/api/v1/administer/users/1/reset-password/"))
+    view.format_kwarg = None
 
-    response = PolicyAdminUserResetPasswordView.as_view()(request, pk=local_user.pk)
+    response = view.handle_exception(password_reset.PasswordResetError(code, "Bounded message"))
 
-    assert response.status_code == 503
-    assert response.data["error"]["code"] == "reset_delivery_failed"
+    assert response.status_code == status
+    assert response.data["error"]["code"] == code

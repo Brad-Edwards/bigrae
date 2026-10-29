@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: PLAT-106, "Unified DRF API Surface"
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1122>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1122>
 
 Superseded note: ADR-027 / issue #1195 removed the legacy experiment API and
 script-upload surfaces. The scenario-editor DRF guidance remains active; the

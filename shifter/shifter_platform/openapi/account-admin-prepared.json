@@ -6,10 +6,491 @@
         "description": "Authenticated HTTP/JSON API for BigRAE platform integrations."
     },
     "paths": {
+        "/api/v1/account-workspaces/{workspace_uuid}/invitations/": {
+            "get": {
+                "operationId": "api_v1_workspace_invitations_list",
+                "description": "List/issue through the existing signed-token and delivery seam.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "default": 50
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "workspace_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "account-workspaces"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PolicyInvitationPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            },
+            "post": {
+                "operationId": "api_v1_workspace_invitations_issue",
+                "description": "List/issue through the existing signed-token and delivery seam.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "workspace_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "account-workspaces"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyInvitationCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyInvitationCommand"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyInvitationCommand"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PolicyWorkspaceInvitation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/account-workspaces/{workspace_uuid}/invitations/{invitation_uuid}/resend/": {
+            "post": {
+                "operationId": "api_v1_workspace_invitations_resend",
+                "description": "Resend the exact invitation through the current native authority boundary.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "invitation_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "workspace_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "account-workspaces"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PolicyWorkspaceInvitation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/account-workspaces/{workspace_uuid}/invitations/{invitation_uuid}/revoke/": {
+            "post": {
+                "operationId": "api_v1_workspace_invitations_revoke",
+                "description": "Revoke the exact invitation through the current native authority boundary.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "invitation_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "workspace_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "account-workspaces"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PolicyWorkspaceInvitation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/account-workspaces/{workspace_uuid}/membership/": {
+            "get": {
+                "operationId": "api_v1_workspace_membership_self",
+                "description": "Only the admitted principal's own membership fact.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "workspace_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "account-workspaces"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AccountMemberView"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/account-workspaces/{workspace_uuid}/memberships/leave/": {
+            "post": {
+                "operationId": "api_v1_workspace_memberships_leave",
+                "description": "Self leave retains the last-owner invariant and never changes policy tuples.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "workspace_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "account-workspaces"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/account-workspaces/{workspace_uuid}/ownership/transfer/": {
+            "post": {
+                "operationId": "api_v1_workspace_transfer_ownership",
+                "description": "Transfer a resource fact without changing membership or policy.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "workspace_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "account-workspaces"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrincipalOwnershipCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrincipalOwnershipCommand"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrincipalOwnershipCommand"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
         "/api/v1/accounts/": {
             "get": {
                 "operationId": "prepared_accounts_list",
-                "description": "List authorized accounts or create one under installation authority.",
+                "description": "Page accounts visible to the current native administration credential.",
                 "parameters": [
                     {
                         "in": "query",
@@ -86,13 +567,23 @@
             },
             "post": {
                 "operationId": "accounts_create",
-                "description": "List authorized accounts or create one under installation authority.",
+                "description": "Create or resume an account declaration under installation authority.",
                 "tags": [
                     "accounts"
                 ],
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/AccountCommand"
                             }
@@ -114,6 +605,16 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/AccountView"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HierarchyPendingReceipt"
                                 }
                             }
                         },
@@ -145,7 +646,7 @@
         "/api/v1/accounts/{account_uuid}/": {
             "get": {
                 "operationId": "accounts_retrieve",
-                "description": "Read/update the canonical account name without altering account identity.",
+                "description": "Read the exact account after its current policy decision.",
                 "parameters": [
                     {
                         "in": "path",
@@ -222,7 +723,18 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedSubdivisionCommand"
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                    "name"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 200
+                                    }
+                                }
                             }
                         }
                     }
@@ -272,7 +784,7 @@
         "/api/v1/accounts/{account_uuid}/memberships/": {
             "get": {
                 "operationId": "accounts_memberships_retrieve",
-                "description": "Record an explicit principal membership after exact account authority.",
+                "description": "Page explicit principal memberships after current account authority.",
                 "parameters": [
                     {
                         "in": "path",
@@ -349,7 +861,7 @@
             },
             "post": {
                 "operationId": "accounts_memberships_create",
-                "description": "Record an explicit principal membership after exact account authority.",
+                "description": "Add one explicit principal membership through the owning native service.",
                 "parameters": [
                     {
                         "in": "path",
@@ -367,6 +879,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountMemberCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountMemberCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/AccountMemberCommand"
                             }
@@ -412,7 +934,7 @@
         "/api/v1/accounts/{account_uuid}/memberships/{principal_uuid}/": {
             "delete": {
                 "operationId": "accounts_memberships_destroy",
-                "description": "Remove one explicit account membership fact.",
+                "description": "Remove the exact principal membership under current account authority.",
                 "parameters": [
                     {
                         "in": "path",
@@ -474,7 +996,7 @@
         "/api/v1/accounts/{account_uuid}/organizations/": {
             "get": {
                 "operationId": "prepared_organizations_list",
-                "description": "Create a real organization under an authorized business account.",
+                "description": "Page organizations under the authorized account.",
                 "parameters": [
                     {
                         "in": "path",
@@ -551,7 +1073,7 @@
             },
             "post": {
                 "operationId": "accounts_organizations_create",
-                "description": "Create a real organization under an authorized business account.",
+                "description": "Create or resume one organization under the admitted business account.",
                 "parameters": [
                     {
                         "in": "path",
@@ -570,7 +1092,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SubdivisionCommand"
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
                             }
                         }
                     },
@@ -590,6 +1122,16 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/OrganizationView"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HierarchyPendingReceipt"
                                 }
                             }
                         },
@@ -718,6 +1260,16 @@
                             "schema": {
                                 "$ref": "#/components/schemas/PatchedOrganizationProfileUpdate"
                             }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedOrganizationProfileUpdate"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedOrganizationProfileUpdate"
+                            }
                         }
                     }
                 },
@@ -766,7 +1318,7 @@
         "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/workspaces/": {
             "get": {
                 "operationId": "prepared_workspaces_list",
-                "description": "Create a workspace only beneath its authorized account and organization.",
+                "description": "Page authorized workspaces with validated search and archive filters.",
                 "parameters": [
                     {
                         "in": "path",
@@ -869,7 +1421,7 @@
             },
             "post": {
                 "operationId": "accounts_organizations_workspaces_create",
-                "description": "Create a workspace only beneath its authorized account and organization.",
+                "description": "Create or resume a workspace beneath its exact account and organization.",
                 "parameters": [
                     {
                         "in": "path",
@@ -897,7 +1449,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SubdivisionCommand"
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubdivisionCreationCommand"
                             }
                         }
                     },
@@ -917,6 +1479,16 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/WorkspaceView"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HierarchyPendingReceipt"
                                 }
                             }
                         },
@@ -948,7 +1520,7 @@
         "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/workspaces/{workspace_uuid}/": {
             "get": {
                 "operationId": "accounts_organizations_workspaces_retrieve",
-                "description": "Read an exact workspace beneath its persisted organization and account.",
+                "description": "Read the exact workspace beneath the selected account and organization.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2781,7 +3353,7 @@
         "/api/v1/accounts/current/": {
             "get": {
                 "operationId": "accounts_current_retrieve",
-                "description": "Resolve an individual's own account with no subdivision selector.",
+                "description": "Resolve the admitted human principal's individual account.",
                 "tags": [
                     "accounts"
                 ],
@@ -3616,6 +4188,16 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ReplaceLeasePolicy"
                             }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
+                            }
                         }
                     },
                     "required": true
@@ -3685,6 +4267,16 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ResetLeasePolicy"
                             }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetLeasePolicy"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetLeasePolicy"
+                            }
                         }
                     },
                     "required": true
@@ -3741,6 +4333,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceLeasePolicy"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/ReplaceLeasePolicy"
                             }
@@ -3803,6 +4405,16 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ResetLeasePolicy"
                             }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetLeasePolicy"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetLeasePolicy"
+                            }
                         }
                     },
                     "required": true
@@ -3821,6 +4433,170 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/MissionControlLeasePolicySettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/administer/organizations/": {
+            "get": {
+                "operationId": "prepared_integration_organizations_list",
+                "description": "Page organizations admitted for the requested integration action.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "integration",
+                        "schema": {
+                            "enum": [
+                                "adapters",
+                                "model_sources"
+                            ],
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "description": "* `adapters` - adapters\n* `model_sources` - model_sources",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "default": 50
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
+                        }
+                    }
+                ],
+                "tags": [
+                    "administer"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OrganizationPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
+        "/api/v1/administer/principals/{principal_uuid}/event-creation-grants/": {
+            "post": {
+                "operationId": "api_v1_administer_principals_event_creation_grants",
+                "description": "Record the scoped organizer grant through the current administrator credential.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "principal_uuid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "administer"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopedOrganizerCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopedOrganizerCommand"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopedOrganizerCommand"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AuthorizationMutation"
                                 }
                             }
                         },
@@ -3929,9 +4705,93 @@
                 }
             }
         },
+        "/api/v1/administer/scopes/": {
+            "get": {
+                "operationId": "administer_scopes_retrieve",
+                "description": "Page authorized descendant scopes without inferring a parent account.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "enum": [
+                                "organization",
+                                "workspace"
+                            ],
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "description": "* `organization` - organization\n* `workspace` - workspace",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "default": 50
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
+                        }
+                    }
+                ],
+                "tags": [
+                    "administer"
+                ],
+                "security": [
+                    {
+                        "ApiTokenAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AdministrationScopePage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Authentication failed."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    }
+                }
+            }
+        },
         "/api/v1/administer/users/": {
             "get": {
-                "operationId": "administer_users_list",
+                "operationId": "api_v1_administer_users_list",
                 "description": "Global identity list; policy is checked before filtering and pagination.",
                 "parameters": [
                     {
@@ -4052,7 +4912,7 @@
         },
         "/api/v1/administer/users/{id}/": {
             "get": {
-                "operationId": "administer_users_retrieve",
+                "operationId": "api_v1_administer_users_retrieve",
                 "description": "Read one user only after the installation policy check.",
                 "parameters": [
                     {
@@ -4109,7 +4969,7 @@
                 }
             },
             "patch": {
-                "operationId": "administer_users_partial_update",
+                "operationId": "api_v1_administer_users_update",
                 "description": "Read one user only after the installation policy check.",
                 "parameters": [
                     {
@@ -4127,6 +4987,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPolicyUserMetadataCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPolicyUserMetadataCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/PatchedPolicyUserMetadataCommand"
                             }
@@ -4177,7 +5047,7 @@
         },
         "/api/v1/administer/users/{id}/delete/": {
             "post": {
-                "operationId": "administer_users_delete_create",
+                "operationId": "api_v1_administer_users_soft_delete",
                 "description": "Preserve the v1 soft-delete command through the policy lifecycle service.",
                 "parameters": [
                     {
@@ -4234,78 +5104,9 @@
                 }
             }
         },
-        "/api/v1/administer/users/{id}/grant-organizer/": {
-            "post": {
-                "operationId": "administer_users_grant_organizer_create",
-                "description": "Replace global role writes with the existing bounded delegation journal.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "integer"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "administer"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ScopedOrganizerCommand"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "ApiTokenAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "202": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/AuthorizationMutation"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Authentication failed."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Permission denied."
-                    }
-                }
-            }
-        },
         "/api/v1/administer/users/{id}/lifecycle/": {
             "post": {
-                "operationId": "administer_users_lifecycle_create",
+                "operationId": "api_v1_administer_users_lifecycle",
                 "description": "Run the one locked lifecycle service for human or service administrators.",
                 "parameters": [
                     {
@@ -4323,6 +5124,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyLifecycleCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyLifecycleCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/PolicyLifecycleCommand"
                             }
@@ -4374,7 +5185,7 @@
         },
         "/api/v1/administer/users/{id}/reset-password/": {
             "post": {
-                "operationId": "administer_users_reset_password_create",
+                "operationId": "api_v1_administer_users_reset_password",
                 "description": "Request a local reset through the installation policy and proven delivery service.",
                 "parameters": [
                     {
@@ -4433,7 +5244,7 @@
         },
         "/api/v1/administer/users/{id}/set-active/": {
             "post": {
-                "operationId": "administer_users_set_active_create",
+                "operationId": "api_v1_administer_users_set_active",
                 "description": "Preserve the v1 set-active command through the policy lifecycle service.",
                 "parameters": [
                     {
@@ -4451,6 +5262,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicySetActiveCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicySetActiveCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/PolicySetActiveCommand"
                             }
@@ -4502,7 +5323,7 @@
         },
         "/api/v1/administer/users/{id}/transfer-ownership/": {
             "post": {
-                "operationId": "administer_users_transfer_ownership_create",
+                "operationId": "api_v1_administer_users_transfer_ownership",
                 "description": "Root identity authority composes independently authorized resource effects.",
                 "parameters": [
                     {
@@ -4520,6 +5341,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyTransferOwnershipCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyTransferOwnershipCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/PolicyTransferOwnershipCommand"
                             }
@@ -4760,9 +5591,9 @@
                 }
             }
         },
-        "/api/v1/cms/ranges/{request_id}/workspace/": {
+        "/api/v1/cms/ranges/{request_id}/scope/": {
             "post": {
-                "operationId": "api_v1_policy_range_workspace_rebind",
+                "operationId": "api_v1_cms_range_workspace_rebind",
                 "description": "Owning service authorizes source and destination, never a staff fallback.",
                 "parameters": [
                     {
@@ -4781,6 +5612,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyRangeWorkspaceCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicyRangeWorkspaceCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/PolicyRangeWorkspaceCommand"
                             }
@@ -5634,6 +6475,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeMemberCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeMemberCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/ScopeMemberCommand"
                             }
@@ -6614,6 +7465,16 @@
                             "schema": {
                                 "$ref": "#/components/schemas/ScopeMemberCommand"
                             }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeMemberCommand"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeMemberCommand"
+                            }
                         }
                     },
                     "required": true
@@ -6717,8 +7578,8 @@
         },
         "/api/v1/workspaces/{workspace_uuid}/archive/": {
             "post": {
-                "operationId": "workspaces_archive_create",
-                "description": "Archive one non-default workspace after exact policy checks.",
+                "operationId": "api_v1_workspace_archive",
+                "description": "Archive the exact workspace while retaining the owning lifecycle safeguards.",
                 "parameters": [
                     {
                         "in": "path",
@@ -6777,8 +7638,8 @@
         },
         "/api/v1/workspaces/{workspace_uuid}/egress-policy/": {
             "put": {
-                "operationId": "workspaces_egress_policy_update",
-                "description": "Policy-authorized egress authoring for human and service administrators.",
+                "operationId": "api_v1_workspace_set_egress_policy",
+                "description": "Apply the validated egress policy through the owning workspace service.",
                 "parameters": [
                     {
                         "in": "path",
@@ -6796,6 +7657,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceEgressPolicyCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceEgressPolicyCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/WorkspaceEgressPolicyCommand"
                             }
@@ -6845,404 +7716,6 @@
                 }
             }
         },
-        "/api/v1/workspaces/{workspace_uuid}/invitations/": {
-            "get": {
-                "operationId": "workspaces_invitations_retrieve",
-                "description": "List/issue through the existing signed-token and delivery seam.",
-                "parameters": [
-                    {
-                        "in": "query",
-                        "name": "limit",
-                        "schema": {
-                            "type": "integer",
-                            "maximum": 100,
-                            "minimum": 1,
-                            "default": 50
-                        }
-                    },
-                    {
-                        "in": "query",
-                        "name": "offset",
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "default": 0
-                        }
-                    },
-                    {
-                        "in": "path",
-                        "name": "workspace_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "workspaces"
-                ],
-                "security": [
-                    {
-                        "ApiTokenAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/PolicyInvitationPage"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Authentication failed."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Permission denied."
-                    }
-                }
-            },
-            "post": {
-                "operationId": "workspaces_invitations_create",
-                "description": "List/issue through the existing signed-token and delivery seam.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "workspace_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "workspaces"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PolicyInvitationCommand"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "ApiTokenAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/PolicyWorkspaceInvitation"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Authentication failed."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Permission denied."
-                    }
-                }
-            }
-        },
-        "/api/v1/workspaces/{workspace_uuid}/invitations/{invitation_uuid}/resend/": {
-            "post": {
-                "operationId": "workspaces_invitations_resend_create",
-                "description": "Revoke/resend retain generation and strict-audit invariants.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "invitation_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "path",
-                        "name": "workspace_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "workspaces"
-                ],
-                "security": [
-                    {
-                        "ApiTokenAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/PolicyWorkspaceInvitation"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Authentication failed."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Permission denied."
-                    }
-                }
-            }
-        },
-        "/api/v1/workspaces/{workspace_uuid}/invitations/{invitation_uuid}/revoke/": {
-            "post": {
-                "operationId": "workspaces_invitations_revoke_create",
-                "description": "Revoke/resend retain generation and strict-audit invariants.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "invitation_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "path",
-                        "name": "workspace_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "workspaces"
-                ],
-                "security": [
-                    {
-                        "ApiTokenAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/PolicyWorkspaceInvitation"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Authentication failed."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Permission denied."
-                    }
-                }
-            }
-        },
-        "/api/v1/workspaces/{workspace_uuid}/membership/": {
-            "get": {
-                "operationId": "workspaces_membership_retrieve",
-                "description": "Only the admitted principal's own membership fact.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "workspace_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "workspaces"
-                ],
-                "security": [
-                    {
-                        "ApiTokenAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/AccountMemberView"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Authentication failed."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Permission denied."
-                    }
-                }
-            }
-        },
-        "/api/v1/workspaces/{workspace_uuid}/memberships/leave/": {
-            "post": {
-                "operationId": "workspaces_memberships_leave_create",
-                "description": "Self leave retains the last-owner invariant and never changes policy tuples.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "workspace_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "workspaces"
-                ],
-                "security": [
-                    {
-                        "ApiTokenAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No response body"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Authentication failed."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Permission denied."
-                    }
-                }
-            }
-        },
         "/api/v1/workspaces/{workspace_uuid}/owners/": {
             "post": {
                 "operationId": "workspaces_owners_create",
@@ -7264,6 +7737,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeMemberCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeMemberCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/ScopeMemberCommand"
                             }
@@ -7370,7 +7853,7 @@
         },
         "/api/v1/workspaces/{workspace_uuid}/quota/": {
             "get": {
-                "operationId": "workspaces_quota_retrieve",
+                "operationId": "api_v1_workspace_quota",
                 "description": "Expose the same bounded quota projection to authorized humans/services.",
                 "parameters": [
                     {
@@ -7431,7 +7914,7 @@
         "/api/v1/workspaces/{workspace_uuid}/quota-policy/": {
             "put": {
                 "operationId": "workspaces_quota_policy_update",
-                "description": "Policy-authorized quota authoring for human and service administrators.",
+                "description": "Apply a validated quota policy under current workspace administration authority.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7449,6 +7932,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceQuotaPolicyCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceQuotaPolicyCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/WorkspaceQuotaPolicyCommand"
                             }
@@ -7501,7 +7994,7 @@
         "/api/v1/workspaces/{workspace_uuid}/rename/": {
             "post": {
                 "operationId": "workspaces_rename_create",
-                "description": "Rename one workspace through its policy-authorized locked writer.",
+                "description": "Rename the admitted workspace with the validated declaration and request audit.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7519,6 +8012,16 @@
                 "requestBody": {
                     "content": {
                         "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubdivisionCommand"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubdivisionCommand"
+                            }
+                        },
+                        "multipart/form-data": {
                             "schema": {
                                 "$ref": "#/components/schemas/SubdivisionCommand"
                             }
@@ -7570,8 +8073,8 @@
         },
         "/api/v1/workspaces/{workspace_uuid}/restore/": {
             "post": {
-                "operationId": "workspaces_restore_create",
-                "description": "Restore one workspace under its persisted account ancestry.",
+                "operationId": "api_v1_workspace_restore",
+                "description": "Restore the exact workspace under its persisted account ancestry.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7604,69 +8107,6 @@
                             }
                         },
                         "description": ""
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Authentication failed."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        },
-                        "description": "Permission denied."
-                    }
-                }
-            }
-        },
-        "/api/v1/workspaces/{workspace_uuid}/transfer/": {
-            "post": {
-                "operationId": "workspaces_transfer_create",
-                "description": "Transfer a resource fact without changing membership or policy.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "workspace_uuid",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "workspaces"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PrincipalOwnershipCommand"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "ApiTokenAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No response body"
                     },
                     "401": {
                         "content": {
@@ -7803,7 +8243,7 @@
                 "description": "Closed account declaration with an explicit individual principal.",
                 "properties": {
                     "kind": {
-                        "$ref": "#/components/schemas/KindEnum"
+                        "$ref": "#/components/schemas/AccountCommandKindEnum"
                     },
                     "name": {
                         "type": "string",
@@ -7812,12 +8252,25 @@
                     "individual_principal_uuid": {
                         "type": "string",
                         "format": "uuid"
+                    },
+                    "publication_receipt": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 },
                 "required": [
                     "kind",
                     "name"
                 ]
+            },
+            "AccountCommandKindEnum": {
+                "enum": [
+                    "individual",
+                    "team",
+                    "enterprise"
+                ],
+                "type": "string",
+                "description": "* `individual` - individual\n* `team` - team\n* `enterprise` - enterprise"
             },
             "AccountMemberCommand": {
                 "type": "object",
@@ -7928,10 +8381,15 @@
                             "type": "string"
                         },
                         "readOnly": true
+                    },
+                    "has_descendant_scopes": {
+                        "type": "boolean",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "accounts",
+                    "has_descendant_scopes",
                     "individual_account",
                     "installation_actions",
                     "principal_kind",
@@ -8057,6 +8515,80 @@
                     "last_login",
                     "user_type",
                     "username"
+                ]
+            },
+            "AdministrationScope": {
+                "type": "object",
+                "description": "An independently authorized scope and non-secret routing ancestry.",
+                "properties": {
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AdministrationScopeKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "account_uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "organization_uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "is_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "account_uuid",
+                    "is_default",
+                    "kind",
+                    "name",
+                    "organization_uuid",
+                    "uuid"
+                ]
+            },
+            "AdministrationScopeKindEnum": {
+                "enum": [
+                    "organization",
+                    "workspace"
+                ],
+                "type": "string",
+                "description": "* `organization` - organization\n* `workspace` - workspace"
+            },
+            "AdministrationScopePage": {
+                "type": "object",
+                "description": "Bounded policy-filtered scope discovery page for administration clients.",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdministrationScope"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "count",
+                    "results"
                 ]
             },
             "ApiError": {
@@ -8439,6 +8971,7 @@
                     "authorization:event.transfer_ownership",
                     "authorization:installation.access_devices",
                     "authorization:installation.delegate_authorization",
+                    "authorization:installation.launch_range",
                     "authorization:installation.manage_accounts",
                     "authorization:installation.manage_adapters",
                     "authorization:installation.manage_authorization",
@@ -8543,7 +9076,7 @@
                     "workspaces:membership:write"
                 ],
                 "type": "string",
-                "description": "* `authorization:account.access_devices` - authorization:account.access_devices\n* `authorization:account.create_event` - authorization:account.create_event\n* `authorization:account.delegate_authorization` - authorization:account.delegate_authorization\n* `authorization:account.delete` - authorization:account.delete\n* `authorization:account.launch_range` - authorization:account.launch_range\n* `authorization:account.manage_adapters` - authorization:account.manage_adapters\n* `authorization:account.manage_authorization` - authorization:account.manage_authorization\n* `authorization:account.manage_content` - authorization:account.manage_content\n* `authorization:account.manage_credentials` - authorization:account.manage_credentials\n* `authorization:account.manage_devices` - authorization:account.manage_devices\n* `authorization:account.manage_members` - authorization:account.manage_members\n* `authorization:account.manage_model_sources` - authorization:account.manage_model_sources\n* `authorization:account.manage_organizations` - authorization:account.manage_organizations\n* `authorization:account.manage_range_scope` - authorization:account.manage_range_scope\n* `authorization:account.manage_sources` - authorization:account.manage_sources\n* `authorization:account.prepare_content` - authorization:account.prepare_content\n* `authorization:account.publish_content` - authorization:account.publish_content\n* `authorization:account.read` - authorization:account.read\n* `authorization:account.read_content` - authorization:account.read_content\n* `authorization:account.read_devices` - authorization:account.read_devices\n* `authorization:account.update` - authorization:account.update\n* `authorization:event.delegate_authorization` - authorization:event.delegate_authorization\n* `authorization:event.delete` - authorization:event.delete\n* `authorization:event.manage` - authorization:event.manage\n* `authorization:event.manage_awards` - authorization:event.manage_awards\n* `authorization:event.manage_challenges` - authorization:event.manage_challenges\n* `authorization:event.manage_communications` - authorization:event.manage_communications\n* `authorization:event.manage_config` - authorization:event.manage_config\n* `authorization:event.manage_content` - authorization:event.manage_content\n* `authorization:event.manage_lifecycle` - authorization:event.manage_lifecycle\n* `authorization:event.manage_participants` - authorization:event.manage_participants\n* `authorization:event.manage_ranges` - authorization:event.manage_ranges\n* `authorization:event.manage_scoring` - authorization:event.manage_scoring\n* `authorization:event.manage_staff` - authorization:event.manage_staff\n* `authorization:event.manage_submissions` - authorization:event.manage_submissions\n* `authorization:event.manage_teams` - authorization:event.manage_teams\n* `authorization:event.participate` - authorization:event.participate\n* `authorization:event.read` - authorization:event.read\n* `authorization:event.transfer_ownership` - authorization:event.transfer_ownership\n* `authorization:installation.access_devices` - authorization:installation.access_devices\n* `authorization:installation.delegate_authorization` - authorization:installation.delegate_authorization\n* `authorization:installation.manage_accounts` - authorization:installation.manage_accounts\n* `authorization:installation.manage_adapters` - authorization:installation.manage_adapters\n* `authorization:installation.manage_authorization` - authorization:installation.manage_authorization\n* `authorization:installation.manage_cloud_authority` - authorization:installation.manage_cloud_authority\n* `authorization:installation.manage_content` - authorization:installation.manage_content\n* `authorization:installation.manage_credentials` - authorization:installation.manage_credentials\n* `authorization:installation.manage_devices` - authorization:installation.manage_devices\n* `authorization:installation.manage_lease_policy` - authorization:installation.manage_lease_policy\n* `authorization:installation.manage_model_sources` - authorization:installation.manage_model_sources\n* `authorization:installation.manage_principals` - authorization:installation.manage_principals\n* `authorization:installation.manage_service_credentials` - authorization:installation.manage_service_credentials\n* `authorization:installation.manage_sources` - authorization:installation.manage_sources\n* `authorization:installation.prepare_content` - authorization:installation.prepare_content\n* `authorization:installation.publish_content` - authorization:installation.publish_content\n* `authorization:installation.read_audit` - authorization:installation.read_audit\n* `authorization:installation.read_content` - authorization:installation.read_content\n* `authorization:installation.read_devices` - authorization:installation.read_devices\n* `authorization:installation.revoke_personal_tokens` - authorization:installation.revoke_personal_tokens\n* `authorization:installation.use_personal_tokens` - authorization:installation.use_personal_tokens\n* `authorization:organization.access_devices` - authorization:organization.access_devices\n* `authorization:organization.create_event` - authorization:organization.create_event\n* `authorization:organization.delegate_authorization` - authorization:organization.delegate_authorization\n* `authorization:organization.launch_range` - authorization:organization.launch_range\n* `authorization:organization.manage_adapters` - authorization:organization.manage_adapters\n* `authorization:organization.manage_authorization` - authorization:organization.manage_authorization\n* `authorization:organization.manage_content` - authorization:organization.manage_content\n* `authorization:organization.manage_credentials` - authorization:organization.manage_credentials\n* `authorization:organization.manage_devices` - authorization:organization.manage_devices\n* `authorization:organization.manage_members` - authorization:organization.manage_members\n* `authorization:organization.manage_model_sources` - authorization:organization.manage_model_sources\n* `authorization:organization.manage_range_scope` - authorization:organization.manage_range_scope\n* `authorization:organization.manage_sources` - authorization:organization.manage_sources\n* `authorization:organization.manage_workspaces` - authorization:organization.manage_workspaces\n* `authorization:organization.prepare_content` - authorization:organization.prepare_content\n* `authorization:organization.publish_content` - authorization:organization.publish_content\n* `authorization:organization.read` - authorization:organization.read\n* `authorization:organization.read_content` - authorization:organization.read_content\n* `authorization:organization.read_devices` - authorization:organization.read_devices\n* `authorization:organization.update` - authorization:organization.update\n* `authorization:range.access` - authorization:range.access\n* `authorization:range.manage` - authorization:range.manage\n* `authorization:range.read` - authorization:range.read\n* `authorization:range.transfer_ownership` - authorization:range.transfer_ownership\n* `authorization:workspace.access_devices` - authorization:workspace.access_devices\n* `authorization:workspace.archive` - authorization:workspace.archive\n* `authorization:workspace.create_event` - authorization:workspace.create_event\n* `authorization:workspace.delegate_authorization` - authorization:workspace.delegate_authorization\n* `authorization:workspace.launch_range` - authorization:workspace.launch_range\n* `authorization:workspace.leave` - authorization:workspace.leave\n* `authorization:workspace.manage_adapters` - authorization:workspace.manage_adapters\n* `authorization:workspace.manage_authorization` - authorization:workspace.manage_authorization\n* `authorization:workspace.manage_content` - authorization:workspace.manage_content\n* `authorization:workspace.manage_credentials` - authorization:workspace.manage_credentials\n* `authorization:workspace.manage_devices` - authorization:workspace.manage_devices\n* `authorization:workspace.manage_egress` - authorization:workspace.manage_egress\n* `authorization:workspace.manage_invitations` - authorization:workspace.manage_invitations\n* `authorization:workspace.manage_members` - authorization:workspace.manage_members\n* `authorization:workspace.manage_model_sources` - authorization:workspace.manage_model_sources\n* `authorization:workspace.manage_quota` - authorization:workspace.manage_quota\n* `authorization:workspace.manage_range_scope` - authorization:workspace.manage_range_scope\n* `authorization:workspace.manage_sources` - authorization:workspace.manage_sources\n* `authorization:workspace.prepare_content` - authorization:workspace.prepare_content\n* `authorization:workspace.publish_content` - authorization:workspace.publish_content\n* `authorization:workspace.publish_model_access` - authorization:workspace.publish_model_access\n* `authorization:workspace.read` - authorization:workspace.read\n* `authorization:workspace.read_content` - authorization:workspace.read_content\n* `authorization:workspace.read_devices` - authorization:workspace.read_devices\n* `authorization:workspace.restore` - authorization:workspace.restore\n* `authorization:workspace.transfer` - authorization:workspace.transfer\n* `authorization:workspace.update` - authorization:workspace.update\n* `cms:authoring:read` - cms:authoring:read\n* `cms:authoring:write` - cms:authoring:write\n* `cms:preparation-adapters:read` - cms:preparation-adapters:read\n* `cms:preparation-adapters:write` - cms:preparation-adapters:write\n* `cms:preparation:read` - cms:preparation:read\n* `cms:preparation:write` - cms:preparation:write\n* `ctf:communication:read` - ctf:communication:read\n* `ctf:communication:write` - ctf:communication:write\n* `ctf:event:read` - ctf:event:read\n* `ctf:event:write` - ctf:event:write\n* `ctf:play:read` - ctf:play:read\n* `ctf:play:write` - ctf:play:write\n* `ctf:vpn-profile:read` - ctf:vpn-profile:read\n* `mission_control:credentials:write` - mission_control:credentials:write\n* `mission_control:guacamole:read` - mission_control:guacamole:read\n* `mission_control:ngfw:read` - mission_control:ngfw:read\n* `mission_control:ngfw:write` - mission_control:ngfw:write\n* `mission_control:range:read` - mission_control:range:read\n* `mission_control:range:write` - mission_control:range:write\n* `mission_control:upload:write` - mission_control:upload:write\n* `mission_control:vpn-profile:read` - mission_control:vpn-profile:read\n* `model-access:event:read` - model-access:event:read\n* `model-access:event:write` - model-access:event:write\n* `model-access:operator:read` - model-access:operator:read\n* `model-access:operator:write` - model-access:operator:write\n* `model-access:participant:read` - model-access:participant:read\n* `model-access:range:read` - model-access:range:read\n* `model-access:range:write` - model-access:range:write\n* `model-access:sharing:read` - model-access:sharing:read\n* `model-access:sharing:write` - model-access:sharing:write\n* `workspaces:membership:read` - workspaces:membership:read\n* `workspaces:membership:write` - workspaces:membership:write"
+                "description": "* `authorization:account.access_devices` - authorization:account.access_devices\n* `authorization:account.create_event` - authorization:account.create_event\n* `authorization:account.delegate_authorization` - authorization:account.delegate_authorization\n* `authorization:account.delete` - authorization:account.delete\n* `authorization:account.launch_range` - authorization:account.launch_range\n* `authorization:account.manage_adapters` - authorization:account.manage_adapters\n* `authorization:account.manage_authorization` - authorization:account.manage_authorization\n* `authorization:account.manage_content` - authorization:account.manage_content\n* `authorization:account.manage_credentials` - authorization:account.manage_credentials\n* `authorization:account.manage_devices` - authorization:account.manage_devices\n* `authorization:account.manage_members` - authorization:account.manage_members\n* `authorization:account.manage_model_sources` - authorization:account.manage_model_sources\n* `authorization:account.manage_organizations` - authorization:account.manage_organizations\n* `authorization:account.manage_range_scope` - authorization:account.manage_range_scope\n* `authorization:account.manage_sources` - authorization:account.manage_sources\n* `authorization:account.prepare_content` - authorization:account.prepare_content\n* `authorization:account.publish_content` - authorization:account.publish_content\n* `authorization:account.read` - authorization:account.read\n* `authorization:account.read_content` - authorization:account.read_content\n* `authorization:account.read_devices` - authorization:account.read_devices\n* `authorization:account.update` - authorization:account.update\n* `authorization:event.delegate_authorization` - authorization:event.delegate_authorization\n* `authorization:event.delete` - authorization:event.delete\n* `authorization:event.manage` - authorization:event.manage\n* `authorization:event.manage_awards` - authorization:event.manage_awards\n* `authorization:event.manage_challenges` - authorization:event.manage_challenges\n* `authorization:event.manage_communications` - authorization:event.manage_communications\n* `authorization:event.manage_config` - authorization:event.manage_config\n* `authorization:event.manage_content` - authorization:event.manage_content\n* `authorization:event.manage_lifecycle` - authorization:event.manage_lifecycle\n* `authorization:event.manage_participants` - authorization:event.manage_participants\n* `authorization:event.manage_ranges` - authorization:event.manage_ranges\n* `authorization:event.manage_scoring` - authorization:event.manage_scoring\n* `authorization:event.manage_staff` - authorization:event.manage_staff\n* `authorization:event.manage_submissions` - authorization:event.manage_submissions\n* `authorization:event.manage_teams` - authorization:event.manage_teams\n* `authorization:event.participate` - authorization:event.participate\n* `authorization:event.read` - authorization:event.read\n* `authorization:event.transfer_ownership` - authorization:event.transfer_ownership\n* `authorization:installation.access_devices` - authorization:installation.access_devices\n* `authorization:installation.delegate_authorization` - authorization:installation.delegate_authorization\n* `authorization:installation.launch_range` - authorization:installation.launch_range\n* `authorization:installation.manage_accounts` - authorization:installation.manage_accounts\n* `authorization:installation.manage_adapters` - authorization:installation.manage_adapters\n* `authorization:installation.manage_authorization` - authorization:installation.manage_authorization\n* `authorization:installation.manage_cloud_authority` - authorization:installation.manage_cloud_authority\n* `authorization:installation.manage_content` - authorization:installation.manage_content\n* `authorization:installation.manage_credentials` - authorization:installation.manage_credentials\n* `authorization:installation.manage_devices` - authorization:installation.manage_devices\n* `authorization:installation.manage_lease_policy` - authorization:installation.manage_lease_policy\n* `authorization:installation.manage_model_sources` - authorization:installation.manage_model_sources\n* `authorization:installation.manage_principals` - authorization:installation.manage_principals\n* `authorization:installation.manage_service_credentials` - authorization:installation.manage_service_credentials\n* `authorization:installation.manage_sources` - authorization:installation.manage_sources\n* `authorization:installation.prepare_content` - authorization:installation.prepare_content\n* `authorization:installation.publish_content` - authorization:installation.publish_content\n* `authorization:installation.read_audit` - authorization:installation.read_audit\n* `authorization:installation.read_content` - authorization:installation.read_content\n* `authorization:installation.read_devices` - authorization:installation.read_devices\n* `authorization:installation.revoke_personal_tokens` - authorization:installation.revoke_personal_tokens\n* `authorization:installation.use_personal_tokens` - authorization:installation.use_personal_tokens\n* `authorization:organization.access_devices` - authorization:organization.access_devices\n* `authorization:organization.create_event` - authorization:organization.create_event\n* `authorization:organization.delegate_authorization` - authorization:organization.delegate_authorization\n* `authorization:organization.launch_range` - authorization:organization.launch_range\n* `authorization:organization.manage_adapters` - authorization:organization.manage_adapters\n* `authorization:organization.manage_authorization` - authorization:organization.manage_authorization\n* `authorization:organization.manage_content` - authorization:organization.manage_content\n* `authorization:organization.manage_credentials` - authorization:organization.manage_credentials\n* `authorization:organization.manage_devices` - authorization:organization.manage_devices\n* `authorization:organization.manage_members` - authorization:organization.manage_members\n* `authorization:organization.manage_model_sources` - authorization:organization.manage_model_sources\n* `authorization:organization.manage_range_scope` - authorization:organization.manage_range_scope\n* `authorization:organization.manage_sources` - authorization:organization.manage_sources\n* `authorization:organization.manage_workspaces` - authorization:organization.manage_workspaces\n* `authorization:organization.prepare_content` - authorization:organization.prepare_content\n* `authorization:organization.publish_content` - authorization:organization.publish_content\n* `authorization:organization.read` - authorization:organization.read\n* `authorization:organization.read_content` - authorization:organization.read_content\n* `authorization:organization.read_devices` - authorization:organization.read_devices\n* `authorization:organization.update` - authorization:organization.update\n* `authorization:range.access` - authorization:range.access\n* `authorization:range.manage` - authorization:range.manage\n* `authorization:range.read` - authorization:range.read\n* `authorization:range.transfer_ownership` - authorization:range.transfer_ownership\n* `authorization:workspace.access_devices` - authorization:workspace.access_devices\n* `authorization:workspace.archive` - authorization:workspace.archive\n* `authorization:workspace.create_event` - authorization:workspace.create_event\n* `authorization:workspace.delegate_authorization` - authorization:workspace.delegate_authorization\n* `authorization:workspace.launch_range` - authorization:workspace.launch_range\n* `authorization:workspace.leave` - authorization:workspace.leave\n* `authorization:workspace.manage_adapters` - authorization:workspace.manage_adapters\n* `authorization:workspace.manage_authorization` - authorization:workspace.manage_authorization\n* `authorization:workspace.manage_content` - authorization:workspace.manage_content\n* `authorization:workspace.manage_credentials` - authorization:workspace.manage_credentials\n* `authorization:workspace.manage_devices` - authorization:workspace.manage_devices\n* `authorization:workspace.manage_egress` - authorization:workspace.manage_egress\n* `authorization:workspace.manage_invitations` - authorization:workspace.manage_invitations\n* `authorization:workspace.manage_members` - authorization:workspace.manage_members\n* `authorization:workspace.manage_model_sources` - authorization:workspace.manage_model_sources\n* `authorization:workspace.manage_quota` - authorization:workspace.manage_quota\n* `authorization:workspace.manage_range_scope` - authorization:workspace.manage_range_scope\n* `authorization:workspace.manage_sources` - authorization:workspace.manage_sources\n* `authorization:workspace.prepare_content` - authorization:workspace.prepare_content\n* `authorization:workspace.publish_content` - authorization:workspace.publish_content\n* `authorization:workspace.publish_model_access` - authorization:workspace.publish_model_access\n* `authorization:workspace.read` - authorization:workspace.read\n* `authorization:workspace.read_content` - authorization:workspace.read_content\n* `authorization:workspace.read_devices` - authorization:workspace.read_devices\n* `authorization:workspace.restore` - authorization:workspace.restore\n* `authorization:workspace.transfer` - authorization:workspace.transfer\n* `authorization:workspace.update` - authorization:workspace.update\n* `cms:authoring:read` - cms:authoring:read\n* `cms:authoring:write` - cms:authoring:write\n* `cms:preparation-adapters:read` - cms:preparation-adapters:read\n* `cms:preparation-adapters:write` - cms:preparation-adapters:write\n* `cms:preparation:read` - cms:preparation:read\n* `cms:preparation:write` - cms:preparation:write\n* `ctf:communication:read` - ctf:communication:read\n* `ctf:communication:write` - ctf:communication:write\n* `ctf:event:read` - ctf:event:read\n* `ctf:event:write` - ctf:event:write\n* `ctf:play:read` - ctf:play:read\n* `ctf:play:write` - ctf:play:write\n* `ctf:vpn-profile:read` - ctf:vpn-profile:read\n* `mission_control:credentials:write` - mission_control:credentials:write\n* `mission_control:guacamole:read` - mission_control:guacamole:read\n* `mission_control:ngfw:read` - mission_control:ngfw:read\n* `mission_control:ngfw:write` - mission_control:ngfw:write\n* `mission_control:range:read` - mission_control:range:read\n* `mission_control:range:write` - mission_control:range:write\n* `mission_control:upload:write` - mission_control:upload:write\n* `mission_control:vpn-profile:read` - mission_control:vpn-profile:read\n* `model-access:event:read` - model-access:event:read\n* `model-access:event:write` - model-access:event:write\n* `model-access:operator:read` - model-access:operator:read\n* `model-access:operator:write` - model-access:operator:write\n* `model-access:participant:read` - model-access:participant:read\n* `model-access:range:read` - model-access:range:read\n* `model-access:range:write` - model-access:range:write\n* `model-access:sharing:read` - model-access:sharing:read\n* `model-access:sharing:write` - model-access:sharing:write\n* `workspaces:membership:read` - workspaces:membership:read\n* `workspaces:membership:write` - workspaces:membership:write"
             },
             "DeliveryStatusEnum": {
                 "enum": [
@@ -8610,6 +9143,44 @@
                 ],
                 "type": "string",
                 "description": "* `status-quo` - Inherit deployment baseline\n* `none` - Zero egress (no outbound NAT path)"
+            },
+            "HierarchyParentKindEnum": {
+                "enum": [
+                    "account",
+                    "organization",
+                    "workspace"
+                ],
+                "type": "string",
+                "description": "* `account` - account\n* `organization` - organization\n* `workspace` - workspace"
+            },
+            "HierarchyPendingReceipt": {
+                "type": "object",
+                "description": "A committed creation awaiting policy publication.",
+                "properties": {
+                    "uuid": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "publication_receipt": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "publication_state": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PublicationStateEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "publication_receipt",
+                    "publication_state",
+                    "uuid"
+                ]
             },
             "IssuePersonalCredential": {
                 "type": "object",
@@ -8690,6 +9261,7 @@
                     "authorization:event.transfer_ownership",
                     "authorization:installation.access_devices",
                     "authorization:installation.delegate_authorization",
+                    "authorization:installation.launch_range",
                     "authorization:installation.manage_accounts",
                     "authorization:installation.manage_adapters",
                     "authorization:installation.manage_authorization",
@@ -8762,7 +9334,7 @@
                     "authorization:workspace.update"
                 ],
                 "type": "string",
-                "description": "* `authorization:account.access_devices` - authorization:account.access_devices\n* `authorization:account.create_event` - authorization:account.create_event\n* `authorization:account.delegate_authorization` - authorization:account.delegate_authorization\n* `authorization:account.delete` - authorization:account.delete\n* `authorization:account.launch_range` - authorization:account.launch_range\n* `authorization:account.manage_adapters` - authorization:account.manage_adapters\n* `authorization:account.manage_authorization` - authorization:account.manage_authorization\n* `authorization:account.manage_content` - authorization:account.manage_content\n* `authorization:account.manage_credentials` - authorization:account.manage_credentials\n* `authorization:account.manage_devices` - authorization:account.manage_devices\n* `authorization:account.manage_members` - authorization:account.manage_members\n* `authorization:account.manage_model_sources` - authorization:account.manage_model_sources\n* `authorization:account.manage_organizations` - authorization:account.manage_organizations\n* `authorization:account.manage_range_scope` - authorization:account.manage_range_scope\n* `authorization:account.manage_sources` - authorization:account.manage_sources\n* `authorization:account.prepare_content` - authorization:account.prepare_content\n* `authorization:account.publish_content` - authorization:account.publish_content\n* `authorization:account.read` - authorization:account.read\n* `authorization:account.read_content` - authorization:account.read_content\n* `authorization:account.read_devices` - authorization:account.read_devices\n* `authorization:account.update` - authorization:account.update\n* `authorization:event.delegate_authorization` - authorization:event.delegate_authorization\n* `authorization:event.delete` - authorization:event.delete\n* `authorization:event.manage` - authorization:event.manage\n* `authorization:event.manage_awards` - authorization:event.manage_awards\n* `authorization:event.manage_challenges` - authorization:event.manage_challenges\n* `authorization:event.manage_communications` - authorization:event.manage_communications\n* `authorization:event.manage_config` - authorization:event.manage_config\n* `authorization:event.manage_content` - authorization:event.manage_content\n* `authorization:event.manage_lifecycle` - authorization:event.manage_lifecycle\n* `authorization:event.manage_participants` - authorization:event.manage_participants\n* `authorization:event.manage_ranges` - authorization:event.manage_ranges\n* `authorization:event.manage_scoring` - authorization:event.manage_scoring\n* `authorization:event.manage_staff` - authorization:event.manage_staff\n* `authorization:event.manage_submissions` - authorization:event.manage_submissions\n* `authorization:event.manage_teams` - authorization:event.manage_teams\n* `authorization:event.participate` - authorization:event.participate\n* `authorization:event.read` - authorization:event.read\n* `authorization:event.transfer_ownership` - authorization:event.transfer_ownership\n* `authorization:installation.access_devices` - authorization:installation.access_devices\n* `authorization:installation.delegate_authorization` - authorization:installation.delegate_authorization\n* `authorization:installation.manage_accounts` - authorization:installation.manage_accounts\n* `authorization:installation.manage_adapters` - authorization:installation.manage_adapters\n* `authorization:installation.manage_authorization` - authorization:installation.manage_authorization\n* `authorization:installation.manage_cloud_authority` - authorization:installation.manage_cloud_authority\n* `authorization:installation.manage_content` - authorization:installation.manage_content\n* `authorization:installation.manage_credentials` - authorization:installation.manage_credentials\n* `authorization:installation.manage_devices` - authorization:installation.manage_devices\n* `authorization:installation.manage_lease_policy` - authorization:installation.manage_lease_policy\n* `authorization:installation.manage_model_sources` - authorization:installation.manage_model_sources\n* `authorization:installation.manage_principals` - authorization:installation.manage_principals\n* `authorization:installation.manage_service_credentials` - authorization:installation.manage_service_credentials\n* `authorization:installation.manage_sources` - authorization:installation.manage_sources\n* `authorization:installation.prepare_content` - authorization:installation.prepare_content\n* `authorization:installation.publish_content` - authorization:installation.publish_content\n* `authorization:installation.read_audit` - authorization:installation.read_audit\n* `authorization:installation.read_content` - authorization:installation.read_content\n* `authorization:installation.read_devices` - authorization:installation.read_devices\n* `authorization:installation.revoke_personal_tokens` - authorization:installation.revoke_personal_tokens\n* `authorization:installation.use_personal_tokens` - authorization:installation.use_personal_tokens\n* `authorization:organization.access_devices` - authorization:organization.access_devices\n* `authorization:organization.create_event` - authorization:organization.create_event\n* `authorization:organization.delegate_authorization` - authorization:organization.delegate_authorization\n* `authorization:organization.launch_range` - authorization:organization.launch_range\n* `authorization:organization.manage_adapters` - authorization:organization.manage_adapters\n* `authorization:organization.manage_authorization` - authorization:organization.manage_authorization\n* `authorization:organization.manage_content` - authorization:organization.manage_content\n* `authorization:organization.manage_credentials` - authorization:organization.manage_credentials\n* `authorization:organization.manage_devices` - authorization:organization.manage_devices\n* `authorization:organization.manage_members` - authorization:organization.manage_members\n* `authorization:organization.manage_model_sources` - authorization:organization.manage_model_sources\n* `authorization:organization.manage_range_scope` - authorization:organization.manage_range_scope\n* `authorization:organization.manage_sources` - authorization:organization.manage_sources\n* `authorization:organization.manage_workspaces` - authorization:organization.manage_workspaces\n* `authorization:organization.prepare_content` - authorization:organization.prepare_content\n* `authorization:organization.publish_content` - authorization:organization.publish_content\n* `authorization:organization.read` - authorization:organization.read\n* `authorization:organization.read_content` - authorization:organization.read_content\n* `authorization:organization.read_devices` - authorization:organization.read_devices\n* `authorization:organization.update` - authorization:organization.update\n* `authorization:range.access` - authorization:range.access\n* `authorization:range.manage` - authorization:range.manage\n* `authorization:range.read` - authorization:range.read\n* `authorization:range.transfer_ownership` - authorization:range.transfer_ownership\n* `authorization:workspace.access_devices` - authorization:workspace.access_devices\n* `authorization:workspace.archive` - authorization:workspace.archive\n* `authorization:workspace.create_event` - authorization:workspace.create_event\n* `authorization:workspace.delegate_authorization` - authorization:workspace.delegate_authorization\n* `authorization:workspace.launch_range` - authorization:workspace.launch_range\n* `authorization:workspace.leave` - authorization:workspace.leave\n* `authorization:workspace.manage_adapters` - authorization:workspace.manage_adapters\n* `authorization:workspace.manage_authorization` - authorization:workspace.manage_authorization\n* `authorization:workspace.manage_content` - authorization:workspace.manage_content\n* `authorization:workspace.manage_credentials` - authorization:workspace.manage_credentials\n* `authorization:workspace.manage_devices` - authorization:workspace.manage_devices\n* `authorization:workspace.manage_egress` - authorization:workspace.manage_egress\n* `authorization:workspace.manage_invitations` - authorization:workspace.manage_invitations\n* `authorization:workspace.manage_members` - authorization:workspace.manage_members\n* `authorization:workspace.manage_model_sources` - authorization:workspace.manage_model_sources\n* `authorization:workspace.manage_quota` - authorization:workspace.manage_quota\n* `authorization:workspace.manage_range_scope` - authorization:workspace.manage_range_scope\n* `authorization:workspace.manage_sources` - authorization:workspace.manage_sources\n* `authorization:workspace.prepare_content` - authorization:workspace.prepare_content\n* `authorization:workspace.publish_content` - authorization:workspace.publish_content\n* `authorization:workspace.publish_model_access` - authorization:workspace.publish_model_access\n* `authorization:workspace.read` - authorization:workspace.read\n* `authorization:workspace.read_content` - authorization:workspace.read_content\n* `authorization:workspace.read_devices` - authorization:workspace.read_devices\n* `authorization:workspace.restore` - authorization:workspace.restore\n* `authorization:workspace.transfer` - authorization:workspace.transfer\n* `authorization:workspace.update` - authorization:workspace.update"
+                "description": "* `authorization:account.access_devices` - authorization:account.access_devices\n* `authorization:account.create_event` - authorization:account.create_event\n* `authorization:account.delegate_authorization` - authorization:account.delegate_authorization\n* `authorization:account.delete` - authorization:account.delete\n* `authorization:account.launch_range` - authorization:account.launch_range\n* `authorization:account.manage_adapters` - authorization:account.manage_adapters\n* `authorization:account.manage_authorization` - authorization:account.manage_authorization\n* `authorization:account.manage_content` - authorization:account.manage_content\n* `authorization:account.manage_credentials` - authorization:account.manage_credentials\n* `authorization:account.manage_devices` - authorization:account.manage_devices\n* `authorization:account.manage_members` - authorization:account.manage_members\n* `authorization:account.manage_model_sources` - authorization:account.manage_model_sources\n* `authorization:account.manage_organizations` - authorization:account.manage_organizations\n* `authorization:account.manage_range_scope` - authorization:account.manage_range_scope\n* `authorization:account.manage_sources` - authorization:account.manage_sources\n* `authorization:account.prepare_content` - authorization:account.prepare_content\n* `authorization:account.publish_content` - authorization:account.publish_content\n* `authorization:account.read` - authorization:account.read\n* `authorization:account.read_content` - authorization:account.read_content\n* `authorization:account.read_devices` - authorization:account.read_devices\n* `authorization:account.update` - authorization:account.update\n* `authorization:event.delegate_authorization` - authorization:event.delegate_authorization\n* `authorization:event.delete` - authorization:event.delete\n* `authorization:event.manage` - authorization:event.manage\n* `authorization:event.manage_awards` - authorization:event.manage_awards\n* `authorization:event.manage_challenges` - authorization:event.manage_challenges\n* `authorization:event.manage_communications` - authorization:event.manage_communications\n* `authorization:event.manage_config` - authorization:event.manage_config\n* `authorization:event.manage_content` - authorization:event.manage_content\n* `authorization:event.manage_lifecycle` - authorization:event.manage_lifecycle\n* `authorization:event.manage_participants` - authorization:event.manage_participants\n* `authorization:event.manage_ranges` - authorization:event.manage_ranges\n* `authorization:event.manage_scoring` - authorization:event.manage_scoring\n* `authorization:event.manage_staff` - authorization:event.manage_staff\n* `authorization:event.manage_submissions` - authorization:event.manage_submissions\n* `authorization:event.manage_teams` - authorization:event.manage_teams\n* `authorization:event.participate` - authorization:event.participate\n* `authorization:event.read` - authorization:event.read\n* `authorization:event.transfer_ownership` - authorization:event.transfer_ownership\n* `authorization:installation.access_devices` - authorization:installation.access_devices\n* `authorization:installation.delegate_authorization` - authorization:installation.delegate_authorization\n* `authorization:installation.launch_range` - authorization:installation.launch_range\n* `authorization:installation.manage_accounts` - authorization:installation.manage_accounts\n* `authorization:installation.manage_adapters` - authorization:installation.manage_adapters\n* `authorization:installation.manage_authorization` - authorization:installation.manage_authorization\n* `authorization:installation.manage_cloud_authority` - authorization:installation.manage_cloud_authority\n* `authorization:installation.manage_content` - authorization:installation.manage_content\n* `authorization:installation.manage_credentials` - authorization:installation.manage_credentials\n* `authorization:installation.manage_devices` - authorization:installation.manage_devices\n* `authorization:installation.manage_lease_policy` - authorization:installation.manage_lease_policy\n* `authorization:installation.manage_model_sources` - authorization:installation.manage_model_sources\n* `authorization:installation.manage_principals` - authorization:installation.manage_principals\n* `authorization:installation.manage_service_credentials` - authorization:installation.manage_service_credentials\n* `authorization:installation.manage_sources` - authorization:installation.manage_sources\n* `authorization:installation.prepare_content` - authorization:installation.prepare_content\n* `authorization:installation.publish_content` - authorization:installation.publish_content\n* `authorization:installation.read_audit` - authorization:installation.read_audit\n* `authorization:installation.read_content` - authorization:installation.read_content\n* `authorization:installation.read_devices` - authorization:installation.read_devices\n* `authorization:installation.revoke_personal_tokens` - authorization:installation.revoke_personal_tokens\n* `authorization:installation.use_personal_tokens` - authorization:installation.use_personal_tokens\n* `authorization:organization.access_devices` - authorization:organization.access_devices\n* `authorization:organization.create_event` - authorization:organization.create_event\n* `authorization:organization.delegate_authorization` - authorization:organization.delegate_authorization\n* `authorization:organization.launch_range` - authorization:organization.launch_range\n* `authorization:organization.manage_adapters` - authorization:organization.manage_adapters\n* `authorization:organization.manage_authorization` - authorization:organization.manage_authorization\n* `authorization:organization.manage_content` - authorization:organization.manage_content\n* `authorization:organization.manage_credentials` - authorization:organization.manage_credentials\n* `authorization:organization.manage_devices` - authorization:organization.manage_devices\n* `authorization:organization.manage_members` - authorization:organization.manage_members\n* `authorization:organization.manage_model_sources` - authorization:organization.manage_model_sources\n* `authorization:organization.manage_range_scope` - authorization:organization.manage_range_scope\n* `authorization:organization.manage_sources` - authorization:organization.manage_sources\n* `authorization:organization.manage_workspaces` - authorization:organization.manage_workspaces\n* `authorization:organization.prepare_content` - authorization:organization.prepare_content\n* `authorization:organization.publish_content` - authorization:organization.publish_content\n* `authorization:organization.read` - authorization:organization.read\n* `authorization:organization.read_content` - authorization:organization.read_content\n* `authorization:organization.read_devices` - authorization:organization.read_devices\n* `authorization:organization.update` - authorization:organization.update\n* `authorization:range.access` - authorization:range.access\n* `authorization:range.manage` - authorization:range.manage\n* `authorization:range.read` - authorization:range.read\n* `authorization:range.transfer_ownership` - authorization:range.transfer_ownership\n* `authorization:workspace.access_devices` - authorization:workspace.access_devices\n* `authorization:workspace.archive` - authorization:workspace.archive\n* `authorization:workspace.create_event` - authorization:workspace.create_event\n* `authorization:workspace.delegate_authorization` - authorization:workspace.delegate_authorization\n* `authorization:workspace.launch_range` - authorization:workspace.launch_range\n* `authorization:workspace.leave` - authorization:workspace.leave\n* `authorization:workspace.manage_adapters` - authorization:workspace.manage_adapters\n* `authorization:workspace.manage_authorization` - authorization:workspace.manage_authorization\n* `authorization:workspace.manage_content` - authorization:workspace.manage_content\n* `authorization:workspace.manage_credentials` - authorization:workspace.manage_credentials\n* `authorization:workspace.manage_devices` - authorization:workspace.manage_devices\n* `authorization:workspace.manage_egress` - authorization:workspace.manage_egress\n* `authorization:workspace.manage_invitations` - authorization:workspace.manage_invitations\n* `authorization:workspace.manage_members` - authorization:workspace.manage_members\n* `authorization:workspace.manage_model_sources` - authorization:workspace.manage_model_sources\n* `authorization:workspace.manage_quota` - authorization:workspace.manage_quota\n* `authorization:workspace.manage_range_scope` - authorization:workspace.manage_range_scope\n* `authorization:workspace.manage_sources` - authorization:workspace.manage_sources\n* `authorization:workspace.prepare_content` - authorization:workspace.prepare_content\n* `authorization:workspace.publish_content` - authorization:workspace.publish_content\n* `authorization:workspace.publish_model_access` - authorization:workspace.publish_model_access\n* `authorization:workspace.read` - authorization:workspace.read\n* `authorization:workspace.read_content` - authorization:workspace.read_content\n* `authorization:workspace.read_devices` - authorization:workspace.read_devices\n* `authorization:workspace.restore` - authorization:workspace.restore\n* `authorization:workspace.transfer` - authorization:workspace.transfer\n* `authorization:workspace.update` - authorization:workspace.update"
             },
             "IssuePersonalCredentialTargetTypeEnum": {
                 "enum": [
@@ -8836,15 +9408,6 @@
                     "target_uuid",
                     "token"
                 ]
-            },
-            "KindEnum": {
-                "enum": [
-                    "individual",
-                    "team",
-                    "enterprise"
-                ],
-                "type": "string",
-                "description": "* `individual` - individual\n* `team` - team\n* `enterprise` - enterprise"
             },
             "LeasePolicy": {
                 "type": "object",
@@ -9239,16 +9802,6 @@
                     "last_name": {
                         "type": "string",
                         "maxLength": 150
-                    }
-                }
-            },
-            "PatchedSubdivisionCommand": {
-                "type": "object",
-                "description": "One bounded display name for a real business-account subdivision.",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "maxLength": 200
                     }
                 }
             },
@@ -9767,6 +10320,13 @@
                     "source_principal_uuid"
                 ]
             },
+            "PublicationStateEnum": {
+                "enum": [
+                    "pending"
+                ],
+                "type": "string",
+                "description": "* `pending` - pending"
+            },
             "RangeScopeBinding": {
                 "type": "object",
                 "description": "Bounded, read-only projection of a range scoped to a workspace.\n\nExplicit fields only (never a ``ModelSerializer``): no internal workspace or\nrange id, range spec, instance/IP/access detail, credential, or ORM object is\nexposed.",
@@ -9950,7 +10510,7 @@
                 "description": "An organizer receives a scoped create-event policy, never a Django group grant.",
                 "properties": {
                     "target_type": {
-                        "$ref": "#/components/schemas/ScopedOrganizerCommandTargetTypeEnum"
+                        "$ref": "#/components/schemas/HierarchyParentKindEnum"
                     },
                     "target_uuid": {
                         "type": "string",
@@ -9966,15 +10526,6 @@
                     "target_type",
                     "target_uuid"
                 ]
-            },
-            "ScopedOrganizerCommandTargetTypeEnum": {
-                "enum": [
-                    "account",
-                    "organization",
-                    "workspace"
-                ],
-                "type": "string",
-                "description": "* `account` - account\n* `organization` - organization\n* `workspace` - workspace"
             },
             "ServiceCredential": {
                 "type": "object",
@@ -10089,6 +10640,23 @@
                     "name": {
                         "type": "string",
                         "maxLength": 200
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
+            "SubdivisionCreationCommand": {
+                "type": "object",
+                "description": "Retry a committed subdivision through its exact publication receipt.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "publication_receipt": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 },
                 "required": [

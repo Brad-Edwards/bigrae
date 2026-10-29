@@ -1,666 +1,160 @@
-"""Tests for the CTF event spare-range pool (issue #1018 revised plan).
-
-DB-backed integration-style tests (per the repo's OOM lesson: fixtures and
-real rows over many micro-tests with inline mocks). Per ADR-019's
-boundary-mock policy, ``provision_event_spares`` drives the real
-``ctf.bridges.cms_create_range`` -> ``cms.services.create_range`` -> the RAES
-engine seam (cloud dispatch is held at the test boundary -- see
-``tests/cms/test_services_range.py`` and
-``tests/ctf/test_services/test_range_recovery.py``), so a provisioned spare's
-``range_instance_id`` resolves synchronously exactly as it does in production.
-
-The RAES package owns topology, so the compatibility ``agents_by_os`` input is
-empty. Each pooled spare is provisioned under its own freshly created managed user
-(:func:`ctf.services.range.spares.create_managed_spare_user`), and
-``cms.services._agents.get_agent`` enforces strict per-user agent ownership,
-so a shared ``agents_by_os`` agent (owned by one fixture user) could never be
-resolved for many distinct spare-owning users. Avoiding the agent
-requirement entirely keeps this file focused on spare-pool bookkeeping.
-"""
+"""Principal-native CTF spare-pool coverage for the identity hard cut."""
 
 from __future__ import annotations
 
-import pytest
-from django.contrib.auth.models import User
+from uuid import uuid4
 
-from cms.models import RaesPackageSource, RangeInstance
-from ctf.enums import ParticipantStatus, SpareRangeStatus
-from ctf.exceptions import CTFNotFoundError
-from ctf.models import CTFEvent, CTFParticipant, CTFSpareRange
-from ctf.services.range.spares import (
-    cleanup_event_spares,
-    create_managed_spare_user,
-    delete_managed_spare_user,
-    get_event_spare_summary,
-    provision_event_spares,
-)
+import pytest
+
+from cms.models import RangeInstance
+from ctf.enums import SpareRangeStatus
+from ctf.exceptions import CTFNotFoundError, CTFPermissionError
+from ctf.models import CTFEvent, CTFSpareRange
+from ctf.services.range.spares import cleanup_event_spares, get_event_spare_summary, provision_event_spares
+from engine.models import Range
 from shared.audit import AuditAction
 from shared.models import AuditLog
+from tests.cms.conftest import make_pack as make_pack
+from tests.ctf.test_range_launch_crash_recovery import launch_event as launch_event
 
 
 @pytest.fixture
-def spare_pool_scenario(organizer_user, monkeypatch) -> RaesPackageSource:
-    """A conformance-passed RAES source with cloud dispatch held at the seam."""
-    monkeypatch.setattr("engine.services._raes_range.start_raes_range_provisioning", lambda *_a, **_kw: None)
-
-    def dispatch(request_id, user, _source, backend_admission, workspace_id, egress_mode, **_kwargs):
-        from engine.services import create_raes_range
-
-        create_raes_range(
-            request_id=request_id,
-            user_id=user.id,
-            compiled_plan={"kind": "raes_provisioning_plan", "raes_version": "2.0", "resources": {}},
-            backend_admission=backend_admission,
-            workspace_id=workspace_id,
-            egress_mode=egress_mode,
-        )
-
-    monkeypatch.setattr("cms.services._raes_range_create._dispatch_raes_package", dispatch)
-    return RaesPackageSource.objects.create(
-        scenario_id="ctf-spare-pool-test",
-        contract_kind="raes",
-        contract_profile="shifter",
-        package_ref="tests/packs/ctf-spare-pool-test",
-        package_version="1.0.0",
-        package_digest="sha256:" + "a" * 64,
-        conformance_status="passed",
-        registered_by=organizer_user,
-    )
-
-
-@pytest.fixture
-def event_with_scenario(ctf_event, spare_pool_scenario) -> CTFEvent:
-    """CTF event configured so spares can be built via the agent-free test scenario."""
-    ctf_event.scenario_id = spare_pool_scenario.scenario_id
-    ctf_event.range_config = {"agents_by_os": {}, "ngfw_enabled": False}
-    ctf_event.save(update_fields=["scenario_id", "range_config"])
-    return ctf_event
-
-
-class TestManagedSpareUser:
-    @pytest.mark.django_db
-    def test_create_managed_spare_user_is_inactive_and_marked(self):
-        user = create_managed_spare_user()
-
-        assert user.is_active is False
-        assert user.has_usable_password() is False
-        assert user.email.endswith("@ctf-spare.invalid")
-        assert user.username.startswith("ctf-spare-")
-        assert not CTFParticipant.objects.filter(user=user).exists()
-
-    @pytest.mark.django_db
-    def test_delete_managed_spare_user_deletes_marked_user(self):
-        user = create_managed_spare_user()
-        user_pk = user.pk
-
-        assert delete_managed_spare_user(user) is True
-        assert not User.objects.filter(pk=user_pk).exists()
-
-    @pytest.mark.django_db
-    def test_delete_managed_spare_user_refuses_non_spare_user(self, organizer_user):
-        """A real (non-``@ctf-spare.invalid``) user is never deleted, even if passed in by mistake."""
-        assert delete_managed_spare_user(organizer_user) is False
-        assert User.objects.filter(pk=organizer_user.pk).exists()
-
-    @pytest.mark.django_db
-    def test_delete_managed_spare_user_refuses_activated_placeholder(self):
-        user = create_managed_spare_user()
-        user.is_active = True
-        user.save(update_fields=["is_active"])
-
-        assert delete_managed_spare_user(user) is False
-        assert User.objects.filter(pk=user.pk).exists()
-
-    @pytest.mark.django_db
-    def test_delete_managed_spare_user_refuses_bound_identity(self):
-        from management.models import ProviderBinding
-
-        user = create_managed_spare_user()
-        ProviderBinding.objects.create(
-            principal=user.identity_principal,
-            issuer="https://issuer.example.test",
-            subject=f"pooled-{user.pk}",
-        )
-
-        assert delete_managed_spare_user(user) is False
-        assert User.objects.filter(pk=user.pk).exists()
-
-    def test_delete_managed_spare_user_none_is_a_safe_no_op(self):
-        assert delete_managed_spare_user(None) is False
-
-
-class TestProvisionEventSpares:
-    @pytest.mark.django_db
-    def test_creates_managed_user_owned_rows(self, event_with_scenario, organizer_user):
-        result = provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-
-        assert result == {
-            "event_id": str(event_with_scenario.pk),
-            "target_count": 2,
-            "existing": 0,
-            "created": 2,
-        }
-
-        event_with_scenario.refresh_from_db()
-        assert event_with_scenario.spare_range_count == 2
-
-        spares = list(CTFSpareRange.objects.filter(event=event_with_scenario))
-        assert len(spares) == 2
-        for spare in spares:
-            assert spare.range_instance_id is not None
-            assert spare.status == SpareRangeStatus.PROVISIONING.value
-            assert spare.owner_user is not None
-            assert spare.owner_user.is_active is False
-            assert spare.owner_user.email.endswith("@ctf-spare.invalid")
-            # Never a CTFParticipant -- excluded from participant/scoreboard surfaces.
-            assert not CTFParticipant.objects.filter(user=spare.owner_user).exists()
-            instance = RangeInstance.objects.get(pk=spare.range_instance_id)
-            assert instance.user_id == spare.owner_user_id
-
-        audit = AuditLog.objects.get(action=AuditAction.SPARE_PROVISION)
-        assert audit.actor_id == organizer_user.id
-        assert audit.new_state["event_id"] == str(event_with_scenario.pk)
-        assert audit.new_state["created"] == 2
-
-    @pytest.mark.django_db
-    def test_spares_pin_event_egress_without_rebinding_owner_workspace(self, event_with_scenario, organizer_user):
-        from engine.models import Range as EngineRange
-        from workspaces.models import Workspace
-
-        Workspace.objects.filter(pk=event_with_scenario.workspace_id).update(egress_policy="none")
-
-        result = provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-
-        assert result["created"] == 2
-        for spare in CTFSpareRange.objects.filter(event=event_with_scenario):
-            instance = RangeInstance.objects.get(pk=spare.range_instance_id)
-            engine_range = EngineRange.objects.get(request__request_id=instance.request.request_id)
-            assert instance.user_id == spare.owner_user_id
-            assert instance.workspace_id != event_with_scenario.workspace_id
-            assert engine_range.workspace_id == instance.workspace_id
-            assert engine_range.egress_mode == "none"
-            launch_audit = AuditLog.objects.get(
-                action=AuditAction.PROVISION,
-                actor_id=spare.owner_user_id,
-                new_state__request_id=str(instance.request.request_id),
-            )
-            assert launch_audit.new_state["egress_policy_workspace_id"] == event_with_scenario.workspace_id
-            assert launch_audit.new_state["egress_mode"] == "none"
-
-    @pytest.mark.django_db
-    def test_two_participants_use_event_policy_with_distinct_owner_scopes(
-        self, event_with_scenario, participant_user, second_participant_user
-    ):
-        from ctf.services.range.provision import provision_participant_range
-        from engine.models import Range as EngineRange
-        from workspaces.models import Workspace
-
-        Workspace.objects.filter(pk=event_with_scenario.workspace_id).update(egress_policy="none")
-        owner_workspaces = set()
-        for user in (participant_user, second_participant_user):
-            participant = CTFParticipant.objects.create(
-                event=event_with_scenario,
-                user=user,
-                email=user.email,
-                name=user.username,
-                status=ParticipantStatus.ACTIVE.value,
-            )
-            result = provision_participant_range(participant.pk)
-            instance = RangeInstance.objects.get(pk=result["range_instance_id"])
-            engine_range = EngineRange.objects.get(request__request_id=instance.request.request_id)
-            assert instance.user_id == user.pk
-            assert instance.workspace_id != event_with_scenario.workspace_id
-            assert engine_range.workspace_id == instance.workspace_id
-            assert engine_range.egress_mode == "none"
-            owner_workspaces.add(instance.workspace_id)
-        assert len(owner_workspaces) == 2
-
-    @pytest.mark.django_db
-    def test_archived_event_workspace_denies_participant_launch_without_personal_fallback(
-        self, event_with_scenario, participant_user
-    ):
-        from django.utils import timezone
-
-        from ctf.exceptions import CTFRangeError
-        from ctf.services.range.provision import provision_participant_range
-        from workspaces.models import Workspace
-
-        Workspace.objects.filter(pk=event_with_scenario.workspace_id).update(archived_at=timezone.now())
-        participant = CTFParticipant.objects.create(
-            event=event_with_scenario,
-            user=participant_user,
-            email=participant_user.email,
-            name="Denied Participant",
-            status=ParticipantStatus.ACTIVE.value,
-        )
-
-        with pytest.raises(CTFRangeError):
-            provision_participant_range(participant.pk)
-
-        assert not RangeInstance.objects.filter(user_id=participant_user.pk).exists()
-
-    @pytest.mark.django_db
-    def test_top_up_is_idempotent_at_the_same_target(self, event_with_scenario, organizer_user):
-        provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-        first_ids = set(CTFSpareRange.objects.filter(event=event_with_scenario).values_list("pk", flat=True))
-
-        result = provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-
-        assert result["existing"] == 2
-        assert result["created"] == 0
-        second_ids = set(CTFSpareRange.objects.filter(event=event_with_scenario).values_list("pk", flat=True))
-        assert first_ids == second_ids
-
-    @pytest.mark.django_db
-    def test_top_up_increases_pool_to_new_target(self, event_with_scenario, organizer_user):
-        provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-
-        result = provision_event_spares(event_with_scenario.pk, 5, operator=organizer_user)
-
-        assert result["existing"] == 2
-        assert result["created"] == 3
-        assert CTFSpareRange.objects.filter(event=event_with_scenario).count() == 5
-        event_with_scenario.refresh_from_db()
-        assert event_with_scenario.spare_range_count == 5
-
-    @pytest.mark.django_db
-    def test_top_up_replaces_failed_and_consumed_spares(self, event_with_scenario, organizer_user, participant_user):
-        provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-        spares = list(CTFSpareRange.objects.filter(event=event_with_scenario))
-        spares[0].status = SpareRangeStatus.FAILED.value
-        spares[0].save(update_fields=["status", "updated_at"])
-        participant = CTFParticipant.objects.create(
-            event=event_with_scenario,
-            user=participant_user,
-            email=participant_user.email,
-            name="Consumer",
-            status=ParticipantStatus.ACTIVE.value,
-        )
-        spares[1].consumed_by = participant
-        spares[1].status = SpareRangeStatus.CONSUMED.value
-        spares[1].save(update_fields=["consumed_by", "status", "updated_at"])
-
-        result = provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-
-        # Both existing rows are failed/consumed, so "existing" (active) is 0
-        # and a fresh top-up to 2 creates 2 new spares.
-        assert result["existing"] == 0
-        assert result["created"] == 2
-        assert CTFSpareRange.objects.filter(event=event_with_scenario).count() == 4
-
-    @pytest.mark.django_db
-    def test_event_not_found_raises(self):
-        import uuid
-
-        uuid4 = uuid.uuid4()
-        with pytest.raises(CTFNotFoundError):
-            provision_event_spares(uuid4, 1)
-
-    @pytest.mark.django_db
-    def test_a_spares_provisioning_failure_is_recorded_failed_and_topup_continues(self, ctf_event, organizer_user):
-        """A real (unmocked) hydration failure -- a scenario_id CMS has never heard
-        of -- drives ``_provision_one_spare``'s ``except Exception`` branch for
-        every attempt in the top-up. Each failure is recorded as a ``failed``
-        ``CTFSpareRange`` rather than raised, so the loop still makes all
-        ``to_create`` attempts instead of aborting after the first one.
-        """
-        ctf_event.scenario_id = "no-such-scenario-1018"
-        ctf_event.range_config = {"agents_by_os": {}, "ngfw_enabled": False}
-        ctf_event.save(update_fields=["scenario_id", "range_config"])
-
-        result = provision_event_spares(ctf_event.pk, 3, operator=organizer_user)
-
-        # Failures are never counted as "created" ...
-        assert result["created"] == 0
-        # ... but the loop still ran all 3 attempts rather than stopping after
-        # the first failure.
-        spares = list(CTFSpareRange.objects.filter(event=ctf_event))
-        assert len(spares) == 3
-        for spare in spares:
-            assert spare.status == SpareRangeStatus.FAILED.value
-            assert spare.range_instance_id is None
-            # The managed spare user is still created before the provisioning
-            # attempt fails.
-            assert spare.owner_user is not None
-            assert spare.owner_user.email.endswith("@ctf-spare.invalid")
-
-
-class TestGetEventSpareSummary:
-    @pytest.mark.django_db
-    def test_counts_by_status_and_available(self, event_with_scenario, organizer_user, participant_user):
-        provision_event_spares(event_with_scenario.pk, 3, operator=organizer_user)
-        spares = list(CTFSpareRange.objects.filter(event=event_with_scenario))
-        spares[0].status = SpareRangeStatus.READY.value
-        spares[0].save(update_fields=["status", "updated_at"])
-        spares[1].status = SpareRangeStatus.FAILED.value
-        spares[1].save(update_fields=["status", "updated_at"])
-        # spares[2] stays "provisioning".
-
-        summary = get_event_spare_summary(event_with_scenario.pk)
-
-        assert summary["event_id"] == str(event_with_scenario.pk)
-        assert summary["target_count"] == 3
-        assert summary["counts"][SpareRangeStatus.READY.value] == 1
-        assert summary["counts"][SpareRangeStatus.FAILED.value] == 1
-        assert summary["counts"][SpareRangeStatus.PROVISIONING.value] == 1
-        assert summary["counts"][SpareRangeStatus.CONSUMED.value] == 0
-        assert summary["available"] == 1
-
-    @pytest.mark.django_db
-    def test_event_not_found_raises(self):
-        import uuid
-
-        uuid4 = uuid.uuid4()
-        with pytest.raises(CTFNotFoundError):
-            get_event_spare_summary(uuid4)
-
-
-class TestSpareStatusSignalSync:
-    """``ctf.signals.sync_ctf_spare_range_status`` is the "existing event projection"
-
-    that moves a pooled spare from ``provisioning`` to ``ready``/``failed`` -- the
-    same ``cms.services.range_status_changed`` signal that already syncs
-    ``CTFParticipant.range_status`` (see ``sync_ctf_participant_range_status``).
-    """
-
-    @pytest.mark.django_db
-    def test_ready_status_change_syncs_unconsumed_spare(self, event_with_scenario, organizer_user):
-        from cms.signals import range_status_changed
-        from shared.enums import ResourceStatus
-
-        provision_event_spares(event_with_scenario.pk, 1, operator=organizer_user)
-        spare = CTFSpareRange.objects.get(event=event_with_scenario)
-        assert spare.status == SpareRangeStatus.PROVISIONING.value
-
-        range_status_changed.send(
-            sender=None,
-            range_instance_id=spare.range_instance_id,
-            new_status=ResourceStatus.READY.value,
-            previous_status=ResourceStatus.PROVISIONING.value,
-        )
-
-        spare.refresh_from_db()
-        assert spare.status == SpareRangeStatus.READY.value
-
-    @pytest.mark.django_db
-    def test_unmapped_status_change_is_a_no_op(self, event_with_scenario, organizer_user):
-        """A CMS status with no spare-pool projection (e.g. ``provisioning`` ->
-        ``provisioning``, or any status other than ``ready``/``failed``) hits the
-        early-return branch: the signal is a no-op rather than raising or
-        touching the spare row.
-        """
-        from cms.signals import range_status_changed
-        from shared.enums import ResourceStatus
-
-        provision_event_spares(event_with_scenario.pk, 1, operator=organizer_user)
-        spare = CTFSpareRange.objects.get(event=event_with_scenario)
-        assert spare.status == SpareRangeStatus.PROVISIONING.value
-
-        range_status_changed.send(
-            sender=None,
-            range_instance_id=spare.range_instance_id,
-            new_status=ResourceStatus.PAUSED.value,
-            previous_status=ResourceStatus.READY.value,
-        )
-
-        spare.refresh_from_db()
-        assert spare.status == SpareRangeStatus.PROVISIONING.value
-
-    @pytest.mark.django_db
-    def test_status_change_never_touches_a_consumed_spare(self, event_with_scenario, organizer_user, participant_user):
-        from cms.signals import range_status_changed
-        from shared.enums import ResourceStatus
-
-        provision_event_spares(event_with_scenario.pk, 1, operator=organizer_user)
-        spare = CTFSpareRange.objects.get(event=event_with_scenario)
-        participant = CTFParticipant.objects.create(
-            event=event_with_scenario,
-            user=participant_user,
-            email=participant_user.email,
-            name="Consumer",
-            status=ParticipantStatus.ACTIVE.value,
-        )
-        spare.consumed_by = participant
-        spare.status = SpareRangeStatus.CONSUMED.value
-        spare.save(update_fields=["consumed_by", "status", "updated_at"])
-
-        range_status_changed.send(
-            sender=None,
-            range_instance_id=spare.range_instance_id,
-            new_status=ResourceStatus.FAILED.value,
-            previous_status=ResourceStatus.READY.value,
-        )
-
-        spare.refresh_from_db()
-        assert spare.status == SpareRangeStatus.CONSUMED.value
-
-    @pytest.mark.django_db
-    def test_destroyed_status_finalizes_unconsumed_spare(self, event_with_scenario, organizer_user):
-        from cms.signals import range_status_changed
-        from shared.enums import ResourceStatus
-
-        provision_event_spares(event_with_scenario.pk, 1, operator=organizer_user)
-        spare = CTFSpareRange.objects.get(event=event_with_scenario)
-        owner_id = spare.owner_user_id
-
-        range_status_changed.send(
-            sender=None,
-            range_instance_id=spare.range_instance_id,
-            new_status=ResourceStatus.DESTROYED.value,
-            previous_status=ResourceStatus.DESTROYING.value,
-        )
-
-        spare.refresh_from_db()
-        assert spare.status == SpareRangeStatus.FAILED.value
-        assert spare.owner_user_id is None
-        assert not User.objects.filter(pk=owner_id).exists()
-
-
-class TestCleanupEventSpares:
-    @pytest.mark.django_db
-    def test_tears_down_unconsumed_spares_and_deletes_users(self, event_with_scenario, organizer_user):
-        provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-        spares = list(CTFSpareRange.objects.filter(event=event_with_scenario))
-        owner_ids = [s.owner_user_id for s in spares]
-        range_ids = [s.range_instance_id for s in spares]
-
-        result = cleanup_event_spares(event_with_scenario.pk)
-
-        assert result["destroyed"] == 2
-        assert result["users_deleted"] == 2
-        assert result["failed"] == 0
-
-        for range_id in range_ids:
-            # The underlying local dev provisioner subprocess may complete
-            # teardown (hard-removing the row) before this assertion runs, or
-            # may not have yet (leaving it soft-deleted) -- an environment
-            # timing detail, not part of the "torn down" contract being
-            # tested (see the same reasoning in
-            # test_range_recovery.py::test_old_range_access_denied_after_rebuild).
-            instance = RangeInstance.all_objects.filter(pk=range_id).first()
-            assert instance is None or instance.deleted_at is not None
-        for owner_id in owner_ids:
-            assert not User.objects.filter(pk=owner_id).exists()
-        for spare in CTFSpareRange.objects.filter(event=event_with_scenario):
-            assert spare.owner_user_id is None
-
-    @pytest.mark.django_db
-    def test_a_single_spares_destroy_failure_is_counted_without_aborting_the_others(
-        self, event_with_scenario, organizer_user, monkeypatch
-    ):
-        """A transient CMS dispatch failure retains its owner for retry."""
-        from ctf import bridges
-
-        provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-        spares = list(CTFSpareRange.objects.filter(event=event_with_scenario))
-        owner_ids = [s.owner_user_id for s in spares]
-        retry_range_id = spares[0].range_instance_id
-        original_destroy = bridges.cms_destroy_range
-        failed_once = False
-
-        def transient_destroy(user, range_instance_id):
-            nonlocal failed_once
-            if range_instance_id == retry_range_id and not failed_once:
-                failed_once = True
-                raise RuntimeError("transient dispatch failure")
-            original_destroy(user, range_instance_id)
-
-        monkeypatch.setattr(bridges, "cms_destroy_range", transient_destroy)
-
-        result = cleanup_event_spares(event_with_scenario.pk)
-
-        assert result["destroyed"] == 1
-        assert result["failed"] == 1
-        assert result["users_deleted"] == 1
-        retry_spare = CTFSpareRange.objects.get(range_instance_id=retry_range_id)
-        assert retry_spare.status == SpareRangeStatus.PROVISIONING.value
-        assert retry_spare.owner_user_id == owner_ids[0]
-        assert User.objects.filter(pk=owner_ids[0]).exists()
-        assert not User.objects.filter(pk=owner_ids[1]).exists()
-
-        retried = cleanup_event_spares(event_with_scenario.pk)
-        assert retried["destroyed"] == 1
-        assert retried["failed"] == 0
-        assert retried["users_deleted"] == 1
-        retry_spare.refresh_from_db()
-        assert retry_spare.status == SpareRangeStatus.FAILED.value
-        assert retry_spare.owner_user_id is None
-        assert not User.objects.filter(pk=owner_ids[0]).exists()
-
-    @pytest.mark.django_db
-    def test_resolves_late_range_instance_before_destroy(self, event_with_scenario, organizer_user):
-        provision_event_spares(event_with_scenario.pk, 1, operator=organizer_user)
-        spare = CTFSpareRange.objects.get(event=event_with_scenario)
-        range_id = spare.range_instance_id
-        spare.range_instance_id = None
-        spare.save(update_fields=["range_instance_id", "updated_at"])
-
-        result = cleanup_event_spares(event_with_scenario.pk)
-
-        assert result["destroyed"] == 1
-        spare.refresh_from_db()
-        assert spare.range_instance_id == range_id
-        assert spare.owner_user_id is None
-
-    @pytest.mark.django_db
-    def test_unresolved_range_retains_owner_until_retry(self, event_with_scenario, organizer_user, monkeypatch):
-        from ctf import bridges
-
-        provision_event_spares(event_with_scenario.pk, 1, operator=organizer_user)
-        spare = CTFSpareRange.objects.get(event=event_with_scenario)
-        owner_id = spare.owner_user_id
-        spare.range_instance_id = None
-        spare.save(update_fields=["range_instance_id", "updated_at"])
-        original_find = bridges.cms_find_range_instance_id
-        monkeypatch.setattr(bridges, "cms_find_range_instance_id", lambda _request_id: None)
-
-        deferred = cleanup_event_spares(event_with_scenario.pk)
-
-        assert deferred["destroyed"] == 0
-        assert deferred["failed"] == 1
-        spare.refresh_from_db()
-        assert spare.status == SpareRangeStatus.PROVISIONING.value
-        assert spare.owner_user_id == owner_id
-        assert User.objects.filter(pk=owner_id).exists()
-
-        monkeypatch.setattr(bridges, "cms_find_range_instance_id", original_find)
-        retried = cleanup_event_spares(event_with_scenario.pk)
-        assert retried["destroyed"] == 1
-        assert retried["failed"] == 0
-        spare.refresh_from_db()
-        assert spare.status == SpareRangeStatus.FAILED.value
-        assert spare.owner_user_id is None
-
-    @pytest.mark.django_db
-    def test_leaves_consumed_spares_alone(self, event_with_scenario, organizer_user, participant_user):
-        provision_event_spares(event_with_scenario.pk, 1, operator=organizer_user)
-        spare = CTFSpareRange.objects.get(event=event_with_scenario)
-        owner_id = spare.owner_user_id
-        participant = CTFParticipant.objects.create(
-            event=event_with_scenario,
-            user=participant_user,
-            email=participant_user.email,
-            name="Consumer",
-            status=ParticipantStatus.ACTIVE.value,
-        )
-        spare.consumed_by = participant
-        spare.status = SpareRangeStatus.CONSUMED.value
-        spare.save(update_fields=["consumed_by", "status", "updated_at"])
-
-        result = cleanup_event_spares(event_with_scenario.pk)
-
-        assert result["destroyed"] == 0
-        assert result["users_deleted"] == 0
-        spare.refresh_from_db()
-        assert spare.status == SpareRangeStatus.CONSUMED.value
-        assert spare.owner_user_id == owner_id
-
-    @pytest.mark.django_db
-    def test_event_not_found_raises(self):
-        import uuid
-
-        uuid4 = uuid.uuid4()
-        with pytest.raises(CTFNotFoundError):
-            cleanup_event_spares(uuid4)
-
-
-class TestCleanupEventRangesWiresSpares:
-    """``cleanup_event_ranges`` (event teardown entry point) also tears down the
-    event's spare pool, end to end through the real service (#1018)."""
-
-    @pytest.mark.django_db
-    def test_cleanup_event_ranges_tears_down_unconsumed_spares(self, event_with_scenario, organizer_user):
-        from ctf.services.range import cleanup_event_ranges
-
-        provision_event_spares(event_with_scenario.pk, 2, operator=organizer_user)
-        spares = list(CTFSpareRange.objects.filter(event=event_with_scenario))
-        owner_ids = [s.owner_user_id for s in spares]
-
-        cleanup_event_ranges(event_with_scenario.pk)
-
-        for owner_id in owner_ids:
-            assert not User.objects.filter(pk=owner_id).exists()
-        for spare in CTFSpareRange.objects.filter(event=event_with_scenario):
-            assert spare.status == SpareRangeStatus.FAILED.value
-            assert spare.owner_user_id is None
-
-
-class TestCleanupEventSparesBestEffort:
-    """``_cleanup_event_spares_best_effort`` (issue #1018): a spare-cleanup failure
-    must never abort the participant-range cleanup ``cleanup_event_ranges`` runs it
-    after.
-
-    Exercises the real, unmocked failure path -- ``cleanup_event_spares`` raising a
-    genuine ``CTFNotFoundError`` for a nonexistent event -- rather than mocking a
-    first-party target, per ADR-019's boundary-mock policy (the legacy
-    ``boundary_mock_baseline.json`` ratchet only shrinks; it does not admit new
-    first-party patch targets).
-    """
-
-    @pytest.mark.django_db
-    def test_swallows_a_real_cleanup_failure_without_raising(self, monkeypatch):
-        import uuid
-
-        from ctf.services.range import lifecycle
-
-        # Spy on the module logger (app loggers set propagate=False, so caplog's
-        # root handler would miss the record). This asserts the swallow path is
-        # the one exercised — the failure is logged for on-call visibility with
-        # the event id and the exception traceback, not silently discarded.
-        calls: list[tuple] = []
-        monkeypatch.setattr(
-            lifecycle.logger,
-            "exception",
-            lambda msg, *args, **kwargs: calls.append((msg, args)),
-        )
-
-        # No event exists for this id, so the real `cleanup_event_spares` call
-        # inside genuinely raises `CTFNotFoundError`; the wrapper must swallow it
-        # rather than let it propagate.
-        event_id = uuid.uuid4()
-        lifecycle._cleanup_event_spares_best_effort(event_id)
-
-        assert calls, "expected the swallowed spare-cleanup failure to be logged"
-        msg, args = calls[0]
-        assert "spare-pool cleanup failed" in msg
-        assert any(str(event_id) == str(arg) for arg in args)
+def event_with_scenario(launch_event) -> CTFEvent:
+    """Use the real synthetic package, compiler, CMS port and native outbox."""
+    return launch_event
+
+
+@pytest.mark.django_db
+def test_spares_are_event_principal_owned_without_placeholder_users(
+    event_with_scenario, organizer_user, organizer_credential
+):
+    from django.contrib.auth import get_user_model
+
+    before_users = get_user_model().objects.count()
+    result = provision_event_spares(event_with_scenario.pk, 2, operator=organizer_credential)
+
+    assert result == {
+        "event_id": str(event_with_scenario.pk),
+        "target_count": 2,
+        "existing": 0,
+        "created": 2,
+    }
+    assert get_user_model().objects.count() == before_users
+    spares = list(CTFSpareRange.objects.filter(event=event_with_scenario))
+    assert len(spares) == 2
+    for spare in spares:
+        instance = RangeInstance.objects.get(pk=spare.range_instance_id)
+        runtime = Range.objects.get(request__request_id=instance.request.request_id)
+        assert instance.user_id == organizer_user.pk
+        assert runtime.user_id == organizer_user.pk
+        assert instance.owner_principal_uuid == event_with_scenario.owner_principal_uuid
+        assert runtime.owner_principal_uuid == event_with_scenario.owner_principal_uuid
+        assert instance.event_uuid == event_with_scenario.pk
+        assert runtime.event_uuid == event_with_scenario.pk
+        assert runtime.egress_mode == "none"
+
+    audit = AuditLog.objects.get(action=AuditAction.SPARE_PROVISION)
+    assert audit.actor_id is None
+    assert audit.actor_principal_uuid == event_with_scenario.owner_principal_uuid
+    assert audit.new_state["created"] == 2
+
+
+@pytest.mark.django_db
+def test_spare_top_up_is_idempotent_and_replaces_terminal_rows(event_with_scenario, organizer_credential):
+    provision_event_spares(event_with_scenario.pk, 2, operator=organizer_credential)
+    first = set(CTFSpareRange.objects.values_list("pk", flat=True))
+    same = provision_event_spares(event_with_scenario.pk, 2, operator=organizer_credential)
+    assert same["existing"] == 2 and same["created"] == 0
+    assert set(CTFSpareRange.objects.values_list("pk", flat=True)) == first
+
+    CTFSpareRange.objects.filter(pk=next(iter(first))).update(status=SpareRangeStatus.FAILED.value)
+    replaced = provision_event_spares(event_with_scenario.pk, 2, operator=organizer_credential)
+    assert replaced["existing"] == 1 and replaced["created"] == 1
+    assert CTFSpareRange.objects.count() == 3
+
+
+@pytest.mark.django_db
+def test_spare_provision_requires_live_event_range_authority(event_with_scenario, participant_user):
+    with pytest.raises(CTFPermissionError):
+        provision_event_spares(event_with_scenario.pk, 1, operator=participant_user)
+    assert not CTFSpareRange.objects.exists()
+
+
+@pytest.mark.django_db
+def test_spare_provision_requires_an_initiating_credential(event_with_scenario):
+    with pytest.raises(ValueError, match="authority unavailable"):
+        provision_event_spares(event_with_scenario.pk, 1)
+    assert not CTFSpareRange.objects.exists()
+
+
+@pytest.mark.django_db
+def test_spare_provision_failure_is_recorded(ctf_event, organizer_credential):
+    from ctf.models import CTFRangeLaunch
+
+    result = provision_event_spares(ctf_event.pk, 2, operator=organizer_credential)
+    assert result["created"] == 2
+    assert set(CTFSpareRange.objects.values_list("status", flat=True)) == {SpareRangeStatus.PROVISIONING.value}
+    assert CTFRangeLaunch.objects.filter(dispatched_at=None).count() == 2
+    first = set(CTFRangeLaunch.objects.values_list("pk", flat=True))
+    provision_event_spares(ctf_event.pk, 2, operator=organizer_credential)
+    assert set(CTFRangeLaunch.objects.values_list("pk", flat=True)) == first
+
+
+@pytest.mark.django_db
+def test_spare_summary_counts_statuses(event_with_scenario, organizer_credential):
+    provision_event_spares(event_with_scenario.pk, 2, operator=organizer_credential)
+    rows = list(CTFSpareRange.objects.order_by("pk"))
+    rows[0].status = SpareRangeStatus.READY.value
+    rows[0].save(update_fields=["status", "updated_at"])
+    summary = get_event_spare_summary(event_with_scenario.pk)
+    assert summary["target_count"] == 2
+    assert summary["counts"][SpareRangeStatus.READY.value] == 1
+    assert summary["counts"][SpareRangeStatus.PROVISIONING.value] == 1
+    assert summary["available"] == 1
+
+
+@pytest.mark.django_db
+def test_cleanup_dispatches_with_operator_credential(event_with_scenario, organizer_credential):
+    from engine.models import RangeCancellationAuthority
+
+    provision_event_spares(event_with_scenario.pk, 2, operator=organizer_credential)
+    result = cleanup_event_spares(event_with_scenario.pk, actor=organizer_credential)
+    assert result == {"event_id": str(event_with_scenario.pk), "destroyed": 2, "failed": 0}
+    cleanups = RangeCancellationAuthority.objects.filter(authority_kind="cleanup")
+    assert cleanups.count() == 2
+    assert all(row.initiating_principal_uuid == organizer_credential.principal.uuid for row in cleanups)
+    assert all(row.credential_uuid == organizer_credential.credential_uuid for row in cleanups)
+    assert set(CTFSpareRange.objects.values_list("status", flat=True)) == {SpareRangeStatus.PROVISIONING.value}
+    assert set(RangeInstance.all_objects.values_list("status", flat=True)) == {"destroying"}
+
+
+@pytest.mark.django_db
+def test_cleanup_preserves_retryable_row_after_dispatch_failure(event_with_scenario, organizer_credential):
+    from django.db import connection
+
+    from engine.models import RangeCancellationAuthority
+
+    provision_event_spares(event_with_scenario.pk, 1, operator=organizer_credential)
+
+    def fail(execute, sql, params, many, context):
+        if sql.startswith('INSERT INTO "engine_range_cancellation_authority"'):
+            raise RuntimeError("Synthetic cleanup commit failure")
+        return execute(sql, params, many, context)
+
+    with connection.execute_wrapper(fail):
+        result = cleanup_event_spares(event_with_scenario.pk, actor=organizer_credential)
+    assert result["destroyed"] == 0 and result["failed"] == 1
+    assert CTFSpareRange.objects.get().status == SpareRangeStatus.PROVISIONING.value
+    assert not RangeCancellationAuthority.objects.filter(authority_kind="cleanup").exists()
+    retried = cleanup_event_spares(event_with_scenario.pk, actor=organizer_credential)
+    assert retried["destroyed"] == 1 and retried["failed"] == 0
+    assert RangeCancellationAuthority.objects.filter(authority_kind="cleanup").count() == 1
+
+
+@pytest.mark.django_db
+def test_unknown_event_is_not_found(organizer_user):
+    missing = uuid4()
+    with pytest.raises(CTFNotFoundError):
+        provision_event_spares(missing, 1, operator=organizer_user)
+    with pytest.raises(CTFNotFoundError):
+        cleanup_event_spares(missing, actor=organizer_user)

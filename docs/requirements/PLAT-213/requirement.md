@@ -21,8 +21,8 @@ Shifter experiments should not stop at orchestration. LilRAE (formerly APTL) req
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#399` (Experiment management / orchestration tracking)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#466` (Experiment run orchestration tracking)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#399` (Experiment management / orchestration tracking)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#466` (Experiment run orchestration tracking)
 - DOCUMENTS → SPEC `aptl:BEN-001` (LilRAE specification, former APTL identifier BEN-001: Benchmark Suite)
 - DOCUMENTS → SPEC `aptl:BEN-002` (LilRAE specification, former APTL identifier BEN-002: Attack-Side Performance Metrics)
 - DOCUMENTS → SPEC `aptl:BEN-003` (LilRAE specification, former APTL identifier BEN-003: Cross-Run Comparison Engine)

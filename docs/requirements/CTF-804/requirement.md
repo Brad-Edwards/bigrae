@@ -26,4 +26,4 @@ Scheduled notifications enable organizers to plan communications in advance, eve
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Notification form view with schedule action and scheduled_at parsing)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (CTF scheduler - polls every 30 seconds, but SEND_REMINDER handler is stub (not implemented))
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Tests for schedule_notification - verifies status and scheduled task creation)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#667` (CTF-804: Scheduled Notifications)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#667` (CTF-804: Scheduled Notifications)

@@ -73,6 +73,9 @@ class DeployOptions:
     lock: str = "gcs"
     break_lock: bool = False
     first_install: bool = False
+    identity_cutover_facts: str = ""
+    identity_bootstrap_facts: str = ""
+    catalog_credential_file: str = ""
     allow_missing_range_images: bool = False
     reconcile_foundation_image_network: bool = False
     smoke: bool = True
@@ -357,6 +360,11 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
     """Run ``gcp-deploy``. Return 0, or 3 when only the advisory smoke failed."""
     if options.stage not in STAGES:
         raise GcpDeployError(f"--stage must be one of {', '.join(STAGES)}")
+    from gcp_catalog import validate_catalog_credential_path
+    from gcp_identity_cutover import validate_fact_paths
+
+    validate_fact_paths(options.identity_cutover_facts, options.identity_bootstrap_facts)
+    validate_catalog_credential_path(options.catalog_credential_file)
     runner = runner or ProcessRunner()
     require_tools(*required_tools(options.stage, options.identity_mode))
     run_id = options.run_id or new_run_id()
@@ -401,7 +409,14 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
                 _scan(runner, images, evidence, workdir)
         with scoped_environment(deploy_env):
             _verify(runner, images, trust)
-            request = RolloutRequest(identities=images, evidence=evidence, first_install=options.first_install)
+            request = RolloutRequest(
+                identities=images,
+                evidence=evidence,
+                first_install=options.first_install,
+                identity_cutover_facts=options.identity_cutover_facts,
+                identity_bootstrap_facts=options.identity_bootstrap_facts,
+                catalog_credential_file=options.catalog_credential_file,
+            )
             rollout_stage(runner, inputs, infrastructure, request)
             smoke_ok = _smoke(runner, options, inputs, infrastructure, run_id)
         success(f"GCP deployment {inputs.environment} is current at release {manifest.version}")

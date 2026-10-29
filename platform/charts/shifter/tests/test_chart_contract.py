@@ -51,16 +51,20 @@ AWS_DEV_WAF_ACL_ARN = (
 # Regenerated for #2320: dedicated Guacamole/guacd KSAs and bounded native SQL admission.
 # Regenerated for #2520: tenant pack removal reconciler on the portal identity.
 # Regenerated for #2319 integration: reuse the dedicated gateway KSA with authority renewal configuration.
+# Regenerated for #2321: retain pinned native policy in every Python runtime.
 # Regenerated for #2555: admit one matching BigRAE or legacy plugin Secret key.
 # Regenerated for #2571: the chart is the only GCP renderer. Worker readiness
 # probes now match the retired Kustomize base, stale comments are removed, and
 # the two registered Checkov exceptions annotate their chart Deployments. The
 # portal-to-Guacamole token API policies moved from the retired base to the chart.
 # Regenerated for #2090: CTF content egress proxy, its runtime env binding and identity-free egress.
-# Regenerated for #2622: the provisioner Job policy compiles on the API server.
+# Regenerated for #2321 integration: retain native policy/PDB delivery and catalog
+# initialization alongside the credential-less CTF image egress proxy.
+# Regenerated for #2622/#2633 integration: compile the provisioner policy and
+# inline the shared platform-runtime map without losing native runtime contracts.
 GCP_RENDER_SHA256 = {
-    "gcp-dev": "da9f94af4a642c28eae8480577efcac1892e5667a4fa5d375a0854a6a80c47e3",
-    "gcp-prod": "332fc5beac54f9eeff473ba27faafca07625327027f4528ae8d09e736e856882",
+    "gcp-prod": "7d0f23ee4745af91c367625390768138d8fe3ddf917e6fd1119dd070490f6fe5",
+    "gcp-dev": "117efe93cc24f9cc373ffe235f166fc76a4ac6b6c8f6b197438284be31eb9adc",
 }
 
 
@@ -102,7 +106,8 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         accounts = [doc for doc in documents if _identity(doc) == ("ServiceAccount", "guacamole-client")]
         self.assertEqual(len(accounts), 1)
         env = {value["name"]: value for value in pod["containers"][0]["env"]}
-        for name in ("OPENFGA_ENABLED", "GUACAMOLE_CONTROL_URL", "GUACAMOLE_CONTROL_AUDIENCE"):
+        self.assertEqual(env["OPENFGA_ENABLED"]["value"], "true")
+        for name in ("GUACAMOLE_CONTROL_URL", "GUACAMOLE_CONTROL_AUDIENCE"):
             ref = env[name]["valueFrom"]["configMapKeyRef"]
             self.assertEqual(ref["name"], "platform-runtime")
             self.assertEqual(ref["key"], name)
@@ -155,6 +160,12 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         rendered = _helm(
             "template", "contract-test", str(CHART_DIR), "-f", str(VALUES_FILES["aws-dev"]),
             "--set", "runtimePluginPool.labeler.enabled=true",
+            "--set", "openfga.enabled=true",
+            "--set", "openfga.storeId=01J00000000000000000000001",
+            "--set", "openfga.modelId=01J00000000000000000000000",
+            "--set", "openfga.databaseCidrs={10.60.0.12/32}",
+            "--set", "openfga.runtimeDatabaseUser=synthetic_runtime",
+            "--set", "openfga.adminDatabaseUser=synthetic_admin",
             "--set", f"runtimePluginPool.labeler.nodeGroupAsg={node_group}",
             "--set", f"identity.serviceAccountRoleArns.nodePoolLabeler={labeler_role}",
             "--set", "runtimeEnv.AWS_REGION=us-east-2",
@@ -174,6 +185,9 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         container = docs[("Deployment", "node-pool-labeler")]["spec"]["template"]["spec"]["containers"][0]
         self.assertEqual(container["command"], ["python", "-m", "shared.cloud.eks_node_pool_labeler"])
         self.assertIn({"name": "RUNTIME_PLUGIN_NODE_GROUP_ASG", "value": node_group}, container["env"])
+        pod = docs[("Deployment", "node-pool-labeler")]["spec"]["template"]["spec"]
+        self.assertEqual({volume["name"] for volume in pod["volumes"]}, {"tmp"})
+        self.assertEqual({volume["name"] for volume in container["volumeMounts"]}, {"tmp"})
         self.assertIn(("NetworkPolicy", "allow-node-pool-labeler-kubernetes-api-egress"), docs)
         # GKE applies the pool label itself; the labeler never renders there.
         _, gcp = _render(VALUES_FILES["gcp-dev"])

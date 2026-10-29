@@ -32,6 +32,9 @@ from django.db.models import QuerySet
 from ctf.exceptions import CTFPermissionError
 
 if TYPE_CHECKING:
+    from ctf.services.actors import EventActionAdmission
+
+if TYPE_CHECKING:
     from django.contrib.auth.base_user import AbstractBaseUser
     from django.contrib.auth.models import AnonymousUser
 
@@ -60,6 +63,7 @@ class EventAuthoritySource(enum.StrEnum):
     OWNER = "owner"
     EVENT_STAFF = "event_staff"
     PLATFORM_ADMIN = "platform_admin"
+    POLICY = "policy"
 
 
 def is_ctf_platform_admin(user: Actor) -> bool:
@@ -178,22 +182,10 @@ def assert_actor_owns_event(actor_id: int, event: CTFEvent) -> None:
     intentionally omits the owner pk to avoid leaking internal user identifiers;
     details name only the requested event.
     """
-    if event.created_by_id == actor_id:
-        return
-    if _actor_id_is_platform_admin(actor_id):
-        return
-    logger.warning(
-        "CTF service permission denied: actor=%s event=%s",
-        actor_id,
-        event.id,
-    )
-    raise CTFPermissionError(
-        "Actor does not own this event",
-        details={"event_id": str(event.id)},
-    )
+    assert_event_action(actor_id, event, "event.manage_staff")
 
 
-def assert_event_capability(actor_id: int, event: CTFEvent, capability: str) -> None:
+def assert_event_capability(actor_id: object, event: CTFEvent, capability: str) -> None:
     """Raise ``CTFPermissionError`` unless ``actor_id`` may exercise ``capability``.
 
     Defense-in-depth service gate (issue #765, #1922) for operational mutators
@@ -205,20 +197,72 @@ def assert_event_capability(actor_id: int, event: CTFEvent, capability: str) -> 
     an unknown role/capability or an ineligible (deactivated / demoted) staff
     account is denied. The error envelope names only the event.
     """
-    if event.created_by_id == actor_id:
+    from ctf.enums import EventCapability
+
+    action_by_capability = {
+        EventCapability.CONFIG.value: "event.manage_config",
+        EventCapability.CHALLENGES.value: "event.manage_challenges",
+        EventCapability.PARTICIPANTS.value: "event.manage_participants",
+        EventCapability.TEAMS.value: "event.manage_teams",
+        EventCapability.RANGES.value: "event.manage_ranges",
+        EventCapability.SCORING.value: "event.manage_scoring",
+        EventCapability.NOTIFICATIONS.value: "event.manage_communications",
+        EventCapability.AWARDS.value: "event.manage_awards",
+        EventCapability.SUBMISSIONS.value: "event.manage_submissions",
+        EventCapability.CONTENT.value: "event.manage_content",
+        EventCapability.LIFECYCLE.value: "event.manage_lifecycle",
+        EventCapability.DELETE.value: "event.delete",
+    }
+    try:
+        action = action_by_capability[str(capability)]
+    except KeyError:
+        raise CTFPermissionError(
+            "Actor lacks the required event capability",
+            details={"event_id": str(event.id)},
+        ) from None
+    assert_event_action(actor_id, event, action)
+
+
+def assert_event_action(actor: object, event: CTFEvent, action: str) -> None:
+    """Require the sole live policy decision for one owning-service action."""
+    from ctf.services.actors import EventActionAdmission
+    from ctf.services.unified_authorization import require_event_action, require_retained_event_delete
+
+    if isinstance(actor, EventActionAdmission):
+        try:
+            actor.validate(event, action)
+        except ValueError:
+            raise CTFPermissionError("Event admission changed") from None
         return
+    if action == "event.delete" and event.deleted_at is not None:
+        require_retained_event_delete(actor, event.pk)
+    else:
+        require_event_action(actor, event.pk, action)
+
+
+def admit_event_actions(actor: object, event: CTFEvent, *actions: str) -> EventActionAdmission:
+    """Evaluate policy before locks; pass this closed admission to nested mutators."""
+    from ctf.exceptions import CTFError
+    from ctf.services.actors import EventActionAdmission, current_event_actor_credential
+    from shared.credentials import CredentialUnavailable
+
+    if isinstance(actor, EventActionAdmission):
+        for action in actions:
+            assert_event_action(actor, event, action)
+        return actor
     from django.contrib.auth import get_user_model
 
-    actor = get_user_model().objects.filter(pk=actor_id).first()
-    if resolve_event_authority(actor, event, capability=capability) is not None:
-        return
-    logger.warning(
-        "CTF service capability denied: actor=%s event=%s capability=%s",
-        actor_id,
-        event.id,
-        capability,
-    )
-    raise CTFPermissionError(
-        "Actor lacks the required event capability",
-        details={"event_id": str(event.id)},
+    from ctf.services.actors import event_actor_user_id
+
+    compatibility_user_id = event_actor_user_id(actor) if isinstance(actor, (int, get_user_model())) else None
+    try:
+        credential = current_event_actor_credential(actor)
+    except CredentialUnavailable:
+        raise CTFError("CTF authority unavailable", code="CTF_AUTHORITY_UNAVAILABLE") from None
+    except ValueError:
+        raise CTFPermissionError("CTF authority denied") from None
+    for action in actions:
+        assert_event_action(actor if compatibility_user_id is not None else credential, event, action)
+    return EventActionAdmission(
+        credential, event.pk, frozenset(actions), EventActionAdmission.event_binding(event), compatibility_user_id
     )

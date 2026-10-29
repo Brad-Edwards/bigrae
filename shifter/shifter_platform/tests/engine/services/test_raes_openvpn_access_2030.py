@@ -36,7 +36,6 @@ from engine.services import (
     create_raes_range,
     grant_raes_remote_access,
     has_openvpn_profile,
-    range_owner_reassignment_available_by_request,
 )
 from shared.enums import ResourceStatus
 from shared.operation_envelope import build_operation_envelope, canonical_payload_digest
@@ -327,21 +326,3 @@ class TestProfileDelivery:
     def test_a_target_without_participant_access_is_not_deliverable(self):
         fx = self._ready_range(channels=[])
         assert has_openvpn_profile(fx.user, fx.request_id) is False
-
-
-class TestOwnershipTransfer:
-    def _bound(self, owner) -> _Range:
-        fx = _Range(owner=owner, status=ResourceStatus.READY.value)
-        fx.range.vpn_access_binding = bind_openvpn_realization(fx.realization(), owner.id)
-        fx.range.save(update_fields=["vpn_access_binding"])
-        return fx
-
-    def test_a_binding_held_by_a_managed_identity_may_move(self):
-        managed = get_user_model().objects.create_user(username=f"spare-{uuid4()}", is_active=False)
-        managed.set_unusable_password()
-        managed.save(update_fields=["password"])
-        assert range_owner_reassignment_available_by_request(self._bound(managed).request_id) is True
-
-    def test_a_binding_an_interactive_owner_could_have_downloaded_may_not_move(self):
-        interactive = get_user_model().objects.create_user(username=f"{uuid4()}@example.com", password="pw-123456")
-        assert range_owner_reassignment_available_by_request(self._bound(interactive).request_id) is False

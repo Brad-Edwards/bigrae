@@ -6,10 +6,13 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.db import transaction
 
-import workspaces.services as ws
-from ctf.exceptions import CTFCommunicationError
 from ctf.models import CommunicationCampaign, CTFEvent, CTFParticipant
-from ctf.services.communication import AdmissionActor, CampaignDraft, create_campaign, release_campaign
+from ctf.services.communication import (
+    AdmissionActor,
+    CampaignDraft,
+    create_system_event_campaign,
+    release_campaign,
+)
 from ctf.services.communication.adapters import registered_channels
 
 
@@ -22,24 +25,17 @@ def stage_notice(
     per-event checks as ordinary authoring. No missing actor becomes system trust.
     """
     with transaction.atomic():
-        event = CTFEvent.objects.select_for_update().select_related("created_by").get(pk=event_id)
+        event = CTFEvent.objects.select_for_update(of=("self",)).select_related("created_by").get(pk=event_id)
         identity = uuid5(NAMESPACE_URL, f"shifter:ctf-notice:{event.pk}:{kind}:{occurrence}:{participant_id or ''}")
         campaign = CommunicationCampaign.objects.filter(pk=identity).first()
         if campaign is None:
-            try:
-                binding = ws.authorize_bound_workspace(
-                    event.created_by, event.workspace_id, ws.WorkspaceOperation.USE_CTF_COMMUNICATIONS
-                )
-            except ws.WorkspaceAuthorizationError:
-                raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED") from None
             audience = (
                 {"kind": "event", "event_ids": [str(event.pk)]}
                 if participant_id is None
                 else {"kind": "participant", "participant_ids": [str(participant_id)]}
             )
-            campaign = create_campaign(
-                event.created_by,
-                binding.workspace_uuid,
+            campaign = create_system_event_campaign(
+                event,
                 CampaignDraft(
                     title=subject,
                     origin="system_milestone",
@@ -54,9 +50,7 @@ def stage_notice(
             )
         if "email" not in registered_channels():
             return {"campaign_id": str(campaign.pk), "outcome": "channel_unavailable"}
-        intent = release_campaign(
-            campaign, occurrence_key="notice", admission=AdmissionActor(user_id=campaign.created_by_id)
-        )
+        intent = release_campaign(campaign, occurrence_key="notice", admission=AdmissionActor(system=True))
         return {"campaign_id": str(campaign.pk), "intent_id": str(intent.pk), "outcome": "accepted"}
 
 

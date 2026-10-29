@@ -10,6 +10,7 @@ boundary in ``shared.audit_adapter`` and is bound to the port at startup.
 from __future__ import annotations
 
 from shared.audit.attribution import (
+    accepted_request_id,
     get_actor_from_request,
     get_client_ip,
     get_request_id,
@@ -46,7 +47,7 @@ from shared.audit.port import (
     get_audit_writer,
     reset_audit_writer,
 )
-from shared.audit.query import AuditReadDenied, authorized_audit_events
+from shared.audit.query import AuditReadDenied, authorized_audit_events, retained_audit_event_count
 from shared.audit.vocabulary import (
     API_KEY_LABEL,
     AuditAction,
@@ -69,6 +70,7 @@ __all__ = [
     "RequestAudit",
     "SessionInfo",
     "StateChange",
+    "accepted_request_id",
     "audit_auth_event",
     "audit_log",
     "audit_log_from_request",
@@ -87,5 +89,6 @@ __all__ = [
     "request_audit",
     "reset_audit_health",
     "reset_audit_writer",
+    "retained_audit_event_count",
     "select_trusted_client_ip",
 ]

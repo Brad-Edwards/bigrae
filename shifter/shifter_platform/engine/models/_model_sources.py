@@ -13,7 +13,8 @@ class ModelSource(models.Model):
     organization_uuid = models.UUIDField(db_index=True)
     revision = models.PositiveBigIntegerField(default=1)
     enabled = models.BooleanField(default=True)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    creator_principal_uuid = models.UUIDField(db_index=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

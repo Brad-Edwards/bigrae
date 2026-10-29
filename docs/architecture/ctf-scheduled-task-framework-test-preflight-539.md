@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: CTF-1001, "Scheduled Task Framework"
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/539>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/539>
 
 ## Scope Boundary
 
@@ -56,7 +56,7 @@ task helpers. Test work should hold those contracts in place.
 | Error envelopes | `ctf.views._access._json_error`, `ctf.api._base`, `shared.api.errors` | HTTP/API tests should assert controlled errors, not raw scheduler exception text. |
 | Logging hygiene | `shared.log_sanitize.safe_log_value`, module loggers | Keep task/event ids, counts, and statuses; do not log secrets, provider payloads, raw env, invite tokens, or email bodies. |
 | Runtime health | local compose, AWS Docker deploy scripts, GCP manifests, Helm chart, stack-smoke tests | Only touch runtime manifests if command/env/probe behavior changes, and update every runtime surface together. |
-| Traceability | `.ground-control.yaml`, `.gc/plan-rules.md`, Ground Control project `shifter` | Use `Brad-Edwards/shifter` and a `TESTS` link against active requirement CTF-1001. |
+| Traceability | `.ground-control.yaml`, `.gc/plan-rules.md`, Ground Control project `shifter` | Use `Brad-Edwards/bigrae` and a `TESTS` link against active requirement CTF-1001. |
 
 ## Cross-Cutting Layers
 

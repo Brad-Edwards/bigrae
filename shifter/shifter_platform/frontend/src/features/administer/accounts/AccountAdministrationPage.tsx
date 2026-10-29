@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { useAdministrationMutation, useAdministrationQuery, type Account, type AdministrationSchemas, type Organization, type Workspace } from "@/api/account-administration";
+import { useAdministrationMutation, useAdministrationQuery, useHierarchyCreation, type Account, type AdministrationSchemas, type Organization, type Workspace } from "@/api/account-administration";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { AdministrationError, AdministrationPages, AdministrationSection, NameFo
 import { ScopeMembershipPanel } from "./ScopeMembershipPanel";
 import { WorkspaceAdministrationPanel } from "./WorkspaceAdministrationPanel";
 
-/** S4 exports components; neither router nor navigation imports this page. */
+/** Policy-filtered account administration entry mounted by the production router. */
 export function AccountAdministrationEntry() {
   const context = useAdministrationQuery<AdministrationSchemas["AccountPrincipalContext"]>("/accounts/context/");
   const [browse, setBrowse] = useState(false);
@@ -22,6 +22,7 @@ export function AccountAdministrationEntry() {
   const canBrowse = context.data.accounts.count > (personal ? 1 : 0) || context.data.installation_actions.includes("installation.manage_accounts");
   return <div className="space-y-4">
     {personal && canBrowse ? <nav aria-label="Account views"><Button variant="outline" onClick={() => setBrowse(false)}>Your account</Button><Button variant="outline" onClick={() => setBrowse(true)}>Other accounts</Button></nav> : null}
+    {context.data.has_descendant_scopes ? <DescendantScopes /> : null}
     <AccountAdministrationPage key={`${context.data.principal_uuid}-${browse}`} individual={Boolean(personal) && !browse} />
   </div>;
 }
@@ -66,16 +67,17 @@ function SelectedAccount({ uuid }: Readonly<{ uuid: string }>) {
 function CreateAccount() {
   const [kind, setKind] = useState<AdministrationSchemas["AccountCommand"]["kind"]>("team");
   const [principal, setPrincipal] = useState("");
-  const create = useAdministrationMutation<Account, AdministrationSchemas["AccountCommand"]>("/accounts/");
+  const create = useHierarchyCreation<Account, AdministrationSchemas["AccountCommand"]>("/accounts/");
   return <AdministrationSection title="Create account">
     <label htmlFor="new-account-kind">Account type</label><select id="new-account-kind" value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="individual">Individual</option><option value="team">Team</option><option value="enterprise">Enterprise</option></select>
     {kind === "individual" ? <><Label htmlFor="individual-principal">Individual principal UUID</Label><Input id="individual-principal" required value={principal} onChange={event => setPrincipal(event.target.value)} /></> : null}
-    <NameForm label="New account name" submit="Create account" pending={create.isPending} error={create.error} onSave={name => create.mutate({ name, kind, ...(kind === "individual" ? { individual_principal_uuid: principal } : {}) })} />
+    <PendingCreation receipt={create.pendingPublication} pending={create.isPending} onRetry={create.retryPublication} />
+    <NameForm label="New account name" submit="Create account" pending={create.isPending || Boolean(create.pendingPublication)} error={create.error} onSave={name => create.mutate({ name, kind, ...(kind === "individual" ? { individual_principal_uuid: principal } : {}) })} />
   </AdministrationSection>;
 }
 
 function AccountContent({ account }: Readonly<{ account: Account }>) {
-  const save = useAdministrationMutation<Account, AdministrationSchemas["PatchedSubdivisionCommand"]>(`/accounts/${account.uuid}/`, "PATCH");
+  const save = useAdministrationMutation<Account, AdministrationSchemas["SubdivisionCommand"]>(`/accounts/${account.uuid}/`, "PATCH");
   return <div className="space-y-6">
     <PageHeader title={account.name} description={`${account.kind} account`} />
     <NameForm label="Account name" initial={account.name} submit="Save account" pending={save.isPending} error={save.error} onSave={name => save.mutate({ name })} />
@@ -95,14 +97,15 @@ function OrganizationCollection({ accountUuid }: Readonly<{ accountUuid: string 
   const [selected, setSelected] = useState<Organization | null>(null);
   const path = `/accounts/${accountUuid}/organizations/`;
   const organizations = useAdministrationQuery<AdministrationSchemas["OrganizationPage"]>(path, { offset, limit: 50 });
-  const create = useAdministrationMutation<Organization, AdministrationSchemas["SubdivisionCommand"]>(path);
+  const create = useHierarchyCreation<Organization, AdministrationSchemas["SubdivisionCreationCommand"]>(path);
   return <div className="space-y-5">
     <AdministrationError error={organizations.error} />
     {organizations.isSuccess ? <>
       <ul>{organizations.data.results.map(organization => <li key={organization.uuid}><Button variant="outline" onClick={() => setSelected(organization)}>{organization.name}{organization.is_default ? " (default)" : ""}</Button></li>)}</ul>
       <AdministrationPages label="organizations" count={organizations.data.count} offset={offset} onOffset={setOffset} />
     </> : null}
-    <NameForm label="New organization name" submit="Create organization" pending={create.isPending} error={create.error} onSave={name => create.mutate({ name })} />
+    <PendingCreation receipt={create.pendingPublication} pending={create.isPending} onRetry={create.retryPublication} />
+    <NameForm label="New organization name" submit="Create organization" pending={create.isPending || Boolean(create.pendingPublication)} error={create.error} onSave={name => create.mutate({ name })} />
     {selected ? <OrganizationContent key={selected.uuid} accountUuid={accountUuid} organization={selected} /> : null}
   </div>;
 }
@@ -146,13 +149,40 @@ function WorkspaceCollection({ accountUuid, organizationUuid }: Readonly<{ accou
   const [archived, setArchived] = useState(false);
   const path = `/accounts/${accountUuid}/organizations/${organizationUuid}/workspaces/`;
   const list = useAdministrationQuery<AdministrationSchemas["WorkspacePage"]>(path, { offset, limit: 50, include_archived: archived, search });
-  const create = useAdministrationMutation<Workspace, AdministrationSchemas["SubdivisionCommand"]>(path);
+  const create = useHierarchyCreation<Workspace, AdministrationSchemas["SubdivisionCreationCommand"]>(path);
   return <div className="space-y-4">
     <Label htmlFor="workspace-search">Search workspaces</Label><Input id="workspace-search" maxLength={200} value={search} onChange={event => { setSearch(event.target.value); setOffset(0); }} />
     <label className="flex gap-2"><input type="checkbox" checked={archived} onChange={event => { setArchived(event.target.checked); setOffset(0); }} />Include archived workspaces</label>
     <AdministrationError error={list.error} />
     {list.isSuccess ? <><ul>{list.data.results.map(workspace => <li key={workspace.uuid}><Button variant="outline" onClick={() => setSelected(workspace)}>{workspace.name}{workspace.archived_at ? " (archived)" : ""}</Button></li>)}</ul><AdministrationPages label="workspaces" count={list.data.count} offset={offset} onOffset={setOffset} /></> : null}
-    <NameForm label="New workspace name" submit="Create workspace" pending={create.isPending} error={create.error} onSave={name => create.mutate({ name })} />
+    <PendingCreation receipt={create.pendingPublication} pending={create.isPending} onRetry={create.retryPublication} />
+    <NameForm label="New workspace name" submit="Create workspace" pending={create.isPending || Boolean(create.pendingPublication)} error={create.error} onSave={name => create.mutate({ name })} />
     {selected ? <WorkspaceAdministrationPanel key={selected.uuid} accountUuid={accountUuid} organizationUuid={organizationUuid} workspaceUuid={selected.uuid} /> : null}
   </div>;
+}
+
+function PendingCreation({ receipt, pending, onRetry }: Readonly<{
+  receipt: { uuid: string } | null; pending: boolean; onRetry: () => void;
+}>) {
+  return receipt ? <div><output>Creation accepted. Access setup is pending for {receipt.uuid}.</output>
+    <Button disabled={pending} onClick={onRetry}>Retry access setup</Button></div> : null;
+}
+
+function DescendantScopes() {
+  const [kind, setKind] = useState<"organization" | "workspace">("organization");
+  const [offset, setOffset] = useState(0);
+  const [selected, setSelected] = useState<AdministrationSchemas["AdministrationScope"] | null>(null);
+  const scopes = useAdministrationQuery<AdministrationSchemas["AdministrationScopePage"]>("/administer/scopes/", { kind, offset, limit: 50 });
+  return <AdministrationSection title="Your organizations and workspaces">
+    <Label htmlFor="administration-scope-kind">Scope type</Label>
+    <select id="administration-scope-kind" value={kind} onChange={event => { setKind(event.target.value as typeof kind); setOffset(0); setSelected(null); }}>
+      <option value="organization">Organizations</option><option value="workspace">Workspaces</option>
+    </select>
+    <AdministrationError error={scopes.error} />
+    {scopes.data ? <><ul>{scopes.data.results.map(scope => <li key={scope.uuid}>
+      <Button variant="outline" onClick={() => setSelected(scope)}>{scope.name}</Button>
+    </li>)}</ul><AdministrationPages label="scopes" count={scopes.data.count} offset={offset} onOffset={setOffset} /></> : null}
+    {selected?.kind === "organization" ? <OrganizationContent key={selected.uuid} accountUuid={selected.account_uuid} organization={selected} /> : null}
+    {selected?.kind === "workspace" ? <WorkspaceAdministrationPanel key={selected.uuid} accountUuid={selected.account_uuid} organizationUuid={selected.organization_uuid} workspaceUuid={selected.uuid} /> : null}
+  </AdministrationSection>;
 }

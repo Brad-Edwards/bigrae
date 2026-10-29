@@ -6,6 +6,16 @@ from typing import Any
 
 from rest_framework import serializers
 
+from mission_control.api._device_serializers import (
+    CredentialCreateResponseSerializer,
+    CredentialCreateSerializer,
+    NGFWCreateResponseSerializer,
+    NGFWCreateSerializer,
+    NGFWDestroyResponseSerializer,
+    NGFWDestroySerializer,
+    NGFWListItemSerializer,
+    NGFWListResponseSerializer,
+)
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api.model_sources import ModelSourceSelectionField
 from shared.enums import ResourceStatus
@@ -344,6 +354,30 @@ class ScenarioListResponseSerializer(serializers.Serializer):
     scenarios = ScenarioListItemSerializer(many=True)
 
 
+class LaunchWorkspacePageQuerySerializer(serializers.Serializer):
+    """Bounded pagination over policy-visible launch workspaces."""
+
+    offset = serializers.IntegerField(required=False, default=0, min_value=0)
+    limit = serializers.IntegerField(required=False, default=100, min_value=1, max_value=100)
+
+
+class LaunchWorkspaceItemSerializer(serializers.Serializer):
+    """One policy-authorized active workspace offered before catalog loading."""
+
+    uuid = serializers.UUIDField()
+    name = serializers.CharField()
+    organization_uuid = serializers.UUIDField()
+    organization_name = serializers.CharField()
+
+
+class LaunchWorkspaceListResponseSerializer(serializers.Serializer):
+    """Independent range-launch workspace discovery response."""
+
+    count = serializers.IntegerField()
+    personal_available = serializers.BooleanField()
+    workspaces = LaunchWorkspaceItemSerializer(many=True)
+
+
 class RangeHistorySerializer(serializers.Serializer):
     """One entry in the range-history list (``GET .../ranges/``, #1370).
 
@@ -404,74 +438,45 @@ class GuacamoleBootstrapStatusSerializer(serializers.Serializer):
     url = serializers.CharField(required=False)
 
 
-class NGFWCreateSerializer(serializers.Serializer):
-    """Validate NGFW creation requests."""
-
-    name = serializers.CharField(allow_blank=True, required=False, default="", trim_whitespace=True)
-    deployment_profile_id = serializers.IntegerField(required=False, allow_null=True)
-    registration_method = serializers.CharField(required=False, allow_blank=True, default="", trim_whitespace=True)
-    scm_credential_id = serializers.IntegerField(required=False, allow_null=True)
-    otp_value = serializers.CharField(required=False, allow_blank=True, allow_null=True, trim_whitespace=True)
-    otp_folder = serializers.CharField(required=False, allow_blank=True, allow_null=True, trim_whitespace=True)
-
-
-class NGFWDestroySerializer(serializers.Serializer):
-    """Validate NGFW destroy requests."""
-
-    confirm_name = serializers.CharField(allow_blank=True, required=False, default="", trim_whitespace=True)
-
-
-class CredentialCreateSerializer(serializers.Serializer):
-    """Validate credential creation requests before schema-specific validation."""
-
-    credential_type = serializers.CharField(trim_whitespace=True)
-    name = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
-    expires_at = serializers.CharField(required=False, allow_blank=True, allow_null=True, trim_whitespace=True)
-    scm_folder_name = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
-    scm_pin_id = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
-    scm_pin_value = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
-    sls_region = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
-    authcode = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
-
-    def validate_credential_type(self, value: str) -> str:
-        if value not in ("scm", "deployment_profile"):
-            raise serializers.ValidationError("Invalid credential type.")
-        return value
-
-
-class NGFWCreateResponseSerializer(serializers.Serializer):
-    """Response body for ``NGFWCreateView.post`` (HTTP 201)."""
-
-    id = serializers.CharField()
-    name = serializers.CharField()
-    status = serializers.CharField()
-
-
-class NGFWListItemSerializer(serializers.Serializer):
-    """One entry from ``NGFWListView.get``."""
-
-    id = serializers.CharField()
-    name = serializers.CharField()
-    status = serializers.CharField()
-    created_at = serializers.DateTimeField()
-    serial_number = serializers.CharField(allow_null=True, allow_blank=True)
-
-
-class NGFWListResponseSerializer(serializers.Serializer):
-    """Response body for ``NGFWListView.get``."""
-
-    ngfws = NGFWListItemSerializer(many=True)
-
-
-class NGFWDestroyResponseSerializer(serializers.Serializer):
-    """Response body for ``NGFWDestroyView.post``."""
-
-    status = serializers.CharField()
-
-
-class CredentialCreateResponseSerializer(serializers.Serializer):
-    """Response body for ``CredentialCreateView.post`` (HTTP 201)."""
-
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    credential_type = serializers.CharField()
+__all__ = [
+    "AGENT_TYPE_CHOICES",
+    "RESOURCE_STATUS_VALUES",
+    "AgentListItemSerializer",
+    "AgentListResponseSerializer",
+    "CleanupObligationSerializer",
+    "ConnectionUrlSerializer",
+    "CredentialCreateResponseSerializer",
+    "CredentialCreateSerializer",
+    "CurrentRangeResponseSerializer",
+    "GuacamoleBootstrapQueuedSerializer",
+    "GuacamoleBootstrapStatusSerializer",
+    "GuacamoleInstanceSerializer",
+    "InstancePresentationSerializer",
+    "LaunchRangeResponseSerializer",
+    "LaunchRangeSerializer",
+    "LaunchWorkspaceItemSerializer",
+    "LaunchWorkspaceListResponseSerializer",
+    "LaunchWorkspacePageQuerySerializer",
+    "NGFWCreateResponseSerializer",
+    "NGFWCreateSerializer",
+    "NGFWDestroyResponseSerializer",
+    "NGFWDestroySerializer",
+    "NGFWListItemSerializer",
+    "NGFWListResponseSerializer",
+    "RaesOperationRecordListResponseSerializer",
+    "RaesOperationRecordSerializer",
+    "RaesParticipantRecordQuerySerializer",
+    "RaesParticipantRuntimeRecordListResponseSerializer",
+    "RaesParticipantRuntimeRecordSerializer",
+    "RaesRecordQuerySerializer",
+    "RangeCleanupOutcomeResponseSerializer",
+    "RangeHistoryResponseSerializer",
+    "RangeHistorySerializer",
+    "RangeLeaseResponseSerializer",
+    "RangeLeaseSerializer",
+    "RangeLifecycleSerializer",
+    "RangePresentationSerializer",
+    "ScenarioListItemSerializer",
+    "ScenarioListResponseSerializer",
+    "SuccessResponseSerializer",
+]

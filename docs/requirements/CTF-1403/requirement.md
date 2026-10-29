@@ -23,4 +23,4 @@ Multi-language support enables running events for participants across different 
 
 - CONSTRAINS → CONFIG `shifter/shifter_platform/config/settings.py` (Django settings - USE_I18N enabled, LANGUAGE_CODE set)
 - CONSTRAINS → CODE_FILE `shifter/shifter_platform/ctf/apps.py` (CTF app configuration - no i18n setup present)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#640` (CTF-1403: Internationalization)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#640` (CTF-1403: Internationalization)

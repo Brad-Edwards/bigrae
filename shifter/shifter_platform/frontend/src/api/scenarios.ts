@@ -8,6 +8,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "./client";
 import type {
+  ContentScopeOption,
+  ContentScopePage,
   ScenarioCatalogEntry,
   ScenarioDetail,
   ScenarioMetadataState,
@@ -19,7 +21,8 @@ const BASE = "/cms/scenarios";
 
 export const scenarioKeys = {
   all: ["scenarios"] as const,
-  catalog: () => ["scenarios", "catalog"] as const,
+  catalog: (scope: ContentScopeOption | null) => ["scenarios", "catalog", scope?.scope_kind, scope?.account, scope?.organization, scope?.workspace] as const,
+  contentScopes: (offset: number) => ["scenarios", "content-scopes", offset] as const,
   detail: (id: string) => ["scenarios", "detail", id] as const,
   realizability: (id: string) => ["scenarios", "realizability", id] as const,
 };
@@ -31,10 +34,25 @@ function invalidateScenarios(queryClient: ReturnType<typeof useQueryClient>, sce
   }
 }
 
-export function useScenarioCatalog() {
+export function contentScopeKey(scope: ContentScopeOption): string {
+  return JSON.stringify([scope.scope_kind, scope.account, scope.organization, scope.workspace]);
+}
+
+export function useContentScopes(offset: number) {
   return useQuery({
-    queryKey: scenarioKeys.catalog(),
-    queryFn: ({ signal }) => apiFetch<ScenarioCatalogEntry[]>("/cms/catalog/", { signal }),
+    queryKey: scenarioKeys.contentScopes(offset),
+    queryFn: ({ signal }) => apiFetch<ContentScopePage>("/cms/content-scopes/", { signal, query: { offset, limit: 50 } }),
+  });
+}
+
+export function useScenarioCatalog(scope: ContentScopeOption | null) {
+  return useQuery({
+    queryKey: scenarioKeys.catalog(scope),
+    enabled: scope !== null,
+    queryFn: ({ signal }) => apiFetch<ScenarioCatalogEntry[]>("/cms/catalog/", {
+      signal,
+      query: scope ? { scope_kind: scope.scope_kind, account: scope.account, organization: scope.organization, workspace: scope.workspace } : undefined,
+    }),
   });
 }
 

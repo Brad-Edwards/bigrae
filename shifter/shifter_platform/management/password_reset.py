@@ -33,7 +33,7 @@ from django.db import transaction
 from django.template import loader
 
 from management import admin_services, services
-from management.policy import require_principal_administration
+from management.policy import fence_principal_administration, require_principal_administration
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log
 from shared.authorization import AuthorizationProvider
 from shared.credential_delivery import credential_delivery_allowed
@@ -54,6 +54,14 @@ logger = logging.getLogger(__name__)
 _SUBJECT_TEMPLATE = "registration/password_reset_subject.txt"
 _TEXT_TEMPLATE = "registration/password_reset_email.txt"
 _HTML_TEMPLATE = "registration/password_reset_email.html"
+# Django backends that record the message body (log stream or disk) instead of
+# delivering it; a reset link written there is a live credential in the logs.
+_BODY_RECORDING_EMAIL_BACKENDS = frozenset(
+    {
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.filebased.EmailBackend",
+    }
+)
 
 
 class PasswordResetError(Exception):
@@ -171,10 +179,16 @@ def request_password_reset(
             exhausted, or the public origin is unavailable.
     """
     if actor is not None:
-        require_principal_administration(actor, provider)
+        actor = require_principal_administration(actor, provider)
     eligible, reason = reset_eligibility(user)
     if not eligible:
         raise PasswordResetError("reset_ineligible", f"This account is not eligible for a password reset ({reason}).")
+
+    if settings.EMAIL_BACKEND in _BODY_RECORDING_EMAIL_BACKENDS:
+        # These backends write the full message, reset link included, to the
+        # container log or local disk instead of delivering it. No token is
+        # minted until a real email provider is configured (#2617).
+        raise PasswordResetError("reset_delivery_unavailable", "Password reset delivery is unavailable.")
 
     try:
         site_url = validated_site_url()
@@ -210,6 +224,8 @@ def request_password_reset(
         )
 
     with transaction.atomic():
+        if actor is not None:
+            fence_principal_administration(actor)
         audit_log(
             AuditEvent(
                 entity_type=AuditEntityType.USER,

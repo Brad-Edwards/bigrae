@@ -7,6 +7,7 @@ import pytest
 from shared.authorization import CredentialCeiling, TargetRef
 from shared.credentials import CredentialContext
 from shared.models import AuditLog
+from tests._credential_helpers import persisted_credential
 from tests.workspaces.test_account_policy_admin import Provider, _actor
 from workspaces import services
 from workspaces.models import (
@@ -68,12 +69,14 @@ def test_scope_membership_denial_ceiling_archive_and_provider_loss_have_no_effec
     for provider in (Provider(allowed=False), LostProvider()):
         with pytest.raises(services.AccountScopeError):
             services.admin_add_scope_member(actor, provider, "workspace", workspace.uuid, subject)
-    restricted = CredentialContext(
-        actor.principal,
-        "service",
-        uuid4(),
-        CredentialCeiling(actor.ceiling.actions, TargetRef("workspace", workspace.uuid)),
-        frozenset(),
+    restricted = persisted_credential(
+        CredentialContext(
+            actor.principal,
+            "service",
+            uuid4(),
+            CredentialCeiling(actor.ceiling.actions, TargetRef("workspace", workspace.uuid)),
+            frozenset(),
+        )
     )
     with pytest.raises(services.AccountScopeError):
         services.admin_add_scope_member(restricted, Provider(), "workspace", other.uuid, subject)

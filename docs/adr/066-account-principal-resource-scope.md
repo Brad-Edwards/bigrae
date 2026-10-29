@@ -132,6 +132,38 @@ read fallback, customer-specific deployment requirement, feature-flagged
 policy fork, rollback to the personal-workspace model, or partial production
 cutover. S8 is the activation point after all mappings and constraints pass.
 
+The [S8 integration preflight](../architecture/integrated-identity-cutover-preflight-2321.md)
+and [cutover proposal](../design/identity-cutover-2321-proposal.md) define the
+single-authority activation, retained-data dispositions, first-grant bootstrap,
+credential/session invalidation, complete effect-surface inventory and the
+durable journaled boundary between SQL and OpenFGA. A fresh installation starts
+only in the post-cutover state. A legacy-data upgrade uses the narrow existing
+migration and deployment seams and remains stopped until terminal verification;
+it does not restore legacy authority on failure.
+
+Cutover readiness must not prevent deployment-owned migration/bootstrap commands
+from running before the new schema or policy is available. Preserve the existing
+authorization journal, domain outbox/inbox, strict audit and bounded cleanup
+contracts rather than adding parallel workflow machinery. The 2026-10-25 owner
+approval authorizes C6 source work but does not waive live acceptance evidence.
+
+The `config` composition root coordinates this cross-domain cutover only through
+explicit public service symbols. Management owns principal/provider/session and
+token changes; workspaces owns account mapping, hierarchy relationships and the
+durable cutover journal; CMS, CTF and Engine inventory and convert only their own
+retained resources. Direct domain-model imports and pass-through services remain
+forbidden. Engine's four cutover symbols (apply, disposition, pending-work and
+contract-gap inventory) are the narrow exception that lets the composition root
+reach Engine-owned rows without making CMS a false owner.
+
+S8 verifies default existence as well as uniqueness throughout the retained
+business hierarchy. It reconciles legacy and prepared membership facts against
+their database identity constraints, preserving valid durable rows without
+creating implicit grants. Final scope constraints are conditional on explicit
+scope kind; account-only resources must pass the existing operation parsers,
+SQL-owned descendant inventories and owning-domain projections without invented
+workspaces or users. The preflight records these integration boundaries.
+
 ### Hosting and policy boundaries
 
 One deployment may host unrelated B2C and B2B accounts. Account scope is an
@@ -208,6 +240,33 @@ entries do not prove mounted-operation coverage. Provider failure cannot become
 an empty authorized result; transfer summaries must preserve blocked outcomes
 and must not claim atomicity across independently committed resources.
 
+PLAT-232 retains its UUID-only, four-field organization profile contract,
+PATCH mask, owning validation, locked writer and strict field-name-only audit.
+Its S1 session-only role/superuser rules do not survive S8 as either a grant or
+a second veto: the canonical profile commands enforce `organization.read` or
+`organization.update` with live principal policy and the credential ceiling.
+Profile reads must not become authorization for pack, adapter, model-source or
+workspace writes that previously borrowed the legacy org-admin helper. Those
+effects use their own registered actions. Browser discovery distinguishes read
+from edit authority and requires no staff flag or workspace membership.
+The [PLAT-232 activation guidance](../architecture/integrated-identity-cutover-preflight-2321.md#plat-232-organization-profile-activation)
+records the prepared credential/commit, evaluator-error, route, client and
+cross-domain integration gaps; preparation alone is not activation evidence.
+
+PLAT-233 activates the prepared workspace commands at the same S8 boundary.
+`organization.manage_workspaces` authorizes creation; exact `workspace` actions
+authorize discovery and lifecycle effects. Membership and multiple-owner facts
+remain distinct from policy grants: transfer does not grant or revoke policy,
+and neither full human nor service administrators require a legacy owner role.
+Keep active defaults, ownerless creation, last-owner protection, authorized
+archive/restore no-ops, strict audit and model-access invalidation without
+deleting or rehoming bound ranges. Creation also needs confirmed SQL-owned
+parent projection through the incumbent authorization boundary; structural
+parent relations are not grants, and SQL/OpenFGA writes are not atomic.
+The [workspace activation guidance](../architecture/workspace-lifecycle-preflight-1940.md#s8-activation-boundary-2321)
+records the shared credential/commit, ancestry, error, parsing and live-route
+gaps; the historical S1 role/session rules are not additional S8 vetoes.
+
 Per-resource membership, ownership, policy and projection rejection must retain
 earlier committed offboarding counts. The prepared summary reports all blocked
 workspaces separately from confirmed missing-membership cases. Credential
@@ -221,6 +280,20 @@ The prepared OpenAPI TypeScript declaration follows the incumbent generated
 schema analysis exclusion under the exact, owned, time-bounded ADR-003-R7
 exception. DRF contract drift and TypeScript consumer checks remain mandatory;
 handwritten administration code retains the ordinary analysis gates.
+
+S8 is also the published v1 hard-cut boundary. The retirement manifest records
+the removed user-keyed event staff, organization model-source-user, personal
+workspace, workspace membership-role, and workspace-local authorization paths.
+It also records the removed integer `workspace_id` and user/email policy fields.
+Their replacements use stable principal UUIDs, explicit account ancestry, and
+the mounted scoped authorization routes. Incompatible commands use explicit
+principal, `account-workspaces`, event `staff-members`/ownership, range
+`model-access`, or range `scope` paths. Retained operations keep their published
+operation IDs; the cutover does not silently repurpose a removed path or field
+as a compatibility adapter. Native scoped scenario discovery uses
+`ctf/scenario-options`; the unusable unscoped `ctf/scenarios` path is retired.
+Retained page, webhook and award creation commands preserve their published
+HTTP 200 success contract.
 
 The OpenFGA application-policy boundary, supported SDK operations, durable
 write semantics, deployment contract, and cutover constraints are clarified by
@@ -252,6 +325,22 @@ resolved account scope. Operator-shared catalog access never implies access to
 customer-private assets or executable installation authority. Account-level
 ranges must be represented in the canonical action/model/ancestry and descendant
 contracts without inventing a workspace.
+
+Catalog management commands authenticate actual native bearer proof from a
+private file through the existing API-token authenticator. Django staff flags,
+actor names, credential references, workload IAM and maintenance mode cannot
+authorize registration or conformance. Shipped content uses explicit installation
+scope and the ordinary registration, conformance and publication services.
+Registration admission precedes the atomic manifest batch; conformance and
+publication follow commit with current proof and policy. Failed qualification
+leaves native pending or unpublished content for exact retry.
+
+Deployment schema Jobs do not initialize the application catalog. Catalog setup
+follows verified native activation and application readiness. Without an actual
+current proof, deployment reports catalog setup incomplete and leaves the active
+application available for administrator login and credential issuance. It must
+not create an implicit deployment grant or weaken the runtime gate to resolve
+that prerequisite.
 
 Principal RAES creation carries exact customer scope and public identity through
 the incumbent dispatch port and `RangeBindings`. Engine evaluates parent
@@ -374,6 +463,15 @@ original credential remains valid. Cleanup retains its encrypted native token
 until termination is confirmed and checks delivery atomically before claiming
 expiry cleanup. Delivered sessions continue under the live authority lifecycle.
 
+For an assigned CTF range, the CMS remote-access admission also asks the CTF
+owning service to check the owner's retained participation and exact range
+assignment. A ban, deleted participation or event end denies admission and
+renewal even when the original credential and range policy remain valid. The
+check uses the shared range service port. Independent operator access to
+another owner's range remains subject to its own range policy; a participant's
+ban cannot remove that operator grant. Temporary event credentials gain no new
+range permission through this check.
+
 OpenVPN follows its existing Community 2.6 PKI and management boundaries:
 each admitted credential/range generation receives a distinct certificate/key
 and opaque common name. The issuer retains the CA key. Signed CRLs reject
@@ -408,6 +506,27 @@ actual per-symbol configuration in regression tests. Their Engine fixtures pin
 `resource_scope_from_ids` and `resolve_range_scope_binding` alongside the existing
 organization read seam. Keep both fixtures aligned with the documented allowlist;
 these ancestry reads grant no additional workspace mutation or policy authority.
+
+The deployment status probe installs only namespaces, service accounts,
+configuration and secret references. Workload shutdown and autoscaler removal
+run only when the probe requires identity cutover. Routine releases of an
+activated installation do not enter this maintenance boundary.
+The probe must complete and return a known state. A missing legacy cutover
+table is an explicit pre-cutover state; database failure, timeout, image or
+scheduling failure, and malformed or unknown status abort before workload
+mutation. An activated result also requires the runtime binding check.
+
+Permanent event deletion checks live `event.delete` authority and exposes
+retained ancestry only inside its synchronous cleanup context. CMS validates
+the exact event/range binding and commits generation-bound native cleanup
+before CTF removes aggregate records. A failed queue commit preserves those
+records. The retained cleanup cannot launch resources or change their generation.
+
+An owner handoff can remove its initiator's administrative authority before
+the final readback. Its retry requires the exact original live credential and
+can confirm the matching admitted revoke by primary readback. This recovery
+does not authorize or replay a provider write. New writes retain normal live
+delegation checks.
 
 ## Supersession
 
@@ -507,3 +626,147 @@ See the [operator guide](../ops/gcp-native-identity.md) and
 Local tests do not claim live credential renewal or effective deployment IAM;
 deployment-specific qualification belongs to the operator's live testing session
 and is not a source-publication gate.
+
+
+### S8 admission, retry and inventory enforcement
+
+Issue #2321 applies prepare/commit admission to nested CTF mutations and
+communication aggregates. Provider calls precede SQL locks; locked writers fence
+local proof lifecycle and exact resource bindings. Scheduled dependency outages
+retry within the release grace window. Durable authority recovery can use a fresh
+administrator proof only after checking every permission required to replay the
+exact original effect; original attribution remains in the journal.
+
+Hierarchy creation returns a pending receipt after an uncertain publication.
+Receipt retries retain object identity and validate the exact original declaration
+and current parent authority. Independent descendant discovery does not require a
+parent read grant. CTF dispatch stays deferred until its aggregate association is
+recorded, and recovery cleanup retains native generation authority before pointer
+replacement. Warm and cold reservations use Account then Workspace lock order;
+claim activation and lease assignment commit together.
+
+CTF commits each launch request UUID, immutable inputs and original non-secret
+credential reference before CMS creation. Participant, spare and rebuild retries
+reuse that request. CMS rejects conflicting input digests. A native creation
+receipt retains cleanup custody even before dispatch. The aggregate resolver may
+identify a reserved request for cleanup, but runnable operations require the exact
+live participant, spare or recovery association. Current event administrators may
+cancel an unrealized reservation or clean its recorded native generation; neither
+path replaces the original proof for launching work.
+Cleanup cancels retained intents under the event lock. CMS checks that same
+locked intent before reservation and native creation. Cleanup includes unbound
+requests, and releases their claims only after runtime absence is established.
+Database guards preserve launch inputs, proof, pinned association and cancellation.
+
+Tenant pack uploads reserve their exact storage cleanup key before sending bytes.
+The uploader lease fences registration. Cleanup retains an unknown upload outcome
+and repeats exact-key deletion after lease expiry; one absent read never settles
+an upload that may still finish. Successful registration detaches this temporary
+cleanup intent in the same transaction as native source custody.
+Installer copies also retain unknown outcomes as pending finalization cleanup.
+An age threshold or absent read does not establish that an interrupted copy ended.
+Expired installer records remain exact-key tombstones for bounded repeat cleanup
+of late staging writes. Installed bytes are removed only after cancellation or
+installer retirement.
+The existing CMS cleanup worker runs installer reconciliation on every pass,
+independent of pending pack removals. Each reconciliation retains its own failure.
+
+The API retirement guard accepts only exact ADR-backed query-parameter removals
+and rejects reintroduction. Lease administration retains its published JSON and
+form media types. JSON scalars remain strict; standard form parsing requires
+all declared fields and rejects duplicate values before mutation.
+The surface inventory test resolves the production admin registry and
+WebSocket routes. Deployment checks extract one framed portal status result;
+background node labeling receives no policy credential mount. These changes retain
+the existing CI, policy journal, strict audit and architecture checks.
+
+Maintenance validates workload inventories and waits for old application pods to
+terminate before migration. The status probe receives the existing DNS,
+metadata-server, Google API and native SQL network grants before its first run.
+Broker retirement also precedes any restoration of broader egress policy;
+maintenance applies its workload manifest after old application pods terminate.
+Workspaces owns cutover verification, including memberships in already-bound
+organizations. Legacy administrator roles without an equivalent policy mapping
+block activation. Retained legacy spare owners block field removal until drained.
+
+Tenant source registration verifies durable archive custody in the admitted
+scope before any source creation or storage read. Destination content permission
+alone cannot authorize a generic storage reference. Launch retry keys include
+the explicit resource scope. Spare intents commit before their rows become
+available to cleanup; cancellation fences all later creation. Claim release
+requires verified runtime absence and an exact current-generation match.
+Capacity release and claim settlement share one transaction. A failed release
+retains the claim for retry. Cancelled consumed spares and rebuild replacements
+remain cleanup targets while recovery changes participant pointers.
+Organizer event paging exposes complete counts and browser continuation. An
+organization UUID binds pending account-administration state to its original
+parent.
+The retained browser journeys and accessibility matrix use the native account
+administration surface. Browser CI reuses the released-server OpenFGA harness
+and explicit synthetic policy grants; legacy role rows do not grant access.
+
+Temporary participant target discovery retains the event-only credential ceiling:
+live participation and exact assignment admit the CMS and Engine projection.
+Content discovery carries explicit scope and translates domain failures through
+the API envelope. A collection excludes ineligible individual campaign targets,
+but propagates credential and dependency failures. Early communication release
+requires a session credential at the owning service boundary.
+
+Pending handoffs retain an authorized settlement path after recipient
+deactivation; new grants require an active target. Verified cleanup of the exact
+old range may precede recovery repointing without admitting unrelated assignment
+changes. Installation warm generations retain exact cleanup authority through
+retirement; recorded origin, generation and verified absence govern release.
+Ordinary pool retirement locks and rechecks unclaimed custody. Existing failed
+or timed-out activation recovery uses the current owner's exact cleanup receipt
+and rechecks current runtime state and deadline under the ledger lock. Healthy
+customer claims remain outside pool retirement. Uncertain dispatch after native
+creation retains its capacity draw until verified cleanup.
+Warm lifecycle result application takes the generation ledger before the runtime
+row, matching creation, claim and retirement, then rechecks the current operation.
+An exact retained event handoff may settle its remaining recipient or previous
+owner effects after deactivation, under current administrator delegation and durable transition
+binding. This exception does not admit inactive actors or arbitrary new grants.
+
+### Integration contract clarification
+
+The [identity and lifecycle contracts](../technical/shifter_platform/identity-lifecycle-contracts.md)
+define domain ownership, DFDs, lifecycle transitions and recovery obligations.
+They retain the existing domain facades, authorization journal and Engine outbox.
+They add no permission store, orchestration framework or provider service.
+
+Warm replenishment policy cannot remove a retained cleanup obligation.
+Activation recovery uses the claim timestamp, independent of earlier pool age.
+Warm count limits require atomic database admission across concurrent workers.
+Unknown cleanup retains its draw and requires a continuing recovery owner.
+Launch, cancellation and failure settlement must share their target-before-intent lock order.
+The launcher currently serializes provider submission under its target lock.
+Any change to that boundary must preserve cancellation and late-submission protection.
+The S8 proposal records remaining implementation and verification gaps against these contracts.
+
+An immutable staff-assignment plan also retains its admitted subject through deactivation.
+Current administrator delegation and the exact persisted effect govern settlement.
+The rule is limited to unfinished, fully preflighted plans; new inactive grants remain denied.
+This prevents a partial assignment from blocking all later event authority changes.
+
+ADR-068 continues to park model-access sharing. The cutover closes its mounted
+API and composition/selector entry points before data reads or effects; it does
+not add native publisher storage or extend broker capability. An enabled setting
+cannot unpark the feature. Keyless-direct and independently supported native
+source/range controls retain their existing boundaries.
+
+Notification recipient facts and scoreboard participation facts are projections,
+not alternate permission providers. Notification subscriptions, replay and
+delivery retain the actual credential and require current policy or exact live
+participation. Historical creators, staff groups and user flags cannot bypass
+those decisions. Public scoreboard publication remains an explicit exemption.
+
+The communications console uses the same native boundary. Campaign reads admit
+the complete target set; recipient details also require participant-management
+authority on the selected event. Discovery checks current event authority before
+pagination and returns an explicit account, organization or workspace parent.
+The retained workspace-only response is a compatibility projection of that same
+discovery, not a second authorization path. Parent names are disclosed only for
+already-admitted event scopes through the owning Workspaces service. Revision,
+release and cancellation attribution identify the actual principal and credential;
+service actions never inherit a human contact's identity.

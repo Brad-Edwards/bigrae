@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 from uuid import UUID
 
-from django.contrib.auth.base_user import AbstractBaseUser
-from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
 from django.db.models import Model, QuerySet
 from pydantic import ValidationError
 
-from ctf.enums import EventCapability, SpareRangeStatus
+from ctf.enums import SpareRangeStatus
 from ctf.exceptions import CTFError
 from ctf.models import CTFCohort, CTFEvent, CTFParticipant, CTFSpareRange, CTFTeam
 from shared.model_access import (
+    ModelAccessRangeInstanceView,
     OwnedReference,
     PublisherAuthorityRequirement,
     PublisherAuthorityScope,
@@ -76,13 +74,11 @@ def _uuid_ids(values: tuple[str, ...]) -> tuple[UUID, ...]:
     return resolved
 
 
-def _require_event_authority(actor: object, events: tuple[CTFEvent, ...]) -> None:
-    """Require range-management authority over every selected event."""
-    from ctf.services.authorization import resolve_event_authority
+def _require_model_access_available() -> None:
+    """Parked selectors cannot reintroduce retired event authority."""
+    from shared.model_access.availability import require_model_access_available
 
-    user = cast(AbstractBaseUser | AnonymousUser | None, actor)
-    if any(resolve_event_authority(user, event, capability=EventCapability.RANGES) is None for event in events):
-        raise ModelAccessSelectorError()
+    require_model_access_available()
 
 
 def _events_for_ids(ids: tuple[UUID, ...]) -> tuple[CTFEvent, ...]:
@@ -255,7 +251,7 @@ def classify_model_access_selected_ranges(range_uuids: tuple[UUID, ...]) -> tupl
         )
 
 
-def _resolve_selected_ranges(actor: object, selector: SharingSelector) -> SelectorResolution:
+def _resolve_selected_ranges(selector: SharingSelector) -> SelectorResolution:
     """Resolve explicit selected ranges through their exact CTF owners."""
     from ctf.bridges import cms_resolve_model_access_selected_ranges
     from ctf.services.participant import eligible_participant_q
@@ -302,8 +298,49 @@ def _resolve_selected_ranges(actor: object, selector: SharingSelector) -> Select
             key=lambda item: item.pk,
         )
     )
-    _require_event_authority(actor, events)
+    _require_model_access_available()
 
+    return _selected_range_resolution(selector, selected_views, source_by_instance, events)
+
+
+def resolve_model_access_selector(
+    actor: object,
+    selector: SharingSelector | dict[str, object],
+) -> SelectorResolution:
+    """Resolve a complete CTF atomic selector under owner-domain row locks."""
+    from shared.model_access.availability import require_model_access_available
+
+    # Preserve the public keyword signature while this surface admits no actor.
+    del actor
+    require_model_access_available()
+    try:
+        parsed = selector if isinstance(selector, SharingSelector) else SharingSelector.model_validate(selector)
+    except ValidationError as exc:
+        raise ModelAccessSelectorError() from exc
+    if parsed.kind not in {
+        SelectorKind.SELECTED_RANGES,
+        SelectorKind.CTF_EVENT,
+        SelectorKind.CTF_TEAM,
+        SelectorKind.CTF_COHORT,
+    }:
+        raise ModelAccessSelectorError()
+
+    with transaction.atomic():
+        if parsed.kind is SelectorKind.SELECTED_RANGES:
+            return _resolve_selected_ranges(parsed)
+        _events, selector_refs, filters = _selector_rows(parsed)
+        _require_model_access_available()
+        selected = _subjects_for_filter(filters, include_spares=parsed.include_spares)
+        return _materialize_resolution(parsed, selector_refs, selected)
+
+
+def _selected_range_resolution(
+    selector: SharingSelector,
+    selected_views: tuple[ModelAccessRangeInstanceView, ...],
+    source_by_instance: dict[int | None, tuple[CTFEvent, OwnedReference]],
+    events: tuple[CTFEvent, ...],
+) -> SelectorResolution:
+    """Project the already locked range membership and exact owning event references."""
     event_refs = tuple(OwnedReference(owner="ctf", reference=f"event:{event.pk}") for event in events)
     source_refs = tuple(source_by_instance[item.range_instance_id][1] for item in selected_views)
     range_refs = tuple(item.range_view.authority_ref for item in selected_views)
@@ -333,29 +370,3 @@ def _resolve_selected_ranges(actor: object, selector: SharingSelector) -> Select
             for reference in event_refs
         ),
     )
-
-
-def resolve_model_access_selector(
-    actor: object,
-    selector: SharingSelector | dict[str, object],
-) -> SelectorResolution:
-    """Resolve a complete CTF atomic selector under owner-domain row locks."""
-    try:
-        parsed = selector if isinstance(selector, SharingSelector) else SharingSelector.model_validate(selector)
-    except ValidationError as exc:
-        raise ModelAccessSelectorError() from exc
-    if parsed.kind not in {
-        SelectorKind.SELECTED_RANGES,
-        SelectorKind.CTF_EVENT,
-        SelectorKind.CTF_TEAM,
-        SelectorKind.CTF_COHORT,
-    }:
-        raise ModelAccessSelectorError()
-
-    with transaction.atomic():
-        if parsed.kind is SelectorKind.SELECTED_RANGES:
-            return _resolve_selected_ranges(actor, parsed)
-        events, selector_refs, filters = _selector_rows(parsed)
-        _require_event_authority(actor, events)
-        selected = _subjects_for_filter(filters, include_spares=parsed.include_spares)
-        return _materialize_resolution(parsed, selector_refs, selected)

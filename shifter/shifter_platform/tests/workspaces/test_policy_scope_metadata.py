@@ -10,6 +10,7 @@ from shared.audit import RequestAudit
 from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind, RelationshipState
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef, ResourceScope
+from tests._credential_helpers import persisted_credential
 from workspaces import services
 from workspaces.models import Organization
 
@@ -68,12 +69,14 @@ def test_scoped_metadata_api_admits_service_and_rejects_wrong_parent(monkeypatch
     from workspaces.api.account_authorization_views import ScopedAuthorizationGroupCollectionView
 
     principal = Principal.objects.create(uuid=uuid4(), kind="service", name="Administrator")
-    actor = CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"organization.manage_authorization"})),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"organization.manage_authorization"})),
+            frozenset(),
+        )
     )
     first = services.create_account(kind="team", name="First")
     second = services.create_account(kind="team", name="Second")
@@ -115,12 +118,14 @@ def test_scoped_action_assignment_obeys_exact_account_and_credential_ceiling(mon
     view = ScopedAuthorizationDirectAssignmentView.as_view()
 
     def submit(actions):
-        actor = CredentialContext(
-            PrincipalRef(principal.uuid, "service"),
-            "service",
-            uuid4(),
-            CredentialCeiling(frozenset(actions)),
-            frozenset(),
+        actor = persisted_credential(
+            CredentialContext(
+                PrincipalRef(principal.uuid, "service"),
+                "service",
+                uuid4(),
+                CredentialCeiling(frozenset(actions)),
+                frozenset(),
+            )
         )
         request = APIRequestFactory().post(
             "/api/v1/accounts/authorization/assignments/",

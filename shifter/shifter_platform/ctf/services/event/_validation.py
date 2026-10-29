@@ -14,6 +14,9 @@ from ctf.exceptions import CTFValidationError
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+    from shared.credentials import CredentialContext
+    from shared.identity_scope import ResourceScope
+
 
 def validate_scoring_mode(event_data: dict[str, Any]) -> None:
     """Reject an unknown ``scoring_mode`` with a controlled 400.
@@ -42,7 +45,9 @@ def validate_scoring_mode(event_data: dict[str, Any]) -> None:
         ) from None
 
 
-def validate_content_scenario_access(user: User, scenario_id: str) -> None:
+def validate_content_scenario_access(
+    user: User | CredentialContext, scenario_id: str, *, scope: ResourceScope | None = None
+) -> None:
     """Authorize configured content through the existing CTF launch catalog."""
     from django.conf import settings
 
@@ -51,7 +56,7 @@ def validate_content_scenario_access(user: User, scenario_id: str) -> None:
 
     from ctf.bridges import cms_list_scenarios
 
-    if scenario_id not in {available_id for available_id, _name in cms_list_scenarios(user)}:
+    if scenario_id not in {available_id for available_id, _name in cms_list_scenarios(user, scope=scope)}:
         raise CTFValidationError(
             "Scenario is not available for CTF event creation.",
             code="CTF_SCENARIO_NOT_AVAILABLE",

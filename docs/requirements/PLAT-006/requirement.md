@@ -23,4 +23,4 @@ Cloud-specific references embedded in the data model create invisible coupling t
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/models/_range.py` (Range model - stores AWS ARNs (kali_ssh_key_secret_arn, step_function_execution_arn), EC2 instance IDs, subnet IDs directly in fields)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/cms/models/assets.py` (FileAsset model - s3_key field hardcoded as S3 object key, not provider-neutral storage path)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#675` (PLAT-006: Cloud-Agnostic Data Model)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#675` (PLAT-006: Cloud-Agnostic Data Model)

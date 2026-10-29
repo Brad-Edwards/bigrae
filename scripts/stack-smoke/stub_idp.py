@@ -67,6 +67,8 @@ class _Config:
         self.issuer: str = args.issuer.rstrip("/")
         self.subject: str = args.subject
         self.email: str = args.email
+        self.operator_subject: str = args.operator_subject
+        self.operator_email: str = args.operator_email
         # Auth-domain and issuer are distinct Cognito bases; model that contract
         # even when both point at this one service. Endpoint *paths* are the
         # fixed Cognito shapes config._oidc_settings concatenates.
@@ -112,7 +114,7 @@ class _State:
 
     def __init__(self) -> None:
         self.codes: dict[str, dict[str, str]] = {}
-        self.access_tokens: set[str] = set()
+        self.access_tokens: dict[str, dict[str, str]] = {}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -189,8 +191,15 @@ class _Handler(BaseHTTPRequestHandler):
         if not state or not nonce:
             self._error(400, "invalid_request")
             return
+        hint = params.get("login_hint", "")
+        if hint and hint != self.cfg.operator_email:
+            self._error(400, "invalid_request")
+            return
+        subject, email = (
+            (self.cfg.operator_subject, self.cfg.operator_email) if hint else (self.cfg.subject, self.cfg.email)
+        )
         code = secrets.token_urlsafe(24)
-        self.state.codes[code] = {"nonce": nonce, "redirect_uri": redirect_uri}
+        self.state.codes[code] = {"nonce": nonce, "redirect_uri": redirect_uri, "subject": subject, "email": email}
         sep = "&" if "?" in redirect_uri else "?"
         self._redirect(f"{redirect_uri}{sep}code={code}&state={state}")
 
@@ -233,11 +242,11 @@ class _Handler(BaseHTTPRequestHandler):
         id_token = self.keys.sign_id_token(
             {
                 "iss": self.cfg.issuer,
-                "sub": self.cfg.subject,
+                "sub": entry["subject"],
                 "aud": self.cfg.client_id,
                 "azp": self.cfg.client_id,
                 "nonce": entry["nonce"],
-                "email": self.cfg.email,
+                "email": entry["email"],
                 "email_verified": True,
                 "token_use": "id",
                 "iat": now,
@@ -245,7 +254,7 @@ class _Handler(BaseHTTPRequestHandler):
             }
         )
         access_token = secrets.token_urlsafe(24)
-        self.state.access_tokens.add(access_token)
+        self.state.access_tokens[access_token] = {"sub": entry["subject"], "email": entry["email"]}
         self._json(
             200,
             {
@@ -266,7 +275,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         # UserInfo subject must equal the ID-token subject (the backend enforces
         # parity); email_verified is the literal JSON boolean true.
-        self._json(200, {"sub": self.cfg.subject, "email": self.cfg.email, "email_verified": True})
+        self._json(200, {**self.state.access_tokens[header[7:]], "email_verified": True})
 
 
 def _build_handler(cfg: _Config, keys: _Keys, state: _State) -> type[_Handler]:
@@ -284,6 +293,8 @@ def main() -> int:
     parser.add_argument("--redirect-uri", required=True, help="exact registered callback URI")
     parser.add_argument("--subject", default=DEFAULT_SUBJECT)
     parser.add_argument("--email", default=DEFAULT_EMAIL)
+    parser.add_argument("--operator-subject", default="stack-smoke-operator")
+    parser.add_argument("--operator-email", default="stack-smoke-operator@example.test")
     args = parser.parse_args()
 
     cfg = _Config(args)

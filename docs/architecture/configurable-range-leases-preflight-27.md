@@ -6,7 +6,7 @@
 Status: pre-implementation guidance. Date: 2026-09-13.
 
 Contract: the supplied title, body and acceptance criteria of
-[issue #27](https://github.com/Brad-Edwards/shifter/issues/27). No Ground Control
+[issue #27](https://github.com/Brad-Edwards/bigrae/issues/27). No Ground Control
 requirement is attached. This note records boundaries and decisions, not an
 implementation plan or a claim that configurable leases already ship.
 

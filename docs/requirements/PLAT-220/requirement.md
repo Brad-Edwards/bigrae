@@ -21,7 +21,7 @@ Range egress is currently configured implicitly through cloud-specific firewall 
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#775` (PLAT-220: Configurable Range Egress IP Allowlist)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#775` (PLAT-220: Configurable Range Egress IP Allowlist)
 - IMPLEMENTS → PULL_REQUEST `834` (PLAT-220: configurable range egress IP allowlist)
 - IMPLEMENTS → CODE_FILE `shifter/installation/range_egress.py`
 - IMPLEMENTS → CODE_FILE `shifter/installation/loader.py`

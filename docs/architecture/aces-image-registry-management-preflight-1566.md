@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-13
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1566>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1566>
 
 Issue title: Tenant-facing management surface for the ACES image registry
 

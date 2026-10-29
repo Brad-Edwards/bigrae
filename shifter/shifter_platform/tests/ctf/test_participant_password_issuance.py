@@ -13,7 +13,7 @@ from django.test import Client
 from django.urls import reverse
 from django.views.debug import SafeExceptionReporterFilter
 
-from ctf.exceptions import CTFValidationError
+from ctf.exceptions import CTFPermissionError, CTFValidationError
 from ctf.services.participant.accounts import create_participant_accounts
 from ctf.services.participant.credentials import reset_participant_password
 from management.services import get_user_profile, set_ctf_password_change_required
@@ -37,12 +37,13 @@ def _disable_provisioning(monkeypatch):
     caches["launch_rate_limit"].clear()
 
 
-def _create_participant(event):
-    return create_participant_accounts(event.id, count=1)[0]
+def _create_participant(event, actor):
+    return create_participant_accounts(event.id, count=1, actor=actor)[0]
 
 
 def test_account_creation_generates_a_fresh_password_when_event_has_no_shared_policy(
     ctf_event,
+    organizer_credential,
     monkeypatch,
     settings,
 ):
@@ -54,13 +55,13 @@ def test_account_creation_generates_a_fresh_password_when_event_has_no_shared_po
         lambda *, user=None: _GENERATED_PASSWORD,
     )
 
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
 
     assert participant.user.check_password(_GENERATED_PASSWORD)
     assert not participant.user.check_password(_PLATFORM_PASSWORD)
 
 
-def test_account_creation_uses_only_an_explicit_event_shared_password(ctf_event, monkeypatch):
+def test_account_creation_uses_only_an_explicit_event_shared_password(ctf_event, organizer_credential, monkeypatch):
     shared_password = "Explicit-Event-Shared-Password-42"  # nosec B105
     ctf_event.participant_password_override = shared_password
     ctf_event.save(update_fields=["participant_password_override", "updated_at"])
@@ -70,7 +71,7 @@ def test_account_creation_uses_only_an_explicit_event_shared_password(ctf_event,
         lambda *, user=None: generated.append(True) or _GENERATED_PASSWORD,
     )
 
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
 
     assert participant.user.check_password(shared_password)
     assert generated == []
@@ -79,9 +80,10 @@ def test_account_creation_uses_only_an_explicit_event_shared_password(ctf_event,
 def test_generated_reset_updates_security_state_and_writes_secret_free_audit(
     ctf_event,
     organizer_user,
+    organizer_credential,
     monkeypatch,
 ):
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
     set_ctf_password_change_required(participant.user, False)
     token, _raw = ApiToken.create_token(
         name="defensive participant token",
@@ -95,7 +97,7 @@ def test_generated_reset_updates_security_state_and_writes_secret_free_audit(
 
     result = reset_participant_password(
         participant.id,
-        actor=organizer_user,
+        actor=organizer_credential,
         kind="generated",
         request_audit=RequestAudit(source_ip="192.0.2.10", user_agent="pytest", request_id="request-1924"),
     )
@@ -113,7 +115,8 @@ def test_generated_reset_updates_security_state_and_writes_secret_free_audit(
     assert participant.user.check_password(_GENERATED_PASSWORD)
     assert get_user_profile(participant.user).must_change_password is True
     assert token.revoked_at is not None
-    assert audit.actor_id == organizer_user.pk
+    assert audit.actor_id is None
+    assert audit.actor_principal_uuid == organizer_credential.principal.uuid
     assert audit.source_ip == "192.0.2.10"
     assert audit.request_id == "request-1924"
     audit_text = json.dumps({"previous": audit.previous_state, "new": audit.new_state})
@@ -124,14 +127,15 @@ def test_generated_reset_updates_security_state_and_writes_secret_free_audit(
 def test_supplied_reset_uses_django_validation_and_invalidates_the_old_session(
     ctf_event_active,
     organizer_user,
+    organizer_credential,
 ):
-    participant = _create_participant(ctf_event_active)
+    participant = _create_participant(ctf_event_active, organizer_credential)
     participant_client = Client()
     participant_client.force_login(participant.user)
 
     result = reset_participant_password(
         participant.id,
-        actor=organizer_user,
+        actor=organizer_credential,
         kind="set",
         password=_SUPPLIED_PASSWORD,
     )
@@ -146,7 +150,7 @@ def test_supplied_reset_uses_django_validation_and_invalidates_the_old_session(
     with pytest.raises(CTFValidationError):
         reset_participant_password(
             participant.id,
-            actor=organizer_user,
+            actor=organizer_credential,
             kind="set",
             password="short",
         )
@@ -154,13 +158,13 @@ def test_supplied_reset_uses_django_validation_and_invalidates_the_old_session(
     assert participant.user.check_password(_SUPPLIED_PASSWORD)
 
 
-def test_service_rechecks_event_capability(ctf_event, standard_user):
-    participant = _create_participant(ctf_event)
+def test_service_rechecks_event_capability(ctf_event, organizer_credential, standard_user, live_session_credential):
+    participant = _create_participant(ctf_event, organizer_credential)
 
-    with pytest.raises(CTFValidationError) as exc:
+    with pytest.raises(CTFPermissionError) as exc:
         reset_participant_password(
             participant.id,
-            actor=standard_user,
+            actor=live_session_credential(standard_user),
             kind="generated",
         )
 
@@ -170,9 +174,10 @@ def test_service_rechecks_event_capability(ctf_event, standard_user):
 def test_reset_api_returns_each_password_once_and_never_from_a_read(
     authenticated_organizer_client,
     ctf_event,
+    organizer_credential,
     monkeypatch,
 ):
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
     generated = iter([_GENERATED_PASSWORD, _SECOND_GENERATED_PASSWORD])
     monkeypatch.setattr(
         "ctf.services.participant.accounts.generate_participant_password",
@@ -209,18 +214,36 @@ def test_reset_api_supports_supplied_password_and_denies_cross_event_actor(
     authenticated_organizer_client,
     ctf_event,
     ctf_event_active,
+    organizer_credential,
+    second_organizer_user,
+    live_session_credential,
     monkeypatch,
 ):
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
     supplied = authenticated_organizer_client.post(
         reverse("v1:ctf:api_participant_password_reset", kwargs={"participant_id": participant.id}),
         data=json.dumps({"kind": "set", "password": _SUPPLIED_PASSWORD}),
         content_type="application/json",
     )
 
-    other = _create_participant(ctf_event_active)
-    other.event.created_by = User.objects.create_user(username="other-owner", password="Test-Other-Owner-42")
-    other.event.save(update_fields=["created_by", "updated_at"])
+    other = _create_participant(ctf_event_active, organizer_credential)
+    from ctf.enums import EventStaffRole
+    from ctf.services.event import assign_event_staff, revoke_event_staff, transfer_event_ownership
+    from shared.principal_port import principal_for_user
+
+    new_owner = principal_for_user(second_organizer_user)
+    assign_event_staff(
+        other.event_id,
+        organizer_credential,
+        new_owner.uuid,
+        EventStaffRole.CO_ORGANIZER.value,
+    )
+    transfer_event_ownership(other.event_id, organizer_credential, new_owner.uuid)
+    revoke_event_staff(
+        other.event_id,
+        live_session_credential(second_organizer_user),
+        principal_for_user(ctf_event.created_by).uuid,
+    )
     denied = authenticated_organizer_client.post(
         reverse("v1:ctf:api_participant_password_reset", kwargs={"participant_id": other.id}),
         data=json.dumps({"kind": "generated"}),
@@ -234,8 +257,8 @@ def test_reset_api_supports_supplied_password_and_denies_cross_event_actor(
     assert denied.status_code == 403
 
 
-def test_reset_api_requires_authentication_and_csrf(ctf_event):
-    participant = _create_participant(ctf_event)
+def test_reset_api_requires_authentication_and_csrf(ctf_event, organizer_credential):
+    participant = _create_participant(ctf_event, organizer_credential)
     reset_url = reverse("v1:ctf:api_participant_password_reset", kwargs={"participant_id": participant.id})
     anonymous = Client().post(
         reset_url,
@@ -259,10 +282,11 @@ def test_reset_api_requires_authentication_and_csrf(ctf_event):
 def test_reset_api_redacts_form_encoded_password_from_exception_reports(
     authenticated_organizer_client,
     ctf_event,
+    organizer_credential,
     monkeypatch,
     settings,
 ):
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
     captured_requests = []
 
     def capture_request(*, request, **_kwargs):
@@ -297,9 +321,10 @@ def test_reset_api_redacts_form_encoded_password_from_exception_reports(
 def test_reset_api_rate_limit_fails_without_mutating_password(
     authenticated_organizer_client,
     ctf_event,
+    organizer_credential,
     monkeypatch,
 ):
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
     participant.user.set_password(_SUPPLIED_PASSWORD)
     participant.user.save(update_fields=["password"])
     monkeypatch.setattr("ctf.views._access._check_credential_delivery_rate_limit", lambda _actor_id: False)
@@ -318,9 +343,10 @@ def test_reset_api_rate_limit_fails_without_mutating_password(
 def test_legacy_resend_no_longer_mutates_or_emails_password(
     authenticated_organizer_client,
     ctf_event,
+    organizer_credential,
     monkeypatch,
 ):
-    participant = _create_participant(ctf_event)
+    participant = _create_participant(ctf_event, organizer_credential)
     participant.user.set_password(_SUPPLIED_PASSWORD)
     participant.user.save(update_fields=["password"])
     sent: list[dict[str, str]] = []

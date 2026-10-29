@@ -14,7 +14,6 @@ from django.core.mail.backends.base import BaseEmailBackend
 from django.db.models import TextField, Value
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus
 from ctf.enums_communication import DeliveryStatus, IntentDeliveryState
 from ctf.models import CommunicationIntent, CTFParticipant, DeliveryAttempt, RecipientSnapshot
@@ -22,6 +21,7 @@ from ctf.services.communication import CampaignDraft, create_campaign, release_c
 from ctf.services.communication import delivery as delivery_svc
 from ctf.services.communication.adapters import get_adapter, registered_channels
 from shared import email as shared_email
+from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = pytest.mark.django_db
 
@@ -62,7 +62,6 @@ def _participant(event, address):
 
 
 def _release(owner, event, *, channels=("email",), subject="Welcome", body="Read the [rules](/rules)."):
-    workspace_uuid = str(workspace_services.resolve_personal_workspace(owner).workspace_uuid)
     draft = CampaignDraft(
         title="Kickoff",
         origin="organizer_staff",
@@ -73,7 +72,7 @@ def _release(owner, event, *, channels=("email",), subject="Welcome", body="Read
         subject=subject,
         body=body,
     )
-    campaign = create_campaign(owner, workspace_uuid, draft)
+    campaign = create_campaign(owner, individual_account_uuid(owner), draft, parent_type="account")
     return release_campaign(campaign, occurrence_key="occ-1", actor_user_id=owner.id)
 
 

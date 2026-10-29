@@ -21,4 +21,4 @@ Hidden users enable organizers or test accounts to participate without distortin
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#655` (CTF-606: Hidden Users)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#655` (CTF-606: Hidden Users)

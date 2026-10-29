@@ -11,21 +11,16 @@ from django.db import close_old_connections, connection
 from django.utils import timezone
 
 from management.personal_credentials import issue_personal_token, rotate_personal_token
-from management.services import principal_for_user
 from shared.api_tokens.models import ApiToken
-from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind, TargetRef, port
-from shared.credentials import CredentialContext
+from shared.authorization import AuthorizationDecision, DecisionKind, TargetRef, port
 from shared.identity_scope import ResourceScope
 
 
 @pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
-def test_two_rotators_cannot_leave_two_live_replacements(django_user_model, monkeypatch):
+def test_two_rotators_cannot_leave_two_live_replacements(django_user_model, monkeypatch, live_session_credential):
     user = django_user_model.objects.create_user(username="rotating-owner")
-    principal = principal_for_user(user)
-    actor = CredentialContext(
-        principal, "session", principal.uuid, CredentialCeiling(frozenset({"installation.read_audit"})), frozenset()
-    )
+    actor = live_session_credential(user)
     provider = SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed"))
     monkeypatch.setattr(port, "_provider_factory", lambda: provider)
     command = {
@@ -61,16 +56,15 @@ def test_two_rotators_cannot_leave_two_live_replacements(django_user_model, monk
 @pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("operation", ["admin_revoke", "own_revoke", "rotate"])
-def test_credential_operations_follow_lifecycle_owner_before_token_order(django_user_model, monkeypatch, operation):
+def test_credential_operations_follow_lifecycle_owner_before_token_order(
+    django_user_model, monkeypatch, operation, live_session_credential
+):
     from management import lifecycle, personal_credentials
     from management.services import AuditContext
     from tests.workspaces.test_account_policy_admin import _actor
 
     user = django_user_model.objects.create_user(username="overlapping-owner")
-    principal = principal_for_user(user)
-    owner = CredentialContext(
-        principal, "session", principal.uuid, CredentialCeiling(frozenset({"installation.read_audit"})), frozenset()
-    )
+    owner = live_session_credential(user)
     administrator = _actor(
         "service", actions=frozenset({"installation.manage_principals", "installation.revoke_personal_tokens"})
     )

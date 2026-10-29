@@ -22,9 +22,9 @@ An API enables custom scoreboards, automated challenge deployment, integration w
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (CTF URL configuration - API route definitions)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#626` (CTF-012: API & Integration)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#626` (CTF-012: API & Integration)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/serializers/communication.py` (Bounded read-only DRF projections for the participant inbox and organizer campaign summary (ADR-051, #2048))
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2048` (API contract for scoped communications: bounded serializers and the CTFError -> shared.api.errors mapping)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2048` (API contract for scoped communications: bounded serializers and the CTFError -> shared.api.errors mapping)
 
 - IMPLEMENTS → CODE `shifter/shifter_platform/ctf/api/organizer/communication.py`
 - IMPLEMENTS → CODE `shifter/shifter_platform/ctf/api/communication_inbox.py`
@@ -35,7 +35,7 @@ An API enables custom scoreboards, automated challenge deployment, integration w
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_inbox.py`
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_cutover.py`
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_admission_postgres.py`
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2100`
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2100`
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/operation_policy.py` (ADR-066 S5 action and scope locator contract for published CTF operations; S8 activates administration authority)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_authorization_operation_map.py` (Published OpenAPI operation and browser route coverage)
 - IMPLEMENTS → CODE `shifter/shifter_platform/ctf/api/serializers/communication_console.py` (Closed query inputs and read-only console projections (#2052))

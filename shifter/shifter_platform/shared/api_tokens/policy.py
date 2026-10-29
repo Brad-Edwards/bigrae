@@ -70,20 +70,25 @@ PERSONAL_TOKEN_GRANT = "installation" + ".use_personal_tokens"
 
 
 def require_personal_token_grant(principal: PrincipalRef) -> None:
-    """A token cannot outlive its owner's explicit current token-use grant."""
+    """Keep explicit revocation distinct from an unavailable policy dependency."""
+    from shared.authorization import DecisionKind
+    from shared.credentials import CredentialRevoked, CredentialUnavailable
+
+    resolve_principal(principal)
+    if principal.kind != "human":
+        raise CredentialRevoked("Personal credential use denied")
+    request = AuthorizationRequest(
+        principal,
+        PERSONAL_TOKEN_GRANT,
+        TargetRef("installation"),
+        ResourceScope("installation"),
+        CredentialCeiling(frozenset({PERSONAL_TOKEN_GRANT})),
+    )
     try:
-        resolve_principal(principal)
-        if principal.kind != "human":
-            raise ValueError("Personal credentials require a human")
-        request = AuthorizationRequest(
-            principal,
-            PERSONAL_TOKEN_GRANT,
-            TargetRef("installation"),
-            ResourceScope("installation"),
-            CredentialCeiling(frozenset({PERSONAL_TOKEN_GRANT})),
-        )
         decision = configured_authorization_provider().check(request)
-        if not decision.allowed:
-            raise ValueError("Personal credential use denied")
     except Exception:
-        raise ValueError("Personal credential use denied") from None
+        raise CredentialUnavailable("Personal credential authority unavailable") from None
+    if decision.kind == DecisionKind.EVALUATOR_ERROR:
+        raise CredentialUnavailable("Personal credential authority unavailable")
+    if not decision.allowed:
+        raise CredentialRevoked("Personal credential use denied")

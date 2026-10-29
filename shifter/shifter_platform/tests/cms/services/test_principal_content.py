@@ -316,6 +316,7 @@ def test_credential_historical_user_does_not_bypass_private_scope(content_actor,
     )
     user = django_user_model.objects.create_user(username="synthetic-historical-credential-owner")
     Credential.objects.filter(pk=created.credential_id).update(user=user)
-    assert list_credentials(user) == []
+    with pytest.raises(CMSError, match="Content unavailable"):
+        list_credentials(user)
     with pytest.raises(CMSError):
         get_credential(user, created.credential_id)

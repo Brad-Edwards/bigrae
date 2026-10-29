@@ -14,7 +14,7 @@ import { PlatformSettingsPage } from "../PlatformSettingsPage";
 import { MutationOutcome, ScopeAuthorizationContent } from "../organization/WorkspaceAuthorizationPage";
 import { AdministrationError, AdministrationSection } from "./AdministrationForms";
 
-/** Exported preparation; activation and navigation remain owned by S8. */
+/** Policy-backed platform administration mounted by the production router. */
 export function PlatformAdministrationPage() {
   return <div className="space-y-6"><PageHeader title="Platform administration" description="Every operation is checked against your current credential and policy." />
     <Tabs defaultValue="users"><TabsList><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="policies">Platform policies</TabsTrigger><TabsTrigger value="credentials">Credentials</TabsTrigger><TabsTrigger value="audit">Audit history</TabsTrigger><TabsTrigger value="settings">Lease settings</TabsTrigger></TabsList>
@@ -61,7 +61,7 @@ function PolicyUserDetails({ id }: Readonly<{ id: number }>) {
     {action ? <div className="space-y-2"><p>Confirm {labels[action]?.toLowerCase()} for this user?</p><AdministrationError error={mutation.error} /><Button disabled={mutation.isPending} onClick={() => mutation.mutate(path === "lifecycle" ? { action } : {}, { onSuccess: () => setAction("") })}>Confirm identity change</Button><Button variant="outline" onClick={() => setAction("")}>Cancel</Button></div> : null}
     {user.available_actions.includes("transfer_ownership") ? <OffboardingForm userId={id} /> : null}
     <UserMetadataForm user={user} />
-    <ScopedOrganizerForm userId={id} />
+    <ScopedOrganizerForm principalUuid={user.principal_uuid} />
     <PersonalCredentialAdministration principalUuid={user.principal_uuid} />
   </AdministrationSection>;
 }
@@ -84,10 +84,10 @@ function OffboardingForm({ userId }: Readonly<{ userId: number }>) {
   </AdministrationSection>;
 }
 
-function ScopedOrganizerForm({ userId }: Readonly<{ userId: number }>) {
+function ScopedOrganizerForm({ principalUuid }: Readonly<{ principalUuid: string }>) {
   const [kind, setKind] = useState<AdministrationSchemas["ScopedOrganizerCommand"]["target_type"]>("account");
   const [uuid, setUuid] = useState("");
-  const mutation = useRelationshipMutation<Omit<AdministrationSchemas["ScopedOrganizerCommand"], "idempotency_key">>(`/administer/users/${userId}/grant-organizer/`);
+  const mutation = useRelationshipMutation<Omit<AdministrationSchemas["ScopedOrganizerCommand"], "idempotency_key">>(`/administer/principals/${principalUuid}/event-creation-grants/`);
   const original = mutation.variables?.body;
   const originalScope = original ? { kind: original.target_type, uuid: original.target_uuid } : "";
   const operation = useAuthorizationOperation(originalScope, mutation.data?.operation_id ?? "",

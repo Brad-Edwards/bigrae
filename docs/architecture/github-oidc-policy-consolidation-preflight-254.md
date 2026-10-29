@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-25
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/254>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/254>
 
 This note records the repository-wide guardrails for consolidating the GitHub
 Actions OIDC role's managed IAM policies below AWS's 10-managed-policy hard

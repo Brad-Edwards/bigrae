@@ -13,6 +13,9 @@ from cms.models import RaesPackageSource, ScenarioMetadata
 from shared.api_tokens import scopes
 from shared.api_tokens.models import ApiToken
 from shared.auth import THREAT_RESEARCH_GROUP
+from tests.cms._content_api_fixtures import content_policy
+
+__all__ = ["content_policy"]
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
 
@@ -35,23 +38,25 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture
-def staff_user(django_user_model):
-    return django_user_model.objects.create_user(
-        username="catalog-api-staff@example.com",
-        email="catalog-api-staff@example.com",
-        is_staff=True,
+def staff_user(django_user_model, content_policy):
+    return content_policy(
+        django_user_model.objects.create_user(
+            username="catalog-api-staff@example.com",
+            email="catalog-api-staff@example.com",
+            is_staff=True,
+        )
     )
 
 
 @pytest.fixture
-def threat_research_user(django_user_model):
+def threat_research_user(django_user_model, content_policy):
     user = django_user_model.objects.create_user(
         username="catalog-api-threat@example.com",
         email="catalog-api-threat@example.com",
     )
     group, _ = Group.objects.get_or_create(name=THREAT_RESEARCH_GROUP)
     user.groups.add(group)
-    return user
+    return content_policy(user)
 
 
 def _bearer(client: APIClient, raw: str) -> APIClient:
@@ -60,6 +65,10 @@ def _bearer(client: APIClient, raw: str) -> APIClient:
 
 
 def _token(user, *granted_scopes: str) -> str:
+    granted_scopes = tuple(
+        scopes.AUTHORIZATION_ACTION_SCOPES["installation.read_content"] if value == scopes.CMS_AUTHORING_READ else value
+        for value in granted_scopes
+    )
     _, raw = ApiToken.create_token(name="catalog-api", created_by=user, scopes=list(granted_scopes))
     return raw
 
@@ -88,6 +97,9 @@ def _make_raes_source(staff_user, scenario_id, **overrides):
         "conformance_report_ref": "reports/example-conformance.json",
         "provenance": {"repo": "acme/raes", "commit": "c" * 40},
         "registered_by": staff_user,
+        "scope_kind": "installation",
+        "owner_principal_uuid": staff_user.identity_principal.uuid,
+        "is_operator_published": True,
     }
     fields.update(overrides)
     return RaesPackageSource.objects.create(**fields)

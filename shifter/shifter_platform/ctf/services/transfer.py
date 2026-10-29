@@ -135,7 +135,7 @@ def export_challenges(
     }
 
 
-def import_challenges(event_id: UUID, payload: dict[str, Any], *, actor_id: int) -> dict[str, Any]:
+def import_challenges(event_id: UUID, payload: dict[str, Any], *, actor_id: object) -> dict[str, Any]:
     """Import challenges from a shifter or CTFd document (partial-success)."""
     event = _get_event(event_id)
     raw_challenges = payload.get("challenges")
@@ -187,7 +187,7 @@ def _import_entry(
     existing_names: set[str],
     *,
     is_ctfd: bool,
-    actor_id: int,
+    actor_id: object,
 ) -> tuple[str, dict[str, Any] | None]:
     """Import one entry; return ``(name, None)`` on success or ``(name, error)``."""
     name, error = _entry_precheck(entry, index, existing_names)
@@ -207,7 +207,7 @@ def _import_entry(
     return name, error
 
 
-def _create_from_ctfd(event: CTFEvent, entry: dict[str, Any], *, actor_id: int) -> CTFChallenge:
+def _create_from_ctfd(event: CTFEvent, entry: dict[str, Any], *, actor_id: object) -> CTFChallenge:
     """Create one challenge from a CTFd-shaped entry (plaintext flags)."""
     from ctf.services.challenge import create_challenge
 
@@ -277,7 +277,7 @@ def _create_ctfd_hints(challenge: CTFChallenge, hints: list[Any]) -> None:
             )
 
 
-def _create_from_shifter(event: CTFEvent, entry: dict[str, Any], *, actor_id: int) -> CTFChallenge:
+def _create_from_shifter(event: CTFEvent, entry: dict[str, Any], *, actor_id: object) -> CTFChallenge:
     """Create one challenge from a shifter-format entry.
 
     CTFFlag rows are the sole source of flag truth (#532): a valid shifter entry
@@ -393,6 +393,22 @@ def export_event_results(event_id: UUID) -> dict[str, Any]:
     }
 
 
+# Leading characters that make a spreadsheet evaluate a cell as a formula.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(value: object) -> object:
+    """Neutralize a text cell that a spreadsheet would evaluate as a formula.
+
+    Participants choose their display names, and organizers open this export in
+    spreadsheet tools. A leading apostrophe makes such a cell literal text
+    (OWASP CSV injection guidance). Numbers and other values pass unchanged.
+    """
+    if isinstance(value, str) and value.startswith(_CSV_FORMULA_PREFIXES):
+        return f"'{value}"
+    return value
+
+
 def results_csv(results: dict[str, Any]) -> str:
     """Render the rankings section of a results export as CSV (CTF-1103)."""
     import csv
@@ -402,9 +418,9 @@ def results_csv(results: dict[str, Any]) -> str:
     writer = csv.writer(buffer)
     writer.writerow(["rank", "name", "score", "solve_count"])
     for row in results["rankings"]:
-        writer.writerow([row["rank"], row["name"], row["score"], row["solve_count"]])
+        writer.writerow([_csv_cell(row[key]) for key in ("rank", "name", "score", "solve_count")])
     writer.writerow([])
     writer.writerow(["participant", "challenge", "submitted_at", "points"])
     for solve in results["solves"]:
-        writer.writerow([solve["participant_name"], solve["challenge"], solve["submitted_at"], solve["points"]])
+        writer.writerow([_csv_cell(solve[key]) for key in ("participant_name", "challenge", "submitted_at", "points")])
     return buffer.getvalue()

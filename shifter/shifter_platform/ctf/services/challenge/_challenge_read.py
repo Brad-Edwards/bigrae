@@ -83,7 +83,7 @@ def get_available_challenges(
     return qs.order_by("category", "order", "name")
 
 
-def list_challenges_for_event(event_id: UUID, *, actor_id: int) -> QuerySet[CTFChallenge]:
+def list_challenges_for_event(event_id: UUID, *, actor_id: object) -> QuerySet[CTFChallenge]:
     """List all challenges for an event (admin/organizer view).
 
     Args:

@@ -516,13 +516,13 @@ class TestGdcControlPlaneHelmValues:
         pod = job["spec"]["template"]["spec"]
         assert pod["serviceAccountName"] == "migrator"
         container = pod["containers"][0]
-        # Entrypoint migrates first; then register the shipped catalog and base
-        # image mappings through the same idempotent commands used by deploy.
+        # Catalog publication requires native bearer proof after activation;
+        # the database-only migration Job cannot register content.
         assert container["args"] == [
             "/bin/sh",
             "-c",
             "python manage.py reconcile_gcp_database_duties"
-            " && python manage.py bootstrap_inbox_catalog && python manage.py seed_raes_image_registry"
+            " && python manage.py seed_raes_image_registry"
             " && python manage.py acquire_feature_artifacts",
         ]
         db_secret = next(item for item in container["env"] if item["name"] == "DB_SECRET_ID")

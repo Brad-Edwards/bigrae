@@ -17,13 +17,14 @@ from django.db import connection, models, transaction
 from django.utils import timezone
 
 from ctf.enums import ScheduledTaskStatus, ScheduledTaskType
+from shared.db.operation_authority import RecordedAuthorityFields
 
 from ._base import CTFBaseModel
 
 logger = logging.getLogger(__name__)
 
 
-class CTFScheduledTask(CTFBaseModel):
+class CTFScheduledTask(RecordedAuthorityFields, CTFBaseModel):
     """Scheduled automation task for CTF events.
 
     Tracks tasks like range provisioning and cleanup.

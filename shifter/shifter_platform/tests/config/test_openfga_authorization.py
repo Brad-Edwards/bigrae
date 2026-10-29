@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
-from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
 from config.openfga_authorization import (
@@ -166,7 +165,6 @@ def test_django_runtime_binding_reads_bounded_secret_file(tmp_path) -> None:
     token_file.write_text("mounted-token\n")
 
     with override_settings(
-        OPENFGA_ENABLED=True,
         OPENFGA_API_URL="https://openfga.internal.example",
         OPENFGA_STORE_ID=STORE_ID,
         OPENFGA_MODEL_ID=MODEL_ID,
@@ -180,9 +178,22 @@ def test_django_runtime_binding_reads_bounded_secret_file(tmp_path) -> None:
     assert bound.model_id == MODEL_ID
 
 
-def test_django_runtime_binding_is_unavailable_until_enabled() -> None:
-    with override_settings(OPENFGA_ENABLED=False), pytest.raises(ImproperlyConfigured, match="not enabled"):
-        runtime_settings_from_django()
+def test_django_runtime_binding_cannot_be_disabled_by_legacy_switch(tmp_path) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text("mounted-token\n")
+
+    with override_settings(
+        OPENFGA_API_URL="https://openfga.internal.example",
+        OPENFGA_STORE_ID=STORE_ID,
+        OPENFGA_MODEL_ID=MODEL_ID,
+        OPENFGA_API_TOKEN_FILE=str(token_file),
+        OPENFGA_CA_CERT_PATH="/run/secrets/openfga-ca/ca.crt",
+        OPENFGA_TIMEOUT_MS=1200,
+    ):
+        bound = runtime_settings_from_django()
+
+    assert bound.store_id == STORE_ID
+    assert bound.model_id == MODEL_ID
 
 
 def test_diagnostic_change_read_is_bounded_and_returns_no_tuple_payload() -> None:
@@ -197,6 +208,31 @@ def test_diagnostic_change_read_is_bounded_and_returns_no_tuple_payload() -> Non
     body, options = client.read_changes_call
     assert body.type == "workspace"
     assert options == {"page_size": 50}
+
+
+def test_bootstrap_subject_read_is_narrow_and_bounded() -> None:
+    class BootstrapClient(FakeClient):
+        def read(self, body, options):
+            self.read_calls.append((body, options))
+            return SimpleNamespace(
+                tuples=[SimpleNamespace(key=SimpleNamespace(user=f"principal:{PRINCIPAL_ID}"))],
+                continuation_token="",
+            )
+
+    client = BootstrapClient()
+    provider = OpenFgaAuthorizationProvider(_settings(), client=client)
+
+    subjects = provider.read_relationship_subjects("direct_administrator", "installation:root")
+
+    assert subjects == (f"principal:{PRINCIPAL_ID}",)
+    body, options = client.read_calls[-1]
+    assert body.user is None
+    assert body.relation == "direct_administrator"
+    assert body.object == "installation:root"
+    assert options["page_size"] == 2
+
+    with pytest.raises(AuthorizationProviderError):
+        provider.read_relationship_subjects("administrator", "installation:root")
 
 
 def test_check_uses_pinned_model_primary_consistency_and_concrete_object() -> None:

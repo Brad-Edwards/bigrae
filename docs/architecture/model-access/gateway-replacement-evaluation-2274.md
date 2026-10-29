@@ -14,7 +14,7 @@ keys and optional controls. Do not build another model gateway in Shifter.
 ## Decision basis and scope
 
 The maintainer directed replacement and evaluation of existing options on
-2026-10-12; the [issue clarification](https://github.com/Brad-Edwards/shifter/issues/2274#issuecomment-6131352734)
+2026-10-12; the [issue clarification](https://github.com/Brad-Edwards/bigrae/issues/2274#issuecomment-6131352734)
 records that direction. It supersedes the issue's conditional deferral and
 broker-improvement outcome. [ADR-068](../../adr/068-model-access-broker-parked.md)
 governs the operating intent: transparent proxying, optional controls with none

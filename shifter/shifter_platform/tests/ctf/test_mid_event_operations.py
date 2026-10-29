@@ -128,7 +128,6 @@ class TestLiveEventEndReschedule:
         )
         CTFSpareRange.objects.create(
             event=ctf_event_active,
-            owner_user=spare_user,
             range_instance_id=spare_range.pk,
         )
         new_end = ctf_event_active.event_end - timedelta(hours=2)

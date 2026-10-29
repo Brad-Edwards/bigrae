@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: `CTF-103` - Challenge Difficulty Levels
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/539>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/539>
 
 This note is intentionally not an implementation plan. `CTF-103` already has
 implementation trace links for the difficulty enum, challenge model field,
