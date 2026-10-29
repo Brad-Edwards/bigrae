@@ -85,7 +85,7 @@ deployment, and a new deployment needs no change here.
 3. Read the deployer image digest and the release manifest in the run summary.
 4. After the first release only, make each package public in the GitHub
    package settings: `portal`, `provisioner`, `guacd`, `guacamole-client`,
-   `openvpn`, and `deployer`. GHCR makes a new package private.
+   `openvpn`, and `deployer-gcp`. GHCR makes a new package private.
 
 The workflow publishes to `ghcr.io/<owner>/<repository>`, in lower case, with
 the workflow `GITHUB_TOKEN`. It uses no cloud identity.
@@ -116,7 +116,7 @@ until a maintainer updates the tools.
 2. Resolve the deployer image digest:
 
    ```bash
-   DIGEST=$(oras resolve "$REG/deployer:$REV")
+   DIGEST=$(oras resolve "$REG/deployer-gcp:$REV")
    ```
 
 3. Verify the build provenance of the deployer image. This command is not yet
@@ -126,13 +126,13 @@ until a maintainer updates the tools.
    cosign verify-attestation --type https://slsa.dev/provenance/v1 \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
      --certificate-identity "https://github.com/<owner>/<repo>/.github/workflows/release-gcp.yml@<release ref>" \
-     --certificate-github-workflow-sha "$REV" "$REG/deployer@$DIGEST"
+     --certificate-github-workflow-sha "$REV" "$REG/deployer-gcp@$DIGEST"
    ```
 
 4. Read the release manifest:
 
    ```bash
-   docker run --rm --entrypoint cat "$REG/deployer@$DIGEST" /opt/bigrae/release.json
+   docker run --rm --entrypoint cat "$REG/deployer-gcp@$DIGEST" /opt/bigrae/release.json
    ```
 
 5. Run each command in this guide through the deployer image. Always use the
@@ -143,7 +143,7 @@ until a maintainer updates the tools.
      -e CLOUDSDK_CONFIG=/gcloud \
      -e GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json \
      -v "$HOME/.config/gcloud:/gcloud" \
-     "$REG/deployer@$DIGEST" gcp-deploy --store gs://<bucket>
+     "$REG/deployer-gcp@$DIGEST" gcp-deploy --store gs://<bucket>
    ```
 
 The deployer image sets `BIGRAE_RELEASE_MANIFEST` and
@@ -172,7 +172,7 @@ Use a mirror when the deployment cannot reach the release registry.
    done
    ```
 
-2. Copy the deployer image the same way to `<mirror>/deployer`.
+2. Copy the deployer image the same way to `<mirror>/deployer-gcp`.
 3. Pass the mirror prefix to each command:
 
    ```bash

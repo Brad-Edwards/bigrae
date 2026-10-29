@@ -62,7 +62,7 @@ merges to `deploy-test`.
 
 GHCR makes a new package private. After the first release from a repository,
 make the `portal`, `provisioner`, `guacd`, `guacamole-client`, `openvpn`, and
-`deployer` packages public in the GitHub package settings. Until then, a
+`deployer-gcp` packages public in the GitHub package settings. Until then, a
 deploy cannot pull the release images.
 
 ## Manual Terraform runs and a stale ADC quota project
@@ -82,7 +82,7 @@ manifest at `/opt/bigrae/release.json`, and the release run summary prints it.
 Without Docker, extract it from the image layer with ORAS:
 
 ```bash
-REF=<release registry>/deployer@<digest>
+REF=<release registry>/deployer-gcp@<digest>
 IMAGE=$(oras manifest fetch "$REF" | jq -r '.manifests[0].digest')
 for layer in $(oras manifest fetch "${REF%@*}@$IMAGE" | jq -r '.layers[] | select(.size < 200000) | .digest'); do
   oras blob fetch "${REF%@*}@$layer" --output - | tar -xzO opt/bigrae/release.json 2>/dev/null > release.json && break
