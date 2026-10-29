@@ -258,21 +258,62 @@ def _websocket_boundary_messages(user, path):
     return downstream_calls, messages
 
 
-def test_socket_revalidation_closes_a_banned_participants_open_socket(ctf_event_active, monkeypatch):
+@pytest.mark.django_db(transaction=True)
+def test_socket_revalidation_closes_a_banned_participants_open_socket(
+    ctf_event_active, organizer_credential, monkeypatch
+):
     """A ban ends authority on the next socket revalidation, not only on reconnect (#2617)."""
+    from channels.db import database_sync_to_async
+    from channels.testing import ApplicationCommunicator
+    from django.test import Client
+
+    from config.session_credentials import session_credential
     from config.socket_authority import authorize_socket_resource
+    from config.websocket_auth import CredentialSessionWebSocketBoundary
     from ctf.services.participant.moderation import ban_participant
     from management.services import set_ctf_password_change_required
+    from shared.enums import WebSocketCloseCode
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     set_ctf_password_change_required(participant.user, False)
-    scope = {"user": User.objects.get(pk=participant.user_id), "path": "/ws/notifications/"}
+    browser = Client()
+    response = browser.post(
+        reverse("ctf:ctf_login"),
+        {"username": participant.user.username, "password": TEST_CTF_BOOTSTRAP_PASSWORD},
+    )
+    assert response.status_code == 302
+    session = browser.session
+    user = User.objects.get(pk=participant.user_id)
+    credential = session_credential(user, session)
+    assert credential.kind == "temporary" and credential.event_uuid == ctf_event_active.pk
+    scope = {"user": user, "session": session, "credential_context": credential, "path": "/ws/notifications/"}
     assert authorize_socket_resource(scope) is True
+    disconnected = []
 
-    ban_participant(participant.id, reason="synthetic")
+    async def application(scope, receive, send):
+        assert (await receive())["type"] == "websocket.connect"
+        await send({"type": "websocket.accept"})
+        disconnected.append(await receive())
 
-    assert authorize_socket_resource({**scope, "user": User.objects.get(pk=participant.user_id)}) is False
+    async def open_and_ban():
+        boundary = CredentialSessionWebSocketBoundary(application, recheck_seconds=0.02)
+        communicator = ApplicationCommunicator(boundary, scope)
+        try:
+            await communicator.send_input({"type": "websocket.connect"})
+            assert await communicator.receive_output(timeout=5) == {"type": "websocket.accept"}
+            await database_sync_to_async(ban_participant)(participant.pk, reason="synthetic")
+            assert await communicator.receive_output(timeout=5) == {
+                "type": "websocket.close",
+                "code": WebSocketCloseCode.NOT_AUTHENTICATED,
+            }
+            await communicator.wait(timeout=5)
+        finally:
+            communicator.stop()
+
+    asyncio.run(open_and_ban())
+    assert disconnected == [{"type": "websocket.disconnect", "code": WebSocketCloseCode.NOT_AUTHENTICATED}]
+    assert authorize_socket_resource(scope) is False
 
 
 @pytest.mark.django_db(transaction=True)

@@ -81,16 +81,29 @@ class TestCoOrganizerAssignment:
     def test_assignment_does_not_reveal_whether_an_email_has_an_account(
         self, ctf_event, authenticated_organizer_client, django_user_model
     ):
-        """No account and an account without the organizer role get one answer (#2617)."""
-        django_user_model.objects.create_user(username="standard@test.com", email="standard@test.com")
+        """Email selectors disclose no account; explicit UUIDs allow native human delegation (#2617)."""
+        from ctf.models import CTFEventStaff
 
-        missing = _assign(authenticated_organizer_client, ctf_event, "nobody@test.com", "moderator")
-        standard = _assign(authenticated_organizer_client, ctf_event, "standard@test.com", "moderator")
+        standard_user = django_user_model.objects.create_user(username="standard@test.com", email="standard@test.com")
+        errors = []
+        for email in ("nobody@test.com", standard_user.email):
+            response = call_json(
+                authenticated_organizer_client,
+                "post",
+                "api_event_staff",
+                kwargs={"event_id": ctf_event.pk},
+                body={"email": email, "role": "moderator"},
+            )
+            assert response.status_code == 400
+            assert email not in response.content.decode()
+            errors.append({key: value for key, value in response.json()["error"].items() if key != "request_id"})
 
-        assert missing.status_code == standard.status_code == 400
-        missing_error = {k: v for k, v in missing.json()["error"].items() if k != "request_id"}
-        standard_error = {k: v for k, v in standard.json()["error"].items() if k != "request_id"}
-        assert missing_error == standard_error
+        assert errors[0] == errors[1]
+        assert not CTFEventStaff.objects.filter(event=ctf_event).exists()
+        assigned = _assign(authenticated_organizer_client, ctf_event, standard_user.email, "moderator")
+        assert assigned.status_code == 201, assigned.content
+        assert assigned.json()["principal_uuid"] == str(standard_user.identity_principal.uuid)
+        assert assigned.json()["role"] == "moderator"
 
 
 class TestCoOrganizerCapabilities:

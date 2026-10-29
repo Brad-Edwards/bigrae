@@ -10,6 +10,7 @@ import pytest
 from tests.platform.test_gcp_job_launcher_manifests import (
     PROVISIONER_LAUNCHER_USERNAME,
     _canonical_admission_job,
+    _canonical_admission_parameters,
     _load_helm_documents,
     _policy,
     _semantic_policy_allows,
@@ -70,20 +71,19 @@ def _native_database_admission_job() -> tuple[dict[str, Any], dict[str, str]]:
             },
         }
     ]
-    parameters = {entry["name"]: entry["value"] for entry in env if "value" in entry}
-    parameters["PROVISIONER_DB_USER"] = parameters.pop("DB_USER")
-    parameters["ENGINE_TASK_IMAGE"] = pod["containers"][0]["image"]
-    parameters["ENGINE_TASK_IMAGE_PULL_POLICY"] = "Always"
+    parameters = _canonical_admission_parameters()
+    parameters.update(
+        DB_HOST="127.0.0.1", PROVISIONER_DB_USER="provisioner@synthetic-project.iam", DB_AUTH_MODE="cloud-sql-proxy"
+    )
     parameters["CLOUD_SQL_INSTANCE_CONNECTION_NAME"] = instance
     return job, parameters
 
 
-@pytest.mark.parametrize("loader", [_load_helm_documents])
-def test_native_database_admission_accepts_only_the_exact_host_selected_sidecar(loader):
-    policy = _policy(loader())
+@pytest.mark.parametrize("inline_params", [True, False])
+def test_native_database_admission_accepts_only_the_exact_host_selected_sidecar(inline_params):
     canonical, parameters = _native_database_admission_job()
-    image = parameters["ENGINE_TASK_IMAGE"]
-    assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical, image, parameter_data=parameters)
+    policy = _policy(_load_helm_documents(runtime_env=parameters, inline_params=inline_params))
+    assert _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical, parameter_data=parameters)
     for mutation in (
         lambda p: p.pop("initContainers"),
         lambda p: p["initContainers"].append(copy.deepcopy(p["initContainers"][0])),
@@ -110,8 +110,9 @@ def test_native_database_admission_accepts_only_the_exact_host_selected_sidecar(
     ):
         altered = copy.deepcopy(canonical)
         mutation(altered["spec"]["template"]["spec"])
-        assert not _semantic_policy_allows(
-            policy, PROVISIONER_LAUNCHER_USERNAME, altered, image, parameter_data=parameters
-        )
+        assert not _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, altered, parameter_data=parameters)
     disabled = {**parameters, "DB_AUTH_MODE": "password"}
-    assert not _semantic_policy_allows(policy, PROVISIONER_LAUNCHER_USERNAME, canonical, image, parameter_data=disabled)
+    disabled_policy = _policy(_load_helm_documents(runtime_env=disabled, inline_params=inline_params))
+    assert not _semantic_policy_allows(
+        disabled_policy, PROVISIONER_LAUNCHER_USERNAME, canonical, parameter_data=disabled
+    )

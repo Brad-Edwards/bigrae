@@ -162,9 +162,14 @@ profile. The admission policies pin that identity for the provisioner,
 preparation, and acquisition Jobs. The Cloud SQL proxy keeps its own 65532
 identity. The provisioner Job policy inlines the platform-runtime values as its
 parameters, because GKE 1.36 and EKS do not resolve ConfigMap parameters (#2633).
-The repository tests evaluate the admission policies with a Python
-CEL interpreter. They do not prove that a policy compiles on the Kubernetes API
-server. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
+The repository tests render deployment-owned runtime values into each supported
+policy form, then evaluate the unchanged CEL against valid and tampered Jobs.
+The expected configuration is independent of the submitted Job. The inline map
+must equal the runtime ConfigMap; the optional parameter reference must retain
+its namespace and deny-on-missing behavior. Tests cover both delivery forms,
+image-pin changes and native database sidecar restrictions. These Python CEL
+checks follow the [Kubernetes parameter and variable contracts](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/).
+They do not prove that a policy compiles on the Kubernetes API server. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
 each supported values file. A scoped waiver uses a chart template annotation
 with a matching `docs/adr/exceptions.yaml` entry (ADR-004-R11).
 
