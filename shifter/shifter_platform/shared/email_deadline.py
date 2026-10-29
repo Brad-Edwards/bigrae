@@ -15,6 +15,7 @@ import smtplib
 import socket
 import ssl
 import time
+from collections import OrderedDict
 from collections.abc import Buffer, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
@@ -200,10 +201,13 @@ def deadline_session(deadline: Deadline, session: requests.Session | None = None
     """Route every transport of ``session`` (or a new one) through the deadline adapter."""
     session = session or requests.Session()
     adapter = DeadlineAdapter(deadline)
-    # Replace every transport the session already routes to, whatever scheme the
-    # configured backend uses, so no request leaves outside the deadline.
-    for prefix in list(session.adapters):
-        session.mount(prefix, adapter)
+    # Route every prefix the session already serves, whatever scheme the
+    # configured backend uses, so no request leaves outside the deadline. The
+    # mapping keeps its prefix order; the replaced adapters are closed.
+    replaced = session.adapters
+    session.adapters = OrderedDict((prefix, adapter) for prefix in replaced)
+    for old in replaced.values():
+        old.close()
     return session
 
 
