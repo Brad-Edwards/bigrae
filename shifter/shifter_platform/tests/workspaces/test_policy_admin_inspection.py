@@ -20,6 +20,7 @@ def _request():
     actor = _actor(actions=frozenset({"workspace.manage_quota"}))
     request = RequestFactory().get("/admin/")
     request.user = get_user_model().objects.get(identity_principal__uuid=actor.principal.uuid)
+    request.credential_context = actor
     return request
 
 

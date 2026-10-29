@@ -108,7 +108,7 @@ def _event_projection_context(
         return context
     try:
         decisions = configured_authorization_provider().batch_check(tuple(checks))
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail closed when capability projection is unavailable
         decisions = ()
     if len(decisions) != len(indexed) or any(decision.kind == "evaluator_error" for decision in decisions):
         return context

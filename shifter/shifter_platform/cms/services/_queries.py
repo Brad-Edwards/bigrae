@@ -146,7 +146,7 @@ def get_principal_range_target_instances(credential: CredentialContext, range_in
             if bound.pk != cms_range.pk or parent.type != "event":
                 raise ValueError("Range unavailable")
             require_range_vpn_participation(current, cms_range.request.request_id, parent.uuid)
-        except Exception:
+        except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
             raise CMSError("Range unavailable") from None
     else:
         require_range_action(current, cms_range.uuid, "range.access")

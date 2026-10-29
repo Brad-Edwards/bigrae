@@ -496,16 +496,23 @@ class TestProvisionEventRangesThrottled:
         assert result["total"] == 3
 
     @pytest.mark.django_db
-    def test_participant_notice_failure_does_not_fail_the_spin_up(self, ctf_event, caplog):
+    def test_participant_notice_failure_does_not_fail_the_spin_up(self, ctf_event, organizer_credential, caplog):
         """A failed participant notice is logged; the settled spin-up result is still returned."""
-        from workspaces.models import Workspace
+        from django.db import OperationalError, connection
 
         _make_unregistered_participant(ctf_event, 0)
-        # An archived workspace makes the communication ledger refuse the participant notice.
-        Workspace.objects.filter(pk=ctf_event.workspace_id).update(archived_at=timezone.now())
+
+        def unavailable_notice_ledger(execute, sql, params, many, context):
+            if "ctf_communication_campaign" in sql:
+                raise OperationalError("Synthetic notice ledger outage")
+            return execute(sql, params, many, context)
+
         batch_logger = logging.getLogger("ctf.services.range.batch")
-        with caplog.at_level(logging.ERROR, logger=batch_logger.name):
-            result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300)
+        with (
+            connection.execute_wrapper(unavailable_notice_ledger),
+            caplog.at_level(logging.ERROR, logger=batch_logger.name),
+        ):
+            result = range_service.provision_event_ranges_throttled(ctf_event.pk, 300, actor=organizer_credential)
 
         assert result["failed"] == 1
         assert len(result["errors"]) == 1

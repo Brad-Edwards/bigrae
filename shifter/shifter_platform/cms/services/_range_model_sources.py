@@ -172,7 +172,7 @@ def revoke_range_model_sources(actor: CredentialContext, *, request_id: UUID) ->
     try:
         native = project_range_authority(request_id)
         operation_id = operation_id_for_request(request_id)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise WorkspaceAuthorizationError(_RANGE_ACCESS_DENIED) from None
     snapshot = _authorized_instance(actor, request_id, _MANAGE_RANGE)
     with transaction.atomic():

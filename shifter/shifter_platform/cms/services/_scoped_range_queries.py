@@ -132,7 +132,7 @@ def _active_owned_range(credential: CredentialContext, range_source: str) -> Ran
 
     try:
         current = resolve_current_credential(credential)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise CMSError(_RANGE_UNAVAILABLE) from None
     candidate = (
         RangeInstance.objects.defer(*PRIVATE_RANGE_FIELDS)

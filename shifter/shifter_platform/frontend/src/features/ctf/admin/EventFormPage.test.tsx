@@ -58,7 +58,7 @@ beforeEach(() => {
 describe("EventFormPage (create)", () => {
   it("loads scenarios from the selected explicit catalog", async () => {
     routeApi((path) => path === "/ctf/scenario-options/" ? { scenarios: [] } : {});
-    const user = userEvent.setup();
+    const user = setupUser();
     renderRoute(<EventFormPage mode="create" />, { path: "/*", initialEntries: ["/ctf/admin/events/create"] });
     const catalog = await screen.findByRole("combobox", { name: "Scenario catalog" });
     await waitFor(() => expect(mockApi).toHaveBeenCalledWith("/ctf/scenario-options/", expect.objectContaining({

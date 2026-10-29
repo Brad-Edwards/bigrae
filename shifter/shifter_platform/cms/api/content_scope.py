@@ -24,7 +24,7 @@ class ContentScopeSerializer(ClosedSerializer):
                 attrs["scope_kind"], attrs.get("account"), attrs.get("organization"), attrs.get("workspace")
             )
             resolve_resource_scope(scope)
-        except Exception:
+        except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
             raise serializers.ValidationError("Content scope unavailable") from None
         return attrs
 

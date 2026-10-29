@@ -254,7 +254,7 @@ def test_transient_backpressure_reschedules_and_keeps_the_occurrence(organizer_u
 
 def test_admission_outage_at_due_time_reschedules_and_keeps_the_occurrence(organizer_user, ctf_event, caplog):
     due = timezone.now() - timezone.timedelta(minutes=1)  # due, within grace
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, _credential_context = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
     # The shared admission rate counter lives in the default cache; make it unreachable.
     unreachable_caches = {**settings.CACHES, "default": {"BACKEND": f"{__name__}._UnreachableCache"}}

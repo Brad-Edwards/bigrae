@@ -438,7 +438,7 @@ def _consume_admitted_url(request_id: UUID, admitted: _DeliveryAdmission) -> str
         fields = dict(admitted.binding)
         try:
             assert_remote_authority_binding(fields, str(fields["protocol"]), str(fields["target_id"]))
-        except Exception:
+        except Exception:  # noqa: BLE001  # deny handoff when the retained binding is uncertain
             return None
         row = GuacamoleBootstrapRequest.objects.select_for_update().filter(pk=request_id).first()
         if (

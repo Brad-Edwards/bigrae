@@ -46,7 +46,7 @@ def principal_range_owner_reassignment_available(range_obj: Range) -> bool:
             parsed.owner_principal_uuid == range_obj.owner_principal_uuid
             and not VpnAccessProfile.objects.filter(range=range_obj, revoked_at__isnull=True).exists()
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # uncertain cleanup evidence must never release custody
         return False
 
 

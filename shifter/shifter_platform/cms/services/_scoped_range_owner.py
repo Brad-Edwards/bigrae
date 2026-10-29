@@ -56,7 +56,7 @@ def reassign_event_range_owner(
                 ),
                 strict=True,
             )
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise CMSError("Range ownership unavailable") from None
 
 
