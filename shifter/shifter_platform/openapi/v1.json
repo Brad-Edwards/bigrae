@@ -21304,8 +21304,8 @@
           },
           "action_required": {
             "type": "boolean",
-            "readOnly": true,
-            "description": "True while the pinned policy still needs a read or an explicit acknowledgement"
+            "description": "True while the pinned policy still needs a read or an explicit acknowledgement",
+            "readOnly": true
           },
           "created_at": {
             "type": "string",
