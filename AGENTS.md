@@ -97,34 +97,31 @@ Changes to these files are architecture work and must stay documented:
 
 ## Ground Control
 
-All requirements management uses the Ground Control MCP server against the `shifter` project (id `df4e718f-1f67-46f8-a375-3ba53fabc9c4`).
+Requirements for the Ground Control `shifter` project (id
+`df4e718f-1f67-46f8-a375-3ba53fabc9c4`) are repository files at
+`docs/requirements/<UID>/requirement.md`. The frontmatter `status` and the
+`## Traceability` section are the record. Change them in a reviewed pull
+request; there is no requirement database or link API.
 
 - **Requirement UIDs** use subsystem prefixes:
   - `CTF-*`: capture-the-flag platform requirements
   - `PLAT-*`: platform / cloud / portal infrastructure requirements
   - `GEN-*`: general / cross-cutting requirements
 - **Traceability link types**: `IMPLEMENTS` (requirement → code; only valid on `ACTIVE` requirements), `TESTS` (requirement → test), `DOCUMENTS` (requirement → tracking GH issue; works on `DRAFT`), `GITHUB_ISSUE` (alternative for issue references).
-- **Requirement statuses**: `DRAFT` → `ACTIVE` → `ARCHIVED` / `DEPRECATED`. Transition to `ACTIVE` once implementation starts; only `ACTIVE` requirements accept `IMPLEMENTS` links.
+- **Requirement statuses**: `DRAFT` → `ACTIVE` → `ARCHIVED` / `DEPRECATED`. Transition to `ACTIVE` once implementation starts; only `ACTIVE` requirements accept `IMPLEMENTS` links. `ACTIVE` does not mean delivered.
+- **Link targets** are repository paths that exist on the target branch. When a
+  file moves, update the link in the same change.
+- **Gap records**: a link that states missing behavior uses `DOCUMENTS`. Only
+  code that implements part of the requirement uses `IMPLEMENTS`. Check the
+  current code before you record or keep a gap.
 - **Repo context**: `gc_get_repo_ground_control_context` reads
   `.ground-control.yaml` and inlines `.gc/plan-rules.md`; start there
   before issue workflows.
-- **Requirement tools**: `gc_requirement` handles
-  list/create/update/delete/archive/clone; `gc_transition_status` and
-  `gc_bulk_transition_status` handle status transitions.
-- **Traceability tools**: `gc_get_traceability`,
-  `gc_get_traceability_by_artifact`, `gc_assert_traceability_reconciled`,
-  and the current `link_create`/`link_delete` surfaces exposed by the
-  relevant Ground Control entity tools.
+- **Issue requirement scope**: `gc_update_issue_requirements` is the only
+  writer for an issue's `Requirements` section.
 - **Issue/PR workflow tools**: `gc_create_github_issue`,
   `gc_render_pr_body`, `gc_post_final_report`,
   `gc_close_issue_after_merge`, and `gc_integration_manager`.
-
-**Caveat:** `gc_create_github_issue`'s auto-link uses `IMPLEMENTS`,
-which the API rejects on `DRAFT` requirements. If you're filing a
-tracking issue against a `DRAFT` requirement, transition it to `ACTIVE`
-when implementation starts or create a `DOCUMENTS`/`GITHUB_ISSUE` link
-with the currently available traceability link tool before final
-reconciliation.
 
 ## Architectural Defaults
 

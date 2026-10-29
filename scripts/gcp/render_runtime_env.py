@@ -463,6 +463,9 @@ def render_env(outputs: dict[str, object], *, engine_image: str) -> str:
         # renderer-owned rather than a static overlay literal or branch-name inference
         # (PLAT-2005, docs/architecture/root-configured-backend-bundles.md).
         "CLOUD_PROVIDER": "gcp",
+        # Platform pods have no public egress; CTF image copies and webhooks reach
+        # organizer-chosen hosts through the content-egress proxy (#2090, ADR-006-R3).
+        "CTF_EGRESS_PROXY": "content-egress:3128",
         "STORAGE_BUCKET_NAME": assets_bucket,
         "AGENT_STORAGE_BUCKET": assets_bucket,
         "TF_STATE_BUCKET": terraform_state_bucket,

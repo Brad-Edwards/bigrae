@@ -89,6 +89,7 @@ class OrganizerChallengeDetailSerializer(serializers.Serializer):
     """Full organizer-facing challenge detail projection."""
 
     id = serializers.CharField(read_only=True)
+    event_id = serializers.CharField(read_only=True)
     name = serializers.CharField(read_only=True)
     description = serializers.CharField(read_only=True, allow_blank=True)
     category = serializers.CharField(read_only=True, allow_blank=True)

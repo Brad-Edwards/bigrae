@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:23.118958Z
-updated_at: 2026-04-05T22:43:58.795633Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-702: Event Timing
@@ -22,9 +22,6 @@ Precise timing is fundamental to competitive fairness, all participants must hav
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (Flag submission service, time-boundary enforcement)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/event.html` (Participant event template, countdown timer and local timezone display)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/static/js/ctf-event-timing.js` (Event timing JS, local timezone conversion and countdown timer)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models.py` (CTFEvent model, event_start, event_end, event_timezone fields)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFEvent model, event_start, event_end, event_timezone fields)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_submission.py` (Submission tests, time-boundary enforcement (TestTimeBoundaryEnforcement))
-- TESTS → TEST `shifter/shifter_platform/static/js/ctf-event-timing.test.js` (Event timing JS tests, formatDuration, formatLocalTime)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#583` (CTF-702: Event Timing)

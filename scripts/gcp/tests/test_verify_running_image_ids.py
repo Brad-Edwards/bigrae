@@ -92,8 +92,11 @@ def test_every_closed_component_has_one_rollout_controller() -> None:
 
     deployments = module.release_deployments()
 
-    assert len(deployments) == len(module._RELEASE_CONTAINERS) == 16
+    assert len(deployments) == len(module._RELEASE_CONTAINERS) == 17
     assert "portal-web" in deployments
+    # The CTF content egress proxy runs the portal image on both deploy paths (#2090).
+    assert "content-egress" in deployments
+    assert module._RELEASE_CONTAINERS["content-egress"] == {"content-egress": "portal"}
     assert "worker-warm-pool-reconciler" in deployments
 
 
@@ -351,7 +354,7 @@ def test_optional_broker_requires_explicit_release_enablement_and_both_component
         module.build_evidence(pods, _EXPECTED, source_sha=_SHA)
     assert (
         len(module.build_evidence(pods, _EXPECTED, source_sha=_SHA, model_broker_enabled=True)["running_containers"])
-        == 19
+        == len(module._RELEASE_CONTAINERS) + 3
     )
     pods["items"].pop()
     with pytest.raises(ValueError, match="missing release components"):

@@ -69,8 +69,8 @@ Kustomize, and it built images on the operator workstation.
 
 ### Release
 
-The release workflow runs only from protected `refs/heads/main` through
-`workflow_dispatch`. Its `gcp-release` Environment holds the release publisher
+The release workflow runs only from protected `refs/heads/main`,
+`refs/heads/dev`, or `refs/heads/deploy-test` through `workflow_dispatch`. Its `gcp-release` Environment holds the release publisher
 identity. The first step of the job rejects every other ref before checkout
 and cloud authentication. The WIF provider admits only the exact repository
 IDs, Environment, ref, and workflow (ADR-004-R23).
@@ -109,7 +109,7 @@ GitHub API.
 ### Deployer image
 
 The deployer image is the GitHub-less execution unit. It holds the repository
-subset that the commands read and pinned tools: Terraform 1.16.7, Helm
+subset that the commands read and pinned tools: Terraform 1.17.1, Helm
 v3.22.1, kubectl v1.34.13, Trivy 0.76.1, ORAS 1.3.6, the Google Cloud CLI
 591.0.0, and `gke-gcloud-auth-plugin`. A provider mirror holds the Terraform
 providers of each root. Docker `FROM` stages are digest-pinned. Each
@@ -315,7 +315,7 @@ variables with the CI adapter. Each job calls the commands:
 `gcp-dev-destroy.yml` renders the bundle with `--purpose destroy` and calls
 `gcp-destroy`. CI builds push their attestations to the registry, so the
 rollout verifies CI-built and release images the same way. The CI jobs pin
-Terraform 1.16.7, Helm v3.22.1, and Trivy 0.76.1, the same versions as the
+Terraform 1.17.1, Helm v3.22.1, and Trivy 0.76.1, the same versions as the
 deployer image. The `gcp-deployer-image` job of `_quality.yml` builds the
 deployer image, starts it, and runs the same blocking scan as the release
 workflow.

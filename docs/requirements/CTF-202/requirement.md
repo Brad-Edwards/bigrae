@@ -1,12 +1,12 @@
 ---
 id: CTF-202
 title: "Dynamic/Decay Scoring"
-status: DRAFT
+status: ACTIVE
 type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:21.925502Z
-updated_at: 2026-03-26T06:37:04.445127Z
+updated_at: 2026-10-28T00:00:00Z
 ---
 
 # CTF-202: Dynamic/Decay Scoring
@@ -21,5 +21,5 @@ Dynamic scoring automatically balances challenge values based on difficulty, eas
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring.py` (Scoring service - static scoring only, no decay functions)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (dynamic_challenge_value and apply_dynamic_decay decay scoring)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#641` (CTF-202: Dynamic/Decay Scoring)

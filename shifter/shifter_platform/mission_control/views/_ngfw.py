@@ -2,31 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, cast
+from typing import Any
 
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import redirect, render
-from django.views.decorators.http import require_GET, require_POST
+from django.http import Http404, JsonResponse
 
-from cms.services import (
-    create_ngfw as cms_create_ngfw,
-)
 from cms.services import (
     destroy_ngfw as cms_destroy_ngfw,
-)
-from cms.services import (
-    get_ngfw as cms_get_ngfw,
-)
-from cms.services import (
-    list_credentials as cms_list_credentials,
-)
-from cms.services import (
-    list_ngfws as cms_list_ngfws,
 )
 from shared.errors import classify_user_message
 from shared.exceptions import CMSError
@@ -35,7 +18,6 @@ from shared.schemas.app import NGFWOneTimeRegistration
 
 from ._common import (
     NGFW_NOT_FOUND,
-    _get_user,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,90 +29,6 @@ class _NgfwError(Exception):
     def __init__(self, response: JsonResponse) -> None:
         super().__init__()
         self.response = response
-
-
-@login_required
-@require_GET
-def ngfw_list(request: HttpRequest) -> HttpResponse:
-    """List user's NGFWs."""
-    ngfws = cms_list_ngfws(_get_user(request))
-    context = {
-        "page_title": "NGFWs",
-        "active_nav": "ngfw",
-        "ngfws": ngfws,
-    }
-    return render(request, "mission_control/ngfw/list.html", context)
-
-
-@login_required
-@require_GET
-def ngfw_detail(request: HttpRequest, app_id: str) -> HttpResponse:
-    """View NGFW details."""
-    from engine.services import get_ranges_for_ngfw
-
-    user = _get_user(request)
-    try:
-        ngfw = cms_get_ngfw(user, app_id)
-    except CMSError:
-        # NGFW not found (may have failed and been cleaned up)
-        # Redirect to list page instead of showing 404
-        messages.warning(request, "NGFW not found. It may have failed during provisioning.")
-        return redirect("mission_control:ngfw_list")
-
-    # Get ranges linked to this NGFW. The NGFW is correlated to its Engine
-    # instance by the shared provisioning request_id (the CMS Instance UUID is a
-    # different id space from the Engine Range.ngfw_instance FK).
-    linked_ranges = get_ranges_for_ngfw(
-        user_id=cast(int, user.pk),
-        ngfw_request_id=ngfw.request_id,
-    )
-
-    context = {
-        "page_title": ngfw.name,
-        "active_nav": "ngfw",
-        "ngfw": ngfw,
-        "linked_ranges": linked_ranges,
-    }
-    return render(request, "mission_control/ngfw/detail.html", context)
-
-
-@login_required
-@require_GET
-def ngfw_wizard(request: HttpRequest) -> HttpResponse:
-    """NGFW setup wizard."""
-    credentials = cms_list_credentials(_get_user(request))
-
-    # Filter by type and exclude expired (is_expired computed field)
-    scm_credentials = [c for c in credentials if c.credential_type == "scm" and not c.is_expired]
-    deployment_profiles = [c for c in credentials if c.credential_type == "deployment_profile" and not c.is_expired]
-
-    context = {
-        "page_title": "Setup NGFW",
-        "active_nav": "ngfw",
-        "scm_credentials": scm_credentials,
-        "deployment_profiles": deployment_profiles,
-    }
-    return render(request, "mission_control/ngfw/wizard.html", context)
-
-
-@login_required
-@require_GET
-def ngfw_deprovision(request: HttpRequest, app_id: str) -> HttpResponse:
-    """NGFW deprovision confirmation page."""
-    user = _get_user(request)
-    try:
-        ngfw = cms_get_ngfw(user, app_id)
-    except CMSError:
-        # NGFW not found - redirect to list page
-        messages.warning(request, "NGFW not found.")
-        return redirect("mission_control:ngfw_list")
-
-    context = {
-        "page_title": f"Deprovision {ngfw.name}",
-        "active_nav": "ngfw",
-        "ngfw": ngfw,
-    }
-    return render(request, "mission_control/ngfw/deprovision.html", context)
 
 
 def _extract_ngfw_create_payload(data: dict[str, Any]) -> dict[str, Any]:
@@ -153,66 +51,6 @@ def _extract_ngfw_create_payload(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@login_required
-@require_POST
-def api_ngfw_create(request: HttpRequest) -> JsonResponse:
-    """Create a new NGFW."""
-    user = _get_user(request)
-    try:
-        try:
-            data = json.loads(request.body)
-        except json.JSONDecodeError as e:
-            raise _NgfwError(JsonResponse({"error": "Invalid JSON"}, status=400)) from e
-
-        payload = _extract_ngfw_create_payload(data)
-        try:
-            ngfw_ref = cms_create_ngfw(user=user, **payload)
-        except (TypeError, ValueError, CMSError) as e:
-            # Type only: hydration errors can carry NGFW registration secrets.
-            logger.warning(
-                "NGFW creation failed: user_id=%s name=%s exc_type=%s",
-                user.pk,
-                safe_log_value(payload.get("name", "")),
-                type(e).__name__,
-            )
-            raise _NgfwError(
-                JsonResponse({"error": classify_user_message(str(e), default="NGFW could not be created")}, status=400)
-            ) from e
-    except _NgfwError as err:
-        return err.response
-
-    logger.info(
-        "NGFW provisioning started: user_id=%s app_id=%s",
-        user.pk,
-        ngfw_ref.app_id,
-    )
-    return JsonResponse(
-        {"id": str(ngfw_ref.app_id), "name": payload["name"], "status": "provisioning"},
-        status=201,
-    )
-
-
-@login_required
-@require_GET
-def api_ngfw_list(request: HttpRequest) -> JsonResponse:
-    """List user's NGFWs."""
-    ngfws = cms_list_ngfws(_get_user(request))
-    return JsonResponse(
-        {
-            "ngfws": [
-                {
-                    "id": str(n.app_id),
-                    "name": n.name,
-                    "status": n.status,
-                    "created_at": n.created_at.isoformat(),
-                    "serial_number": n.serial_number,
-                }
-                for n in ngfws
-            ]
-        }
-    )
-
-
 def _run_ngfw_destroy(user: User, app_id: str, confirm_name: str) -> None:
     """Invoke ``cms_destroy_ngfw`` and translate errors to ``_NgfwError`` or Http404."""
     try:
@@ -229,26 +67,3 @@ def _run_ngfw_destroy(user: User, app_id: str, confirm_name: str) -> None:
         raise _NgfwError(
             JsonResponse({"error": classify_user_message(str(e), default="Invalid destroy request")}, status=400)
         ) from e
-
-
-@login_required
-@require_POST
-def api_ngfw_destroy(request: HttpRequest, app_id: str) -> JsonResponse:
-    """Destroy an NGFW."""
-    user = _get_user(request)
-    try:
-        try:
-            data = json.loads(request.body)
-        except json.JSONDecodeError as e:
-            raise _NgfwError(JsonResponse({"error": "Invalid JSON"}, status=400)) from e
-        confirm_name = data.get("confirm_name", "").strip()
-        _run_ngfw_destroy(user, app_id, confirm_name)
-    except _NgfwError as err:
-        return err.response
-
-    logger.info(
-        "NGFW deprovisioning started: user_id=%s app_id=%s",
-        user.pk,
-        safe_log_value(app_id),
-    )
-    return JsonResponse({"status": "deprovisioning"})

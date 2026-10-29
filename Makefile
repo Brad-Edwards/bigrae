@@ -44,7 +44,8 @@ DEVMAIN_BODY := Promotes dev to main. Merge this PR with a merge commit. Do not 
 .DEFAULT_GOAL := help
 .PHONY: help test test-platform test-platform-postgres test-platform-redis \
         test-provisioner test-packer test-installation test-bootstrap \
-        test-check-layer-imports test-js test-platform-e2e test-platform-a11y test-adr-guard policy devmain
+        test-check-layer-imports test-js test-spa test-mcp test-platform-e2e test-platform-a11y \
+        test-adr-guard policy devmain
 
 help: ## Show this help
 	@echo "Shifter developer entrypoint. Test targets reproduce CI from a clean"
@@ -52,22 +53,25 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2}'
 
-test: test-platform test-adapter-sdk test-provisioner test-packer test-installation test-bootstrap test-check-layer-imports test-charts test-js test-adr-guard ## Run every no-service (SQLite/pure-Python/JS) lane
+test: test-platform test-adapter-sdk test-provisioner test-packer test-installation test-bootstrap test-check-layer-imports test-charts test-js test-spa test-mcp test-adr-guard ## Run the no-service lanes marked in docs/dev/testing.md
 
 .PHONY: test-adapter-sdk
 test-adapter-sdk: ## Independent adapter contract and packaging checks
 	cd shifter/shifter_adapter_sdk && uv sync --frozen --all-extras && uv run --all-extras pytest tests/ && uv build
 
-test-platform: ## Platform fast lane (SQLite; sole coverage publisher)
+test-platform: ## Platform fast local lane (SQLite; CI runs the PostgreSQL lane)
 	cd shifter/shifter_platform && uv sync --group dev && \
 	  $(PLATFORM_ENV) uv run python manage.py collectstatic --noinput && \
 	  $(PLATFORM_ENV) uv run pytest tests/ -m "not redis and not postgres" --cov
 
-test-platform-postgres: ## Platform PostgreSQL semantics lane (needs a Postgres service on :5432)
+# Mirrors the sharded `shifter-platform-tests` CI job, including collectstatic.
+POSTGRES_ENV := TESTING=1 DJANGO_DEBUG=true TEST_DB_BACKEND=postgres DJANGO_SECRET_KEY=$(TEST_DJANGO_SECRET_KEY) \
+  DB_HOST=localhost DB_PORT=5432 DB_NAME=shifter DB_USER=test DB_PASSWORD=test
+
+test-platform-postgres: ## Platform CI lane: PostgreSQL suite and coverage floor (needs Postgres on :5432)
 	cd shifter/shifter_platform && uv sync --group dev && \
-	  TESTING=1 DJANGO_DEBUG=true TEST_DB_BACKEND=postgres DJANGO_SECRET_KEY=$(TEST_DJANGO_SECRET_KEY) \
-	  DB_HOST=localhost DB_PORT=5432 DB_NAME=shifter DB_USER=test DB_PASSWORD=test \
-	  uv run pytest tests/ -m "not redis and not openfga"
+	  $(POSTGRES_ENV) uv run python manage.py collectstatic --noinput && \
+	  $(POSTGRES_ENV) uv run pytest tests/ -m "not redis and not openfga" --cov
 
 test-platform-redis: ## Platform Redis channel-layer integration lane (needs a Redis service on :6379)
 	cd shifter/shifter_platform && uv sync --group dev && \
@@ -78,8 +82,9 @@ test-platform-redis: ## Platform Redis channel-layer integration lane (needs a R
 test-provisioner: ## Engine provisioner suite
 	cd shifter/engine/provisioner && uv sync --group dev && TESTING=1 uv run pytest tests/ --cov
 
-test-packer: ## Packer helper suite (no coverage: Packer HCL, not owned production Python)
-	cd shifter/packer && uv sync --group dev && uv run pytest tests/
+# Mirrors the `packer-tests` CI job. The package configures its coverage floor.
+test-packer: ## Packer helper suite with coverage
+	cd shifter/packer && uv sync --group dev && uv run --with pytest-cov pytest tests/ --cov
 
 test-installation: ## Installation CLI suite
 	cd shifter/installation && uv sync --group dev && uv run pytest tests/ --cov
@@ -92,13 +97,28 @@ test-check-layer-imports: ## Layer-import checker suite
 
 # Mirrors the `chart-tests` CI job. No --cov: the suite validates rendered Helm
 # YAML (schema, ALB edge, GCP byte contract), not owned production Python, so a
-# coverage number would only measure the tests covering themselves (cf. the
-# packer lane). Requires helm on PATH (as the helm-lint pre-commit hook does).
+# coverage number would only measure the tests covering themselves. Requires
+# helm on PATH (as the helm-lint pre-commit hook does).
 test-charts: ## Helm chart contract suite (renders every backend profile)
 	uv run --python 3.12 --with pyyaml --with pytest python -m pytest platform/charts/shifter/tests/ -q
 
 test-js: ## Platform JavaScript (Jest) suite with coverage
 	cd shifter/shifter_platform && npm ci && npm run test:coverage
+
+# Mirrors the `shifter-platform-spa` CI job. The SPA package owns its lint rules,
+# Vitest coverage floors, and build; this target only runs them.
+test-spa: ## React SPA lint, typecheck, Vitest coverage, and production build
+	cd shifter/shifter_platform/frontend && npm ci && npm run lint && npm run typecheck && \
+	  npm run test:coverage && npm run build
+
+# Mirrors the `mcp-lint` and `mcp-tests` CI jobs for every MCP package. Each
+# package owns its lint and test scripts.
+MCP_PACKAGES := $(patsubst mcp/%/package.json,%,$(wildcard mcp/*/package.json))
+
+test-mcp: ## MCP server packages: zero-warning lint and node:test suites
+	set -e; for pkg in $(MCP_PACKAGES); do \
+	  (cd "mcp/$$pkg" && npm ci && npm run lint && npm test); \
+	done
 
 # Authenticated SPA E2E (#1526). Builds the real Django-hosted SPA, migrates and
 # seeds a hermetic SQLite stack, and drives Playwright journeys through normal

@@ -10,14 +10,17 @@ persistence and new provisioning use RAES. The platform currently pins
 `raes==3.5.0` and `raes-env-packs==5.2.0` in its
 [package manifest](https://github.com/Brad-Edwards/bigrae/blob/dev/shifter/shifter_platform/pyproject.toml)
 and lockfile. Check those files when upgrading; a historical page is not a
-second pin registry.
+second pin registry. Other dependencies in that manifest, such as the Markdown
+parser added for #2090, do not change these pins.
 
 Repository-wide maintenance can change this manifest without a change to the
 scenario contract. The 2026-10-25 dependency security refresh changed only
 supporting framework and tool dependencies. The 2026-10-28 logging and
-exception-handling cleanup (#2569) changed only the Ruff lint rules. These
-changes did not alter the RAES package pins, the serialized plan versions, the
-ownership boundary, or the migration contract on this page.
+exception-handling cleanup (#2569) changed only the Ruff lint rules. The
+2026-10-28 CI change (#2582) added the `pytest-split` test dependency and raised
+the `autobahn` floor for CVE-2026-116579. These changes did not alter the RAES
+package pins, the serialized plan versions, the ownership boundary, or the
+migration contract on this page.
 
 Only `shared.raes` imports the released RAES module family. It validates and
 compiles authored intent into the RAES ProvisioningPlan. The independent

@@ -21,8 +21,6 @@ The purchase confirmation step prevents accidental hint consumption, which is ir
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/participant/challenge_detail.html` (Challenge detail template - has confirm() dialog for hint reveal with cost display)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/submission.py` (Submission service - hint_used tracking but no negative-score warning)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_hint.py` (TestHintPurchaseContext - view-level tests for hint cost/purchase context variables)
 - IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#567` (CTF-304: Hint Cost/Purchase)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/participant_challenges.py` (Challenge detail view - computes hint cost context variables for purchase confirmation)

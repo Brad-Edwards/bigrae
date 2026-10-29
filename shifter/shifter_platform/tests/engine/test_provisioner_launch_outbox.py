@@ -50,6 +50,7 @@ def _make_fake_k8s_client() -> SimpleNamespace:
         V1OwnerReference=lambda **kwargs: SimpleNamespace(**kwargs),
         V1Container=lambda **kwargs: SimpleNamespace(**kwargs),
         V1PodSpec=lambda **kwargs: SimpleNamespace(**kwargs),
+        V1ResourceRequirements=lambda **kwargs: SimpleNamespace(**kwargs),
         V1ObjectMeta=lambda **kwargs: SimpleNamespace(**kwargs),
         V1PodTemplateSpec=lambda **kwargs: SimpleNamespace(**kwargs),
         V1JobSpec=lambda **kwargs: SimpleNamespace(**kwargs),

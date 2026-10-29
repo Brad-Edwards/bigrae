@@ -1,0 +1,110 @@
+{{- /*
+CTF content egress (#2090). The platform namespace denies public egress. This
+credential-less CONNECT proxy is the only platform pod that reaches public HTTPS
+hosts; the CTF scheduler (organizer image copies) and the portal (CTF webhooks)
+reach organizer-chosen hosts only through it. The process admits DNS names on
+443, requires global DNS answers and dials the pinned address; TLS terminates at
+the destination. Same shape as model-provider-egress.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: content-egress
+  namespace: {{ .Values.namespaces.platform }}
+  labels:
+    {{- include "shifter.partOfLabels" . | nindent 4 }}
+    app.kubernetes.io/component: content-egress
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/component: content-egress}
+  template:
+    metadata:
+      labels:
+        {{- include "shifter.partOfLabels" . | nindent 8 }}
+        app.kubernetes.io/component: content-egress
+    spec:
+      {{- include "shifter.podSecurityContext" . | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: content-egress
+          image: {{ .Values.images.platform | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [python, -m, ctf.egress_proxy]
+          {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
+          env:
+            - name: CTF_EGRESS_BIND_ADDRESS
+              valueFrom:
+                fieldRef: {fieldPath: status.podIP}
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          ports: [{name: connect, containerPort: 3128}]
+          readinessProbe:
+            tcpSocket: {port: connect}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: connect}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: content-egress
+  namespace: {{ .Values.namespaces.platform }}
+spec:
+  selector: {app.kubernetes.io/component: content-egress}
+  ports: [{name: connect, port: 3128, targetPort: connect, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: content-egress-boundary
+  namespace: {{ .Values.namespaces.platform }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/component: content-egress}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: [portal, ctf-scheduler]
+      ports: [{protocol: TCP, port: 3128}]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports: [{protocol: TCP, port: 53}, {protocol: UDP, port: 53}]
+    - to:
+        # Public HTTPS only. The CONNECT process independently refuses IP
+        # literals, rejects nonglobal DNS answers and pins the admitted address.
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4]
+      ports: [{protocol: TCP, port: 443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ctf-content-egress-clients
+  namespace: {{ .Values.namespaces.platform }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [portal, ctf-scheduler]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/component: content-egress}
+      ports: [{protocol: TCP, port: 3128}]

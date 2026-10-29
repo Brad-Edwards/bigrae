@@ -154,30 +154,10 @@ def _noop_atomic():
 
 @pytest.fixture
 def _mock_auth_organizer(mock_user):
-    """Patch Django auth to authenticate mock_user as organizer.
-
-    Also patches context processors that would otherwise hit the DB.
-    """
-    ctx_proc_defaults = {
-        "is_ctf_user": True,
-        "is_ctf_organizer": True,
-        "is_ctf_participant": False,
-        "is_ctf_participant_only": False,
-        "active_ctf_event": None,
-    }
-    range_ctx_defaults = {
-        "has_active_range": False,
-        "active_range": None,
-        "connection_urls": [],
-        "scenario_name": None,
-    }
-
+    """Patch Django auth to authenticate mock_user as organizer."""
     with (
         patch("django.contrib.auth.get_user", return_value=mock_user),
         patch("django.contrib.auth.middleware.get_user", return_value=mock_user),
-        patch("ctf.context_processors.ctf_navigation", return_value=ctx_proc_defaults),
-        patch("mission_control.context_processors.active_range", return_value=range_ctx_defaults),
-        patch("config.context_processors.user_permissions", return_value={"can_access_threat_research": False}),
     ):
         yield
 

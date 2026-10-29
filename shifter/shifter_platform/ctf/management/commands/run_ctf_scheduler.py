@@ -120,13 +120,7 @@ class Command(BaseCommand):
         )
 
         while not self.shutdown:
-            try:
-                self._recover_stale_tasks()
-                _run_retention_maintenance()
-                self._process_due_tasks(batch_size)
-            except Exception:
-                logger.exception("Error in CTF scheduler poll cycle")
-
+            self._run_cycle(batch_size)
             self._touch_heartbeat()
 
             # Sleep in short increments so we respond to signals quickly
@@ -137,6 +131,27 @@ class Command(BaseCommand):
 
         self._cleanup_heartbeat()
         logger.info("CTF scheduler shutdown complete")
+
+    def _run_cycle(self, batch_size: int) -> None:
+        """Run one poll cycle: recovery, retention, due tasks, then image copies.
+
+        Organizer image copies (#2090) run last with their own bounded batch and
+        time budget, so a slow image host never delays a due event task.
+        """
+        try:
+            self._recover_stale_tasks()
+            _run_retention_maintenance()
+            self._process_due_tasks(batch_size)
+        except Exception:
+            logger.exception("Error in CTF scheduler poll cycle")
+        if self.shutdown:
+            return
+        from ctf.services.content_images import ingest_pending_content_images
+
+        try:
+            ingest_pending_content_images(heartbeat=self._touch_heartbeat)
+        except Exception:
+            logger.exception("CTF content image copy sweep failed")
 
     def _signal_handler(self, signum: int, frame: FrameType | None) -> None:
         sig_name = signal.Signals(signum).name
