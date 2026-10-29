@@ -1,17 +1,19 @@
 ---
 id: PLAT-221
 title: "Scenario-Level Egress Allowlist Overrides"
-status: DRAFT
+status: DEPRECATED
 type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-05-13T16:32:04.586352Z
-updated_at: 2026-05-13T16:32:04.586352Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # PLAT-221: Scenario-Level Egress Allowlist Overrides
 
 ## Statement
+
+Historical requirement, retired on 2026-10-29. It conflicts with ADR-017: range egress CIDRs are deployment-global operator configuration in `settings.range_egress`, and a workspace can select only the compatibility posture or `none`. A change needs a new ADR first. The historical statement below does not describe current behavior.
 
 Scenario definitions shall be able to declare additional egress CIDRs or override the platform default allowlist (PLAT-220) for ranges provisioned from that scenario. Scenario-level entries shall compose with platform-level entries (additive by default; explicit override and replacement semantics shall be documented). The platform shall apply the effective allowlist (platform + scenario) at range provisioning time and shall make the effective set inspectable to operators before and after apply.
 
