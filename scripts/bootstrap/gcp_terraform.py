@@ -17,6 +17,7 @@ first operator's credentials never enter Terraform; the bootstrap script consume
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import time
 from collections.abc import Callable, Mapping
@@ -32,7 +33,11 @@ from bootstrap_core import (
 from gcp_inputs import DeploymentInputs, private_workdir, write_private_file
 from gcp_process import GcpCommandError, ProcessRunner
 
-SQL_INSTANCE_SUFFIX = "google_sql_database_instance.platform"
+# Resource types whose deletion behavior is a stored setting: the Cloud SQL
+# instance (deletion_protection), buckets (force_destroy), and databases
+# (deletion_policy).
+DESTROY_SETTING_TYPES = frozenset({"google_sql_database_instance", "google_storage_bucket", "google_sql_database"})
+_RESOURCE_ADDRESS_RE = re.compile(r"(?:^|\.)(?P<type>[a-z0-9_]+)\.[A-Za-z0-9_-]+(?:\[[^\]]*\])?$")
 # Terraform also reads TF_INPUT=0; each command that prompts carries the flag too.
 _NO_INPUT = "-input=false"
 KMS_KEY_SUFFIXES = ("google_kms_crypto_key.artifact_registry", "google_kms_key_ring.artifact_registry")
@@ -259,19 +264,31 @@ def terraform_outputs(runner: ProcessRunner, ctx: TerraformContext) -> dict[str,
     return outputs
 
 
-def lift_sql_deletion_protection(runner: ProcessRunner, ctx: TerraformContext) -> None:
-    """Apply the rendered ``cloud_sql_deletion_protection = false`` to the live instance."""
-    matches = [address for address in state_addresses(runner, ctx) if address.endswith(SQL_INSTANCE_SUFFIX)]
-    if not matches:
-        info("Cloud SQL instance not in state; skipping the deletion-protection lift")
+def _resource_type(address: str) -> str:
+    """Return the resource type of a state address, or an empty string."""
+    match = _RESOURCE_ADDRESS_RE.search(address)
+    return match.group("type") if match else ""
+
+
+def apply_destroy_settings(runner: ProcessRunner, ctx: TerraformContext) -> None:
+    """Apply the destroy-time deletion settings to the live resources before the destroy.
+
+    ``terraform destroy`` reads deletion_protection, force_destroy, and
+    deletion_policy from state, not from the destroy values. A targeted apply
+    stores them first (#2640).
+    """
+    targets = [address for address in state_addresses(runner, ctx) if _resource_type(address) in DESTROY_SETTING_TYPES]
+    if not targets:
+        info("No resource with a destroy-time deletion setting is in state")
         return
-    for address in matches:
-        info(f"Lifting Cloud SQL deletion protection on {address}")
-        runner.run(
-            ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), f"-target={address}"),
-            env=ctx.env,
-            capture=False,
-        )
+    info("Applying destroy-time deletion settings to: " + ", ".join(targets))
+    runner.run(
+        ctx.argv(
+            "apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), *[f"-target={address}" for address in targets]
+        ),
+        env=ctx.env,
+        capture=False,
+    )
 
 
 def artifact_registry_kms_adoption(

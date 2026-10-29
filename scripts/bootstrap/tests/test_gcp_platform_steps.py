@@ -22,11 +22,11 @@ from gcp_prereqs import (
 from gcp_process import ProcessResult
 from gcp_terraform import (
     TerraformStepError,
+    apply_destroy_settings,
     artifact_registry_kms_adoption,
     backend_prefix,
     deployment_values,
     drop_unremovable_kms_resources,
-    lift_sql_deletion_protection,
     owned_keys_in_values,
     state_bucket_name,
     terraform_apply,
@@ -151,15 +151,26 @@ class TestTerraformSteps:
         state = "\n".join(
             [
                 "module.platform_core.module.portal_cloud_sql.google_sql_database_instance.platform",
+                "module.platform_core.module.portal_cloud_sql.google_sql_database.guacamole",
+                "module.platform_core.module.portal_cloud_sql.google_sql_database.openfga[0]",
+                "module.platform_core.module.portal_cloud_sql.google_sql_user.guacamole",
+                "module.platform_core.module.portal_gcs.google_storage_bucket.assets",
+                "module.platform_core.module.portal_gcs.google_storage_bucket_iam_member.assets",
                 "module.platform_core.module.portal_artifact_registry.google_kms_key_ring.artifact_registry",
                 "module.platform_core.module.portal_artifact_registry.google_kms_crypto_key.artifact_registry",
             ]
         )
         runner = FakeRunner().on(["terraform", f"-chdir={ctx.root}", "state", "list"], ProcessResult(0, state))
-        lift_sql_deletion_protection(runner, ctx)
+        apply_destroy_settings(runner, ctx)
         drop_unremovable_kms_resources(runner, ctx)
         targeted = runner.find("terraform", f"-chdir={ctx.root}", "apply")[0].argv
-        assert targeted[-1].startswith("-target=") and targeted[-1].endswith("google_sql_database_instance.platform")
+        # The instance, the databases, and the bucket carry stored deletion settings (#2640).
+        assert [arg.rsplit(".", 2)[-2] for arg in targeted if arg.startswith("-target=")] == [
+            "google_sql_database_instance",
+            "google_sql_database",
+            "google_sql_database",
+            "google_storage_bucket",
+        ]
         removed = [call.argv[-1] for call in runner.find("terraform", f"-chdir={ctx.root}", "state", "rm")]
         assert [address.rsplit(".", 2)[-2] for address in removed] == ["google_kms_crypto_key", "google_kms_key_ring"]
         attempts = iter([ProcessResult(1), ProcessResult(0)])
@@ -171,7 +182,7 @@ class TestTerraformSteps:
         with pytest.raises(TerraformStepError):
             terraform_destroy(always, ctx, sleep=lambda _: None)
         empty = FakeRunner()
-        lift_sql_deletion_protection(empty, ctx)
+        apply_destroy_settings(empty, ctx)
         assert not empty.find("terraform", f"-chdir={ctx.root}", "apply")
 
     def test_reinstall_adopts_the_key_ring_that_a_destroy_left(self, inputs):

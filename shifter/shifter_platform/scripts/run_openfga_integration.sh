@@ -167,6 +167,7 @@ if [[ "${1:-}" == "--browser" ]]; then
   export DJANGO_DEBUG=true
   uv run --no-build --no-sync python manage.py migrate --noinput
   uv run --no-build --no-sync python manage.py seed_e2e
+  uv run --no-build --no-sync python manage.py seed_e2e_ctf
   cd frontend
   "$@"
 else

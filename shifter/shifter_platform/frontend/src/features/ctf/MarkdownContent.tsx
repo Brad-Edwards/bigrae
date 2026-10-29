@@ -14,6 +14,11 @@
  * Images resolve through the content image map (#2090): the enforced CSP admits
  * only portal-origin images, so an external image shows its first-party copy, or
  * a link to the original while no copy is ready.
+ *
+ * The closed `ctf-communication-markdown/v1` profile (ADR-051-R5) adds a
+ * stricter URL policy: same-origin paths, fragments, or HTTPS hosts from the
+ * server-projected allowlist. It drops media, and a neutralized link renders as
+ * plain text.
  */
 import type { ComponentProps } from "react";
 import ReactMarkdown, { defaultUrlTransform, type ExtraProps } from "react-markdown";
@@ -50,7 +55,18 @@ function ContentImage({ src, alt }: Readonly<ComponentProps<"img"> & ExtraProps>
   return <img src={resolved.src} alt={alt ?? ""} />;
 }
 
+/** A destination the communication policy neutralized stays readable text, not a link to the page. */
+function CommunicationLink({ href, title, children }: Readonly<ComponentProps<"a"> & ExtraProps>) {
+  if (!href) return <span>{children}</span>;
+  return (
+    <a href={href} title={title}>
+      {children}
+    </a>
+  );
+}
+
 const MARKDOWN_COMPONENTS = { img: ContentImage };
+const COMMUNICATION_COMPONENTS = { ...MARKDOWN_COMPONENTS, a: CommunicationLink };
 
 export function MarkdownContent({
   text,
@@ -76,7 +92,7 @@ export function MarkdownContent({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         urlTransform={urlTransform}
-        components={MARKDOWN_COMPONENTS}
+        components={communication ? COMMUNICATION_COMPONENTS : MARKDOWN_COMPONENTS}
         disallowedElements={communication ? [...(disallowedElements ?? []), "img", "video", "audio", "iframe", "object", "embed"] : disallowedElements}
         unwrapDisallowed
       >

@@ -40,6 +40,11 @@ urlpatterns = [
         communication_inbox.CommunicationAcknowledgeView.as_view(),
         name="api_communication_acknowledge",
     ),
+    path(
+        "me/events/<uuid:event_id>/communications/<uuid:snapshot_id>/dismiss/",
+        communication_inbox.CommunicationDismissView.as_view(),
+        name="api_communication_dismiss",
+    ),
     path("communications/", communication.CommunicationListView.as_view(), name="api_communications"),
     path(
         "communications/target-options/",
